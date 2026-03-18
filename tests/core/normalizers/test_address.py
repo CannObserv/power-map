@@ -32,11 +32,12 @@ def test_local_parses_address():
 
 
 def test_local_ambiguous_stores_raw_only():
-    """usaddress.RepeatedLabelError → store raw_input only with a warning."""
+    """usaddress.RepeatedLabelError → raw_input stored with warning, no crash."""
     n = LocalAddressNormalizer()
     with patch("usaddress.tag", side_effect=usaddress.RepeatedLabelError("123", {}, [])):
         r = n.normalize("123 Main 456 Oak St")
     assert r.value["raw_input"] == "123 Main 456 Oak St"
+    assert r.validation_detail == {"provider": "usaddress", "status": "not_attempted"}
     assert any("ambiguous" in w for w in r.warnings)
 
 

@@ -116,20 +116,20 @@ class ExternalAddressNormalizer:
         payload = {"address": raw, "country": "US"}
         headers = {"X-API-Key": self.config.api_key}
 
-        for attempt in range(self.config.max_retries + 1):
-            async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient() as client:
+            for attempt in range(self.config.max_retries + 1):
                 response = await client.post(url, json=payload, headers=headers)
-            if response.status_code == 429:
-                if attempt >= self.config.max_retries:
-                    raise RuntimeError(
-                        f"address-validator rate limit: exhausted {self.config.max_retries} retries"
-                    )
-                wait = float(response.headers.get("Retry-After", "1"))
-                await asyncio.sleep(wait)
-                continue
-            response.raise_for_status()
-            data = response.json()
-            return self._parse_response(raw, data)
+                if response.status_code == 429:
+                    if attempt >= self.config.max_retries:
+                        raise RuntimeError(
+                            f"address-validator rate limit: exhausted {self.config.max_retries} retries"
+                        )
+                    wait = float(response.headers.get("Retry-After", "1"))
+                    await asyncio.sleep(wait)
+                    continue
+                response.raise_for_status()
+                data = response.json()
+                return self._parse_response(raw, data)
 
         raise RuntimeError("address-validator: retry loop exited unexpectedly")
 
