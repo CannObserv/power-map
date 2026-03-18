@@ -13,6 +13,7 @@ Each test wraps its DML in a transaction that is rolled back on teardown,
 leaving the schema intact but the tables empty.
 """
 
+import json
 import os
 
 import asyncpg
@@ -381,11 +382,15 @@ async def test_updated_at_trigger_overrides_explicit_value(db):
 
 
 async def test_org_self_parent_rejected(db):
-    """Setting an org's parent_id to itself must violate the CHECK."""
+    """Setting an org's parent_id to itself must be rejected.
+
+    The BEFORE trigger fires before the CHECK constraint, so we get a
+    RaiseError (cycle detected) rather than a CheckViolationError.
+    """
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
 
-    with pytest.raises(asyncpg.CheckViolationError):
+    with pytest.raises(asyncpg.exceptions.RaiseError):
         async with db.transaction():
             await db.execute(
                 "UPDATE organizations SET parent_id = $1 WHERE id = $1",
@@ -653,3 +658,192 @@ async def test_social_link_valid_entity_types_accepted(db):
             platform_id,
             f"https://twitter.com/{entity_type}",
         )
+
+
+# ---------------------------------------------------------------------------
+# import_batches
+# ---------------------------------------------------------------------------
+
+
+async def test_import_batches_insert(db):
+    batch_id = generate_id()
+    await db.execute(
+        """INSERT INTO import_batches
+               (id, source_file, file_hash, row_count, loaded_count, error_count)
+           VALUES ($1, $2, $3, $4, $5, $6)""",
+        batch_id, "orgs.csv", "abc123", 10, 9, 1,
+    )
+    row = await db.fetchrow("SELECT * FROM import_batches WHERE id = $1", batch_id)
+    assert row["row_count"] == 10
+    assert row["error_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# import_provenance
+# ---------------------------------------------------------------------------
+
+async def test_import_provenance_insert(db):
+    batch_id = generate_id()
+    await db.execute(
+        """INSERT INTO import_batches
+               (id, source_file, file_hash, row_count, loaded_count, error_count)
+           VALUES ($1, $2, $3, $4, $5, $6)""",
+        batch_id, "orgs.csv", "abc123", 1, 1, 0,
+    )
+    prov_id = generate_id()
+    org_id = generate_id()
+    await db.execute(
+        """INSERT INTO import_provenance
+               (id, batch_id, source_row, entity_type, entity_id, action, raw_data)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+        prov_id, batch_id, 2, "organization", org_id, "created",
+        json.dumps({"Name": "Acme Corp"}),
+    )
+    row = await db.fetchrow("SELECT * FROM import_provenance WHERE id = $1", prov_id)
+    assert row["action"] == "created"
+    assert row["entity_type"] == "organization"
+
+
+async def test_import_provenance_invalid_action(db):
+    batch_id = generate_id()
+    await db.execute(
+        """INSERT INTO import_batches
+               (id, source_file, file_hash, row_count, loaded_count, error_count)
+           VALUES ($1, $2, $3, $4, $5, $6)""",
+        batch_id, "orgs.csv", "abc123", 1, 0, 1,
+    )
+    with pytest.raises(asyncpg.CheckViolationError):
+        async with db.transaction():
+            await db.execute(
+                """INSERT INTO import_provenance
+                       (id, batch_id, source_row, entity_type, entity_id, action, raw_data)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+                generate_id(), batch_id, 1, "organization", generate_id(), "bogus",
+                "{}",
+            )
+
+
+# ---------------------------------------------------------------------------
+# field_confidence
+# ---------------------------------------------------------------------------
+
+async def test_field_confidence_insert(db):
+    org_id = generate_id()
+    await db.execute(
+        "INSERT INTO organizations (id) VALUES ($1)", org_id
+    )
+    conf_id = generate_id()
+    await db.execute(
+        """INSERT INTO field_confidence
+               (id, entity_type, entity_id, field_name, value_hash,
+                source_reliability, validation_status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+        conf_id, "organization", org_id, "phone",
+        "abc123hash", 0.8, "unconfirmed",
+    )
+    row = await db.fetchrow("SELECT * FROM field_confidence WHERE id = $1", conf_id)
+    assert row["source_reliability"] == pytest.approx(0.8)
+    assert row["validation_status"] == "unconfirmed"
+
+
+async def test_field_confidence_source_reliability_bounds(db):
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    with pytest.raises(asyncpg.CheckViolationError):
+        async with db.transaction():
+            await db.execute(
+                """INSERT INTO field_confidence
+                       (id, entity_type, entity_id, field_name, value_hash,
+                        source_reliability, validation_status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+                generate_id(), "organization", org_id, "phone",
+                "abc123", 1.5, "unconfirmed",  # out of range
+            )
+
+
+async def test_field_confidence_append_only_by_convention(db):
+    """Two confidence rows for same entity+field is allowed (append-only history)."""
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    for _ in range(2):
+        await db.execute(
+            """INSERT INTO field_confidence
+                   (id, entity_type, entity_id, field_name, value_hash,
+                    source_reliability, validation_status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+            generate_id(), "organization", org_id, "phone",
+            "samehash", 0.8, "unconfirmed",
+        )
+    count = await db.fetchval(
+        "SELECT count(*) FROM field_confidence WHERE entity_id = $1", org_id
+    )
+    assert count == 2
+
+
+async def test_url_type_google_drive_seeded(db):
+    row = await db.fetchrow("SELECT * FROM url_types WHERE slug = 'google_drive'")
+    assert row is not None
+    assert row["display_name"] == "Google Drive"
+
+
+# ---------------------------------------------------------------------------
+# import_provenance: FK constraint
+# ---------------------------------------------------------------------------
+
+
+async def test_import_provenance_nonexistent_batch_id_rejected(db):
+    """Inserting import_provenance with a nonexistent batch_id must violate FK."""
+    with pytest.raises(asyncpg.ForeignKeyViolationError):
+        async with db.transaction():
+            await db.execute(
+                """INSERT INTO import_provenance
+                       (id, batch_id, source_row, entity_type, entity_id, action, raw_data)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+                generate_id(),
+                "00000000000000000000000000",  # non-existent batch_id
+                1, "organization", generate_id(), "created",
+                "{}",
+            )
+
+
+# ---------------------------------------------------------------------------
+# field_confidence: source_reliability lower bound
+# ---------------------------------------------------------------------------
+
+
+async def test_field_confidence_source_reliability_lower_bound(db):
+    """source_reliability below 0.0 must violate the CHECK."""
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    with pytest.raises(asyncpg.CheckViolationError):
+        async with db.transaction():
+            await db.execute(
+                """INSERT INTO field_confidence
+                       (id, entity_type, entity_id, field_name, value_hash,
+                        source_reliability, validation_status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+                generate_id(), "organization", org_id, "phone",
+                "abc123", -0.1, "unconfirmed",  # below 0.0
+            )
+
+
+# ---------------------------------------------------------------------------
+# field_confidence: invalid validation_status
+# ---------------------------------------------------------------------------
+
+
+async def test_field_confidence_invalid_validation_status_rejected(db):
+    """An unrecognized validation_status must violate the CHECK."""
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    with pytest.raises(asyncpg.CheckViolationError):
+        async with db.transaction():
+            await db.execute(
+                """INSERT INTO field_confidence
+                       (id, entity_type, entity_id, field_name, value_hash,
+                        source_reliability, validation_status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+                generate_id(), "organization", org_id, "phone",
+                # "bogus" not in ('confirmed', 'unconfirmed', 'failed', 'not_attempted')
+                "abc123", 0.8, "bogus",
+            )

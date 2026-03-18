@@ -28,3 +28,6 @@ gunicorn.ctl
 
 # Git worktrees
 .worktrees/
+
+# CSV import data
+data/cannabis_observer/

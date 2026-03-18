@@ -312,6 +312,11 @@ INSERT INTO url_types (id, slug, display_name) VALUES
     ('01KKZ3WGJSZF0F96SMYC000AVN', 'other',      'Other')
 ON CONFLICT (slug) DO NOTHING;
 
+-- google_drive added separately to avoid regenerating existing seed IDs
+INSERT INTO url_types (id, slug, display_name) VALUES
+    ('01KM0YSNEMMPY35FSS3CX49SFJ', 'google_drive', 'Google Drive')
+ON CONFLICT (slug) DO NOTHING;
+
 INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name) VALUES
     ('01KKZ3WGJSZF0F96SMYC000AVP', 'organization',    'org_ubi',       'UBI',    'Washington Unified Business Identifier'),
     ('01KKZ3WGJSZF0F96SMYC000AVQ', 'organization',    'org_wslcb',     'WSLCB',  'WA State Liquor and Cannabis Board License'),
@@ -320,3 +325,67 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     ('01KKZ3WGJSZF0F96SMYC000AVT', 'person',          'person_ssn',    'SSN',    'United States Social Security Number'),
     ('01KKZ3WGJSZF0F96SMYC000AVV', 'role_assignment', 'role_wa_pdc',   'WA PDC', 'Washington State Public Disclosure Commission')
 ON CONFLICT (slug) DO NOTHING;
+
+-- =============================================================================
+-- Ingestion Audit Tables
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS import_batches (
+    id           TEXT        PRIMARY KEY,
+    source_file  TEXT        NOT NULL,
+    file_hash    TEXT        NOT NULL,
+    imported_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    imported_by  TEXT,
+    row_count    INTEGER     NOT NULL CHECK (row_count >= 0),
+    loaded_count INTEGER     NOT NULL CHECK (loaded_count >= 0),
+    error_count  INTEGER     NOT NULL CHECK (error_count >= 0),
+    notes        TEXT
+);
+
+-- Idempotent: adds unique constraint on existing tables that predate this column.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'import_batches_file_hash_key'
+          AND conrelid = 'import_batches'::regclass
+    ) THEN
+        ALTER TABLE import_batches ADD CONSTRAINT import_batches_file_hash_key
+            UNIQUE (file_hash);
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS import_provenance (
+    id              TEXT        PRIMARY KEY,
+    batch_id        TEXT        NOT NULL REFERENCES import_batches(id),
+    source_row      INTEGER     NOT NULL,
+    entity_type     TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
+    entity_id       TEXT        NOT NULL,
+    action          TEXT        NOT NULL CHECK (action IN ('created','matched','skipped','error')),
+    error_detail    JSONB,
+    raw_data        JSONB       NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_provenance_batch
+    ON import_provenance(batch_id);
+
+CREATE INDEX IF NOT EXISTS idx_import_provenance_entity
+    ON import_provenance(entity_type, entity_id);
+
+-- Append-only: never UPDATE, always INSERT to preserve history.
+-- Latest assessment: ORDER BY assessed_at DESC LIMIT 1.
+CREATE TABLE IF NOT EXISTS field_confidence (
+    id                  TEXT        PRIMARY KEY,
+    entity_type         TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
+    entity_id           TEXT        NOT NULL,
+    field_name          TEXT        NOT NULL,
+    value_hash          TEXT        NOT NULL,
+    source_reliability  REAL        NOT NULL CHECK (source_reliability BETWEEN 0.0 AND 1.0),
+    validation_status   TEXT        NOT NULL CHECK (validation_status IN (
+                            'confirmed', 'unconfirmed', 'failed', 'not_attempted')),
+    validation_detail   JSONB,
+    assessed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    assessed_by         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_field_confidence_entity
+    ON field_confidence(entity_type, entity_id, field_name);
