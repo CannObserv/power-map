@@ -653,3 +653,132 @@ async def test_social_link_valid_entity_types_accepted(db):
             platform_id,
             f"https://twitter.com/{entity_type}",
         )
+
+
+# ---------------------------------------------------------------------------
+# import_batches
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_import_batches_insert(db):
+    batch_id = generate_id()
+    await db.execute(
+        """INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count, error_count)
+           VALUES ($1, $2, $3, $4, $5, $6)""",
+        batch_id, "orgs.csv", "abc123", 10, 9, 1,
+    )
+    row = await db.fetchrow("SELECT * FROM import_batches WHERE id = $1", batch_id)
+    assert row["row_count"] == 10
+    assert row["error_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# import_provenance
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+async def test_import_provenance_insert(db):
+    import json
+    batch_id = generate_id()
+    await db.execute(
+        """INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count, error_count)
+           VALUES ($1, $2, $3, $4, $5, $6)""",
+        batch_id, "orgs.csv", "abc123", 1, 1, 0,
+    )
+    prov_id = generate_id()
+    org_id = generate_id()
+    await db.execute(
+        """INSERT INTO import_provenance
+               (id, batch_id, source_row, entity_type, entity_id, action, raw_data)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+        prov_id, batch_id, 2, "organization", org_id, "created",
+        json.dumps({"Name": "Acme Corp"}),
+    )
+    row = await db.fetchrow("SELECT * FROM import_provenance WHERE id = $1", prov_id)
+    assert row["action"] == "created"
+    assert row["entity_type"] == "organization"
+
+
+@pytest.mark.integration
+async def test_import_provenance_invalid_action(db):
+    batch_id = generate_id()
+    await db.execute(
+        """INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count, error_count)
+           VALUES ($1, $2, $3, $4, $5, $6)""",
+        batch_id, "orgs.csv", "abc123", 1, 0, 1,
+    )
+    with pytest.raises(asyncpg.CheckViolationError):
+        await db.execute(
+            """INSERT INTO import_provenance
+                   (id, batch_id, source_row, entity_type, entity_id, action, raw_data)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+            generate_id(), batch_id, 1, "organization", generate_id(), "bogus",
+            "{}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# field_confidence
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+async def test_field_confidence_insert(db):
+    org_id = generate_id()
+    await db.execute(
+        "INSERT INTO organizations (id) VALUES ($1)", org_id
+    )
+    conf_id = generate_id()
+    await db.execute(
+        """INSERT INTO field_confidence
+               (id, entity_type, entity_id, field_name, value_hash,
+                source_reliability, validation_status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+        conf_id, "organization", org_id, "phone",
+        "abc123hash", 0.8, "unconfirmed",
+    )
+    row = await db.fetchrow("SELECT * FROM field_confidence WHERE id = $1", conf_id)
+    assert row["source_reliability"] == pytest.approx(0.8)
+    assert row["validation_status"] == "unconfirmed"
+
+
+@pytest.mark.integration
+async def test_field_confidence_source_reliability_bounds(db):
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    with pytest.raises(asyncpg.CheckViolationError):
+        await db.execute(
+            """INSERT INTO field_confidence
+                   (id, entity_type, entity_id, field_name, value_hash,
+                    source_reliability, validation_status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+            generate_id(), "organization", org_id, "phone",
+            "abc123", 1.5, "unconfirmed",  # out of range
+        )
+
+
+@pytest.mark.integration
+async def test_field_confidence_append_only_by_convention(db):
+    """Two confidence rows for same entity+field is allowed (append-only history)."""
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    for _ in range(2):
+        await db.execute(
+            """INSERT INTO field_confidence
+                   (id, entity_type, entity_id, field_name, value_hash,
+                    source_reliability, validation_status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+            generate_id(), "organization", org_id, "phone",
+            "samehash", 0.8, "unconfirmed",
+        )
+    count = await db.fetchval(
+        "SELECT count(*) FROM field_confidence WHERE entity_id = $1", org_id
+    )
+    assert count == 2
+
+
+@pytest.mark.integration
+async def test_url_type_google_drive_seeded(db):
+    row = await db.fetchrow("SELECT * FROM url_types WHERE slug = 'google_drive'")
+    assert row is not None
+    assert row["display_name"] == "Google Drive"
