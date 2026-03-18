@@ -43,6 +43,31 @@ uv run ruff check .
 uv run ruff check --fix .
 ```
 
+## Import
+
+```bash
+# Load env vars first
+export $(cat env | xargs)
+
+# Import Cannabis Observer CSV exports
+uv run python scripts/import_cannabis_observer.py \
+    --orgs   data/cannabis_observer/Organizations.csv \
+    --people data/cannabis_observer/People.csv \
+    --roles  data/cannabis_observer/Roles.csv
+
+# Also run address validation (requires ADDRESS_VALIDATOR_API_KEY)
+uv run python scripts/import_cannabis_observer.py \
+    --orgs   data/cannabis_observer/Organizations.csv \
+    --people data/cannabis_observer/People.csv \
+    --roles  data/cannabis_observer/Roles.csv \
+    --validate-addresses
+
+# Options
+#   --source-reliability FLOAT  Source reliability score (0.0–1.0, default: 0.8)
+#   --imported-by STRING        Importer label (default: cannabis-observer-csv-import)
+#   --validate-addresses        Also call /validate for deliverability confirmation
+```
+
 ## Git Submodules
 
 ```bash

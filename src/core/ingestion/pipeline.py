@@ -97,10 +97,10 @@ def _file_hash(path: Path) -> str:
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:
-    """Read a CSV file, stripping whitespace from all values."""
+    """Read a CSV file into a list of row dicts. Pydantic models handle stripping."""
     with path.open(newline="", encoding="utf-8-sig") as f:
         return [
-            {k: v.strip() for k, v in row.items() if k is not None and isinstance(v, str)}
+            {k: v for k, v in row.items() if k is not None}
             for row in csv.DictReader(f)
         ]
 
@@ -327,7 +327,6 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         result = await transform_person(
             result,
             source_reliability=config.source_reliability,
-            address_normalizer=addr_normalizer,
         )
         for w in result.warnings:
             logger.warning("person row %d warning: %s", i, w)

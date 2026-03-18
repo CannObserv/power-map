@@ -4,7 +4,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from src.core.db import generate_id
 from src.core.ingestion.base import ConfidenceRecord, FieldError, RowResult
-from src.core.normalizers.address import FallbackAddressNormalizer
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.identifier import IdentifierNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
@@ -14,7 +13,6 @@ _phone = PhoneNormalizer()
 _email = EmailNormalizer()
 _url = UrlNormalizer()
 _identifier = IdentifierNormalizer()
-_address = FallbackAddressNormalizer()
 
 
 class PersonRow(BaseModel):
@@ -99,7 +97,6 @@ def validate_person(raw: dict[str, str], source_row: int) -> RowResult:
 async def transform_person(
     result: RowResult,
     source_reliability: float,
-    address_normalizer: FallbackAddressNormalizer | None = None,
 ) -> RowResult:
     """Transform a validated person row into DB-ready dicts."""
     if not result.ok:
@@ -194,9 +191,6 @@ async def transform_person(
             identifiers.append({"identifier_type_slug": "person_wa_pdc", "value": r.value})
             _add_confidence("identifier:person_wa_pdc", r.value, r.confidence_hint)
 
-    # Address (no address field for people in this CSV, but keep consistent interface)
-    address: dict | None = None
-
     result.transformed = {
         "person_id": person_id,
         "personal_pronouns": validated.personal_pronouns,
@@ -206,7 +200,7 @@ async def transform_person(
         "urls": urls,
         "social_links": social_links,
         "identifiers": identifiers,
-        "address": address,
+        "address": None,
         "confidence_records": confidence_records,
     }
     result.warnings = warnings
