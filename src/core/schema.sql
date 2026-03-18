@@ -1,0 +1,321 @@
+-- Power Map — canonical DDL
+-- All PKs are ULIDs (TEXT). All timestamps are TIMESTAMPTZ.
+-- Requires PostgreSQL 14+ (CREATE OR REPLACE TRIGGER).
+-- Apply with: psql -f schema.sql
+
+-- =============================================================================
+-- Lookup / Reference Tables
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS platforms (
+    id           TEXT        PRIMARY KEY,
+    slug         TEXT        NOT NULL UNIQUE,    -- 'twitter', 'bluesky', 'linkedin', …
+    display_name TEXT        NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS url_types (
+    id           TEXT        PRIMARY KEY,
+    slug         TEXT        NOT NULL UNIQUE,    -- 'website', 'profile', 'wa_pdc', …
+    display_name TEXT        NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Each row is a (entity_type × identifier_type) pairing.
+-- slug is globally unique; 'org_wa_pdc' and 'person_wa_pdc' are distinct entries.
+-- Identifiers attach to role_assignments, not to role definitions — 'role' excluded.
+CREATE TABLE IF NOT EXISTS entity_identifier_types (
+    id           TEXT        PRIMARY KEY,
+    entity_type  TEXT        NOT NULL
+                             CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
+    slug         TEXT        NOT NULL UNIQUE,
+    display_name TEXT        NOT NULL,           -- short: "UBI", "SSN", "WA PDC"
+    full_name    TEXT        NOT NULL,           -- long:  "Washington Unified Business Identifier"
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- =============================================================================
+-- Addresses
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS addresses (
+    id             TEXT        PRIMARY KEY,
+    raw_input      TEXT,                         -- original string before standardization
+    standardized   TEXT,                         -- single-line form returned by API
+    address_line_1 TEXT,
+    address_line_2 TEXT,
+    city           TEXT,
+    region         TEXT,                         -- state / province
+    postal_code    TEXT,
+    country        TEXT        NOT NULL DEFAULT 'US',
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Polymorphic join: links any entity to one or more addresses with a typed relationship
+CREATE TABLE IF NOT EXISTS entity_addresses (
+    id           TEXT        PRIMARY KEY,
+    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person')),
+    entity_id    TEXT        NOT NULL,
+    address_id   TEXT        NOT NULL REFERENCES addresses(id),
+    address_type TEXT        NOT NULL CHECK (address_type IN ('mailing', 'physical', 'other')),
+    display_name TEXT,                           -- optional label, e.g. "Seattle Office"
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_entity_addresses_entity
+    ON entity_addresses(entity_type, entity_id);
+
+-- =============================================================================
+-- Core Entities
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS organizations (
+    id         TEXT        PRIMARY KEY,
+    active     BOOLEAN     NOT NULL DEFAULT TRUE,
+    parent_id  TEXT        REFERENCES organizations(id),
+    CONSTRAINT chk_no_self_parent CHECK (id <> parent_id),
+    notes      TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- One row per name/acronym variant; exactly one row per org has is_canonical = TRUE
+CREATE TABLE IF NOT EXISTS organization_names (
+    id              TEXT        PRIMARY KEY,
+    organization_id TEXT        NOT NULL REFERENCES organizations(id),
+    name            TEXT        NOT NULL,
+    acronym         TEXT,                        -- optional abbreviation for this name
+    is_canonical    BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_org_canonical_name
+    ON organization_names(organization_id)
+    WHERE is_canonical = TRUE;
+
+CREATE TABLE IF NOT EXISTS people (
+    id                TEXT        PRIMARY KEY,
+    personal_pronouns TEXT,
+    notes             TEXT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS person_names (
+    id           TEXT        PRIMARY KEY,
+    person_id    TEXT        NOT NULL REFERENCES people(id),
+    name         TEXT        NOT NULL,
+    name_type    TEXT        NOT NULL DEFAULT 'legal'
+                             CHECK (name_type IN ('legal', 'former', 'preferred', 'alias')),
+    is_canonical BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
+    ON person_names(person_id)
+    WHERE is_canonical = TRUE;
+
+-- Role = position definition at an organization (independent of who holds it or when)
+CREATE TABLE IF NOT EXISTS roles (
+    id              TEXT        PRIMARY KEY,
+    organization_id TEXT        NOT NULL REFERENCES organizations(id),
+    title           TEXT        NOT NULL,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Role assignment = person occupying a role during a time window
+CREATE TABLE IF NOT EXISTS role_assignments (
+    id         TEXT        PRIMARY KEY,
+    person_id  TEXT        NOT NULL REFERENCES people(id),
+    role_id    TEXT        NOT NULL REFERENCES roles(id),
+
+    is_current BOOLEAN     NOT NULL DEFAULT FALSE,
+    start_date DATE,                             -- nullable: unknown start is valid
+    end_date   DATE,                             -- nullable: NULL + is_current = ongoing
+
+    -- Cannot be current AND have an end date
+    CONSTRAINT chk_current_no_end_date CHECK (NOT is_current OR end_date IS NULL),
+
+    -- Email, phone → contact_methods; profile URL → urls (url_type = 'profile')
+
+    notes      TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Prevent a person from being listed as current in the same role twice
+CREATE UNIQUE INDEX IF NOT EXISTS uq_role_assignment_current
+    ON role_assignments(person_id, role_id)
+    WHERE is_current = TRUE;
+
+-- =============================================================================
+-- Polymorphic Tables
+-- =============================================================================
+
+-- Phone numbers and email addresses for any entity
+CREATE TABLE IF NOT EXISTS contact_methods (
+    id            TEXT        PRIMARY KEY,
+    entity_type   TEXT        NOT NULL
+                              CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
+    entity_id     TEXT        NOT NULL,
+    contact_type  TEXT        NOT NULL CHECK (contact_type IN ('email', 'phone')),
+    value         TEXT        NOT NULL,          -- E.164 for phone; validated addr for email
+    display_label TEXT,                          -- 'Work', 'Mobile', 'Direct', …
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_methods_entity
+    ON contact_methods(entity_type, entity_id);
+
+-- Web URLs for any entity; url_type_id references url_types (controlled vocabulary)
+CREATE TABLE IF NOT EXISTS urls (
+    id           TEXT        PRIMARY KEY,
+    entity_type  TEXT        NOT NULL
+                             CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment')),
+    entity_id    TEXT        NOT NULL,
+    url          TEXT        NOT NULL,
+    url_type_id  TEXT        NOT NULL REFERENCES url_types(id),
+    is_canonical BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_urls_entity ON urls(entity_type, entity_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_url_canonical
+    ON urls(entity_type, entity_id)
+    WHERE is_canonical = TRUE;
+
+CREATE TABLE IF NOT EXISTS social_links (
+    id          TEXT        PRIMARY KEY,
+    entity_type TEXT        NOT NULL
+                            CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
+    entity_id   TEXT        NOT NULL,
+    platform_id TEXT        NOT NULL REFERENCES platforms(id),
+    url         TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_social_links_entity
+    ON social_links(entity_type, entity_id);
+
+-- entity_type is encoded in entity_identifier_types; no need to duplicate here
+CREATE TABLE IF NOT EXISTS identifiers (
+    id                        TEXT        PRIMARY KEY,
+    entity_id                 TEXT        NOT NULL,
+    entity_identifier_type_id TEXT        NOT NULL REFERENCES entity_identifier_types(id),
+    value                     TEXT        NOT NULL,
+    created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_identifiers_entity
+    ON identifiers(entity_identifier_type_id, entity_id);
+
+-- =============================================================================
+-- Organization Hierarchy Cycle Prevention
+-- Fires BEFORE INSERT OR UPDATE; raises if setting parent_id would create
+-- an ancestor cycle (A → B → A, or longer chains).
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION chk_no_org_cycle()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.parent_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    IF EXISTS (
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_id
+              FROM organizations
+             WHERE id = NEW.parent_id
+            UNION ALL
+            SELECT o.id, o.parent_id
+              FROM organizations o
+              JOIN ancestors a ON o.id = a.parent_id
+        )
+        SELECT 1 FROM ancestors WHERE id = NEW.id
+    ) THEN
+        RAISE EXCEPTION
+            'org hierarchy cycle detected: % would become an ancestor of itself',
+            NEW.id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_no_org_cycle
+    BEFORE INSERT OR UPDATE ON organizations
+    FOR EACH ROW EXECUTE FUNCTION chk_no_org_cycle();
+
+-- =============================================================================
+-- updated_at Trigger
+-- Automatically sets updated_at = NOW() on every UPDATE, for all tables
+-- that carry an updated_at column.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_updated_at_addresses
+    BEFORE UPDATE ON addresses
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_updated_at_organizations
+    BEFORE UPDATE ON organizations
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_updated_at_people
+    BEFORE UPDATE ON people
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_updated_at_roles
+    BEFORE UPDATE ON roles
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_updated_at_role_assignments
+    BEFORE UPDATE ON role_assignments
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =============================================================================
+-- Seed Data
+-- =============================================================================
+
+INSERT INTO platforms (id, slug, display_name) VALUES
+    ('01KKZ3WGJRPV2TDZV672NWFE8G', 'twitter',   'Twitter / X'),
+    ('01KKZ3WGJRPV2TDZV672NWFE8H', 'bluesky',   'Bluesky'),
+    ('01KKZ3WGJSZF0F96SMYC000AVA', 'linkedin',  'LinkedIn'),
+    ('01KKZ3WGJSZF0F96SMYC000AVB', 'mastodon',  'Mastodon'),
+    ('01KKZ3WGJSZF0F96SMYC000AVC', 'instagram', 'Instagram'),
+    ('01KKZ3WGJSZF0F96SMYC000AVD', 'facebook',  'Facebook'),
+    ('01KKZ3WGJSZF0F96SMYC000AVE', 'youtube',   'YouTube'),
+    ('01KKZ3WGJSZF0F96SMYC000AVF', 'flickr',    'Flickr')
+ON CONFLICT (slug) DO NOTHING;
+
+INSERT INTO url_types (id, slug, display_name) VALUES
+    ('01KKZ3WGJSZF0F96SMYC000AVG', 'website',    'Official Website'),
+    ('01KKZ3WGJSZF0F96SMYC000AVH', 'profile',    'Profile'),
+    ('01KKZ3WGJSZF0F96SMYC000AVJ', 'wa_pdc',     'WA Public Disclosure Commission'),
+    ('01KKZ3WGJSZF0F96SMYC000AVK', 'sec_form_d', 'SEC Form D'),
+    ('01KKZ3WGJSZF0F96SMYC000AVM', 'wikipedia',  'Wikipedia'),
+    ('01KKZ3WGJSZF0F96SMYC000AVN', 'other',      'Other')
+ON CONFLICT (slug) DO NOTHING;
+
+INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name) VALUES
+    ('01KKZ3WGJSZF0F96SMYC000AVP', 'organization',    'org_ubi',       'UBI',    'Washington Unified Business Identifier'),
+    ('01KKZ3WGJSZF0F96SMYC000AVQ', 'organization',    'org_wslcb',     'WSLCB',  'WA State Liquor and Cannabis Board License'),
+    ('01KKZ3WGJSZF0F96SMYC000AVR', 'organization',    'org_wa_pdc',    'WA PDC', 'Washington State Public Disclosure Commission'),
+    ('01KKZ3WGJSZF0F96SMYC000AVS', 'person',          'person_wa_pdc', 'WA PDC', 'Washington State Public Disclosure Commission'),
+    ('01KKZ3WGJSZF0F96SMYC000AVT', 'person',          'person_ssn',    'SSN',    'United States Social Security Number'),
+    ('01KKZ3WGJSZF0F96SMYC000AVV', 'role_assignment', 'role_wa_pdc',   'WA PDC', 'Washington State Public Disclosure Commission')
+ON CONFLICT (slug) DO NOTHING;
