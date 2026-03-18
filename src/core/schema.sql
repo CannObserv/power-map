@@ -80,18 +80,19 @@ CREATE TABLE IF NOT EXISTS organizations (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- One row per name/acronym variant; exactly one row per org has is_canonical = TRUE
+-- One row per name variant; exactly one row per (org, name_type) may have is_canonical = TRUE
 CREATE TABLE IF NOT EXISTS organization_names (
     id              TEXT        PRIMARY KEY,
     organization_id TEXT        NOT NULL REFERENCES organizations(id),
     name            TEXT        NOT NULL,
-    acronym         TEXT,                        -- optional abbreviation for this name
+    name_type       TEXT        NOT NULL DEFAULT 'legal'
+                                CHECK (name_type IN ('legal', 'dba', 'former', 'acronym')),
     is_canonical    BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_org_canonical_name
-    ON organization_names(organization_id)
+    ON organization_names(organization_id, name_type)
     WHERE is_canonical = TRUE;
 
 CREATE TABLE IF NOT EXISTS people (
@@ -107,13 +108,13 @@ CREATE TABLE IF NOT EXISTS person_names (
     person_id    TEXT        NOT NULL REFERENCES people(id),
     name         TEXT        NOT NULL,
     name_type    TEXT        NOT NULL DEFAULT 'legal'
-                             CHECK (name_type IN ('legal', 'former', 'preferred', 'alias')),
+                             CHECK (name_type IN ('legal', 'former', 'preferred', 'alias', 'initials')),
     is_canonical BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
-    ON person_names(person_id)
+    ON person_names(person_id, name_type)
     WHERE is_canonical = TRUE;
 
 -- Role = position definition at an organization (independent of who holds it or when)

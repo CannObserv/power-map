@@ -185,18 +185,18 @@ async def test_role_assignment_duplicate_current_rejected(db):
 
 
 async def test_duplicate_canonical_org_name_rejected(db):
-    """Two is_canonical=TRUE names for the same org must be rejected."""
-    org_id = await _org(db)  # already inserts one canonical name
+    """Two is_canonical=TRUE legal names for the same org must be rejected."""
+    org_id = await _org(db)  # already inserts one canonical legal name
 
     with pytest.raises(asyncpg.UniqueViolationError):
         async with db.transaction():
             await db.execute(
                 "INSERT INTO organization_names"
-                " (id, organization_id, name, is_canonical)"
-                " VALUES ($1, $2, $3, TRUE)",
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, $3, 'legal', TRUE)",
                 generate_id(),
                 org_id,
-                "Duplicate Canonical Name",
+                "Duplicate Canonical Legal Name",
             )
 
 
@@ -212,6 +212,78 @@ async def test_multiple_noncanonical_org_names_accepted(db):
             generate_id(),
             org_id,
             alias,
+        )
+
+
+async def test_canonical_uniqueness_per_name_type(db):
+    """One canonical per (org, name_type): legal + acronym may each be canonical."""
+    org_id = await _org(db)  # inserts canonical legal name
+
+    # Canonical acronym alongside canonical legal should succeed
+    await db.execute(
+        "INSERT INTO organization_names"
+        " (id, organization_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, $3, 'acronym', TRUE)",
+        generate_id(),
+        org_id,
+        "ACME",
+    )
+
+
+async def test_duplicate_canonical_same_type_rejected(db):
+    """Two is_canonical=TRUE rows with the same (org, name_type) must be rejected."""
+    org_id = await _org(db)
+
+    await db.execute(
+        "INSERT INTO organization_names"
+        " (id, organization_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, $3, 'acronym', TRUE)",
+        generate_id(),
+        org_id,
+        "ACME",
+    )
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, $3, 'acronym', TRUE)",
+                generate_id(),
+                org_id,
+                "ACM",
+            )
+
+
+async def test_org_name_invalid_name_type_rejected(db):
+    """An unrecognized name_type value must violate the CHECK."""
+    org_id = await _org(db)
+
+    with pytest.raises(asyncpg.CheckViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type)"
+                " VALUES ($1, $2, $3, $4)",
+                generate_id(),
+                org_id,
+                "Bad Name",
+                "nickname",  # not in ('legal', 'dba', 'former', 'acronym')
+            )
+
+
+async def test_org_name_valid_name_types_accepted(db):
+    """All four valid name_type values must be accepted."""
+    org_id = await _org(db)
+
+    for name_type in ("legal", "dba", "former", "acronym"):
+        await db.execute(
+            "INSERT INTO organization_names"
+            " (id, organization_id, name, name_type)"
+            " VALUES ($1, $2, $3, $4)",
+            generate_id(),
+            org_id,
+            f"Name ({name_type})",
+            name_type,
         )
 
 
@@ -406,15 +478,15 @@ async def test_person_name_invalid_name_type_rejected(db):
                 generate_id(),
                 person_id,
                 "Bad Name",
-                "nickname",  # not in ('legal', 'former', 'preferred', 'alias')
+                "nickname",  # not in ('legal', 'former', 'preferred', 'alias', 'initials')
             )
 
 
 async def test_person_name_valid_name_types_accepted(db):
-    """All four valid name_type values must be accepted."""
+    """All five valid name_type values must be accepted."""
     person_id = await _person(db)
 
-    for name_type in ("legal", "former", "preferred", "alias"):
+    for name_type in ("legal", "former", "preferred", "alias", "initials"):
         await db.execute(
             "INSERT INTO person_names (id, person_id, name, name_type)"
             " VALUES ($1, $2, $3, $4)",
@@ -423,6 +495,61 @@ async def test_person_name_valid_name_types_accepted(db):
             f"Name ({name_type})",
             name_type,
         )
+
+
+async def test_duplicate_canonical_person_name_rejected(db):
+    """Two is_canonical=TRUE legal names for the same person must be rejected."""
+    person_id = await _person(db)  # already inserts one canonical legal name
+
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO person_names"
+                " (id, person_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, $3, 'legal', TRUE)",
+                generate_id(),
+                person_id,
+                "Duplicate Canonical Legal Name",
+            )
+
+
+async def test_canonical_person_name_uniqueness_per_name_type(db):
+    """One canonical per (person, name_type): legal + initials may each be canonical."""
+    person_id = await _person(db)  # inserts canonical legal name
+
+    # Canonical initials alongside canonical legal should succeed
+    await db.execute(
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, $3, 'initials', TRUE)",
+        generate_id(),
+        person_id,
+        "A.B.C.",
+    )
+
+
+async def test_duplicate_canonical_person_name_same_type_rejected(db):
+    """Two is_canonical=TRUE rows with the same (person, name_type) must be rejected."""
+    person_id = await _person(db)
+
+    await db.execute(
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, $3, 'initials', TRUE)",
+        generate_id(),
+        person_id,
+        "A.B.C.",
+    )
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO person_names"
+                " (id, person_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, $3, 'initials', TRUE)",
+                generate_id(),
+                person_id,
+                "X.Y.Z.",
+            )
 
 
 # ---------------------------------------------------------------------------
