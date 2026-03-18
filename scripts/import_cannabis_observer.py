@@ -7,9 +7,13 @@ Usage:
         --people data/cannabis_observer/People.csv \\
         --roles  data/cannabis_observer/Roles.csv
 
-Environment variables required:
-    DATABASE_URL — PostgreSQL DSN (written by scripts/setup-db.sh)
-    ADDRESS_VALIDATOR_API_KEY — optional; only needed if --validate-addresses is set
+Environment variables:
+    DATABASE_URL             — PostgreSQL DSN (written by scripts/setup-db.sh)
+    ADDRESS_VALIDATOR_API_KEY — Required for external address standardization.
+                                Loaded from /etc/power-map/env in production.
+                                Without it, addresses are parsed locally only.
+    VALIDATE_ADDRESSES       — Set to '1'/'true'/'yes' to enable /validate
+                                endpoint (equivalent to --validate-addresses).
 """
 
 import argparse
@@ -33,12 +37,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--orgs",   type=Path, required=True, help="Path to Organizations.csv")
     parser.add_argument("--people", type=Path, required=True, help="Path to People.csv")
     parser.add_argument("--roles",  type=Path, required=True, help="Path to Roles.csv")
-    parser.add_argument("--source-reliability", type=float, default=0.8,
-                        help="Source reliability score (0.0–1.0). Default: 0.8")
+    parser.add_argument(
+        "--source-reliability", type=float, default=0.8,
+        help="Source reliability score (0.0–1.0). Default: 0.8",
+    )
     parser.add_argument(
         "--validate-addresses",
         action="store_true",
-        help="Call /validate endpoint (rate-limited). Requires ADDRESS_VALIDATOR_API_KEY.",
+        help=(
+            "Also call /validate endpoint for deliverability confirmation "
+            "(rate-limited). Addresses are always standardized via "
+            "ADDRESS_VALIDATOR_API_KEY when the key is set."
+        ),
     )
     parser.add_argument("--imported-by", default="cannabis-observer-csv-import")
     return parser.parse_args()
@@ -51,6 +61,9 @@ async def main() -> None:
     for path in (args.orgs, args.people, args.roles):
         if not path.exists():
             raise SystemExit(f"File not found: {path}")
+
+    if not 0.0 <= args.source_reliability <= 1.0:
+        raise SystemExit("--source-reliability must be between 0.0 and 1.0")
 
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
@@ -65,6 +78,7 @@ async def main() -> None:
             roles_csv=args.roles,
             imported_by=args.imported_by,
             source_reliability=args.source_reliability,
+            validate_addresses=args.validate_addresses,
         )
         summary = await run_import(conn, config)
         logger.info("import summary: %s", summary)

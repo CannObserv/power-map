@@ -28,6 +28,7 @@ def test_local_parses_address():
     assert r.skipped is False
     assert r.value is not None
     assert r.value["raw_input"] == "123 Main St, Seattle WA 98101"
+    assert r.confidence_hint == "not_attempted"
     assert r.validation_detail == {"provider": "usaddress", "status": "not_attempted"}
 
 
@@ -37,6 +38,7 @@ def test_local_ambiguous_stores_raw_only():
     with patch("usaddress.tag", side_effect=usaddress.RepeatedLabelError("123", {}, [])):
         r = n.normalize("123 Main 456 Oak St")
     assert r.value["raw_input"] == "123 Main 456 Oak St"
+    assert r.confidence_hint == "not_attempted"
     assert r.validation_detail == {"provider": "usaddress", "status": "not_attempted"}
     assert any("ambiguous" in w for w in r.warnings)
 

@@ -3,6 +3,7 @@
 import csv
 import hashlib
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,20 +17,35 @@ from src.core.ingestion.sources.csv_org import transform_org, validate_org
 from src.core.ingestion.sources.csv_person import transform_person, validate_person
 from src.core.ingestion.sources.csv_role import transform_role, validate_role
 from src.core.logging import get_logger
+from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddressNormalizer
 
 logger = get_logger(__name__)
 
 
 @dataclass
 class ImportConfig:
-    """Configuration for a single import run."""
+    """Configuration for a single import run.
+
+    Address normalization:
+        Addresses are always standardized via the external address-validator
+        service when ADDRESS_VALIDATOR_API_KEY is set in the environment.
+        Set validate_addresses=True (or VALIDATE_ADDRESSES=true env var) to
+        also run the /validate endpoint for deliverability confirmation.
+    """
 
     orgs_csv: Path
     people_csv: Path
     roles_csv: Path
     imported_by: str = "import"
     source_reliability: float = 0.8
+    validate_addresses: bool = False
     notes: str | None = None
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.source_reliability <= 1.0:
+            raise ValueError(
+                f"source_reliability must be between 0.0 and 1.0, got {self.source_reliability}"
+            )
 
 
 @dataclass
@@ -51,6 +67,26 @@ async def _load_reference_data(conn: asyncpg.Connection) -> ReferenceData:
     for row in await conn.fetch("SELECT id, slug FROM entity_identifier_types"):
         ref.identifier_type_ids[row["slug"]] = row["id"]
     return ref
+
+
+def _build_address_normalizer(validate_addresses: bool) -> FallbackAddressNormalizer:
+    """Build address normalizer from environment.
+
+    Reads ADDRESS_VALIDATOR_API_KEY and VALIDATE_ADDRESSES from the environment.
+    Always calls /standardize; calls /validate instead when validate_addresses
+    is True or VALIDATE_ADDRESSES env var is set to a truthy value.
+    Falls back to local usaddress parsing if the API key is absent.
+    """
+    api_key = os.environ.get("ADDRESS_VALIDATOR_API_KEY")
+    if not api_key:
+        logger.warning("ADDRESS_VALIDATOR_API_KEY not set; using local address parser")
+        return FallbackAddressNormalizer()
+    run_validation = validate_addresses or os.environ.get("VALIDATE_ADDRESSES", "").lower() in (
+        "1", "true", "yes",
+    )
+    return FallbackAddressNormalizer(
+        config=AddressNormalizerConfig(api_key=api_key, run_validation=run_validation)
+    )
 
 
 def _file_hash(path: Path) -> str:
@@ -112,6 +148,7 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
     """Run the full multi-pass import. Returns a summary dict."""
     start = time.monotonic()
     ref = await _load_reference_data(conn)
+    addr_normalizer = _build_address_normalizer(config.validate_addresses)
 
     combined_hash = hashlib.sha256(
         (
@@ -121,35 +158,33 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         ).encode()
     ).hexdigest()
 
-    # Check for existing batch with same file hashes (idempotency)
-    existing = await conn.fetchrow(
-        "SELECT id FROM import_batches WHERE file_hash = $1", combined_hash
-    )
-    batch_id = existing["id"] if existing else generate_id()
-    is_rerun = existing is not None
-
     org_rows = _read_csv(config.orgs_csv)
     person_rows = _read_csv(config.people_csv)
     role_rows = _read_csv(config.roles_csv)
 
     total_rows = len(org_rows) + len(person_rows) + len(role_rows)
 
-    # Write import_batches early so provenance FK is satisfied; update counts at end.
-    if not is_rerun:
-        await conn.execute(
-            """INSERT INTO import_batches
-                   (id, source_file, file_hash, imported_by,
-                    row_count, loaded_count, error_count, notes)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
-            batch_id,
-            f"{config.orgs_csv.name},{config.people_csv.name},{config.roles_csv.name}",
-            combined_hash,
-            config.imported_by,
-            total_rows,
-            0,
-            0,
-            config.notes,
-        )
+    # Insert import_batches (idempotent: ON CONFLICT keeps the existing row).
+    # Provenance rows reference batch_id via FK, so this must happen before
+    # any entity processing. Counts are updated at the end of the run, but
+    # only when loaded_count is 0 (i.e., first successful run).
+    new_id = generate_id()
+    batch_id: str = await conn.fetchval(
+        """INSERT INTO import_batches
+               (id, source_file, file_hash, imported_by,
+                row_count, loaded_count, error_count, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (file_hash) DO UPDATE SET id = import_batches.id
+           RETURNING id""",
+        new_id,
+        f"{config.orgs_csv.name},{config.people_csv.name},{config.roles_csv.name}",
+        combined_hash,
+        config.imported_by,
+        total_rows,
+        0,
+        0,
+        config.notes,
+    )
 
     summary: dict[str, Any] = {
         "batch_id": batch_id,
@@ -171,9 +206,15 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
             summary["orgs_error"] += 1
             for e in result.errors:
                 logger.warning("org row %d field error: %s = %s", i, e.field, e.message)
+            await _write_provenance(
+                conn, batch_id, i, "organization", generate_id(), "error", raw, result.errors
+            )
             continue
-        result = await transform_org(result, org_index=org_index,
-                                     source_reliability=config.source_reliability)
+        result = await transform_org(
+            result, org_index=org_index,
+            source_reliability=config.source_reliability,
+            address_normalizer=addr_normalizer,
+        )
         for w in result.warnings:
             logger.warning("org row %d warning: %s", i, w)
 
@@ -279,8 +320,15 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
             summary["people_error"] += 1
             for e in result.errors:
                 logger.warning("person row %d field error: %s = %s", i, e.field, e.message)
+            await _write_provenance(
+                conn, batch_id, i, "person", generate_id(), "error", raw, result.errors
+            )
             continue
-        result = await transform_person(result, source_reliability=config.source_reliability)
+        result = await transform_person(
+            result,
+            source_reliability=config.source_reliability,
+            address_normalizer=addr_normalizer,
+        )
         for w in result.warnings:
             logger.warning("person row %d warning: %s", i, w)
 
@@ -383,6 +431,11 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         result = validate_role(raw, source_row=i)
         if not result.ok:
             summary["roles_error"] += 1
+            for e in result.errors:
+                logger.warning("role row %d field error: %s = %s", i, e.field, e.message)
+            await _write_provenance(
+                conn, batch_id, i, "role_assignment", generate_id(), "error", raw, result.errors
+            )
             continue
         result = transform_role(result, org_index=org_index, person_index=person_index,
                                 role_index=role_index, source_reliability=config.source_reliability)
@@ -478,13 +531,15 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
     matched = summary["orgs_matched"] + summary["people_matched"] + summary["roles_matched"]
     errors = summary["orgs_error"] + summary["people_error"] + summary["roles_error"]
 
-    if not is_rerun:
-        await conn.execute(
-            "UPDATE import_batches SET loaded_count = $1, error_count = $2 WHERE id = $3",
-            loaded + matched,
-            errors,
-            batch_id,
-        )
+    # Only update counts on first run (loaded_count = 0 means fresh batch).
+    await conn.execute(
+        """UPDATE import_batches
+           SET loaded_count = $1, error_count = $2
+           WHERE id = $3 AND loaded_count = 0""",
+        loaded + matched,
+        errors,
+        batch_id,
+    )
 
     elapsed = time.monotonic() - start
     logger.info(

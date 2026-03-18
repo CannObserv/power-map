@@ -19,19 +19,30 @@ Python ≥3.12, uv, pytest, ruff
 ```
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
 src/core/       — Shared domain logic
-  db.py         — Connection pool, apply_schema, generate_id, normalize_phone, validate_email
+  db.py         — Connection pool, apply_schema, generate_id
   schema.sql    — Canonical DDL (tables, indexes, triggers, seed data); source of truth
+  normalizers/  — Field normalizers: phone, email, url, identifier, address
+  ingestion/    — EVTL pipeline: base types, CSV sources (org/person/role), pipeline coordinator
 tests/          — Mirrors src/ structure
 docs/           — Reference docs (API, COMMANDS, SKILLS)
+scripts/        — One-off operational scripts (import_cannabis_observer.py)
 ```
 
 ### DB conventions
 - All PKs are ULIDs; generate with `generate_id()` from `src.core.db`
 - `apply_schema(conn)` is idempotent (`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`); wraps in a transaction
 - `updated_at` is maintained automatically by DB triggers — never set it manually in application code
-- Phone: normalize to E.164 via `normalize_phone()` before storing; stored in `contact_methods` table
-- Email: validate via `validate_email()` before storing; stored in `contact_methods` table
+- Phone: normalize to E.164 via `PhoneNormalizer` from `src.core.normalizers.phone`
+- Email: validate via `EmailNormalizer` from `src.core.normalizers.email`
 - Integration tests (marked `integration`) require `DATABASE_URL` env var pointing to a dedicated test DB
+
+### Ingestion conventions
+- EVTL pattern: Extract (CSV read) → Validate (Pydantic) → Transform (normalize fields) → Load (DB insert)
+- `RowResult` envelope: `errors` = fatal (entity skipped), `warnings` = non-fatal (field skipped)
+- `field_confidence` is append-only; query latest assessment with `ORDER BY assessed_at DESC LIMIT 1`
+- `import_batches.file_hash` is unique; re-running with the same files reuses the existing batch
+- Address standardization uses the external address-validator service when `ADDRESS_VALIDATOR_API_KEY` is set; falls back to local `usaddress` parsing otherwise
+- `VALIDATE_ADDRESSES=true` (or `--validate-addresses` CLI flag) enables the `/validate` endpoint
 
 ## Services
 
@@ -58,6 +69,10 @@ export $(cat env | xargs)
 
 Currently defined:
 - `GH_TOKEN` — GitHub personal access token (used by `gh` CLI)
+- `DATABASE_URL` — PostgreSQL DSN
+
+Production secrets (from `/etc/power-map/env`):
+- `ADDRESS_VALIDATOR_API_KEY` — required for external address standardization
 
 ## Common Commands
 

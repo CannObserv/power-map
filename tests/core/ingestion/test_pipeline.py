@@ -93,3 +93,29 @@ async def test_run_import_idempotent(db):
         "SELECT count(*) FROM import_provenance WHERE action = 'matched'"
     )
     assert matched >= 1
+
+
+@pytest.mark.integration
+async def test_run_import_bad_phone_no_contact_method(db):
+    """Rows with an invalid phone produce a warning but the entity still loads.
+
+    roles_sample.csv contains 'Bob Jones, COO' with phone='bad-phone'.
+    The role_assignment must be created, and no phone contact_method written.
+    """
+    config = ImportConfig(
+        orgs_csv=ORGS_FIXTURE,
+        people_csv=PEOPLE_FIXTURE,
+        roles_csv=ROLES_FIXTURE,
+        imported_by="test",
+        source_reliability=0.8,
+    )
+    summary = await run_import(db, config)
+    # Bob's COO role must have loaded despite the bad phone
+    assert summary["roles_loaded"] >= 1
+    # No phone contact_method should exist for any role_assignment
+    phone_count = await db.fetchval(
+        "SELECT count(*) FROM contact_methods"
+        " WHERE entity_type = 'role_assignment' AND contact_type = 'phone'"
+        " AND value = 'bad-phone'"
+    )
+    assert phone_count == 0

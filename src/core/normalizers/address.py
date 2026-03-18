@@ -53,7 +53,7 @@ class LocalAddressNormalizer:
             tagged, _ = usaddress.tag(raw)
             result.update({
                 "address_line_1": _build_line1(tagged),
-                "address_line_2": tagged.get("OccupancyType") and _build_line2(tagged),
+                "address_line_2": _build_line2(tagged) if tagged.get("OccupancyType") else None,
                 "city": tagged.get("PlaceName"),
                 "region": tagged.get("StateName"),
                 "postal_code": tagged.get("ZipCode"),
@@ -63,11 +63,13 @@ class LocalAddressNormalizer:
         except usaddress.RepeatedLabelError:
             return NormalizationResult(
                 value=result,
+                confidence_hint="not_attempted",
                 warnings=["address parse ambiguous; stored raw_input only"],
                 validation_detail={"provider": "usaddress", "status": "not_attempted"},
             )
         return NormalizationResult(
             value=result,
+            confidence_hint="not_attempted",
             validation_detail={"provider": "usaddress", "status": "not_attempted"},
         )
 

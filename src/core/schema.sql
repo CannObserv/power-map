@@ -342,6 +342,18 @@ CREATE TABLE IF NOT EXISTS import_batches (
     notes        TEXT
 );
 
+-- Idempotent: adds unique constraint on existing tables that predate this column.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'import_batches_file_hash_key'
+          AND conrelid = 'import_batches'::regclass
+    ) THEN
+        ALTER TABLE import_batches ADD CONSTRAINT import_batches_file_hash_key
+            UNIQUE (file_hash);
+    END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS import_provenance (
     id              TEXT        PRIMARY KEY,
     batch_id        TEXT        NOT NULL REFERENCES import_batches(id),

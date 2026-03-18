@@ -382,11 +382,15 @@ async def test_updated_at_trigger_overrides_explicit_value(db):
 
 
 async def test_org_self_parent_rejected(db):
-    """Setting an org's parent_id to itself must violate the CHECK."""
+    """Setting an org's parent_id to itself must be rejected.
+
+    The BEFORE trigger fires before the CHECK constraint, so we get a
+    RaiseError (cycle detected) rather than a CheckViolationError.
+    """
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
 
-    with pytest.raises(asyncpg.CheckViolationError):
+    with pytest.raises(asyncpg.exceptions.RaiseError):
         async with db.transaction():
             await db.execute(
                 "UPDATE organizations SET parent_id = $1 WHERE id = $1",
