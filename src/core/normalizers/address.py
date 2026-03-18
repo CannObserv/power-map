@@ -122,7 +122,8 @@ class ExternalAddressNormalizer:
                 if response.status_code == 429:
                     if attempt >= self.config.max_retries:
                         raise RuntimeError(
-                            f"address-validator rate limit: exhausted {self.config.max_retries} retries"
+                            "address-validator rate limit: exhausted "
+                            f"{self.config.max_retries} retries"
                         )
                     wait = float(response.headers.get("Retry-After", "1"))
                     await asyncio.sleep(wait)

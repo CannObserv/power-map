@@ -86,7 +86,8 @@ async def _write_provenance(
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
         generate_id(), batch_id, source_row, entity_type, entity_id,
         action,
-        json.dumps([{"field": e.field, "message": e.message} for e in errors]) if errors else None,
+        json.dumps([{"field": e.field, "message": e.message} for e in errors])
+        if errors else None,
         json.dumps(raw),
     )
 
@@ -137,7 +138,8 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
     if not is_rerun:
         await conn.execute(
             """INSERT INTO import_batches
-                   (id, source_file, file_hash, imported_by, row_count, loaded_count, error_count, notes)
+                   (id, source_file, file_hash, imported_by,
+                    row_count, loaded_count, error_count, notes)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
             batch_id,
             f"{config.orgs_csv.name},{config.people_csv.name},{config.roles_csv.name}",
@@ -187,7 +189,9 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         )
         if existing_org:
             org_index[name_lower] = existing_org["id"]
-            await _write_provenance(conn, batch_id, i, "organization", existing_org["id"], "matched", raw)
+            await _write_provenance(
+                conn, batch_id, i, "organization", existing_org["id"], "matched", raw
+            )
             summary["orgs_matched"] += 1
             continue
 
@@ -198,33 +202,44 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
             )
             for n in t["names"]:
                 await conn.execute(
-                    "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical) VALUES ($1, $2, $3, $4, $5)",
+                    "INSERT INTO organization_names"
+                    " (id, organization_id, name, name_type, is_canonical)"
+                    " VALUES ($1, $2, $3, $4, $5)",
                     generate_id(), t["org_id"], n["name"], n["name_type"], n["is_canonical"],
                 )
             for cm in t["contact_methods"]:
                 await conn.execute(
-                    "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value) VALUES ($1, $2, $3, $4, $5)",
+                    "INSERT INTO contact_methods"
+                    " (id, entity_type, entity_id, contact_type, value)"
+                    " VALUES ($1, $2, $3, $4, $5)",
                     generate_id(), "organization", t["org_id"], cm["contact_type"], cm["value"],
                 )
             for u in t["urls"]:
                 url_type_id = ref.url_type_ids.get(u["url_type_slug"])
                 if url_type_id:
                     await conn.execute(
-                        "INSERT INTO urls (id, entity_type, entity_id, url, url_type_id, is_canonical) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
-                        generate_id(), "organization", t["org_id"], u["url"], url_type_id, u["is_canonical"],
+                        "INSERT INTO urls"
+                        " (id, entity_type, entity_id, url, url_type_id, is_canonical)"
+                        " VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+                        generate_id(), "organization", t["org_id"],
+                        u["url"], url_type_id, u["is_canonical"],
                     )
             for sl in t["social_links"]:
                 platform_id = ref.platform_ids.get(sl["platform_slug"])
                 if platform_id:
                     await conn.execute(
-                        "INSERT INTO social_links (id, entity_type, entity_id, platform_id, url) VALUES ($1, $2, $3, $4, $5)",
+                        "INSERT INTO social_links"
+                        " (id, entity_type, entity_id, platform_id, url)"
+                        " VALUES ($1, $2, $3, $4, $5)",
                         generate_id(), "organization", t["org_id"], platform_id, sl["url"],
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
                 if type_id:
                     await conn.execute(
-                        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value) VALUES ($1, $2, $3, $4)",
+                        "INSERT INTO identifiers"
+                        " (id, entity_id, entity_identifier_type_id, value)"
+                        " VALUES ($1, $2, $3, $4)",
                         generate_id(), t["org_id"], type_id, ident["value"],
                     )
             if t["address"]:
@@ -240,13 +255,17 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     a.get("country", "US"),
                 )
                 await conn.execute(
-                    "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type) VALUES ($1, $2, $3, $4, $5)",
+                    "INSERT INTO entity_addresses"
+                    " (id, entity_type, entity_id, address_id, address_type)"
+                    " VALUES ($1, $2, $3, $4, $5)",
                     generate_id(), "organization", t["org_id"], addr_id, "mailing",
                 )
             for rec in t["confidence_records"]:
                 rec.assessed_by = f"import:{batch_id}"
             await _write_confidence(conn, t["confidence_records"])
-            await _write_provenance(conn, batch_id, i, "organization", t["org_id"], "created", raw)
+            await _write_provenance(
+                conn, batch_id, i, "organization", t["org_id"], "created", raw
+            )
 
         org_index[name_lower] = t["org_id"]
         summary["orgs_loaded"] += 1
@@ -276,7 +295,9 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         )
         if existing_person:
             person_index[name_lower] = existing_person["id"]
-            await _write_provenance(conn, batch_id, i, "person", existing_person["id"], "matched", raw)
+            await _write_provenance(
+                conn, batch_id, i, "person", existing_person["id"], "matched", raw
+            )
             summary["people_matched"] += 1
             continue
 
@@ -287,33 +308,44 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
             )
             for n in t["names"]:
                 await conn.execute(
-                    "INSERT INTO person_names (id, person_id, name, name_type, is_canonical) VALUES ($1, $2, $3, $4, $5)",
+                    "INSERT INTO person_names"
+                    " (id, person_id, name, name_type, is_canonical)"
+                    " VALUES ($1, $2, $3, $4, $5)",
                     generate_id(), t["person_id"], n["name"], n["name_type"], n["is_canonical"],
                 )
             for cm in t["contact_methods"]:
                 await conn.execute(
-                    "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value) VALUES ($1, $2, $3, $4, $5)",
+                    "INSERT INTO contact_methods"
+                    " (id, entity_type, entity_id, contact_type, value)"
+                    " VALUES ($1, $2, $3, $4, $5)",
                     generate_id(), "person", t["person_id"], cm["contact_type"], cm["value"],
                 )
             for u in t["urls"]:
                 url_type_id = ref.url_type_ids.get(u["url_type_slug"])
                 if url_type_id:
                     await conn.execute(
-                        "INSERT INTO urls (id, entity_type, entity_id, url, url_type_id, is_canonical) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
-                        generate_id(), "person", t["person_id"], u["url"], url_type_id, u["is_canonical"],
+                        "INSERT INTO urls"
+                        " (id, entity_type, entity_id, url, url_type_id, is_canonical)"
+                        " VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+                        generate_id(), "person", t["person_id"],
+                        u["url"], url_type_id, u["is_canonical"],
                     )
             for sl in t["social_links"]:
                 platform_id = ref.platform_ids.get(sl["platform_slug"])
                 if platform_id:
                     await conn.execute(
-                        "INSERT INTO social_links (id, entity_type, entity_id, platform_id, url) VALUES ($1, $2, $3, $4, $5)",
+                        "INSERT INTO social_links"
+                        " (id, entity_type, entity_id, platform_id, url)"
+                        " VALUES ($1, $2, $3, $4, $5)",
                         generate_id(), "person", t["person_id"], platform_id, sl["url"],
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
                 if type_id:
                     await conn.execute(
-                        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value) VALUES ($1, $2, $3, $4)",
+                        "INSERT INTO identifiers"
+                        " (id, entity_id, entity_identifier_type_id, value)"
+                        " VALUES ($1, $2, $3, $4)",
                         generate_id(), t["person_id"], type_id, ident["value"],
                     )
             if t.get("address"):
@@ -329,13 +361,17 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     a.get("country", "US"),
                 )
                 await conn.execute(
-                    "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type) VALUES ($1, $2, $3, $4, $5)",
+                    "INSERT INTO entity_addresses"
+                    " (id, entity_type, entity_id, address_id, address_type)"
+                    " VALUES ($1, $2, $3, $4, $5)",
                     generate_id(), "person", t["person_id"], addr_id, "mailing",
                 )
             for rec in t["confidence_records"]:
                 rec.assessed_by = f"import:{batch_id}"
             await _write_confidence(conn, t["confidence_records"])
-            await _write_provenance(conn, batch_id, i, "person", t["person_id"], "created", raw)
+            await _write_provenance(
+                conn, batch_id, i, "person", t["person_id"], "created", raw
+            )
 
         person_index[name_lower] = t["person_id"]
         summary["people_loaded"] += 1
@@ -354,8 +390,9 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
             summary["roles_error"] += 1
             for e in result.errors:
                 logger.warning("role row %d error: %s", i, e.message)
-            await _write_provenance(conn, batch_id, i, "role_assignment",
-                                    generate_id(), "error", raw, result.errors)
+            await _write_provenance(
+                conn, batch_id, i, "role_assignment", generate_id(), "error", raw, result.errors
+            )
             continue
         for w in result.warnings:
             logger.warning("role row %d warning: %s", i, w)
@@ -368,52 +405,67 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
             t["person_id"], t["role_id"],
         )
         if existing_ra:
-            await _write_provenance(conn, batch_id, i, "role_assignment",
-                                    existing_ra["id"], "matched", raw)
+            await _write_provenance(
+                conn, batch_id, i, "role_assignment", existing_ra["id"], "matched", raw
+            )
             summary["roles_matched"] += 1
             continue
 
         async with conn.transaction():
             if t["role_action"] == "created":
                 await conn.execute(
-                    "INSERT INTO roles (id, organization_id, title, notes) VALUES ($1, $2, $3, $4)",
+                    "INSERT INTO roles (id, organization_id, title, notes)"
+                    " VALUES ($1, $2, $3, $4)",
                     t["role_id"], t["org_id"], t["title"], t["notes"],
                 )
             await conn.execute(
-                "INSERT INTO role_assignments (id, person_id, role_id, is_current) VALUES ($1, $2, $3, $4)",
+                "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+                " VALUES ($1, $2, $3, $4)",
                 t["assignment_id"], t["person_id"], t["role_id"], t["is_current"],
             )
             for cm in t["contact_methods"]:
                 await conn.execute(
-                    "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value) VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "role_assignment", t["assignment_id"], cm["contact_type"], cm["value"],
+                    "INSERT INTO contact_methods"
+                    " (id, entity_type, entity_id, contact_type, value)"
+                    " VALUES ($1, $2, $3, $4, $5)",
+                    generate_id(), "role_assignment",
+                    t["assignment_id"], cm["contact_type"], cm["value"],
                 )
             for u in t["urls"]:
                 url_type_id = ref.url_type_ids.get(u["url_type_slug"])
                 if url_type_id:
                     await conn.execute(
-                        "INSERT INTO urls (id, entity_type, entity_id, url, url_type_id, is_canonical) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
-                        generate_id(), "role_assignment", t["assignment_id"], u["url"], url_type_id, u["is_canonical"],
+                        "INSERT INTO urls"
+                        " (id, entity_type, entity_id, url, url_type_id, is_canonical)"
+                        " VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+                        generate_id(), "role_assignment", t["assignment_id"],
+                        u["url"], url_type_id, u["is_canonical"],
                     )
             for sl in t["social_links"]:
                 platform_id = ref.platform_ids.get(sl["platform_slug"])
                 if platform_id:
                     await conn.execute(
-                        "INSERT INTO social_links (id, entity_type, entity_id, platform_id, url) VALUES ($1, $2, $3, $4, $5)",
-                        generate_id(), "role_assignment", t["assignment_id"], platform_id, sl["url"],
+                        "INSERT INTO social_links"
+                        " (id, entity_type, entity_id, platform_id, url)"
+                        " VALUES ($1, $2, $3, $4, $5)",
+                        generate_id(), "role_assignment", t["assignment_id"],
+                        platform_id, sl["url"],
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
                 if type_id:
                     await conn.execute(
-                        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value) VALUES ($1, $2, $3, $4)",
+                        "INSERT INTO identifiers"
+                        " (id, entity_id, entity_identifier_type_id, value)"
+                        " VALUES ($1, $2, $3, $4)",
                         generate_id(), t["assignment_id"], type_id, ident["value"],
                     )
             for rec in t["confidence_records"]:
                 rec.assessed_by = f"import:{batch_id}"
             await _write_confidence(conn, t["confidence_records"])
-            await _write_provenance(conn, batch_id, i, "role_assignment",
-                                    t["assignment_id"], "created", raw)
+            await _write_provenance(
+                conn, batch_id, i, "role_assignment", t["assignment_id"], "created", raw
+            )
 
         role_key = (t["org_id"], t["title"].lower())
         role_index[role_key] = t["role_id"]

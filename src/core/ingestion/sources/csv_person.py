@@ -110,7 +110,9 @@ async def transform_person(
     warnings: list[str] = []
     confidence_records: list[ConfidenceRecord] = []
 
-    def _add_confidence(field_name: str, normalized_value: str, hint: str, detail: dict | None = None) -> None:
+    def _add_confidence(
+        field_name: str, normalized_value: str, hint: str, detail: dict | None = None
+    ) -> None:
         confidence_records.append(ConfidenceRecord(
             entity_type="person",
             entity_id=person_id,
@@ -125,7 +127,8 @@ async def transform_person(
     # Names
     names = [{"name": validated.name, "name_type": "legal", "is_canonical": True}]
     if validated.former_name and validated.former_name.strip():
-        names.append({"name": validated.former_name.strip(), "name_type": "former", "is_canonical": True})
+        names.append({"name": validated.former_name.strip(), "name_type": "former",
+                      "is_canonical": True})
 
     # Contact methods
     contact_methods: list[dict] = []
@@ -158,7 +161,9 @@ async def transform_person(
             try:
                 r = _url.normalize(raw_url)
                 if not r.skipped:
-                    urls.append({"url": r.value, "url_type_slug": url_type_slug, "is_canonical": is_canonical})
+                    urls.append({
+                        "url": r.value, "url_type_slug": url_type_slug, "is_canonical": is_canonical
+                    })
                     _add_confidence(f"url:{url_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:
                 warnings.append(f"url skipped ({url_type_slug}): {exc}")

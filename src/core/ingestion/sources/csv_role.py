@@ -95,7 +95,7 @@ def transform_role(
     role_index: dict[tuple, str],
     source_reliability: float,
 ) -> RowResult:
-    """Transform a validated role row into DB-ready dicts (sync — no address normalization needed)."""
+    """Transform a validated role row into DB-ready dicts (sync — no address normalization)."""
     if not result.ok:
         return result
 
@@ -136,7 +136,9 @@ def transform_role(
     assignment_id = generate_id()
     is_current = _parse_current(validated.current_role)
 
-    def _add_confidence(field_name: str, normalized_value: str, hint: str, detail: dict | None = None) -> None:
+    def _add_confidence(
+        field_name: str, normalized_value: str, hint: str, detail: dict | None = None
+    ) -> None:
         confidence_records.append(ConfidenceRecord(
             entity_type="role_assignment",
             entity_id=assignment_id,
