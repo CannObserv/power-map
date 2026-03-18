@@ -19,9 +19,19 @@ Python ≥3.12, uv, pytest, ruff
 ```
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
 src/core/       — Shared domain logic
+  db.py         — Connection pool, apply_schema, generate_id, normalize_phone, validate_email
+  schema.sql    — Canonical DDL (tables, indexes, triggers, seed data); source of truth
 tests/          — Mirrors src/ structure
 docs/           — Reference docs (API, COMMANDS, SKILLS)
 ```
+
+### DB conventions
+- All PKs are ULIDs; generate with `generate_id()` from `src.core.db`
+- `apply_schema(conn)` is idempotent (`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`); wraps in a transaction
+- `updated_at` is maintained automatically by DB triggers — never set it manually in application code
+- Phone: normalize to E.164 via `normalize_phone()` before storing; stored in `contact_methods` table
+- Email: validate via `validate_email()` before storing; stored in `contact_methods` table
+- Integration tests (marked `integration`) require `DATABASE_URL` env var pointing to a dedicated test DB
 
 ## Services
 
@@ -38,7 +48,16 @@ After any code change in production deployments, restart uvicorn/gunicorn — th
 
 ## Secrets
 
-`env` (git-ignored): any API keys or tokens. Never commit secrets.
+`env` (git-ignored): API keys and tokens. Never commit secrets.
+
+Load before running any command that needs env vars (e.g. `gh`, `DATABASE_URL`):
+
+```bash
+export $(cat env | xargs)
+```
+
+Currently defined:
+- `GH_TOKEN` — GitHub personal access token (used by `gh` CLI)
 
 ## Common Commands
 
