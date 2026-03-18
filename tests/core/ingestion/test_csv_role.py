@@ -3,10 +3,7 @@
 import csv
 from pathlib import Path
 
-import pytest
-
-from src.core.ingestion.sources.csv_role import validate_role, transform_role
-
+from src.core.ingestion.sources.csv_role import transform_role, validate_role
 
 FIXTURE = Path("tests/fixtures/ingestion/roles_sample.csv")
 
@@ -30,7 +27,9 @@ def test_validate_role_valid():
 
 
 def test_validate_role_missing_title():
-    r = validate_role({"Name": "Jane", "Organization": "Acme Cannabis LLC", "Title": ""}, source_row=99)
+    r = validate_role(
+        {"Name": "Jane", "Organization": "Acme Cannabis LLC", "Title": ""}, source_row=99
+    )
     assert not r.ok
     assert any(e.field == "title" for e in r.errors)
 

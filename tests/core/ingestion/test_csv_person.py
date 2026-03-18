@@ -5,8 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.core.ingestion.sources.csv_person import validate_person, transform_person
-
+from src.core.ingestion.sources.csv_person import transform_person, validate_person
 
 FIXTURE = Path("tests/fixtures/ingestion/people_sample.csv")
 

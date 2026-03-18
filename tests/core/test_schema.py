@@ -664,7 +664,8 @@ async def test_social_link_valid_entity_types_accepted(db):
 async def test_import_batches_insert(db):
     batch_id = generate_id()
     await db.execute(
-        """INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count, error_count)
+        """INSERT INTO import_batches
+               (id, source_file, file_hash, row_count, loaded_count, error_count)
            VALUES ($1, $2, $3, $4, $5, $6)""",
         batch_id, "orgs.csv", "abc123", 10, 9, 1,
     )
@@ -680,7 +681,8 @@ async def test_import_batches_insert(db):
 async def test_import_provenance_insert(db):
     batch_id = generate_id()
     await db.execute(
-        """INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count, error_count)
+        """INSERT INTO import_batches
+               (id, source_file, file_hash, row_count, loaded_count, error_count)
            VALUES ($1, $2, $3, $4, $5, $6)""",
         batch_id, "orgs.csv", "abc123", 1, 1, 0,
     )
@@ -701,7 +703,8 @@ async def test_import_provenance_insert(db):
 async def test_import_provenance_invalid_action(db):
     batch_id = generate_id()
     await db.execute(
-        """INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count, error_count)
+        """INSERT INTO import_batches
+               (id, source_file, file_hash, row_count, loaded_count, error_count)
            VALUES ($1, $2, $3, $4, $5, $6)""",
         batch_id, "orgs.csv", "abc123", 1, 0, 1,
     )
@@ -837,5 +840,6 @@ async def test_field_confidence_invalid_validation_status_rejected(db):
                         source_reliability, validation_status)
                    VALUES ($1, $2, $3, $4, $5, $6, $7)""",
                 generate_id(), "organization", org_id, "phone",
-                "abc123", 0.8, "bogus",  # not in ('confirmed', 'unconfirmed', 'failed', 'not_attempted')
+                # "bogus" not in ('confirmed', 'unconfirmed', 'failed', 'not_attempted')
+                "abc123", 0.8, "bogus",
             )

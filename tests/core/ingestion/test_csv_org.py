@@ -1,13 +1,11 @@
 """Tests for csv_org source module."""
 
 import csv
-import io
 from pathlib import Path
 
 import pytest
 
-from src.core.ingestion.sources.csv_org import validate_org, transform_org
-
+from src.core.ingestion.sources.csv_org import transform_org, validate_org
 
 FIXTURE = Path("tests/fixtures/ingestion/orgs_sample.csv")
 
@@ -16,7 +14,10 @@ def read_fixture(path: Path) -> list[dict[str, str]]:
     rows = []
     with path.open(newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
-            rows.append({k: v.strip() for k, v in row.items() if k is not None and isinstance(v, str)})
+            rows.append({
+                k: v.strip() for k, v in row.items()
+                if k is not None and isinstance(v, str)
+            })
     return rows
 
 
