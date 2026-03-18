@@ -336,9 +336,9 @@ CREATE TABLE IF NOT EXISTS import_batches (
     file_hash    TEXT        NOT NULL,
     imported_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     imported_by  TEXT,
-    row_count    INTEGER     NOT NULL,
-    loaded_count INTEGER     NOT NULL,
-    error_count  INTEGER     NOT NULL,
+    row_count    INTEGER     NOT NULL CHECK (row_count >= 0),
+    loaded_count INTEGER     NOT NULL CHECK (loaded_count >= 0),
+    error_count  INTEGER     NOT NULL CHECK (error_count >= 0),
     notes        TEXT
 );
 
@@ -346,7 +346,7 @@ CREATE TABLE IF NOT EXISTS import_provenance (
     id              TEXT        PRIMARY KEY,
     batch_id        TEXT        NOT NULL REFERENCES import_batches(id),
     source_row      INTEGER     NOT NULL,
-    entity_type     TEXT        NOT NULL,
+    entity_type     TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
     entity_id       TEXT        NOT NULL,
     action          TEXT        NOT NULL CHECK (action IN ('created','matched','skipped','error')),
     error_detail    JSONB,
@@ -363,7 +363,7 @@ CREATE INDEX IF NOT EXISTS idx_import_provenance_entity
 -- Latest assessment: ORDER BY assessed_at DESC LIMIT 1.
 CREATE TABLE IF NOT EXISTS field_confidence (
     id                  TEXT        PRIMARY KEY,
-    entity_type         TEXT        NOT NULL,
+    entity_type         TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
     entity_id           TEXT        NOT NULL,
     field_name          TEXT        NOT NULL,
     value_hash          TEXT        NOT NULL,
