@@ -23,9 +23,10 @@ if ! command -v psql &>/dev/null; then
     sudo apt-get install -y postgresql
 fi
 
-if ! sudo service postgresql status &>/dev/null; then
+if ! pg_isready -q; then
     echo "Starting PostgreSQL..."
     sudo service postgresql start
+    until pg_isready -q; do sleep 1; done
 fi
 
 # ---------------------------------------------------------------------------
@@ -35,7 +36,7 @@ fi
 
 existing_url="$(grep -E '^DATABASE_URL=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d= -f2- || true)"
 if [[ -n "${existing_url}" ]]; then
-    DB_PASS="$(echo "${existing_url}" | sed -E 's|postgresql://[^:]+:([^@]+)@.*|\1|')"
+    DB_PASS="$(echo "${existing_url}" | sed -E 's|^[^:]+://[^:]+:([^@]+)@.*|\1|')"
 else
     DB_PASS="$(openssl rand -base64 24 | tr -d '=/+' | head -c 32)"
 fi

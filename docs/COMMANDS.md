@@ -3,6 +3,9 @@
 ## Setup
 
 ```bash
+# Provision local PostgreSQL (idempotent; run once after cloning)
+bash scripts/setup-db.sh
+
 # Install dependencies (creates .venv automatically)
 uv sync
 ```
