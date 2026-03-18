@@ -10,7 +10,11 @@ from src.core.normalizers.base import NormalizationResult, is_null_like
 
 @dataclass
 class EmailNormalizer:
-    """Validates email addresses and normalizes domain to lowercase."""
+    """Validates email addresses and normalizes domain to lowercase.
+
+    Note: The local part (before @) case is preserved per RFC 5321.
+    Only the domain is lowercased.
+    """
 
     def normalize(self, raw: str | None) -> NormalizationResult:
         """Return normalized email, or skipped result for null-like input.

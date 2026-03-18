@@ -10,7 +10,12 @@ from src.core.normalizers.base import NormalizationResult, is_null_like
 
 @dataclass
 class UrlNormalizer:
-    """Validates and canonicalizes URLs (scheme lowercase, host lowercase, no trailing slash)."""
+    """Validates and canonicalizes URLs.
+
+    Normalizations applied:
+    - scheme and host lowercased
+    - trailing slashes stripped from all paths (e.g., /dir/ → /dir)
+    """
 
     def normalize(self, raw: str | None) -> NormalizationResult:
         """Return canonical URL string, or skipped result for null-like input.
@@ -21,7 +26,7 @@ class UrlNormalizer:
         if is_null_like(raw):
             return NormalizationResult(value=None, skipped=True)
         raw = raw.strip()
-        if not validators.url(raw):
+        if validators.url(raw) is not True:
             raise ValueError(f"invalid url: {raw!r}")
         parsed = urlparse(raw)
         canonical = urlunparse((

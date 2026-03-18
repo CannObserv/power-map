@@ -18,7 +18,7 @@ def test_valid_email(normalizer):
 
 def test_normalizes_domain_case(normalizer):
     r = normalizer.normalize("User@Example.COM")
-    assert r.value.endswith("@example.com")
+    assert r.value == "User@example.com"  # local part preserved, domain lowercased
 
 
 def test_null_like_returns_skipped(normalizer):

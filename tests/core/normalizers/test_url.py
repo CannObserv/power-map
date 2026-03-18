@@ -28,7 +28,12 @@ def test_strips_trailing_slash_on_root(normalizer):
 
 def test_preserves_path(normalizer):
     r = normalizer.normalize("https://example.com/path/to/page")
-    assert "/path/to/page" in r.value
+    assert r.value == "https://example.com/path/to/page"
+
+
+def test_strips_trailing_slash_on_path(normalizer):
+    r = normalizer.normalize("https://example.com/path/")
+    assert r.value == "https://example.com/path"
 
 
 def test_null_like_skipped(normalizer):
