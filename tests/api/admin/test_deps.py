@@ -3,9 +3,8 @@
 import asyncio
 from unittest.mock import MagicMock
 
-from fastapi.testclient import TestClient
-
 from fastapi.responses import RedirectResponse
+from fastapi.testclient import TestClient
 
 from src.api.admin.deps import AdminUser, check_auth, get_admin_user
 from src.api.main import app
