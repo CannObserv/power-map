@@ -14,11 +14,11 @@ uv sync
 
 ```bash
 # FastAPI dev server (auto-reload)
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Inject admin auth headers locally via mitmdump reverse proxy (port 3000 → 8001)
+# Inject admin auth headers locally via mitmdump reverse proxy (port 3000 → 8000)
 mitmdump \
-  --mode reverse:http://localhost:8001 \
+  --mode reverse:http://localhost:8000 \
   --listen-port 3000 \
   --set modify_headers='/~q/X-Exedev-Email/admin@example.com' \
   --set modify_headers='/~q/X-Exedev-Userid/usr_local_dev'

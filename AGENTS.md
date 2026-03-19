@@ -56,11 +56,11 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py)
 
 | Service | Framework | Port |
 |---|---|---|
-| API | FastAPI | 8001 |
+| API | FastAPI | 8000 |
 
 ```bash
 # FastAPI dev server
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 After any code change in production deployments, restart uvicorn/gunicorn — they do not auto-reload.
@@ -95,7 +95,7 @@ uv run pytest
 uv run ruff check .
 
 # FastAPI dev server
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Full reference: `docs/COMMANDS.md`
