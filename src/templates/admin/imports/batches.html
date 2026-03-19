@@ -1,0 +1,58 @@
+{% extends "admin/base.html" %}
+{% block title %}Import History{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span><span>Import History</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Import History</h1>
+</div>
+<div class="table-wrapper">
+  <table class="data-table" id="batches-table">
+    <caption>Import Batches — {{ total }} record{{ 's' if total != 1 else '' }}</caption>
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Source File</th>
+        <th scope="col">Rows</th>
+        <th scope="col">Loaded</th>
+        <th scope="col">Errors</th>
+        <th scope="col">Imported By</th>
+        <th scope="col">Imported At</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for batch in batches %}
+      <tr>
+        <td><a href="/admin/imports/{{ batch.id }}/"><code>{{ batch.id[:8] }}…</code></a></td>
+        <td>{{ batch.source_file }}</td>
+        <td>{{ batch.row_count }}</td>
+        <td>{{ batch.loaded_count }}</td>
+        <td>
+          {% if batch.error_count > 0 %}
+            <span class="badge badge--archived">{{ batch.error_count }}</span>
+          {% else %}
+            0
+          {% endif %}
+        </td>
+        <td>{{ batch.imported_by or '—' }}</td>
+        <td>{{ batch.imported_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" style="text-align:center;color:var(--color-text-muted)">No import batches found</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if total > page_size %}
+<nav class="pagination" aria-label="Pagination">
+  {% if page > 1 %}
+  <a href="?page={{ page - 1 }}" class="btn btn--ghost btn--sm">← Previous</a>
+  {% endif %}
+  <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+  {% if page * page_size < total %}
+  <a href="?page={{ page + 1 }}" class="btn btn--ghost btn--sm">Next →</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

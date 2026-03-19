@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from src.api.admin import imports as imports_module
 from src.api.admin import orgs as orgs_module
 from src.api.admin import people as people_module
 from src.api.admin import role_assignments as role_assignments_module
@@ -39,6 +40,7 @@ async def dashboard(
     )
 
 
+admin_router.include_router(imports_module.router)
 admin_router.include_router(orgs_module.router)
 admin_router.include_router(people_module.router)
 admin_router.include_router(roles_module.router)
