@@ -1,5 +1,6 @@
 """Admin views for organizations."""
 
+import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -339,6 +340,12 @@ async def org_delete(
         raise HTTPException(status_code=404, detail="Organization not found")
     if not org["archived_at"]:
         raise HTTPException(status_code=409, detail="Organization must be archived before deletion")
-    await db.execute("DELETE FROM organization_names WHERE organization_id = $1", org_id)
-    await db.execute("DELETE FROM organizations WHERE id = $1", org_id)
+    try:
+        await db.execute("DELETE FROM organization_names WHERE organization_id = $1", org_id)
+        await db.execute("DELETE FROM organizations WHERE id = $1", org_id)
+    except asyncpg.ForeignKeyViolationError:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete: organization has related records (roles, etc.)",
+        )
     return HTMLResponse(content="", status_code=200)

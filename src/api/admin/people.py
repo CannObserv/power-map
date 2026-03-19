@@ -1,5 +1,6 @@
 """Admin views for people."""
 
+import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -316,6 +317,12 @@ async def person_delete(
         raise HTTPException(status_code=404, detail="Person not found")
     if not person["archived_at"]:
         raise HTTPException(status_code=409, detail="Person must be archived before deletion")
-    await db.execute("DELETE FROM person_names WHERE person_id = $1", person_id)
-    await db.execute("DELETE FROM people WHERE id = $1", person_id)
+    try:
+        await db.execute("DELETE FROM person_names WHERE person_id = $1", person_id)
+        await db.execute("DELETE FROM people WHERE id = $1", person_id)
+    except asyncpg.ForeignKeyViolationError:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete: person has related records (role assignments, etc.)",
+        )
     return HTMLResponse(content="", status_code=200)

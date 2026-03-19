@@ -1,5 +1,6 @@
 """Admin views for lookup tables: platforms, url_types, entity_identifier_types."""
 
+import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -149,10 +150,8 @@ async def platform_delete(
         return redirect
     try:
         await db.execute("DELETE FROM platforms WHERE id = $1", item_id)
-    except Exception as exc:
-        if "foreign key" in str(exc).lower() or "violates" in str(exc).lower():
-            raise HTTPException(status_code=409, detail="Platform in use") from exc
-        raise
+    except asyncpg.ForeignKeyViolationError:
+        raise HTTPException(status_code=409, detail="Cannot delete: record is in use")
     return HTMLResponse(content="", status_code=200)
 
 
@@ -287,10 +286,8 @@ async def url_type_delete(
         return redirect
     try:
         await db.execute("DELETE FROM url_types WHERE id = $1", item_id)
-    except Exception as exc:
-        if "foreign key" in str(exc).lower() or "violates" in str(exc).lower():
-            raise HTTPException(status_code=409, detail="URL type in use") from exc
-        raise
+    except asyncpg.ForeignKeyViolationError:
+        raise HTTPException(status_code=409, detail="Cannot delete: record is in use")
     return HTMLResponse(content="", status_code=200)
 
 
@@ -441,10 +438,6 @@ async def identifier_type_delete(
         await db.execute(
             "DELETE FROM entity_identifier_types WHERE id = $1", item_id
         )
-    except Exception as exc:
-        if "foreign key" in str(exc).lower() or "violates" in str(exc).lower():
-            raise HTTPException(
-                status_code=409, detail="Identifier type in use"
-            ) from exc
-        raise
+    except asyncpg.ForeignKeyViolationError:
+        raise HTTPException(status_code=409, detail="Cannot delete: record is in use")
     return HTMLResponse(content="", status_code=200)
