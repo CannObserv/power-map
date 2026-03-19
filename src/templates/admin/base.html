@@ -11,7 +11,11 @@
   <a class="skip-link" href="#main-content">Skip to main content</a>
   <div class="admin-layout" hx-boost="true">
     <header class="admin-topbar">
-      <a class="admin-topbar__brand" href="/admin/">power-map admin</a>
+      <a class="admin-topbar__brand" href="/admin/">
+        <img src="/static/images/cannabis_observer-icon-square.svg"
+             alt="" aria-hidden="true" class="admin-topbar__brand-icon">
+        Power Map
+      </a>
       <nav aria-label="Breadcrumb" class="breadcrumb">{% block breadcrumb %}{% endblock %}</nav>
       <div class="admin-topbar__user">
         <span>{{ user.email }}</span>
@@ -32,6 +36,13 @@
       <a class="admin-sidebar__link" href="/admin/imports/" {% if active_section == 'imports' %}aria-current="page"{% endif %}>Import History</a>
     </nav>
     <main id="main-content" class="admin-main">{% block content %}{% endblock %}</main>
+    <footer class="admin-footer">
+      A project of
+      <img src="/static/images/cannabis_observer-icon-square.svg"
+           alt="" aria-hidden="true" class="admin-footer__icon">
+      <a href="https://cannabis.observer/" target="_blank" rel="noopener noreferrer">Cannabis Observer</a>
+      🌱🏛️🔍
+    </footer>
   </div>
   <div id="flash-region" class="flash-region" aria-live="polite" aria-atomic="false">{% block flash %}{% endblock %}</div>
 </body>

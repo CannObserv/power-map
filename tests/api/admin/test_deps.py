@@ -81,4 +81,4 @@ def test_check_auth_returns_redirect():
 def test_admin_dashboard_returns_200_when_authenticated():
     response = _client.get("/admin/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert "power-map admin" in response.text.lower()
+    assert "Power Map" in response.text
