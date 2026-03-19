@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Admin{% endblock %} — power-map</title>
+  <link rel="stylesheet" href="/static/admin/admin.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <div class="admin-layout" hx-boost="true">
+    <header class="admin-topbar">
+      <a class="admin-topbar__brand" href="/admin/">power-map admin</a>
+      <nav aria-label="Breadcrumb" class="breadcrumb">{% block breadcrumb %}{% endblock %}</nav>
+      <div class="admin-topbar__user">
+        <span>{{ user.email }}</span>
+        <form method="POST" action="/__exe.dev/logout" style="margin:0">
+          <button type="submit" class="btn btn--ghost btn--sm">Log out</button>
+        </form>
+      </div>
+    </header>
+    <nav class="admin-sidebar" aria-label="Entity navigation">
+      <span class="admin-sidebar__group-label">Entities</span>
+      <a class="admin-sidebar__link" href="/admin/people/" {% if active_section == 'people' %}aria-current="page"{% endif %}>People</a>
+      <a class="admin-sidebar__link" href="/admin/orgs/" {% if active_section == 'orgs' %}aria-current="page"{% endif %}>Organizations</a>
+      <a class="admin-sidebar__link" href="/admin/roles/" {% if active_section == 'roles' %}aria-current="page"{% endif %}>Roles</a>
+      <a class="admin-sidebar__link" href="/admin/role-assignments/" {% if active_section == 'role_assignments' %}aria-current="page"{% endif %}>Assignments</a>
+      <span class="admin-sidebar__group-label">Reference</span>
+      <a class="admin-sidebar__link" href="/admin/lookups/platforms/" {% if active_section == 'lookups' %}aria-current="page"{% endif %}>Lookups</a>
+      <span class="admin-sidebar__group-label">Ingestion</span>
+      <a class="admin-sidebar__link" href="/admin/imports/" {% if active_section == 'imports' %}aria-current="page"{% endif %}>Import History</a>
+    </nav>
+    <main id="main-content" class="admin-main">{% block content %}{% endblock %}</main>
+  </div>
+  <div id="flash-region" class="flash-region" aria-live="polite" aria-atomic="false">{% block flash %}{% endblock %}</div>
+</body>
+</html>
