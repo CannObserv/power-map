@@ -1,7 +1,5 @@
 """Unit tests for roles admin helpers."""
 
-import pytest
-
 from src.api.admin.roles import _like
 
 
