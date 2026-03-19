@@ -55,6 +55,7 @@ A committed directory in `skills/` completely supersedes the vendor version (no 
 | `reviewing-code-claude` | FastAPI-specific review dimensions; ruff lint check; TDD discipline; Iron Law + rationalization-prevention table; Phase 3.5 verification gate |
 | `shipping-work-claude` | `uv run pytest --no-cov` + `uv run ruff check` in pre-ship.sh; `#<n> [type]: <desc>` commit convention; Iron Law + HARD-GATE on partial issue closure |
 | `brainstorming` | Project conventions (docs/plans/ path, commit format); invokes using-git-worktrees after design approval; FastAPI stack context; proactive-suggestion mode |
+| `writing-plans` | Plans saved to `docs/plans/` (vendor default is `docs/superpowers/plans/`) |
 
 ## Authoring New Skills
 
