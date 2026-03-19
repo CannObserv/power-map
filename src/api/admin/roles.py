@@ -14,6 +14,16 @@ router = APIRouter(prefix="/roles", tags=["admin-roles"])
 PAGE_SIZE = 50
 
 
+def _like(s: str) -> str:
+    """Escape LIKE special characters and wrap with wildcards.
+
+    Escapes ``\\``, ``%``, and ``_`` so user input is treated as a literal
+    substring match. Use with ``ILIKE $N ESCAPE '\\'`` in queries.
+    """
+    s = s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{s}%"
+
+
 @router.get("/")
 async def roles_list(
     request: Request,
@@ -24,7 +34,7 @@ async def roles_list(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """List roles with search and status filter."""
+    """List roles with title/org search and status filter."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
@@ -39,12 +49,12 @@ async def roles_list(
         conditions.append("r.archived_at IS NOT NULL")
 
     if q:
-        params.append(f"%{q}%")
-        conditions.append(f"r.title ILIKE ${len(params)}")
+        params.append(_like(q))
+        conditions.append(f"r.title ILIKE ${len(params)} ESCAPE '\\'")
 
     if org_q:
-        params.append(f"%{org_q}%")
-        conditions.append(f"n.name ILIKE ${len(params)}")
+        params.append(_like(org_q))
+        conditions.append(f"n.name ILIKE ${len(params)} ESCAPE '\\'")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]

@@ -113,3 +113,34 @@ async def test_hard_delete_archived_role(client, db, role_id):
     await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
     response = client.delete(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
+
+
+def test_roles_list_filters_by_org_name(client, role_id):
+    response = client.get("/admin/roles/?org_q=Test", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Role" in response.text
+
+
+def test_roles_list_org_filter_excludes_nonmatching(client, role_id):
+    response = client.get("/admin/roles/?org_q=NoSuchOrg", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Role" not in response.text
+
+
+def test_roles_list_org_filter_literal_percent(client, role_id):
+    # A literal '%' in org_q must not act as a SQL wildcard
+    response = client.get("/admin/roles/?org_q=%25", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Role" not in response.text
+
+
+def test_roles_list_title_and_org_combined(client, role_id):
+    response = client.get("/admin/roles/?q=Test&org_q=Test", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Role" in response.text
+
+
+def test_roles_list_title_and_org_nonmatching_combo(client, role_id):
+    response = client.get("/admin/roles/?q=Test&org_q=NoSuchOrg", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Role" not in response.text
