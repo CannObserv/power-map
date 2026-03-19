@@ -1,0 +1,207 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ (names[0].name if names else org.id) }} — Organization{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/orgs/">Organizations</a><span class="breadcrumb__sep">›</span>
+  <span>{{ names[0].name if names else org.id }}</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ names[0].name if names else '(unnamed)' }}</h1>
+  <a href="/admin/orgs/{{ org.id }}/edit/" class="btn btn--primary">Edit</a>
+</div>
+
+<div class="entity-card">
+  <dl class="detail-grid">
+    <dt>ID</dt><dd><code>{{ org.id }}</code></dd>
+    <dt>Status</dt>
+    <dd>
+      {% if org.archived_at %}<span class="badge badge--archived">Archived</span>
+      {% elif not org.active %}<span class="badge badge--inactive">Inactive</span>
+      {% else %}<span class="badge badge--active">Active</span>{% endif %}
+    </dd>
+    {% if org.notes %}
+    <dt>Notes</dt><dd>{{ org.notes }}</dd>
+    {% endif %}
+    <dt>Created</dt><dd>{{ org.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
+    <dt>Updated</dt><dd>{{ org.updated_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
+    {% if org.archived_at %}
+    <dt>Archived</dt><dd>{{ org.archived_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
+    {% endif %}
+  </dl>
+</div>
+
+<section class="entity-section">
+  <h2>Names</h2>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr><th scope="col">Name</th><th scope="col">Canonical</th></tr></thead>
+      <tbody>
+        {% for n in names %}
+        <tr>
+          <td>{{ n.name }}</td>
+          <td>{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Addresses</h2>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr><th scope="col">Address</th><th scope="col">City</th><th scope="col">Region</th><th scope="col">Postal</th></tr></thead>
+      <tbody>
+        {% for a in addresses %}
+        <tr>
+          <td>{{ a.standardized or a.address_line_1 or '—' }}</td>
+          <td>{{ a.city or '—' }}</td>
+          <td>{{ a.region or '—' }}</td>
+          <td>{{ a.postal_code or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No addresses</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Contact Methods</h2>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr><th scope="col">Type</th><th scope="col">Value</th></tr></thead>
+      <tbody>
+        {% for c in contacts %}
+        <tr><td>{{ c.contact_type }}</td><td>{{ c.value }}</td></tr>
+        {% else %}
+        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No contact methods</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>URLs</h2>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr><th scope="col">Type</th><th scope="col">URL</th></tr></thead>
+      <tbody>
+        {% for u in urls %}
+        <tr>
+          <td>{{ u.url_type_name }}</td>
+          <td><a href="{{ u.url }}" target="_blank" rel="noopener noreferrer">{{ u.url }}</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No URLs</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Social Links</h2>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr><th scope="col">Platform</th><th scope="col">Handle / URL</th></tr></thead>
+      <tbody>
+        {% for s in social %}
+        <tr>
+          <td>{{ s.platform_name }}</td>
+          <td>{{ s.handle or s.url or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No social links</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Identifiers</h2>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr><th scope="col">Type</th><th scope="col">Value</th></tr></thead>
+      <tbody>
+        {% for i in identifiers %}
+        <tr>
+          <td title="{{ i.type_full_name }}">{{ i.type_name }}</td>
+          <td>{{ i.value }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No identifiers</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Child Organizations</h2>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr><th scope="col">Name</th><th scope="col">Status</th></tr></thead>
+      <tbody>
+        {% for child in children %}
+        <tr>
+          <td><a href="/admin/orgs/{{ child.id }}/">{{ child.canonical_name or '(unnamed)' }}</a></td>
+          <td>
+            {% if child.archived_at %}<span class="badge badge--archived">Archived</span>
+            {% elif not child.active %}<span class="badge badge--inactive">Inactive</span>
+            {% else %}<span class="badge badge--active">Active</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No child organizations</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Roles</h2>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr><th scope="col">Title</th><th scope="col">ID</th></tr></thead>
+      <tbody>
+        {% for role in roles %}
+        <tr>
+          <td><a href="/admin/roles/{{ role.id }}/">{{ role.title or '(untitled)' }}</a></td>
+          <td><code>{{ role.id }}</code></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No roles</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="danger-zone">
+  <h2>Danger Zone</h2>
+  {% if not org.archived_at %}
+  <p>Archiving hides this organization from active views but preserves all data.</p>
+  <form method="POST" action="/admin/orgs/{{ org.id }}/archive/">
+    <button type="submit" class="btn btn--danger">Archive organization</button>
+  </form>
+  {% else %}
+  <p>This organization is archived. You may permanently delete it — this cannot be undone.</p>
+  <button class="btn btn--danger"
+          hx-delete="/admin/orgs/{{ org.id }}/"
+          hx-confirm="Permanently delete this organization? This cannot be undone."
+          hx-target="body"
+          hx-push-url="/admin/orgs/">
+    Delete permanently
+  </button>
+  {% endif %}
+</div>
+{% endblock %}
