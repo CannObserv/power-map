@@ -1,0 +1,58 @@
+{% extends "admin/base.html" %}
+{% if kind == "platforms" %}
+  {% set title = "Platform" %}
+  {% set list_url = "/admin/lookups/platforms/" %}
+  {% set action = "/admin/lookups/platforms/" + item.id + "/edit/" if item else "/admin/lookups/platforms/new/" %}
+{% elif kind == "url_types" %}
+  {% set title = "URL Type" %}
+  {% set list_url = "/admin/lookups/url-types/" %}
+  {% set action = "/admin/lookups/url-types/" + item.id + "/edit/" if item else "/admin/lookups/url-types/new/" %}
+{% else %}
+  {% set title = "Identifier Type" %}
+  {% set list_url = "/admin/lookups/identifier-types/" %}
+  {% set action = "/admin/lookups/identifier-types/" + item.id + "/edit/" if item else "/admin/lookups/identifier-types/new/" %}
+{% endif %}
+{% block title %}{{ 'Edit' if item else 'New' }} {{ title }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="{{ list_url }}">{{ title }}s</a><span class="breadcrumb__sep">›</span>
+  <span>{{ 'Edit' if item else 'New' }}</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ 'Edit' if item else 'New' }} {{ title }}</h1>
+</div>
+<div class="entity-card">
+  <form method="POST" action="{{ action }}">
+    <div class="form-group">
+      <label for="display_name">Display Name <span aria-hidden="true">*</span></label>
+      <input id="display_name" name="display_name" type="text" required
+             value="{{ item.display_name if item else '' }}">
+    </div>
+    {% if kind == "identifier_types" %}
+    <div class="form-group">
+      <label for="full_name">Full Name <span aria-hidden="true">*</span></label>
+      <input id="full_name" name="full_name" type="text" required
+             value="{{ item.full_name if item else '' }}">
+    </div>
+    <div class="form-group">
+      <label for="entity_type">Entity Type <span aria-hidden="true">*</span></label>
+      <select id="entity_type" name="entity_type" required>
+        <option value="organization" {% if item and item.entity_type == 'organization' %}selected{% endif %}>Organization</option>
+        <option value="person" {% if item and item.entity_type == 'person' %}selected{% endif %}>Person</option>
+        <option value="role_assignment" {% if item and item.entity_type == 'role_assignment' %}selected{% endif %}>Role Assignment</option>
+      </select>
+    </div>
+    {% endif %}
+    <div class="form-group">
+      <label for="slug">Slug{% if kind != "identifier_types" %} <span aria-hidden="true">*</span>{% endif %}</label>
+      <input id="slug" name="slug" type="text" {% if kind != "identifier_types" %}required{% endif %}
+             value="{{ item.slug if item else '' }}">
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">{{ 'Save changes' if item else 'Create' }}</button>
+      <a href="{{ list_url }}" class="btn btn--ghost">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
