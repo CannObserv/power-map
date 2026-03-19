@@ -5,20 +5,13 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs", tags=["admin-orgs"])
 
 PAGE_SIZE = 50
-
-
-def _check_auth(user: AdminUser | RedirectResponse):
-    """Return (redirect, user) tuple. If redirect is not None, return it immediately."""
-    if isinstance(user, RedirectResponse):
-        return user, None
-    return None, user
 
 
 @router.get("/")
@@ -31,7 +24,7 @@ async def orgs_list(
     db=Depends(get_db),
 ):
     """List organizations with search and status filter."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
 
@@ -97,7 +90,7 @@ async def org_new_form(
     db=Depends(get_db),
 ):
     """New organization form."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     parents = await db.fetch(
@@ -131,7 +124,7 @@ async def org_create(
     db=Depends(get_db),
 ):
     """Create a new organization."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     org_id = generate_id()
@@ -155,7 +148,7 @@ async def org_detail(
     db=Depends(get_db),
 ):
     """Organization detail view."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
 
@@ -236,7 +229,7 @@ async def org_edit_form(
     db=Depends(get_db),
 ):
     """Edit organization form."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     org = await db.fetchrow("SELECT * FROM organizations WHERE id = $1", org_id)
@@ -279,7 +272,7 @@ async def org_update(
     db=Depends(get_db),
 ):
     """Update an organization."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     org = await db.fetchrow("SELECT id FROM organizations WHERE id = $1", org_id)
@@ -314,7 +307,7 @@ async def org_archive(
     db=Depends(get_db),
 ):
     """Archive an organization (soft delete)."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     org = await db.fetchrow("SELECT id FROM organizations WHERE id = $1", org_id)
@@ -332,7 +325,7 @@ async def org_delete(
     db=Depends(get_db),
 ):
     """Hard delete an archived organization."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     org = await db.fetchrow("SELECT id, archived_at FROM organizations WHERE id = $1", org_id)

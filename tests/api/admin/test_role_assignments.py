@@ -1,6 +1,5 @@
 """Integration tests for admin role assignments views."""
 
-import asyncio
 import os
 
 import asyncpg
@@ -156,9 +155,7 @@ def test_hard_delete_requires_archive(client, ra_id):
     assert response.status_code == 409
 
 
-def test_hard_delete_archived_ra(client, db, ra_id):
-    asyncio.get_event_loop().run_until_complete(
-        db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
-    )
+async def test_hard_delete_archived_ra(client, db, ra_id):
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
     response = client.delete(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200

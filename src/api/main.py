@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 import asyncpg
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from src.api.admin.router import admin_router
 from src.core.logging import configure_logging
@@ -31,6 +30,4 @@ app = FastAPI(title="power-map", version="0.1.0", lifespan=lifespan)
 
 app.include_router(admin_router)
 
-# Static files and templates
 app.mount("/static/admin", StaticFiles(directory="src/static/admin"), name="admin-static")
-templates = Jinja2Templates(directory="src/templates")

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from src.api.admin.deps import AdminUser, get_admin_user
 from src.api.main import app
+from tests.api.admin.conftest import AUTH_HEADERS
 
 _client = TestClient(app, raise_server_exceptions=False)
 
@@ -49,13 +50,10 @@ def test_get_admin_user_returns_user_when_headers_present():
     }
     request.url.path = "/admin/"
 
-    result = asyncio.get_event_loop().run_until_complete(get_admin_user(request))
+    result = asyncio.run(get_admin_user(request))
     assert isinstance(result, AdminUser)
     assert result.id == "usr_abc"
     assert result.email == "test@example.com"
-
-
-from tests.api.admin.conftest import AUTH_HEADERS  # noqa: E402
 
 
 def test_admin_dashboard_returns_200_when_authenticated():

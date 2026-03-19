@@ -5,18 +5,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/lookups", tags=["admin-lookups"])
-
-
-def _check_auth(user: AdminUser | RedirectResponse):
-    """Return (redirect, user) tuple. If redirect is not None, return it immediately."""
-    if isinstance(user, RedirectResponse):
-        return user, None
-    return None, user
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +24,7 @@ async def platforms_list(
     db=Depends(get_db),
 ):
     """List all platforms."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     items = await db.fetch("SELECT * FROM platforms ORDER BY display_name")
@@ -53,7 +46,7 @@ async def platform_new_form(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
 ):
     """New platform form."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     return templates.TemplateResponse(
@@ -77,7 +70,7 @@ async def platform_create(
     db=Depends(get_db),
 ):
     """Create a new platform."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     pid = generate_id()
@@ -96,7 +89,7 @@ async def platform_edit_form(
     db=Depends(get_db),
 ):
     """Edit platform form."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     item = await db.fetchrow("SELECT * FROM platforms WHERE id = $1", item_id)
@@ -124,7 +117,7 @@ async def platform_update(
     db=Depends(get_db),
 ):
     """Update a platform."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     item = await db.fetchrow("SELECT id FROM platforms WHERE id = $1", item_id)
@@ -145,7 +138,7 @@ async def platform_delete(
     db=Depends(get_db),
 ):
     """Hard delete a platform."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     try:
@@ -167,7 +160,7 @@ async def url_types_list(
     db=Depends(get_db),
 ):
     """List all URL types."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     items = await db.fetch("SELECT * FROM url_types ORDER BY display_name")
@@ -189,7 +182,7 @@ async def url_type_new_form(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
 ):
     """New URL type form."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     return templates.TemplateResponse(
@@ -213,7 +206,7 @@ async def url_type_create(
     db=Depends(get_db),
 ):
     """Create a new URL type."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     uid = generate_id()
@@ -232,7 +225,7 @@ async def url_type_edit_form(
     db=Depends(get_db),
 ):
     """Edit URL type form."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     item = await db.fetchrow("SELECT * FROM url_types WHERE id = $1", item_id)
@@ -260,7 +253,7 @@ async def url_type_update(
     db=Depends(get_db),
 ):
     """Update a URL type."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     item = await db.fetchrow("SELECT id FROM url_types WHERE id = $1", item_id)
@@ -281,7 +274,7 @@ async def url_type_delete(
     db=Depends(get_db),
 ):
     """Hard delete a URL type."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     try:
@@ -303,7 +296,7 @@ async def identifier_types_list(
     db=Depends(get_db),
 ):
     """List all entity identifier types."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     items = await db.fetch(
@@ -327,7 +320,7 @@ async def identifier_type_new_form(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
 ):
     """New identifier type form."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     return templates.TemplateResponse(
@@ -353,7 +346,7 @@ async def identifier_type_create(
     db=Depends(get_db),
 ):
     """Create a new entity identifier type."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     iid = generate_id()
@@ -374,7 +367,7 @@ async def identifier_type_edit_form(
     db=Depends(get_db),
 ):
     """Edit identifier type form."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     item = await db.fetchrow(
@@ -406,7 +399,7 @@ async def identifier_type_update(
     db=Depends(get_db),
 ):
     """Update an entity identifier type."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     item = await db.fetchrow(
@@ -431,7 +424,7 @@ async def identifier_type_delete(
     db=Depends(get_db),
 ):
     """Hard delete an entity identifier type."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     try:

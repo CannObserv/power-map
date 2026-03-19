@@ -60,9 +60,9 @@ def person_id():
         finally:
             await conn.close()
 
-    asyncio.get_event_loop().run_until_complete(setup())
+    asyncio.run(setup())
     yield pid
-    asyncio.get_event_loop().run_until_complete(teardown())
+    asyncio.run(teardown())
 
 
 def test_people_list_returns_200(client):

@@ -1,6 +1,5 @@
 """Integration tests for admin lookup table views."""
 
-import asyncio
 import os
 
 import asyncpg
@@ -76,26 +75,22 @@ def test_create_platform_redirects(client):
     assert response.status_code in (302, 303)
 
 
-def test_edit_platform_form_returns_200(client, db):
+async def test_edit_platform_form_returns_200(client, db):
     pid = generate_id()
-    asyncio.get_event_loop().run_until_complete(
-        db.execute(
-            "INSERT INTO platforms (id, display_name, slug) VALUES ($1, $2, $3)",
-            pid, "Edit Me", f"edit-me-{pid}",
-        )
+    await db.execute(
+        "INSERT INTO platforms (id, display_name, slug) VALUES ($1, $2, $3)",
+        pid, "Edit Me", f"edit-me-{pid}",
     )
     response = client.get(f"/admin/lookups/platforms/{pid}/edit/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Edit Me" in response.text
 
 
-def test_update_platform_redirects(client, db):
+async def test_update_platform_redirects(client, db):
     pid = generate_id()
-    asyncio.get_event_loop().run_until_complete(
-        db.execute(
-            "INSERT INTO platforms (id, display_name, slug) VALUES ($1, $2, $3)",
-            pid, "Update Me", f"update-me-{pid}",
-        )
+    await db.execute(
+        "INSERT INTO platforms (id, display_name, slug) VALUES ($1, $2, $3)",
+        pid, "Update Me", f"update-me-{pid}",
     )
     response = client.post(
         f"/admin/lookups/platforms/{pid}/edit/",
@@ -106,13 +101,11 @@ def test_update_platform_redirects(client, db):
     assert response.status_code in (302, 303)
 
 
-def test_delete_platform(client, db):
+async def test_delete_platform(client, db):
     pid = generate_id()
-    asyncio.get_event_loop().run_until_complete(
-        db.execute(
-            "INSERT INTO platforms (id, display_name, slug) VALUES ($1, $2, $3)",
-            pid, "Delete Me", f"delete-me-{pid}",
-        )
+    await db.execute(
+        "INSERT INTO platforms (id, display_name, slug) VALUES ($1, $2, $3)",
+        pid, "Delete Me", f"delete-me-{pid}",
     )
     response = client.delete(f"/admin/lookups/platforms/{pid}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -128,13 +121,11 @@ def test_create_url_type_redirects(client):
     assert response.status_code in (302, 303)
 
 
-def test_delete_url_type(client, db):
+async def test_delete_url_type(client, db):
     uid = generate_id()
-    asyncio.get_event_loop().run_until_complete(
-        db.execute(
-            "INSERT INTO url_types (id, display_name, slug) VALUES ($1, $2, $3)",
-            uid, "Delete URL Type", f"del-url-{uid}",
-        )
+    await db.execute(
+        "INSERT INTO url_types (id, display_name, slug) VALUES ($1, $2, $3)",
+        uid, "Delete URL Type", f"del-url-{uid}",
     )
     response = client.delete(f"/admin/lookups/url-types/{uid}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -155,16 +146,14 @@ def test_create_identifier_type_redirects(client):
     assert response.status_code in (302, 303)
 
 
-def test_delete_identifier_type(client, db):
+async def test_delete_identifier_type(client, db):
     iid = generate_id()
-    asyncio.get_event_loop().run_until_complete(
-        db.execute(
-            "INSERT INTO entity_identifier_types"
-            " (id, display_name, slug, full_name, entity_type)"
-            " VALUES ($1, $2, $3, $4, $5)",
-            iid, "Delete ID Type", f"del-id-{iid}",
-            "Delete Identifier Type Long Name", "organization",
-        )
+    await db.execute(
+        "INSERT INTO entity_identifier_types"
+        " (id, display_name, slug, full_name, entity_type)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        iid, "Delete ID Type", f"del-id-{iid}",
+        "Delete Identifier Type Long Name", "organization",
     )
     response = client.delete(
         f"/admin/lookups/identifier-types/{iid}/", headers=AUTH_HEADERS

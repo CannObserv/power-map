@@ -4,19 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/imports", tags=["admin-imports"])
 
 PAGE_SIZE = 50
-
-
-def _check_auth(user: AdminUser | RedirectResponse):
-    """Return (redirect, user) tuple. If redirect is not None, return it immediately."""
-    if isinstance(user, RedirectResponse):
-        return user, None
-    return None, user
 
 
 @router.get("/")
@@ -27,7 +20,7 @@ async def imports_list(
     db=Depends(get_db),
 ):
     """List all import batches, most recent first."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     offset = (page - 1) * PAGE_SIZE
@@ -60,7 +53,7 @@ async def import_detail(
     db=Depends(get_db),
 ):
     """Detail view for one import batch, paginated provenance rows."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     batch = await db.fetchrow("SELECT * FROM import_batches WHERE id = $1", batch_id)

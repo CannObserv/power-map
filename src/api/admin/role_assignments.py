@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -21,13 +21,6 @@ def _parse_date(value: str) -> datetime.date | None:
     if not value:
         return None
     return datetime.date.fromisoformat(value)
-
-
-def _check_auth(user: AdminUser | RedirectResponse):
-    """Return (redirect, user) tuple. If redirect is not None, return it immediately."""
-    if isinstance(user, RedirectResponse):
-        return user, None
-    return None, user
 
 
 async def _fetch_people(db):
@@ -81,7 +74,7 @@ async def ra_list(
     db=Depends(get_db),
 ):
     """List role assignments with search and status filter."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
 
@@ -147,7 +140,7 @@ async def ra_new_form(
     db=Depends(get_db),
 ):
     """New role assignment form."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
     people = await _fetch_people(db)
@@ -179,7 +172,7 @@ async def ra_create(
     db=Depends(get_db),
 ):
     """Create a new role assignment."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
 
@@ -230,7 +223,7 @@ async def ra_detail(
     db=Depends(get_db),
 ):
     """Role assignment detail view."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
 
@@ -273,7 +266,7 @@ async def ra_edit_form(
     db=Depends(get_db),
 ):
     """Edit role assignment form."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
 
@@ -314,7 +307,7 @@ async def ra_update(
     db=Depends(get_db),
 ):
     """Update a role assignment."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
 
@@ -370,7 +363,7 @@ async def ra_archive(
     db=Depends(get_db),
 ):
     """Archive a role assignment (soft delete)."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
 
@@ -392,7 +385,7 @@ async def ra_delete(
     db=Depends(get_db),
 ):
     """Hard delete an archived role assignment."""
-    redirect, user = _check_auth(user)
+    redirect, user = check_auth(user)
     if redirect:
         return redirect
 

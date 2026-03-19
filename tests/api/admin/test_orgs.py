@@ -63,9 +63,9 @@ def org_id():
         finally:
             await conn.close()
 
-    asyncio.get_event_loop().run_until_complete(setup())
+    asyncio.run(setup())
     yield oid
-    asyncio.get_event_loop().run_until_complete(teardown())
+    asyncio.run(teardown())
 
 
 def test_orgs_list_returns_200(client):
@@ -140,6 +140,6 @@ def test_hard_delete_archived_org(client, org_id):
         finally:
             await conn.close()
 
-    asyncio.get_event_loop().run_until_complete(archive())
+    asyncio.run(archive())
     response = client.delete(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200

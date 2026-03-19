@@ -4,7 +4,6 @@ Requires DATABASE_URL. Run with:
     DATABASE_URL=<dsn> uv run pytest tests/api/admin/test_roles.py -m integration -v
 """
 
-import asyncio
 import os
 
 import asyncpg
@@ -110,9 +109,7 @@ def test_hard_delete_requires_archive(client, role_id):
     assert response.status_code == 409
 
 
-def test_hard_delete_archived_role(client, db, role_id):
-    asyncio.get_event_loop().run_until_complete(
-        db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
-    )
+async def test_hard_delete_archived_role(client, db, role_id):
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
     response = client.delete(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200

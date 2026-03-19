@@ -18,6 +18,9 @@ Python ≥3.12, uv, pytest, ruff
 
 ```
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
+  admin/        — Jinja2 + HTMX admin dashboard (people, orgs, roles, role_assignments, lookups, imports)
+    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db
+    router.py   — Mounts all admin sub-routers under /admin/
 src/core/       — Shared domain logic
   db.py         — Connection pool, apply_schema, generate_id
   schema.sql    — Canonical DDL (tables, indexes, triggers, seed data); source of truth
@@ -27,6 +30,11 @@ tests/          — Mirrors src/ structure
 docs/           — Reference docs (API, COMMANDS, SKILLS)
 scripts/        — One-off operational scripts (import_cannabis_observer.py)
 ```
+
+### Admin dashboard conventions
+- Auth: exe.dev proxy injects `X-ExeDev-UserID` + `X-ExeDev-Email` headers; missing headers → redirect to `/__exe.dev/login?next=<url-encoded path+query>`
+- Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived)
+- `check_auth(user)` from `src.api.admin.deps` — call at top of every route handler; returns `(redirect_response, user)` tuple
 
 ### DB conventions
 - All PKs are ULIDs; generate with `generate_id()` from `src.core.db`
