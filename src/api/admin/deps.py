@@ -30,7 +30,7 @@ async def get_admin_user(request: Request) -> AdminUser | RedirectResponse:
     return AdminUser(id=user_id, email=email)
 
 
-def check_auth(user: "AdminUser | RedirectResponse"):
+def check_auth(user: AdminUser | RedirectResponse):
     """Return (redirect, user) tuple. Return redirect immediately if unauthenticated."""
     if isinstance(user, RedirectResponse):
         return user, None

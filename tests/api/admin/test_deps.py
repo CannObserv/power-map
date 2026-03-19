@@ -5,7 +5,9 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
-from src.api.admin.deps import AdminUser, get_admin_user
+from fastapi.responses import RedirectResponse
+
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user
 from src.api.main import app
 from tests.api.admin.conftest import AUTH_HEADERS
 
@@ -54,6 +56,27 @@ def test_get_admin_user_returns_user_when_headers_present():
     assert isinstance(result, AdminUser)
     assert result.id == "usr_abc"
     assert result.email == "test@example.com"
+
+
+def test_admin_root_redirect_preserves_query_string():
+    response = _client.get("/admin/?page=2&q=foo", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    location = response.headers["location"]
+    assert "redirect=/admin/%3Fpage%3D2%26q%3Dfoo" in location
+
+
+def test_check_auth_passes_through_user():
+    user = AdminUser(id="u1", email="a@b.com")
+    redirect, out = check_auth(user)
+    assert redirect is None
+    assert out is user
+
+
+def test_check_auth_returns_redirect():
+    r = RedirectResponse("/__exe.dev/login")
+    redirect, out = check_auth(r)
+    assert redirect is r
+    assert out is None
 
 
 def test_admin_dashboard_returns_200_when_authenticated():
