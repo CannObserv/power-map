@@ -18,6 +18,7 @@ PAGE_SIZE = 50
 async def roles_list(
     request: Request,
     q: str = "",
+    org_q: str = "",
     status: str = "active",
     page: int = 1,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
@@ -40,6 +41,10 @@ async def roles_list(
     if q:
         params.append(f"%{q}%")
         conditions.append(f"r.title ILIKE ${len(params)}")
+
+    if org_q:
+        params.append(f"%{org_q}%")
+        conditions.append(f"n.name ILIKE ${len(params)}")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]
@@ -73,6 +78,7 @@ async def roles_list(
         "active_section": "roles",
         "roles": rows,
         "q": q,
+        "org_q": org_q,
         "status": status,
         "page": page,
         "page_size": PAGE_SIZE,

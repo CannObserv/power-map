@@ -9,13 +9,17 @@
   <a href="/admin/roles/new/" class="btn btn--primary">+ Add role</a>
 </div>
 <div class="search-bar">
-  <input type="search" name="q" value="{{ q }}" placeholder="Search by title…"
-         aria-label="Search roles"
+  <input type="search" name="org_q" value="{{ org_q }}" placeholder="Search by organization…"
+         aria-label="Search by organization"
          hx-get="/admin/roles/" hx-trigger="input delay:300ms, search"
-         hx-target="#roles-table-body" hx-include="[name='status']" hx-push-url="true">
+         hx-target="#roles-table-body" hx-include="[name='q'],[name='status']" hx-push-url="true">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search by title…"
+         aria-label="Search by title"
+         hx-get="/admin/roles/" hx-trigger="input delay:300ms, search"
+         hx-target="#roles-table-body" hx-include="[name='org_q'],[name='status']" hx-push-url="true">
   <select name="status" aria-label="Filter by status"
           hx-get="/admin/roles/" hx-trigger="change"
-          hx-target="#roles-table-body" hx-include="[name='q']" hx-push-url="true">
+          hx-target="#roles-table-body" hx-include="[name='org_q'],[name='q']" hx-push-url="true">
     <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
     <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
   </select>
