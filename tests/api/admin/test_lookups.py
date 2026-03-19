@@ -70,7 +70,7 @@ def test_create_platform_redirects(client):
     response = client.post(
         "/admin/lookups/platforms/new/",
         headers=AUTH_HEADERS,
-        data={"display_name": "Test Platform", "slug": "test-platform-unique-xyz"},
+        data={"display_name": "Test Platform", "slug": f"test-platform-{generate_id()}"},
         follow_redirects=False,
     )
     assert response.status_code in (302, 303)
@@ -122,7 +122,7 @@ def test_create_url_type_redirects(client):
     response = client.post(
         "/admin/lookups/url-types/new/",
         headers=AUTH_HEADERS,
-        data={"display_name": "Test URL Type", "slug": "test-url-type-unique-xyz"},
+        data={"display_name": "Test URL Type", "slug": f"test-url-type-{generate_id()}"},
         follow_redirects=False,
     )
     assert response.status_code in (302, 303)
@@ -146,7 +146,7 @@ def test_create_identifier_type_redirects(client):
         headers=AUTH_HEADERS,
         data={
             "display_name": "Test ID Type",
-            "slug": "test-id-type-unique-xyz",
+            "slug": f"test-id-type-{generate_id()}",
             "full_name": "Test Identifier Type Full Name",
             "entity_type": "organization",
         },
