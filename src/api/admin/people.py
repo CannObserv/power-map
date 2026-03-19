@@ -65,20 +65,22 @@ async def people_list(
         *list_params,
     )
 
-    return templates.TemplateResponse(
-        request,
-        "admin/people/list.html",
-        {
-            "user": user,
-            "active_section": "people",
-            "people": rows,
-            "q": q,
-            "status": status,
-            "page": page,
-            "page_size": PAGE_SIZE,
-            "total": count,
-        },
+    ctx = {
+        "user": user,
+        "active_section": "people",
+        "people": rows,
+        "q": q,
+        "status": status,
+        "page": page,
+        "page_size": PAGE_SIZE,
+        "total": count,
+    }
+    template = (
+        "admin/people/_rows.html"
+        if request.headers.get("HX-Request")
+        else "admin/people/list.html"
     )
+    return templates.TemplateResponse(request, template, ctx)
 
 
 @router.get("/new/")

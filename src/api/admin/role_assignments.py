@@ -117,20 +117,22 @@ async def ra_list(
         *list_params,
     )
 
-    return templates.TemplateResponse(
-        request,
-        "admin/role_assignments/list.html",
-        {
-            "user": user,
-            "active_section": "role_assignments",
-            "assignments": rows,
-            "q": q,
-            "status": status,
-            "page": page,
-            "page_size": PAGE_SIZE,
-            "total": count,
-        },
+    ctx = {
+        "user": user,
+        "active_section": "role_assignments",
+        "assignments": rows,
+        "q": q,
+        "status": status,
+        "page": page,
+        "page_size": PAGE_SIZE,
+        "total": count,
+    }
+    template = (
+        "admin/role_assignments/_rows.html"
+        if request.headers.get("HX-Request")
+        else "admin/role_assignments/list.html"
     )
+    return templates.TemplateResponse(request, template, ctx)
 
 
 @router.get("/new/")

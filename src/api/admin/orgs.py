@@ -67,20 +67,22 @@ async def orgs_list(
         *list_params,
     )
 
-    return templates.TemplateResponse(
-        request,
-        "admin/orgs/list.html",
-        {
-            "user": user,
-            "active_section": "orgs",
-            "orgs": rows,
-            "q": q,
-            "status": status,
-            "page": page,
-            "page_size": PAGE_SIZE,
-            "total": count,
-        },
+    ctx = {
+        "user": user,
+        "active_section": "orgs",
+        "orgs": rows,
+        "q": q,
+        "status": status,
+        "page": page,
+        "page_size": PAGE_SIZE,
+        "total": count,
+    }
+    template = (
+        "admin/orgs/_rows.html"
+        if request.headers.get("HX-Request")
+        else "admin/orgs/list.html"
     )
+    return templates.TemplateResponse(request, template, ctx)
 
 
 @router.get("/new/")

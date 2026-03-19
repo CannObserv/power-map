@@ -68,20 +68,22 @@ async def roles_list(
         *list_params,
     )
 
-    return templates.TemplateResponse(
-        request,
-        "admin/roles/list.html",
-        {
-            "user": user,
-            "active_section": "roles",
-            "roles": rows,
-            "q": q,
-            "status": status,
-            "page": page,
-            "page_size": PAGE_SIZE,
-            "total": count,
-        },
+    ctx = {
+        "user": user,
+        "active_section": "roles",
+        "roles": rows,
+        "q": q,
+        "status": status,
+        "page": page,
+        "page_size": PAGE_SIZE,
+        "total": count,
+    }
+    template = (
+        "admin/roles/_rows.html"
+        if request.headers.get("HX-Request")
+        else "admin/roles/list.html"
     )
+    return templates.TemplateResponse(request, template, ctx)
 
 
 @router.get("/new/")
