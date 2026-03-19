@@ -53,3 +53,12 @@ def test_get_admin_user_returns_user_when_headers_present():
     assert isinstance(result, AdminUser)
     assert result.id == "usr_abc"
     assert result.email == "test@example.com"
+
+
+from tests.api.admin.conftest import AUTH_HEADERS  # noqa: E402
+
+
+def test_admin_dashboard_returns_200_when_authenticated():
+    response = _client.get("/admin/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "power-map admin" in response.text.lower()
