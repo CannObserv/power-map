@@ -1,0 +1,110 @@
+{% extends "admin/base.html" %}
+{% block title %}Import Batch {{ batch.id[:8] }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/imports/">Import History</a><span class="breadcrumb__sep">›</span>
+  <span>{{ batch.id[:8] }}…</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Import Batch</h1>
+</div>
+
+<div class="entity-card">
+  <dl class="detail-grid">
+    <dt>ID</dt><dd><code>{{ batch.id }}</code></dd>
+    <dt>Source File</dt><dd>{{ batch.source_file }}</dd>
+    <dt>File Hash</dt><dd><code>{{ batch.file_hash }}</code></dd>
+    <dt>Rows</dt><dd>{{ batch.row_count }}</dd>
+    <dt>Loaded</dt><dd>{{ batch.loaded_count }}</dd>
+    <dt>Errors</dt>
+    <dd>
+      {% if batch.error_count > 0 %}
+        <span class="badge badge--archived">{{ batch.error_count }}</span>
+      {% else %}
+        0
+      {% endif %}
+    </dd>
+    {% if batch.imported_by %}
+    <dt>Imported By</dt><dd>{{ batch.imported_by }}</dd>
+    {% endif %}
+    <dt>Imported At</dt><dd>{{ batch.imported_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
+    {% if batch.notes %}
+    <dt>Notes</dt><dd>{{ batch.notes }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+<section class="entity-section">
+  <h2>Provenance Records — {{ total }} row{{ 's' if total != 1 else '' }}</h2>
+  <div class="table-wrapper">
+    <table class="data-table"
+           id="provenance-table"
+           hx-get="/admin/imports/{{ batch.id }}/?page={{ page }}"
+           hx-trigger="load delay:0ms"
+           hx-swap="none">
+      <thead>
+        <tr>
+          <th scope="col">Row</th>
+          <th scope="col">Entity Type</th>
+          <th scope="col">Entity ID</th>
+          <th scope="col">Action</th>
+          <th scope="col">Raw Data</th>
+          <th scope="col">Error Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in provenance %}
+        <tr>
+          <td>{{ row.source_row }}</td>
+          <td>{{ row.entity_type }}</td>
+          <td><code>{{ row.entity_id[:8] }}…</code></td>
+          <td>
+            {% if row.action == 'created' %}
+              <span class="badge badge--active">created</span>
+            {% elif row.action == 'matched' %}
+              <span class="badge">matched</span>
+            {% elif row.action == 'skipped' %}
+              <span class="badge badge--inactive">skipped</span>
+            {% elif row.action == 'error' %}
+              <span class="badge badge--archived">error</span>
+            {% else %}
+              {{ row.action }}
+            {% endif %}
+          </td>
+          <td>
+            <details>
+              <summary>View</summary>
+              <pre style="max-width:40ch;overflow:auto;font-size:0.75rem">{{ row.raw_data }}</pre>
+            </details>
+          </td>
+          <td>
+            {% if row.error_detail %}
+            <details>
+              <summary>Error</summary>
+              <pre style="max-width:40ch;overflow:auto;font-size:0.75rem">{{ row.error_detail }}</pre>
+            </details>
+            {% else %}
+            —
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No provenance records</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if total > page_size %}
+  <nav class="pagination" aria-label="Pagination">
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}" class="btn btn--ghost btn--sm">← Previous</a>
+    {% endif %}
+    <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+    {% if page * page_size < total %}
+    <a href="?page={{ page + 1 }}" class="btn btn--ghost btn--sm">Next →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endblock %}

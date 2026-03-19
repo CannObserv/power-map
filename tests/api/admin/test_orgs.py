@@ -1,0 +1,145 @@
+"""Integration tests for admin organizations views."""
+
+import asyncio
+import os
+
+import asyncpg
+import pytest
+from fastapi.testclient import TestClient
+
+from src.api.main import app
+from src.core.db import apply_schema, generate_id
+
+pytestmark = pytest.mark.integration
+
+AUTH_HEADERS = {
+    "X-ExeDev-UserID": "usr_test",
+    "X-ExeDev-Email": "admin@test.com",
+}
+
+
+def _get_dsn() -> str:
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn:
+        pytest.skip("DATABASE_URL not set")
+    return dsn
+
+
+async def _aconnect(dsn: str) -> asyncpg.Connection:
+    conn = await asyncpg.connect(dsn)
+    await apply_schema(conn)
+    return conn
+
+
+@pytest.fixture
+def client():
+    with TestClient(app) as c:
+        yield c
+
+
+@pytest.fixture
+def org_id():
+    """Insert an org, yield its ID, then delete it."""
+    dsn = _get_dsn()
+    oid = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Test Org', TRUE)",
+                generate_id(), oid,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.get_event_loop().run_until_complete(setup())
+    yield oid
+    asyncio.get_event_loop().run_until_complete(teardown())
+
+
+def test_orgs_list_returns_200(client):
+    response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "organizations" in response.text.lower()
+
+
+def test_orgs_list_redirects_unauthenticated(client):
+    response = client.get("/admin/orgs/", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert "/__exe.dev/login" in response.headers["location"]
+
+
+def test_org_detail_returns_200(client, org_id):
+    response = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Org" in response.text
+
+
+def test_org_detail_404_for_unknown_id(client):
+    response = client.get(f"/admin/orgs/{generate_id()}/", headers=AUTH_HEADERS)
+    assert response.status_code == 404
+
+
+def test_create_org_form_returns_200(client):
+    response = client.get("/admin/orgs/new/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "form" in response.text.lower()
+
+
+def test_create_org_post_redirects_on_success(client):
+    response = client.post(
+        "/admin/orgs/new/",
+        headers=AUTH_HEADERS,
+        data={"name": "Test Create Org", "active": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert "/admin/orgs/" in response.headers["location"]
+
+
+def test_edit_org_form_returns_200(client, org_id):
+    response = client.get(f"/admin/orgs/{org_id}/edit/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Org" in response.text
+
+
+def test_archive_org(client, org_id):
+    response = client.post(
+        f"/admin/orgs/{org_id}/archive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+
+
+def test_hard_delete_requires_archive_first(client, org_id):
+    response = client.delete(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 409
+
+
+def test_hard_delete_archived_org(client, org_id):
+    dsn = _get_dsn()
+
+    async def archive():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute(
+                "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
+            )
+        finally:
+            await conn.close()
+
+    asyncio.get_event_loop().run_until_complete(archive())
+    response = client.delete(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200

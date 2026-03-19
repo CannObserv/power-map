@@ -1,0 +1,90 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ role.title or role.id }} — Role{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/roles/">Roles</a><span class="breadcrumb__sep">›</span>
+  <span>{{ role.title or role.id }}</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ role.title or '(untitled)' }}</h1>
+  <a href="/admin/roles/{{ role.id }}/edit/" class="btn btn--primary">Edit</a>
+</div>
+
+<div class="entity-card">
+  <dl class="detail-grid">
+    <dt>ID</dt><dd><code>{{ role.id }}</code></dd>
+    <dt>Organization</dt>
+    <dd>
+      {% if role.org_id %}
+      <a href="/admin/orgs/{{ role.org_id }}/">{{ role.org_name or '(unnamed)' }}</a>
+      {% else %}—{% endif %}
+    </dd>
+    <dt>Title</dt><dd>{{ role.title or '—' }}</dd>
+    {% if role.notes %}
+    <dt>Notes</dt><dd>{{ role.notes }}</dd>
+    {% endif %}
+    <dt>Status</dt>
+    <dd>
+      {% if role.archived_at %}<span class="badge badge--archived">Archived</span>
+      {% else %}<span class="badge badge--active">Active</span>{% endif %}
+    </dd>
+    <dt>Created</dt><dd>{{ role.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
+    <dt>Updated</dt><dd>{{ role.updated_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
+    {% if role.archived_at %}
+    <dt>Archived</dt><dd>{{ role.archived_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
+    {% endif %}
+  </dl>
+</div>
+
+<section class="entity-section">
+  <h2>Assignment History</h2>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">Person</th>
+          <th scope="col">Start</th>
+          <th scope="col">End</th>
+          <th scope="col">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ra in assignments %}
+        <tr>
+          <td><a href="/admin/people/{{ ra.person_id }}/">{{ ra.person_name or '(unnamed)' }}</a></td>
+          <td>{{ ra.start_date or '—' }}</td>
+          <td>{{ ra.end_date or '—' }}</td>
+          <td>
+            {% if ra.archived_at %}<span class="badge badge--archived">Archived</span>
+            {% elif ra.is_current %}<span class="badge badge--active">Current</span>
+            {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No assignments</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="danger-zone">
+  <h2>Danger Zone</h2>
+  {% if not role.archived_at %}
+  <p>Archiving hides this role from active views but preserves all data.</p>
+  <form method="POST" action="/admin/roles/{{ role.id }}/archive/">
+    <button type="submit" class="btn btn--danger">Archive role</button>
+  </form>
+  {% else %}
+  <p>This role is archived. You may permanently delete it — this cannot be undone.</p>
+  <button class="btn btn--danger"
+          hx-delete="/admin/roles/{{ role.id }}/"
+          hx-confirm="Permanently delete this role? This cannot be undone."
+          hx-target="body"
+          hx-push-url="/admin/roles/">
+    Delete permanently
+  </button>
+  {% endif %}
+</div>
+{% endblock %}

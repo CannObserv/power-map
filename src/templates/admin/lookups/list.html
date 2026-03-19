@@ -1,0 +1,69 @@
+{% extends "admin/base.html" %}
+{% if kind == "platforms" %}
+  {% set title = "Platforms" %}
+  {% set new_url = "/admin/lookups/platforms/new/" %}
+  {% set edit_base = "/admin/lookups/platforms/" %}
+  {% set delete_base = "/admin/lookups/platforms/" %}
+{% elif kind == "url_types" %}
+  {% set title = "URL Types" %}
+  {% set new_url = "/admin/lookups/url-types/new/" %}
+  {% set edit_base = "/admin/lookups/url-types/" %}
+  {% set delete_base = "/admin/lookups/url-types/" %}
+{% else %}
+  {% set title = "Identifier Types" %}
+  {% set new_url = "/admin/lookups/identifier-types/new/" %}
+  {% set edit_base = "/admin/lookups/identifier-types/" %}
+  {% set delete_base = "/admin/lookups/identifier-types/" %}
+{% endif %}
+{% block title %}{{ title }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span><span>{{ title }}</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ title }}</h1>
+  <a href="{{ new_url }}" class="btn btn--primary">+ Add</a>
+</div>
+<div class="table-wrapper">
+  <table class="data-table">
+    <caption>{{ title }} — {{ items | length }} record{{ 's' if items | length != 1 else '' }}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Display Name</th>
+        {% if kind == "identifier_types" %}
+        <th scope="col">Full Name</th>
+        <th scope="col">Entity Type</th>
+        {% endif %}
+        <th scope="col">Slug</th>
+        <th scope="col">Created</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr id="row-{{ item.id }}">
+        <td>{{ item.display_name }}</td>
+        {% if kind == "identifier_types" %}
+        <td>{{ item.full_name or '—' }}</td>
+        <td>{{ item.entity_type }}</td>
+        {% endif %}
+        <td>{{ item.slug or '—' }}</td>
+        <td>{{ item.created_at.strftime('%Y-%m-%d') if item.created_at else '—' }}</td>
+        <td class="actions">
+          <a href="{{ edit_base }}{{ item.id }}/edit/" class="btn btn--sm btn--ghost">Edit</a>
+          <button class="btn btn--sm btn--danger"
+                  hx-delete="{{ delete_base }}{{ item.id }}/"
+                  hx-target="#row-{{ item.id }}"
+                  hx-swap="outerHTML"
+                  hx-confirm="Delete '{{ item.display_name }}'? This cannot be undone.">
+            Delete
+          </button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="{% if kind == 'identifier_types' %}6{% else %}4{% endif %}">No records found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

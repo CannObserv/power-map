@@ -1,0 +1,64 @@
+"""Tests for admin auth dependency."""
+
+import asyncio
+from unittest.mock import MagicMock
+
+from fastapi.testclient import TestClient
+
+from src.api.admin.deps import AdminUser, get_admin_user
+from src.api.main import app
+
+_client = TestClient(app, raise_server_exceptions=False)
+
+
+def test_admin_root_redirects_when_unauthenticated():
+    """GET /admin/ without exe.dev headers must redirect to login."""
+    response = _client.get("/admin/", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert "/__exe.dev/login" in response.headers["location"]
+
+
+def test_admin_root_redirects_when_only_user_id_present():
+    response = _client.get(
+        "/admin/", headers={"X-ExeDev-UserID": "usr123"}, follow_redirects=False
+    )
+    assert response.status_code in (302, 307)
+    assert "/__exe.dev/login" in response.headers["location"]
+
+
+def test_admin_root_redirects_when_only_email_present():
+    response = _client.get(
+        "/admin/", headers={"X-ExeDev-Email": "a@b.com"}, follow_redirects=False
+    )
+    assert response.status_code in (302, 307)
+    assert "/__exe.dev/login" in response.headers["location"]
+
+
+def test_admin_user_dataclass():
+    user = AdminUser(id="usr123", email="a@b.com")
+    assert user.id == "usr123"
+    assert user.email == "a@b.com"
+
+
+def test_get_admin_user_returns_user_when_headers_present():
+    """get_admin_user must extract headers into AdminUser."""
+    request = MagicMock()
+    request.headers = {
+        "X-ExeDev-UserID": "usr_abc",
+        "X-ExeDev-Email": "test@example.com",
+    }
+    request.url.path = "/admin/"
+
+    result = asyncio.get_event_loop().run_until_complete(get_admin_user(request))
+    assert isinstance(result, AdminUser)
+    assert result.id == "usr_abc"
+    assert result.email == "test@example.com"
+
+
+from tests.api.admin.conftest import AUTH_HEADERS  # noqa: E402
+
+
+def test_admin_dashboard_returns_200_when_authenticated():
+    response = _client.get("/admin/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "power-map admin" in response.text.lower()

@@ -1,0 +1,20 @@
+{% for ra in assignments %}
+<tr class="{% if ra.archived_at %}is-archived{% endif %}">
+  <td>
+    <a href="/admin/role-assignments/{{ ra.id }}/">
+      {{ ra.person_name or '(unnamed)' }} @ {{ ra.role_title }} ({{ ra.org_name or '(unnamed)' }})
+    </a>
+  </td>
+  <td>
+    {% if ra.archived_at %}<span class="badge badge--archived">Archived</span>
+    {% elif ra.is_current %}<span class="badge badge--active">Current</span>
+    {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
+  </td>
+  <td>{{ ra.start_date or '—' }}</td>
+  <td>{{ ra.end_date or '—' }}</td>
+  <td>{{ ra.created_at.strftime('%Y-%m-%d') }}</td>
+  <td><a href="/admin/role-assignments/{{ ra.id }}/edit/" class="btn btn--ghost btn--sm">Edit</a></td>
+</tr>
+{% else %}
+<tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
+{% endfor %}

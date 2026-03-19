@@ -847,3 +847,62 @@ async def test_field_confidence_invalid_validation_status_rejected(db):
                 # "bogus" not in ('confirmed', 'unconfirmed', 'failed', 'not_attempted')
                 "abc123", 0.8, "bogus",
             )
+
+
+# ---------------------------------------------------------------------------
+# archived_at columns
+# ---------------------------------------------------------------------------
+
+
+async def test_organizations_has_archived_at(db):
+    """organizations.archived_at column must exist and be nullable."""
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
+    )
+    row = await db.fetchrow(
+        "SELECT archived_at FROM organizations WHERE id = $1", org_id
+    )
+    assert row["archived_at"] is not None
+
+
+async def test_people_has_archived_at(db):
+    person_id = await _person(db)
+    await db.execute(
+        "UPDATE people SET archived_at = NOW() WHERE id = $1", person_id
+    )
+    row = await db.fetchrow(
+        "SELECT archived_at FROM people WHERE id = $1", person_id
+    )
+    assert row["archived_at"] is not None
+
+
+async def test_roles_has_archived_at(db):
+    org_id = await _org(db)
+    role_id = await _role(db, org_id)
+    await db.execute(
+        "UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id
+    )
+    row = await db.fetchrow(
+        "SELECT archived_at FROM roles WHERE id = $1", role_id
+    )
+    assert row["archived_at"] is not None
+
+
+async def test_role_assignments_has_archived_at(db):
+    org_id = await _org(db)
+    person_id = await _person(db)
+    role_id = await _role(db, org_id)
+    ra_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
+        ra_id, person_id, role_id,
+    )
+    await db.execute(
+        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
+    )
+    row = await db.fetchrow(
+        "SELECT archived_at FROM role_assignments WHERE id = $1", ra_id
+    )
+    assert row["archived_at"] is not None

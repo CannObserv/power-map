@@ -71,13 +71,14 @@ CREATE INDEX IF NOT EXISTS idx_entity_addresses_entity
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS organizations (
-    id         TEXT        PRIMARY KEY,
-    active     BOOLEAN     NOT NULL DEFAULT TRUE,
-    parent_id  TEXT        REFERENCES organizations(id),
+    id          TEXT        PRIMARY KEY,
+    active      BOOLEAN     NOT NULL DEFAULT TRUE,
+    parent_id   TEXT        REFERENCES organizations(id),
     CONSTRAINT chk_no_self_parent CHECK (id <> parent_id),
-    notes      TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    notes       TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at TIMESTAMPTZ
 );
 
 -- One row per name variant; exactly one row per (org, name_type) may have is_canonical = TRUE
@@ -100,7 +101,8 @@ CREATE TABLE IF NOT EXISTS people (
     personal_pronouns TEXT,
     notes             TEXT,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at       TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS person_names (
@@ -124,7 +126,8 @@ CREATE TABLE IF NOT EXISTS roles (
     title           TEXT        NOT NULL,
     notes           TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at     TIMESTAMPTZ
 );
 
 -- Role assignment = person occupying a role during a time window
@@ -142,9 +145,10 @@ CREATE TABLE IF NOT EXISTS role_assignments (
 
     -- Email, phone → contact_methods; profile URL → urls (url_type = 'profile')
 
-    notes      TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    notes       TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at TIMESTAMPTZ
 );
 
 -- Prevent a person from being listed as current in the same role twice
@@ -213,6 +217,46 @@ CREATE TABLE IF NOT EXISTS identifiers (
 
 CREATE INDEX IF NOT EXISTS idx_identifiers_entity
     ON identifiers(entity_identifier_type_id, entity_id);
+
+-- =============================================================================
+-- Schema evolution: archived_at columns
+-- =============================================================================
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='organizations' AND column_name='archived_at'
+    ) THEN
+        ALTER TABLE organizations ADD COLUMN archived_at TIMESTAMPTZ;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='people' AND column_name='archived_at'
+    ) THEN
+        ALTER TABLE people ADD COLUMN archived_at TIMESTAMPTZ;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='roles' AND column_name='archived_at'
+    ) THEN
+        ALTER TABLE roles ADD COLUMN archived_at TIMESTAMPTZ;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='role_assignments' AND column_name='archived_at'
+    ) THEN
+        ALTER TABLE role_assignments ADD COLUMN archived_at TIMESTAMPTZ;
+    END IF;
+END $$;
 
 -- =============================================================================
 -- Organization Hierarchy Cycle Prevention
