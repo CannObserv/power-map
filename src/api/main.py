@@ -31,3 +31,4 @@ app = FastAPI(title="power-map", version="0.1.0", lifespan=lifespan)
 app.include_router(admin_router)
 
 app.mount("/static/admin", StaticFiles(directory="src/static/admin"), name="admin-static")
+app.mount("/static/images", StaticFiles(directory="src/static/images"), name="static-images")
