@@ -1,0 +1,67 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ ra.person_name or ra.id }} @ {{ ra.role_title }} — Assignment{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/role-assignments/">Role Assignments</a><span class="breadcrumb__sep">›</span>
+  <span>{{ ra.person_name or ra.id }}</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ ra.person_name or '(unnamed)' }} @ {{ ra.role_title }} ({{ ra.org_name or '(unnamed)' }})</h1>
+  <a href="/admin/role-assignments/{{ ra.id }}/edit/" class="btn btn--primary">Edit</a>
+</div>
+
+<div class="entity-card">
+  <dl class="detail-grid">
+    <dt>ID</dt><dd><code>{{ ra.id }}</code></dd>
+    <dt>Person</dt>
+    <dd>
+      {% if ra.person_id %}
+      <a href="/admin/people/{{ ra.person_id }}/">{{ ra.person_name or '(unnamed)' }}</a>
+      {% else %}—{% endif %}
+    </dd>
+    <dt>Role</dt>
+    <dd>
+      {% if ra.role_id %}
+      <a href="/admin/roles/{{ ra.role_id }}/">{{ ra.role_title }}</a>
+      at
+      <a href="/admin/orgs/{{ ra.org_id }}/">{{ ra.org_name or '(unnamed)' }}</a>
+      {% else %}—{% endif %}
+    </dd>
+    <dt>Status</dt>
+    <dd>
+      {% if ra.archived_at %}<span class="badge badge--archived">Archived</span>
+      {% elif ra.is_current %}<span class="badge badge--active">Current</span>
+      {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
+    </dd>
+    <dt>Start date</dt><dd>{{ ra.start_date or '—' }}</dd>
+    <dt>End date</dt><dd>{{ ra.end_date or '—' }}</dd>
+    {% if ra.notes %}
+    <dt>Notes</dt><dd>{{ ra.notes }}</dd>
+    {% endif %}
+    <dt>Created</dt><dd>{{ ra.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
+    {% if ra.archived_at %}
+    <dt>Archived</dt><dd>{{ ra.archived_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
+    {% endif %}
+  </dl>
+</div>
+
+<div class="danger-zone">
+  <h2>Danger Zone</h2>
+  {% if not ra.archived_at %}
+  <p>Archiving hides this assignment from active views but preserves all data.</p>
+  <form method="POST" action="/admin/role-assignments/{{ ra.id }}/archive/">
+    <button type="submit" class="btn btn--danger">Archive assignment</button>
+  </form>
+  {% else %}
+  <p>This assignment is archived. You may permanently delete it — this cannot be undone.</p>
+  <button class="btn btn--danger"
+          hx-delete="/admin/role-assignments/{{ ra.id }}/"
+          hx-confirm="Permanently delete this assignment? This cannot be undone."
+          hx-target="body"
+          hx-push-url="/admin/role-assignments/">
+    Delete permanently
+  </button>
+  {% endif %}
+</div>
+{% endblock %}
