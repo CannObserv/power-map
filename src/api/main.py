@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 
 import asyncpg
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.router import admin_router
