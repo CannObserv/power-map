@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% block title %}Roles{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span><span>Roles</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Roles</h1>
+  <a href="/admin/roles/new/" class="btn btn--primary">+ Add role</a>
+</div>
+<div class="search-bar">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search by title…"
+         aria-label="Search roles"
+         hx-get="/admin/roles/" hx-trigger="input delay:300ms, search"
+         hx-target="#roles-table-body" hx-include="[name='status']" hx-push-url="true">
+  <select name="status" aria-label="Filter by status"
+          hx-get="/admin/roles/" hx-trigger="change"
+          hx-target="#roles-table-body" hx-include="[name='q']" hx-push-url="true">
+    <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
+    <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
+  </select>
+</div>
+<div class="table-wrapper">
+  <table class="data-table" id="roles-table">
+    <caption>Roles — {{ total }} record{{ 's' if total != 1 else '' }}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Title</th><th scope="col">Organization</th>
+        <th scope="col">Status</th><th scope="col">Created</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody id="roles-table-body">{% include "admin/roles/_rows.html" %}</tbody>
+  </table>
+</div>
+{% endblock %}

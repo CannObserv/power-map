@@ -1,0 +1,18 @@
+{% for role in roles %}
+<tr class="{% if role.archived_at %}is-archived{% endif %}">
+  <td><a href="/admin/roles/{{ role.id }}/">{{ role.title or '(untitled)' }}</a></td>
+  <td>
+    {% if role.org_id %}
+    <a href="/admin/orgs/{{ role.org_id }}/">{{ role.org_name or '(unnamed)' }}</a>
+    {% else %}—{% endif %}
+  </td>
+  <td>
+    {% if role.archived_at %}<span class="badge badge--archived">Archived</span>
+    {% else %}<span class="badge badge--active">Active</span>{% endif %}
+  </td>
+  <td>{{ role.created_at.strftime('%Y-%m-%d') }}</td>
+  <td><a href="/admin/roles/{{ role.id }}/edit/" class="btn btn--ghost btn--sm">Edit</a></td>
+</tr>
+{% else %}
+<tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
+{% endfor %}
