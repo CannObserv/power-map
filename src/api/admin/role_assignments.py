@@ -129,7 +129,7 @@ async def ra_list(
     }
     template = (
         "admin/role_assignments/_rows.html"
-        if request.headers.get("HX-Request")
+        if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
         else "admin/role_assignments/list.html"
     )
     return templates.TemplateResponse(request, template, ctx)

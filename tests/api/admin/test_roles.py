@@ -144,3 +144,23 @@ def test_roles_list_title_and_org_nonmatching_combo(client, role_id):
     response = client.get("/admin/roles/?q=Test&org_q=NoSuchOrg", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Role" not in response.text
+
+
+def test_roles_list_htmx_boost_returns_full_page(client):
+    """Boosted navigation must return the full page layout, not a bare rows partial."""
+    response = client.get(
+        "/admin/roles/",
+        headers={**AUTH_HEADERS, "HX-Request": "true", "HX-Boosted": "true"},
+    )
+    assert response.status_code == 200
+    assert "admin-layout" in response.text
+
+
+def test_roles_list_htmx_request_returns_rows_partial(client):
+    """Non-boosted HTMX request (filter/pagination) must return the rows partial only."""
+    response = client.get(
+        "/admin/roles/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert "admin-layout" not in response.text

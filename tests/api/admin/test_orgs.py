@@ -533,6 +533,26 @@ def test_edit_org_update_existing_acronym(client):
         asyncio.run(teardown())
 
 
+def test_orgs_list_htmx_boost_returns_full_page(client):
+    """Boosted navigation must return the full page layout, not a bare rows partial."""
+    response = client.get(
+        "/admin/orgs/",
+        headers={**AUTH_HEADERS, "HX-Request": "true", "HX-Boosted": "true"},
+    )
+    assert response.status_code == 200
+    assert "admin-layout" in response.text
+
+
+def test_orgs_list_htmx_request_returns_rows_partial(client):
+    """Non-boosted HTMX request (filter/pagination) must return the rows partial only."""
+    response = client.get(
+        "/admin/orgs/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert "admin-layout" not in response.text
+
+
 def test_edit_org_clear_acronym(client):
     """Posting an empty acronym must delete the canonical acronym row."""
     dsn = _get_dsn()

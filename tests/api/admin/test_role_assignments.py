@@ -208,3 +208,23 @@ async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
             "DELETE FROM organization_acronyms WHERE organization_id = $1",
             org_id,
         )
+
+
+def test_ra_list_htmx_boost_returns_full_page(client):
+    """Boosted navigation must return the full page layout, not a bare rows partial."""
+    response = client.get(
+        "/admin/role-assignments/",
+        headers={**AUTH_HEADERS, "HX-Request": "true", "HX-Boosted": "true"},
+    )
+    assert response.status_code == 200
+    assert "admin-layout" in response.text
+
+
+def test_ra_list_htmx_request_returns_rows_partial(client):
+    """Non-boosted HTMX request (filter/pagination) must return the rows partial only."""
+    response = client.get(
+        "/admin/role-assignments/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert "admin-layout" not in response.text

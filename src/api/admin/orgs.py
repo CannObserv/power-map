@@ -77,7 +77,7 @@ async def orgs_list(
     }
     template = (
         "admin/orgs/_rows.html"
-        if request.headers.get("HX-Request")
+        if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
         else "admin/orgs/list.html"
     )
     return templates.TemplateResponse(request, template, ctx)

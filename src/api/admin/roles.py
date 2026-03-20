@@ -94,7 +94,7 @@ async def roles_list(
     }
     template = (
         "admin/roles/_rows.html"
-        if request.headers.get("HX-Request")
+        if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
         else "admin/roles/list.html"
     )
     return templates.TemplateResponse(request, template, ctx)

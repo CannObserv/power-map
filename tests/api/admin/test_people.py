@@ -129,3 +129,23 @@ def test_hard_delete_archived_person(client, person_id):
     client.post(f"/admin/people/{person_id}/archive/", headers=AUTH_HEADERS, follow_redirects=False)
     response = client.delete(f"/admin/people/{person_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
+
+
+def test_people_list_htmx_boost_returns_full_page(client):
+    """Boosted navigation must return the full page layout, not a bare rows partial."""
+    response = client.get(
+        "/admin/people/",
+        headers={**AUTH_HEADERS, "HX-Request": "true", "HX-Boosted": "true"},
+    )
+    assert response.status_code == 200
+    assert "admin-layout" in response.text
+
+
+def test_people_list_htmx_request_returns_rows_partial(client):
+    """Non-boosted HTMX request (filter/pagination) must return the rows partial only."""
+    response = client.get(
+        "/admin/people/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert "admin-layout" not in response.text

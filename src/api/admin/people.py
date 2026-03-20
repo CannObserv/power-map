@@ -77,7 +77,7 @@ async def people_list(
     }
     template = (
         "admin/people/_rows.html"
-        if request.headers.get("HX-Request")
+        if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
         else "admin/people/list.html"
     )
     return templates.TemplateResponse(request, template, ctx)
