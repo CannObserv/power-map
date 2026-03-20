@@ -159,3 +159,40 @@ async def test_hard_delete_archived_ra(client, db, ra_id):
     await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
     response = client.delete(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
+
+
+async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
+    client, db, org_id, person_id, role_id
+):
+    """List must show 'Name (Acronym)' and no duplicate rows.
+
+    Validates that both _LIST_SELECT (SELECT clause) and the ra_list WHERE condition
+    use the correct dn.display_name alias after the refactor.
+    """
+    await db.execute(
+        "INSERT INTO organization_names"
+        " (id, organization_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, 'TO', 'acronym', TRUE)",
+        generate_id(), org_id,
+    )
+    ra_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, FALSE)",
+        ra_id, person_id, role_id,
+    )
+    try:
+        response = client.get(
+            "/admin/role-assignments/?q=Test+Org", headers=AUTH_HEADERS
+        )
+        assert response.status_code == 200
+        assert "Test Org (TO)" in response.text
+        assert response.text.count(f'href="/admin/role-assignments/{ra_id}/"') == 1, \
+            "assignment must appear exactly once"
+    finally:
+        await db.execute("DELETE FROM role_assignments WHERE id = $1", ra_id)
+        await db.execute(
+            "DELETE FROM organization_names"
+            " WHERE organization_id = $1 AND name_type = 'acronym'",
+            org_id,
+        )

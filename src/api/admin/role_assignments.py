@@ -37,12 +37,12 @@ async def _fetch_people(db):
 async def _fetch_roles(db):
     """Fetch active roles for select options."""
     return await db.fetch(
-        """SELECT r.id, r.title, n.name AS org_name
+        """SELECT r.id, r.title, dn.display_name AS org_name
            FROM roles r
            JOIN organizations o ON o.id = r.organization_id
-           LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
            WHERE r.archived_at IS NULL
-           ORDER BY n.name NULLS LAST, r.title"""
+           ORDER BY dn.display_name NULLS LAST, r.title"""
     )
 
 
@@ -52,13 +52,13 @@ _LIST_SELECT = """
            pn.name AS person_name,
            r.id AS role_id, r.title AS role_title,
            o.id AS org_id,
-           n.name AS org_name
+           dn.display_name AS org_name
     FROM role_assignments ra
     JOIN people p ON p.id = ra.person_id
     LEFT JOIN person_names pn ON pn.person_id = p.id AND pn.is_canonical = TRUE
     JOIN roles r ON r.id = ra.role_id
     JOIN organizations o ON o.id = r.organization_id
-    LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
+    LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
 """
 
 _LIST_ORDER = "ORDER BY ra.is_current DESC, pn.name NULLS LAST, ra.start_date DESC NULLS LAST"
@@ -91,7 +91,7 @@ async def ra_list(
         params.append(f"%{q}%")
         idx = len(params)
         conditions.append(
-            f"(pn.name ILIKE ${idx} OR r.title ILIKE ${idx} OR n.name ILIKE ${idx})"
+            f"(pn.name ILIKE ${idx} OR r.title ILIKE ${idx} OR dn.display_name ILIKE ${idx})"
         )
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
@@ -105,7 +105,7 @@ async def ra_list(
             LEFT JOIN person_names pn ON pn.person_id = p.id AND pn.is_canonical = TRUE
             JOIN roles r ON r.id = ra.role_id
             JOIN organizations o ON o.id = r.organization_id
-            LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
+            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
             {where}""",
         *count_params,
     )
@@ -236,13 +236,13 @@ async def ra_detail(
                   pn.name AS person_name,
                   r.id AS role_id, r.title AS role_title,
                   o.id AS org_id,
-                  n.name AS org_name
+                  dn.display_name AS org_name
            FROM role_assignments ra
            JOIN people p ON p.id = ra.person_id
            LEFT JOIN person_names pn ON pn.person_id = p.id AND pn.is_canonical = TRUE
            JOIN roles r ON r.id = ra.role_id
            JOIN organizations o ON o.id = r.organization_id
-           LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
            WHERE ra.id = $1""",
         ra_id,
     )
