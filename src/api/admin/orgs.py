@@ -234,7 +234,8 @@ async def org_edit_form(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     canonical = await db.fetchrow(
-        "SELECT name FROM organization_names WHERE organization_id = $1 AND is_canonical = TRUE",
+        "SELECT name FROM organization_names"
+        " WHERE organization_id = $1 AND is_canonical = TRUE AND name_type != 'acronym'",
         org_id,
     )
     parents = await db.fetch(
