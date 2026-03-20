@@ -906,3 +906,146 @@ async def test_role_assignments_has_archived_at(db):
         "SELECT archived_at FROM role_assignments WHERE id = $1", ra_id
     )
     assert row["archived_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# roles: uq_role_org_title
+# These tests require the index to exist. apply_schema() skips index creation
+# if duplicate rows are present; run scripts/deduplicate_roles.py first.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def require_uq_role_org_title(db):
+    """Skip tests that need uq_role_org_title if it hasn't been created yet."""
+    exists = await db.fetchval(
+        "SELECT 1 FROM pg_indexes WHERE indexname = 'uq_role_org_title'"
+    )
+    if not exists:
+        pytest.skip(
+            "uq_role_org_title index not present — "
+            "run scripts/deduplicate_roles.py --execute then re-apply schema"
+        )
+
+
+async def test_duplicate_role_same_org_title_rejected(db, require_uq_role_org_title):
+    """Two active roles with the same org+title must be rejected."""
+    org_id = await _org(db)
+    await _role(db, org_id)  # inserts role with title "Test Role"
+
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+                generate_id(), org_id, "Test Role",
+            )
+
+
+async def test_role_title_case_insensitive_dedup(db, require_uq_role_org_title):
+    """Same title in different case under the same org must be rejected."""
+    org_id = await _org(db)
+    await _role(db, org_id)  # title "Test Role"
+
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+                generate_id(), org_id, "TEST ROLE",
+            )
+
+
+async def test_archived_role_does_not_block_same_title(db, require_uq_role_org_title):
+    """Archived role must not block a new active role with the same org+title."""
+    org_id = await _org(db)
+    role_id = await _role(db, org_id)
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+        generate_id(), org_id, "Test Role",
+    )
+
+
+async def test_same_title_different_orgs_allowed(db, require_uq_role_org_title):
+    """Same title under different orgs must be allowed."""
+    org_a = await _org(db)
+    org_b = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_b)
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(), org_b, "Org B",
+    )
+
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+        generate_id(), org_a, "Director",
+    )
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+        generate_id(), org_b, "Director",
+    )
+
+
+# ---------------------------------------------------------------------------
+# role_assignments: uq_role_assignment_person_role_start (NULLS NOT DISTINCT)
+# ---------------------------------------------------------------------------
+
+
+async def test_duplicate_assignment_null_start_date_rejected(db):
+    """Two assignments with same person+role+NULL start_date must be rejected."""
+    org_id = await _org(db)
+    person_id = await _person(db)
+    role_id = await _role(db, org_id)
+
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
+        generate_id(), person_id, role_id,
+    )
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO role_assignments (id, person_id, role_id)"
+                " VALUES ($1, $2, $3)",
+                generate_id(), person_id, role_id,
+            )
+
+
+async def test_assignment_different_start_dates_allowed(db):
+    """Same person+role with different start_dates is allowed (role held twice)."""
+    org_id = await _org(db)
+    person_id = await _person(db)
+    role_id = await _role(db, org_id)
+
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+        " VALUES ($1, $2, $3, '2020-01-01')",
+        generate_id(), person_id, role_id,
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+        " VALUES ($1, $2, $3, '2023-01-01')",
+        generate_id(), person_id, role_id,
+    )
+
+
+async def test_archived_assignment_does_not_block_same_start_date(db):
+    """Archived assignment must not block a new active assignment with the same key."""
+    org_id = await _org(db)
+    person_id = await _person(db)
+    role_id = await _role(db, org_id)
+
+    ra_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
+        ra_id, person_id, role_id,
+    )
+    await db.execute(
+        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
+    )
+
+    # New active assignment with same person+role+NULL start_date must succeed
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
+        generate_id(), person_id, role_id,
+    )

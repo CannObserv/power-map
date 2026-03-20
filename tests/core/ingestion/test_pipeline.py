@@ -1,6 +1,7 @@
 """Integration tests for the import pipeline."""
 
 import os
+import shutil
 from pathlib import Path
 
 import asyncpg
@@ -119,3 +120,54 @@ async def test_run_import_bad_phone_no_contact_method(db):
         " AND value = 'bad-phone'"
     )
     assert phone_count == 0
+
+
+@pytest.mark.integration
+async def test_run_import_roles_idempotent_new_batch(db, tmp_path):
+    """Re-importing with a new file hash must not create duplicate roles or assignments.
+
+    Simulates the scenario where CSV files change (triggering a new batch_id) but
+    the role data is unchanged. After the pipeline fix, role_index is pre-populated
+    from the DB so existing roles are matched rather than re-created.
+    """
+    config1 = ImportConfig(
+        orgs_csv=ORGS_FIXTURE,
+        people_csv=PEOPLE_FIXTURE,
+        roles_csv=ROLES_FIXTURE,
+        imported_by="test",
+        source_reliability=0.8,
+    )
+    summary1 = await run_import(db, config1)
+    assert summary1["roles_loaded"] > 0
+
+    role_count = await db.fetchval("SELECT count(*) FROM roles")
+    assignment_count = await db.fetchval("SELECT count(*) FROM role_assignments")
+
+    # Copy CSVs to tmp_path; append a blank line to orgs to change the combined hash
+    orgs2 = tmp_path / "orgs2.csv"
+    people2 = tmp_path / "people2.csv"
+    roles2 = tmp_path / "roles2.csv"
+    shutil.copy(ORGS_FIXTURE, orgs2)
+    shutil.copy(PEOPLE_FIXTURE, people2)
+    shutil.copy(ROLES_FIXTURE, roles2)
+    with orgs2.open("a") as f:
+        f.write("\n")  # changes hash; empty row fails org validation (expected)
+
+    config2 = ImportConfig(
+        orgs_csv=orgs2,
+        people_csv=people2,
+        roles_csv=roles2,
+        imported_by="test",
+        source_reliability=0.8,
+    )
+    summary2 = await run_import(db, config2)
+
+    role_count_after = await db.fetchval("SELECT count(*) FROM roles")
+    assignment_count_after = await db.fetchval("SELECT count(*) FROM role_assignments")
+
+    assert role_count_after == role_count, "duplicate roles created on second import"
+    assert assignment_count_after == assignment_count, (
+        "duplicate role_assignments created on second import"
+    )
+    assert summary2["roles_loaded"] == 0
+    assert summary2["roles_matched"] > 0
