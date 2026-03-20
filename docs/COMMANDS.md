@@ -75,6 +75,21 @@ uv run python scripts/import_cannabis_observer.py \
 #   --validate-addresses        Also call /validate for deliverability confirmation
 ```
 
+## Deduplication (one-time fix)
+
+```bash
+# Load env vars first
+export $(cat env | xargs)
+
+# Dry run — report what would be removed (no DB changes)
+uv run python -m scripts.deduplicate_roles
+
+# Execute — apply deduplication and commit changes
+uv run python -m scripts.deduplicate_roles --execute
+```
+
+Run before re-applying schema on a dirty DB (see bootstrap sequence in AGENTS.md).
+
 ## Git Submodules
 
 ```bash

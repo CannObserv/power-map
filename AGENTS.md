@@ -28,7 +28,7 @@ src/core/       — Shared domain logic
   ingestion/    — EVTL pipeline: base types, CSV sources (org/person/role), pipeline coordinator
 tests/          — Mirrors src/ structure
 docs/           — Reference docs (API, COMMANDS, SKILLS)
-scripts/        — One-off operational scripts (import_cannabis_observer.py)
+scripts/        — One-off operational scripts (import_cannabis_observer.py, deduplicate_roles.py)
 ```
 
 ### Admin dashboard conventions

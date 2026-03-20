@@ -34,7 +34,8 @@ class DeduplicationResult:
 async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
     """Execute deduplication SQL. Returns (roles_removed, assignments_removed).
 
-    Must be called inside an existing transaction or savepoint.
+    Performs raw DML with no transaction management of its own; the caller
+    (run_deduplication) wraps this in a savepoint for dry-run support.
     """
     roles_removed = 0
     assignments_removed = 0
