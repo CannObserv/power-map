@@ -1,3 +1,4 @@
+{% from "admin/macros/pagination.html" import controls as pagination %}
 {% extends "admin/base.html" %}
 {% block title %}Roles{% endblock %}
 {% block breadcrumb %}
@@ -44,5 +45,10 @@
     </thead>
     <tbody id="roles-table-body">{% include "admin/roles/_rows.html" %}</tbody>
   </table>
+</div>
+<div id="roles-pagination">
+  {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
+               "/admin/roles/", "#roles-table-body",
+               "q=" ~ q|urlencode ~ "&org_q=" ~ org_q|urlencode ~ "&status=" ~ status) }}
 </div>
 {% endblock %}
