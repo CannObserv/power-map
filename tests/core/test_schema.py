@@ -181,12 +181,12 @@ async def test_role_assignment_duplicate_current_rejected(db):
 
 
 # ---------------------------------------------------------------------------
-# organization_names: uq_org_canonical_name
+# organization_names: uq_org_canonical_name (one canonical per org, all types)
 # ---------------------------------------------------------------------------
 
 
 async def test_duplicate_canonical_org_name_rejected(db):
-    """Two is_canonical=TRUE legal names for the same org must be rejected."""
+    """Two is_canonical=TRUE names for the same org must be rejected."""
     org_id = await _org(db)  # already inserts one canonical legal name
 
     with pytest.raises(asyncpg.UniqueViolationError):
@@ -194,10 +194,10 @@ async def test_duplicate_canonical_org_name_rejected(db):
             await db.execute(
                 "INSERT INTO organization_names"
                 " (id, organization_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, $3, 'legal', TRUE)",
+                " VALUES ($1, $2, $3, 'dba', TRUE)",
                 generate_id(),
                 org_id,
-                "Duplicate Canonical Legal Name",
+                "Duplicate Canonical Name",
             )
 
 
@@ -216,45 +216,6 @@ async def test_multiple_noncanonical_org_names_accepted(db):
         )
 
 
-async def test_canonical_uniqueness_per_name_type(db):
-    """One canonical per (org, name_type): legal + acronym may each be canonical."""
-    org_id = await _org(db)  # inserts canonical legal name
-
-    # Canonical acronym alongside canonical legal should succeed
-    await db.execute(
-        "INSERT INTO organization_names"
-        " (id, organization_id, name, name_type, is_canonical)"
-        " VALUES ($1, $2, $3, 'acronym', TRUE)",
-        generate_id(),
-        org_id,
-        "ACME",
-    )
-
-
-async def test_duplicate_canonical_same_type_rejected(db):
-    """Two is_canonical=TRUE rows with the same (org, name_type) must be rejected."""
-    org_id = await _org(db)
-
-    await db.execute(
-        "INSERT INTO organization_names"
-        " (id, organization_id, name, name_type, is_canonical)"
-        " VALUES ($1, $2, $3, 'acronym', TRUE)",
-        generate_id(),
-        org_id,
-        "ACME",
-    )
-    with pytest.raises(asyncpg.UniqueViolationError):
-        async with db.transaction():
-            await db.execute(
-                "INSERT INTO organization_names"
-                " (id, organization_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, $3, 'acronym', TRUE)",
-                generate_id(),
-                org_id,
-                "ACM",
-            )
-
-
 async def test_org_name_invalid_name_type_rejected(db):
     """An unrecognized name_type value must violate the CHECK."""
     org_id = await _org(db)
@@ -268,15 +229,31 @@ async def test_org_name_invalid_name_type_rejected(db):
                 generate_id(),
                 org_id,
                 "Bad Name",
-                "nickname",  # not in ('legal', 'dba', 'former', 'acronym')
+                "nickname",  # not in ('legal', 'dba', 'former')
+            )
+
+
+async def test_org_name_acronym_type_rejected(db):
+    """'acronym' is no longer a valid name_type in organization_names."""
+    org_id = await _org(db)
+
+    with pytest.raises(asyncpg.CheckViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type)"
+                " VALUES ($1, $2, $3, 'acronym')",
+                generate_id(),
+                org_id,
+                "ACME",
             )
 
 
 async def test_org_name_valid_name_types_accepted(db):
-    """All four valid name_type values must be accepted."""
+    """All three valid name_type values must be accepted."""
     org_id = await _org(db)
 
-    for name_type in ("legal", "dba", "former", "acronym"):
+    for name_type in ("legal", "dba", "former"):
         await db.execute(
             "INSERT INTO organization_names"
             " (id, organization_id, name, name_type)"
@@ -285,6 +262,52 @@ async def test_org_name_valid_name_types_accepted(db):
             org_id,
             f"Name ({name_type})",
             name_type,
+        )
+
+
+# ---------------------------------------------------------------------------
+# organization_acronyms: uq_org_canonical_acronym
+# ---------------------------------------------------------------------------
+
+
+async def test_org_acronym_insert(db):
+    """Inserting an acronym into organization_acronyms must succeed."""
+    org_id = await _org(db)
+
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(), org_id, "ACME",
+    )
+
+
+async def test_org_acronym_duplicate_canonical_rejected(db):
+    """Two is_canonical=TRUE acronyms for the same org must be rejected."""
+    org_id = await _org(db)
+
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(), org_id, "ACME",
+    )
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(), org_id, "ACM",
+            )
+
+
+async def test_org_multiple_noncanonical_acronyms_accepted(db):
+    """Multiple is_canonical=FALSE acronyms for the same org must be allowed."""
+    org_id = await _org(db)
+
+    for acronym in ("ACME", "ACM", "AC"):
+        await db.execute(
+            "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+            " VALUES ($1, $2, $3, FALSE)",
+            generate_id(), org_id, acronym,
         )
 
 

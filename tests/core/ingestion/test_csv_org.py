@@ -63,10 +63,7 @@ async def test_transform_org_acronym():
     rows = read_fixture(FIXTURE)
     r = validate_org(rows[0], source_row=2)
     result = await transform_org(r, org_index={}, source_reliability=0.8)
-    names = result.transformed["names"]
-    acronym = next((n for n in names if n["name_type"] == "acronym"), None)
-    assert acronym is not None
-    assert acronym["name"] == "AC"
+    assert result.transformed["acronym"] == "AC"
 
 
 async def test_transform_org_parent_resolved():

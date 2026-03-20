@@ -43,7 +43,8 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - Phone: normalize to E.164 via `PhoneNormalizer` from `src.core.normalizers.phone`
 - Email: validate via `EmailNormalizer` from `src.core.normalizers.email`
 - Integration tests (marked `integration`) require `DATABASE_URL` env var pointing to a dedicated test DB
-- Org display names: use `v_org_display_names` (view in `schema.sql`) for all admin queries that display an org name — formats as "Name (Acronym)" when an acronym canonical name exists, otherwise just "Name". Never join `organization_names` directly for display; use the view. For edit forms that must pre-populate the editable name, query `organization_names WHERE is_canonical = TRUE AND name_type != 'acronym'` directly.
+- Org display names: use `v_org_display_names` (view in `schema.sql`) for all admin queries that display an org name — formats as "Name (Acronym)" when a canonical acronym exists, otherwise just "Name". Never join `organization_names` or `organization_acronyms` directly for display; use the view.
+- Acronyms are stored in `organization_acronyms` (separate table); `organization_names` holds legal/dba/former names only. Each table has exactly one canonical row per org via a partial unique index.
 
 ### Ingestion conventions
 - EVTL pattern: Extract (CSV read) → Validate (Pydantic) → Transform (normalize fields) → Load (DB insert)

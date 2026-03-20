@@ -157,11 +157,9 @@ async def transform_org(
         if parent_id is None:
             warnings.append(f"parent org not found: {validated.parent_organization!r}")
 
-    # Names
+    # Names (legal only; acronym goes to organization_acronyms)
     names = [{"name": validated.name, "name_type": "legal", "is_canonical": True}]
-    if validated.acronym and validated.acronym.strip():
-        names.append({"name": validated.acronym.strip(), "name_type": "acronym",
-                      "is_canonical": True})
+    acronym: str | None = validated.acronym.strip() if validated.acronym else None
 
     # Contact methods
     contact_methods: list[dict] = []
@@ -256,6 +254,7 @@ async def transform_org(
         "parent_id": parent_id,
         "notes": validated.notes,
         "names": names,
+        "acronym": acronym,
         "contact_methods": contact_methods,
         "urls": urls,
         "social_links": social_links,

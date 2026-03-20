@@ -170,9 +170,8 @@ async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
     use the correct dn.display_name alias after the refactor.
     """
     await db.execute(
-        "INSERT INTO organization_names"
-        " (id, organization_id, name, name_type, is_canonical)"
-        " VALUES ($1, $2, 'TO', 'acronym', TRUE)",
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'TO', TRUE)",
         generate_id(), org_id,
     )
     ra_id = generate_id()
@@ -192,7 +191,6 @@ async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
     finally:
         await db.execute("DELETE FROM role_assignments WHERE id = $1", ra_id)
         await db.execute(
-            "DELETE FROM organization_names"
-            " WHERE organization_id = $1 AND name_type = 'acronym'",
+            "DELETE FROM organization_acronyms WHERE organization_id = $1",
             org_id,
         )

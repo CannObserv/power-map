@@ -159,6 +159,10 @@ async def org_detail(
         "SELECT * FROM organization_names WHERE organization_id = $1 ORDER BY is_canonical DESC",
         org_id,
     )
+    acronyms = await db.fetch(
+        "SELECT * FROM organization_acronyms WHERE organization_id = $1 ORDER BY is_canonical DESC",
+        org_id,
+    )
     addresses = await db.fetch(
         """SELECT ea.*, a.standardized, a.address_line_1, a.city, a.region, a.postal_code
            FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
@@ -208,6 +212,7 @@ async def org_detail(
             "active_section": "orgs",
             "org": org,
             "names": names,
+            "acronyms": acronyms,
             "addresses": addresses,
             "contacts": contacts,
             "urls": urls,
@@ -235,7 +240,7 @@ async def org_edit_form(
         raise HTTPException(status_code=404, detail="Organization not found")
     canonical = await db.fetchrow(
         "SELECT name FROM organization_names"
-        " WHERE organization_id = $1 AND is_canonical = TRUE AND name_type != 'acronym'",
+        " WHERE organization_id = $1 AND is_canonical = TRUE",
         org_id,
     )
     parents = await db.fetch(
@@ -282,7 +287,7 @@ async def org_update(
     )
     existing = await db.fetchrow(
         "SELECT id FROM organization_names"
-        " WHERE organization_id = $1 AND is_canonical = TRUE AND name_type != 'acronym'",
+        " WHERE organization_id = $1 AND is_canonical = TRUE",
         org_id,
     )
     if existing:
@@ -333,6 +338,7 @@ async def org_delete(
     if not org["archived_at"]:
         raise HTTPException(status_code=409, detail="Organization must be archived before deletion")
     try:
+        await db.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", org_id)
         await db.execute("DELETE FROM organization_names WHERE organization_id = $1", org_id)
         await db.execute("DELETE FROM organizations WHERE id = $1", org_id)
     except asyncpg.ForeignKeyViolationError:

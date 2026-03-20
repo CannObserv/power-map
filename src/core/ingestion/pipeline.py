@@ -248,6 +248,13 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     " VALUES ($1, $2, $3, $4, $5)",
                     generate_id(), t["org_id"], n["name"], n["name_type"], n["is_canonical"],
                 )
+            if t.get("acronym"):
+                await conn.execute(
+                    "INSERT INTO organization_acronyms"
+                    " (id, organization_id, acronym, is_canonical)"
+                    " VALUES ($1, $2, $3, TRUE)",
+                    generate_id(), t["org_id"], t["acronym"],
+                )
             for cm in t["contact_methods"]:
                 await conn.execute(
                     "INSERT INTO contact_methods"

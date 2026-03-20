@@ -58,6 +58,7 @@ def org_id():
     async def teardown():
         conn = await _aconnect(dsn)
         try:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
             await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
             await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
         finally:
@@ -115,7 +116,7 @@ def test_edit_org_form_returns_200(client, org_id):
 
 
 def test_edit_org_does_not_overwrite_acronym(client):
-    """Saving the edit form must update the legal name, not the canonical acronym."""
+    """Saving the edit form must update the canonical name; acronym must be preserved."""
     dsn = _get_dsn()
     oid = generate_id()
 
@@ -130,28 +131,35 @@ def test_edit_org_does_not_overwrite_acronym(client):
                 generate_id(), oid,
             )
             await conn.execute(
-                "INSERT INTO organization_names"
-                " (id, organization_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'ON', 'acronym', TRUE)",
+                "INSERT INTO organization_acronyms"
+                " (id, organization_id, acronym, is_canonical)"
+                " VALUES ($1, $2, 'ON', TRUE)",
                 generate_id(), oid,
             )
         finally:
             await conn.close()
 
-    async def get_names():
+    async def get_state():
         conn = await _aconnect(dsn)
         try:
-            return await conn.fetch(
-                "SELECT name, name_type FROM organization_names"
+            name_row = await conn.fetchrow(
+                "SELECT name FROM organization_names"
                 " WHERE organization_id = $1 AND is_canonical = TRUE",
                 oid,
             )
+            acronym_row = await conn.fetchrow(
+                "SELECT acronym FROM organization_acronyms"
+                " WHERE organization_id = $1 AND is_canonical = TRUE",
+                oid,
+            )
+            return name_row, acronym_row
         finally:
             await conn.close()
 
     async def teardown():
         conn = await _aconnect(dsn)
         try:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
             await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
             await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
         finally:
@@ -166,10 +174,11 @@ def test_edit_org_does_not_overwrite_acronym(client):
             follow_redirects=False,
         )
         assert response.status_code in (302, 303)
-        rows = asyncio.run(get_names())
-        by_type = {r["name_type"]: r["name"] for r in rows}
-        assert by_type["legal"] == "New Name", "legal name must be updated"
-        assert by_type["acronym"] == "ON", "acronym must not be overwritten"
+        name_row, acronym_row = asyncio.run(get_state())
+        assert name_row is not None and name_row["name"] == "New Name", \
+            "canonical name must be updated"
+        assert acronym_row is not None and acronym_row["acronym"] == "ON", \
+            "acronym must not be overwritten"
     finally:
         asyncio.run(teardown())
 
@@ -220,9 +229,9 @@ def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
                 generate_id(), oid,
             )
             await conn.execute(
-                "INSERT INTO organization_names"
-                " (id, organization_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'CA', 'acronym', TRUE)",
+                "INSERT INTO organization_acronyms"
+                " (id, organization_id, acronym, is_canonical)"
+                " VALUES ($1, $2, 'CA', TRUE)",
                 generate_id(), oid,
             )
         finally:
@@ -231,6 +240,7 @@ def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
     async def teardown():
         conn = await _aconnect(dsn)
         try:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
             await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
             await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
         finally:
@@ -238,9 +248,6 @@ def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
 
     asyncio.run(setup())
     try:
-        # Search by name so the test is independent of pagination / DB size.
-        # With the broken query the response shows "Cannabis Alliance" and "CA" as separate
-        # rows; after the fix it shows "Cannabis Alliance (CA)" as a single row.
         response = client.get("/admin/orgs/?q=Cannabis+Alliance", headers=AUTH_HEADERS)
         assert response.status_code == 200
         assert "Cannabis Alliance (CA)" in response.text

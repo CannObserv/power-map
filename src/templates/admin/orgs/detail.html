@@ -35,16 +35,25 @@
   <h2>Names</h2>
   <div class="table-wrapper">
     <table class="data-table">
-      <thead><tr><th scope="col">Name</th><th scope="col">Canonical</th></tr></thead>
+      <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Canonical</th></tr></thead>
       <tbody>
         {% for n in names %}
         <tr>
           <td>{{ n.name }}</td>
+          <td>{{ n.name_type }}</td>
           <td>{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
         </tr>
-        {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
         {% endfor %}
+        {% for a in acronyms %}
+        <tr>
+          <td>{{ a.acronym }}</td>
+          <td>acronym</td>
+          <td>{% if a.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+        {% if not names and not acronyms %}
+        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
+        {% endif %}
       </tbody>
     </table>
   </div>

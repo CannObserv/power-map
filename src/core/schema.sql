@@ -81,36 +81,46 @@ CREATE TABLE IF NOT EXISTS organizations (
     archived_at TIMESTAMPTZ
 );
 
--- One row per name variant; exactly one row per (org, name_type) may have is_canonical = TRUE
+-- One row per name variant (legal, dba, former only); exactly one may have is_canonical = TRUE
 CREATE TABLE IF NOT EXISTS organization_names (
     id              TEXT        PRIMARY KEY,
     organization_id TEXT        NOT NULL REFERENCES organizations(id),
     name            TEXT        NOT NULL,
     name_type       TEXT        NOT NULL DEFAULT 'legal'
-                                CHECK (name_type IN ('legal', 'dba', 'former', 'acronym')),
+                                CHECK (name_type IN ('legal', 'dba', 'former')),
     is_canonical    BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- One canonical name per org (regardless of type)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_org_canonical_name
-    ON organization_names(organization_id, name_type)
+    ON organization_names(organization_id)
     WHERE is_canonical = TRUE;
 
--- Display name view: formats org name as "Name (Acronym)" when acronym is present.
+-- Acronyms are a separate concept from names; one canonical acronym per org
+CREATE TABLE IF NOT EXISTS organization_acronyms (
+    id              TEXT        PRIMARY KEY,
+    organization_id TEXT        NOT NULL REFERENCES organizations(id),
+    acronym         TEXT        NOT NULL,
+    is_canonical    BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_org_canonical_acronym
+    ON organization_acronyms(organization_id)
+    WHERE is_canonical = TRUE;
+
+-- Display name view: "Name (Acronym)" when both exist, else whichever is present.
+-- Clean two-table join; no LATERAL, no name_type filters.
 -- Used by all admin queries that show an org name for display (not editing).
--- LATERAL ensures exactly one non-acronym name row per org (legal > dba > former).
 CREATE OR REPLACE VIEW v_org_display_names AS
 SELECT o.id AS organization_id,
-       COALESCE(nl.name || ' (' || na.name || ')', nl.name, na.name) AS display_name
+       COALESCE(n.name || ' (' || a.acronym || ')', n.name, a.acronym) AS display_name
 FROM organizations o
-LEFT JOIN LATERAL (
-    SELECT name FROM organization_names
-    WHERE organization_id = o.id AND is_canonical = TRUE AND name_type != 'acronym'
-    ORDER BY CASE name_type WHEN 'legal' THEN 1 WHEN 'dba' THEN 2 WHEN 'former' THEN 3 ELSE 4 END
-    LIMIT 1
-) nl ON TRUE
-LEFT JOIN organization_names na
-    ON na.organization_id = o.id AND na.is_canonical = TRUE AND na.name_type = 'acronym'
+LEFT JOIN organization_names n
+    ON n.organization_id = o.id AND n.is_canonical = TRUE
+LEFT JOIN organization_acronyms a
+    ON a.organization_id = o.id AND a.is_canonical = TRUE
 ;
 
 CREATE TABLE IF NOT EXISTS people (
@@ -298,6 +308,54 @@ DO $$ BEGIN
         WHERE table_name='role_assignments' AND column_name='archived_at'
     ) THEN
         ALTER TABLE role_assignments ADD COLUMN archived_at TIMESTAMPTZ;
+    END IF;
+END $$;
+
+-- =============================================================================
+-- Organization names/acronyms schema migration
+-- Moves acronym rows from organization_names to organization_acronyms,
+-- updates the CHECK constraint, and replaces the per-(org, name_type) unique
+-- index with a per-org index. Idempotent: safe to re-run.
+-- =============================================================================
+
+-- Step 1: Migrate existing acronym rows to organization_acronyms (idempotent)
+DO $$ BEGIN
+    INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical, created_at)
+    SELECT id, organization_id, name, is_canonical, created_at
+    FROM organization_names
+    WHERE name_type = 'acronym'
+    ON CONFLICT (id) DO NOTHING;
+
+    DELETE FROM organization_names WHERE name_type = 'acronym';
+END $$;
+
+-- Step 2: Update CHECK constraint to exclude 'acronym'
+DO $$ BEGIN
+    ALTER TABLE organization_names
+        DROP CONSTRAINT IF EXISTS organization_names_name_type_check;
+EXCEPTION WHEN undefined_table THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    ALTER TABLE organization_names
+        ADD CONSTRAINT organization_names_name_type_check
+        CHECK (name_type IN ('legal', 'dba', 'former'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Step 3: Replace per-(org, name_type) index with per-org index.
+-- Drop old index (if still the old per-(org, name_type) form); the IF NOT EXISTS
+-- on the CREATE above handles the fresh-DB case; here we handle existing DBs.
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE indexname = 'uq_org_canonical_name'
+          AND indexdef LIKE '%organization_id, name_type%'
+    ) THEN
+        DROP INDEX uq_org_canonical_name;
+        CREATE UNIQUE INDEX uq_org_canonical_name
+            ON organization_names(organization_id)
+            WHERE is_canonical = TRUE;
     END IF;
 END $$;
 
