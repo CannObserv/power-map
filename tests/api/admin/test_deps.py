@@ -1,9 +1,9 @@
 """Tests for admin auth dependency."""
 
 import asyncio
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 

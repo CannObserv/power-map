@@ -61,7 +61,8 @@ def seeded_counts():
                 assignment_id, person_id, role_id,
             )
             await conn.execute(
-                "INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count, error_count)"
+                "INSERT INTO import_batches"
+                " (id, source_file, file_hash, row_count, loaded_count, error_count)"
                 " VALUES ($1, $2, $3, $4, $5, $6)",
                 batch_id, "test.csv", "testhash_dashboard", 0, 0, 0,
             )
