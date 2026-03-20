@@ -8,17 +8,22 @@
   <h1>Role Assignments</h1>
   <a href="/admin/role-assignments/new/" class="btn btn--primary">+ Add assignment</a>
 </div>
-<div class="search-bar">
+<div class="filter-card">
   <input type="search" name="q" value="{{ q }}" placeholder="Search by person, role, or org…"
-         aria-label="Search assignments"
+         aria-label="Search assignments" class="filter-card__search"
          hx-get="/admin/role-assignments/" hx-trigger="input delay:300ms, search"
          hx-target="#ra-table-body" hx-include="[name='status']" hx-push-url="true">
-  <select name="status" aria-label="Filter by status"
-          hx-get="/admin/role-assignments/" hx-trigger="change"
-          hx-target="#ra-table-body" hx-include="[name='q']" hx-push-url="true">
-    <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
-    <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
-  </select>
+  <div class="filter-card__controls">
+    <div class="filter-card__field">
+      <label for="ra-status-filter">Status</label>
+      <select id="ra-status-filter" name="status"
+              hx-get="/admin/role-assignments/" hx-trigger="change"
+              hx-target="#ra-table-body" hx-include="[name='q']" hx-push-url="true">
+        <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
+        <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
+      </select>
+    </div>
+  </div>
 </div>
 <div class="table-wrapper">
   <table class="data-table" id="ra-table">

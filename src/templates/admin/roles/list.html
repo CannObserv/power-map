@@ -8,21 +8,29 @@
   <h1>Roles</h1>
   <a href="/admin/roles/new/" class="btn btn--primary">+ Add role</a>
 </div>
-<div class="search-bar">
-  <input type="search" name="org_q" value="{{ org_q }}" placeholder="Search by organization…"
-         aria-label="Search by organization"
-         hx-get="/admin/roles/" hx-trigger="input delay:300ms, search"
-         hx-target="#roles-table-body" hx-include="[name='q'],[name='status']" hx-push-url="true">
+<div class="filter-card">
   <input type="search" name="q" value="{{ q }}" placeholder="Search by title…"
-         aria-label="Search by title"
+         aria-label="Search by title" class="filter-card__search"
          hx-get="/admin/roles/" hx-trigger="input delay:300ms, search"
          hx-target="#roles-table-body" hx-include="[name='org_q'],[name='status']" hx-push-url="true">
-  <select name="status" aria-label="Filter by status"
-          hx-get="/admin/roles/" hx-trigger="change"
-          hx-target="#roles-table-body" hx-include="[name='org_q'],[name='q']" hx-push-url="true">
-    <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
-    <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
-  </select>
+  <div class="filter-card__controls">
+    <div class="filter-card__field">
+      <label for="roles-org-filter">Organization</label>
+      <input type="search" id="roles-org-filter" name="org_q" value="{{ org_q }}"
+             placeholder="Filter by organization…"
+             hx-get="/admin/roles/" hx-trigger="input delay:300ms, search"
+             hx-target="#roles-table-body" hx-include="[name='q'],[name='status']" hx-push-url="true">
+    </div>
+    <div class="filter-card__field">
+      <label for="roles-status-filter">Status</label>
+      <select id="roles-status-filter" name="status"
+              hx-get="/admin/roles/" hx-trigger="change"
+              hx-target="#roles-table-body" hx-include="[name='org_q'],[name='q']" hx-push-url="true">
+        <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
+        <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
+      </select>
+    </div>
+  </div>
 </div>
 <div class="table-wrapper">
   <table class="data-table" id="roles-table">
