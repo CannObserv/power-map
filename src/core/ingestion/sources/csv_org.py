@@ -159,7 +159,7 @@ async def transform_org(
 
     # Names (legal only; acronym goes to organization_acronyms)
     names = [{"name": validated.name, "name_type": "legal", "is_canonical": True}]
-    acronym: str | None = validated.acronym.strip() if validated.acronym else None
+    acronym: str | None = validated.acronym or None
 
     # Contact methods
     contact_methods: list[dict] = []

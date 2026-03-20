@@ -87,6 +87,42 @@ def test_org_detail_returns_200(client, org_id):
     assert "Test Org" in response.text
 
 
+def test_org_detail_acronym_only_shows_acronym_in_heading(client):
+    """Detail page for an org with only an acronym must show the acronym, not the raw ID."""
+    dsn = _get_dsn()
+    oid = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+                " VALUES ($1, $2, 'ACRO', TRUE)",
+                generate_id(), oid,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        response = client.get(f"/admin/orgs/{oid}/", headers=AUTH_HEADERS)
+        assert response.status_code == 200
+        assert "ACRO" in response.text
+        assert oid not in response.text.split("<h1>")[1].split("</h1>")[0], \
+            "h1 must show acronym, not raw org ID"
+    finally:
+        asyncio.run(teardown())
+
+
 def test_org_detail_404_for_unknown_id(client):
     response = client.get(f"/admin/orgs/{generate_id()}/", headers=AUTH_HEADERS)
     assert response.status_code == 404

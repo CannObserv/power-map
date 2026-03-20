@@ -225,7 +225,7 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         existing_org = await conn.fetchrow(
             """SELECT o.id FROM organizations o
                JOIN organization_names n ON n.organization_id = o.id
-               WHERE lower(n.name) = $1 AND n.name_type = 'legal' AND n.is_canonical = true""",
+               WHERE lower(n.name) = $1 AND n.is_canonical = true""",
             name_lower,
         )
         if existing_org:

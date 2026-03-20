@@ -1,13 +1,14 @@
 {% extends "admin/base.html" %}
-{% block title %}{{ (names[0].name if names else org.id) }} — Organization{% endblock %}
+{% set _display = (names[0].name if names else (acronyms[0].acronym if acronyms else None)) %}
+{% block title %}{{ (_display or org.id) }} — Organization{% endblock %}
 {% block breadcrumb %}
   <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
   <a href="/admin/orgs/">Organizations</a><span class="breadcrumb__sep">›</span>
-  <span>{{ names[0].name if names else org.id }}</span>
+  <span>{{ _display or org.id }}</span>
 {% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1>{{ names[0].name if names else '(unnamed)' }}</h1>
+  <h1>{{ _display or '(unnamed)' }}</h1>
   <a href="/admin/orgs/{{ org.id }}/edit/" class="btn btn--primary">Edit</a>
 </div>
 

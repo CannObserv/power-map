@@ -329,18 +329,20 @@ DO $$ BEGIN
     DELETE FROM organization_names WHERE name_type = 'acronym';
 END $$;
 
--- Step 2: Update CHECK constraint to exclude 'acronym'
+-- Step 2: Update CHECK constraint to exclude 'acronym' (only if still on old definition)
 DO $$ BEGIN
-    ALTER TABLE organization_names
-        DROP CONSTRAINT IF EXISTS organization_names_name_type_check;
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_name = 'organization_names_name_type_check'
+          AND check_clause LIKE '%acronym%'
+    ) THEN
+        ALTER TABLE organization_names
+            DROP CONSTRAINT organization_names_name_type_check;
+        ALTER TABLE organization_names
+            ADD CONSTRAINT organization_names_name_type_check
+            CHECK (name_type IN ('legal', 'dba', 'former'));
+    END IF;
 EXCEPTION WHEN undefined_table THEN NULL;
-END $$;
-
-DO $$ BEGIN
-    ALTER TABLE organization_names
-        ADD CONSTRAINT organization_names_name_type_check
-        CHECK (name_type IN ('legal', 'dba', 'former'));
-EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- Step 3: Replace per-(org, name_type) index with per-org index.
