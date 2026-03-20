@@ -185,6 +185,7 @@ def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
         assert response.status_code == 200
         assert "Cannabis Alliance (CA)" in response.text
         # Each row has a detail link + edit link; count detail link only to detect duplicate rows.
-        assert response.text.count(f'href="/admin/orgs/{oid}/"') == 1, "org must appear exactly once"
+        detail_link_count = response.text.count(f'href="/admin/orgs/{oid}/"')
+        assert detail_link_count == 1, "org must appear exactly once"
     finally:
         asyncio.run(teardown())
