@@ -16,6 +16,12 @@
       <input id="name" name="name" type="text" required value="{{ canonical_name }}">
     </div>
     <div class="form-group">
+      <label for="acronym">Acronym</label>
+      <input id="acronym" name="acronym" type="text" value="{{ canonical_acronym }}"
+             placeholder="e.g. ACME (leave blank to remove)">
+      <div class="form-group__hint">Short uppercase abbreviation. Leave blank to remove an existing acronym.</div>
+    </div>
+    <div class="form-group">
       <label>
         <input name="active" type="checkbox" value="true" {% if org is none or org.active %}checked{% endif %}>
         Active (uncheck for historical / defunct organizations)

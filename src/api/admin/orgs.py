@@ -108,6 +108,7 @@ async def org_new_form(
             "org": None,
             "parents": parents,
             "canonical_name": "",
+            "canonical_acronym": "",
         },
     )
 
@@ -116,6 +117,7 @@ async def org_new_form(
 async def org_create(
     request: Request,
     name: str = Form(...),
+    acronym: str = Form(""),
     active: str = Form(""),
     parent_id: str = Form(""),
     notes: str = Form(""),
@@ -136,6 +138,12 @@ async def org_create(
         " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
         generate_id(), org_id, name,
     )
+    if acronym.strip():
+        await db.execute(
+            "INSERT INTO organization_acronyms"
+            " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, $3, TRUE)",
+            generate_id(), org_id, acronym.strip(),
+        )
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 
 
@@ -250,6 +258,11 @@ async def org_edit_form(
            WHERE o.archived_at IS NULL AND o.id != $1 ORDER BY dn.display_name NULLS LAST""",
         org_id,
     )
+    canonical_acronym_row = await db.fetchrow(
+        "SELECT acronym FROM organization_acronyms"
+        " WHERE organization_id = $1 AND is_canonical = TRUE",
+        org_id,
+    )
     return templates.TemplateResponse(
         request,
         "admin/orgs/form.html",
@@ -258,6 +271,7 @@ async def org_edit_form(
             "active_section": "orgs",
             "org": org,
             "canonical_name": canonical["name"] if canonical else "",
+            "canonical_acronym": canonical_acronym_row["acronym"] if canonical_acronym_row else "",
             "parents": parents,
         },
     )
@@ -268,6 +282,7 @@ async def org_update(
     org_id: str,
     request: Request,
     name: str = Form(...),
+    acronym: str = Form(""),
     active: str = Form(""),
     parent_id: str = Form(""),
     notes: str = Form(""),
@@ -300,6 +315,29 @@ async def org_update(
             " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
             generate_id(), org_id, name,
         )
+    acronym_stripped = acronym.strip()
+    existing_acronym = await db.fetchrow(
+        "SELECT id FROM organization_acronyms"
+        " WHERE organization_id = $1 AND is_canonical = TRUE",
+        org_id,
+    )
+    if acronym_stripped:
+        if existing_acronym:
+            await db.execute(
+                "UPDATE organization_acronyms SET acronym = $1 WHERE id = $2",
+                acronym_stripped, existing_acronym["id"],
+            )
+        else:
+            await db.execute(
+                "INSERT INTO organization_acronyms"
+                " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, $3, TRUE)",
+                generate_id(), org_id, acronym_stripped,
+            )
+    else:
+        if existing_acronym:
+            await db.execute(
+                "DELETE FROM organization_acronyms WHERE id = $1", existing_acronym["id"]
+            )
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 
 
