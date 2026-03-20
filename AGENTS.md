@@ -35,6 +35,7 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - Auth: exe.dev proxy injects `X-ExeDev-UserID` + `X-ExeDev-Email` headers; missing headers → redirect to `/__exe.dev/login?redirect=<url-encoded path+query>`
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived)
 - `check_auth(user)` from `src.api.admin.deps` — call at top of every route handler; returns `(redirect_response, user)` tuple
+- HTMX partial responses: use `request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")` to select a partial template — boost sends both headers; omitting the `HX-Boosted` guard causes boosted sidebar navigation to receive bare fragments instead of full page layouts
 
 ### DB conventions
 - All PKs are ULIDs; generate with `generate_id()` from `src.core.db`
