@@ -129,21 +129,22 @@ async def org_create(
     if redirect:
         return redirect
     org_id = generate_id()
-    await db.execute(
-        "INSERT INTO organizations (id, active, parent_id, notes) VALUES ($1, $2, $3, $4)",
-        org_id, active == "true", parent_id or None, notes or None,
-    )
-    await db.execute(
-        "INSERT INTO organization_names"
-        " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-        generate_id(), org_id, name,
-    )
-    if acronym.strip():
+    async with db.transaction():
         await db.execute(
-            "INSERT INTO organization_acronyms"
-            " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, $3, TRUE)",
-            generate_id(), org_id, acronym.strip(),
+            "INSERT INTO organizations (id, active, parent_id, notes) VALUES ($1, $2, $3, $4)",
+            org_id, active == "true", parent_id or None, notes or None,
         )
+        await db.execute(
+            "INSERT INTO organization_names"
+            " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
+            generate_id(), org_id, name,
+        )
+        if acronym.strip():
+            await db.execute(
+                "INSERT INTO organization_acronyms"
+                " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, $3, TRUE)",
+                generate_id(), org_id, acronym.strip(),
+            )
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 
 
@@ -296,45 +297,45 @@ async def org_update(
     org = await db.fetchrow("SELECT id FROM organizations WHERE id = $1", org_id)
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-    await db.execute(
-        "UPDATE organizations SET active = $1, parent_id = $2, notes = $3 WHERE id = $4",
-        active == "true", parent_id or None, notes or None, org_id,
-    )
-    existing = await db.fetchrow(
-        "SELECT id FROM organization_names"
-        " WHERE organization_id = $1 AND is_canonical = TRUE",
-        org_id,
-    )
-    if existing:
+    async with db.transaction():
         await db.execute(
-            "UPDATE organization_names SET name = $1 WHERE id = $2", name, existing["id"]
+            "UPDATE organizations SET active = $1, parent_id = $2, notes = $3 WHERE id = $4",
+            active == "true", parent_id or None, notes or None, org_id,
         )
-    else:
-        await db.execute(
-            "INSERT INTO organization_names"
-            " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-            generate_id(), org_id, name,
+        existing = await db.fetchrow(
+            "SELECT id FROM organization_names"
+            " WHERE organization_id = $1 AND is_canonical = TRUE",
+            org_id,
         )
-    acronym_stripped = acronym.strip()
-    existing_acronym = await db.fetchrow(
-        "SELECT id FROM organization_acronyms"
-        " WHERE organization_id = $1 AND is_canonical = TRUE",
-        org_id,
-    )
-    if acronym_stripped:
-        if existing_acronym:
+        if existing:
             await db.execute(
-                "UPDATE organization_acronyms SET acronym = $1 WHERE id = $2",
-                acronym_stripped, existing_acronym["id"],
+                "UPDATE organization_names SET name = $1 WHERE id = $2", name, existing["id"]
             )
         else:
             await db.execute(
-                "INSERT INTO organization_acronyms"
-                " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, $3, TRUE)",
-                generate_id(), org_id, acronym_stripped,
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
+                generate_id(), org_id, name,
             )
-    else:
-        if existing_acronym:
+        acronym_stripped = acronym.strip()
+        existing_acronym = await db.fetchrow(
+            "SELECT id FROM organization_acronyms"
+            " WHERE organization_id = $1 AND is_canonical = TRUE",
+            org_id,
+        )
+        if acronym_stripped:
+            if existing_acronym:
+                await db.execute(
+                    "UPDATE organization_acronyms SET acronym = $1 WHERE id = $2",
+                    acronym_stripped, existing_acronym["id"],
+                )
+            else:
+                await db.execute(
+                    "INSERT INTO organization_acronyms"
+                    " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, $3, TRUE)",
+                    generate_id(), org_id, acronym_stripped,
+                )
+        elif existing_acronym:
             await db.execute(
                 "DELETE FROM organization_acronyms WHERE id = $1", existing_acronym["id"]
             )

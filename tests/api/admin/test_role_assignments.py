@@ -204,7 +204,6 @@ async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
         assert response.text.count(f'href="/admin/role-assignments/{ra_id}/"') == 1, \
             "assignment must appear exactly once"
     finally:
-        await db.execute("DELETE FROM role_assignments WHERE id = $1", ra_id)
         await db.execute(
             "DELETE FROM organization_acronyms WHERE organization_id = $1",
             org_id,
