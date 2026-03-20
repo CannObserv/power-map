@@ -114,6 +114,66 @@ def test_edit_org_form_returns_200(client, org_id):
     assert "Test Org" in response.text
 
 
+def test_edit_org_does_not_overwrite_acronym(client):
+    """Saving the edit form must update the legal name, not the canonical acronym."""
+    dsn = _get_dsn()
+    oid = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, 'Old Name', 'legal', TRUE)",
+                generate_id(), oid,
+            )
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, 'ON', 'acronym', TRUE)",
+                generate_id(), oid,
+            )
+        finally:
+            await conn.close()
+
+    async def get_names():
+        conn = await _aconnect(dsn)
+        try:
+            return await conn.fetch(
+                "SELECT name, name_type FROM organization_names"
+                " WHERE organization_id = $1 AND is_canonical = TRUE",
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        response = client.post(
+            f"/admin/orgs/{oid}/edit/",
+            headers=AUTH_HEADERS,
+            data={"name": "New Name", "active": "true", "parent_id": "", "notes": ""},
+            follow_redirects=False,
+        )
+        assert response.status_code in (302, 303)
+        rows = asyncio.run(get_names())
+        by_type = {r["name_type"]: r["name"] for r in rows}
+        assert by_type["legal"] == "New Name", "legal name must be updated"
+        assert by_type["acronym"] == "ON", "acronym must not be overwritten"
+    finally:
+        asyncio.run(teardown())
+
+
 def test_archive_org(client, org_id):
     response = client.post(
         f"/admin/orgs/{org_id}/archive/",

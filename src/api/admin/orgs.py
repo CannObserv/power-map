@@ -281,7 +281,8 @@ async def org_update(
         active == "true", parent_id or None, notes or None, org_id,
     )
     existing = await db.fetchrow(
-        "SELECT id FROM organization_names WHERE organization_id = $1 AND is_canonical = TRUE",
+        "SELECT id FROM organization_names"
+        " WHERE organization_id = $1 AND is_canonical = TRUE AND name_type != 'acronym'",
         org_id,
     )
     if existing:
