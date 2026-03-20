@@ -205,7 +205,9 @@ def test_edit_org_does_not_overwrite_acronym(client):
         response = client.post(
             f"/admin/orgs/{oid}/edit/",
             headers=AUTH_HEADERS,
-            data={"name": "New Name", "active": "true", "parent_id": "", "notes": ""},
+            data={
+                "name": "New Name", "acronym": "ON", "active": "true", "parent_id": "", "notes": ""
+            },
             follow_redirects=False,
         )
         assert response.status_code in (302, 303)
@@ -289,5 +291,302 @@ def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
         # Each row has a detail link + edit link; count detail link only to detect duplicate rows.
         detail_link_count = response.text.count(f'href="/admin/orgs/{oid}/"')
         assert detail_link_count == 1, "org must appear exactly once"
+    finally:
+        asyncio.run(teardown())
+
+
+def test_create_org_with_acronym_stores_acronym(client):
+    """Creating an org with acronym=NEWCO must insert a canonical acronym row."""
+    dsn = _get_dsn()
+
+    response = client.post(
+        "/admin/orgs/new/",
+        headers=AUTH_HEADERS,
+        data={"name": "New Company", "acronym": "NEWCO", "active": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    location = response.headers["location"]
+    created_id = location.rstrip("/").split("/")[-1]
+
+    async def get_acronym():
+        conn = await _aconnect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT acronym FROM organization_acronyms"
+                " WHERE organization_id = $1 AND is_canonical = TRUE",
+                created_id,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute(
+                "DELETE FROM organization_acronyms WHERE organization_id = $1", created_id
+            )
+            await conn.execute(
+                "DELETE FROM organization_names WHERE organization_id = $1", created_id
+            )
+            await conn.execute("DELETE FROM organizations WHERE id = $1", created_id)
+        finally:
+            await conn.close()
+
+    try:
+        row = asyncio.run(get_acronym())
+        assert row is not None and row["acronym"] == "NEWCO"
+    finally:
+        asyncio.run(teardown())
+
+
+def test_create_org_without_acronym_succeeds(client):
+    """Creating an org with no acronym field must succeed and insert no acronym row."""
+    dsn = _get_dsn()
+
+    response = client.post(
+        "/admin/orgs/new/",
+        headers=AUTH_HEADERS,
+        data={"name": "No Acronym Org", "active": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    created_id = response.headers["location"].rstrip("/").split("/")[-1]
+
+    async def get_acronym_row():
+        conn = await _aconnect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT id FROM organization_acronyms WHERE organization_id = $1", created_id
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute(
+                "DELETE FROM organization_names WHERE organization_id = $1", created_id
+            )
+            await conn.execute("DELETE FROM organizations WHERE id = $1", created_id)
+        finally:
+            await conn.close()
+
+    try:
+        row = asyncio.run(get_acronym_row())
+        assert row is None, "no acronym row should be created"
+    finally:
+        asyncio.run(teardown())
+
+
+def test_edit_org_form_shows_existing_acronym(client):
+    """Edit form must pre-populate acronym field with the current canonical acronym."""
+    dsn = _get_dsn()
+    oid = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, is_canonical) VALUES ($1, $2, 'Acme Corp', TRUE)",
+                generate_id(), oid,
+            )
+            await conn.execute(
+                "INSERT INTO organization_acronyms"
+                " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, 'ACME', TRUE)",
+                generate_id(), oid,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        response = client.get(f"/admin/orgs/{oid}/edit/", headers=AUTH_HEADERS)
+        assert response.status_code == 200
+        assert 'value="ACME"' in response.text
+    finally:
+        asyncio.run(teardown())
+
+
+def test_edit_org_insert_new_acronym(client):
+    """Posting acronym=BI when no acronym exists must insert a canonical acronym row."""
+    dsn = _get_dsn()
+    oid = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, is_canonical) VALUES ($1, $2, 'Beta Inc', TRUE)",
+                generate_id(), oid,
+            )
+        finally:
+            await conn.close()
+
+    async def get_acronym():
+        conn = await _aconnect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT acronym FROM organization_acronyms"
+                " WHERE organization_id = $1 AND is_canonical = TRUE",
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        response = client.post(
+            f"/admin/orgs/{oid}/edit/",
+            headers=AUTH_HEADERS,
+            data={
+                "name": "Beta Inc", "acronym": "BI", "active": "true", "parent_id": "", "notes": ""
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code in (302, 303)
+        row = asyncio.run(get_acronym())
+        assert row is not None and row["acronym"] == "BI"
+    finally:
+        asyncio.run(teardown())
+
+
+def test_edit_org_update_existing_acronym(client):
+    """Posting a different acronym when one already exists must UPDATE the existing row."""
+    dsn = _get_dsn()
+    oid = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, is_canonical) VALUES ($1, $2, 'Gamma Corp', TRUE)",
+                generate_id(), oid,
+            )
+            await conn.execute(
+                "INSERT INTO organization_acronyms"
+                " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, 'GC', TRUE)",
+                generate_id(), oid,
+            )
+        finally:
+            await conn.close()
+
+    async def get_acronym():
+        conn = await _aconnect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT acronym FROM organization_acronyms"
+                " WHERE organization_id = $1 AND is_canonical = TRUE",
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        response = client.post(
+            f"/admin/orgs/{oid}/edit/",
+            headers=AUTH_HEADERS,
+            data={
+                "name": "Gamma Corp", "acronym": "GCORP", "active": "true",
+                "parent_id": "", "notes": "",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code in (302, 303)
+        row = asyncio.run(get_acronym())
+        assert row is not None and row["acronym"] == "GCORP"
+    finally:
+        asyncio.run(teardown())
+
+
+def test_edit_org_clear_acronym(client):
+    """Posting an empty acronym must delete the canonical acronym row."""
+    dsn = _get_dsn()
+    oid = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, is_canonical) VALUES ($1, $2, 'Delta LLC', TRUE)",
+                generate_id(), oid,
+            )
+            await conn.execute(
+                "INSERT INTO organization_acronyms"
+                " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, 'DL', TRUE)",
+                generate_id(), oid,
+            )
+        finally:
+            await conn.close()
+
+    async def get_acronym():
+        conn = await _aconnect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT acronym FROM organization_acronyms"
+                " WHERE organization_id = $1 AND is_canonical = TRUE",
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        response = client.post(
+            f"/admin/orgs/{oid}/edit/",
+            headers=AUTH_HEADERS,
+            data={
+                "name": "Delta LLC", "acronym": "", "active": "true", "parent_id": "", "notes": ""
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code in (302, 303)
+        row = asyncio.run(get_acronym())
+        assert row is None, "acronym row must be deleted when blank acronym is submitted"
     finally:
         asyncio.run(teardown())
