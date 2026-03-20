@@ -1,3 +1,4 @@
+{% from "admin/macros/pagination.html" import controls as pagination %}
 {% for org in orgs %}
 <tr class="{% if org.archived_at %}is-archived{% elif not org.active %}is-inactive{% endif %}">
   <td><a href="/admin/orgs/{{ org.id }}/">{{ org.canonical_name or '(unnamed)' }}</a></td>
@@ -12,3 +13,10 @@
 {% else %}
 <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
 {% endfor %}
+{% if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted") %}
+<div id="orgs-pagination" hx-swap-oob="true">
+  {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
+               "/admin/orgs/", "#orgs-table-body",
+               "q=" ~ q|urlencode ~ "&status=" ~ status) }}
+</div>
+{% endif %}

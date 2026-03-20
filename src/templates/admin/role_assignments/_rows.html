@@ -1,3 +1,4 @@
+{% from "admin/macros/pagination.html" import controls as pagination %}
 {% for ra in assignments %}
 <tr class="{% if ra.archived_at %}is-archived{% endif %}">
   <td>
@@ -18,3 +19,10 @@
 {% else %}
 <tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
 {% endfor %}
+{% if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted") %}
+<div id="ra-pagination" hx-swap-oob="true">
+  {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
+               "/admin/role-assignments/", "#ra-table-body",
+               "q=" ~ q|urlencode ~ "&status=" ~ status) }}
+</div>
+{% endif %}
