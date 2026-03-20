@@ -1,5 +1,6 @@
 """Admin router — mounts all entity sub-routers."""
 
+import asyncpg
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -10,7 +11,7 @@ from src.api.admin import orgs as orgs_module
 from src.api.admin import people as people_module
 from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
-from src.api.admin.deps import AdminUser, get_admin_user
+from src.api.admin.deps import AdminUser, get_admin_user, get_db
 
 templates = Jinja2Templates(directory="src/templates")
 admin_router = APIRouter(prefix="/admin")
@@ -20,10 +21,21 @@ admin_router = APIRouter(prefix="/admin")
 async def dashboard(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db: asyncpg.Connection = Depends(get_db),
 ):
     """Admin dashboard landing page."""
     if isinstance(user, RedirectResponse):
         return user
+    counts = await db.fetchrow(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM people          WHERE archived_at IS NULL) AS people,
+            (SELECT COUNT(*) FROM organizations   WHERE archived_at IS NULL) AS orgs,
+            (SELECT COUNT(*) FROM roles           WHERE archived_at IS NULL) AS roles,
+            (SELECT COUNT(*) FROM role_assignments WHERE archived_at IS NULL) AS assignments,
+            (SELECT COUNT(*) FROM import_batches)                             AS imports
+        """
+    )
     return templates.TemplateResponse(
         request,
         "admin/dashboard.html",
@@ -31,11 +43,11 @@ async def dashboard(
             "user": user,
             "active_section": "dashboard",
             "nav_items": [
-                {"label": "People", "url": "/admin/people/", "count": "—"},
-                {"label": "Organizations", "url": "/admin/orgs/", "count": "—"},
-                {"label": "Roles", "url": "/admin/roles/", "count": "—"},
-                {"label": "Assignments", "url": "/admin/role-assignments/", "count": "—"},
-                {"label": "Import History", "url": "/admin/imports/", "count": "—"},
+                {"label": "People", "url": "/admin/people/", "count": counts["people"]},
+                {"label": "Organizations", "url": "/admin/orgs/", "count": counts["orgs"]},
+                {"label": "Roles", "url": "/admin/roles/", "count": counts["roles"]},
+                {"label": "Assignments", "url": "/admin/role-assignments/", "count": counts["assignments"]},
+                {"label": "Import History", "url": "/admin/imports/", "count": counts["imports"]},
             ],
         },
     )
