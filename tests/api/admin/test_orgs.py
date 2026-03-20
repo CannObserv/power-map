@@ -114,6 +114,66 @@ def test_edit_org_form_returns_200(client, org_id):
     assert "Test Org" in response.text
 
 
+def test_edit_org_does_not_overwrite_acronym(client):
+    """Saving the edit form must update the legal name, not the canonical acronym."""
+    dsn = _get_dsn()
+    oid = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, 'Old Name', 'legal', TRUE)",
+                generate_id(), oid,
+            )
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, 'ON', 'acronym', TRUE)",
+                generate_id(), oid,
+            )
+        finally:
+            await conn.close()
+
+    async def get_names():
+        conn = await _aconnect(dsn)
+        try:
+            return await conn.fetch(
+                "SELECT name, name_type FROM organization_names"
+                " WHERE organization_id = $1 AND is_canonical = TRUE",
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        response = client.post(
+            f"/admin/orgs/{oid}/edit/",
+            headers=AUTH_HEADERS,
+            data={"name": "New Name", "active": "true", "parent_id": "", "notes": ""},
+            follow_redirects=False,
+        )
+        assert response.status_code in (302, 303)
+        rows = asyncio.run(get_names())
+        by_type = {r["name_type"]: r["name"] for r in rows}
+        assert by_type["legal"] == "New Name", "legal name must be updated"
+        assert by_type["acronym"] == "ON", "acronym must not be overwritten"
+    finally:
+        asyncio.run(teardown())
+
+
 def test_archive_org(client, org_id):
     response = client.post(
         f"/admin/orgs/{org_id}/archive/",
@@ -143,3 +203,49 @@ def test_hard_delete_archived_org(client, org_id):
     asyncio.run(archive())
     response = client.delete(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
+
+
+def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
+    dsn = _get_dsn()
+    oid = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, 'Cannabis Alliance', 'legal', TRUE)",
+                generate_id(), oid,
+            )
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, 'CA', 'acronym', TRUE)",
+                generate_id(), oid,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        # Search by name so the test is independent of pagination / DB size.
+        # With the broken query the response shows "Cannabis Alliance" and "CA" as separate
+        # rows; after the fix it shows "Cannabis Alliance (CA)" as a single row.
+        response = client.get("/admin/orgs/?q=Cannabis+Alliance", headers=AUTH_HEADERS)
+        assert response.status_code == 200
+        assert "Cannabis Alliance (CA)" in response.text
+        # Each row has a detail link + edit link; count detail link only to detect duplicate rows.
+        detail_link_count = response.text.count(f'href="/admin/orgs/{oid}/"')
+        assert detail_link_count == 1, "org must appear exactly once"
+    finally:
+        asyncio.run(teardown())

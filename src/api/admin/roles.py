@@ -54,7 +54,7 @@ async def roles_list(
 
     if org_q:
         params.append(_like(org_q))
-        conditions.append(f"n.name ILIKE ${len(params)} ESCAPE '\\'")
+        conditions.append(f"dn.display_name ILIKE ${len(params)} ESCAPE '\\'")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]
@@ -64,21 +64,19 @@ async def roles_list(
         f"""SELECT count(DISTINCT r.id)
             FROM roles r
             JOIN organizations o ON o.id = r.organization_id
-            LEFT JOIN organization_names n
-              ON n.organization_id = o.id AND n.is_canonical = TRUE
+            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
             {where}""",
         *count_params,
     )
     rows = await db.fetch(
         f"""SELECT r.id, r.title, r.notes, r.archived_at, r.created_at,
                    o.id AS org_id,
-                   n.name AS org_name
+                   dn.display_name AS org_name
             FROM roles r
             JOIN organizations o ON o.id = r.organization_id
-            LEFT JOIN organization_names n
-              ON n.organization_id = o.id AND n.is_canonical = TRUE
+            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
             {where}
-            ORDER BY n.name NULLS LAST, r.title
+            ORDER BY dn.display_name NULLS LAST, r.title
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
         *list_params,
     )
@@ -113,11 +111,10 @@ async def role_new_form(
     if redirect:
         return redirect
     orgs = await db.fetch(
-        """SELECT o.id, n.name
+        """SELECT o.id, dn.display_name AS name
            FROM organizations o
-           LEFT JOIN organization_names n
-             ON n.organization_id = o.id AND n.is_canonical = TRUE
-           WHERE o.archived_at IS NULL ORDER BY n.name NULLS LAST"""
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           WHERE o.archived_at IS NULL ORDER BY dn.display_name NULLS LAST"""
     )
     return templates.TemplateResponse(
         request,
@@ -166,11 +163,10 @@ async def role_detail(
 
     role = await db.fetchrow(
         """SELECT r.id, r.title, r.notes, r.archived_at, r.created_at, r.updated_at,
-                  o.id AS org_id, n.name AS org_name
+                  o.id AS org_id, dn.display_name AS org_name
            FROM roles r
            JOIN organizations o ON o.id = r.organization_id
-           LEFT JOIN organization_names n
-             ON n.organization_id = o.id AND n.is_canonical = TRUE
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
            WHERE r.id = $1""",
         role_id,
     )
@@ -216,11 +212,10 @@ async def role_edit_form(
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     orgs = await db.fetch(
-        """SELECT o.id, n.name
+        """SELECT o.id, dn.display_name AS name
            FROM organizations o
-           LEFT JOIN organization_names n
-             ON n.organization_id = o.id AND n.is_canonical = TRUE
-           WHERE o.archived_at IS NULL ORDER BY n.name NULLS LAST"""
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           WHERE o.archived_at IS NULL ORDER BY dn.display_name NULLS LAST"""
     )
     return templates.TemplateResponse(
         request,

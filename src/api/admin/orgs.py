@@ -41,7 +41,7 @@ async def orgs_list(
 
     if q:
         params.append(f"%{q}%")
-        conditions.append(f"n.name ILIKE ${len(params)}")
+        conditions.append(f"dn.display_name ILIKE ${len(params)}")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]
@@ -50,19 +50,17 @@ async def orgs_list(
     count = await db.fetchval(
         f"""SELECT count(DISTINCT o.id)
             FROM organizations o
-            LEFT JOIN organization_names n
-              ON n.organization_id = o.id AND n.is_canonical = TRUE
+            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
             {where}""",
         *count_params,
     )
     rows = await db.fetch(
         f"""SELECT o.id, o.active, o.archived_at, o.created_at,
-                   n.name AS canonical_name
+                   dn.display_name AS canonical_name
             FROM organizations o
-            LEFT JOIN organization_names n
-              ON n.organization_id = o.id AND n.is_canonical = TRUE
+            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
             {where}
-            ORDER BY n.name NULLS LAST
+            ORDER BY dn.display_name NULLS LAST
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
         *list_params,
     )
@@ -96,11 +94,10 @@ async def org_new_form(
     if redirect:
         return redirect
     parents = await db.fetch(
-        """SELECT o.id, n.name AS canonical_name
+        """SELECT o.id, dn.display_name AS canonical_name
            FROM organizations o
-           LEFT JOIN organization_names n
-             ON n.organization_id = o.id AND n.is_canonical = TRUE
-           WHERE o.archived_at IS NULL ORDER BY n.name NULLS LAST"""
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           WHERE o.archived_at IS NULL ORDER BY dn.display_name NULLS LAST"""
     )
     return templates.TemplateResponse(
         request,
@@ -192,11 +189,10 @@ async def org_detail(
         org_id,
     )
     children = await db.fetch(
-        """SELECT o.id, o.active, o.archived_at, n.name AS canonical_name
+        """SELECT o.id, o.active, o.archived_at, dn.display_name AS canonical_name
            FROM organizations o
-           LEFT JOIN organization_names n
-             ON n.organization_id = o.id AND n.is_canonical = TRUE
-           WHERE o.parent_id = $1 ORDER BY n.name""",
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           WHERE o.parent_id = $1 ORDER BY dn.display_name""",
         org_id,
     )
     roles = await db.fetch(
@@ -238,15 +234,15 @@ async def org_edit_form(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     canonical = await db.fetchrow(
-        "SELECT name FROM organization_names WHERE organization_id = $1 AND is_canonical = TRUE",
+        "SELECT name FROM organization_names"
+        " WHERE organization_id = $1 AND is_canonical = TRUE AND name_type != 'acronym'",
         org_id,
     )
     parents = await db.fetch(
-        """SELECT o.id, n.name AS canonical_name
+        """SELECT o.id, dn.display_name AS canonical_name
            FROM organizations o
-           LEFT JOIN organization_names n
-             ON n.organization_id = o.id AND n.is_canonical = TRUE
-           WHERE o.archived_at IS NULL AND o.id != $1 ORDER BY n.name NULLS LAST""",
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           WHERE o.archived_at IS NULL AND o.id != $1 ORDER BY dn.display_name NULLS LAST""",
         org_id,
     )
     return templates.TemplateResponse(
@@ -285,7 +281,8 @@ async def org_update(
         active == "true", parent_id or None, notes or None, org_id,
     )
     existing = await db.fetchrow(
-        "SELECT id FROM organization_names WHERE organization_id = $1 AND is_canonical = TRUE",
+        "SELECT id FROM organization_names"
+        " WHERE organization_id = $1 AND is_canonical = TRUE AND name_type != 'acronym'",
         org_id,
     )
     if existing:
