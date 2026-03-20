@@ -132,6 +132,39 @@ async def test_deduplicate_roles_reassigns_role_assignments(db):
     assert roles_in_use[0]["role_id"] == min(role_canonical, role_dup)
 
 
+async def test_conflicting_assignment_deleted_not_doubled(db):
+    """When the same person is assigned to both a canonical and a duplicate role,
+    the conflicting duplicate assignment must be deleted (not re-pointed) so the
+    person ends up with exactly one assignment to the canonical role."""
+    org_id = await _org(db)
+    person_id = await _person(db)
+
+    await db.execute("DROP INDEX IF EXISTS uq_role_org_title")
+    await db.execute("DROP INDEX IF EXISTS uq_role_assignment_person_role_start")
+    role_canonical = await _insert_role(db, org_id, "CSO")
+    role_dup = await _insert_role(db, org_id, "CSO")
+    # Same person assigned to BOTH duplicate role rows — re-pointing would create a dupe
+    await _insert_assignment(db, person_id, role_canonical)
+    await _insert_assignment(db, person_id, role_dup)
+
+    result = await run_deduplication(db, dry_run=False)
+
+    # Person must have exactly one active CSO assignment
+    count = await db.fetchval(
+        "SELECT count(*) FROM role_assignments ra"
+        " JOIN roles r ON r.id = ra.role_id"
+        " WHERE ra.person_id = $1"
+        "   AND lower(r.title) = 'cso'"
+        "   AND ra.archived_at IS NULL"
+        "   AND r.archived_at IS NULL",
+        person_id,
+    )
+    assert count == 1
+
+    # The conflicting assignment counts toward assignments_removed
+    assert result.assignments_removed >= 1
+
+
 async def test_deduplicate_assignments_removes_duplicates(db):
     """Duplicate role_assignments (same person+role+start_date) must be collapsed."""
     org_id = await _org(db)

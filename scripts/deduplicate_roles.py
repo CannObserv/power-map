@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import asyncpg
 
-from src.core.logging import get_logger
+from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
@@ -90,8 +90,7 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
             )
         ]
         if conflicting_ra_ids:
-            for table in ("contact_methods", "social_links", "identifiers",
-                          "field_confidence", "import_provenance"):
+            for table in ("contact_methods", "social_links", "identifiers", "field_confidence"):
                 await conn.execute(
                     f"DELETE FROM {table} WHERE entity_id = ANY($1::text[])",  # noqa: S608
                     conflicting_ra_ids,
@@ -105,6 +104,7 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
                 "DELETE FROM role_assignments WHERE id = ANY($1::text[])",
                 conflicting_ra_ids,
             )
+            assignments_removed += len(conflicting_ra_ids)
 
         # Re-point remaining assignments to canonical role (no conflicts possible now)
         await conn.execute(
@@ -171,9 +171,10 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
             canonical_id, dup_ids,
         )
 
-        # Migrate polymorphic children (no unique constraints — always safe)
-        for table in ("contact_methods", "social_links", "identifiers",
-                      "field_confidence", "import_provenance"):
+        # Migrate polymorphic children (no unique constraints — always safe).
+        # import_provenance is left on the duplicate rows intentionally: it is an
+        # audit log that records which import batch created each assignment.
+        for table in ("contact_methods", "social_links", "identifiers", "field_confidence"):
             await conn.execute(
                 f"UPDATE {table} SET entity_id = $1 WHERE entity_id = ANY($2::text[])",  # noqa: S608
                 canonical_id, dup_ids,
@@ -244,8 +245,6 @@ async def run_deduplication(
 
 async def _main() -> None:
     """Entry point: parse args, connect to DB, run deduplication."""
-    from src.core.logging import configure_logging
-
     configure_logging()
 
     parser = argparse.ArgumentParser(description=__doc__)
