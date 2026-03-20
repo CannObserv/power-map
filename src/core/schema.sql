@@ -333,7 +333,8 @@ END $$;
 DO $$ BEGIN
     IF EXISTS (
         SELECT 1 FROM information_schema.check_constraints
-        WHERE constraint_name = 'organization_names_name_type_check'
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'organization_names_name_type_check'
           AND check_clause LIKE '%acronym%'
     ) THEN
         ALTER TABLE organization_names

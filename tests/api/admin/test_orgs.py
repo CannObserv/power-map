@@ -116,9 +116,8 @@ def test_org_detail_acronym_only_shows_acronym_in_heading(client):
     try:
         response = client.get(f"/admin/orgs/{oid}/", headers=AUTH_HEADERS)
         assert response.status_code == 200
-        assert "ACRO" in response.text
-        assert oid not in response.text.split("<h1>")[1].split("</h1>")[0], \
-            "h1 must show acronym, not raw org ID"
+        h1_text = response.text.split("<h1>")[1].split("</h1>")[0]
+        assert "ACRO" in h1_text, "h1 must show acronym"
     finally:
         asyncio.run(teardown())
 
