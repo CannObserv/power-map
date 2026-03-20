@@ -45,7 +45,10 @@ async def org_id(db):
         " VALUES ($1, $2, 'Test Org', TRUE)",
         generate_id(), oid,
     )
-    return oid
+    yield oid
+    await db.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
+    await db.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+    await db.execute("DELETE FROM organizations WHERE id = $1", oid)
 
 
 @pytest.fixture
@@ -57,7 +60,9 @@ async def person_id(db):
         " VALUES ($1, $2, 'Test Person', TRUE)",
         generate_id(), pid,
     )
-    return pid
+    yield pid
+    await db.execute("DELETE FROM person_names WHERE person_id = $1", pid)
+    await db.execute("DELETE FROM people WHERE id = $1", pid)
 
 
 @pytest.fixture
@@ -67,7 +72,9 @@ async def role_id(db, org_id):
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Test Role')",
         rid, org_id,
     )
-    return rid
+    yield rid
+    await db.execute("DELETE FROM role_assignments WHERE role_id = $1", rid)
+    await db.execute("DELETE FROM roles WHERE id = $1", rid)
 
 
 @pytest.fixture
@@ -78,7 +85,8 @@ async def ra_id(db, person_id, role_id):
         " VALUES ($1, $2, $3, TRUE)",
         raid, person_id, role_id,
     )
-    return raid
+    yield raid
+    await db.execute("DELETE FROM role_assignments WHERE id = $1", raid)
 
 
 def test_role_assignments_list_returns_200(client):
@@ -169,6 +177,13 @@ async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
     Validates that both _LIST_SELECT (SELECT clause) and the ra_list WHERE condition
     use the correct dn.display_name alias after the refactor.
     """
+    # Use org_id as unique suffix so this search matches only this test's data.
+    unique_name = f"UniqueOrg {org_id}"
+    await db.execute(
+        "UPDATE organization_names SET name = $1"
+        " WHERE organization_id = $2 AND is_canonical = TRUE",
+        unique_name, org_id,
+    )
     await db.execute(
         "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
         " VALUES ($1, $2, 'TO', TRUE)",
@@ -177,15 +192,15 @@ async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
     ra_id = generate_id()
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
-        " VALUES ($1, $2, $3, FALSE)",
+        " VALUES ($1, $2, $3, TRUE)",
         ra_id, person_id, role_id,
     )
     try:
         response = client.get(
-            "/admin/role-assignments/?q=Test+Org", headers=AUTH_HEADERS
+            f"/admin/role-assignments/?q={org_id}", headers=AUTH_HEADERS
         )
         assert response.status_code == 200
-        assert "Test Org (TO)" in response.text
+        assert f"{unique_name} (TO)" in response.text
         assert response.text.count(f'href="/admin/role-assignments/{ra_id}/"') == 1, \
             "assignment must appear exactly once"
     finally:
