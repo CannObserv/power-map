@@ -96,6 +96,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_org_canonical_name
     ON organization_names(organization_id, name_type)
     WHERE is_canonical = TRUE;
 
+-- Display name view: formats org name as "Name (Acronym)" when acronym is present.
+-- Used by all admin queries that show an org name for display (not editing).
+CREATE OR REPLACE VIEW v_org_display_names AS
+SELECT o.id AS organization_id,
+       COALESCE(nl.name || ' (' || na.name || ')', nl.name) AS display_name
+FROM organizations o
+LEFT JOIN organization_names nl
+    ON nl.organization_id = o.id AND nl.is_canonical = TRUE AND nl.name_type != 'acronym'
+LEFT JOIN organization_names na
+    ON na.organization_id = o.id AND na.is_canonical = TRUE AND na.name_type = 'acronym'
+;
+
 CREATE TABLE IF NOT EXISTS people (
     id                TEXT        PRIMARY KEY,
     personal_pronouns TEXT,
