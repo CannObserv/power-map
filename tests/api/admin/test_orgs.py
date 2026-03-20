@@ -143,3 +143,48 @@ def test_hard_delete_archived_org(client, org_id):
     asyncio.run(archive())
     response = client.delete(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
+
+
+def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
+    dsn = _get_dsn()
+    oid = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, 'Cannabis Alliance', 'legal', TRUE)",
+                generate_id(), oid,
+            )
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, 'CA', 'acronym', TRUE)",
+                generate_id(), oid,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        # Search by name so the test is independent of pagination / DB size.
+        # With the broken query the response shows "Cannabis Alliance" and "CA" as separate
+        # rows; after the fix it shows "Cannabis Alliance (CA)" as a single row.
+        response = client.get("/admin/orgs/?q=Cannabis+Alliance", headers=AUTH_HEADERS)
+        assert response.status_code == 200
+        assert "Cannabis Alliance (CA)" in response.text
+        # Each row has a detail link + edit link; count detail link only to detect duplicate rows.
+        assert response.text.count(f'href="/admin/orgs/{oid}/"') == 1, "org must appear exactly once"
+    finally:
+        asyncio.run(teardown())
