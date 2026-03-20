@@ -147,7 +147,7 @@ async def test_conflicting_assignment_deleted_not_doubled(db):
     await _insert_assignment(db, person_id, role_canonical)
     await _insert_assignment(db, person_id, role_dup)
 
-    result = await run_deduplication(db, dry_run=False)
+    await run_deduplication(db, dry_run=False)
 
     # Person must have exactly one active CSO assignment
     count = await db.fetchval(
