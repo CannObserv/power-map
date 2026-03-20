@@ -1,6 +1,6 @@
 -- Power Map — canonical DDL
 -- All PKs are ULIDs (TEXT). All timestamps are TIMESTAMPTZ.
--- Requires PostgreSQL 14+ (CREATE OR REPLACE TRIGGER).
+-- Requires PostgreSQL 15+ (NULLS NOT DISTINCT on unique indexes).
 -- Apply with: psql -f schema.sql
 
 -- =============================================================================
@@ -151,10 +151,36 @@ CREATE TABLE IF NOT EXISTS role_assignments (
     archived_at TIMESTAMPTZ
 );
 
--- Prevent a person from being listed as current in the same role twice
-CREATE UNIQUE INDEX IF NOT EXISTS uq_role_assignment_current
-    ON role_assignments(person_id, role_id)
-    WHERE is_current = TRUE;
+-- Prevent duplicate role definitions per org (case-insensitive title).
+-- Archived roles are excluded so a re-created role is never blocked.
+-- NOTE: index creation is skipped (with a warning) if duplicate rows exist.
+-- Run scripts/deduplicate_roles.py --execute before applying this schema if the
+-- index fails to create, then re-run apply_schema to pick it up.
+DO $$ BEGIN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_role_org_title
+        ON roles (organization_id, lower(title))
+        WHERE archived_at IS NULL;
+EXCEPTION WHEN unique_violation THEN
+    RAISE WARNING
+        'uq_role_org_title not created: duplicate (organization_id, title) rows exist. '
+        'Run scripts/deduplicate_roles.py --execute then re-apply schema.';
+END $$;
+
+-- Prevent duplicate assignments: same person+role+start_date is always a duplicate.
+-- NULLS NOT DISTINCT treats NULL start_date as a known value (unknown-start is unique).
+-- Archived assignments are excluded so re-creating an archived record is allowed.
+-- Replaces uq_role_assignment_current (strictly stronger).
+DROP INDEX IF EXISTS uq_role_assignment_current;
+
+DO $$ BEGIN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_role_assignment_person_role_start
+        ON role_assignments (person_id, role_id, start_date) NULLS NOT DISTINCT
+        WHERE archived_at IS NULL;
+EXCEPTION WHEN unique_violation THEN
+    RAISE WARNING
+        'uq_role_assignment_person_role_start not created: duplicate (person_id, role_id, '
+        'start_date) rows exist. Run scripts/deduplicate_roles.py --execute then re-apply schema.';
+END $$;
 
 -- =============================================================================
 -- Polymorphic Tables

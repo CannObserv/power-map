@@ -28,7 +28,7 @@ src/core/       — Shared domain logic
   ingestion/    — EVTL pipeline: base types, CSV sources (org/person/role), pipeline coordinator
 tests/          — Mirrors src/ structure
 docs/           — Reference docs (API, COMMANDS, SKILLS)
-scripts/        — One-off operational scripts (import_cannabis_observer.py)
+scripts/        — One-off operational scripts (import_cannabis_observer.py, deduplicate_roles.py)
 ```
 
 ### Admin dashboard conventions
@@ -51,6 +51,14 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py)
 - `import_batches.file_hash` is unique; re-running with the same files reuses the existing batch
 - Address standardization uses the external address-validator service when `ADDRESS_VALIDATOR_API_KEY` is set; falls back to local `usaddress` parsing otherwise
 - `VALIDATE_ADDRESSES=true` (or `--validate-addresses` CLI flag) enables the `/validate` endpoint
+- `role_index` is pre-populated from the DB at pipeline startup (Pass 3) so re-runs are idempotent across batches
+
+### Unique indexes (requires PostgreSQL 15+)
+- `uq_role_org_title` — `roles(organization_id, lower(title)) WHERE archived_at IS NULL`
+- `uq_role_assignment_person_role_start` — `role_assignments(person_id, role_id, start_date) NULLS NOT DISTINCT WHERE archived_at IS NULL`
+- Both indexes are created inside `DO … EXCEPTION WHEN unique_violation` blocks so `apply_schema` is safe even on a DB with existing duplicates (it logs a WARNING instead of raising).
+- **Bootstrap sequence for a dirty DB:** (1) run `scripts/deduplicate_roles.py --execute` to collapse duplicates, (2) re-run `apply_schema` (or restart the service) to create the indexes, (3) verify with `\d roles` / `\d role_assignments` in psql.
+- Schema tests for `uq_role_org_title` are guarded by a `require_uq_role_org_title` fixture that skips when the index is absent (expected on the production DB until the bootstrap sequence above is run).
 
 ## Services
 

@@ -425,7 +425,15 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
 
     # -------------------------------------------------------------------------
     # Pass 3: Roles + Assignments
+    # Pre-populate role_index from DB so re-runs with new file hashes still
+    # match existing roles rather than creating duplicates.
     # -------------------------------------------------------------------------
+    for row in await conn.fetch(
+        "SELECT id, organization_id, lower(title) AS title_lower"
+        " FROM roles WHERE archived_at IS NULL"
+    ):
+        role_index[(row["organization_id"], row["title_lower"])] = row["id"]
+
     for i, raw in enumerate(role_rows, start=2):
         result = validate_role(raw, source_row=i)
         if not result.ok:
@@ -451,10 +459,13 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
 
         t = result.transformed
 
-        # Dedup role_assignment
+        # Dedup role_assignment: NULL start_date is treated as a known value
+        # (IS NOT DISTINCT FROM matches NULL = NULL).
+        # CSV imports currently always produce NULL start_date (no date column in source).
         existing_ra = await conn.fetchrow(
-            "SELECT id FROM role_assignments WHERE person_id = $1 AND role_id = $2",
-            t["person_id"], t["role_id"],
+            "SELECT id FROM role_assignments"
+            " WHERE person_id = $1 AND role_id = $2 AND start_date IS NOT DISTINCT FROM $3",
+            t["person_id"], t["role_id"], t.get("start_date"),
         )
         if existing_ra:
             await _write_provenance(
@@ -465,11 +476,22 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
 
         async with conn.transaction():
             if t["role_action"] == "created":
-                await conn.execute(
+                actual_role_id = await conn.fetchval(
                     "INSERT INTO roles (id, organization_id, title, notes)"
-                    " VALUES ($1, $2, $3, $4)",
+                    " VALUES ($1, $2, $3, $4)"
+                    " ON CONFLICT DO NOTHING RETURNING id",
                     t["role_id"], t["org_id"], t["title"], t["notes"],
                 )
+                if actual_role_id is None:
+                    # Conflict fired (race or pre-existing row) — look up the winner
+                    actual_role_id = await conn.fetchval(
+                        "SELECT id FROM roles"
+                        " WHERE organization_id = $1 AND lower(title) = lower($2)"
+                        " AND archived_at IS NULL",
+                        t["org_id"], t["title"],
+                    )
+                if actual_role_id and actual_role_id != t["role_id"]:
+                    t = {**t, "role_id": actual_role_id}
             await conn.execute(
                 "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
                 " VALUES ($1, $2, $3, $4)",
