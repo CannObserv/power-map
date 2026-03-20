@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 
 import asyncpg
 import pytest
@@ -84,25 +85,15 @@ def seeded_counts():
         finally:
             await conn.close()
 
-    asyncio.get_event_loop().run_until_complete(setup())
+    asyncio.run(setup())
     yield
-    asyncio.get_event_loop().run_until_complete(teardown())
+    asyncio.run(teardown())
 
 
 def test_dashboard_shows_counts(client, seeded_counts):
-    """Stat boxes display numeric counts, not placeholder dashes."""
+    """Stat boxes display five numeric counts, not placeholder dashes."""
     resp = client.get("/admin/", headers=AUTH_HEADERS)
     assert resp.status_code == 200
-    body = resp.text
-    # Counts should be digits, not the placeholder em-dash
-    assert "— records" not in body
-
-
-def test_dashboard_no_placeholder_dashes(client, seeded_counts):
-    """Each nav_item count is an integer string in the rendered HTML."""
-    resp = client.get("/admin/", headers=AUTH_HEADERS)
-    assert resp.status_code == 200
-    # All five stat boxes should show digit counts
-    import re
+    assert "— records" not in resp.text
     counts = re.findall(r"(\d+) records", resp.text)
     assert len(counts) == 5, f"Expected 5 count boxes, found: {counts}"

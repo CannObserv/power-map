@@ -1,6 +1,7 @@
 """Tests for admin auth dependency."""
 
 import asyncio
+import pytest
 from unittest.mock import MagicMock
 
 from fastapi.responses import RedirectResponse
@@ -78,7 +79,9 @@ def test_check_auth_returns_redirect():
     assert out is None
 
 
+@pytest.mark.integration
 def test_admin_dashboard_returns_200_when_authenticated():
-    response = _client.get("/admin/", headers=AUTH_HEADERS)
+    with TestClient(app) as client:
+        response = client.get("/admin/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Power Map" in response.text

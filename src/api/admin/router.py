@@ -1,6 +1,5 @@
 """Admin router — mounts all entity sub-routers."""
 
-import asyncpg
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -11,7 +10,7 @@ from src.api.admin import orgs as orgs_module
 from src.api.admin import people as people_module
 from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
-from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, get_admin_user
 
 templates = Jinja2Templates(directory="src/templates")
 admin_router = APIRouter(prefix="/admin")
@@ -21,21 +20,24 @@ admin_router = APIRouter(prefix="/admin")
 async def dashboard(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db: asyncpg.Connection = Depends(get_db),
 ):
     """Admin dashboard landing page."""
     if isinstance(user, RedirectResponse):
         return user
-    counts = await db.fetchrow(
-        """
-        SELECT
-            (SELECT COUNT(*) FROM people          WHERE archived_at IS NULL) AS people,
-            (SELECT COUNT(*) FROM organizations   WHERE archived_at IS NULL) AS orgs,
-            (SELECT COUNT(*) FROM roles           WHERE archived_at IS NULL) AS roles,
-            (SELECT COUNT(*) FROM role_assignments WHERE archived_at IS NULL) AS assignments,
-            (SELECT COUNT(*) FROM import_batches)                             AS imports
-        """
-    )
+    pool = request.app.state.db_pool
+    if pool is None:
+        raise RuntimeError("Database pool not initialized — is DATABASE_URL set?")
+    async with pool.acquire() as db:
+        counts = await db.fetchrow(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM people           WHERE archived_at IS NULL) AS people,
+                (SELECT COUNT(*) FROM organizations    WHERE archived_at IS NULL) AS orgs,
+                (SELECT COUNT(*) FROM roles            WHERE archived_at IS NULL) AS roles,
+                (SELECT COUNT(*) FROM role_assignments WHERE archived_at IS NULL) AS assignments,
+                (SELECT COUNT(*) FROM import_batches)                             AS imports
+            """
+        )
     return templates.TemplateResponse(
         request,
         "admin/dashboard.html",
