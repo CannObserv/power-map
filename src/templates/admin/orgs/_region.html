@@ -1,4 +1,13 @@
 {% from "admin/macros/pagination.html" import controls as pagination %}
+{% set _qs = "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode ~ "&page_size=" ~ page_size %}
+{% if duplicate_count %}
+<div class="alert alert--warning" style="margin-bottom:var(--space-4)">
+  {{ duplicate_count }} possible duplicate organization{{ 's' if duplicate_count != 1 else '' }} —
+  <a href="/admin/orgs/duplicates/">Review</a>
+</div>
+{% endif %}
+{{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
+             "/admin/orgs/", "#orgs-list-region", _qs) }}
 <div class="table-wrapper">
   <table class="data-table" id="orgs-table">
     <caption>Organizations — {{ total }} record{{ 's' if total != 1 else '' }}</caption>
@@ -11,8 +20,7 @@
     <tbody id="orgs-table-body">{% include "admin/orgs/_rows.html" %}</tbody>
   </table>
 </div>
-<div id="orgs-pagination">
+<div class="pagination--sticky">
   {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
-               "/admin/orgs/", "#orgs-list-region",
-               "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode) }}
+               "/admin/orgs/", "#orgs-list-region", _qs) }}
 </div>
