@@ -24,7 +24,7 @@
         <small style="color:var(--color-text-muted)">{{ p.b_created.strftime('%Y-%m-%d') }} · {{ p.b_roles }} role{{ 's' if p.b_roles != 1 else '' }}</small>
       </td>
       <td>{{ "%.0f%%"|format(p.score * 100) }}</td>
-      <td style="white-space:nowrap">
+      <td class="dup-actions">
         <form hx-post="/admin/orgs/{{ p.a_id }}/merge/{{ p.b_id }}/"
               hx-target="#orgs-duplicates-region" hx-swap="outerHTML"
               style="display:inline">

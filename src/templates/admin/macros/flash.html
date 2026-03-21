@@ -6,7 +6,11 @@
 <script>
 (function() {
   var el = document.currentScript.previousElementSibling;
-  setTimeout(function() { if (el && el.parentElement) el.remove(); }, {{ auto_dismiss_ms }});
+  var t = setTimeout(function() { if (el && el.parentElement) el.remove(); }, {{ auto_dismiss_ms }});
+  el.addEventListener('mouseenter', function() { clearTimeout(t); });
+  el.addEventListener('mouseleave', function() {
+    t = setTimeout(function() { if (el && el.parentElement) el.remove(); }, {{ auto_dismiss_ms }});
+  });
 })();
 </script>
 {% endmacro %}

@@ -189,6 +189,11 @@ a:hover { color: var(--color-brand-hover); }
 .pagination--sticky { position: sticky; bottom: 0; z-index: 10; display: flex; align-items: center; justify-content: flex-end; margin-left: calc(-1 * var(--space-6)); margin-right: calc(-1 * var(--space-6)); padding: var(--space-2) var(--space-6); background: color-mix(in srgb, var(--color-surface-1) 85%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
 .pagination--sticky .pagination { background: none; border: none; border-radius: 0; padding: 0; margin: 0; }
 
+.dup-actions { white-space: nowrap; }
+@media (max-width: 640px) {
+  .dup-actions { white-space: normal; display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+  .dup-actions form { display: block !important; }
+}
 .danger-zone { border: 1px solid var(--color-danger); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); margin-top: var(--space-6); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
 .danger-zone__label { font-weight: 600; font-size: var(--font-size-sm); color: var(--color-danger); }
 .danger-zone__desc { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: var(--space-1); }
