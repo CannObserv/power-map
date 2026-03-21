@@ -137,4 +137,4 @@ def test_dismiss_pair_removes_from_list(client, org_pair):
     assert response2.status_code == 200
     # The dismissed pair should no longer appear as a candidate
     assert "Alberta Gaming, Liquor and Cannabis Commission" not in response2.text \
-        or "Alberta Gaming, Liquor, and Cannabis Commission" not in response2.text
+        and "Alberta Gaming, Liquor, and Cannabis Commission" not in response2.text
