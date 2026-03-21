@@ -11,6 +11,7 @@
   <a class="skip-link" href="#main-content">Skip to main content</a>
   <div class="admin-layout" hx-boost="true">
     <header class="admin-topbar">
+      <button class="admin-topbar__menu-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="admin-sidebar">&#9776;</button>
       <a class="admin-topbar__brand" href="/admin/">
         <img src="/static/images/cannabis_observer-icon-square.svg"
              alt="" aria-hidden="true" class="admin-topbar__brand-icon">
@@ -24,7 +25,8 @@
         </form>
       </div>
     </header>
-    <nav class="admin-sidebar" aria-label="Entity navigation">
+    <div class="admin-nav-backdrop" id="nav-backdrop" aria-hidden="true"></div>
+    <nav class="admin-sidebar" id="admin-sidebar" aria-label="Entity navigation">
       <span class="admin-sidebar__group-label">Entities</span>
       <a class="admin-sidebar__link" href="/admin/people/" {% if active_section == 'people' %}aria-current="page"{% endif %}>People</a>
       <a class="admin-sidebar__link" href="/admin/orgs/" {% if active_section == 'orgs' %}aria-current="page"{% endif %}>Organizations</a>
@@ -45,5 +47,31 @@
     </footer>
   </div>
   <div id="flash-region" class="flash-region" aria-live="polite" aria-atomic="false">{% block flash %}{% endblock %}</div>
+  <script>
+    (function () {
+      var toggle = document.getElementById('nav-toggle');
+      var sidebar = document.getElementById('admin-sidebar');
+      var backdrop = document.getElementById('nav-backdrop');
+      function open() {
+        sidebar.classList.add('is-open');
+        backdrop.classList.add('is-visible');
+        backdrop.setAttribute('aria-hidden', 'false');
+        toggle.setAttribute('aria-expanded', 'true');
+        var first = sidebar.querySelector('a, button');
+        if (first) first.focus();
+      }
+      function close() {
+        sidebar.classList.remove('is-open');
+        backdrop.classList.remove('is-visible');
+        backdrop.setAttribute('aria-hidden', 'true');
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.focus();
+      }
+      toggle.addEventListener('click', function () { sidebar.classList.contains('is-open') ? close() : open(); });
+      backdrop.addEventListener('click', close);
+      sidebar.addEventListener('click', function (e) { if (e.target.closest('a')) close(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && sidebar.classList.contains('is-open')) close(); });
+    })();
+  </script>
 </body>
 </html>
