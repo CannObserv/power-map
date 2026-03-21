@@ -55,7 +55,7 @@
       function open() {
         sidebar.classList.add('is-open');
         backdrop.classList.add('is-visible');
-        backdrop.setAttribute('aria-hidden', 'false');
+        backdrop.removeAttribute('aria-hidden');
         toggle.setAttribute('aria-expanded', 'true');
         var first = sidebar.querySelector('a, button');
         if (first) first.focus();
@@ -70,7 +70,9 @@
       toggle.addEventListener('click', function () { sidebar.classList.contains('is-open') ? close() : open(); });
       backdrop.addEventListener('click', close);
       sidebar.addEventListener('click', function (e) { if (e.target.closest('a')) close(); });
-      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && sidebar.classList.contains('is-open')) close(); });
+      document.removeEventListener('keydown', document.__pmNavKeydown);
+      document.__pmNavKeydown = function (e) { if (e.key === 'Escape' && sidebar.classList.contains('is-open')) close(); };
+      document.addEventListener('keydown', document.__pmNavKeydown);
     })();
   </script>
 </body>
