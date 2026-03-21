@@ -43,7 +43,7 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - `updated_at` is maintained automatically by DB triggers — never set it manually in application code
 - Phone: normalize to E.164 via `PhoneNormalizer` from `src.core.normalizers.phone`
 - Email: validate via `EmailNormalizer` from `src.core.normalizers.email`
-- Integration tests (marked `integration`) require `DATABASE_URL` env var pointing to a dedicated test DB
+- Integration tests (marked `integration`) require `TEST_DATABASE_URL` env var; `tests/conftest.py` automatically redirects `DATABASE_URL` → `TEST_DATABASE_URL` at session start so tests never touch the production DB when the standard `env` file is loaded
 - Org display names: use `v_org_display_names` (view in `schema.sql`) for all admin queries that display an org name — formats as "Name (Acronym)" when a canonical acronym exists, otherwise just "Name". Never join `organization_names` or `organization_acronyms` directly for display; use the view.
 - Acronyms are stored in `organization_acronyms` (separate table); `organization_names` holds legal/dba/former names only. Each table has exactly one canonical row per org via a partial unique index.
 
