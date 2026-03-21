@@ -3,6 +3,9 @@
 -- Requires PostgreSQL 15+ (NULLS NOT DISTINCT on unique indexes).
 -- Apply with: psql -f schema.sql
 
+-- Enable trigram similarity for duplicate detection
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- =============================================================================
 -- Lookup / Reference Tables
 -- =============================================================================
@@ -473,6 +476,20 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     ('01KKZ3WGJSZF0F96SMYC000AVT', 'person',          'person_ssn',    'SSN',    'United States Social Security Number'),
     ('01KKZ3WGJSZF0F96SMYC000AVV', 'role_assignment', 'role_wa_pdc',   'WA PDC', 'Washington State Public Disclosure Commission')
 ON CONFLICT (slug) DO NOTHING;
+
+-- =============================================================================
+-- Duplicate Management
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS duplicate_dismissals (
+    id            TEXT        PRIMARY KEY,
+    entity_type   TEXT        NOT NULL,
+    entity_a_id   TEXT        NOT NULL,
+    entity_b_id   TEXT        NOT NULL,
+    dismissed_by  TEXT        NOT NULL,
+    dismissed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_dismissal UNIQUE (entity_type, entity_a_id, entity_b_id)
+);
 
 -- =============================================================================
 -- Ingestion Audit Tables

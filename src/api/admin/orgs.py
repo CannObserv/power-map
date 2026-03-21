@@ -12,7 +12,24 @@ from src.core.db import generate_id
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs", tags=["admin-orgs"])
 
-PAGE_SIZE = 50
+_CANDIDATE_WHERE = """
+    FROM organizations a
+    JOIN organizations b ON b.id > a.id
+    JOIN v_org_display_names dn_a ON dn_a.organization_id = a.id
+    JOIN v_org_display_names dn_b ON dn_b.organization_id = b.id
+    WHERE a.archived_at IS NULL AND b.archived_at IS NULL
+      AND similarity(dn_a.display_name, dn_b.display_name) > 0.85
+      AND NOT EXISTS (
+          SELECT 1 FROM duplicate_dismissals
+          WHERE entity_type = 'organization'
+            AND entity_a_id = a.id AND entity_b_id = b.id
+      )
+"""
+
+
+async def count_org_duplicates(db) -> int:
+    """Return count of non-dismissed near-duplicate org pairs."""
+    return await db.fetchval(f"SELECT count(*) {_CANDIDATE_WHERE}")
 
 
 @router.get("/")
@@ -21,6 +38,7 @@ async def orgs_list(
     q: str = "",
     status: str = "active",
     page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=10, le=500),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -54,9 +72,13 @@ async def orgs_list(
         *count_params,
     )
 
-    pctx = pagination_context(page, count, PAGE_SIZE)
-    offset = (pctx["page"] - 1) * PAGE_SIZE
-    list_params = params + [PAGE_SIZE, offset]
+    pctx = pagination_context(page, count, page_size)
+    try:
+        duplicate_count = await count_org_duplicates(db)
+    except Exception:
+        duplicate_count = 0
+    offset = (pctx["page"] - 1) * page_size
+    list_params = params + [page_size, offset]
 
     rows = await db.fetch(
         f"""SELECT o.id, o.active, o.archived_at, o.created_at,
@@ -75,8 +97,9 @@ async def orgs_list(
         "orgs": rows,
         "q": q,
         "status": status,
-        "page_size": PAGE_SIZE,
+        "page_size": page_size,
         "total": count,
+        "duplicate_count": duplicate_count,
         **pctx,
     }
     template = (
@@ -150,6 +173,136 @@ async def org_create(
                 generate_id(), org_id, acronym.strip(),
             )
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+
+
+@router.get("/duplicates/")
+async def orgs_duplicates(
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """List near-duplicate organization pairs for review."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+
+    pairs = await db.fetch(
+        f"""SELECT
+            a.id AS a_id, dn_a.display_name AS a_name, a.created_at AS a_created,
+            b.id AS b_id, dn_b.display_name AS b_name, b.created_at AS b_created,
+            similarity(dn_a.display_name, dn_b.display_name) AS score,
+            (SELECT count(*) FROM roles
+             WHERE organization_id = a.id AND archived_at IS NULL) AS a_roles,
+            (SELECT count(*) FROM roles
+             WHERE organization_id = b.id AND archived_at IS NULL) AS b_roles
+        {_CANDIDATE_WHERE}
+        ORDER BY score DESC"""
+    )
+    ctx = {
+        "user": user,
+        "active_section": "orgs_duplicates",
+        "pairs": pairs,
+    }
+    template = (
+        "admin/orgs/_duplicates_region.html"
+        if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
+        else "admin/orgs/duplicates.html"
+    )
+    return templates.TemplateResponse(request, template, ctx)
+
+
+@router.post("/{winner_id}/merge/{loser_id}/")
+async def org_merge(
+    winner_id: str,
+    loser_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Merge loser into winner: reassign all references, hard-delete loser."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    async with db.transaction():
+        winner = await db.fetchrow(
+            "SELECT id FROM organizations WHERE id=$1 FOR UPDATE", winner_id
+        )
+        loser = await db.fetchrow(
+            "SELECT id FROM organizations WHERE id=$1 FOR UPDATE", loser_id
+        )
+        if not winner or not loser:
+            raise HTTPException(status_code=404, detail="Organization not found")
+        # organizations.parent_id (FK — reassign before deleting loser)
+        await db.execute(
+            "UPDATE organizations SET parent_id=$1 WHERE parent_id=$2",
+            winner_id, loser_id,
+        )
+        # organization_names
+        await db.execute(
+            "UPDATE organization_names SET organization_id=$1"
+            " WHERE organization_id=$2 AND is_canonical=FALSE",
+            winner_id, loser_id,
+        )
+        await db.execute(
+            "DELETE FROM organization_names"
+            " WHERE organization_id=$1 AND is_canonical=TRUE",
+            loser_id,
+        )
+        # organization_acronyms
+        await db.execute(
+            "UPDATE organization_acronyms SET organization_id=$1"
+            " WHERE organization_id=$2 AND is_canonical=FALSE",
+            winner_id, loser_id,
+        )
+        await db.execute(
+            "DELETE FROM organization_acronyms"
+            " WHERE organization_id=$1 AND is_canonical=TRUE",
+            loser_id,
+        )
+        # roles
+        await db.execute(
+            "UPDATE roles SET organization_id=$1 WHERE organization_id=$2",
+            winner_id, loser_id,
+        )
+        # Polymorphic entity tables (entity_type TEXT + entity_id TEXT, no FK)
+        for table in ("entity_addresses", "contact_methods", "urls",
+                      "social_links", "import_provenance", "field_confidence"):
+            await db.execute(
+                f"UPDATE {table} SET entity_id=$1"
+                f" WHERE entity_type='organization' AND entity_id=$2",
+                winner_id, loser_id,
+            )
+        # identifiers (entity_type encoded in entity_identifier_type_id, not a column)
+        await db.execute(
+            "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
+            winner_id, loser_id,
+        )
+        await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
+    return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
+
+
+@router.post("/{id_a}/dismiss-duplicate/{id_b}/")
+async def org_dismiss_duplicate(
+    id_a: str,
+    id_b: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Record that this pair is not a duplicate (suppress from future results)."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    # Store with consistent ordering (a < b)
+    a, b = (id_a, id_b) if id_a < id_b else (id_b, id_a)
+    await db.execute(
+        "INSERT INTO duplicate_dismissals"
+        " (id, entity_type, entity_a_id, entity_b_id, dismissed_by)"
+        " VALUES ($1, 'organization', $2, $3, $4)"
+        " ON CONFLICT (entity_type, entity_a_id, entity_b_id) DO NOTHING",
+        generate_id(), a, b, user.email,
+    )
+    return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
 
 
 @router.get("/{org_id}/")

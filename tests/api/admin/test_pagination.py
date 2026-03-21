@@ -112,3 +112,15 @@ def test_near_start_single_ellipsis():
 def test_near_end_single_ellipsis():
     # page=8, total=8: shown={1,6,7,8} → [1,None,6,7,8]
     assert pagination_pages(8, 8) == [1, None, 6, 7, 8]
+
+
+def test_context_custom_page_size_25():
+    ctx = pagination_context(1, 200, 25)
+    assert ctx["total_pages"] == 8
+    assert ctx["showing_to"] == 25
+
+
+def test_context_page_size_100():
+    ctx = pagination_context(1, 200, 100)
+    assert ctx["total_pages"] == 2
+    assert ctx["showing_to"] == 100

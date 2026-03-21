@@ -12,16 +12,30 @@
   <input type="search" name="q" value="{{ q }}" placeholder="Search by name…"
          aria-label="Search organizations" class="filter-card__search"
          hx-get="/admin/orgs/" hx-trigger="input delay:300ms, search"
-         hx-target="#orgs-list-region" hx-include="[name='status']" hx-push-url="true">
+         hx-target="#orgs-list-region" hx-include="[name='status'],[name='page_size']" hx-push-url="true">
   <div class="filter-card__controls">
     <div class="filter-card__field">
       <label for="orgs-status-filter">Status</label>
       <select id="orgs-status-filter" name="status"
               hx-get="/admin/orgs/" hx-trigger="change"
-              hx-target="#orgs-list-region" hx-include="[name='q']" hx-push-url="true">
+              hx-target="#orgs-list-region" hx-include="[name='q'],[name='page_size']" hx-push-url="true">
         <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
         <option value="inactive" {% if status=='inactive' %}selected{% endif %}>Inactive</option>
         <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
+      </select>
+    </div>
+    <div class="filter-card__field">
+      <label for="orgs-page-size">Per page</label>
+      <select id="orgs-page-size" name="page_size"
+              hx-get="/admin/orgs/" hx-trigger="change"
+              hx-target="#orgs-list-region"
+              hx-include="[name='q'],[name='status']"
+              hx-vals='{"page": 1}'
+              hx-push-url="true">
+        <option value="25"  {% if page_size==25  %}selected{% endif %}>25</option>
+        <option value="50"  {% if page_size==50  %}selected{% endif %}>50</option>
+        <option value="100" {% if page_size==100 %}selected{% endif %}>100</option>
+        <option value="250" {% if page_size==250 %}selected{% endif %}>250</option>
       </select>
     </div>
   </div>

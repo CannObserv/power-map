@@ -1,4 +1,7 @@
 {% from "admin/macros/pagination.html" import controls as pagination %}
+{% set _qs = "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode ~ "&page_size=" ~ page_size %}
+{{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
+             "/admin/people/", "#people-list-region", _qs) }}
 <div class="table-wrapper">
   <table class="data-table" id="people-table">
     <caption>People — {{ total }} record{{ 's' if total != 1 else '' }}</caption>
@@ -11,8 +14,7 @@
     <tbody id="people-table-body">{% include "admin/people/_rows.html" %}</tbody>
   </table>
 </div>
-<div id="people-pagination">
+<div class="pagination--sticky">
   {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
-               "/admin/people/", "#people-list-region",
-               "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode) }}
+               "/admin/people/", "#people-list-region", _qs) }}
 </div>

@@ -8,6 +8,9 @@
   <a href="{{ item.url }}" style="display:block;padding:var(--space-4);background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);text-decoration:none;color:var(--color-text);font-weight:600;">
     {{ item.label }}
     <span style="display:block;font-size:var(--font-size-sm);color:var(--color-text-muted);font-weight:400;margin-top:var(--space-1)">{{ item.count }} records</span>
+    {% if item.dup_count %}
+    <span style="display:block;font-size:var(--font-size-sm);color:#854d0e;font-weight:400;margin-top:var(--space-1)">{{ item.dup_count }} possible duplicate{{ 's' if item.dup_count != 1 else '' }}</span>
+    {% endif %}
   </a>
   {% endfor %}
 </div>
