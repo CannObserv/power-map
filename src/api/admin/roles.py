@@ -32,6 +32,7 @@ async def roles_list(
     org_q: str = "",
     status: str = "active",
     page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=10, le=500),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -68,9 +69,9 @@ async def roles_list(
         *count_params,
     )
 
-    pctx = pagination_context(page, count, PAGE_SIZE)
-    offset = (pctx["page"] - 1) * PAGE_SIZE
-    list_params = params + [PAGE_SIZE, offset]
+    pctx = pagination_context(page, count, page_size)
+    offset = (pctx["page"] - 1) * page_size
+    list_params = params + [page_size, offset]
 
     rows = await db.fetch(
         f"""SELECT r.id, r.title, r.notes, r.archived_at, r.created_at,
@@ -92,7 +93,7 @@ async def roles_list(
         "q": q,
         "org_q": org_q,
         "status": status,
-        "page_size": PAGE_SIZE,
+        "page_size": page_size,
         "total": count,
         **pctx,
     }

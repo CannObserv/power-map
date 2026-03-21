@@ -21,6 +21,7 @@ async def people_list(
     q: str = "",
     status: str = "active",
     page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=10, le=500),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -53,9 +54,9 @@ async def people_list(
         *count_params,
     )
 
-    pctx = pagination_context(page, count, PAGE_SIZE)
-    offset = (pctx["page"] - 1) * PAGE_SIZE
-    list_params = params + [PAGE_SIZE, offset]
+    pctx = pagination_context(page, count, page_size)
+    offset = (pctx["page"] - 1) * page_size
+    list_params = params + [page_size, offset]
 
     rows = await db.fetch(
         f"""SELECT p.id, p.archived_at, p.created_at,
@@ -75,7 +76,7 @@ async def people_list(
         "people": rows,
         "q": q,
         "status": status,
-        "page_size": PAGE_SIZE,
+        "page_size": page_size,
         "total": count,
         **pctx,
     }
