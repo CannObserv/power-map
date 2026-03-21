@@ -1,5 +1,7 @@
 """Admin views for organizations."""
 
+import time
+
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -27,9 +29,23 @@ _CANDIDATE_WHERE = """
 """
 
 
+_DUP_COUNT_TTL = 300.0  # seconds
+_dup_count_cache: dict = {"value": 0, "expires": 0.0}
+
+
+def _invalidate_dup_count_cache() -> None:
+    _dup_count_cache["expires"] = 0.0
+
+
 async def count_org_duplicates(db) -> int:
-    """Return count of non-dismissed near-duplicate org pairs."""
-    return await db.fetchval(f"SELECT count(*) {_CANDIDATE_WHERE}")
+    """Return count of non-dismissed near-duplicate org pairs (TTL-cached, 5 min)."""
+    now = time.monotonic()
+    if now < _dup_count_cache["expires"]:
+        return _dup_count_cache["value"]
+    count = await db.fetchval(f"SELECT count(*) {_CANDIDATE_WHERE}")
+    _dup_count_cache["value"] = count
+    _dup_count_cache["expires"] = now + _DUP_COUNT_TTL
+    return count
 
 
 @router.get("/")
@@ -200,6 +216,23 @@ def _is_htmx(request: Request) -> bool:
     )
 
 
+@router.get("/duplicate-count-badge/", response_class=HTMLResponse)
+async def org_dup_count_badge(
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return plain-text badge fragment for sidebar nav (HTMX lazy-load)."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return HTMLResponse("")
+    try:
+        count = await count_org_duplicates(db)
+    except Exception:
+        count = 0
+    return HTMLResponse(f" ({count})" if count else "")
+
+
 @router.get("/duplicates/")
 async def orgs_duplicates(
     request: Request,
@@ -305,6 +338,7 @@ async def org_merge(
             winner_id, loser_id,
         )
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
+    _invalidate_dup_count_cache()
     if _is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         flash_body = (
@@ -344,6 +378,7 @@ async def org_dismiss_duplicate(
         " ON CONFLICT (entity_type, entity_a_id, entity_b_id) DO NOTHING",
         generate_id(), a, b, user.email,
     )
+    _invalidate_dup_count_cache()
     if _is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         ctx = {
