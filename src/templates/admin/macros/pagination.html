@@ -1,5 +1,5 @@
 {% macro controls(page, total_pages, showing_from, showing_to, total, page_range, base_url, target, extra_qs) %}
-<div class="pagination">
+<div class="pagination" hx-boost="false">
   {% if total > 0 %}
   <span class="pagination__info">Showing {{ showing_from }}–{{ showing_to }} of {{ total }}</span>
   {% endif %}
