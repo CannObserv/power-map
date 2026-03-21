@@ -1,0 +1,15 @@
+{% extends "admin/base.html" %}
+{% block title %}Duplicate Organizations{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/orgs/">Organizations</a><span class="breadcrumb__sep">›</span>
+  <span>Duplicates</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Duplicate Organizations</h1>
+</div>
+<div class="table-wrapper">
+  {% include "admin/orgs/_duplicates_region.html" %}
+</div>
+{% endblock %}
