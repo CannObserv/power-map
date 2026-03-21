@@ -47,7 +47,7 @@ a:hover { color: var(--color-brand-hover); }
 .skip-link { position: absolute; left: -9999px; top: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--color-brand); color: #fff; border-radius: var(--radius-md); font-weight: 600; z-index: 9999; text-decoration: none; }
 .skip-link:focus { left: var(--space-2); }
 
-.admin-layout { display: grid; grid-template-columns: 240px 1fr; grid-template-rows: auto 1fr auto; min-height: 100vh; }
+.admin-layout { display: grid; grid-template-columns: 240px 1fr; grid-template-rows: auto 1fr; height: 100dvh; }
 .admin-topbar { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-5); background: var(--color-surface-1); border-bottom: 1px solid var(--color-border); gap: var(--space-4); min-height: var(--topbar-h); }
 .admin-topbar__brand { font-weight: 700; font-size: var(--font-size-lg); color: var(--color-text); text-decoration: none; display: flex; align-items: center; gap: var(--space-2); }
 .admin-topbar__brand-icon { height: 28px; width: 28px; flex-shrink: 0; }
@@ -59,7 +59,7 @@ a:hover { color: var(--color-brand-hover); }
 .admin-sidebar__sublink { display: block; padding: var(--space-1) var(--space-5) var(--space-1) var(--space-8); font-size: var(--font-size-sm); color: var(--color-text-inverse); opacity: 0.8; text-decoration: none; }
 .admin-sidebar__sublink:hover, .admin-sidebar__sublink[aria-current="page"] { opacity: 1; background: rgba(255,255,255,0.08); }
 .admin-main { padding: var(--space-6); overflow-y: auto; }
-.admin-footer { grid-column: 1 / -1; font-size: var(--font-size-sm); color: var(--color-text-muted); padding: var(--space-4); border-top: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; gap: var(--space-1); flex-wrap: wrap; }
+.admin-footer { font-size: var(--font-size-sm); color: var(--color-text-muted); padding: var(--space-4); border-top: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; gap: var(--space-1); flex-wrap: wrap; }
 .admin-footer a { color: var(--color-text-muted); }
 .admin-footer a:hover { color: var(--color-brand); }
 .admin-footer__icon { height: 18px; width: 18px; flex-shrink: 0; }
@@ -169,9 +169,10 @@ a:hover { color: var(--color-brand-hover); }
 .modal p { color: var(--color-text-muted); margin: 0 0 var(--space-4); }
 .modal__actions { display: flex; gap: var(--space-3); justify-content: flex-end; }
 
-.pagination { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-4); justify-content: flex-end; font-size: var(--font-size-sm); }
+.pagination { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); justify-content: flex-end; font-size: var(--font-size-sm); background: var(--color-surface-0); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-4); }
 .pagination__info { color: var(--color-text-muted); margin-right: var(--space-3); }
-.pagination--sticky { position: sticky; bottom: 0; background: var(--color-surface-1); border-top: 1px solid var(--color-border); padding: 0.5rem 1rem; z-index: 10; }
+.pagination--sticky { position: sticky; bottom: 0; z-index: 10; display: flex; align-items: center; justify-content: flex-end; margin-left: calc(-1 * var(--space-6)); margin-right: calc(-1 * var(--space-6)); padding: var(--space-2) var(--space-6); background: color-mix(in srgb, var(--color-surface-1) 85%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
+.pagination--sticky .pagination { background: none; border: none; border-radius: 0; padding: 0; margin: 0; }
 
 .danger-zone { border: 1px solid var(--color-danger); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); margin-top: var(--space-6); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
 .danger-zone__label { font-weight: 600; font-size: var(--font-size-sm); color: var(--color-danger); }

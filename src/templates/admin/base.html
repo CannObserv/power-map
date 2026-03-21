@@ -38,14 +38,15 @@
       <span class="admin-sidebar__group-label">Ingestion</span>
       <a class="admin-sidebar__link" href="/admin/imports/" {% if active_section == 'imports' %}aria-current="page"{% endif %}>Import History</a>
     </nav>
-    <main id="main-content" class="admin-main">{% block content %}{% endblock %}</main>
-    <footer class="admin-footer">
-      A project of
-      <img src="/static/images/cannabis_observer-icon-square.svg"
-           alt="" aria-hidden="true" class="admin-footer__icon">
-      <a href="https://cannabis.observer/" target="_blank" rel="noopener noreferrer">Cannabis Observer</a>
-      🌱🏛️🔍
-    </footer>
+    <main id="main-content" class="admin-main">{% block content %}{% endblock %}
+      <footer class="admin-footer">
+        A project of
+        <img src="/static/images/cannabis_observer-icon-square.svg"
+             alt="" aria-hidden="true" class="admin-footer__icon">
+        <a href="https://cannabis.observer/" target="_blank" rel="noopener noreferrer">Cannabis Observer</a>
+        🌱🏛️🔍
+      </footer>
+    </main>
   </div>
   <div id="flash-region" class="flash-region" aria-live="polite" aria-atomic="false">{% block flash %}{% endblock %}</div>
   <script>
