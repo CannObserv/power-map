@@ -186,18 +186,21 @@ async def orgs_duplicates(
     if redirect:
         return redirect
 
-    pairs = await db.fetch(
-        f"""SELECT
-            a.id AS a_id, dn_a.display_name AS a_name, a.created_at AS a_created,
-            b.id AS b_id, dn_b.display_name AS b_name, b.created_at AS b_created,
-            similarity(dn_a.display_name, dn_b.display_name) AS score,
-            (SELECT count(*) FROM roles
-             WHERE organization_id = a.id AND archived_at IS NULL) AS a_roles,
-            (SELECT count(*) FROM roles
-             WHERE organization_id = b.id AND archived_at IS NULL) AS b_roles
-        {_CANDIDATE_WHERE}
-        ORDER BY score DESC"""
-    )
+    try:
+        pairs = await db.fetch(
+            f"""SELECT
+                a.id AS a_id, dn_a.display_name AS a_name, a.created_at AS a_created,
+                b.id AS b_id, dn_b.display_name AS b_name, b.created_at AS b_created,
+                similarity(dn_a.display_name, dn_b.display_name) AS score,
+                (SELECT count(*) FROM roles
+                 WHERE organization_id = a.id AND archived_at IS NULL) AS a_roles,
+                (SELECT count(*) FROM roles
+                 WHERE organization_id = b.id AND archived_at IS NULL) AS b_roles
+            {_CANDIDATE_WHERE}
+            ORDER BY score DESC"""
+        )
+    except asyncpg.exceptions.UndefinedFunctionError:
+        pairs = []
     ctx = {
         "user": user,
         "active_section": "orgs_duplicates",
