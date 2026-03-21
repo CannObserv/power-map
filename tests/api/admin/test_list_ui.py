@@ -78,5 +78,6 @@ def test_orgs_list_accepts_page_size_param(client):
     """page_size=25 in URL must be reflected in the selected option."""
     response = client.get("/admin/orgs/?page_size=25", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert 'value="25"' in response.text
     assert 'name="page_size"' in response.text
+    # Template renders: value="25"  selected (two spaces — Jinja2 template format)
+    assert 'value="25"  selected' in response.text

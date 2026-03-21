@@ -27,7 +27,7 @@ _CANDIDATE_WHERE = """
 """
 
 
-async def _count_org_duplicates(db) -> int:
+async def count_org_duplicates(db) -> int:
     """Return count of non-dismissed near-duplicate org pairs."""
     return await db.fetchval(f"SELECT count(*) {_CANDIDATE_WHERE}")
 
@@ -73,7 +73,10 @@ async def orgs_list(
     )
 
     pctx = pagination_context(page, count, page_size)
-    duplicate_count = await _count_org_duplicates(db)
+    try:
+        duplicate_count = await count_org_duplicates(db)
+    except Exception:
+        duplicate_count = 0
     offset = (pctx["page"] - 1) * page_size
     list_params = params + [page_size, offset]
 
@@ -197,7 +200,7 @@ async def orgs_duplicates(
     )
     ctx = {
         "user": user,
-        "active_section": "orgs",
+        "active_section": "orgs_duplicates",
         "pairs": pairs,
     }
     template = (
@@ -220,11 +223,15 @@ async def org_merge(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    winner = await db.fetchrow("SELECT id FROM organizations WHERE id=$1", winner_id)
-    loser = await db.fetchrow("SELECT id FROM organizations WHERE id=$1", loser_id)
-    if not winner or not loser:
-        raise HTTPException(status_code=404, detail="Organization not found")
     async with db.transaction():
+        winner = await db.fetchrow(
+            "SELECT id FROM organizations WHERE id=$1 FOR UPDATE", winner_id
+        )
+        loser = await db.fetchrow(
+            "SELECT id FROM organizations WHERE id=$1 FOR UPDATE", loser_id
+        )
+        if not winner or not loser:
+            raise HTTPException(status_code=404, detail="Organization not found")
         # organizations.parent_id (FK — reassign before deleting loser)
         await db.execute(
             "UPDATE organizations SET parent_id=$1 WHERE parent_id=$2",
