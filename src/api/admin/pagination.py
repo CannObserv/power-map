@@ -11,7 +11,7 @@ def pagination_context(page: int, count: int, page_size: int) -> dict:
     """
     total_pages = math.ceil(count / page_size) if count > 0 else 0
     if total_pages > 0:
-        page = min(page, total_pages)
+        page = max(1, min(page, total_pages))
     return {
         "page": page,
         "total_pages": total_pages,
