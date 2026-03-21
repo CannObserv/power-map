@@ -2,7 +2,6 @@
 
 from src.api.admin.pagination import pagination_context, pagination_pages
 
-
 # --- pagination_context ---
 
 
