@@ -175,19 +175,10 @@ async def org_create(
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 
 
-@router.get("/duplicates/")
-async def orgs_duplicates(
-    request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db=Depends(get_db),
-):
-    """List near-duplicate organization pairs for review."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
-
+async def _fetch_duplicate_pairs(db) -> list:
+    """Return near-duplicate org pairs; empty list if pg_trgm not installed."""
     try:
-        pairs = await db.fetch(
+        return await db.fetch(
             f"""SELECT
                 a.id AS a_id, dn_a.display_name AS a_name, a.created_at AS a_created,
                 b.id AS b_id, dn_b.display_name AS b_name, b.created_at AS b_created,
@@ -200,15 +191,30 @@ async def orgs_duplicates(
             ORDER BY score DESC"""
         )
     except asyncpg.exceptions.UndefinedFunctionError:
-        pairs = []
-    ctx = {
-        "user": user,
-        "active_section": "orgs_duplicates",
-        "pairs": pairs,
-    }
+        return []
+
+
+def _is_htmx(request: Request) -> bool:
+    return bool(
+        request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
+    )
+
+
+@router.get("/duplicates/")
+async def orgs_duplicates(
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """List near-duplicate organization pairs for review."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    pairs = await _fetch_duplicate_pairs(db)
+    ctx = {"user": user, "active_section": "orgs_duplicates", "pairs": pairs}
     template = (
         "admin/orgs/_duplicates_region.html"
-        if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
+        if _is_htmx(request)
         else "admin/orgs/duplicates.html"
     )
     return templates.TemplateResponse(request, template, ctx)
@@ -226,6 +232,13 @@ async def org_merge(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
+    # Fetch display names before transaction for flash message
+    winner_name = await db.fetchval(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", winner_id
+    )
+    loser_name = await db.fetchval(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", loser_id
+    )
     async with db.transaction():
         winner = await db.fetchrow(
             "SELECT id FROM organizations WHERE id=$1 FOR UPDATE", winner_id
@@ -292,6 +305,21 @@ async def org_merge(
             winner_id, loser_id,
         )
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
+    if _is_htmx(request):
+        pairs = await _fetch_duplicate_pairs(db)
+        flash_body = (
+            f'Merged <strong>{loser_name}</strong> into '
+            f'<a href="/admin/orgs/{winner_id}/"><strong>{winner_name}</strong></a>. '
+            f'Review URLs, roles, and contact info for duplicates.'
+        )
+        ctx = {
+            "user": user,
+            "active_section": "orgs_duplicates",
+            "pairs": pairs,
+            "flash_level": "success",
+            "flash_body": flash_body,
+        }
+        return templates.TemplateResponse(request, "admin/orgs/_duplicates_region.html", ctx)
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
 
 
@@ -316,6 +344,16 @@ async def org_dismiss_duplicate(
         " ON CONFLICT (entity_type, entity_a_id, entity_b_id) DO NOTHING",
         generate_id(), a, b, user.email,
     )
+    if _is_htmx(request):
+        pairs = await _fetch_duplicate_pairs(db)
+        ctx = {
+            "user": user,
+            "active_section": "orgs_duplicates",
+            "pairs": pairs,
+            "flash_level": "info",
+            "flash_body": "Pair marked as not a duplicate.",
+        }
+        return templates.TemplateResponse(request, "admin/orgs/_duplicates_region.html", ctx)
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
 
 

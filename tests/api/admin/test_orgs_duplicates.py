@@ -138,3 +138,57 @@ def test_dismiss_pair_removes_from_list(client, org_pair):
     # The dismissed pair should no longer appear as a candidate
     assert "Alberta Gaming, Liquor and Cannabis Commission" not in response2.text \
         and "Alberta Gaming, Liquor, and Cannabis Commission" not in response2.text
+
+
+HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
+
+
+def test_merge_htmx_returns_200_with_region(client, org_pair):
+    """HTMX merge returns 200 partial, not a redirect."""
+    id_a, id_b = org_pair
+    response = client.post(
+        f"/admin/orgs/{id_a}/merge/{id_b}/",
+        headers=HTMX_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    # Region content present
+    assert "candidate" in response.text or "No duplicate" in response.text
+
+
+def test_merge_htmx_includes_flash_oob(client, org_pair):
+    """HTMX merge response includes an OOB flash with winner name."""
+    id_a, id_b = org_pair
+    response = client.post(
+        f"/admin/orgs/{id_a}/merge/{id_b}/",
+        headers=HTMX_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "flash" in response.text
+    assert "Alberta Gaming" in response.text  # winner name in flash
+    assert f"/admin/orgs/{id_a}/" in response.text  # link to winner
+
+
+def test_dismiss_htmx_returns_200_with_region(client, org_pair):
+    """HTMX dismiss returns 200 partial, not a redirect."""
+    id_a, id_b = org_pair
+    response = client.post(
+        f"/admin/orgs/{id_a}/dismiss-duplicate/{id_b}/",
+        headers=HTMX_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "candidate" in response.text or "No duplicate" in response.text
+
+
+def test_dismiss_htmx_includes_flash_oob(client, org_pair):
+    """HTMX dismiss response includes an OOB flash."""
+    id_a, id_b = org_pair
+    response = client.post(
+        f"/admin/orgs/{id_a}/dismiss-duplicate/{id_b}/",
+        headers=HTMX_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "flash" in response.text

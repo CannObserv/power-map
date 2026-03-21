@@ -1,0 +1,19 @@
+{% macro message(level, body, auto_dismiss_ms=4000) %}
+<div class="flash flash--{{ level }}" role="alert">
+  <div class="flash__body">{{ body | safe }}</div>
+  <button class="flash__close" aria-label="Dismiss" onclick="this.parentElement.remove()">×</button>
+</div>
+<script>
+(function() {
+  var el = document.currentScript.previousElementSibling;
+  setTimeout(function() { if (el && el.parentElement) el.remove(); }, {{ auto_dismiss_ms }});
+})();
+</script>
+{% endmacro %}
+
+{# OOB wrapper — include at the end of any HTMX partial to inject a flash into #flash-region #}
+{% macro oob(level, body, auto_dismiss_ms=4000) %}
+<div id="flash-region" hx-swap-oob="beforeend">
+  {{ message(level, body, auto_dismiss_ms) }}
+</div>
+{% endmacro %}

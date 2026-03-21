@@ -1,4 +1,6 @@
-<div class="table-wrapper">
+{% from "admin/macros/flash.html" import oob as flash_oob %}
+{% if flash_level %}{{ flash_oob(flash_level, flash_body) }}{% endif %}
+<div id="orgs-duplicates-region" class="table-wrapper">
 {% if pairs %}
 <table class="data-table">
   <caption>{{ pairs|length }} candidate pair{{ 's' if pairs|length != 1 else '' }}</caption>
@@ -23,13 +25,19 @@
       </td>
       <td>{{ "%.0f%%"|format(p.score * 100) }}</td>
       <td style="white-space:nowrap">
-        <form method="post" action="/admin/orgs/{{ p.a_id }}/merge/{{ p.b_id }}/" style="display:inline">
+        <form hx-post="/admin/orgs/{{ p.a_id }}/merge/{{ p.b_id }}/"
+              hx-target="#orgs-duplicates-region" hx-swap="outerHTML"
+              style="display:inline">
           <button class="btn btn--primary btn--sm" type="submit">Keep A</button>
         </form>
-        <form method="post" action="/admin/orgs/{{ p.b_id }}/merge/{{ p.a_id }}/" style="display:inline">
+        <form hx-post="/admin/orgs/{{ p.b_id }}/merge/{{ p.a_id }}/"
+              hx-target="#orgs-duplicates-region" hx-swap="outerHTML"
+              style="display:inline">
           <button class="btn btn--primary btn--sm" type="submit">Keep B</button>
         </form>
-        <form method="post" action="/admin/orgs/{{ p.a_id }}/dismiss-duplicate/{{ p.b_id }}/" style="display:inline">
+        <form hx-post="/admin/orgs/{{ p.a_id }}/dismiss-duplicate/{{ p.b_id }}/"
+              hx-target="#orgs-duplicates-region" hx-swap="outerHTML"
+              style="display:inline">
           <button class="btn btn--ghost btn--sm" type="submit">Not a duplicate</button>
         </form>
       </td>
