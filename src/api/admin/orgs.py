@@ -12,8 +12,6 @@ from src.core.db import generate_id
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs", tags=["admin-orgs"])
 
-PAGE_SIZE = 50
-
 
 @router.get("/")
 async def orgs_list(

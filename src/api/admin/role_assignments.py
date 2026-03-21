@@ -14,8 +14,6 @@ from src.core.db import generate_id
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/role-assignments", tags=["admin-role-assignments"])
 
-PAGE_SIZE = 50
-
 
 def _parse_date(value: str) -> datetime.date | None:
     """Parse an ISO date string to datetime.date, or return None if empty."""

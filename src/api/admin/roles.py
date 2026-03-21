@@ -12,8 +12,6 @@ from src.core.db import generate_id
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles", tags=["admin-roles"])
 
-PAGE_SIZE = 50
-
 
 def _like(s: str) -> str:
     """Escape LIKE special characters and wrap with wildcards.
