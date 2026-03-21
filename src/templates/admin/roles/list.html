@@ -1,4 +1,3 @@
-{% from "admin/macros/pagination.html" import controls as pagination %}
 {% extends "admin/base.html" %}
 {% block title %}Roles{% endblock %}
 {% block breadcrumb %}
@@ -13,42 +12,27 @@
   <input type="search" name="q" value="{{ q }}" placeholder="Search by title…"
          aria-label="Search by title" class="filter-card__search"
          hx-get="/admin/roles/" hx-trigger="input delay:300ms, search"
-         hx-target="#roles-table-body" hx-include="[name='org_q'],[name='status']" hx-push-url="true">
+         hx-target="#roles-list-region" hx-include="[name='org_q'],[name='status']" hx-push-url="true">
   <div class="filter-card__controls">
     <div class="filter-card__field">
       <label for="roles-org-filter">Organization</label>
       <input type="search" id="roles-org-filter" name="org_q" value="{{ org_q }}"
              placeholder="Filter by organization…"
              hx-get="/admin/roles/" hx-trigger="input delay:300ms, search"
-             hx-target="#roles-table-body" hx-include="[name='q'],[name='status']" hx-push-url="true">
+             hx-target="#roles-list-region" hx-include="[name='q'],[name='status']" hx-push-url="true">
     </div>
     <div class="filter-card__field">
       <label for="roles-status-filter">Status</label>
       <select id="roles-status-filter" name="status"
               hx-get="/admin/roles/" hx-trigger="change"
-              hx-target="#roles-table-body" hx-include="[name='org_q'],[name='q']" hx-push-url="true">
+              hx-target="#roles-list-region" hx-include="[name='org_q'],[name='q']" hx-push-url="true">
         <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
         <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
       </select>
     </div>
   </div>
 </div>
-<div class="table-wrapper">
-  <table class="data-table" id="roles-table">
-    <caption>Roles — {{ total }} record{{ 's' if total != 1 else '' }}</caption>
-    <thead>
-      <tr>
-        <th scope="col">Organization</th><th scope="col">Title</th>
-        <th scope="col">Status</th><th scope="col">Created</th>
-        <th scope="col"><span class="sr-only">Actions</span></th>
-      </tr>
-    </thead>
-    <tbody id="roles-table-body">{% include "admin/roles/_rows.html" %}</tbody>
-  </table>
-</div>
-<div id="roles-pagination">
-  {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
-               "/admin/roles/", "#roles-table-body",
-               "q=" ~ q|urlencode ~ "&org_q=" ~ org_q|urlencode ~ "&status=" ~ status) }}
+<div id="roles-list-region">
+  {% include "admin/roles/_region.html" %}
 </div>
 {% endblock %}

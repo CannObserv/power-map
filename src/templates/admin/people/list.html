@@ -1,4 +1,3 @@
-{% from "admin/macros/pagination.html" import controls as pagination %}
 {% extends "admin/base.html" %}
 {% block title %}People{% endblock %}
 {% block breadcrumb %}
@@ -13,34 +12,20 @@
   <input type="search" name="q" value="{{ q }}" placeholder="Search by name…"
          aria-label="Search people" class="filter-card__search"
          hx-get="/admin/people/" hx-trigger="input delay:300ms, search"
-         hx-target="#people-table-body" hx-include="[name='status']" hx-push-url="true">
+         hx-target="#people-list-region" hx-include="[name='status']" hx-push-url="true">
   <div class="filter-card__controls">
     <div class="filter-card__field">
       <label for="people-status-filter">Status</label>
       <select id="people-status-filter" name="status"
               hx-get="/admin/people/" hx-trigger="change"
-              hx-target="#people-table-body" hx-include="[name='q']" hx-push-url="true">
+              hx-target="#people-list-region" hx-include="[name='q']" hx-push-url="true">
         <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
         <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
       </select>
     </div>
   </div>
 </div>
-<div class="table-wrapper">
-  <table class="data-table" id="people-table">
-    <caption>People — {{ total }} record{{ 's' if total != 1 else '' }}</caption>
-    <thead>
-      <tr>
-        <th scope="col">Name</th><th scope="col">Status</th>
-        <th scope="col">Created</th><th scope="col"><span class="sr-only">Actions</span></th>
-      </tr>
-    </thead>
-    <tbody id="people-table-body">{% include "admin/people/_rows.html" %}</tbody>
-  </table>
-</div>
-<div id="people-pagination">
-  {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
-               "/admin/people/", "#people-table-body",
-               "q=" ~ q|urlencode ~ "&status=" ~ status) }}
+<div id="people-list-region">
+  {% include "admin/people/_region.html" %}
 </div>
 {% endblock %}

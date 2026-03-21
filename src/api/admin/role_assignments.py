@@ -135,7 +135,7 @@ async def ra_list(
         "page_range": pagination_pages(page, total_pages),
     }
     template = (
-        "admin/role_assignments/_rows.html"
+        "admin/role_assignments/_region.html"
         if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
         else "admin/role_assignments/list.html"
     )

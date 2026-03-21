@@ -84,7 +84,7 @@ async def people_list(
         "page_range": pagination_pages(page, total_pages),
     }
     template = (
-        "admin/people/_rows.html"
+        "admin/people/_region.html"
         if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
         else "admin/people/list.html"
     )

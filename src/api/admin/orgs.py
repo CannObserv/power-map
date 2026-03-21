@@ -84,7 +84,7 @@ async def orgs_list(
         "page_range": pagination_pages(page, total_pages),
     }
     template = (
-        "admin/orgs/_rows.html"
+        "admin/orgs/_region.html"
         if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
         else "admin/orgs/list.html"
     )

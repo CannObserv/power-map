@@ -1,4 +1,3 @@
-{% from "admin/macros/pagination.html" import controls as pagination %}
 {% extends "admin/base.html" %}
 {% block title %}Organizations{% endblock %}
 {% block breadcrumb %}
@@ -13,13 +12,13 @@
   <input type="search" name="q" value="{{ q }}" placeholder="Search by name…"
          aria-label="Search organizations" class="filter-card__search"
          hx-get="/admin/orgs/" hx-trigger="input delay:300ms, search"
-         hx-target="#orgs-table-body" hx-include="[name='status']" hx-push-url="true">
+         hx-target="#orgs-list-region" hx-include="[name='status']" hx-push-url="true">
   <div class="filter-card__controls">
     <div class="filter-card__field">
       <label for="orgs-status-filter">Status</label>
       <select id="orgs-status-filter" name="status"
               hx-get="/admin/orgs/" hx-trigger="change"
-              hx-target="#orgs-table-body" hx-include="[name='q']" hx-push-url="true">
+              hx-target="#orgs-list-region" hx-include="[name='q']" hx-push-url="true">
         <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
         <option value="inactive" {% if status=='inactive' %}selected{% endif %}>Inactive</option>
         <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
@@ -27,21 +26,7 @@
     </div>
   </div>
 </div>
-<div class="table-wrapper">
-  <table class="data-table" id="orgs-table">
-    <caption>Organizations — {{ total }} record{{ 's' if total != 1 else '' }}</caption>
-    <thead>
-      <tr>
-        <th scope="col">Name</th><th scope="col">Status</th>
-        <th scope="col">Created</th><th scope="col"><span class="sr-only">Actions</span></th>
-      </tr>
-    </thead>
-    <tbody id="orgs-table-body">{% include "admin/orgs/_rows.html" %}</tbody>
-  </table>
-</div>
-<div id="orgs-pagination">
-  {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
-               "/admin/orgs/", "#orgs-table-body",
-               "q=" ~ q|urlencode ~ "&status=" ~ status) }}
+<div id="orgs-list-region">
+  {% include "admin/orgs/_region.html" %}
 </div>
 {% endblock %}
