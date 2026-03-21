@@ -18,5 +18,5 @@
 <div id="ra-pagination">
   {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
                "/admin/role-assignments/", "#ra-list-region",
-               "q=" ~ q|urlencode ~ "&status=" ~ status) }}
+               "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode) }}
 </div>

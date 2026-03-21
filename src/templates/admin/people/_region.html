@@ -14,5 +14,5 @@
 <div id="people-pagination">
   {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
                "/admin/people/", "#people-list-region",
-               "q=" ~ q|urlencode ~ "&status=" ~ status) }}
+               "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode) }}
 </div>

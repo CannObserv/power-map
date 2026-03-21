@@ -1,14 +1,12 @@
 """Admin views for organizations."""
 
-import math
-
 import asyncpg
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
-from src.api.admin.pagination import pagination_pages
+from src.api.admin.pagination import pagination_context
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -22,7 +20,7 @@ async def orgs_list(
     request: Request,
     q: str = "",
     status: str = "active",
-    page: int = 1,
+    page: int = Query(1, ge=1),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -31,7 +29,6 @@ async def orgs_list(
     if redirect:
         return redirect
 
-    offset = (page - 1) * PAGE_SIZE
     conditions = []
     params: list = []
 
@@ -48,7 +45,6 @@ async def orgs_list(
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]
-    list_params = params + [PAGE_SIZE, offset]
 
     count = await db.fetchval(
         f"""SELECT count(DISTINCT o.id)
@@ -57,6 +53,11 @@ async def orgs_list(
             {where}""",
         *count_params,
     )
+
+    pctx = pagination_context(page, count, PAGE_SIZE)
+    offset = (pctx["page"] - 1) * PAGE_SIZE
+    list_params = params + [PAGE_SIZE, offset]
+
     rows = await db.fetch(
         f"""SELECT o.id, o.active, o.archived_at, o.created_at,
                    dn.display_name AS canonical_name
@@ -68,20 +69,15 @@ async def orgs_list(
         *list_params,
     )
 
-    total_pages = math.ceil(count / PAGE_SIZE) if count > 0 else 0
     ctx = {
         "user": user,
         "active_section": "orgs",
         "orgs": rows,
         "q": q,
         "status": status,
-        "page": page,
         "page_size": PAGE_SIZE,
         "total": count,
-        "total_pages": total_pages,
-        "showing_from": (page - 1) * PAGE_SIZE + 1 if count > 0 else 0,
-        "showing_to": min(page * PAGE_SIZE, count),
-        "page_range": pagination_pages(page, total_pages),
+        **pctx,
     }
     template = (
         "admin/orgs/_region.html"

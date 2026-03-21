@@ -14,5 +14,5 @@
 <div id="orgs-pagination">
   {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
                "/admin/orgs/", "#orgs-list-region",
-               "q=" ~ q|urlencode ~ "&status=" ~ status) }}
+               "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode) }}
 </div>

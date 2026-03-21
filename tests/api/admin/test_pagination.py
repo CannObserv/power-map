@@ -1,6 +1,63 @@
 """Unit tests for admin pagination utility."""
 
-from src.api.admin.pagination import pagination_pages
+from src.api.admin.pagination import pagination_context, pagination_pages
+
+
+# --- pagination_context ---
+
+
+def test_context_first_page():
+    ctx = pagination_context(1, 100, 50)
+    assert ctx["page"] == 1
+    assert ctx["total_pages"] == 2
+    assert ctx["showing_from"] == 1
+    assert ctx["showing_to"] == 50
+
+
+def test_context_last_page():
+    ctx = pagination_context(2, 100, 50)
+    assert ctx["page"] == 2
+    assert ctx["showing_from"] == 51
+    assert ctx["showing_to"] == 100
+
+
+def test_context_partial_last_page():
+    ctx = pagination_context(2, 75, 50)
+    assert ctx["showing_from"] == 51
+    assert ctx["showing_to"] == 75
+
+
+def test_context_empty_result():
+    ctx = pagination_context(1, 0, 50)
+    assert ctx["total_pages"] == 0
+    assert ctx["showing_from"] == 0
+    assert ctx["showing_to"] == 0
+    assert ctx["page_range"] == []
+
+
+def test_context_page_clamped_when_beyond_total():
+    ctx = pagination_context(5, 60, 50)
+    assert ctx["page"] == 2
+    assert ctx["showing_from"] == 51
+    assert ctx["showing_to"] == 60
+
+
+def test_context_page_not_clamped_when_empty():
+    # No clamping when total_pages == 0; page stays as provided
+    ctx = pagination_context(3, 0, 50)
+    assert ctx["page"] == 3
+    assert ctx["showing_from"] == 0
+    assert ctx["showing_to"] == 0
+
+
+def test_context_page_range_uses_clamped_page():
+    # page=99 with only 3 pages → clamped to 3 → page_range centred on 3
+    ctx = pagination_context(99, 150, 50)
+    assert ctx["page"] == 3
+    assert 3 in ctx["page_range"]
+
+
+# --- pagination_pages ---
 
 
 def test_empty_when_no_pages():
