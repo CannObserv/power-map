@@ -35,7 +35,10 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - Auth: exe.dev proxy injects `X-ExeDev-UserID` + `X-ExeDev-Email` headers; missing headers → redirect to `/__exe.dev/login?redirect=<url-encoded path+query>`
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived)
 - `check_auth(user)` from `src.api.admin.deps` — call at top of every route handler; returns `(redirect_response, user)` tuple
-- HTMX partial responses: use `request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")` to select a partial template — boost sends both headers; omitting the `HX-Boosted` guard causes boosted sidebar navigation to receive bare fragments instead of full page layouts
+- HTMX partial responses: use `request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")` to select a partial template — boost sends both headers; omitting the `HX-Boosted` guard causes boosted sidebar navigation to receive bare fragments instead of full page layouts. Use `_is_htmx(request)` helper in `src.api.admin.orgs` as the canonical pattern.
+- Flash notifications: use `admin/macros/flash.html` — `message(level, body)` for inline, `oob(level, body)` for OOB injection into `#flash-region` from HTMX partial responses. Levels: `success`, `info`, `warning`, `error`. Always escape DB-derived values with `markupsafe.escape()` before interpolating into `body` HTML strings passed to these macros.
+- Mutation routes returning HTMX partials: preserve a non-HTMX `RedirectResponse` fallback for graceful degradation (e.g. direct form POST without JS).
+- Dup count cache: `count_org_duplicates(db)` in `src.api.admin.orgs` is TTL-cached (5 min, process-local). Call `_invalidate_dup_count_cache()` after any merge or dismiss to keep count accurate. **Caveat:** cache is not shared across gunicorn workers — counts may lag by up to 5 min per worker under multi-process deployments.
 
 ### DB conventions
 - All PKs are ULIDs; generate with `generate_id()` from `src.core.db`

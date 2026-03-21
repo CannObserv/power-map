@@ -12,6 +12,9 @@ from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
 from src.api.admin.deps import AdminUser, get_admin_user
 from src.api.admin.orgs import count_org_duplicates
+from src.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 templates = Jinja2Templates(directory="src/templates")
 admin_router = APIRouter(prefix="/admin")
@@ -42,6 +45,7 @@ async def dashboard(
         try:
             org_dup_count = await count_org_duplicates(db)
         except Exception:
+            logger.warning("count_org_duplicates failed on dashboard", exc_info=True)
             org_dup_count = 0
     return templates.TemplateResponse(
         request,

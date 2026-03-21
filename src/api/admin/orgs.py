@@ -6,10 +6,14 @@ import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
 from src.api.admin.pagination import pagination_context
 from src.core.db import generate_id
+from src.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs", tags=["admin-orgs"])
@@ -92,6 +96,7 @@ async def orgs_list(
     try:
         duplicate_count = await count_org_duplicates(db)
     except Exception:
+        logger.warning("count_org_duplicates failed on orgs list", exc_info=True)
         duplicate_count = 0
     offset = (pctx["page"] - 1) * page_size
     list_params = params + [page_size, offset]
@@ -342,8 +347,8 @@ async def org_merge(
     if _is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         flash_body = (
-            f'Merged <strong>{loser_name}</strong> into '
-            f'<a href="/admin/orgs/{winner_id}/"><strong>{winner_name}</strong></a>. '
+            f'Merged <strong>{escape(loser_name)}</strong> into '
+            f'<a href="/admin/orgs/{winner_id}/"><strong>{escape(winner_name)}</strong></a>. '
             f'Review URLs, roles, and contact info for duplicates.'
         )
         ctx = {
