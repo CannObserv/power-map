@@ -1,10 +1,15 @@
-{# Stub — HTMX editing wired in Task 6 #}
+{# admin/orgs/partials/_core_fields_read.html #}
 <dl class="detail-grid">
-  {% set cn = names[0].name if names else (acronyms[0].acronym if acronyms else None) %}
   <dt>Name</dt>
-  <dd>{{ cn or '(unnamed)' }}{% if names and acronyms %} ({{ acronyms[0].acronym }}){% endif %}</dd>
+  <dd>{{ canonical_name or '(unnamed)' }}{% if canonical_acronym %} ({{ canonical_acronym }}){% endif %}</dd>
   {% if org.notes %}
   <dt>Notes</dt><dd>{{ org.notes }}</dd>
   {% endif %}
-  <dt>Active</dt><dd>{% if org.active %}Yes{% else %}No{% endif %}</dd>
+  <dt>Active</dt>
+  <dd>{% if org.active %}Yes{% else %}No{% endif %}</dd>
 </dl>
+<button class="btn btn--sm btn--secondary"
+        hx-get="/admin/orgs/{{ org.id }}/inline/core/edit/"
+        hx-target="#core-fields"
+        hx-swap="innerHTML"
+        type="button">Edit</button>
