@@ -4,6 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Admin{% endblock %} — power-map</title>
+  <script>
+    /* FOUC prevention: apply dark/light class before first paint */
+    (function(){
+      var k='pm-color-scheme', s=localStorage.getItem(k),
+          d=window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var html=document.documentElement;
+      if(s==='dark'||(s===null&&d)){html.classList.add('dark');}
+      else if(s==='light'){html.classList.add('light');}
+    })();
+  </script>
   <link rel="stylesheet" href="/static/admin/admin.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 </head>
@@ -19,6 +29,12 @@
       </a>
       <nav aria-label="Breadcrumb" class="breadcrumb">{% block breadcrumb %}{% endblock %}</nav>
       <div class="admin-topbar__user">
+        <button class="btn btn--ghost btn--sm admin-topbar__theme-toggle"
+                id="theme-toggle"
+                aria-label="Switch to dark mode"
+                type="button">
+          <span data-theme-icon aria-hidden="true">&#9789;</span>
+        </button>
         <span>{{ user.email }}</span>
         <form method="POST" action="/__exe.dev/logout" style="margin:0">
           <button type="submit" class="btn btn--ghost btn--sm">Log out</button>
@@ -44,7 +60,7 @@
         <img src="/static/images/cannabis_observer-icon-square.svg"
              alt="" aria-hidden="true" class="admin-footer__icon">
         <a href="https://cannabis.observer/" target="_blank" rel="noopener noreferrer">Cannabis Observer</a>
-        🌱🏛️🔍
+        <span aria-hidden="true">🌱🏛️🔍</span>
       </footer>
     </main>
   </div>
@@ -77,5 +93,6 @@
       document.addEventListener('keydown', document.__pmNavKeydown);
     })();
   </script>
+  <script src="/static/admin/dark-mode.js" defer></script>
 </body>
 </html>
