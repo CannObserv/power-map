@@ -395,7 +395,6 @@ async def org_detail(
            WHERE l.entity_type = 'organization' AND l.entity_id = $1""",
         org_id,
     )
-    social = [r for r in links if r["is_social"]]
     identifiers = await db.fetch(
         """SELECT i.*, eit.display_name AS type_name, eit.full_name AS type_full_name
            FROM identifiers i
@@ -427,7 +426,6 @@ async def org_detail(
             "addresses": addresses,
             "contacts": contacts,
             "links": links,
-            "social": social,
             "identifiers": identifiers,
             "children": children,
             "roles": roles,

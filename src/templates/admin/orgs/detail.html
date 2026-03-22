@@ -117,25 +117,6 @@
 </section>
 
 <section class="entity-section">
-  <h2>Social Links</h2>
-  <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Platform</th><th scope="col">Handle / URL</th></tr></thead>
-      <tbody>
-        {% for s in social %}
-        <tr>
-          <td>{{ s.platform_name }}</td>
-          <td>{{ s.handle or s.url or '—' }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No social links</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="entity-section">
   <h2>Identifiers</h2>
   <div class="table-wrapper">
     <table class="data-table">
