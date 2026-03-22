@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, get_org_dup_count
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -22,6 +22,7 @@ async def platforms_list(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """List all platforms."""
     redirect, user = check_auth(user)
@@ -36,6 +37,7 @@ async def platforms_list(
             "active_section": "lookups",
             "kind": "platforms",
             "items": items,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -44,6 +46,7 @@ async def platforms_list(
 async def platform_new_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """New platform form."""
     redirect, user = check_auth(user)
@@ -57,6 +60,7 @@ async def platform_new_form(
             "active_section": "lookups",
             "kind": "platforms",
             "item": None,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -87,6 +91,7 @@ async def platform_edit_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """Edit platform form."""
     redirect, user = check_auth(user)
@@ -103,6 +108,7 @@ async def platform_edit_form(
             "active_section": "lookups",
             "kind": "platforms",
             "item": item,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -158,6 +164,7 @@ async def url_types_list(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """List all URL types."""
     redirect, user = check_auth(user)
@@ -172,6 +179,7 @@ async def url_types_list(
             "active_section": "lookups",
             "kind": "url_types",
             "items": items,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -180,6 +188,7 @@ async def url_types_list(
 async def url_type_new_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """New URL type form."""
     redirect, user = check_auth(user)
@@ -193,6 +202,7 @@ async def url_type_new_form(
             "active_section": "lookups",
             "kind": "url_types",
             "item": None,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -223,6 +233,7 @@ async def url_type_edit_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """Edit URL type form."""
     redirect, user = check_auth(user)
@@ -239,6 +250,7 @@ async def url_type_edit_form(
             "active_section": "lookups",
             "kind": "url_types",
             "item": item,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -294,6 +306,7 @@ async def identifier_types_list(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """List all entity identifier types."""
     redirect, user = check_auth(user)
@@ -310,6 +323,7 @@ async def identifier_types_list(
             "active_section": "lookups",
             "kind": "identifier_types",
             "items": items,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -318,6 +332,7 @@ async def identifier_types_list(
 async def identifier_type_new_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """New identifier type form."""
     redirect, user = check_auth(user)
@@ -331,6 +346,7 @@ async def identifier_type_new_form(
             "active_section": "lookups",
             "kind": "identifier_types",
             "item": None,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -365,6 +381,7 @@ async def identifier_type_edit_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """Edit identifier type form."""
     redirect, user = check_auth(user)
@@ -383,6 +400,7 @@ async def identifier_type_edit_form(
             "active_section": "lookups",
             "kind": "identifier_types",
             "item": item,
+            "org_dup_count": org_dup_count,
         },
     )
 

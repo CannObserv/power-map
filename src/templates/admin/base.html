@@ -46,7 +46,7 @@
       <span class="admin-sidebar__group-label">Entities</span>
       <a class="admin-sidebar__link" href="/admin/people/" {% if active_section == 'people' %}aria-current="page"{% endif %}>People</a>
       <a class="admin-sidebar__link" href="/admin/orgs/" {% if active_section == 'orgs' %}aria-current="page"{% endif %}>Organizations</a>
-      <a class="admin-sidebar__sublink" href="/admin/orgs/duplicates/" {% if active_section == 'orgs_duplicates' %}aria-current="page"{% endif %}>Duplicates <span hx-get="/admin/orgs/duplicate-count-badge/" hx-trigger="load" hx-swap="innerHTML"></span></a>
+      <a class="admin-sidebar__sublink" href="/admin/orgs/duplicates/" {% if active_section == 'orgs_duplicates' %}aria-current="page"{% endif %}>Duplicates{% if org_dup_count %} ({{ org_dup_count }}){% endif %}</a>
       <a class="admin-sidebar__link" href="/admin/roles/" {% if active_section == 'roles' %}aria-current="page"{% endif %}>Roles</a>
       <a class="admin-sidebar__link" href="/admin/role-assignments/" {% if active_section == 'role_assignments' %}aria-current="page"{% endif %}>Assignments</a>
       <span class="admin-sidebar__group-label">Reference</span>

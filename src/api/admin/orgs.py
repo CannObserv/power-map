@@ -1,14 +1,20 @@
 """Admin views for organizations."""
 
-import time
-
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import (
+    _CANDIDATE_WHERE,
+    AdminUser,
+    _invalidate_dup_count_cache,
+    check_auth,
+    get_admin_user,
+    get_db,
+    get_org_dup_count,
+)
 from src.api.admin.pagination import pagination_context
 from src.core.db import generate_id
 from src.core.logging import get_logger
@@ -17,39 +23,6 @@ logger = get_logger(__name__)
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs", tags=["admin-orgs"])
-
-_CANDIDATE_WHERE = """
-    FROM organizations a
-    JOIN organizations b ON b.id > a.id
-    JOIN v_org_display_names dn_a ON dn_a.organization_id = a.id
-    JOIN v_org_display_names dn_b ON dn_b.organization_id = b.id
-    WHERE a.archived_at IS NULL AND b.archived_at IS NULL
-      AND similarity(dn_a.display_name, dn_b.display_name) > 0.85
-      AND NOT EXISTS (
-          SELECT 1 FROM duplicate_dismissals
-          WHERE entity_type = 'organization'
-            AND entity_a_id = a.id AND entity_b_id = b.id
-      )
-"""
-
-
-_DUP_COUNT_TTL = 300.0  # seconds
-_dup_count_cache: dict = {"value": 0, "expires": 0.0}
-
-
-def _invalidate_dup_count_cache() -> None:
-    _dup_count_cache["expires"] = 0.0
-
-
-async def count_org_duplicates(db) -> int:
-    """Return count of non-dismissed near-duplicate org pairs (TTL-cached, 5 min)."""
-    now = time.monotonic()
-    if now < _dup_count_cache["expires"]:
-        return _dup_count_cache["value"]
-    count = await db.fetchval(f"SELECT count(*) {_CANDIDATE_WHERE}")
-    _dup_count_cache["value"] = count
-    _dup_count_cache["expires"] = now + _DUP_COUNT_TTL
-    return count
 
 
 @router.get("/")
@@ -61,6 +34,7 @@ async def orgs_list(
     page_size: int = Query(50, ge=10, le=500),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """List organizations with search and status filter."""
     redirect, user = check_auth(user)
@@ -93,11 +67,6 @@ async def orgs_list(
     )
 
     pctx = pagination_context(page, count, page_size)
-    try:
-        duplicate_count = await count_org_duplicates(db)
-    except Exception:
-        logger.warning("count_org_duplicates failed on orgs list", exc_info=True)
-        duplicate_count = 0
     offset = (pctx["page"] - 1) * page_size
     list_params = params + [page_size, offset]
 
@@ -120,7 +89,8 @@ async def orgs_list(
         "status": status,
         "page_size": page_size,
         "total": count,
-        "duplicate_count": duplicate_count,
+        "duplicate_count": org_dup_count,
+        "org_dup_count": org_dup_count,
         **pctx,
     }
     template = (
@@ -136,6 +106,7 @@ async def org_new_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """New organization form."""
     redirect, user = check_auth(user)
@@ -157,6 +128,7 @@ async def org_new_form(
             "parents": parents,
             "canonical_name": "",
             "canonical_acronym": "",
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -221,35 +193,24 @@ def _is_htmx(request: Request) -> bool:
     )
 
 
-@router.get("/duplicate-count-badge/", response_class=HTMLResponse)
-async def org_dup_count_badge(
-    request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db=Depends(get_db),
-):
-    """Return plain-text badge fragment for sidebar nav (HTMX lazy-load)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return HTMLResponse("")
-    try:
-        count = await count_org_duplicates(db)
-    except Exception:
-        count = 0
-    return HTMLResponse(f" ({count})" if count else "")
-
-
 @router.get("/duplicates/")
 async def orgs_duplicates(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """List near-duplicate organization pairs for review."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     pairs = await _fetch_duplicate_pairs(db)
-    ctx = {"user": user, "active_section": "orgs_duplicates", "pairs": pairs}
+    ctx = {
+        "user": user,
+        "active_section": "orgs_duplicates",
+        "pairs": pairs,
+        "org_dup_count": org_dup_count,
+    }
     template = (
         "admin/orgs/_duplicates_region.html"
         if _is_htmx(request)
@@ -403,6 +364,7 @@ async def org_detail(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """Organization detail view."""
     redirect, user = check_auth(user)
@@ -478,6 +440,7 @@ async def org_detail(
             "identifiers": identifiers,
             "children": children,
             "roles": roles,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -488,6 +451,7 @@ async def org_edit_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """Edit organization form."""
     redirect, user = check_auth(user)
@@ -523,6 +487,7 @@ async def org_edit_form(
             "canonical_name": canonical["name"] if canonical else "",
             "canonical_acronym": canonical_acronym_row["acronym"] if canonical_acronym_row else "",
             "parents": parents,
+            "org_dup_count": org_dup_count,
         },
     )
 

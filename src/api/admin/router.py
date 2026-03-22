@@ -10,8 +10,7 @@ from src.api.admin import orgs as orgs_module
 from src.api.admin import people as people_module
 from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
-from src.api.admin.deps import AdminUser, get_admin_user
-from src.api.admin.orgs import count_org_duplicates
+from src.api.admin.deps import AdminUser, count_org_duplicates, get_admin_user
 from src.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -53,6 +52,7 @@ async def dashboard(
         {
             "user": user,
             "active_section": "dashboard",
+            "org_dup_count": org_dup_count,
             "nav_items": [
                 {"label": "People", "url": "/admin/people/", "count": counts["people"]},
                 {"label": "Organizations", "url": "/admin/orgs/",

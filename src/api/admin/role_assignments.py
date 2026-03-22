@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.core.db import generate_id
 
@@ -72,6 +72,7 @@ async def ra_list(
     page_size: int = Query(50, ge=10, le=500),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """List role assignments with search and status filter."""
     redirect, user = check_auth(user)
@@ -128,6 +129,7 @@ async def ra_list(
         "status": status,
         "page_size": page_size,
         "total": count,
+        "org_dup_count": org_dup_count,
         **pctx,
     }
     template = (
@@ -143,6 +145,7 @@ async def ra_new_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """New role assignment form."""
     redirect, user = check_auth(user)
@@ -160,6 +163,7 @@ async def ra_new_form(
             "people": people,
             "roles": roles,
             "error": None,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -175,6 +179,7 @@ async def ra_create(
     notes: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """Create a new role assignment."""
     redirect, user = check_auth(user)
@@ -213,6 +218,7 @@ async def ra_create(
                 "form_start_date": start_date,
                 "form_end_date": end_date,
                 "form_notes": notes,
+                "org_dup_count": org_dup_count,
             },
             status_code=200,
         )
@@ -226,6 +232,7 @@ async def ra_detail(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """Role assignment detail view."""
     redirect, user = check_auth(user)
@@ -259,6 +266,7 @@ async def ra_detail(
             "user": user,
             "active_section": "role_assignments",
             "ra": ra,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -269,6 +277,7 @@ async def ra_edit_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """Edit role assignment form."""
     redirect, user = check_auth(user)
@@ -294,6 +303,7 @@ async def ra_edit_form(
             "people": people,
             "roles": roles,
             "error": None,
+            "org_dup_count": org_dup_count,
         },
     )
 
@@ -310,6 +320,7 @@ async def ra_update(
     notes: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """Update a role assignment."""
     redirect, user = check_auth(user)
@@ -353,6 +364,7 @@ async def ra_update(
                 "form_start_date": start_date,
                 "form_end_date": end_date,
                 "form_notes": notes,
+                "org_dup_count": org_dup_count,
             },
             status_code=200,
         )
