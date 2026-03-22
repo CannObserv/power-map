@@ -157,7 +157,7 @@ a:hover { color: var(--color-brand-hover); }
 .page-header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-5); flex-wrap: wrap; }
 .page-header h1 { margin: 0; font-size: var(--font-size-xl); font-weight: 700; }
 
-.btn { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); font-size: var(--font-size-sm); font-weight: 500; border-radius: var(--radius-md); border: 1px solid transparent; cursor: pointer; text-decoration: none; transition: background 0.15s, border-color 0.15s; white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); font-size: var(--font-size-sm); font-weight: 500; border-radius: var(--radius-md); border: 1px solid transparent; cursor: pointer; text-decoration: none; transition: background 0.15s, border-color 0.15s; white-space: nowrap; min-height: 44px; }
 .btn:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
 .btn--primary { background: var(--color-brand); color: #fff; border-color: var(--color-brand); }
 .btn--primary:hover { background: var(--color-brand-hover); border-color: var(--color-brand-hover); color: #fff; }
@@ -198,7 +198,10 @@ a:hover { color: var(--color-brand-hover); }
 
 .form-group { margin-bottom: var(--space-4); }
 .form-group label { display: block; font-size: var(--font-size-sm); font-weight: 600; margin-bottom: var(--space-2); color: var(--color-text); }
-.form-group input, .form-group select, .form-group textarea { width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-family: inherit; font-size: var(--font-size-md); color: var(--color-text); background: var(--color-surface-1); transition: border-color 0.15s; }
+/* Touch target for checkbox/radio labels */
+.form-group label:has(input[type=checkbox]),
+.form-group label:has(input[type=radio]) { min-height: 44px; display: flex; align-items: center; gap: var(--space-2); }
+.form-group input, .form-group select, .form-group textarea { width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-family: inherit; font-size: var(--font-size-md); color: var(--color-text); background: var(--color-surface-1); transition: border-color 0.15s; min-height: 44px; }
 .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--color-border-focus); box-shadow: 0 0 0 3px var(--color-brand-glow); }
 .form-group__error { margin-top: var(--space-1); font-size: var(--font-size-sm); color: var(--color-danger); }
 .form-group__hint { margin-top: var(--space-1); font-size: var(--font-size-sm); color: var(--color-text-muted); }
@@ -210,7 +213,7 @@ a:hover { color: var(--color-brand-hover); }
 .filter-card__controls { display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: flex-end; }
 .filter-card__field { display: flex; flex-direction: column; gap: var(--space-1); }
 .filter-card__field label { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-muted); }
-.filter-card__field select, .filter-card__field input[type=search] { padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-family: inherit; font-size: var(--font-size-sm); color: var(--color-text); background: var(--color-surface-1); min-width: 200px; }
+.filter-card__field select, .filter-card__field input[type=search] { padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-family: inherit; font-size: var(--font-size-sm); color: var(--color-text); background: var(--color-surface-1); min-width: 200px; min-height: 44px; }
 .filter-card__field select:focus, .filter-card__field input[type=search]:focus { outline: none; border-color: var(--color-border-focus); box-shadow: 0 0 0 3px var(--color-brand-glow); }
 
 .flash-region { position: fixed; top: var(--space-5); right: var(--space-5); z-index: 1000; display: flex; flex-direction: column; gap: var(--space-3); max-width: 400px; }
