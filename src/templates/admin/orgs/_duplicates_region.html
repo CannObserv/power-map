@@ -1,6 +1,6 @@
 {% from "admin/macros/flash.html" import oob as flash_oob %}
 {% if flash_level %}{{ flash_oob(flash_level, flash_body) }}{% endif %}
-<div id="orgs-duplicates-region" class="table-wrapper">
+<div id="orgs-duplicates-region" class="table-wrapper" aria-live="polite" aria-atomic="false">
 {% if pairs %}
 <table class="data-table">
   <caption>{{ pairs|length }} candidate pair{{ 's' if pairs|length != 1 else '' }}</caption>
