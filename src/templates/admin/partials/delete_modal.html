@@ -2,13 +2,15 @@
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <h2 id="modal-title">Permanently delete?</h2>
     <p>This will permanently remove <strong>{{ entity_label }}</strong> and cannot be undone.</p>
+    <div id="modal-error" class="alert alert--error" role="alert" hidden></div>
     <div class="modal__actions">
-      <button class="btn btn--ghost" onclick="window.__pmCloseModal()">Cancel</button>
+      <button class="btn btn--ghost" type="button" onclick="window.__pmCloseModal()">Cancel</button>
       <button class="btn btn--danger"
+              type="button"
               hx-delete="{{ delete_url }}"
               hx-target="closest tr"
               hx-swap="outerHTML"
-              hx-on::after-request="window.__pmCloseModal()">
+              hx-on::after-request="window.__pmHandleDeleteResult(event)">
         Delete permanently
       </button>
     </div>
@@ -26,6 +28,7 @@
   function close() {
     modal.removeEventListener('keydown', trap);
     window.__pmCloseModal = null;
+    window.__pmHandleDeleteResult = null;
     slot.remove();
     if (trigger && trigger.focus) trigger.focus();
   }
@@ -39,6 +42,20 @@
       if (document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
   }
+
+  window.__pmHandleDeleteResult = function (event) {
+    if (event.detail.successful) {
+      close();
+    } else {
+      var status = event.detail.xhr.status;
+      var msg = status === 409
+        ? 'Cannot delete: archive the entity first.'
+        : 'Delete failed (' + status + '). Please try again.';
+      var errEl = document.getElementById('modal-error');
+      errEl.textContent = msg;
+      errEl.hidden = false;
+    }
+  };
 
   modal.addEventListener('keydown', trap);
   window.__pmCloseModal = close;
