@@ -21,7 +21,7 @@ CANDIDATE_WHERE = """
 """
 
 _DUP_COUNT_TTL = 300.0  # seconds
-_dup_count_cache: dict = {"value": 0, "expires": 0.0}
+_dup_count_cache: dict[str, int | float] = {"value": 0, "expires": 0.0}
 
 
 def invalidate_dup_count_cache() -> None:
