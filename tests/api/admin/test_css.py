@@ -52,9 +52,11 @@ def test_dark_class_covers_badge_colors():
     assert "html.dark .badge--active" in CSS
     assert "html.dark .badge--archived" in CSS
     assert "html.dark .alert--notice" in CSS
+    assert "html.dark .flash--success" in CSS
 
 
 def test_light_class_covers_badge_colors():
     assert "html.light .badge--active" in CSS
     assert "html.light .badge--archived" in CSS
     assert "html.light .alert--notice" in CSS
+    assert "html.light .flash--success" in CSS
