@@ -7,6 +7,14 @@ from pathlib import Path
 
 CSS = Path("src/static/admin/admin.css").read_text()
 
+_TEMPLATE_DIR = Path("src/templates")
+# Unicode ranges covering common emoji blocks
+_EMOJI_RE = re.compile(
+    "[\U0001F300-\U0001FAFF"   # Misc symbols and pictographs
+    "\U00002600-\U000027BF"    # Misc symbols
+    "\U0001F900-\U0001F9FF]"   # Supplemental symbols
+)
+
 
 def test_brand_token_is_co_purple():
     assert "--color-brand: #6d4488" in CSS
@@ -77,3 +85,17 @@ def test_dark_mode_js_uses_pm_color_scheme_key():
 def test_dark_mode_js_toggles_dark_class():
     assert "classList" in JS
     assert "'dark'" in JS or '"dark"' in JS
+
+
+def test_no_bare_emojis_in_templates():
+    """All emojis must be wrapped in <span aria-hidden="true">."""
+    violations = []
+    for tmpl in _TEMPLATE_DIR.rglob("*.html"):
+        text = tmpl.read_text()
+        for lineno, line in enumerate(text.splitlines(), 1):
+            # Skip lines that already have aria-hidden wrapping
+            if 'aria-hidden="true"' in line:
+                continue
+            if _EMOJI_RE.search(line):
+                violations.append(f"{tmpl}:{lineno}: {line.strip()[:80]}")
+    assert not violations, "Bare emojis found (wrap in <span aria-hidden=\"true\">):\n" + "\n".join(violations)
