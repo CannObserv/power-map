@@ -1,0 +1,7 @@
+{# Stub — HTMX editing wired in Task 7 #}
+{% if parent %}
+<strong>Parent:</strong>
+<a href="/admin/orgs/{{ parent.id }}/">{{ parent.display_name or parent.id }}</a>
+{% else %}
+<span style="color:var(--color-text-muted)">No parent organization.</span>
+{% endif %}

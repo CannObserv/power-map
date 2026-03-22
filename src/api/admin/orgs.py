@@ -390,7 +390,7 @@ async def org_detail(
         org_id,
     )
     links = await db.fetch(
-        """SELECT l.*, lt.display_name AS url_type_name, lt.is_social
+        """SELECT l.*, lt.display_name AS link_type_name, lt.is_social
            FROM links l JOIN link_types lt ON lt.id = l.link_type_id
            WHERE l.entity_type = 'organization' AND l.entity_id = $1""",
         org_id,
@@ -413,6 +413,15 @@ async def org_detail(
         "SELECT * FROM roles WHERE organization_id = $1 AND archived_at IS NULL ORDER BY title",
         org_id,
     )
+    parent = None
+    if org["parent_id"]:
+        parent = await db.fetchrow(
+            """SELECT o.id, dn.display_name
+               FROM organizations o
+               LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+               WHERE o.id = $1""",
+            org["parent_id"],
+        )
 
     return templates.TemplateResponse(
         request,
@@ -429,6 +438,7 @@ async def org_detail(
             "identifiers": identifiers,
             "children": children,
             "roles": roles,
+            "parent": parent,
             "org_dup_count": org_dup_count,
         },
     )

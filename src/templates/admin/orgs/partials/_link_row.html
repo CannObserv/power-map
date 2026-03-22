@@ -1,0 +1,7 @@
+{# Stub — HTMX editing wired in Task 11 #}
+<tr id="link-row-{{ l.id }}">
+  <td>{{ l.link_type_name }}</td>
+  <td><a href="{{ l.url }}" target="_blank" rel="noopener noreferrer">{{ l.url }}</a></td>
+  <td>{% if l.is_active %}Active{% else %}<span style="color:var(--color-text-muted)">Inactive</span>{% endif %}</td>
+  <td></td>
+</tr>

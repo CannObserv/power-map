@@ -1,0 +1,10 @@
+{# Stub — HTMX editing wired in Task 13 #}
+<tr id="child-row-{{ child.id }}">
+  <td><a href="/admin/orgs/{{ child.id }}/">{{ child.canonical_name or '(unnamed)' }}</a></td>
+  <td>
+    {% if child.archived_at %}<span class="badge badge--archived">Archived</span>
+    {% elif not child.active %}<span class="badge badge--inactive">Inactive</span>
+    {% else %}<span class="badge badge--active">Active</span>{% endif %}
+  </td>
+  <td></td>
+</tr>

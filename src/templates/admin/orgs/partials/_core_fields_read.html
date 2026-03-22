@@ -1,0 +1,10 @@
+{# Stub — HTMX editing wired in Task 6 #}
+<dl class="detail-grid">
+  {% set cn = names[0].name if names else (acronyms[0].acronym if acronyms else None) %}
+  <dt>Name</dt>
+  <dd>{{ cn or '(unnamed)' }}{% if names and acronyms %} ({{ acronyms[0].acronym }}){% endif %}</dd>
+  {% if org.notes %}
+  <dt>Notes</dt><dd>{{ org.notes }}</dd>
+  {% endif %}
+  <dt>Active</dt><dd>{% if org.active %}Yes{% else %}No{% endif %}</dd>
+</dl>
