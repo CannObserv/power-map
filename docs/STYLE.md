@@ -206,8 +206,43 @@ admin-layout (grid)
 
 | Breakpoint | What changes |
 |---|---|
-| `max-width: 768px` | Mobile nav — sidebar becomes fixed drawer, hamburger button shown, grid collapses to 1 column |
-| `max-width: 640px` | `.dup-actions` stacks to `flex-direction: column` |
+| `max-width: 768px` | Mobile nav — sidebar becomes fixed drawer, hamburger button shown, grid collapses to 1 column; `admin-main` padding reduces to `var(--space-4)` |
+| `max-width: 640px` | `.dup-actions` stacks; `filter-card` controls stack to single column, select min-width reset; `detail-grid` collapses to 1 column |
+
+### Touch targets
+
+All interactive elements must meet **44×44 px** minimum touch target (Apple HIG / WCAG 2.5.5). Enforced via `min-height: 44px` on:
+
+- `.btn` — all button variants including `.btn--sm`
+- `.form-group input, .form-group select, .form-group textarea`
+- `.form-group label:has(input[type=checkbox]), .form-group label:has(input[type=radio])`
+- `.filter-card__search` — main list-view search input
+- `.filter-card__field select, .filter-card__field input[type=search]`
+- `.admin-topbar__menu-toggle` — hamburger (also `min-width: 44px`)
+- `.admin-sidebar__link` — sidebar nav links (tapped after hamburger opens on mobile)
+
+Do not use `padding` alone to hit target size — always set `min-height` / `min-width` explicitly so the intent is visible in the CSS.
+
+### detail-grid
+
+`<dl class="detail-grid">` is the standard pattern for label/value pairs on detail views. Renders as a 2-column grid (`minmax(140px, max-content) 1fr`) on `≥640px`, single-column below.
+
+```html
+<dl class="detail-grid">
+  <dt>Status</dt>
+  <dd><span class="badge badge--active">Active</span></dd>
+  <dt>Created</dt>
+  <dd>2026-01-01 00:00:00 UTC</dd>
+</dl>
+```
+
+### Sticky thead
+
+`.data-table thead th` is `position: sticky; top: 0` with `background: var(--color-surface-1)` and `box-shadow: 0 1px 0 var(--color-border)`. This applies automatically to all tables using the `data-table` class. No per-template configuration needed. Note: uses `box-shadow` rather than `border-bottom` because sticky-element borders disappear at sub-pixel boundaries in some browsers.
+
+### filter-card on narrow screens
+
+At `≤640px`, `.filter-card__controls` stacks to `flex-direction: column` and `.filter-card__field select/input` have `min-width: 0; width: 100%`, overriding the desktop `min-width: 200px`.
 
 ### RTL support
 

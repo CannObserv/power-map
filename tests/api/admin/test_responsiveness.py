@@ -32,6 +32,26 @@ def test_filter_card_selects_have_min_height_44():
     assert match, "Expected min-height: 44px on .filter-card__field select rule"
 
 
+def test_filter_card_search_has_min_height_44():
+    """Main filter search input (.filter-card__search) must meet 44 px touch target."""
+    match = re.search(r"\.filter-card__search\s*\{[^}]*min-height:\s*44px", CSS)
+    assert match, "Expected min-height: 44px on .filter-card__search rule"
+
+
+def test_hamburger_button_has_min_height_and_width_44():
+    """Mobile hamburger toggle must meet 44×44 px touch target — shown only on mobile."""
+    match = re.search(r"\.admin-topbar__menu-toggle\s*\{[^}]*min-height:\s*44px", CSS)
+    assert match, "Expected min-height: 44px on .admin-topbar__menu-toggle"
+    match = re.search(r"\.admin-topbar__menu-toggle\s*\{[^}]*min-width:\s*44px", CSS)
+    assert match, "Expected min-width: 44px on .admin-topbar__menu-toggle"
+
+
+def test_sidebar_links_have_min_height_44():
+    """Sidebar nav links must meet 44 px touch target height (tapped after hamburger opens)."""
+    match = re.search(r"\.admin-sidebar__link\s*\{[^}]*min-height:\s*44px", CSS)
+    assert match, "Expected min-height: 44px on .admin-sidebar__link"
+
+
 def test_checkbox_label_touch_target_css_exists():
     """Checkbox/radio labels need min-height for touch targets."""
     assert "input[type=checkbox]" in CSS or "input[type=radio]" in CSS
