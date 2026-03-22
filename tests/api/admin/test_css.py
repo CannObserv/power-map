@@ -58,6 +58,7 @@ def test_light_mode_class_override_exists():
 
 def test_dark_class_covers_badge_colors():
     assert "html.dark .badge--active" in CSS
+    assert "html.dark .badge--inactive" in CSS
     assert "html.dark .badge--archived" in CSS
     assert "html.dark .alert--notice" in CSS
     assert "html.dark .flash--success" in CSS
@@ -65,9 +66,21 @@ def test_dark_class_covers_badge_colors():
 
 def test_light_class_covers_badge_colors():
     assert "html.light .badge--active" in CSS
+    assert "html.light .badge--inactive" in CSS
     assert "html.light .badge--archived" in CSS
     assert "html.light .alert--notice" in CSS
     assert "html.light .flash--success" in CSS
+
+
+def test_media_query_dark_covers_badges():
+    """No-JS @media fallback must also cover badge colors."""
+    assert "prefers-color-scheme: dark" in CSS
+    # Verify badges are inside the media block (not just present anywhere)
+    media_start = CSS.index("prefers-color-scheme: dark")
+    media_block = CSS[media_start:media_start + 2000]
+    assert ".badge--active" in media_block
+    assert ".badge--inactive" in media_block
+    assert ".badge--archived" in media_block
 
 
 _JS_PATH = Path("src/static/admin/dark-mode.js")

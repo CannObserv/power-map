@@ -17,7 +17,8 @@
     html.classList.toggle('light', !dark);
     localStorage.setItem(KEY, dark ? 'dark' : 'light');
     btn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
-    btn.querySelector('[data-theme-icon]').textContent = dark ? '\u2600' : '\u263D';
+    var icon = btn.querySelector('[data-theme-icon]');
+    if (icon) icon.textContent = dark ? '\u2600' : '\u263D';
   }
 
   btn.addEventListener('click', function () {
@@ -26,5 +27,6 @@
 
   /* Sync button label/icon with current state on load */
   btn.setAttribute('aria-label', isDark() ? 'Switch to light mode' : 'Switch to dark mode');
-  btn.querySelector('[data-theme-icon]').textContent = isDark() ? '\u2600' : '\u263D';
+  var icon = btn.querySelector('[data-theme-icon]');
+  if (icon) icon.textContent = isDark() ? '\u2600' : '\u263D';
 })();
