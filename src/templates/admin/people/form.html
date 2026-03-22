@@ -18,8 +18,9 @@
     <div class="form-group">
       <label for="personal_pronouns">Personal pronouns</label>
       <input id="personal_pronouns" name="personal_pronouns" type="text"
+             aria-describedby="personal_pronouns-hint"
              value="{{ person.personal_pronouns if person else '' }}">
-      <div class="form-group__hint">e.g. they/them, she/her, he/him</div>
+      <div class="form-group__hint" id="personal_pronouns-hint">e.g. they/them, she/her, he/him</div>
     </div>
     <div class="form-group">
       <label for="notes">Notes</label>

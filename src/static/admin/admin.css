@@ -161,6 +161,7 @@ a:hover { color: var(--color-brand-hover); }
 
 .btn { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); font-size: var(--font-size-sm); font-weight: 500; border-radius: var(--radius-md); border: 1px solid transparent; cursor: pointer; text-decoration: none; transition: background 0.15s, border-color 0.15s; white-space: nowrap; min-height: 44px; }
 .btn:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.4; pointer-events: none; cursor: default; }
 .btn--primary { background: var(--color-brand); color: #fff; border-color: var(--color-brand); }
 .btn--primary:hover { background: var(--color-brand-hover); border-color: var(--color-brand-hover); color: #fff; }
 .btn--ghost { background: transparent; color: var(--color-text); border-color: var(--color-border); }

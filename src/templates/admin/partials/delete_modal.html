@@ -3,14 +3,44 @@
     <h2 id="modal-title">Permanently delete?</h2>
     <p>This will permanently remove <strong>{{ entity_label }}</strong> and cannot be undone.</p>
     <div class="modal__actions">
-      <button class="btn btn--ghost" onclick="document.getElementById('modal-slot').remove()">Cancel</button>
+      <button class="btn btn--ghost" onclick="window.__pmCloseModal()">Cancel</button>
       <button class="btn btn--danger"
               hx-delete="{{ delete_url }}"
               hx-target="closest tr"
               hx-swap="outerHTML"
-              hx-on::after-request="document.getElementById('modal-slot').remove()">
+              hx-on::after-request="window.__pmCloseModal()">
         Delete permanently
       </button>
     </div>
   </div>
 </div>
+<script>
+(function () {
+  var trigger = document.activeElement;
+  var slot = document.getElementById('modal-slot');
+  var modal = slot.querySelector('.modal');
+  var focusable = Array.from(modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'));
+  var first = focusable[0];
+  var last = focusable[focusable.length - 1];
+
+  function close() {
+    modal.removeEventListener('keydown', trap);
+    slot.remove();
+    if (trigger && trigger.focus) trigger.focus();
+  }
+
+  function trap(e) {
+    if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+    if (e.key !== 'Tab') return;
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+
+  modal.addEventListener('keydown', trap);
+  window.__pmCloseModal = close;
+  if (first) first.focus();
+})();
+</script>
