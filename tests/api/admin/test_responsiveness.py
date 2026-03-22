@@ -62,3 +62,36 @@ def test_data_table_thead_th_has_shadow():
     """Shadow below sticky header separates it from scrolled rows."""
     match = re.search(r"\.data-table\s+thead\s+th\s*\{[^}]*box-shadow:", CSS)
     assert match, "Expected box-shadow on .data-table thead th"
+
+
+# ── Task 3: detail-grid ──────────────────────────────────────────────────────
+
+def test_detail_grid_uses_css_grid():
+    """detail-grid must use CSS grid — currently has no CSS at all."""
+    match = re.search(r"\.detail-grid\s*\{[^}]*display:\s*grid", CSS)
+    assert match, "Expected display:grid on .detail-grid"
+
+
+def test_detail_grid_two_column_on_desktop():
+    """On desktop, detail-grid must be 2-column (label + value)."""
+    match = re.search(r"\.detail-grid\s*\{[^}]*grid-template-columns:", CSS)
+    assert match, "Expected grid-template-columns on .detail-grid"
+
+
+def test_detail_grid_stacks_on_mobile():
+    """Below 640px, detail-grid must collapse to single-column."""
+    # Find the @media (max-width: 640px) block and verify detail-grid is inside it
+    mobile_block_match = re.search(
+        r"@media\s*\(max-width:\s*640px\)(.*?)(?=@media|\Z)", CSS, re.DOTALL
+    )
+    assert mobile_block_match, "Expected @media (max-width: 640px) block"
+    mobile_block = mobile_block_match.group(1)
+    assert ".detail-grid" in mobile_block, (
+        "Expected .detail-grid override inside @media (max-width: 640px)"
+    )
+
+
+def test_entity_section_has_margin_top():
+    """entity-section must have spacing to separate related-entity panels."""
+    match = re.search(r"\.entity-section\s*\{[^}]*margin-top:", CSS)
+    assert match, "Expected margin-top on .entity-section"

@@ -194,6 +194,16 @@ a:hover { color: var(--color-brand-hover); }
 .entity-card__row:last-child { border-bottom: none; }
 .entity-card__label { min-width: 160px; font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-muted); flex-shrink: 0; }
 
+/* Detail grid — 2-col label/value on ≥640px, single-col on mobile */
+.detail-grid { display: grid; grid-template-columns: minmax(140px, max-content) 1fr; gap: var(--space-1) var(--space-4); margin: 0; align-items: baseline; }
+.detail-grid dt { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-muted); padding-block: var(--space-2); }
+.detail-grid dd { margin: 0; padding-block: var(--space-2); border-bottom: 1px solid var(--color-border); }
+.detail-grid dd:last-child { border-bottom: none; }
+
+/* Entity section — related-data panels on detail views */
+.entity-section { margin-top: var(--space-6); }
+.entity-section h2 { margin: 0 0 var(--space-3); font-size: var(--font-size-md); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); }
+
 .section-header { display: flex; align-items: center; justify-content: space-between; margin: var(--space-6) 0 var(--space-3); }
 .section-header h2 { margin: 0; font-size: var(--font-size-md); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); }
 
@@ -261,6 +271,9 @@ a:hover { color: var(--color-brand-hover); }
 @media (max-width: 640px) {
   .dup-actions { white-space: normal; display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
   .dup-actions form { display: block !important; }
+  .detail-grid { grid-template-columns: 1fr; }
+  .detail-grid dt { padding-bottom: 0; border-bottom: none; }
+  .detail-grid dd { padding-top: 0; }
 }
 .danger-zone { border: 1px solid var(--color-danger); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); margin-top: var(--space-6); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
 .danger-zone__label { font-weight: 600; font-size: var(--font-size-sm); color: var(--color-danger); }
