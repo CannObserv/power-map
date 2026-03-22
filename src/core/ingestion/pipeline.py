@@ -265,7 +265,8 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     await conn.execute(
                         "INSERT INTO links"
                         " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6)",
+                        " VALUES ($1, $2, $3, $4, $5, $6)"
+                        " ON CONFLICT DO NOTHING",
                         generate_id(), "organization", t["org_id"],
                         lnk["url"], link_type_id, lnk.get("is_canonical", False),
                     )
@@ -368,7 +369,8 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     await conn.execute(
                         "INSERT INTO links"
                         " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6)",
+                        " VALUES ($1, $2, $3, $4, $5, $6)"
+                        " ON CONFLICT DO NOTHING",
                         generate_id(), "person", t["person_id"],
                         lnk["url"], link_type_id, lnk.get("is_canonical", False),
                     )
@@ -497,7 +499,8 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     await conn.execute(
                         "INSERT INTO links"
                         " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6)",
+                        " VALUES ($1, $2, $3, $4, $5, $6)"
+                        " ON CONFLICT DO NOTHING",
                         generate_id(), "role_assignment", t["assignment_id"],
                         lnk["url"], link_type_id, lnk.get("is_canonical", False),
                     )

@@ -430,7 +430,7 @@ DO $$
 BEGIN
     -- Migrate url_types → link_types (is_social = FALSE)
     IF EXISTS (
-        SELECT 1 FROM information_schema.tables WHERE table_name = 'url_types'
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'url_types' AND table_schema = 'public'
     ) THEN
         INSERT INTO link_types (id, slug, display_name, is_social)
         SELECT id, slug, display_name, FALSE FROM url_types
@@ -439,7 +439,7 @@ BEGIN
 
     -- Migrate platforms → link_types (is_social = TRUE)
     IF EXISTS (
-        SELECT 1 FROM information_schema.tables WHERE table_name = 'platforms'
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'platforms' AND table_schema = 'public'
     ) THEN
         INSERT INTO link_types (id, slug, display_name, is_social)
         SELECT id, slug, display_name, TRUE FROM platforms
@@ -448,7 +448,7 @@ BEGIN
 
     -- Migrate urls → links
     IF EXISTS (
-        SELECT 1 FROM information_schema.tables WHERE table_name = 'urls'
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'urls' AND table_schema = 'public'
     ) THEN
         INSERT INTO links (id, entity_type, entity_id, url, link_type_id,
                            is_active, is_canonical, created_at)
@@ -464,7 +464,7 @@ BEGIN
 
     -- Migrate social_links → links
     IF EXISTS (
-        SELECT 1 FROM information_schema.tables WHERE table_name = 'social_links'
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'social_links' AND table_schema = 'public'
     ) THEN
         INSERT INTO links (id, entity_type, entity_id, url, link_type_id,
                            is_active, is_canonical, created_at)
