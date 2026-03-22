@@ -5,7 +5,7 @@
   --color-brand-hover:         #5a3870;
   --color-brand-subtle:        #f5f0f8;
   --color-brand-subtle-border: #ebe1f1;
-  --color-green: #8cbe69;
+  --color-green:               #8cbe69; /* co-green — reserved; not used as UI accent */
   --color-brand-glow:          rgba(109,68,136,0.18);
   --color-surface-0:     #f8fafc;
   --color-surface-1:     #ffffff;
@@ -53,7 +53,8 @@ html.dark {
   --color-success: #4ade80; --color-warning: #fbbf24;
   --color-danger: #f87171; --color-inactive: #475569;
 }
-/* Badge colors — hardcoded (not token-based); must mirror @media dark block */
+/* Component colors — hardcoded (not token-based); class selector (0,2,1) beats
+   @media ... .badge--X (0,1,0), enabling explicit light/dark override */
 html.dark .badge--active   { background: #14532d; color: #86efac; }
 html.dark .badge--inactive { background: #1e293b; color: var(--color-inactive); }
 html.dark .badge--archived { background: #450a0a; color: #fca5a5; }
@@ -79,6 +80,8 @@ html.light {
   --color-success: #16a34a; --color-warning: #d97706;
   --color-danger: #dc2626; --color-inactive: #94a3b8;
 }
+/* Component colors — hardcoded (not token-based); class selector (0,2,1) beats
+   @media ... .badge--X (0,1,0), enabling explicit light/dark override */
 html.light .badge--active   { background: #dcfce7; color: #15803d; }
 html.light .badge--inactive { background: #f1f5f9; color: var(--color-inactive); }
 html.light .badge--archived { background: #fee2e2; color: #991b1b; }

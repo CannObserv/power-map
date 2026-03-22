@@ -2,6 +2,7 @@
 
 # Relative paths resolve from repo/worktree root — pytest must be invoked
 # from the worktree root (e.g. `cd .worktrees/19-style-guide && uv run pytest`).
+import re
 from pathlib import Path
 
 CSS = Path("src/static/admin/admin.css").read_text()
@@ -20,15 +21,15 @@ def test_border_focus_token_is_co_purple():
 
 
 def test_brand_subtle_token_exists():
-    assert "--color-brand-subtle:" in CSS
+    assert "--color-brand-subtle: #f5f0f8" in CSS
 
 
 def test_brand_subtle_border_token_exists():
-    assert "--color-brand-subtle-border:" in CSS
+    assert "--color-brand-subtle-border: #ebe1f1" in CSS
 
 
-def test_co_green_reserved_token_exists():
-    assert "--color-green: #8cbe69" in CSS
+def test_co_green_token_exists():
+    assert re.search(r"--color-green:\s+#8cbe69", CSS)
 
 
 def test_focus_glow_token_exists():
@@ -49,11 +50,11 @@ def test_light_mode_class_override_exists():
 
 def test_dark_class_covers_badge_colors():
     assert "html.dark .badge--active" in CSS
-
-
-def test_dark_class_covers_flash_colors():
-    assert "html.dark .flash--success" in CSS
+    assert "html.dark .badge--archived" in CSS
+    assert "html.dark .alert--notice" in CSS
 
 
 def test_light_class_covers_badge_colors():
     assert "html.light .badge--active" in CSS
+    assert "html.light .badge--archived" in CSS
+    assert "html.light .alert--notice" in CSS
