@@ -189,6 +189,36 @@ def _is_htmx(request: Request) -> bool:
     )
 
 
+@router.get("/search/")
+async def orgs_search(
+    request: Request,
+    q: str = "",
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Typeahead search — returns an HTML fragment of matching org options."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    results = []
+    if q.strip():
+        results = await db.fetch(
+            """SELECT o.id, dn.display_name
+               FROM organizations o
+               LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+               WHERE o.archived_at IS NULL
+                 AND dn.display_name ILIKE $1
+               ORDER BY dn.display_name NULLS LAST
+               LIMIT 20""",
+            f"%{q.strip()}%",
+        )
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_search_results.html",
+        {"results": results},
+    )
+
+
 @router.get("/duplicates/")
 async def orgs_duplicates(
     request: Request,
