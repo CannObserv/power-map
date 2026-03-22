@@ -147,41 +147,43 @@ async def transform_person(
         except ValueError as exc:
             warnings.append(f"phone skipped: {exc}")
 
-    # URLs
-    urls: list[dict] = []
+    # Links (unified: URLs + social)
+    links: list[dict] = []
     _url_fields = [
         (validated.personal_url, "website", True),
         (validated.wikipedia_url, "wikipedia", False),
     ]
-    for raw_url, url_type_slug, is_canonical in _url_fields:
+    for raw_url, link_type_slug, is_canonical in _url_fields:
         if raw_url:
             try:
                 r = _url.normalize(raw_url)
                 if not r.skipped:
-                    urls.append({
-                        "url": r.value, "url_type_slug": url_type_slug, "is_canonical": is_canonical
+                    links.append({
+                        "url": r.value,
+                        "link_type_slug": link_type_slug,
+                        "is_canonical": is_canonical,
                     })
-                    _add_confidence(f"url:{url_type_slug}", r.value, r.confidence_hint)
+                    _add_confidence(f"url:{link_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:
-                warnings.append(f"url skipped ({url_type_slug}): {exc}")
+                warnings.append(f"url skipped ({link_type_slug}): {exc}")
 
-    # Social links
-    social_links: list[dict] = []
     _social_fields = [
         (validated.linkedin_url, "linkedin"),
         (validated.twitter_url, "twitter"),
         (validated.mastodon_url, "mastodon"),
         (validated.instagram_url, "instagram"),
     ]
-    for raw_url, platform_slug in _social_fields:
+    for raw_url, link_type_slug in _social_fields:
         if raw_url:
             try:
                 r = _url.normalize(raw_url)
                 if not r.skipped:
-                    social_links.append({"platform_slug": platform_slug, "url": r.value})
-                    _add_confidence(f"social:{platform_slug}", r.value, r.confidence_hint)
+                    links.append({
+                        "url": r.value, "link_type_slug": link_type_slug, "is_canonical": False,
+                    })
+                    _add_confidence(f"social:{link_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:
-                warnings.append(f"social link skipped ({platform_slug}): {exc}")
+                warnings.append(f"social link skipped ({link_type_slug}): {exc}")
 
     # Identifiers
     identifiers: list[dict] = []
@@ -197,8 +199,7 @@ async def transform_person(
         "notes": validated.notes,
         "names": names,
         "contact_methods": contact_methods,
-        "urls": urls,
-        "social_links": social_links,
+        "links": links,
         "identifiers": identifiers,
         "address": None,
         "confidence_records": confidence_records,

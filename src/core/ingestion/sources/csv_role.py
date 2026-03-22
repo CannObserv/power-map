@@ -170,20 +170,18 @@ def transform_role(
         except ValueError as exc:
             warnings.append(f"phone skipped: {exc}")
 
-    # URLs
-    urls: list[dict] = []
+    # Links (unified: URLs + social)
+    links: list[dict] = []
     if validated.org_profile_url:
         try:
             r = _url.normalize(validated.org_profile_url)
             if not r.skipped:
-                urls.append({"url": r.value, "url_type_slug": "profile", "is_canonical": True})
+                links.append({"url": r.value, "link_type_slug": "profile", "is_canonical": True})
                 _add_confidence("url:profile", r.value, r.confidence_hint)
         except ValueError as exc:
             warnings.append(f"url skipped (profile): {exc}")
 
-    # Social links
-    social_links: list[dict] = []
-    for raw_url, platform_slug in [
+    for raw_url, link_type_slug in [
         (validated.bluesky_url, "bluesky"),
         (validated.twitter_url, "twitter"),
         (validated.facebook_url, "facebook"),
@@ -192,10 +190,12 @@ def transform_role(
             try:
                 r = _url.normalize(raw_url)
                 if not r.skipped:
-                    social_links.append({"platform_slug": platform_slug, "url": r.value})
-                    _add_confidence(f"social:{platform_slug}", r.value, r.confidence_hint)
+                    links.append({
+                        "url": r.value, "link_type_slug": link_type_slug, "is_canonical": False,
+                    })
+                    _add_confidence(f"social:{link_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:
-                warnings.append(f"social link skipped ({platform_slug}): {exc}")
+                warnings.append(f"social link skipped ({link_type_slug}): {exc}")
 
     # Identifiers
     identifiers: list[dict] = []
@@ -215,8 +215,7 @@ def transform_role(
         "is_current": is_current,
         "notes": validated.notes,
         "contact_methods": contact_methods,
-        "urls": urls,
-        "social_links": social_links,
+        "links": links,
         "identifiers": identifiers,
         "confidence_records": confidence_records,
     }

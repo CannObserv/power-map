@@ -389,13 +389,13 @@ async def org_detail(
         "SELECT * FROM contact_methods WHERE entity_type = 'organization' AND entity_id = $1",
         org_id,
     )
-    urls = await db.fetch(
+    links = await db.fetch(
         """SELECT l.*, lt.display_name AS url_type_name, lt.is_social
            FROM links l JOIN link_types lt ON lt.id = l.link_type_id
            WHERE l.entity_type = 'organization' AND l.entity_id = $1""",
         org_id,
     )
-    social = [r for r in urls if r["is_social"]]
+    social = [r for r in links if r["is_social"]]
     identifiers = await db.fetch(
         """SELECT i.*, eit.display_name AS type_name, eit.full_name AS type_full_name
            FROM identifiers i
@@ -426,7 +426,7 @@ async def org_detail(
             "acronyms": acronyms,
             "addresses": addresses,
             "contacts": contacts,
-            "urls": urls,
+            "links": links,
             "social": social,
             "identifiers": identifiers,
             "children": children,
