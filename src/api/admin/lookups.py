@@ -1,4 +1,4 @@
-"""Admin views for lookup tables: platforms, url_types, entity_identifier_types."""
+"""Admin views for lookup tables: link_types, entity_identifier_types."""
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/lookups", tags=["admin-lookups"])
 
 
 # ---------------------------------------------------------------------------
-# Platforms
+# Link Types (replaces platforms + url_types)
 # ---------------------------------------------------------------------------
 
 
@@ -25,11 +25,13 @@ async def platforms_list(
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
 ):
-    """List all platforms."""
+    """List all social link types (is_social=TRUE)."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    items = await db.fetch("SELECT * FROM platforms ORDER BY display_name")
+    items = await db.fetch(
+        "SELECT * FROM link_types WHERE is_social = TRUE ORDER BY display_name"
+    )
     return templates.TemplateResponse(
         request,
         "admin/lookups/list.html",
@@ -74,13 +76,13 @@ async def platform_create(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Create a new platform."""
+    """Create a new social link type."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     pid = generate_id()
     await db.execute(
-        "INSERT INTO platforms (id, display_name, slug) VALUES ($1, $2, $3)",
+        "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, TRUE)",
         pid, display_name, slug or None,
     )
     return RedirectResponse("/admin/lookups/platforms/", status_code=303)
@@ -98,7 +100,9 @@ async def platform_edit_form(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    item = await db.fetchrow("SELECT * FROM platforms WHERE id = $1", item_id)
+    item = await db.fetchrow(
+        "SELECT * FROM link_types WHERE id = $1 AND is_social = TRUE", item_id
+    )
     if not item:
         raise HTTPException(status_code=404, detail="Platform not found")
     return templates.TemplateResponse(
@@ -123,15 +127,17 @@ async def platform_update(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Update a platform."""
+    """Update a social link type."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    item = await db.fetchrow("SELECT id FROM platforms WHERE id = $1", item_id)
+    item = await db.fetchrow(
+        "SELECT id FROM link_types WHERE id = $1 AND is_social = TRUE", item_id
+    )
     if not item:
         raise HTTPException(status_code=404, detail="Platform not found")
     await db.execute(
-        "UPDATE platforms SET display_name = $1, slug = $2 WHERE id = $3",
+        "UPDATE link_types SET display_name = $1, slug = $2 WHERE id = $3",
         display_name, slug or None, item_id,
     )
     return RedirectResponse("/admin/lookups/platforms/", status_code=303)
@@ -144,19 +150,19 @@ async def platform_delete(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Hard delete a platform."""
+    """Hard delete a social link type."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     try:
-        await db.execute("DELETE FROM platforms WHERE id = $1", item_id)
+        await db.execute("DELETE FROM link_types WHERE id = $1 AND is_social = TRUE", item_id)
     except asyncpg.ForeignKeyViolationError:
         raise HTTPException(status_code=409, detail="Cannot delete: record is in use")
     return HTMLResponse(content="", status_code=200)
 
 
 # ---------------------------------------------------------------------------
-# URL Types
+# URL Types (now redirects to link_types with is_social=FALSE)
 # ---------------------------------------------------------------------------
 
 
@@ -167,11 +173,13 @@ async def url_types_list(
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
 ):
-    """List all URL types."""
+    """List all non-social link types (is_social=FALSE)."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    items = await db.fetch("SELECT * FROM url_types ORDER BY display_name")
+    items = await db.fetch(
+        "SELECT * FROM link_types WHERE is_social = FALSE ORDER BY display_name"
+    )
     return templates.TemplateResponse(
         request,
         "admin/lookups/list.html",
@@ -216,13 +224,13 @@ async def url_type_create(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Create a new URL type."""
+    """Create a new non-social link type."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     uid = generate_id()
     await db.execute(
-        "INSERT INTO url_types (id, display_name, slug) VALUES ($1, $2, $3)",
+        "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
         uid, display_name, slug or None,
     )
     return RedirectResponse("/admin/lookups/url-types/", status_code=303)
@@ -240,7 +248,9 @@ async def url_type_edit_form(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    item = await db.fetchrow("SELECT * FROM url_types WHERE id = $1", item_id)
+    item = await db.fetchrow(
+        "SELECT * FROM link_types WHERE id = $1 AND is_social = FALSE", item_id
+    )
     if not item:
         raise HTTPException(status_code=404, detail="URL type not found")
     return templates.TemplateResponse(
@@ -265,15 +275,17 @@ async def url_type_update(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Update a URL type."""
+    """Update a non-social link type."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    item = await db.fetchrow("SELECT id FROM url_types WHERE id = $1", item_id)
+    item = await db.fetchrow(
+        "SELECT id FROM link_types WHERE id = $1 AND is_social = FALSE", item_id
+    )
     if not item:
         raise HTTPException(status_code=404, detail="URL type not found")
     await db.execute(
-        "UPDATE url_types SET display_name = $1, slug = $2 WHERE id = $3",
+        "UPDATE link_types SET display_name = $1, slug = $2 WHERE id = $3",
         display_name, slug or None, item_id,
     )
     return RedirectResponse("/admin/lookups/url-types/", status_code=303)
@@ -286,12 +298,14 @@ async def url_type_delete(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Hard delete a URL type."""
+    """Hard delete a non-social link type."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     try:
-        await db.execute("DELETE FROM url_types WHERE id = $1", item_id)
+        await db.execute(
+            "DELETE FROM link_types WHERE id = $1 AND is_social = FALSE", item_id
+        )
     except asyncpg.ForeignKeyViolationError:
         raise HTTPException(status_code=409, detail="Cannot delete: record is in use")
     return HTMLResponse(content="", status_code=200)

@@ -171,17 +171,12 @@ async def person_detail(
         person_id,
     )
     urls = await db.fetch(
-        """SELECT u.*, ut.display_name AS url_type_name
-           FROM urls u JOIN url_types ut ON ut.id = u.url_type_id
-           WHERE u.entity_type = 'person' AND u.entity_id = $1""",
+        """SELECT l.*, lt.display_name AS url_type_name, lt.is_social
+           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
+           WHERE l.entity_type = 'person' AND l.entity_id = $1""",
         person_id,
     )
-    social = await db.fetch(
-        """SELECT sl.*, p.display_name AS platform_name
-           FROM social_links sl JOIN platforms p ON p.id = sl.platform_id
-           WHERE sl.entity_type = 'person' AND sl.entity_id = $1""",
-        person_id,
-    )
+    social = [r for r in urls if r["is_social"]]
     identifiers = await db.fetch(
         """SELECT i.*, eit.display_name AS type_name, eit.full_name AS type_full_name
            FROM identifiers i

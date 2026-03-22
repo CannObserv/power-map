@@ -275,20 +275,20 @@ async def org_merge(
             "UPDATE roles SET organization_id=$1 WHERE organization_id=$2",
             winner_id, loser_id,
         )
-        # urls: demote loser's canonical url if winner already has one to avoid
-        # uq_url_canonical violation before the bulk reassignment below
+        # links: demote loser's canonical link if winner already has one to avoid
+        # uq_link_canonical violation before the bulk reassignment below
         await db.execute(
-            "UPDATE urls SET is_canonical=FALSE"
+            "UPDATE links SET is_canonical=FALSE"
             " WHERE entity_type='organization' AND entity_id=$1 AND is_canonical=TRUE"
             " AND EXISTS ("
-            "   SELECT 1 FROM urls"
+            "   SELECT 1 FROM links"
             "   WHERE entity_type='organization' AND entity_id=$2 AND is_canonical=TRUE"
             " )",
             loser_id, winner_id,
         )
         # Polymorphic entity tables (entity_type TEXT + entity_id TEXT, no FK)
-        for table in ("entity_addresses", "contact_methods", "urls",
-                      "social_links", "import_provenance", "field_confidence"):
+        for table in ("entity_addresses", "contact_methods", "links",
+                      "import_provenance", "field_confidence"):
             await db.execute(
                 f"UPDATE {table} SET entity_id=$1"
                 f" WHERE entity_type='organization' AND entity_id=$2",
@@ -390,17 +390,12 @@ async def org_detail(
         org_id,
     )
     urls = await db.fetch(
-        """SELECT u.*, ut.display_name AS url_type_name
-           FROM urls u JOIN url_types ut ON ut.id = u.url_type_id
-           WHERE u.entity_type = 'organization' AND u.entity_id = $1""",
+        """SELECT l.*, lt.display_name AS url_type_name, lt.is_social
+           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
+           WHERE l.entity_type = 'organization' AND l.entity_id = $1""",
         org_id,
     )
-    social = await db.fetch(
-        """SELECT sl.*, p.display_name AS platform_name
-           FROM social_links sl JOIN platforms p ON p.id = sl.platform_id
-           WHERE sl.entity_type = 'organization' AND sl.entity_id = $1""",
-        org_id,
-    )
+    social = [r for r in urls if r["is_social"]]
     identifiers = await db.fetch(
         """SELECT i.*, eit.display_name AS type_name, eit.full_name AS type_full_name
            FROM identifiers i

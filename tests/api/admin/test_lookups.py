@@ -78,7 +78,7 @@ def test_create_platform_redirects(client):
 async def test_edit_platform_form_returns_200(client, db):
     pid = generate_id()
     await db.execute(
-        "INSERT INTO platforms (id, display_name, slug) VALUES ($1, $2, $3)",
+        "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, TRUE)",
         pid, "Edit Me", f"edit-me-{pid}",
     )
     response = client.get(f"/admin/lookups/platforms/{pid}/edit/", headers=AUTH_HEADERS)
@@ -89,7 +89,7 @@ async def test_edit_platform_form_returns_200(client, db):
 async def test_update_platform_redirects(client, db):
     pid = generate_id()
     await db.execute(
-        "INSERT INTO platforms (id, display_name, slug) VALUES ($1, $2, $3)",
+        "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, TRUE)",
         pid, "Update Me", f"update-me-{pid}",
     )
     response = client.post(
@@ -104,7 +104,7 @@ async def test_update_platform_redirects(client, db):
 async def test_delete_platform(client, db):
     pid = generate_id()
     await db.execute(
-        "INSERT INTO platforms (id, display_name, slug) VALUES ($1, $2, $3)",
+        "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, TRUE)",
         pid, "Delete Me", f"delete-me-{pid}",
     )
     response = client.delete(f"/admin/lookups/platforms/{pid}/", headers=AUTH_HEADERS)
@@ -124,7 +124,7 @@ def test_create_url_type_redirects(client):
 async def test_delete_url_type(client, db):
     uid = generate_id()
     await db.execute(
-        "INSERT INTO url_types (id, display_name, slug) VALUES ($1, $2, $3)",
+        "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
         uid, "Delete URL Type", f"del-url-{uid}",
     )
     response = client.delete(f"/admin/lookups/url-types/{uid}/", headers=AUTH_HEADERS)
