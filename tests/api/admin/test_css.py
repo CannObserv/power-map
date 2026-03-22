@@ -98,4 +98,5 @@ def test_no_bare_emojis_in_templates():
                 continue
             if _EMOJI_RE.search(line):
                 violations.append(f"{tmpl}:{lineno}: {line.strip()[:80]}")
-    assert not violations, "Bare emojis found (wrap in <span aria-hidden=\"true\">):\n" + "\n".join(violations)
+    msg = "Bare emojis found (wrap in <span aria-hidden=\"true\">):\n" + "\n".join(violations)
+    assert not violations, msg
