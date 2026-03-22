@@ -37,3 +37,28 @@ def test_checkbox_label_touch_target_css_exists():
     assert "input[type=checkbox]" in CSS or "input[type=radio]" in CSS
     match = re.search(r"label:has\(input\[type=checkbox\]\)[^}]*min-height:\s*44px", CSS, re.DOTALL)
     assert match, "Expected min-height: 44px on label:has(input[type=checkbox]) rule"
+
+
+# ── Task 2: Sticky thead ─────────────────────────────────────────────────────
+
+def test_data_table_thead_th_is_sticky():
+    """thead th must be position:sticky so headers stay visible on scroll."""
+    match = re.search(r"\.data-table\s+thead\s+th\s*\{[^}]*position:\s*sticky", CSS)
+    assert match, "Expected position:sticky on .data-table thead th"
+
+
+def test_data_table_thead_th_has_top_zero():
+    match = re.search(r"\.data-table\s+thead\s+th\s*\{[^}]*top:\s*0", CSS)
+    assert match, "Expected top:0 on .data-table thead th"
+
+
+def test_data_table_thead_th_has_background():
+    """Sticky th needs explicit background so rows don't show through."""
+    match = re.search(r"\.data-table\s+thead\s+th\s*\{[^}]*background:", CSS)
+    assert match, "Expected background property on .data-table thead th"
+
+
+def test_data_table_thead_th_has_shadow():
+    """Shadow below sticky header separates it from scrolled rows."""
+    match = re.search(r"\.data-table\s+thead\s+th\s*\{[^}]*box-shadow:", CSS)
+    assert match, "Expected box-shadow on .data-table thead th"
