@@ -54,7 +54,31 @@ def test_footer_icon_present(client):
 
 
 def test_footer_emoji_present(client):
-    """Footer must include the 🌱🏛️🔍 emoji string."""
+    """Footer must include the 🌱🏛️🔍 emoji wrapped in aria-hidden span."""
     response = client.get("/admin/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "🌱🏛️🔍" in response.text
+    assert 'aria-hidden="true">🌱🏛️🔍' in response.text
+
+
+def test_fouc_prevention_script_in_base_template(client):
+    """FOUC script must appear in base.html to prevent flash on load."""
+    response = client.get("/admin/", headers=AUTH_HEADERS)
+    assert "pm-color-scheme" in response.text
+
+
+def test_dark_mode_toggle_button_present(client):
+    """Theme toggle button must be in the topbar with correct ARIA label."""
+    response = client.get("/admin/", headers=AUTH_HEADERS)
+    assert "theme-toggle" in response.text
+    assert "Switch to dark mode" in response.text
+
+
+def test_dark_mode_js_loaded_with_defer(client):
+    """dark-mode.js must be loaded with defer to avoid blocking render."""
+    response = client.get("/admin/", headers=AUTH_HEADERS)
+    assert "dark-mode.js" in response.text
+    # Check defer appears on the same script tag line
+    text = response.text
+    idx = text.find("dark-mode.js")
+    assert "defer" in text[max(0, idx-100):idx+100]
