@@ -60,3 +60,20 @@ def test_light_class_covers_badge_colors():
     assert "html.light .badge--archived" in CSS
     assert "html.light .alert--notice" in CSS
     assert "html.light .flash--success" in CSS
+
+
+_JS_PATH = Path("src/static/admin/dark-mode.js")
+JS = _JS_PATH.read_text() if _JS_PATH.exists() else ""
+
+
+def test_dark_mode_js_exists():
+    assert _JS_PATH.exists()
+
+
+def test_dark_mode_js_uses_pm_color_scheme_key():
+    assert "pm-color-scheme" in JS
+
+
+def test_dark_mode_js_toggles_dark_class():
+    assert "classList" in JS
+    assert "'dark'" in JS or '"dark"' in JS
