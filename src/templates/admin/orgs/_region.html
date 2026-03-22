@@ -1,8 +1,8 @@
 {% from "admin/macros/pagination.html" import controls as pagination %}
 {% set _qs = "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode ~ "&page_size=" ~ page_size %}
-{% if duplicate_count %}
+{% if org_dup_count %}
 <div class="alert alert--notice" style="margin-bottom:var(--space-4);display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)">
-  <span>{{ duplicate_count }} possible duplicate organization{{ 's' if duplicate_count != 1 else '' }} — <a href="/admin/orgs/duplicates/">Review</a></span>
+  <span>{{ org_dup_count }} possible duplicate organization{{ 's' if org_dup_count != 1 else '' }} — <a href="/admin/orgs/duplicates/">Review</a></span>
   <button class="flash__close" aria-label="Dismiss" onclick="this.parentElement.remove()">×</button>
 </div>
 {% endif %}

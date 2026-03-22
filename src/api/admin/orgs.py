@@ -6,14 +6,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import (
-    _CANDIDATE_WHERE,
-    AdminUser,
-    _invalidate_dup_count_cache,
-    check_auth,
-    get_admin_user,
-    get_db,
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.org_dups import (
+    CANDIDATE_WHERE,
     get_org_dup_count,
+    invalidate_dup_count_cache,
 )
 from src.api.admin.pagination import pagination_context
 from src.core.db import generate_id
@@ -89,7 +86,6 @@ async def orgs_list(
         "status": status,
         "page_size": page_size,
         "total": count,
-        "duplicate_count": org_dup_count,
         "org_dup_count": org_dup_count,
         **pctx,
     }
@@ -180,7 +176,7 @@ async def _fetch_duplicate_pairs(db) -> list:
                  WHERE organization_id = a.id AND archived_at IS NULL) AS a_roles,
                 (SELECT count(*) FROM roles
                  WHERE organization_id = b.id AND archived_at IS NULL) AS b_roles
-            {_CANDIDATE_WHERE}
+            {CANDIDATE_WHERE}
             ORDER BY score DESC"""
         )
     except asyncpg.exceptions.UndefinedFunctionError:
@@ -304,7 +300,7 @@ async def org_merge(
             winner_id, loser_id,
         )
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
-    _invalidate_dup_count_cache()
+    invalidate_dup_count_cache()
     if _is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         flash_body = (
@@ -344,7 +340,7 @@ async def org_dismiss_duplicate(
         " ON CONFLICT (entity_type, entity_a_id, entity_b_id) DO NOTHING",
         generate_id(), a, b, user.email,
     )
-    _invalidate_dup_count_cache()
+    invalidate_dup_count_cache()
     if _is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         ctx = {

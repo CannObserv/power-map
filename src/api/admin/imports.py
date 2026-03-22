@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, get_org_dup_count
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.org_dups import get_org_dup_count
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/imports", tags=["admin-imports"])
