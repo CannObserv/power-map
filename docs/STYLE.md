@@ -505,7 +505,9 @@ All modals must trap focus and restore it on close. The delete modal in
 - On open: focus first interactive element inside the modal
 - Tab / Shift-Tab: cycle within the modal's focusable elements
 - Escape: close and restore focus
-- On close: null `window.__pmCloseModal`, remove modal, restore focus to trigger
+- On close: null `window.__pmCloseModal` and `window.__pmHandleDeleteResult`, remove modal, restore focus to trigger
+- On DELETE success: call `close()` via `window.__pmHandleDeleteResult(event)`
+- On DELETE error: keep modal open, show inline `.alert--error` message; 409 → "archive first"; other → status code; status 0 → network error
 
 ### `title` attributes
 

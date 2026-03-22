@@ -50,7 +50,9 @@
       var status = event.detail.xhr.status;
       var msg = status === 409
         ? 'Cannot delete: archive the entity first.'
-        : 'Delete failed (' + status + '). Please try again.';
+        : status === 0
+          ? 'Delete failed: network error. Please try again.'
+          : 'Delete failed (' + status + '). Please try again.';
       var errEl = document.getElementById('modal-error');
       errEl.textContent = msg;
       errEl.hidden = false;

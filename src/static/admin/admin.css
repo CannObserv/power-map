@@ -265,7 +265,7 @@ a:hover { color: var(--color-brand-hover); }
 .modal { background: var(--color-surface-1); border-radius: var(--radius-lg); padding: var(--space-6); max-width: 440px; width: 100%; border: 1px solid var(--color-border); }
 .modal h2 { margin: 0 0 var(--space-3); font-size: var(--font-size-lg); }
 .modal p { color: var(--color-text-muted); margin: 0 0 var(--space-4); }
-.modal__actions { display: flex; gap: var(--space-3); justify-content: flex-end; }
+.modal__actions { display: flex; gap: var(--space-3); justify-content: flex-end; margin-top: var(--space-4); }
 
 .pagination { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); justify-content: flex-end; font-size: var(--font-size-sm); background: var(--color-surface-0); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-4); }
 .pagination__info { color: var(--color-text-muted); margin-right: var(--space-3); }
