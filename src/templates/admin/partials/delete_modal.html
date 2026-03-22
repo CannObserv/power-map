@@ -25,6 +25,7 @@
 
   function close() {
     modal.removeEventListener('keydown', trap);
+    window.__pmCloseModal = null;
     slot.remove();
     if (trigger && trigger.focus) trigger.focus();
   }

@@ -482,6 +482,31 @@ Always include `aria-label`:
 
 All swap targets: `aria-live="polite" aria-atomic="false"`.
 
+During requests, `aria-busy="true"` is automatically set on the swap target via global
+`htmx:beforeRequest` / `htmx:afterSettle` listeners in `base.html`. No per-form work needed.
+
+### Form hints
+
+Link hint text to its input via `aria-describedby`:
+
+```html
+<input id="acronym" name="acronym" aria-describedby="acronym-hint">
+<div class="form-group__hint" id="acronym-hint">Short abbreviation.</div>
+```
+
+Hint `id` convention: `{field_name}-hint`.
+
+### Modal focus management
+
+All modals must trap focus and restore it on close. The delete modal in
+`partials/delete_modal.html` is the canonical example:
+
+- Capture `document.activeElement` (the trigger) before moving focus
+- On open: focus first interactive element inside the modal
+- Tab / Shift-Tab: cycle within the modal's focusable elements
+- Escape: close and restore focus
+- On close: null `window.__pmCloseModal`, remove modal, restore focus to trigger
+
 ### `title` attributes
 
 Do NOT use `title` — inaccessible to keyboard and touch users.

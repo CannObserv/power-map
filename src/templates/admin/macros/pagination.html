@@ -9,7 +9,7 @@
      hx-get="{{ base_url }}?page={{ page - 1 }}&{{ extra_qs }}"
      hx-target="{{ target }}" hx-push-url="true">‹ Prev</a>
   {% else %}
-  <button class="btn btn--ghost btn--sm" disabled aria-disabled="true">‹ Prev</button>
+  <button class="btn btn--ghost btn--sm" type="button" disabled>‹ Prev</button>
   {% endif %}
   {% for p in page_range %}
   {% if p is none %}
@@ -27,7 +27,7 @@
      hx-get="{{ base_url }}?page={{ page + 1 }}&{{ extra_qs }}"
      hx-target="{{ target }}" hx-push-url="true">Next ›</a>
   {% else %}
-  <button class="btn btn--ghost btn--sm" disabled aria-disabled="true">Next ›</button>
+  <button class="btn btn--ghost btn--sm" type="button" disabled>Next ›</button>
   {% endif %}
   {% endif %}
 </div>

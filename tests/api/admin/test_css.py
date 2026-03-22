@@ -100,6 +100,11 @@ def test_dark_mode_js_toggles_dark_class():
     assert "'dark'" in JS or '"dark"' in JS
 
 
+def test_btn_disabled_has_opacity():
+    assert ".btn:disabled" in CSS
+    assert "opacity: 0.4" in CSS
+
+
 def test_no_bare_emojis_in_templates():
     """All emojis must be wrapped in <span aria-hidden="true">."""
     violations = []
