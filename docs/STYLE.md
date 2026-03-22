@@ -220,6 +220,7 @@ All interactive elements must meet **44×44 px** minimum touch target (Apple HIG
 - `.filter-card__field select, .filter-card__field input[type=search]`
 - `.admin-topbar__menu-toggle` — hamburger (also `min-width: 44px`)
 - `.admin-sidebar__link` — sidebar nav links (tapped after hamburger opens on mobile)
+- `.admin-sidebar__sublink` — secondary nav links (e.g. "Duplicates")
 
 Do not use `padding` alone to hit target size — always set `min-height` / `min-width` explicitly so the intent is visible in the CSS.
 

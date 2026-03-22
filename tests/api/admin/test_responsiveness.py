@@ -52,6 +52,24 @@ def test_sidebar_links_have_min_height_44():
     assert match, "Expected min-height: 44px on .admin-sidebar__link"
 
 
+def test_sidebar_sublinks_have_min_height_44():
+    """Sidebar sublinks (e.g. Duplicates) must also meet 44 px touch target height."""
+    match = re.search(r"\.admin-sidebar__sublink\s*\{[^}]*min-height:\s*44px", CSS)
+    assert match, "Expected min-height: 44px on .admin-sidebar__sublink"
+
+
+def test_pagination_sticky_margins_adapt_to_mobile_padding():
+    """pagination--sticky negative margins must match admin-main mobile padding (var(--space-4))."""
+    mobile_block_match = re.search(
+        r"@media\s*\(max-width:\s*768px\)(.*?)(?=@media|\Z)", CSS, re.DOTALL
+    )
+    assert mobile_block_match, "Expected @media (max-width: 768px) block"
+    mobile_block = mobile_block_match.group(1)
+    assert "pagination--sticky" in mobile_block, (
+        "Expected pagination--sticky override inside @media (max-width: 768px)"
+    )
+
+
 def test_checkbox_label_touch_target_css_exists():
     """Checkbox/radio labels need min-height for touch targets."""
     assert "input[type=checkbox]" in CSS or "input[type=radio]" in CSS

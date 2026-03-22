@@ -115,7 +115,7 @@ a:hover { color: var(--color-brand-hover); }
 .admin-sidebar__group-label { padding: var(--space-2) var(--space-5); font-size: var(--font-size-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-inactive); margin-top: var(--space-4); }
 .admin-sidebar__link { display: flex; align-items: center; padding: var(--space-2) var(--space-5); color: #cbd5e1; text-decoration: none; font-size: var(--font-size-sm); border-left: 3px solid transparent; transition: background 0.15s, border-color 0.15s; min-height: 44px; }
 .admin-sidebar__link:hover, .admin-sidebar__link[aria-current="page"] { background: rgba(255,255,255,0.08); color: #fff; border-left-color: var(--color-brand); }
-.admin-sidebar__sublink { display: block; padding: var(--space-1) var(--space-5) var(--space-1) var(--space-8); font-size: var(--font-size-sm); color: var(--color-text-inverse); opacity: 0.8; text-decoration: none; }
+.admin-sidebar__sublink { display: flex; align-items: center; padding: var(--space-1) var(--space-5) var(--space-1) var(--space-8); font-size: var(--font-size-sm); color: var(--color-text-inverse); opacity: 0.8; text-decoration: none; min-height: 44px; }
 .admin-sidebar__sublink:hover, .admin-sidebar__sublink[aria-current="page"] { opacity: 1; background: rgba(255,255,255,0.08); }
 .admin-main { padding: var(--space-6); overflow-y: auto; }
 .admin-footer { font-size: var(--font-size-sm); color: var(--color-text-muted); padding: var(--space-4); border-top: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; gap: var(--space-1); flex-wrap: wrap; }
@@ -141,6 +141,7 @@ a:hover { color: var(--color-brand-hover); }
   .admin-sidebar { position: fixed; top: var(--topbar-h); left: 0; bottom: 0; width: 260px; z-index: 300; transform: translateX(-100%); transition: transform 0.22s ease; }
   .admin-sidebar.is-open { transform: translateX(0); }
   .admin-main { padding: var(--space-4); }
+  .pagination--sticky { margin-left: calc(-1 * var(--space-4)); margin-right: calc(-1 * var(--space-4)); padding-left: var(--space-4); padding-right: var(--space-4); }
 }
 
 [dir="rtl"] .admin-layout { grid-template-columns: 1fr 240px; }
