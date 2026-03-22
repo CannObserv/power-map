@@ -95,3 +95,42 @@ def test_entity_section_has_margin_top():
     """entity-section must have spacing to separate related-entity panels."""
     match = re.search(r"\.entity-section\s*\{[^}]*margin-top:", CSS)
     assert match, "Expected margin-top on .entity-section"
+
+
+# ── Task 4: Mobile audit ─────────────────────────────────────────────────────
+
+def test_admin_main_has_reduced_padding_on_mobile():
+    """admin-main padding should be reduced inside the 768px media block."""
+    mobile_block_match = re.search(
+        r"@media\s*\(max-width:\s*768px\)(.*?)(?=@media|\Z)", CSS, re.DOTALL
+    )
+    assert mobile_block_match, "Expected @media (max-width: 768px) block"
+    mobile_block = mobile_block_match.group(1)
+    assert ".admin-main" in mobile_block, (
+        "Expected .admin-main padding rule inside @media (max-width: 768px)"
+    )
+
+
+def test_filter_card_controls_stack_on_mobile():
+    """filter-card controls must stack vertically on narrow screens."""
+    mobile_block_match = re.search(
+        r"@media\s*\(max-width:\s*640px\)(.*?)(?=@media|\Z)", CSS, re.DOTALL
+    )
+    assert mobile_block_match, "Expected @media (max-width: 640px) block"
+    mobile_block = mobile_block_match.group(1)
+    assert ".filter-card__controls" in mobile_block, (
+        "Expected .filter-card__controls rule inside @media (max-width: 640px)"
+    )
+
+
+def test_filter_card_field_min_width_unset_on_mobile():
+    """filter-card selects must not keep min-width: 200px on narrow screens."""
+    mobile_block_match = re.search(
+        r"@media\s*\(max-width:\s*640px\)(.*?)(?=@media|\Z)", CSS, re.DOTALL
+    )
+    assert mobile_block_match
+    mobile_block = mobile_block_match.group(1)
+    # Look for a rule that resets min-width to 0 or removes it for filter-card fields
+    assert "filter-card__field" in mobile_block and "min-width" in mobile_block, (
+        "Expected filter-card__field min-width override inside @media (max-width: 640px)"
+    )
