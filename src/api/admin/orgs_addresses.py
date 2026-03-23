@@ -191,7 +191,7 @@ async def address_delete(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Delete an organization address link (entity_addresses only)."""
+    """Delete an org address and cascade-delete its underlying addresses row."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect

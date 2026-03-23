@@ -133,7 +133,7 @@ def test_addresses_edit_row_returns_form(client, org_and_address):
     oid, eaid = org_and_address
     r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert "123 Main St" in r.text or "<form" in r.text
+    assert "123 Main St" in r.text and "<form" in r.text
 
 
 def test_addresses_update(client, org_and_address):
