@@ -709,6 +709,7 @@ async def org_detail(
             "user": user,
             "active_section": "orgs",
             "org": org,
+            "org_id": org_id,
             "names": names,
             "acronyms": acronyms,
             "addresses": addresses,
@@ -721,117 +722,6 @@ async def org_detail(
             "org_dup_count": org_dup_count,
         },
     )
-
-
-@router.get("/{org_id}/edit/")
-async def org_edit_form(
-    org_id: str,
-    request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-):
-    """Edit organization form."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
-    org = await db.fetchrow("SELECT * FROM organizations WHERE id = $1", org_id)
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
-    canonical = await db.fetchrow(
-        "SELECT name FROM organization_names"
-        " WHERE organization_id = $1 AND is_canonical = TRUE",
-        org_id,
-    )
-    parents = await db.fetch(
-        """SELECT o.id, dn.display_name AS canonical_name
-           FROM organizations o
-           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-           WHERE o.archived_at IS NULL AND o.id != $1 ORDER BY dn.display_name NULLS LAST""",
-        org_id,
-    )
-    canonical_acronym_row = await db.fetchrow(
-        "SELECT acronym FROM organization_acronyms"
-        " WHERE organization_id = $1 AND is_canonical = TRUE",
-        org_id,
-    )
-    return templates.TemplateResponse(
-        request,
-        "admin/orgs/form.html",
-        {
-            "user": user,
-            "active_section": "orgs",
-            "org": org,
-            "canonical_name": canonical["name"] if canonical else "",
-            "canonical_acronym": canonical_acronym_row["acronym"] if canonical_acronym_row else "",
-            "parents": parents,
-            "org_dup_count": org_dup_count,
-        },
-    )
-
-
-@router.post("/{org_id}/edit/")
-async def org_update(
-    org_id: str,
-    request: Request,
-    name: str = Form(...),
-    acronym: str = Form(""),
-    active: str = Form(""),
-    parent_id: str = Form(""),
-    notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db=Depends(get_db),
-):
-    """Update an organization."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
-    org = await db.fetchrow("SELECT id FROM organizations WHERE id = $1", org_id)
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
-    async with db.transaction():
-        await db.execute(
-            "UPDATE organizations SET active = $1, parent_id = $2, notes = $3 WHERE id = $4",
-            active == "true", parent_id or None, notes or None, org_id,
-        )
-        existing = await db.fetchrow(
-            "SELECT id FROM organization_names"
-            " WHERE organization_id = $1 AND is_canonical = TRUE",
-            org_id,
-        )
-        if existing:
-            await db.execute(
-                "UPDATE organization_names SET name = $1 WHERE id = $2", name, existing["id"]
-            )
-        else:
-            await db.execute(
-                "INSERT INTO organization_names"
-                " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-                generate_id(), org_id, name,
-            )
-        acronym_stripped = acronym.strip()
-        existing_acronym = await db.fetchrow(
-            "SELECT id FROM organization_acronyms"
-            " WHERE organization_id = $1 AND is_canonical = TRUE",
-            org_id,
-        )
-        if acronym_stripped:
-            if existing_acronym:
-                await db.execute(
-                    "UPDATE organization_acronyms SET acronym = $1 WHERE id = $2",
-                    acronym_stripped, existing_acronym["id"],
-                )
-            else:
-                await db.execute(
-                    "INSERT INTO organization_acronyms"
-                    " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, $3, TRUE)",
-                    generate_id(), org_id, acronym_stripped,
-                )
-        elif existing_acronym:
-            await db.execute(
-                "DELETE FROM organization_acronyms WHERE id = $1", existing_acronym["id"]
-            )
-    return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 
 
 @router.get("/{org_id}/children/new-row/")

@@ -38,6 +38,11 @@
       </tbody>
     </table>
   </div>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/children/new-row/"
+          hx-target="#children-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add child</button>
 </section>
 
 <section id="section-names" class="entity-section">
@@ -63,7 +68,11 @@
       </tbody>
     </table>
   </div>
-  <button type="button" class="btn btn--sm btn--secondary" disabled>+ Add Name</button>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
+          hx-target="#names-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add name</button>
 </section>
 
 <section class="entity-section">
@@ -80,7 +89,11 @@
       </tbody>
     </table>
   </div>
-  <button type="button" class="btn btn--sm btn--secondary" disabled>+ Add Address</button>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/addresses/new-row/"
+          hx-target="#addresses-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add address</button>
 </section>
 
 <section class="entity-section">
@@ -97,7 +110,11 @@
       </tbody>
     </table>
   </div>
-  <button type="button" class="btn btn--sm btn--secondary" disabled>+ Add Contact</button>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/contacts/new-row/"
+          hx-target="#contacts-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add contact</button>
 </section>
 
 <section class="entity-section">
@@ -114,7 +131,11 @@
       </tbody>
     </table>
   </div>
-  <button type="button" class="btn btn--sm btn--secondary" disabled>+ Add Link</button>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/links/new-row/"
+          hx-target="#links-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add link</button>
 </section>
 
 <section class="entity-section">
@@ -123,7 +144,7 @@
     <table id="identifiers-table" class="data-table">
       <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"></th></tr></thead>
       <tbody>
-        {% for i in identifiers %}
+        {% for ident in identifiers %}
         {% include "admin/orgs/partials/_identifier_row.html" %}
         {% else %}
         <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No identifiers</td></tr>
@@ -131,7 +152,11 @@
       </tbody>
     </table>
   </div>
-  <button type="button" class="btn btn--sm btn--secondary" disabled>+ Add Identifier</button>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/identifiers/new-row/"
+          hx-target="#identifiers-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add identifier</button>
 </section>
 
 <section class="entity-section">
