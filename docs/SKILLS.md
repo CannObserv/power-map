@@ -43,6 +43,7 @@ To add a new external skill repo: follow the `managing-skills-claude` skill.
 | `dispatching-parallel-agents` | `obra-superpowers` | parallel agents |
 | `using-git-worktrees` | `obra-superpowers` | set up worktree, create worktree |
 | `managing-skills-claude` | `gregoryfoster-skills` | add skill repo, add external skills, manage skills |
+| `orchestrating-issue-backlog-claude` | `gregoryfoster-skills` | orchestrate backlog, prioritize issues, plan issue execution, clear backlog |
 
 ¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
 
