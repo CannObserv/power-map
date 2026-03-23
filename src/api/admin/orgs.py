@@ -378,152 +378,97 @@ async def org_dismiss_duplicate(
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
 
 
-@router.get("/{org_id}/inline/core/")
-async def org_inline_core_get(
+@router.post("/{org_id}/inline/active/")
+async def org_inline_active_post(
     org_id: str,
     request: Request,
+    active: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Return read partial for core org fields."""
+    """Toggle org active flag; return updated active-toggle partial."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
         raise HTTPException(status_code=404)
-    canonical = await db.fetchrow(
-        "SELECT name FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
-        org_id,
+    new_active = active == "true"
+    await db.execute(
+        "UPDATE organizations SET active=$1 WHERE id=$2", new_active, org_id
     )
-    acronym_row = await db.fetchrow(
-        "SELECT acronym FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
-        org_id,
+    org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request, "admin/orgs/partials/_active_toggle.html", {"org": org}
     )
-    ctx = {
-        "org": org,
-        "canonical_name": canonical["name"] if canonical else "",
-        "canonical_acronym": acronym_row["acronym"] if acronym_row else "",
-    }
-    return templates.TemplateResponse(request, "admin/orgs/partials/_core_fields_read.html", ctx)
 
 
-@router.post("/{org_id}/inline/core/")
-async def org_inline_core_post(
+@router.get("/{org_id}/inline/notes/")
+async def org_inline_notes_get(
     org_id: str,
     request: Request,
-    name: str = Form(...),
-    acronym: str = Form(""),
-    active: str = Form(""),
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return notes read partial."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
+    if not org:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "admin/orgs/partials/_notes_read.html", {"org": org}
+    )
+
+
+@router.get("/{org_id}/inline/notes/edit/")
+async def org_inline_notes_edit_get(
+    org_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return notes edit form partial."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
+    if not org:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "admin/orgs/partials/_notes_form.html", {"org": org}
+    )
+
+
+@router.post("/{org_id}/inline/notes/")
+async def org_inline_notes_post(
+    org_id: str,
+    request: Request,
     notes: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Save core org fields inline; return updated read partial."""
+    """Save notes; return updated notes read partial."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    if not name.strip():
-        raise HTTPException(status_code=422, detail="Name is required")
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
         raise HTTPException(status_code=404)
-    async with db.transaction():
-        await db.execute(
-            "UPDATE organizations SET active=$1, notes=$2 WHERE id=$3",
-            active == "true",
-            notes.strip() or None,
-            org_id,
-        )
-        existing = await db.fetchrow(
-            "SELECT id FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
-            org_id,
-        )
-        if existing:
-            await db.execute(
-                "UPDATE organization_names SET name=$1 WHERE id=$2",
-                name.strip(),
-                existing["id"],
-            )
-        else:
-            await db.execute(
-                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
-                " VALUES ($1, $2, $3, TRUE)",
-                generate_id(),
-                org_id,
-                name.strip(),
-            )
-        acronym_stripped = acronym.strip()
-        existing_acronym = await db.fetchrow(
-            "SELECT id FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
-            org_id,
-        )
-        if acronym_stripped:
-            if existing_acronym:
-                await db.execute(
-                    "UPDATE organization_acronyms SET acronym=$1 WHERE id=$2",
-                    acronym_stripped,
-                    existing_acronym["id"],
-                )
-            else:
-                await db.execute(
-                    "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
-                    " VALUES ($1, $2, $3, TRUE)",
-                    generate_id(),
-                    org_id,
-                    acronym_stripped,
-                )
-        elif existing_acronym:
-            await db.execute(
-                "DELETE FROM organization_acronyms WHERE id=$1", existing_acronym["id"]
-            )
+    await db.execute(
+        "UPDATE organizations SET notes=$1 WHERE id=$2",
+        notes.strip() or None,
+        org_id,
+    )
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
-    canonical = await db.fetchrow(
-        "SELECT name FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
-        org_id,
-    )
-    acronym_row = await db.fetchrow(
-        "SELECT acronym FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
-        org_id,
-    )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
-    ctx = {
-        "org": org,
-        "canonical_name": canonical["name"] if canonical else "",
-        "canonical_acronym": acronym_row["acronym"] if acronym_row else "",
-    }
-    return templates.TemplateResponse(request, "admin/orgs/partials/_core_fields_read.html", ctx)
-
-
-@router.get("/{org_id}/inline/core/edit/")
-async def org_inline_core_edit_get(
-    org_id: str,
-    request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db=Depends(get_db),
-):
-    """Return the edit form partial for core org fields."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
-    org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
-    if not org:
-        raise HTTPException(status_code=404)
-    canonical = await db.fetchrow(
-        "SELECT name FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
-        org_id,
+    return templates.TemplateResponse(
+        request, "admin/orgs/partials/_notes_read.html", {"org": org}
     )
-    acronym_row = await db.fetchrow(
-        "SELECT acronym FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
-        org_id,
-    )
-    ctx = {
-        "org": org,
-        "canonical_name": canonical["name"] if canonical else "",
-        "canonical_acronym": acronym_row["acronym"] if acronym_row else "",
-    }
-    return templates.TemplateResponse(request, "admin/orgs/partials/_core_fields_form.html", ctx)
 
 
 @router.get("/{org_id}/inline/parent/")

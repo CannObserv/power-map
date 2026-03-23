@@ -18,8 +18,49 @@
 
 <section class="entity-section">
   <h2>Details</h2>
-  <div id="core-fields" class="entity-card">
-    {% include "admin/orgs/partials/_core_fields_read.html" %}
+  <div class="entity-card">
+
+    {% include "admin/orgs/partials/_active_toggle.html" %}
+    {% include "admin/orgs/partials/_notes_read.html" %}
+
+    <h3 style="margin:var(--space-5) 0 var(--space-3);font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Names</h3>
+    <div class="table-wrapper">
+      <table id="names-table" class="data-table">
+        <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Canonical</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% for n in names %}
+          {% include "admin/orgs/partials/_name_row.html" %}
+          {% else %}
+          <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+            hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
+            hx-target="#names-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add name</button>
+
+    <h3 style="margin:var(--space-5) 0 var(--space-3);font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Acronyms</h3>
+    <div class="table-wrapper">
+      <table id="acronyms-table" class="data-table">
+        <thead><tr><th scope="col">Acronym</th><th scope="col">Canonical</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% for a in acronyms %}
+          {% include "admin/orgs/partials/_acronym_row.html" %}
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No acronyms</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+            hx-get="/admin/orgs/{{ org.id }}/acronyms/new-row/"
+            hx-target="#acronyms-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add acronym</button>
+
   </div>
 </section>
 
@@ -46,36 +87,6 @@
           hx-target="#children-table tbody"
           hx-swap="afterbegin"
           type="button">+ Add child</button>
-</section>
-
-<section id="section-names" class="entity-section">
-  <h2>Names</h2>
-  <div class="table-wrapper">
-    <table id="names-table" class="data-table">
-      <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Canonical</th><th scope="col"></th></tr></thead>
-      <tbody>
-        {% for n in names %}
-        {% include "admin/orgs/partials/_name_row.html" %}
-        {% endfor %}
-        {% for a in acronyms %}
-        <tr id="name-row-{{ a.id }}">
-          <td>{{ a.acronym }}</td>
-          <td>acronym</td>
-          <td>{% if a.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
-          <td></td>
-        </tr>
-        {% endfor %}
-        {% if not names and not acronyms %}
-        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-  </div>
-  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
-          hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
-          hx-target="#names-table tbody"
-          hx-swap="afterbegin"
-          type="button">+ Add name</button>
 </section>
 
 <section class="entity-section">

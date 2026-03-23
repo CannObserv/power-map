@@ -7,11 +7,11 @@ from fastapi.templating import Jinja2Templates
 from src.api.admin import imports as imports_module
 from src.api.admin import lookups as lookups_module
 from src.api.admin import orgs as orgs_module
+from src.api.admin import orgs_acronyms as orgs_acronyms_module
 from src.api.admin import orgs_addresses as orgs_addresses_module
 from src.api.admin import orgs_contacts as orgs_contacts_module
 from src.api.admin import orgs_identifiers as orgs_identifiers_module
 from src.api.admin import orgs_links as orgs_links_module
-from src.api.admin import orgs_acronyms as orgs_acronyms_module
 from src.api.admin import orgs_names as orgs_names_module
 from src.api.admin import people as people_module
 from src.api.admin import role_assignments as role_assignments_module

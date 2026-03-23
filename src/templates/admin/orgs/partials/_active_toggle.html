@@ -1,0 +1,14 @@
+{# admin/orgs/partials/_active_toggle.html — auto-saving active toggle #}
+<div id="active-toggle" class="form-group">
+  <label>
+    <input type="checkbox"
+           name="active"
+           value="true"
+           {% if org.active %}checked{% endif %}
+           hx-post="/admin/orgs/{{ org.id }}/inline/active/"
+           hx-target="#active-toggle"
+           hx-swap="outerHTML"
+           hx-include="this">
+    Active
+  </label>
+</div>

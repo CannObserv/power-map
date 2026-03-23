@@ -1,0 +1,13 @@
+{# admin/orgs/partials/_notes_read.html — notes read partial #}
+<div id="notes-field" class="form-group">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-4)">
+    <label style="margin-bottom:0">Notes</label>
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org.id }}/inline/notes/edit/"
+            hx-target="#notes-field"
+            hx-swap="outerHTML">Edit</button>
+  </div>
+  <p style="margin:var(--space-2) 0 0;color:{% if org.notes %}var(--color-text){% else %}var(--color-text-muted){% endif %}">
+    {{ org.notes or '—' }}
+  </p>
+</div>
