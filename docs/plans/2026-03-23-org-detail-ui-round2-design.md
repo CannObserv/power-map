@@ -83,8 +83,27 @@ Button uses `btn--secondary btn--sm`.
 
 ---
 
+---
+
+### Amendment: Details section — row-level-everywhere
+
+**Original design** had a card-level Edit toggle for the Details card. **Revised** during implementation after recognising that mixing row-level HTMX (immediate, persistent) with a card-level buffered Save creates incoherent Cancel semantics.
+
+**Decision:** No card-level toggle. Everything in the Details section uses row-level or field-level editing:
+
+- **Names table** — row-level HTMX (existing pattern via `orgs_names.py`), moved from standalone section into Details card
+- **Acronyms table** — new, same row-level pattern; new `orgs_acronyms.py` router
+- **Active** — toggle checkbox with `hx-post` on change, auto-saves immediately; no Cancel needed
+- **Notes** — inline field-level edit: read partial → edit form → save returns read partial
+
+**Removed:** `inline/core/` routes (name/acronym handled by row tables; active/notes have dedicated field routes). `_core_fields_read.html` and `_core_fields_form.html` obsoleted.
+
+**Standalone Names section removed** from `detail.html` — consolidated into Details card.
+
+---
+
 ## Out of Scope
 
 - STYLE.md updates — deferred to end of work session
-- Row-level inline edit form standardization (names, addresses, contacts, etc.)
+- Row-level inline edit form standardization (addresses, contacts, links, identifiers)
 - Other detail pages (people, roles, role-assignments)
