@@ -52,18 +52,15 @@ class ImportConfig:
 class ReferenceData:
     """Lookup dicts loaded from DB at pipeline start."""
 
-    url_type_ids: dict[str, str] = field(default_factory=dict)         # slug → id
-    platform_ids: dict[str, str] = field(default_factory=dict)         # slug → id
+    link_type_ids: dict[str, str] = field(default_factory=dict)        # slug → id
     identifier_type_ids: dict[str, str] = field(default_factory=dict)  # slug → id
 
 
 async def _load_reference_data(conn: asyncpg.Connection) -> ReferenceData:
     """Load reference lookup tables from the DB."""
     ref = ReferenceData()
-    for row in await conn.fetch("SELECT id, slug FROM url_types"):
-        ref.url_type_ids[row["slug"]] = row["id"]
-    for row in await conn.fetch("SELECT id, slug FROM platforms"):
-        ref.platform_ids[row["slug"]] = row["id"]
+    for row in await conn.fetch("SELECT id, slug FROM link_types"):
+        ref.link_type_ids[row["slug"]] = row["id"]
     for row in await conn.fetch("SELECT id, slug FROM entity_identifier_types"):
         ref.identifier_type_ids[row["slug"]] = row["id"]
     return ref
@@ -262,24 +259,16 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     " VALUES ($1, $2, $3, $4, $5)",
                     generate_id(), "organization", t["org_id"], cm["contact_type"], cm["value"],
                 )
-            for u in t["urls"]:
-                url_type_id = ref.url_type_ids.get(u["url_type_slug"])
-                if url_type_id:
+            for lnk in t["links"]:
+                link_type_id = ref.link_type_ids.get(lnk["link_type_slug"])
+                if link_type_id:
                     await conn.execute(
-                        "INSERT INTO urls"
-                        " (id, entity_type, entity_id, url, url_type_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+                        "INSERT INTO links"
+                        " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
+                        " VALUES ($1, $2, $3, $4, $5, $6)"
+                        " ON CONFLICT DO NOTHING",
                         generate_id(), "organization", t["org_id"],
-                        u["url"], url_type_id, u["is_canonical"],
-                    )
-            for sl in t["social_links"]:
-                platform_id = ref.platform_ids.get(sl["platform_slug"])
-                if platform_id:
-                    await conn.execute(
-                        "INSERT INTO social_links"
-                        " (id, entity_type, entity_id, platform_id, url)"
-                        " VALUES ($1, $2, $3, $4, $5)",
-                        generate_id(), "organization", t["org_id"], platform_id, sl["url"],
+                        lnk["url"], link_type_id, lnk.get("is_canonical", False),
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
@@ -374,24 +363,16 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     " VALUES ($1, $2, $3, $4, $5)",
                     generate_id(), "person", t["person_id"], cm["contact_type"], cm["value"],
                 )
-            for u in t["urls"]:
-                url_type_id = ref.url_type_ids.get(u["url_type_slug"])
-                if url_type_id:
+            for lnk in t["links"]:
+                link_type_id = ref.link_type_ids.get(lnk["link_type_slug"])
+                if link_type_id:
                     await conn.execute(
-                        "INSERT INTO urls"
-                        " (id, entity_type, entity_id, url, url_type_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+                        "INSERT INTO links"
+                        " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
+                        " VALUES ($1, $2, $3, $4, $5, $6)"
+                        " ON CONFLICT DO NOTHING",
                         generate_id(), "person", t["person_id"],
-                        u["url"], url_type_id, u["is_canonical"],
-                    )
-            for sl in t["social_links"]:
-                platform_id = ref.platform_ids.get(sl["platform_slug"])
-                if platform_id:
-                    await conn.execute(
-                        "INSERT INTO social_links"
-                        " (id, entity_type, entity_id, platform_id, url)"
-                        " VALUES ($1, $2, $3, $4, $5)",
-                        generate_id(), "person", t["person_id"], platform_id, sl["url"],
+                        lnk["url"], link_type_id, lnk.get("is_canonical", False),
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
@@ -512,25 +493,16 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     generate_id(), "role_assignment",
                     t["assignment_id"], cm["contact_type"], cm["value"],
                 )
-            for u in t["urls"]:
-                url_type_id = ref.url_type_ids.get(u["url_type_slug"])
-                if url_type_id:
+            for lnk in t["links"]:
+                link_type_id = ref.link_type_ids.get(lnk["link_type_slug"])
+                if link_type_id:
                     await conn.execute(
-                        "INSERT INTO urls"
-                        " (id, entity_type, entity_id, url, url_type_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+                        "INSERT INTO links"
+                        " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
+                        " VALUES ($1, $2, $3, $4, $5, $6)"
+                        " ON CONFLICT DO NOTHING",
                         generate_id(), "role_assignment", t["assignment_id"],
-                        u["url"], url_type_id, u["is_canonical"],
-                    )
-            for sl in t["social_links"]:
-                platform_id = ref.platform_ids.get(sl["platform_slug"])
-                if platform_id:
-                    await conn.execute(
-                        "INSERT INTO social_links"
-                        " (id, entity_type, entity_id, platform_id, url)"
-                        " VALUES ($1, $2, $3, $4, $5)",
-                        generate_id(), "role_assignment", t["assignment_id"],
-                        platform_id, sl["url"],
+                        lnk["url"], link_type_id, lnk.get("is_canonical", False),
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])

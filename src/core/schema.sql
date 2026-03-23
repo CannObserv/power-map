@@ -10,17 +10,11 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- Lookup / Reference Tables
 -- =============================================================================
 
-CREATE TABLE IF NOT EXISTS platforms (
+CREATE TABLE IF NOT EXISTS link_types (
     id           TEXT        PRIMARY KEY,
-    slug         TEXT        NOT NULL UNIQUE,    -- 'twitter', 'bluesky', 'linkedin', …
+    slug         TEXT        NOT NULL UNIQUE,
     display_name TEXT        NOT NULL,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS url_types (
-    id           TEXT        PRIMARY KEY,
-    slug         TEXT        NOT NULL UNIQUE,    -- 'website', 'profile', 'wa_pdc', …
-    display_name TEXT        NOT NULL,
+    is_social    BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -231,36 +225,25 @@ CREATE TABLE IF NOT EXISTS contact_methods (
 CREATE INDEX IF NOT EXISTS idx_contact_methods_entity
     ON contact_methods(entity_type, entity_id);
 
--- Web URLs for any entity; url_type_id references url_types (controlled vocabulary)
-CREATE TABLE IF NOT EXISTS urls (
-    id           TEXT        PRIMARY KEY,
-    entity_type  TEXT        NOT NULL
-                             CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment')),
-    entity_id    TEXT        NOT NULL,
-    url          TEXT        NOT NULL,
-    url_type_id  TEXT        NOT NULL REFERENCES url_types(id),
-    is_canonical BOOLEAN     NOT NULL DEFAULT FALSE,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- Web URLs and social links for any entity; link_type_id references link_types
+CREATE TABLE IF NOT EXISTS links (
+    id            TEXT        PRIMARY KEY,
+    entity_type   TEXT        NOT NULL
+                              CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment')),
+    entity_id     TEXT        NOT NULL,
+    url           TEXT        NOT NULL,
+    link_type_id  TEXT        NOT NULL REFERENCES link_types(id),
+    is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
+    is_canonical  BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_urls_entity ON urls(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_links_entity
+    ON links(entity_type, entity_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_url_canonical
-    ON urls(entity_type, entity_id)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_link_canonical
+    ON links(entity_type, entity_id)
     WHERE is_canonical = TRUE;
-
-CREATE TABLE IF NOT EXISTS social_links (
-    id          TEXT        PRIMARY KEY,
-    entity_type TEXT        NOT NULL
-                            CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
-    entity_id   TEXT        NOT NULL,
-    platform_id TEXT        NOT NULL REFERENCES platforms(id),
-    url         TEXT        NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_social_links_entity
-    ON social_links(entity_type, entity_id);
 
 -- entity_type is encoded in entity_identifier_types; no need to duplicate here
 CREATE TABLE IF NOT EXISTS identifiers (
@@ -440,32 +423,86 @@ CREATE OR REPLACE TRIGGER trg_updated_at_role_assignments
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =============================================================================
+-- Migration: urls/social_links/url_types/platforms → link_types/links
+-- Idempotent: checks table existence before operating. Safe to re-run.
+-- =============================================================================
+DO $$
+BEGIN
+    -- Migrate url_types → link_types (is_social = FALSE)
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'url_types' AND table_schema = 'public'
+    ) THEN
+        INSERT INTO link_types (id, slug, display_name, is_social)
+        SELECT id, slug, display_name, FALSE FROM url_types
+        ON CONFLICT (slug) DO NOTHING;
+    END IF;
+
+    -- Migrate platforms → link_types (is_social = TRUE)
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'platforms' AND table_schema = 'public'
+    ) THEN
+        INSERT INTO link_types (id, slug, display_name, is_social)
+        SELECT id, slug, display_name, TRUE FROM platforms
+        ON CONFLICT (slug) DO NOTHING;
+    END IF;
+
+    -- Migrate urls → links
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'urls' AND table_schema = 'public'
+    ) THEN
+        INSERT INTO links (id, entity_type, entity_id, url, link_type_id,
+                           is_active, is_canonical, created_at)
+        SELECT u.id, u.entity_type, u.entity_id, u.url,
+               lt.id, TRUE, u.is_canonical, u.created_at
+        FROM urls u
+        JOIN url_types ut ON ut.id = u.url_type_id
+        JOIN link_types lt ON lt.slug = ut.slug
+        ON CONFLICT (id) DO NOTHING;
+
+        DROP TABLE urls;
+    END IF;
+
+    -- Migrate social_links → links
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'social_links' AND table_schema = 'public'
+    ) THEN
+        INSERT INTO links (id, entity_type, entity_id, url, link_type_id,
+                           is_active, is_canonical, created_at)
+        SELECT sl.id, sl.entity_type, sl.entity_id, sl.url,
+               lt.id, TRUE, FALSE, sl.created_at
+        FROM social_links sl
+        JOIN platforms p ON p.id = sl.platform_id
+        JOIN link_types lt ON lt.slug = p.slug
+        ON CONFLICT (id) DO NOTHING;
+
+        DROP TABLE social_links;
+    END IF;
+
+    -- Drop old lookup tables (no longer referenced)
+    DROP TABLE IF EXISTS url_types;
+    DROP TABLE IF EXISTS platforms;
+END $$;
+
+-- =============================================================================
 -- Seed Data
 -- =============================================================================
 
-INSERT INTO platforms (id, slug, display_name) VALUES
-    ('01KKZ3WGJRPV2TDZV672NWFE8G', 'twitter',   'Twitter / X'),
-    ('01KKZ3WGJRPV2TDZV672NWFE8H', 'bluesky',   'Bluesky'),
-    ('01KKZ3WGJSZF0F96SMYC000AVA', 'linkedin',  'LinkedIn'),
-    ('01KKZ3WGJSZF0F96SMYC000AVB', 'mastodon',  'Mastodon'),
-    ('01KKZ3WGJSZF0F96SMYC000AVC', 'instagram', 'Instagram'),
-    ('01KKZ3WGJSZF0F96SMYC000AVD', 'facebook',  'Facebook'),
-    ('01KKZ3WGJSZF0F96SMYC000AVE', 'youtube',   'YouTube'),
-    ('01KKZ3WGJSZF0F96SMYC000AVF', 'flickr',    'Flickr')
-ON CONFLICT (slug) DO NOTHING;
-
-INSERT INTO url_types (id, slug, display_name) VALUES
-    ('01KKZ3WGJSZF0F96SMYC000AVG', 'website',    'Official Website'),
-    ('01KKZ3WGJSZF0F96SMYC000AVH', 'profile',    'Profile'),
-    ('01KKZ3WGJSZF0F96SMYC000AVJ', 'wa_pdc',     'WA Public Disclosure Commission'),
-    ('01KKZ3WGJSZF0F96SMYC000AVK', 'sec_form_d', 'SEC Form D'),
-    ('01KKZ3WGJSZF0F96SMYC000AVM', 'wikipedia',  'Wikipedia'),
-    ('01KKZ3WGJSZF0F96SMYC000AVN', 'other',      'Other')
-ON CONFLICT (slug) DO NOTHING;
-
--- google_drive added separately to avoid regenerating existing seed IDs
-INSERT INTO url_types (id, slug, display_name) VALUES
-    ('01KM0YSNEMMPY35FSS3CX49SFJ', 'google_drive', 'Google Drive')
+INSERT INTO link_types (id, slug, display_name, is_social) VALUES
+    ('01KKZ3WGJRPV2TDZV672NWFE8G', 'twitter',      'Twitter / X',                      TRUE),
+    ('01KKZ3WGJRPV2TDZV672NWFE8H', 'bluesky',      'Bluesky',                          TRUE),
+    ('01KKZ3WGJSZF0F96SMYC000AVA', 'linkedin',     'LinkedIn',                         TRUE),
+    ('01KKZ3WGJSZF0F96SMYC000AVB', 'mastodon',     'Mastodon',                         TRUE),
+    ('01KKZ3WGJSZF0F96SMYC000AVC', 'instagram',    'Instagram',                        TRUE),
+    ('01KKZ3WGJSZF0F96SMYC000AVD', 'facebook',     'Facebook',                         TRUE),
+    ('01KKZ3WGJSZF0F96SMYC000AVE', 'youtube',      'YouTube',                          TRUE),
+    ('01KKZ3WGJSZF0F96SMYC000AVF', 'flickr',       'Flickr',                           TRUE),
+    ('01KKZ3WGJSZF0F96SMYC000AVG', 'website',      'Official Website',                 FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVH', 'profile',      'Profile',                          FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVJ', 'wa_pdc',       'WA Public Disclosure Commission',  FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVK', 'sec_form_d',   'SEC Form D',                       FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVM', 'wikipedia',    'Wikipedia',                        FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVN', 'other',        'Other',                            FALSE),
+    ('01KM0YSNEMMPY35FSS3CX49SFJ', 'google_drive', 'Google Drive',                     FALSE)
 ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name) VALUES

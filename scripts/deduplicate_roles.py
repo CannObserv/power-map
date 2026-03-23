@@ -91,13 +91,13 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
             )
         ]
         if conflicting_ra_ids:
-            for table in ("contact_methods", "social_links", "identifiers", "field_confidence"):
+            for table in ("contact_methods", "identifiers", "field_confidence"):
                 await conn.execute(
                     f"DELETE FROM {table} WHERE entity_id = ANY($1::text[])",  # noqa: S608
                     conflicting_ra_ids,
                 )
             await conn.execute(
-                "DELETE FROM urls"
+                "DELETE FROM links"
                 " WHERE entity_type = 'role_assignment' AND entity_id = ANY($1::text[])",
                 conflicting_ra_ids,
             )
@@ -113,27 +113,27 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
             canonical_id, dup_ids,
         )
 
-        # Migrate role URLs that won't conflict; delete any remaining
+        # Migrate role links that won't conflict; delete any remaining
         await conn.execute(
             """
-            UPDATE urls
+            UPDATE links
             SET entity_id = $1
             WHERE entity_type = 'role'
               AND entity_id = ANY($2::text[])
               AND NOT (
                   is_canonical = TRUE
                   AND EXISTS (
-                      SELECT 1 FROM urls u2
-                      WHERE u2.entity_type = 'role'
-                        AND u2.entity_id = $1
-                        AND u2.is_canonical = TRUE
+                      SELECT 1 FROM links l2
+                      WHERE l2.entity_type = 'role'
+                        AND l2.entity_id = $1
+                        AND l2.is_canonical = TRUE
                   )
               )
             """,
             canonical_id, dup_ids,
         )
         await conn.execute(
-            "DELETE FROM urls WHERE entity_type = 'role' AND entity_id = ANY($1::text[])",
+            "DELETE FROM links WHERE entity_type = 'role' AND entity_id = ANY($1::text[])",
             dup_ids,
         )
 
@@ -175,33 +175,33 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
         # Migrate polymorphic children (no unique constraints — always safe).
         # import_provenance is left on the duplicate rows intentionally: it is an
         # audit log that records which import batch created each assignment.
-        for table in ("contact_methods", "social_links", "identifiers", "field_confidence"):
+        for table in ("contact_methods", "identifiers", "field_confidence"):
             await conn.execute(
                 f"UPDATE {table} SET entity_id = $1 WHERE entity_id = ANY($2::text[])",  # noqa: S608
                 canonical_id, dup_ids,
             )
 
-        # URLs: migrate non-conflicting canonical URLs; delete any remaining
+        # Links: migrate non-conflicting canonical links; delete any remaining
         await conn.execute(
             """
-            UPDATE urls
+            UPDATE links
             SET entity_id = $1
             WHERE entity_type = 'role_assignment'
               AND entity_id = ANY($2::text[])
               AND NOT (
                   is_canonical = TRUE
                   AND EXISTS (
-                      SELECT 1 FROM urls u2
-                      WHERE u2.entity_type = 'role_assignment'
-                        AND u2.entity_id = $1
-                        AND u2.is_canonical = TRUE
+                      SELECT 1 FROM links l2
+                      WHERE l2.entity_type = 'role_assignment'
+                        AND l2.entity_id = $1
+                        AND l2.is_canonical = TRUE
                   )
               )
             """,
             canonical_id, dup_ids,
         )
         await conn.execute(
-            "DELETE FROM urls"
+            "DELETE FROM links"
             " WHERE entity_type = 'role_assignment' AND entity_id = ANY($1::text[])",
             dup_ids,
         )

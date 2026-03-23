@@ -1,0 +1,20 @@
+{# admin/orgs/partials/_address_row.html #}
+<tr id="address-row-{{ a.id }}">
+  <td>
+    {% if a.standardized %}{{ a.standardized }}
+    {% else %}{{ [a.address_line_1, a.city, a.region, a.postal_code] | select | join(', ') }}{% endif %}
+  </td>
+  <td>{{ a.address_type }}</td>
+  {% if a.display_name %}<td>{{ a.display_name }}</td>{% else %}<td>—</td>{% endif %}
+  <td>
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org_id }}/addresses/{{ a.id }}/edit-row/"
+            hx-target="#address-row-{{ a.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            hx-delete="/admin/orgs/{{ org_id }}/addresses/{{ a.id }}/"
+            hx-target="#address-row-{{ a.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this address?">Delete</button>
+  </td>
+</tr>

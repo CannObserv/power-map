@@ -1,0 +1,18 @@
+{# admin/orgs/partials/_child_row.html #}
+<tr id="child-row-{{ child.id }}">
+  <td><a href="/admin/orgs/{{ child.id }}/">{{ child.canonical_name or '(unnamed)' }}</a></td>
+  <td>
+    {% if child.archived_at %}<span class="badge badge--archived">Archived</span>
+    {% elif not child.active %}<span class="badge badge--inactive">Inactive</span>
+    {% else %}<span class="badge badge--active">Active</span>{% endif %}
+  </td>
+  <td>
+    <button type="button" class="btn btn--sm btn--danger"
+            hx-delete="/admin/orgs/{{ org_id }}/children/{{ child.id }}/"
+            hx-target="#child-row-{{ child.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Remove {{ child.canonical_name or child.id }} as a child?">
+      Unlink
+    </button>
+  </td>
+</tr>

@@ -8,193 +8,183 @@
 {% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1>{{ _display or '(unnamed)' }}</h1>
-  <a href="/admin/orgs/{{ org.id }}/edit/" class="btn btn--primary">Edit</a>
+  <h1>
+    {{ _display or '(unnamed)' }}
+    {% if org.archived_at %}<span class="badge badge--archived">Archived</span>
+    {% elif not org.active %}<span class="badge badge--inactive">Inactive</span>
+    {% else %}<span class="badge badge--active">Active</span>{% endif %}
+  </h1>
 </div>
 
-<div class="entity-card">
-  <dl class="detail-grid">
-    <dt>ID</dt><dd><code>{{ org.id }}</code></dd>
-    <dt>Status</dt>
-    <dd>
-      {% if org.archived_at %}<span class="badge badge--archived">Archived</span>
-      {% elif not org.active %}<span class="badge badge--inactive">Inactive</span>
-      {% else %}<span class="badge badge--active">Active</span>{% endif %}
-    </dd>
-    {% if org.notes %}
-    <dt>Notes</dt><dd>{{ org.notes }}</dd>
-    {% endif %}
-    <dt>Created</dt><dd>{{ org.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
-    <dt>Updated</dt><dd>{{ org.updated_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
-    {% if org.archived_at %}
-    <dt>Archived</dt><dd>{{ org.archived_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
-    {% endif %}
-  </dl>
+<div id="core-fields" class="entity-card">
+  {% include "admin/orgs/partials/_core_fields_read.html" %}
 </div>
 
-<section class="entity-section">
+<section id="section-hierarchy" class="entity-section">
+  <h2>Hierarchy</h2>
+  <div class="entity-card" style="margin-bottom:var(--space-4)">
+    {% include "admin/orgs/partials/_parent_read.html" %}
+  </div>
+  <h3>Child Organizations</h3>
+  <div class="table-wrapper">
+    <table id="children-table" class="data-table">
+      <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
+      <tbody>
+        {% for child in children %}
+        {% include "admin/orgs/partials/_child_row.html" %}
+        {% else %}
+        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No child organizations</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/children/new-row/"
+          hx-target="#children-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add child</button>
+</section>
+
+<section id="section-names" class="entity-section">
   <h2>Names</h2>
   <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Canonical</th></tr></thead>
+    <table id="names-table" class="data-table">
+      <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Canonical</th><th scope="col"></th></tr></thead>
       <tbody>
         {% for n in names %}
-        <tr>
-          <td>{{ n.name }}</td>
-          <td>{{ n.name_type }}</td>
-          <td>{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
-        </tr>
+        {% include "admin/orgs/partials/_name_row.html" %}
         {% endfor %}
         {% for a in acronyms %}
-        <tr>
+        <tr id="name-row-{{ a.id }}">
           <td>{{ a.acronym }}</td>
           <td>acronym</td>
           <td>{% if a.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
+          <td></td>
         </tr>
         {% endfor %}
         {% if not names and not acronyms %}
-        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
+        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
         {% endif %}
       </tbody>
     </table>
   </div>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
+          hx-target="#names-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add name</button>
 </section>
 
 <section class="entity-section">
   <h2>Addresses</h2>
   <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Address</th><th scope="col">City</th><th scope="col">Region</th><th scope="col">Postal</th></tr></thead>
+    <table id="addresses-table" class="data-table">
+      <thead><tr><th scope="col">Address</th><th scope="col">City</th><th scope="col">Region</th><th scope="col">Postal</th><th scope="col"></th></tr></thead>
       <tbody>
         {% for a in addresses %}
-        <tr>
-          <td>{{ a.standardized or a.address_line_1 or '—' }}</td>
-          <td>{{ a.city or '—' }}</td>
-          <td>{{ a.region or '—' }}</td>
-          <td>{{ a.postal_code or '—' }}</td>
-        </tr>
+        {% include "admin/orgs/partials/_address_row.html" %}
         {% else %}
-        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No addresses</td></tr>
+        <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No addresses</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/addresses/new-row/"
+          hx-target="#addresses-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add address</button>
 </section>
 
 <section class="entity-section">
   <h2>Contact Methods</h2>
   <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Type</th><th scope="col">Value</th></tr></thead>
+    <table id="contacts-table" class="data-table">
+      <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"></th></tr></thead>
       <tbody>
         {% for c in contacts %}
-        <tr><td>{{ c.contact_type }}</td><td>{{ c.value }}</td></tr>
+        {% include "admin/orgs/partials/_contact_row.html" %}
         {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No contact methods</td></tr>
+        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No contact methods</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/contacts/new-row/"
+          hx-target="#contacts-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add contact</button>
 </section>
 
 <section class="entity-section">
-  <h2>URLs</h2>
+  <h2>Links</h2>
   <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Type</th><th scope="col">URL</th></tr></thead>
+    <table id="links-table" class="data-table">
+      <thead><tr><th scope="col">Type</th><th scope="col">URL</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
       <tbody>
-        {% for u in urls %}
-        <tr>
-          <td>{{ u.url_type_name }}</td>
-          <td><a href="{{ u.url }}" target="_blank" rel="noopener noreferrer">{{ u.url }}</a></td>
-        </tr>
+        {% for l in links %}
+        {% include "admin/orgs/partials/_link_row.html" %}
         {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No URLs</td></tr>
+        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No links</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-</section>
-
-<section class="entity-section">
-  <h2>Social Links</h2>
-  <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Platform</th><th scope="col">Handle / URL</th></tr></thead>
-      <tbody>
-        {% for s in social %}
-        <tr>
-          <td>{{ s.platform_name }}</td>
-          <td>{{ s.handle or s.url or '—' }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No social links</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/links/new-row/"
+          hx-target="#links-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add link</button>
 </section>
 
 <section class="entity-section">
   <h2>Identifiers</h2>
   <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Type</th><th scope="col">Value</th></tr></thead>
+    <table id="identifiers-table" class="data-table">
+      <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"></th></tr></thead>
       <tbody>
-        {% for i in identifiers %}
-        <tr>
-          <td title="{{ i.type_full_name }}">{{ i.type_name }}</td>
-          <td>{{ i.value }}</td>
-        </tr>
+        {% for ident in identifiers %}
+        {% include "admin/orgs/partials/_identifier_row.html" %}
         {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No identifiers</td></tr>
+        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No identifiers</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-</section>
-
-<section class="entity-section">
-  <h2>Child Organizations</h2>
-  <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Name</th><th scope="col">Status</th></tr></thead>
-      <tbody>
-        {% for child in children %}
-        <tr>
-          <td><a href="/admin/orgs/{{ child.id }}/">{{ child.canonical_name or '(unnamed)' }}</a></td>
-          <td>
-            {% if child.archived_at %}<span class="badge badge--archived">Archived</span>
-            {% elif not child.active %}<span class="badge badge--inactive">Inactive</span>
-            {% else %}<span class="badge badge--active">Active</span>{% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No child organizations</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
+          hx-get="/admin/orgs/{{ org.id }}/identifiers/new-row/"
+          hx-target="#identifiers-table tbody"
+          hx-swap="afterbegin"
+          type="button">+ Add identifier</button>
 </section>
 
 <section class="entity-section">
   <h2>Roles</h2>
+  <input type="search" id="roles-filter" placeholder="Filter roles…"
+         style="margin-bottom:var(--space-2);font-size:var(--font-sm)"
+         oninput="(function(v){document.querySelectorAll('#roles-table tbody tr[data-title]').forEach(function(r){r.style.display=r.dataset.title.toLowerCase().includes(v.toLowerCase())?'':'none'})})(this.value)">
   <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Title</th><th scope="col">ID</th></tr></thead>
+    <table id="roles-table" class="data-table">
+      <thead><tr><th scope="col">Title</th></tr></thead>
       <tbody>
         {% for role in roles %}
-        <tr>
+        <tr data-title="{{ role.title or '' }}">
           <td><a href="/admin/roles/{{ role.id }}/">{{ role.title or '(untitled)' }}</a></td>
-          <td><code>{{ role.id }}</code></td>
         </tr>
         {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No roles</td></tr>
+        <tr><td style="text-align:center;color:var(--color-text-muted)">No roles</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
+
+<p style="color:var(--color-text-muted);font-size:var(--font-sm);margin-top:var(--space-6)">
+  Metadata &middot; ID: <code>{{ org.id }}</code>
+  &middot; Created: {{ org.created_at.strftime('%Y-%m-%d') }}
+  &middot; Updated: {{ org.updated_at.strftime('%Y-%m-%d') }}
+</p>
 
 <div class="danger-zone">
   <h2>Danger Zone</h2>
@@ -205,7 +195,7 @@
   </form>
   {% else %}
   <p>This organization is archived. You may permanently delete it — this cannot be undone.</p>
-  <button class="btn btn--danger"
+  <button type="button" class="btn btn--danger"
           hx-delete="/admin/orgs/{{ org.id }}/"
           hx-confirm="Permanently delete this organization? This cannot be undone."
           hx-target="body"

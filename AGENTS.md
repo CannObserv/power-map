@@ -19,9 +19,15 @@ Python ≥3.12, uv, pytest, ruff
 ```
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
   admin/        — Jinja2 + HTMX admin dashboard (people, orgs, roles, role_assignments, lookups, imports)
-    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db
+    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db, is_htmx
     org_dups.py — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     router.py   — Mounts all admin sub-routers under /admin/
+    orgs.py     — Org list, detail, search typeahead, inline core/parent editing, children CRUD, archive/delete
+    orgs_names.py       — Inline CRUD for organization_names (row-level HTMX swap)
+    orgs_addresses.py   — Inline CRUD for addresses + entity_addresses (row-level HTMX swap)
+    orgs_contacts.py    — Inline CRUD for contact_methods (row-level HTMX swap)
+    orgs_links.py       — Inline CRUD for links + link_types (row-level HTMX swap)
+    orgs_identifiers.py — Inline CRUD for identifiers (row-level HTMX swap)
 src/core/       — Shared domain logic
   db.py         — Connection pool, apply_schema, generate_id
   schema.sql    — Canonical DDL (tables, indexes, triggers, seed data); source of truth
@@ -36,7 +42,7 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - Auth: exe.dev proxy injects `X-ExeDev-UserID` + `X-ExeDev-Email` headers; missing headers → redirect to `/__exe.dev/login?redirect=<url-encoded path+query>`
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived)
 - `check_auth(user)` from `src.api.admin.deps` — call at top of every route handler; returns `(redirect_response, user)` tuple
-- HTMX partial responses: use `request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")` to select a partial template — boost sends both headers; omitting the `HX-Boosted` guard causes boosted sidebar navigation to receive bare fragments instead of full page layouts. Use `_is_htmx(request)` helper in `src.api.admin.orgs` as the canonical pattern.
+- HTMX partial responses: use `is_htmx(request)` from `src.api.admin.deps` to select partial templates — checks `HX-Request and not HX-Boosted` (boost sends both; omitting the guard causes boosted sidebar nav to receive bare fragments instead of full page layouts).
 - Flash notifications: use `admin/macros/flash.html` — `message(level, body)` for inline, `oob(level, body)` for OOB injection into `#flash-region` from HTMX partial responses. Levels: `success`, `info`, `warning`, `error`. Always escape DB-derived values with `markupsafe.escape()` before interpolating into `body` HTML strings passed to these macros.
 - Mutation routes returning HTMX partials: preserve a non-HTMX `RedirectResponse` fallback for graceful degradation (e.g. direct form POST without JS).
 - Dup count cache: `count_org_duplicates(db)` in `src.api.admin.org_dups` is TTL-cached (5 min, process-local). Call `invalidate_dup_count_cache()` after any merge or dismiss to keep count accurate. All routes (except the dashboard) inject `org_dup_count` via `get_org_dup_count` dep — the dashboard calls `count_org_duplicates(db)` directly inside its `pool.acquire()` block because FastAPI dep resolution runs before the handler body and would raise before auth completes. Sidebar badge uses `org_dup_count` template var directly (no HTMX XHR). **Caveat:** cache is not shared across gunicorn workers — counts may lag by up to 5 min per worker under multi-process deployments.
@@ -50,6 +56,8 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - Integration tests (marked `integration`) require `TEST_DATABASE_URL` env var; `tests/conftest.py` automatically redirects `DATABASE_URL` → `TEST_DATABASE_URL` at session start so tests never touch the production DB when the standard `env` file is loaded
 - Org display names: use `v_org_display_names` (view in `schema.sql`) for all admin queries that display an org name — formats as "Name (Acronym)" when a canonical acronym exists, otherwise just "Name". Never join `organization_names` or `organization_acronyms` directly for display; use the view.
 - Acronyms are stored in `organization_acronyms` (separate table); `organization_names` holds legal/dba/former names only. Each table has exactly one canonical row per org via a partial unique index.
+- Links: `link_types` table (slug, display_name, is_social) replaces the old `url_types` + `platforms` tables. `links` table (entity_type, entity_id, url, link_type_id, is_active, is_canonical) replaces `urls` + `social_links`. Social links: `JOIN link_types WHERE is_social = TRUE`. Unique canonical per entity enforced by `uq_link_canonical` partial index; use a transaction to clear sibling canonicals before setting a new one.
+- Row-level HTMX editing pattern: GET `/{id}/edit-row/` → edit form partial; POST `/{id}/edit-row/` → read partial (hx-swap="outerHTML"); GET `/{id}/read-row/` → read partial (Cancel on edit form, hx-swap="outerHTML"); GET `/new-row/` → blank form row (Cancel: `onclick="this.closest('tr').remove()"`, no server round-trip).
 
 ### Ingestion conventions
 - EVTL pattern: Extract (CSV read) → Validate (Pydantic) → Transform (normalize fields) → Load (DB insert)

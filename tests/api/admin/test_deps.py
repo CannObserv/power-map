@@ -7,7 +7,7 @@ import pytest
 from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, is_htmx
 from src.api.main import app
 from tests.api.admin.conftest import AUTH_HEADERS
 
@@ -77,6 +77,25 @@ def test_check_auth_returns_redirect():
     redirect, out = check_auth(r)
     assert redirect is r
     assert out is None
+
+
+def test_is_htmx_returns_true_for_htmx_non_boosted_request():
+    request = MagicMock()
+    request.headers = {"HX-Request": "true"}
+    assert is_htmx(request) is True
+
+
+def test_is_htmx_returns_false_for_non_htmx_request():
+    request = MagicMock()
+    request.headers = {}
+    assert is_htmx(request) is False
+
+
+def test_is_htmx_returns_false_for_boosted_request():
+    """HX-Boosted is set on sidebar navigation; must return False so full page is rendered."""
+    request = MagicMock()
+    request.headers = {"HX-Request": "true", "HX-Boosted": "true"}
+    assert is_htmx(request) is False
 
 
 @pytest.mark.integration

@@ -1,0 +1,18 @@
+{# admin/orgs/partials/_link_row.html #}
+<tr id="link-row-{{ l.id }}">
+  <td><a href="{{ l.url }}" target="_blank" rel="noopener noreferrer">{{ l.url }}</a></td>
+  <td>{{ l.link_type_name }}</td>
+  <td>{% if l.is_active %}<span class="badge badge--active">Active</span>
+      {% else %}<span style="color:var(--color-text-muted)">Inactive</span>{% endif %}</td>
+  <td>
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org_id }}/links/{{ l.id }}/edit-row/"
+            hx-target="#link-row-{{ l.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            hx-delete="/admin/orgs/{{ org_id }}/links/{{ l.id }}/"
+            hx-target="#link-row-{{ l.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this link?">Delete</button>
+  </td>
+</tr>

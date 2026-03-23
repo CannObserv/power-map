@@ -1,0 +1,32 @@
+{# admin/orgs/partials/_name_form_row.html — inline name edit/new form row #}
+<tr id="{% if n %}name-row-{{ n.id }}{% else %}name-row-new{% endif %}">
+  <td colspan="4">
+    <form {% if n %}
+          hx-post="/admin/orgs/{{ org_id }}/names/{{ n.id }}/edit-row/"
+          hx-target="#name-row-{{ n.id }}"
+          {% else %}
+          hx-post="/admin/orgs/{{ org_id }}/names/"
+          hx-target="#name-row-new"
+          {% endif %}
+          hx-swap="outerHTML"
+          style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
+      <input type="text" name="name" required value="{{ n.name if n else '' }}" placeholder="Name">
+      <select name="name_type">
+        {% for t in ('legal', 'dba', 'former') %}
+        <option value="{{ t }}"{% if n and n.name_type == t %} selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      <label><input type="checkbox" name="is_canonical" value="true"
+                    {% if n and n.is_canonical %} checked{% endif %}> Canonical</label>
+      <button type="submit" class="btn btn--sm btn--primary">Save</button>
+      <button type="button" class="btn btn--sm btn--secondary"
+              {% if n %}
+              hx-get="/admin/orgs/{{ org_id }}/names/{{ n.id }}/read-row/"
+              hx-target="#name-row-{{ n.id }}"
+              hx-swap="outerHTML"
+              {% else %}
+              onclick="this.closest('tr').remove()"
+              {% endif %}>Cancel</button>
+    </form>
+  </td>
+</tr>

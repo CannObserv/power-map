@@ -1,0 +1,45 @@
+{# admin/orgs/partials/_address_form_row.html #}
+<tr id="{% if a %}address-row-{{ a.id }}{% else %}address-row-new{% endif %}">
+  <td colspan="5">
+    <form {% if a %}
+          hx-post="/admin/orgs/{{ org_id }}/addresses/{{ a.id }}/edit-row/"
+          hx-target="#address-row-{{ a.id }}"
+          {% else %}
+          hx-post="/admin/orgs/{{ org_id }}/addresses/"
+          hx-target="#address-row-new"
+          {% endif %}
+          hx-swap="outerHTML"
+          style="display:grid;gap:var(--space-2)">
+      <input type="text" name="address_line_1" placeholder="Address line 1"
+             value="{{ a.address_line_1 or '' if a else '' }}">
+      <input type="text" name="address_line_2" placeholder="Address line 2"
+             value="{{ a.address_line_2 or '' if a else '' }}">
+      <div style="display:flex;gap:var(--space-2)">
+        <input type="text" name="city" placeholder="City"
+               value="{{ a.city or '' if a else '' }}" style="flex:2">
+        <input type="text" name="region" placeholder="State" maxlength="2"
+               value="{{ a.region or '' if a else '' }}" style="flex:1">
+        <input type="text" name="postal_code" placeholder="ZIP"
+               value="{{ a.postal_code or '' if a else '' }}" style="flex:1">
+      </div>
+      <select name="address_type">
+        {% for t in ('mailing', 'physical', 'other') %}
+        <option value="{{ t }}"{% if a and a.address_type == t %} selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="display_name" placeholder="Label (optional)"
+             value="{{ a.display_name or '' if a else '' }}">
+      <div class="btn-group">
+        <button type="submit" class="btn btn--sm btn--primary">Save</button>
+        <button type="button" class="btn btn--sm btn--secondary"
+                {% if a %}
+                hx-get="/admin/orgs/{{ org_id }}/addresses/{{ a.id }}/read-row/"
+                hx-target="#address-row-{{ a.id }}"
+                hx-swap="outerHTML"
+                {% else %}
+                onclick="this.closest('tr').remove()"
+                {% endif %}>Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>

@@ -1,0 +1,33 @@
+{# admin/orgs/partials/_contact_form_row.html #}
+<tr id="{% if c %}contact-row-{{ c.id }}{% else %}contact-row-new{% endif %}">
+  <td colspan="4">
+    <form {% if c %}
+          hx-post="/admin/orgs/{{ org_id }}/contacts/{{ c.id }}/edit-row/"
+          hx-target="#contact-row-{{ c.id }}"
+          {% else %}
+          hx-post="/admin/orgs/{{ org_id }}/contacts/"
+          hx-target="#contact-row-new"
+          {% endif %}
+          hx-swap="outerHTML"
+          style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
+      <select name="contact_type">
+        {% for t in ('email', 'phone') %}
+        <option value="{{ t }}"{% if c and c.contact_type == t %} selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="value" required
+             value="{{ c.value if c else '' }}" placeholder="Value">
+      <input type="text" name="display_label"
+             value="{{ c.display_label or '' if c else '' }}" placeholder="Label (optional)">
+      <button type="submit" class="btn btn--sm btn--primary">Save</button>
+      <button type="button" class="btn btn--sm btn--secondary"
+              {% if c %}
+              hx-get="/admin/orgs/{{ org_id }}/contacts/{{ c.id }}/read-row/"
+              hx-target="#contact-row-{{ c.id }}"
+              hx-swap="outerHTML"
+              {% else %}
+              onclick="this.closest('tr').remove()"
+              {% endif %}>Cancel</button>
+    </form>
+  </td>
+</tr>

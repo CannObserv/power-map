@@ -1,0 +1,40 @@
+{# admin/orgs/partials/_parent_form.html #}
+<form id="parent-section"
+      hx-post="/admin/orgs/{{ org.id }}/inline/parent/"
+      hx-target="#parent-section"
+      hx-swap="outerHTML">
+  <label for="parent-search">Parent Organization</label>
+  <div style="position:relative">
+    <input id="parent-search" type="text" autocomplete="off"
+           placeholder="Type to search…"
+           value="{{ parent.display_name if parent else '' }}"
+           hx-get="/admin/orgs/search/"
+           hx-trigger="input changed delay:200ms"
+           hx-target="#parent-search-results"
+           hx-params="q"
+           name="parent-search-display">
+    <input type="hidden" name="parent_id" id="parent-id-hidden"
+           value="{{ parent.id if parent else '' }}">
+    <ul id="parent-search-results" role="listbox"
+        style="position:absolute;background:var(--color-surface-1);border:1px solid var(--color-border);list-style:none;margin:0;padding:0;width:100%;z-index:10"></ul>
+  </div>
+  <div class="btn-group" style="margin-top:var(--space-2)">
+    <button type="submit" class="btn btn--primary btn--sm">Save</button>
+    <button type="button" class="btn btn--secondary btn--sm"
+            hx-get="/admin/orgs/{{ org.id }}/inline/parent/"
+            hx-target="#parent-section"
+            hx-swap="outerHTML">Cancel</button>
+    <button type="submit" name="parent_id" value=""
+            class="btn btn--secondary btn--sm">Clear parent</button>
+  </div>
+</form>
+<script>
+  // Wire combobox: clicking a result sets the hidden input and display input
+  document.getElementById('parent-search-results').addEventListener('click', function(e) {
+    const li = e.target.closest('[data-id]');
+    if (!li) return;
+    document.getElementById('parent-id-hidden').value = li.dataset.id;
+    document.getElementById('parent-search').value = li.dataset.label;
+    this.innerHTML = '';
+  });
+</script>

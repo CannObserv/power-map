@@ -88,17 +88,10 @@ async def _role(conn: asyncpg.Connection, org_id: str) -> str:
     return rid
 
 
-async def _url_type_id(conn: asyncpg.Connection, slug: str = "website") -> str:
-    """Return the id of the seeded url_type for *slug*."""
-    row = await conn.fetchrow("SELECT id FROM url_types WHERE slug = $1", slug)
-    assert row is not None, f"url_type slug {slug!r} not found — check seed data in schema.sql"
-    return row["id"]
-
-
-async def _platform_id(conn: asyncpg.Connection, slug: str = "twitter") -> str:
-    """Return the id of the seeded platform for *slug*."""
-    row = await conn.fetchrow("SELECT id FROM platforms WHERE slug = $1", slug)
-    assert row is not None, f"platform slug {slug!r} not found — check seed data in schema.sql"
+async def _link_type_id(conn: asyncpg.Connection, slug: str = "website") -> str:
+    """Return the id of the seeded link_type for *slug*."""
+    row = await conn.fetchrow("SELECT id FROM link_types WHERE slug = $1", slug)
+    assert row is not None, f"link_type slug {slug!r} not found — check seed data in schema.sql"
     return row["id"]
 
 
@@ -317,26 +310,26 @@ async def test_org_multiple_noncanonical_acronyms_accepted(db):
 
 
 async def test_duplicate_canonical_url_rejected(db):
-    """Two is_canonical=TRUE urls for the same entity must be rejected."""
+    """Two is_canonical=TRUE links for the same entity must be rejected."""
     org_id = await _org(db)
-    url_type_id = await _url_type_id(db, "website")
+    link_type_id = await _link_type_id(db, "website")
 
     await db.execute(
-        "INSERT INTO urls (id, entity_type, entity_id, url, url_type_id, is_canonical)"
+        "INSERT INTO links (id, entity_type, entity_id, url, link_type_id, is_canonical)"
         " VALUES ($1, 'organization', $2, 'https://example.com', $3, TRUE)",
         generate_id(),
         org_id,
-        url_type_id,
+        link_type_id,
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         async with db.transaction():
             await db.execute(
-                "INSERT INTO urls"
-                " (id, entity_type, entity_id, url, url_type_id, is_canonical)"
+                "INSERT INTO links"
+                " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
                 " VALUES ($1, 'organization', $2, 'https://other.com', $3, TRUE)",
                 generate_id(),
                 org_id,
-                url_type_id,
+                link_type_id,
             )
 
 
@@ -630,30 +623,30 @@ async def test_contact_method_valid_entity_types_accepted(db):
 
 
 # ---------------------------------------------------------------------------
-# social_links: entity_type CHECK
+# links: entity_type CHECK
 # ---------------------------------------------------------------------------
 
 
-async def test_social_link_invalid_entity_type_rejected(db):
+async def test_link_invalid_entity_type_rejected(db):
     """An unrecognized entity_type must violate the CHECK."""
     org_id = await _org(db)
-    platform_id = await _platform_id(db, "twitter")
+    link_type_id = await _link_type_id(db, "twitter")
 
     with pytest.raises(asyncpg.CheckViolationError):
         async with db.transaction():
             await db.execute(
-                "INSERT INTO social_links"
-                " (id, entity_type, entity_id, platform_id, url)"
+                "INSERT INTO links"
+                " (id, entity_type, entity_id, link_type_id, url)"
                 " VALUES ($1, $2, $3, $4, 'https://twitter.com/test')",
                 generate_id(),
-                "role",  # not in ('organization', 'person', 'role_assignment')
+                "invalid_type",  # not in ('organization', 'person', 'role', 'role_assignment')
                 org_id,
-                platform_id,
+                link_type_id,
             )
 
 
-async def test_social_link_valid_entity_types_accepted(db):
-    """All three valid entity_type values must be accepted."""
+async def test_link_valid_entity_types_accepted(db):
+    """All four valid entity_type values must be accepted."""
     org_id = await _org(db)
     person_id = await _person(db)
     role_id = await _role(db, org_id)
@@ -664,21 +657,22 @@ async def test_social_link_valid_entity_types_accepted(db):
         person_id,
         role_id,
     )
-    platform_id = await _platform_id(db, "twitter")
+    link_type_id = await _link_type_id(db, "twitter")
 
     for entity_type, entity_id in (
         ("organization", org_id),
         ("person", person_id),
+        ("role", role_id),
         ("role_assignment", ra_id),
     ):
         await db.execute(
-            "INSERT INTO social_links"
-            " (id, entity_type, entity_id, platform_id, url)"
+            "INSERT INTO links"
+            " (id, entity_type, entity_id, link_type_id, url)"
             " VALUES ($1, $2, $3, $4, $5)",
             generate_id(),
             entity_type,
             entity_id,
-            platform_id,
+            link_type_id,
             f"https://twitter.com/{entity_type}",
         )
 
@@ -803,10 +797,11 @@ async def test_field_confidence_append_only_by_convention(db):
     assert count == 2
 
 
-async def test_url_type_google_drive_seeded(db):
-    row = await db.fetchrow("SELECT * FROM url_types WHERE slug = 'google_drive'")
+async def test_google_drive_link_type_seeded(db):
+    row = await db.fetchrow("SELECT * FROM link_types WHERE slug = 'google_drive'")
     assert row is not None
     assert row["display_name"] == "Google Drive"
+    assert row["is_social"] is False
 
 
 # ---------------------------------------------------------------------------

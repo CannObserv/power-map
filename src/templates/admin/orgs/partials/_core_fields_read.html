@@ -1,0 +1,15 @@
+{# admin/orgs/partials/_core_fields_read.html #}
+<dl class="detail-grid">
+  <dt>Name</dt>
+  <dd>{{ canonical_name or '(unnamed)' }}{% if canonical_acronym %} ({{ canonical_acronym }}){% endif %}</dd>
+  {% if org.notes %}
+  <dt>Notes</dt><dd>{{ org.notes }}</dd>
+  {% endif %}
+  <dt>Active</dt>
+  <dd>{% if org.active %}Yes{% else %}No{% endif %}</dd>
+</dl>
+<button class="btn btn--sm btn--secondary"
+        hx-get="/admin/orgs/{{ org.id }}/inline/core/edit/"
+        hx-target="#core-fields"
+        hx-swap="innerHTML"
+        type="button">Edit</button>
