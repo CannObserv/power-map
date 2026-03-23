@@ -1,6 +1,16 @@
-{# Stub — HTMX editing wired in Task 12 #}
-<tr id="identifier-row-{{ i.id }}">
-  <td title="{{ i.type_full_name }}">{{ i.type_name }}</td>
-  <td>{{ i.value }}</td>
-  <td></td>
+{# admin/orgs/partials/_identifier_row.html #}
+<tr id="identifier-row-{{ ident.id }}">
+  <td title="{{ ident.type_full_name }}">{{ ident.type_name }}</td>
+  <td>{{ ident.value }}</td>
+  <td>
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/edit-row/"
+            hx-target="#identifier-row-{{ ident.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            hx-delete="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/"
+            hx-target="#identifier-row-{{ ident.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this identifier?">Delete</button>
+  </td>
 </tr>

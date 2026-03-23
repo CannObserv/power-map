@@ -1,0 +1,33 @@
+{# admin/orgs/partials/_identifier_form_row.html #}
+<tr id="{% if ident %}identifier-row-{{ ident.id }}{% else %}identifier-row-new{% endif %}">
+  <td colspan="3">
+    <form {% if ident %}
+          hx-post="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/edit-row/"
+          hx-target="#identifier-row-{{ ident.id }}"
+          {% else %}
+          hx-post="/admin/orgs/{{ org_id }}/identifiers/"
+          hx-target="#identifier-row-new"
+          {% endif %}
+          hx-swap="outerHTML"
+          style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
+      <select name="entity_identifier_type_id">
+        {% for it in ident_types %}
+        <option value="{{ it.id }}"
+                {% if ident and ident.entity_identifier_type_id == it.id %} selected{% endif %}>
+          {{ it.display_name }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="value" required
+             value="{{ ident.value if ident else '' }}" placeholder="Value">
+      <button type="submit" class="btn btn--sm btn--primary">Save</button>
+      <button type="button" class="btn btn--sm btn--secondary"
+              {% if ident %}
+              hx-target="#identifier-row-{{ ident.id }}"
+              hx-get="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/edit-row/"
+              {% else %}
+              hx-target="#identifier-row-new"
+              {% endif %}
+              hx-swap="delete">Cancel</button>
+    </form>
+  </td>
+</tr>
