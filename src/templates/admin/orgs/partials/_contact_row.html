@@ -1,6 +1,17 @@
-{# Stub — HTMX editing wired in Task 10 #}
+{# admin/orgs/partials/_contact_row.html #}
 <tr id="contact-row-{{ c.id }}">
   <td>{{ c.contact_type }}</td>
   <td>{{ c.value }}</td>
-  <td></td>
+  <td>{{ c.display_label or '—' }}</td>
+  <td>
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org_id }}/contacts/{{ c.id }}/edit-row/"
+            hx-target="#contact-row-{{ c.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            hx-delete="/admin/orgs/{{ org_id }}/contacts/{{ c.id }}/"
+            hx-target="#contact-row-{{ c.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this contact?">Delete</button>
+  </td>
 </tr>
