@@ -119,6 +119,14 @@ def test_identifiers_create(client, org_id_and_type):
     assert "UBI-999" in r.text
 
 
+def test_identifiers_read_row_returns_row(client, org_and_identifier):
+    oid, iid, _ = org_and_identifier
+    r = client.get(f"/admin/orgs/{oid}/identifiers/{iid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "TEST-123" in r.text
+    assert "<form" not in r.text
+
+
 def test_identifiers_edit_row_returns_form(client, org_and_identifier):
     oid, iid, _ = org_and_identifier
     r = client.get(f"/admin/orgs/{oid}/identifiers/{iid}/edit-row/", headers=HTMX_HEADERS)

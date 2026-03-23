@@ -37,8 +37,7 @@
                 hx-target="#address-row-{{ a.id }}"
                 hx-swap="outerHTML"
                 {% else %}
-                hx-target="#address-row-new"
-                hx-swap="delete"
+                onclick="this.closest('tr').remove()"
                 {% endif %}>Cancel</button>
       </div>
     </form>

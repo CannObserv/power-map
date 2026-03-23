@@ -78,6 +78,14 @@ def test_names_create(client, org_and_name):
     assert "DBA Name" in r.text
 
 
+def test_names_read_row_returns_row(client, org_and_name):
+    oid, nid = org_and_name
+    r = client.get(f"/admin/orgs/{oid}/names/{nid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "Original Name" in r.text
+    assert "<form" not in r.text
+
+
 def test_names_edit_row_returns_form(client, org_and_name):
     oid, nid = org_and_name
     r = client.get(f"/admin/orgs/{oid}/names/{nid}/edit-row/", headers=HTMX_HEADERS)

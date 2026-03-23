@@ -204,6 +204,7 @@ async def address_delete(
     if not existing:
         raise HTTPException(status_code=404)
     address_id = existing["address_id"]
-    await db.execute("DELETE FROM entity_addresses WHERE id=$1", addr_id)
-    await db.execute("DELETE FROM addresses WHERE id=$1", address_id)
+    async with db.transaction():
+        await db.execute("DELETE FROM entity_addresses WHERE id=$1", addr_id)
+        await db.execute("DELETE FROM addresses WHERE id=$1", address_id)
     return HTMLResponse(content="", status_code=200)

@@ -79,6 +79,14 @@ def test_contacts_create(client, org_and_contact):
     assert "info@example.com" in r.text
 
 
+def test_contacts_read_row_returns_row(client, org_and_contact):
+    oid, cid = org_and_contact
+    r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "+13605551234" in r.text
+    assert "<form" not in r.text
+
+
 def test_contacts_edit_row_returns_form(client, org_and_contact):
     oid, cid = org_and_contact
     r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/edit-row/", headers=HTMX_HEADERS)

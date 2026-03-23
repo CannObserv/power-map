@@ -94,6 +94,41 @@ def test_addresses_create(client, org_and_address):
     assert "456 Oak Ave" in r.text
 
 
+def test_addresses_read_row_returns_row(client, org_and_address):
+    oid, eaid = org_and_address
+    r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "123 Main St" in r.text
+    assert "<form" not in r.text
+
+
+def test_addresses_delete_also_removes_address_row(client, org_and_address):
+    dsn = _dsn()
+    oid, eaid = org_and_address
+
+    async def get_address_id():
+        conn = await asyncpg.connect(dsn)
+        try:
+            return await conn.fetchval(
+                "SELECT address_id FROM entity_addresses WHERE id=$1", eaid
+            )
+        finally:
+            await conn.close()
+
+    async def address_exists(aid):
+        conn = await asyncpg.connect(dsn)
+        try:
+            return await conn.fetchval("SELECT id FROM addresses WHERE id=$1", aid)
+        finally:
+            await conn.close()
+
+    aid = asyncio.run(get_address_id())
+    assert aid is not None
+    r = client.delete(f"/admin/orgs/{oid}/addresses/{eaid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert asyncio.run(address_exists(aid)) is None
+
+
 def test_addresses_edit_row_returns_form(client, org_and_address):
     oid, eaid = org_and_address
     r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)

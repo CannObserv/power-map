@@ -90,6 +90,53 @@ def test_links_create(client, org_and_link):
     assert "https://new.example.com" in r.text
 
 
+def test_links_read_row_returns_row(client, org_and_link):
+    oid, lid = org_and_link
+    r = client.get(f"/admin/orgs/{oid}/links/{lid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "https://example.com" in r.text
+    assert "<form" not in r.text
+
+
+def test_links_create_canonical_demotes_existing(client, org_and_link):
+    """Creating a second canonical link must demote the first."""
+    dsn = _dsn()
+    oid, _ = org_and_link
+
+    async def make_first_canonical():
+        conn = await asyncpg.connect(dsn)
+        try:
+            lt_id = await conn.fetchval("SELECT id FROM link_types WHERE slug='website'")
+            first_id = generate_id()
+            await conn.execute(
+                "INSERT INTO links (id, entity_type, entity_id, url, link_type_id, is_canonical)"
+                " VALUES ($1, 'organization', $2, 'https://first.example.com', $3, TRUE)",
+                first_id, oid, lt_id,
+            )
+            return first_id, lt_id
+        finally:
+            await conn.close()
+
+    async def is_canonical(link_id):
+        conn = await asyncpg.connect(dsn)
+        try:
+            return await conn.fetchval("SELECT is_canonical FROM links WHERE id=$1", link_id)
+        finally:
+            await conn.close()
+
+    first_id, lt_id = asyncio.run(make_first_canonical())
+    assert asyncio.run(is_canonical(first_id)) is True
+
+    r = client.post(
+        f"/admin/orgs/{oid}/links/",
+        headers=HTMX_HEADERS,
+        data={"url": "https://second.example.com", "link_type_id": lt_id,
+              "is_active": "true", "is_canonical": "true"},
+    )
+    assert r.status_code == 200
+    assert asyncio.run(is_canonical(first_id)) is False
+
+
 def test_links_edit_row_returns_form(client, org_and_link):
     oid, lid = org_and_link
     r = client.get(f"/admin/orgs/{oid}/links/{lid}/edit-row/", headers=HTMX_HEADERS)

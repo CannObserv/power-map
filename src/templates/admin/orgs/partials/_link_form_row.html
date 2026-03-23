@@ -37,8 +37,7 @@
               hx-target="#link-row-{{ l.id }}"
               hx-swap="outerHTML"
               {% else %}
-              hx-target="#link-row-new"
-              hx-swap="delete"
+              onclick="this.closest('tr').remove()"
               {% endif %}>Cancel</button>
     </form>
   </td>

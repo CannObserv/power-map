@@ -19,8 +19,7 @@
       </div>
       <button type="submit" class="btn btn--sm btn--primary">Add</button>
       <button type="button" class="btn btn--sm btn--secondary"
-              hx-target="#child-row-new" hx-swap="delete"
-              hx-get="/admin/orgs/{{ org_id }}/children/new-row/">Cancel</button>
+              onclick="this.closest('tr').remove()">Cancel</button>
     </form>
     <script>
       document.getElementById('child-search-results').addEventListener('click', function(e) {
