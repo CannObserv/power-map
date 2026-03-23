@@ -834,6 +834,75 @@ async def org_update(
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 
 
+@router.get("/{org_id}/children/new-row/")
+async def children_new_row(
+    org_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return empty child search form row."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    return templates.TemplateResponse(
+        request, "admin/orgs/partials/_child_form_row.html", {"org_id": org_id}
+    )
+
+
+@router.post("/{org_id}/children/")
+async def children_add(
+    org_id: str,
+    request: Request,
+    child_id: str = Form(...),
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Link an existing org as a child of this org."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    if child_id == org_id:
+        raise HTTPException(status_code=422, detail="An organization cannot be its own child")
+    child = await db.fetchrow("SELECT id FROM organizations WHERE id=$1", child_id)
+    if not child:
+        raise HTTPException(status_code=422, detail="Child organization not found")
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, child_id)
+    row = await db.fetchrow(
+        """SELECT o.id, o.active, o.archived_at, dn.display_name AS canonical_name
+           FROM organizations o
+           LEFT JOIN v_org_display_names dn ON dn.organization_id=o.id
+           WHERE o.id=$1""",
+        child_id,
+    )
+    if not _is_htmx(request):
+        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request, "admin/orgs/partials/_child_row.html", {"org_id": org_id, "child": row}
+    )
+
+
+@router.delete("/{org_id}/children/{child_id}/")
+async def children_remove(
+    org_id: str,
+    child_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Unlink a child org (clears its parent_id)."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    child = await db.fetchrow(
+        "SELECT id FROM organizations WHERE id=$1 AND parent_id=$2", child_id, org_id
+    )
+    if not child:
+        raise HTTPException(status_code=404)
+    await db.execute("UPDATE organizations SET parent_id=NULL WHERE id=$1", child_id)
+    return HTMLResponse(content="", status_code=200)
+
+
 @router.post("/{org_id}/archive/")
 async def org_archive(
     org_id: str,
