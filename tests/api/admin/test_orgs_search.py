@@ -3,11 +3,13 @@
 
 import asyncio
 import os
+
+import asyncpg
 import pytest
 from fastapi.testclient import TestClient
+
 from src.api.main import app
 from src.core.db import apply_schema, generate_id
-import asyncpg
 
 pytestmark = pytest.mark.integration
 
