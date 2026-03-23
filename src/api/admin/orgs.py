@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, is_htmx
 from src.api.admin.org_dups import (
     CANDIDATE_WHERE,
     get_org_dup_count,
@@ -91,7 +91,7 @@ async def orgs_list(
     }
     template = (
         "admin/orgs/_region.html"
-        if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
+        if is_htmx(request)
         else "admin/orgs/list.html"
     )
     return templates.TemplateResponse(request, template, ctx)
@@ -183,12 +183,6 @@ async def _fetch_duplicate_pairs(db) -> list:
         return []
 
 
-def _is_htmx(request: Request) -> bool:
-    return bool(
-        request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
-    )
-
-
 @router.get("/search/")
 async def orgs_search(
     request: Request,
@@ -239,7 +233,7 @@ async def orgs_duplicates(
     }
     template = (
         "admin/orgs/_duplicates_region.html"
-        if _is_htmx(request)
+        if is_htmx(request)
         else "admin/orgs/duplicates.html"
     )
     return templates.TemplateResponse(request, template, ctx)
@@ -331,7 +325,7 @@ async def org_merge(
         )
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
     invalidate_dup_count_cache()
-    if _is_htmx(request):
+    if is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         flash_body = (
             f'Merged <strong>{escape(loser_name)}</strong> into '
@@ -371,7 +365,7 @@ async def org_dismiss_duplicate(
         generate_id(), a, b, user.email,
     )
     invalidate_dup_count_cache()
-    if _is_htmx(request):
+    if is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         ctx = {
             "user": user,
@@ -492,7 +486,7 @@ async def org_inline_core_post(
         "SELECT acronym FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
         org_id,
     )
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     ctx = {
         "org": org,
@@ -595,7 +589,7 @@ async def org_inline_parent_post(
             " WHERE o.id=$1",
             org["parent_id"],
         )
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
         request,
@@ -678,7 +672,7 @@ async def org_detail(
         """SELECT i.*, eit.display_name AS type_name, eit.full_name AS type_full_name
            FROM identifiers i
            JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
-           WHERE i.entity_id = $1""",
+           WHERE i.entity_id = $1 AND eit.entity_type = 'organization'""",
         org_id,
     )
     children = await db.fetch(
@@ -702,6 +696,9 @@ async def org_detail(
             org["parent_id"],
         )
 
+    canonical_name = next((n["name"] for n in names if n["is_canonical"]), "")
+    canonical_acronym = next((a["acronym"] for a in acronyms if a["is_canonical"]), "")
+
     return templates.TemplateResponse(
         request,
         "admin/orgs/detail.html",
@@ -710,6 +707,8 @@ async def org_detail(
             "active_section": "orgs",
             "org": org,
             "org_id": org_id,
+            "canonical_name": canonical_name,
+            "canonical_acronym": canonical_acronym,
             "names": names,
             "acronyms": acronyms,
             "addresses": addresses,
@@ -765,7 +764,7 @@ async def children_add(
            WHERE o.id=$1""",
         child_id,
     )
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_child_row.html", {"org_id": org_id, "child": row}

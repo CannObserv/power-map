@@ -33,12 +33,13 @@
       <button type="submit" class="btn btn--sm btn--primary">Save</button>
       <button type="button" class="btn btn--sm btn--secondary"
               {% if l %}
+              hx-get="/admin/orgs/{{ org_id }}/links/{{ l.id }}/read-row/"
               hx-target="#link-row-{{ l.id }}"
-              hx-get="/admin/orgs/{{ org_id }}/links/{{ l.id }}/edit-row/"
+              hx-swap="outerHTML"
               {% else %}
               hx-target="#link-row-new"
-              {% endif %}
-              hx-swap="delete">Cancel</button>
+              hx-swap="delete"
+              {% endif %}>Cancel</button>
     </form>
   </td>
 </tr>

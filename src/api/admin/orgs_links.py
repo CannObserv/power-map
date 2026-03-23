@@ -4,15 +4,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/links", tags=["admin-org-links"])
-
-
-def _is_htmx(request: Request) -> bool:
-    return bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
 
 
 async def _get_org_or_404(org_id: str, db):
@@ -74,20 +70,46 @@ async def link_create(
         return redirect
     await _get_org_or_404(org_id, db)
     lid = generate_id()
-    await db.execute(
-        "INSERT INTO links"
-        " (id, entity_type, entity_id, url, link_type_id, is_active, is_canonical)"
-        " VALUES ($1, 'organization', $2, $3, $4, $5, $6)",
-        lid,
-        org_id,
-        url.strip(),
-        link_type_id,
-        is_active == "true",
-        is_canonical == "true",
-    )
+    canonical = is_canonical == "true"
+    async with db.transaction():
+        if canonical:
+            await db.execute(
+                "UPDATE links SET is_canonical=FALSE"
+                " WHERE entity_type='organization' AND entity_id=$1 AND is_canonical=TRUE",
+                org_id,
+            )
+        await db.execute(
+            "INSERT INTO links"
+            " (id, entity_type, entity_id, url, link_type_id, is_active, is_canonical)"
+            " VALUES ($1, 'organization', $2, $3, $4, $5, $6)",
+            lid,
+            org_id,
+            url.strip(),
+            link_type_id,
+            is_active == "true",
+            canonical,
+        )
     row = await _get_link_or_404(lid, org_id, db)
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request, "admin/orgs/partials/_link_row.html", {"org_id": org_id, "l": row}
+    )
+
+
+@router.get("/{link_id}/read-row/")
+async def link_read_row(
+    org_id: str,
+    link_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return read-only link row (used by Cancel on edit form)."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    row = await _get_link_or_404(link_id, org_id, db)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_link_row.html", {"org_id": org_id, "l": row}
     )
@@ -133,16 +155,26 @@ async def link_edit_row_post(
     if redirect:
         return redirect
     await _get_link_or_404(link_id, org_id, db)
-    await db.execute(
-        "UPDATE links SET url=$1, link_type_id=$2, is_active=$3, is_canonical=$4 WHERE id=$5",
-        url.strip(),
-        link_type_id,
-        is_active == "true",
-        is_canonical == "true",
-        link_id,
-    )
+    canonical = is_canonical == "true"
+    async with db.transaction():
+        if canonical:
+            await db.execute(
+                "UPDATE links SET is_canonical=FALSE"
+                " WHERE entity_type='organization' AND entity_id=$1"
+                " AND is_canonical=TRUE AND id!=$2",
+                org_id,
+                link_id,
+            )
+        await db.execute(
+            "UPDATE links SET url=$1, link_type_id=$2, is_active=$3, is_canonical=$4 WHERE id=$5",
+            url.strip(),
+            link_type_id,
+            is_active == "true",
+            canonical,
+            link_id,
+        )
     row = await _get_link_or_404(link_id, org_id, db)
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_link_row.html", {"org_id": org_id, "l": row}

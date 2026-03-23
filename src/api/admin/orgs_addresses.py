@@ -4,15 +4,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/addresses", tags=["admin-org-addresses"])
-
-
-def _is_htmx(request: Request) -> bool:
-    return bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
 
 
 async def _get_org_or_404(org_id: str, db):
@@ -98,8 +94,26 @@ async def address_create(
         display_name.strip() or None,
     )
     row = await _get_entity_address_or_404(eaid, org_id, db)
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request, "admin/orgs/partials/_address_row.html", {"org_id": org_id, "a": row}
+    )
+
+
+@router.get("/{addr_id}/read-row/")
+async def address_read_row(
+    org_id: str,
+    addr_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return read-only address row (used by Cancel on edit form)."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    row = await _get_entity_address_or_404(addr_id, org_id, db)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_address_row.html", {"org_id": org_id, "a": row}
     )
@@ -162,7 +176,7 @@ async def address_edit_row_post(
         addr_id,
     )
     row = await _get_entity_address_or_404(addr_id, org_id, db)
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_address_row.html", {"org_id": org_id, "a": row}
@@ -182,12 +196,14 @@ async def address_delete(
     if redirect:
         return redirect
     existing = await db.fetchrow(
-        "SELECT id FROM entity_addresses"
-        " WHERE id=$1 AND entity_type='organization' AND entity_id=$2",
+        "SELECT ea.id, ea.address_id FROM entity_addresses ea"
+        " WHERE ea.id=$1 AND ea.entity_type='organization' AND ea.entity_id=$2",
         addr_id,
         org_id,
     )
     if not existing:
         raise HTTPException(status_code=404)
+    address_id = existing["address_id"]
     await db.execute("DELETE FROM entity_addresses WHERE id=$1", addr_id)
+    await db.execute("DELETE FROM addresses WHERE id=$1", address_id)
     return HTMLResponse(content="", status_code=200)

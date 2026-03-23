@@ -18,7 +18,7 @@ router = APIRouter(prefix="/lookups", tags=["admin-lookups"])
 # ---------------------------------------------------------------------------
 
 
-@router.get("/platforms/")
+@router.get("/link-types-social/")
 async def platforms_list(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
@@ -38,14 +38,14 @@ async def platforms_list(
         {
             "user": user,
             "active_section": "lookups",
-            "kind": "platforms",
+            "kind": "link_types_social",
             "items": items,
             "org_dup_count": org_dup_count,
         },
     )
 
 
-@router.get("/platforms/new/")
+@router.get("/link-types-social/new/")
 async def platform_new_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
@@ -61,14 +61,14 @@ async def platform_new_form(
         {
             "user": user,
             "active_section": "lookups",
-            "kind": "platforms",
+            "kind": "link_types_social",
             "item": None,
             "org_dup_count": org_dup_count,
         },
     )
 
 
-@router.post("/platforms/new/")
+@router.post("/link-types-social/new/")
 async def platform_create(
     request: Request,
     display_name: str = Form(...),
@@ -85,10 +85,10 @@ async def platform_create(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, TRUE)",
         pid, display_name, slug or None,
     )
-    return RedirectResponse("/admin/lookups/platforms/", status_code=303)
+    return RedirectResponse("/admin/lookups/link-types-social/", status_code=303)
 
 
-@router.get("/platforms/{item_id}/edit/")
+@router.get("/link-types-social/{item_id}/edit/")
 async def platform_edit_form(
     item_id: str,
     request: Request,
@@ -111,14 +111,14 @@ async def platform_edit_form(
         {
             "user": user,
             "active_section": "lookups",
-            "kind": "platforms",
+            "kind": "link_types_social",
             "item": item,
             "org_dup_count": org_dup_count,
         },
     )
 
 
-@router.post("/platforms/{item_id}/edit/")
+@router.post("/link-types-social/{item_id}/edit/")
 async def platform_update(
     item_id: str,
     request: Request,
@@ -140,10 +140,10 @@ async def platform_update(
         "UPDATE link_types SET display_name = $1, slug = $2 WHERE id = $3",
         display_name, slug or None, item_id,
     )
-    return RedirectResponse("/admin/lookups/platforms/", status_code=303)
+    return RedirectResponse("/admin/lookups/link-types-social/", status_code=303)
 
 
-@router.delete("/platforms/{item_id}/")
+@router.delete("/link-types-social/{item_id}/")
 async def platform_delete(
     item_id: str,
     request: Request,
@@ -166,7 +166,7 @@ async def platform_delete(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/url-types/")
+@router.get("/link-types-general/")
 async def url_types_list(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
@@ -186,14 +186,14 @@ async def url_types_list(
         {
             "user": user,
             "active_section": "lookups",
-            "kind": "url_types",
+            "kind": "link_types_general",
             "items": items,
             "org_dup_count": org_dup_count,
         },
     )
 
 
-@router.get("/url-types/new/")
+@router.get("/link-types-general/new/")
 async def url_type_new_form(
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
@@ -209,14 +209,14 @@ async def url_type_new_form(
         {
             "user": user,
             "active_section": "lookups",
-            "kind": "url_types",
+            "kind": "link_types_general",
             "item": None,
             "org_dup_count": org_dup_count,
         },
     )
 
 
-@router.post("/url-types/new/")
+@router.post("/link-types-general/new/")
 async def url_type_create(
     request: Request,
     display_name: str = Form(...),
@@ -233,10 +233,10 @@ async def url_type_create(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
         uid, display_name, slug or None,
     )
-    return RedirectResponse("/admin/lookups/url-types/", status_code=303)
+    return RedirectResponse("/admin/lookups/link-types-general/", status_code=303)
 
 
-@router.get("/url-types/{item_id}/edit/")
+@router.get("/link-types-general/{item_id}/edit/")
 async def url_type_edit_form(
     item_id: str,
     request: Request,
@@ -259,14 +259,14 @@ async def url_type_edit_form(
         {
             "user": user,
             "active_section": "lookups",
-            "kind": "url_types",
+            "kind": "link_types_general",
             "item": item,
             "org_dup_count": org_dup_count,
         },
     )
 
 
-@router.post("/url-types/{item_id}/edit/")
+@router.post("/link-types-general/{item_id}/edit/")
 async def url_type_update(
     item_id: str,
     request: Request,
@@ -288,10 +288,10 @@ async def url_type_update(
         "UPDATE link_types SET display_name = $1, slug = $2 WHERE id = $3",
         display_name, slug or None, item_id,
     )
-    return RedirectResponse("/admin/lookups/url-types/", status_code=303)
+    return RedirectResponse("/admin/lookups/link-types-general/", status_code=303)
 
 
-@router.delete("/url-types/{item_id}/")
+@router.delete("/link-types-general/{item_id}/")
 async def url_type_delete(
     item_id: str,
     request: Request,

@@ -1,12 +1,12 @@
 {% extends "admin/base.html" %}
-{% if kind == "platforms" %}
-  {% set title = "Platform" %}
-  {% set list_url = "/admin/lookups/platforms/" %}
-  {% set action = "/admin/lookups/platforms/" + item.id + "/edit/" if item else "/admin/lookups/platforms/new/" %}
-{% elif kind == "url_types" %}
-  {% set title = "URL Type" %}
-  {% set list_url = "/admin/lookups/url-types/" %}
-  {% set action = "/admin/lookups/url-types/" + item.id + "/edit/" if item else "/admin/lookups/url-types/new/" %}
+{% if kind == "link_types_social" %}
+  {% set title = "Social Link Type" %}
+  {% set list_url = "/admin/lookups/link-types-social/" %}
+  {% set action = "/admin/lookups/link-types-social/" + item.id + "/edit/" if item else "/admin/lookups/link-types-social/new/" %}
+{% elif kind == "link_types_general" %}
+  {% set title = "General Link Type" %}
+  {% set list_url = "/admin/lookups/link-types-general/" %}
+  {% set action = "/admin/lookups/link-types-general/" + item.id + "/edit/" if item else "/admin/lookups/link-types-general/new/" %}
 {% else %}
   {% set title = "Identifier Type" %}
   {% set list_url = "/admin/lookups/identifier-types/" %}

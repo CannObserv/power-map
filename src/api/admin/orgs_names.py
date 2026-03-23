@@ -4,15 +4,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/names", tags=["admin-org-names"])
-
-
-def _is_htmx(request: Request) -> bool:
-    return bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
 
 
 async def _get_org_or_404(org_id: str, db):
@@ -67,10 +63,34 @@ async def name_create(
         is_canonical == "true",
     )
     row = await db.fetchrow("SELECT * FROM organization_names WHERE id=$1", nid)
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_name_row.html", {"org_id": org_id, "n": row}
+    )
+
+
+@router.get("/{name_id}/read-row/")
+async def name_read_row(
+    org_id: str,
+    name_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return read-only name row (used by Cancel on edit form)."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    name_row = await db.fetchrow(
+        "SELECT * FROM organization_names WHERE id=$1 AND organization_id=$2",
+        name_id,
+        org_id,
+    )
+    if not name_row:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "admin/orgs/partials/_name_row.html", {"org_id": org_id, "n": name_row}
     )
 
 
@@ -130,7 +150,7 @@ async def name_edit_row_post(
         name_id,
     )
     row = await db.fetchrow("SELECT * FROM organization_names WHERE id=$1", name_id)
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_name_row.html", {"org_id": org_id, "n": row}

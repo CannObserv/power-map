@@ -22,12 +22,13 @@
       <button type="submit" class="btn btn--sm btn--primary">Save</button>
       <button type="button" class="btn btn--sm btn--secondary"
               {% if ident %}
+              hx-get="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/read-row/"
               hx-target="#identifier-row-{{ ident.id }}"
-              hx-get="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/edit-row/"
+              hx-swap="outerHTML"
               {% else %}
               hx-target="#identifier-row-new"
-              {% endif %}
-              hx-swap="delete">Cancel</button>
+              hx-swap="delete"
+              {% endif %}>Cancel</button>
     </form>
   </td>
 </tr>

@@ -37,6 +37,11 @@ def check_auth(user: AdminUser | RedirectResponse):
     return None, user
 
 
+def is_htmx(request: Request) -> bool:
+    """Return True for HTMX non-boosted requests (for partial template selection)."""
+    return bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
+
+
 async def get_db(request: Request) -> asyncpg.Connection:
     """Yield a connection from the app-level asyncpg pool."""
     pool: asyncpg.Pool | None = getattr(request.app.state, "db_pool", None)

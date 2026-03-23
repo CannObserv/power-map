@@ -4,15 +4,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/identifiers", tags=["admin-org-identifiers"])
-
-
-def _is_htmx(request: Request) -> bool:
-    return bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
 
 
 async def _get_org_or_404(org_id: str, db):
@@ -83,8 +79,26 @@ async def identifier_create(
         value.strip(),
     )
     row = await _get_identifier_or_404(iid, org_id, db)
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request, "admin/orgs/partials/_identifier_row.html", {"org_id": org_id, "ident": row}
+    )
+
+
+@router.get("/{ident_id}/read-row/")
+async def identifier_read_row(
+    org_id: str,
+    ident_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return read-only identifier row (used by Cancel on edit form)."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    row = await _get_identifier_or_404(ident_id, org_id, db)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_identifier_row.html", {"org_id": org_id, "ident": row}
     )
@@ -136,7 +150,7 @@ async def identifier_edit_row_post(
         ident_id,
     )
     row = await _get_identifier_or_404(ident_id, org_id, db)
-    if not _is_htmx(request):
+    if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_identifier_row.html", {"org_id": org_id, "ident": row}
