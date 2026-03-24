@@ -4,11 +4,12 @@
     <form {% if a %}
           hx-post="/admin/orgs/{{ org_id }}/acronyms/{{ a.id }}/edit-row/"
           hx-target="#acronym-row-{{ a.id }}"
+          hx-swap="outerHTML"
           {% else %}
           hx-post="/admin/orgs/{{ org_id }}/acronyms/"
-          hx-target="#acronym-row-new"
+          hx-target="#acronyms-table tbody"
+          hx-swap="innerHTML"
           {% endif %}
-          hx-swap="outerHTML"
           style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
       <input type="text" name="acronym" required value="{{ a.acronym if a else '' }}" placeholder="Acronym">
       <label><input type="checkbox" name="is_canonical" value="true"

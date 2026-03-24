@@ -60,11 +60,15 @@ async def acronym_create(
         acronym.strip(),
         is_canonical == "true",
     )
-    row = await db.fetchrow("SELECT * FROM organization_acronyms WHERE id=$1", aid)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    acronyms = await db.fetch(
+        "SELECT * FROM organization_acronyms WHERE organization_id=$1"
+        " ORDER BY is_canonical DESC, acronym",
+        org_id,
+    )
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_acronym_row.html", {"org_id": org_id, "a": row}
+        request, "admin/orgs/partials/_acronym_rows.html", {"org_id": org_id, "acronyms": acronyms}
     )
 
 

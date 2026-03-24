@@ -4,11 +4,12 @@
     <form {% if n %}
           hx-post="/admin/orgs/{{ org_id }}/names/{{ n.id }}/edit-row/"
           hx-target="#name-row-{{ n.id }}"
+          hx-swap="outerHTML"
           {% else %}
           hx-post="/admin/orgs/{{ org_id }}/names/"
-          hx-target="#name-row-new"
+          hx-target="#names-table tbody"
+          hx-swap="innerHTML"
           {% endif %}
-          hx-swap="outerHTML"
           style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
       <input type="text" name="name" required value="{{ n.name if n else '' }}" placeholder="Name">
       <select name="name_type">

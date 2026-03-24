@@ -62,11 +62,15 @@ async def name_create(
         name_type,
         is_canonical == "true",
     )
-    row = await db.fetchrow("SELECT * FROM organization_names WHERE id=$1", nid)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    names = await db.fetch(
+        "SELECT * FROM organization_names WHERE organization_id=$1"
+        " ORDER BY is_canonical DESC, name_type, name",
+        org_id,
+    )
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_name_row.html", {"org_id": org_id, "n": row}
+        request, "admin/orgs/partials/_name_rows.html", {"org_id": org_id, "names": names}
     )
 
 
