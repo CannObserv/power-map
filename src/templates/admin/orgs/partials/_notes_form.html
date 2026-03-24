@@ -1,10 +1,12 @@
 {# admin/orgs/partials/_notes_form.html — notes inline edit form #}
-<div id="notes-field" class="form-group">
+<div id="notes-field" style="margin-top:var(--space-5)">
+  <h3 style="margin:0 0 var(--space-3);font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Notes</h3>
   <form hx-post="/admin/orgs/{{ org.id }}/inline/notes/"
         hx-target="#notes-field"
         hx-swap="outerHTML">
-    <label for="notes-textarea">Notes</label>
-    <textarea id="notes-textarea" name="notes">{{ org.notes or '' }}</textarea>
+    <div class="form-group" style="margin-bottom:0">
+      <textarea id="notes-textarea" name="notes">{{ org.notes or '' }}</textarea>
+    </div>
     <div class="form-actions">
       <button type="submit" class="btn btn--primary btn--sm">Save</button>
       <button type="button" class="btn btn--secondary btn--sm"
