@@ -354,3 +354,18 @@ def test_org_detail_contact_information_section(client, org_id):
     # Old standalone sections should be gone
     assert "<h2>Addresses</h2>" not in r.text
     assert "<h2>Contact Methods</h2>" not in r.text
+
+
+def test_org_detail_links_add_button_in_header(client, org_id):
+    r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    links_idx = r.text.find('id="links-table"')
+    add_link_idx = r.text.find("+ Add link")
+    assert add_link_idx < links_idx  # button comes before table
+
+
+def test_org_detail_identifiers_add_button_in_header(client, org_id):
+    r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    idents_idx = r.text.find('id="identifiers-table"')
+    add_idents_idx = r.text.find("+ Add identifier")
+    assert add_idents_idx < idents_idx

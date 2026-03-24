@@ -170,7 +170,14 @@
 </section>
 
 <section class="entity-section">
-  <h2>Links</h2>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Links</h2>
+    <button class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org.id }}/links/new-row/"
+            hx-target="#links-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add link</button>
+  </div>
   <div class="table-wrapper">
     <table id="links-table" class="data-table">
       <thead><tr><th scope="col">Type</th><th scope="col">URL</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
@@ -183,15 +190,17 @@
       </tbody>
     </table>
   </div>
-  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
-          hx-get="/admin/orgs/{{ org.id }}/links/new-row/"
-          hx-target="#links-table tbody"
-          hx-swap="afterbegin"
-          type="button">+ Add link</button>
 </section>
 
 <section class="entity-section">
-  <h2>Identifiers</h2>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Identifiers</h2>
+    <button class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org.id }}/identifiers/new-row/"
+            hx-target="#identifiers-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add identifier</button>
+  </div>
   <div class="table-wrapper">
     <table id="identifiers-table" class="data-table">
       <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"></th></tr></thead>
@@ -204,11 +213,6 @@
       </tbody>
     </table>
   </div>
-  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
-          hx-get="/admin/orgs/{{ org.id }}/identifiers/new-row/"
-          hx-target="#identifiers-table tbody"
-          hx-swap="afterbegin"
-          type="button">+ Add identifier</button>
 </section>
 
 <section class="entity-section">
