@@ -590,11 +590,11 @@ async def org_detail(
         raise HTTPException(status_code=404, detail="Organization not found")
 
     names = await db.fetch(
-        "SELECT * FROM organization_names WHERE organization_id = $1 ORDER BY is_canonical DESC",
+        "SELECT * FROM organization_names WHERE organization_id = $1 ORDER BY is_canonical DESC, name_type, name",
         org_id,
     )
     acronyms = await db.fetch(
-        "SELECT * FROM organization_acronyms WHERE organization_id = $1 ORDER BY is_canonical DESC",
+        "SELECT * FROM organization_acronyms WHERE organization_id = $1 ORDER BY is_canonical DESC, acronym",
         org_id,
     )
     addresses = await db.fetch(
