@@ -151,3 +151,28 @@ def test_contacts_delete_unknown_returns_404(client, org_and_contact):
     oid, _ = org_and_contact
     r = client.delete(f"/admin/orgs/{oid}/contacts/{generate_id()}/", headers=HTMX_HEADERS)
     assert r.status_code == 404
+
+
+def test_contacts_form_row_has_form_group(client, org_and_contact):
+    oid, _ = org_and_contact
+    r = client.get(
+        f"/admin/orgs/{oid}/contacts/new-row/?contact_type=email",
+        headers=HTMX_HEADERS,
+    )
+    assert "form-group" in r.text
+
+
+def test_contacts_edit_row_no_type_select(client, org_and_contact):
+    """Edit form must not contain a contact_type <select> (type is immutable)."""
+    oid, cid = org_and_contact
+    r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/edit-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'name="contact_type"' not in r.text or '<select' not in r.text
+
+
+def test_contacts_read_row_no_type_cell(client, org_and_contact):
+    """Read row must not render a standalone type cell (rows live in typed tables)."""
+    oid, cid = org_and_contact
+    r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "<td>phone</td>" not in r.text
