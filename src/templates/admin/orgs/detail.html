@@ -100,45 +100,73 @@
 </section>
 
 <section class="entity-section">
-  <h2>Addresses</h2>
-  <div class="table-wrapper">
-    <table id="addresses-table" class="data-table">
-      <thead><tr><th scope="col">Address</th><th scope="col">City</th><th scope="col">Region</th><th scope="col">Postal</th><th scope="col"></th></tr></thead>
-      <tbody>
-        {% for a in addresses %}
-        {% include "admin/orgs/partials/_address_row.html" %}
-        {% else %}
-        <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No addresses</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
-          hx-get="/admin/orgs/{{ org.id }}/addresses/new-row/"
-          hx-target="#addresses-table tbody"
-          hx-swap="afterbegin"
-          type="button">+ Add address</button>
-</section>
+  <h2>Contact Information</h2>
+  <div class="entity-card">
 
-<section class="entity-section">
-  <h2>Contact Methods</h2>
-  <div class="table-wrapper">
-    <table id="contacts-table" class="data-table">
-      <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"></th></tr></thead>
-      <tbody>
-        {% for c in contacts %}
-        {% include "admin/orgs/partials/_contact_row.html" %}
-        {% else %}
-        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No contact methods</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 var(--space-3)">
+      <h3 class="field-group-label">Email Addresses</h3>
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/orgs/{{ org.id }}/contacts/new-row/?contact_type=email"
+              hx-target="#emails-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add email</button>
+    </div>
+    <div class="table-wrapper">
+      <table id="emails-table" class="data-table">
+        <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% for c in email_contacts %}
+          {% include "admin/orgs/partials/_contact_row.html" %}
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No email addresses</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+      <h3 class="field-group-label">Phone Numbers</h3>
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/orgs/{{ org.id }}/contacts/new-row/?contact_type=phone"
+              hx-target="#phones-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add phone</button>
+    </div>
+    <div class="table-wrapper">
+      <table id="phones-table" class="data-table">
+        <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% for c in phone_contacts %}
+          {% include "admin/orgs/partials/_contact_row.html" %}
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No phone numbers</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+      <h3 class="field-group-label">Locations</h3>
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/orgs/{{ org.id }}/addresses/new-row/"
+              hx-target="#addresses-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add location</button>
+    </div>
+    <div class="table-wrapper">
+      <table id="addresses-table" class="data-table">
+        <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% for a in addresses %}
+          {% include "admin/orgs/partials/_address_row.html" %}
+          {% else %}
+          <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No locations</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
   </div>
-  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
-          hx-get="/admin/orgs/{{ org.id }}/contacts/new-row/"
-          hx-target="#contacts-table tbody"
-          hx-swap="afterbegin"
-          type="button">+ Add contact</button>
 </section>
 
 <section class="entity-section">

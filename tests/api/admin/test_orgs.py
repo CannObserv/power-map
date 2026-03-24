@@ -342,3 +342,15 @@ def test_org_detail_hierarchy_has_entity_card(client, org_id):
     assert "Parent Organization" in r.text
     assert "Child Organizations" in r.text
     assert "field-group-label" in r.text
+
+
+def test_org_detail_contact_information_section(client, org_id):
+    r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "Contact Information" in r.text
+    assert 'id="emails-table"' in r.text
+    assert 'id="phones-table"' in r.text
+    assert 'id="addresses-table"' in r.text
+    # Old standalone sections should be gone
+    assert "<h2>Addresses</h2>" not in r.text
+    assert "<h2>Contact Methods</h2>" not in r.text
