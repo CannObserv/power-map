@@ -1,6 +1,6 @@
 {# admin/orgs/partials/_acronym_form_row.html — inline acronym edit/new form row #}
 <tr id="{% if a %}acronym-row-{{ a.id }}{% else %}acronym-row-new{% endif %}">
-  <td colspan="3">
+  <td colspan="3" style="padding:var(--space-2) var(--space-4)">
     <form {% if a %}
           hx-post="/admin/orgs/{{ org_id }}/acronyms/{{ a.id }}/edit-row/"
           hx-target="#acronym-row-{{ a.id }}"
@@ -10,19 +10,26 @@
           hx-target="#acronyms-table tbody"
           hx-swap="innerHTML"
           {% endif %}
-          style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
-      <input type="text" name="acronym" required value="{{ a.acronym if a else '' }}" placeholder="Acronym">
-      <label><input type="checkbox" name="is_canonical" value="true"
-                    {% if a and a.is_canonical %} checked{% endif %}> Canonical</label>
-      <button type="submit" class="btn btn--sm btn--primary">Save</button>
-      <button type="button" class="btn btn--sm btn--secondary"
-              {% if a %}
-              hx-get="/admin/orgs/{{ org_id }}/acronyms/{{ a.id }}/read-row/"
-              hx-target="#acronym-row-{{ a.id }}"
-              hx-swap="outerHTML"
-              {% else %}
-              onclick="this.closest('tr').remove()"
-              {% endif %}>Cancel</button>
+          style="display:flex;gap:var(--space-2);align-items:center">
+      <div class="form-group" style="margin-bottom:0;flex:1;min-width:6rem">
+        <input type="text" name="acronym" required value="{{ a.acronym if a else '' }}" placeholder="Acronym">
+      </div>
+      <label class="toggle" style="flex-shrink:0">
+        <input type="checkbox" name="is_canonical" value="true"
+               {% if a and a.is_canonical %} checked{% endif %}>
+        <span class="toggle__track"><span class="toggle__thumb"></span></span>
+      </label>
+      <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
+        <button type="submit" class="btn btn--sm btn--primary">Save</button>
+        <button type="button" class="btn btn--sm btn--secondary"
+                {% if a %}
+                hx-get="/admin/orgs/{{ org_id }}/acronyms/{{ a.id }}/read-row/"
+                hx-target="#acronym-row-{{ a.id }}"
+                hx-swap="outerHTML"
+                {% else %}
+                onclick="this.closest('tr').remove()"
+                {% endif %}>Cancel</button>
+      </div>
     </form>
   </td>
 </tr>
