@@ -653,7 +653,7 @@ Used for auto-saving boolean fields. The checkbox is hidden; `.toggle__track` + 
 **Rules:**
 - Always `disabled` when the entity is archived — archiving/unarchiving is a separate action (Danger Zone). CSS dims the disabled toggle via `.toggle:has(input:disabled)`.
 - The toggle label (`toggle__label`) can hold a badge (e.g. Active/Inactive/Archived) instead of plain text.
-- No label text needed when column/section context makes the field self-evident (e.g. canonical column in a names table).
+- No visible label text needed when column/section context makes the field self-evident — but always add `aria-label` on the checkbox for screen reader accessibility (e.g. `aria-label="Canonical"`).
 - HTMX trigger on `<input>` directly (not a wrapping form). Unchecked = no value submitted = `Form("")` = `False`; checked = `value="true"` submitted = `True`.
 - No explicit `hx-trigger` needed — HTMX defaults to `change` for form inputs, which is correct for checkboxes. Do **not** use `hx-trigger="click"`: click can fire before the checked state updates on some browsers, sending the wrong value.
 
