@@ -163,3 +163,10 @@ def test_addresses_delete_unknown_returns_404(client, org_and_address):
     oid, _ = org_and_address
     r = client.delete(f"/admin/orgs/{oid}/addresses/{generate_id()}/", headers=HTMX_HEADERS)
     assert r.status_code == 404
+
+
+def test_address_form_row_has_form_group(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "form-group" in r.text
