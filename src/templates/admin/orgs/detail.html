@@ -10,9 +10,9 @@
 <div class="page-header">
   <h1>
     {{ _display or '(unnamed)' }}
-    {% if org.archived_at %}<span class="badge badge--archived">Archived</span>
+    <span id="org-status-badge">{% if org.archived_at %}<span class="badge badge--archived">Archived</span>
     {% elif not org.active %}<span class="badge badge--inactive">Inactive</span>
-    {% else %}<span class="badge badge--active">Active</span>{% endif %}
+    {% else %}<span class="badge badge--active">Active</span>{% endif %}</span>
   </h1>
 </div>
 
@@ -22,7 +22,14 @@
 
     {% include "admin/orgs/partials/_active_toggle.html" %}
 
-    <h3 style="margin:var(--space-5) 0 var(--space-3);font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Names</h3>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+      <h3 style="margin:0;font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Names</h3>
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
+              hx-target="#names-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add name</button>
+    </div>
     <div class="table-wrapper">
       <table id="names-table" class="data-table">
         <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Canonical</th><th scope="col"></th></tr></thead>
@@ -35,13 +42,15 @@
         </tbody>
       </table>
     </div>
-    <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
-            hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
-            hx-target="#names-table tbody"
-            hx-swap="afterbegin"
-            type="button">+ Add name</button>
 
-    <h3 style="margin:var(--space-5) 0 var(--space-3);font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Acronyms</h3>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+      <h3 style="margin:0;font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Acronyms</h3>
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/orgs/{{ org.id }}/acronyms/new-row/"
+              hx-target="#acronyms-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add acronym</button>
+    </div>
     <div class="table-wrapper">
       <table id="acronyms-table" class="data-table">
         <thead><tr><th scope="col">Acronym</th><th scope="col">Canonical</th><th scope="col"></th></tr></thead>
@@ -54,11 +63,6 @@
         </tbody>
       </table>
     </div>
-    <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
-            hx-get="/admin/orgs/{{ org.id }}/acronyms/new-row/"
-            hx-target="#acronyms-table tbody"
-            hx-swap="afterbegin"
-            type="button">+ Add acronym</button>
 
     {% include "admin/orgs/partials/_notes_read.html" %}
 
