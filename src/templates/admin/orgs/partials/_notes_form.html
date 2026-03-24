@@ -7,7 +7,7 @@
     <div class="form-group" style="margin-bottom:0">
       <textarea id="notes-textarea" name="notes">{{ org.notes or '' }}</textarea>
     </div>
-    <div class="form-actions">
+    <div class="form-actions" style="margin-top:var(--space-2)">
       <button type="submit" class="btn btn--primary btn--sm">Save</button>
       <button type="button" class="btn btn--secondary btn--sm"
               hx-get="/admin/orgs/{{ org.id }}/inline/notes/"
