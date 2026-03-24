@@ -33,7 +33,11 @@ Footer emoji sequence — always wrap decorative emoji in `aria-hidden`:
 | `--color-brand-glow` | `rgba(109,68,136,0.18)` | `rgba(167,139,196,0.20)` | Focus ring glow (`box-shadow`) |
 | `--color-surface-0` | `#f8fafc` | `#0f172a` | Page background |
 | `--color-surface-1` | `#ffffff` | `#1e293b` | Card / panel background |
-| `--color-surface-2` | `#1e293b` | `#0f172a` | Sidebar background |
+| `--color-surface-2` | `#1e293b` | `#0f172a` | Legacy dark surface (not used for sidebar) |
+| `--color-sidebar-bg` | `#ffffff` | `#0f172a` | Sidebar background |
+| `--color-sidebar-text` | `#64748b` | `#cbd5e1` | Sidebar link text |
+| `--color-sidebar-text-active` | `#6d4488` | `#ffffff` | Active / hovered sidebar link text |
+| `--color-sidebar-hover-bg` | `#f5f0f8` | `rgba(255,255,255,0.08)` | Sidebar link hover / active background |
 | `--color-text` | `#0f172a` | `#f1f5f9` | Primary text |
 | `--color-text-muted` | `#64748b` | `#94a3b8` | Secondary / label text |
 | `--color-text-inverse` | `#f1f5f9` | `#0f172a` | Text on dark surfaces |
@@ -268,12 +272,12 @@ At `≤640px`, `.filter-card__controls` stacks to `flex-direction: column` and `
 
 ## 7. HTMX Patterns
 
-### `_is_htmx(request)` helper
+### `is_htmx(request)` helper
 
-Canonical implementation in `src/api/admin/orgs.py`:
+Canonical implementation in `src/api/admin/deps.py`:
 
 ```python
-def _is_htmx(request: Request) -> bool:
+def is_htmx(request: Request) -> bool:
     return bool(
         request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
     )
@@ -610,3 +614,107 @@ Always set explicit `width` and `height` to prevent layout shift:
 No large inline `<script>` blocks. Extract to `static/js/*.js`. Exceptions:
 - FOUC prevention script (must be synchronous, in `<head>`)
 - Mobile nav toggle (small, DOM-dependent)
+
+---
+
+## 15. UI Components
+
+### Button variants
+
+| Class | Style | When to use |
+|---|---|---|
+| `.btn--primary` | Brand fill, white text | Primary actions (Save, Submit) |
+| `.btn--secondary` | Brand-subtle fill (`--color-brand-subtle`), brand text | Secondary actions (Edit, Add, Cancel on forms) |
+| `.btn--ghost` | Transparent, border | Tertiary / toolbar actions |
+| `.btn--danger` | Red fill | Destructive actions (Delete, Archive) |
+
+Sizes: `.btn--sm` (compact, `padding: var(--space-1) var(--space-3)`, min-height 44px still applies).
+
+### Pill toggle (`.toggle`)
+
+Used for auto-saving boolean fields. The checkbox is hidden; `.toggle__track` + `.toggle__thumb` render the pill.
+
+```html
+<label class="toggle">
+  <input type="checkbox"
+         name="active"
+         value="true"
+         {% if org.active %}checked{% endif %}
+         {% if org.archived_at %}disabled{% endif %}
+         hx-post="/admin/orgs/{{ org.id }}/inline/active/"
+         hx-target="#active-toggle"
+         hx-swap="outerHTML"
+         hx-include="this">
+  <span class="toggle__track"><span class="toggle__thumb"></span></span>
+  <span class="toggle__label"><!-- label or badge here --></span>
+</label>
+```
+
+**Rules:**
+- Always `disabled` when the entity is archived — archiving/unarchiving is a separate action (Danger Zone). CSS dims the disabled toggle via `.toggle:has(input:disabled)`.
+- The toggle label (`toggle__label`) can hold a badge (e.g. Active/Inactive/Archived) instead of plain text.
+- No label text needed when column/section context makes the field self-evident (e.g. canonical column in a names table).
+- HTMX trigger on `<input>` directly (not a wrapping form). Unchecked = no value submitted = `Form("")` = `False`; checked = `value="true"` submitted = `True`.
+
+### Field group label (`.field-group-label`)
+
+Use for subsection header labels within entity cards and in inline form sections. Same visual style as `h2` entity-section headers but at a lower level (typically `<h3>`).
+
+```html
+<h3 class="field-group-label">Names</h3>
+```
+
+CSS: `margin: 0; font-size: var(--font-size-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted)`.
+
+In form contexts where accessibility requires a `<label for>`, use `<label>` with the same class:
+
+```html
+<label for="notes-textarea" class="field-group-label" style="margin-bottom:var(--space-3)">Notes</label>
+```
+
+### Entity card subsection layout
+
+Within `.entity-card`, subsections (e.g. Names, Acronyms, Notes) follow this structure:
+
+```html
+<!-- Section header row: label left, action button right -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+  <h3 class="field-group-label">Names</h3>
+  <button class="btn btn--sm btn--secondary" ...>+ Add name</button>
+</div>
+
+<!-- Table with fixed-layout columns -->
+<div class="table-wrapper">
+  <table id="names-table" class="data-table" style="table-layout:fixed">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col" style="text-align:right;width:5rem">Type</th>
+        <th scope="col" style="text-align:right;width:6rem">Canonical</th>
+        <th scope="col" style="width:9rem"></th>
+      </tr>
+    </thead>
+    ...
+  </table>
+</div>
+```
+
+`margin-top: var(--space-5)` on the header div separates subsections; the first subsection (directly after `.entity-card` opens) omits this top margin.
+
+### Cross-table column alignment
+
+When two sibling tables must visually align matching columns (e.g. Canonical and Actions across Names and Acronyms tables):
+
+1. Add `style="table-layout:fixed"` to both `<table>` elements.
+2. Set identical `width` values on the matching right-side `<th>` elements in both tables (`width:6rem` for Canonical, `width:9rem` for Actions).
+3. The leftmost column absorbs all remaining space — no explicit width needed.
+
+### Notes inline edit pattern
+
+The Notes field uses a separate read/edit partial pair with a header row following the subsection layout pattern. Key details:
+
+- `id="notes-field"` on the outer `<div>` — HTMX target for both read and edit partials.
+- Read partial: bordered content box (`border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-1)`) with muted placeholder `—` when empty.
+- Edit partial: `<label for="notes-textarea" class="field-group-label">` (not `<h3>`) for proper screen-reader association; `form-actions` margin override `style="margin-top:var(--space-2)"` — the global `.form-actions` rule uses `var(--space-5)` which is too large for the compact inline context.
+- GET `/inline/notes/` → read partial; GET `/inline/notes/edit/` → form partial; POST `/inline/notes/` → read partial.
+- Empty/whitespace notes saved as `NULL` (`.strip() or None`).
