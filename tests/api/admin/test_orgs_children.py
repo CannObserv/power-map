@@ -58,6 +58,13 @@ def parent_and_child():
     asyncio.run(teardown())
 
 
+def test_child_form_row_has_form_group(client, parent_and_child):
+    pid, _ = parent_and_child
+    r = client.get(f"/admin/orgs/{pid}/children/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "form-group" in r.text
+
+
 def test_add_child_sets_parent_id(client, parent_and_child):
     pid, cid = parent_and_child
     r = client.post(
