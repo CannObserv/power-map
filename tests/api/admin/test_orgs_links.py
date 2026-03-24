@@ -175,3 +175,16 @@ def test_links_delete_unknown_returns_404(client, org_and_link):
     oid, _ = org_and_link
     r = client.delete(f"/admin/orgs/{oid}/links/{generate_id()}/", headers=HTMX_HEADERS)
     assert r.status_code == 404
+
+
+def test_link_form_row_has_form_group(client, org_and_link):
+    oid, _ = org_and_link
+    r = client.get(f"/admin/orgs/{oid}/links/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "form-group" in r.text
+
+
+def test_link_form_row_has_toggle(client, org_and_link):
+    oid, _ = org_and_link
+    r = client.get(f"/admin/orgs/{oid}/links/new-row/", headers=HTMX_HEADERS)
+    assert "toggle__track" in r.text

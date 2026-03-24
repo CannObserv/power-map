@@ -101,6 +101,13 @@ def org_and_identifier(org_id_and_type):
     asyncio.run(teardown())
 
 
+def test_identifier_form_row_has_form_group(client, org_id_and_type):
+    oid, _ = org_id_and_type
+    r = client.get(f"/admin/orgs/{oid}/identifiers/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "form-group" in r.text
+
+
 def test_identifiers_new_row_returns_form(client, org_id_and_type):
     oid, _ = org_id_and_type
     r = client.get(f"/admin/orgs/{oid}/identifiers/new-row/", headers=HTMX_HEADERS)

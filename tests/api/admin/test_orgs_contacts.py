@@ -63,9 +63,45 @@ def org_and_contact():
 
 def test_contacts_new_row_returns_form(client, org_and_contact):
     oid, _ = org_and_contact
-    r = client.get(f"/admin/orgs/{oid}/contacts/new-row/", headers=HTMX_HEADERS)
+    r = client.get(f"/admin/orgs/{oid}/contacts/new-row/?contact_type=email", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<form" in r.text
+
+
+def test_contacts_new_row_email_has_hidden_type(client, org_and_contact):
+    oid, _ = org_and_contact
+    r = client.get(
+        f"/admin/orgs/{oid}/contacts/new-row/?contact_type=email",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert 'type="hidden"' in r.text
+    assert 'value="email"' in r.text
+    assert "email-row-new" in r.text
+
+
+def test_contacts_new_row_phone_has_hidden_type(client, org_and_contact):
+    oid, _ = org_and_contact
+    r = client.get(
+        f"/admin/orgs/{oid}/contacts/new-row/?contact_type=phone",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert 'type="hidden"' in r.text
+    assert 'value="phone"' in r.text
+    assert "phone-row-new" in r.text
+
+
+def test_contacts_update_does_not_change_type(client, org_and_contact):
+    """contact_type is immutable — edit route ignores any type in POST data."""
+    oid, cid = org_and_contact
+    r = client.post(
+        f"/admin/orgs/{oid}/contacts/{cid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"value": "+12065559876"},  # no contact_type submitted
+    )
+    assert r.status_code == 200
+    assert "+12065559876" in r.text
 
 
 def test_contacts_create(client, org_and_contact):
@@ -99,7 +135,7 @@ def test_contacts_update(client, org_and_contact):
     r = client.post(
         f"/admin/orgs/{oid}/contacts/{cid}/edit-row/",
         headers=HTMX_HEADERS,
-        data={"contact_type": "phone", "value": "+12065559876"},
+        data={"value": "+12065559876"},
     )
     assert r.status_code == 200
     assert "+12065559876" in r.text
@@ -115,3 +151,28 @@ def test_contacts_delete_unknown_returns_404(client, org_and_contact):
     oid, _ = org_and_contact
     r = client.delete(f"/admin/orgs/{oid}/contacts/{generate_id()}/", headers=HTMX_HEADERS)
     assert r.status_code == 404
+
+
+def test_contacts_form_row_has_form_group(client, org_and_contact):
+    oid, _ = org_and_contact
+    r = client.get(
+        f"/admin/orgs/{oid}/contacts/new-row/?contact_type=email",
+        headers=HTMX_HEADERS,
+    )
+    assert "form-group" in r.text
+
+
+def test_contacts_edit_row_no_type_select(client, org_and_contact):
+    """Edit form must not contain a contact_type <select> (type is immutable)."""
+    oid, cid = org_and_contact
+    r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/edit-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'name="contact_type"' not in r.text or '<select' not in r.text
+
+
+def test_contacts_read_row_no_type_cell(client, org_and_contact):
+    """Read row must not render a standalone type cell (rows live in typed tables)."""
+    oid, cid = org_and_contact
+    r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "<td>phone</td>" not in r.text

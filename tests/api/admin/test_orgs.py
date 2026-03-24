@@ -127,6 +127,13 @@ def test_org_detail_404_for_unknown_id(client):
     assert response.status_code == 404
 
 
+def test_org_detail_has_email_and_phone_tables(client, org_id):
+    r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert 'id="emails-table"' in r.text
+    assert 'id="phones-table"' in r.text
+
+
 def test_create_org_form_returns_200(client):
     response = client.get("/admin/orgs/new/", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -327,3 +334,38 @@ def test_orgs_list_htmx_request_returns_rows_partial(client):
     )
     assert response.status_code == 200
     assert "admin-layout" not in response.text
+
+
+def test_org_detail_hierarchy_has_entity_card(client, org_id):
+    r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "Parent Organization" in r.text
+    assert "Child Organizations" in r.text
+    assert "field-group-label" in r.text
+
+
+def test_org_detail_contact_information_section(client, org_id):
+    r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "Contact Information" in r.text
+    assert 'id="emails-table"' in r.text
+    assert 'id="phones-table"' in r.text
+    assert 'id="addresses-table"' in r.text
+    # Old standalone sections should be gone
+    assert "<h2>Addresses</h2>" not in r.text
+    assert "<h2>Contact Methods</h2>" not in r.text
+
+
+def test_org_detail_links_add_button_in_header(client, org_id):
+    r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    links_idx = r.text.find('id="links-table"')
+    add_link_idx = r.text.find("+ Add link")
+    assert add_link_idx < links_idx  # button comes before table
+
+
+def test_org_detail_identifiers_add_button_in_header(client, org_id):
+    r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    idents_idx = r.text.find('id="identifiers-table"')
+    add_idents_idx = r.text.find("+ Add identifier")
+    assert add_idents_idx < idents_idx
