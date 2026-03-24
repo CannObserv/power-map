@@ -29,7 +29,7 @@
     </div>
     <div class="table-wrapper">
       <table id="names-table" class="data-table">
-        <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Canonical</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Name</th><th scope="col" style="text-align:right">Type</th><th scope="col" style="text-align:right">Canonical</th><th scope="col"></th></tr></thead>
         <tbody>
           {% for n in names %}
           {% include "admin/orgs/partials/_name_row.html" %}
@@ -50,7 +50,7 @@
     </div>
     <div class="table-wrapper">
       <table id="acronyms-table" class="data-table">
-        <thead><tr><th scope="col">Acronym</th><th scope="col">Canonical</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Acronym</th><th scope="col" style="text-align:right">Canonical</th><th scope="col"></th></tr></thead>
         <tbody>
           {% for a in acronyms %}
           {% include "admin/orgs/partials/_acronym_row.html" %}
