@@ -10,9 +10,6 @@
 <div class="page-header">
   <h1>
     {{ _display or '(unnamed)' }}
-    <span id="org-status-badge">{% if org.archived_at %}<span class="badge badge--archived">Archived</span>
-    {% elif not org.active %}<span class="badge badge--inactive">Inactive</span>
-    {% else %}<span class="badge badge--active">Active</span>{% endif %}</span>
   </h1>
 </div>
 

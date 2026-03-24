@@ -10,10 +10,10 @@
            hx-swap="outerHTML"
            hx-include="this">
     <span class="toggle__track"><span class="toggle__thumb"></span></span>
-    <span class="toggle__label">Active</span>
+    <span class="toggle__label">
+      {% if org.archived_at %}<span class="badge badge--archived">Archived</span>
+      {% elif not org.active %}<span class="badge badge--inactive">Inactive</span>
+      {% else %}<span class="badge badge--active">Active</span>{% endif %}
+    </span>
   </label>
 </div>
-{# OOB: keep header badge in sync #}
-<span id="org-status-badge" hx-swap-oob="true">{% if org.archived_at %}<span class="badge badge--archived">Archived</span>
-{% elif not org.active %}<span class="badge badge--inactive">Inactive</span>
-{% else %}<span class="badge badge--active">Active</span>{% endif %}</span>
