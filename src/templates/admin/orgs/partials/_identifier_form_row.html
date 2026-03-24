@@ -1,6 +1,6 @@
 {# admin/orgs/partials/_identifier_form_row.html #}
 <tr id="{% if ident %}identifier-row-{{ ident.id }}{% else %}identifier-row-new{% endif %}">
-  <td colspan="3">
+  <td colspan="3" style="padding:var(--space-2) var(--space-4)">
     <form {% if ident %}
           hx-post="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/edit-row/"
           hx-target="#identifier-row-{{ ident.id }}"
@@ -9,25 +9,31 @@
           hx-target="#identifier-row-new"
           {% endif %}
           hx-swap="outerHTML"
-          style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
-      <select name="entity_identifier_type_id">
-        {% for it in ident_types %}
-        <option value="{{ it.id }}"
-                {% if ident and ident.entity_identifier_type_id == it.id %} selected{% endif %}>
-          {{ it.display_name }}</option>
-        {% endfor %}
-      </select>
-      <input type="text" name="value" required
-             value="{{ ident.value if ident else '' }}" placeholder="Value">
-      <button type="submit" class="btn btn--sm btn--primary">Save</button>
-      <button type="button" class="btn btn--sm btn--secondary"
-              {% if ident %}
-              hx-get="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/read-row/"
-              hx-target="#identifier-row-{{ ident.id }}"
-              hx-swap="outerHTML"
-              {% else %}
-              onclick="this.closest('tr').remove()"
-              {% endif %}>Cancel</button>
+          style="display:flex;gap:var(--space-2);align-items:center">
+      <div class="form-group" style="margin-bottom:0;min-width:8rem">
+        <select name="entity_identifier_type_id">
+          {% for it in ident_types %}
+          <option value="{{ it.id }}"
+                  {% if ident and ident.entity_identifier_type_id == it.id %} selected{% endif %}>
+            {{ it.display_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;flex:1">
+        <input type="text" name="value" required
+               value="{{ ident.value if ident else '' }}" placeholder="Value">
+      </div>
+      <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
+        <button type="submit" class="btn btn--sm btn--primary">Save</button>
+        <button type="button" class="btn btn--sm btn--secondary"
+                {% if ident %}
+                hx-get="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/read-row/"
+                hx-target="#identifier-row-{{ ident.id }}"
+                hx-swap="outerHTML"
+                {% else %}
+                onclick="this.closest('tr').remove()"
+                {% endif %}>Cancel</button>
+      </div>
     </form>
   </td>
 </tr>
