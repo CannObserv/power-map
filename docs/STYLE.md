@@ -655,6 +655,7 @@ Used for auto-saving boolean fields. The checkbox is hidden; `.toggle__track` + 
 - The toggle label (`toggle__label`) can hold a badge (e.g. Active/Inactive/Archived) instead of plain text.
 - No label text needed when column/section context makes the field self-evident (e.g. canonical column in a names table).
 - HTMX trigger on `<input>` directly (not a wrapping form). Unchecked = no value submitted = `Form("")` = `False`; checked = `value="true"` submitted = `True`.
+- No explicit `hx-trigger` needed — HTMX defaults to `change` for form inputs, which is correct for checkboxes. Do **not** use `hx-trigger="click"`: click can fire before the checked state updates on some browsers, sending the wrong value.
 
 ### Field group label (`.field-group-label`)
 

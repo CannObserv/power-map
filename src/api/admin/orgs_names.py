@@ -53,15 +53,22 @@ async def name_create(
         return redirect
     await _get_org_or_404(org_id, db)
     nid = generate_id()
-    await db.execute(
-        "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
-        " VALUES ($1, $2, $3, $4, $5)",
-        nid,
-        org_id,
-        name.strip(),
-        name_type,
-        is_canonical == "true",
-    )
+    async with db.transaction():
+        if is_canonical == "true":
+            await db.execute(
+                "UPDATE organization_names SET is_canonical=FALSE"
+                " WHERE organization_id=$1 AND is_canonical=TRUE",
+                org_id,
+            )
+        await db.execute(
+            "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
+            " VALUES ($1, $2, $3, $4, $5)",
+            nid,
+            org_id,
+            name.strip(),
+            name_type,
+            is_canonical == "true",
+        )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     names = await db.fetch(
@@ -146,18 +153,30 @@ async def name_edit_row_post(
     )
     if not existing:
         raise HTTPException(status_code=404)
-    await db.execute(
-        "UPDATE organization_names SET name=$1, name_type=$2, is_canonical=$3 WHERE id=$4",
-        name.strip(),
-        name_type,
-        is_canonical == "true",
-        name_id,
-    )
-    row = await db.fetchrow("SELECT * FROM organization_names WHERE id=$1", name_id)
+    async with db.transaction():
+        if is_canonical == "true":
+            await db.execute(
+                "UPDATE organization_names SET is_canonical=FALSE"
+                " WHERE organization_id=$1 AND is_canonical=TRUE AND id != $2",
+                org_id,
+                name_id,
+            )
+        await db.execute(
+            "UPDATE organization_names SET name=$1, name_type=$2, is_canonical=$3 WHERE id=$4",
+            name.strip(),
+            name_type,
+            is_canonical == "true",
+            name_id,
+        )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    names = await db.fetch(
+        "SELECT * FROM organization_names WHERE organization_id=$1"
+        " ORDER BY is_canonical DESC, name_type, name",
+        org_id,
+    )
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_name_row.html", {"org_id": org_id, "n": row}
+        request, "admin/orgs/partials/_name_rows.html", {"org_id": org_id, "names": names}
     )
 
 

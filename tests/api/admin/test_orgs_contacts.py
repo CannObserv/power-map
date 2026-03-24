@@ -176,3 +176,13 @@ def test_contacts_read_row_no_type_cell(client, org_and_contact):
     r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/read-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<td>phone</td>" not in r.text
+
+
+def test_contacts_new_row_invalid_type_returns_422(client, org_and_contact):
+    """Invalid contact_type query param must return 422 (Literal validation)."""
+    oid, _ = org_and_contact
+    r = client.get(
+        f"/admin/orgs/{oid}/contacts/new-row/?contact_type=fax",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 422

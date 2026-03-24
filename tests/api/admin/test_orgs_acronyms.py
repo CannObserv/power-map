@@ -185,6 +185,88 @@ async def test_acronym_404_on_unknown_org(client):
     assert r.status_code == 404
 
 
+async def test_acronym_create_demotes_existing_canonical(client, org_id, db):
+    """Creating a canonical acronym must demote any existing canonical."""
+    # Insert an existing canonical acronym
+    existing_id = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'OLD', TRUE)",
+        existing_id,
+        org_id,
+    )
+    r = await client.post(
+        f"/admin/orgs/{org_id}/acronyms/",
+        data={"acronym": "NEW", "is_canonical": "true"},
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    old = await db.fetchrow(
+        "SELECT is_canonical FROM organization_acronyms WHERE id=$1", existing_id
+    )
+    assert old["is_canonical"] is False, "existing canonical must be demoted"
+
+
+async def test_acronym_edit_promotes_and_demotes(client, org_id, db):
+    """Editing a non-canonical acronym to canonical must demote the existing one."""
+    canonical_id = generate_id()
+    other_id = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'CANON', TRUE)",
+        canonical_id,
+        org_id,
+    )
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'ALT', FALSE)",
+        other_id,
+        org_id,
+    )
+    r = await client.post(
+        f"/admin/orgs/{org_id}/acronyms/{other_id}/edit-row/",
+        data={"acronym": "ALT", "is_canonical": "true"},
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    old = await db.fetchrow(
+        "SELECT is_canonical FROM organization_acronyms WHERE id=$1", canonical_id
+    )
+    promoted = await db.fetchrow(
+        "SELECT is_canonical FROM organization_acronyms WHERE id=$1", other_id
+    )
+    assert old["is_canonical"] is False, "old canonical must be demoted"
+    assert promoted["is_canonical"] is True, "edited row must be promoted"
+
+
+async def test_acronym_edit_returns_tbody(client, org_id, db):
+    """Edit response must return all rows (tbody innerHTML), not just the edited row."""
+    aid1 = generate_id()
+    aid2 = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'FIRST', TRUE)",
+        aid1,
+        org_id,
+    )
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'SECOND', FALSE)",
+        aid2,
+        org_id,
+    )
+    r = await client.post(
+        f"/admin/orgs/{org_id}/acronyms/{aid2}/edit-row/",
+        data={"acronym": "EDITED", "is_canonical": ""},
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    # Both rows must appear — only a full tbody response includes both
+    assert f'id="acronym-row-{aid1}"' in r.text
+    assert f'id="acronym-row-{aid2}"' in r.text
+    assert "<table" not in r.text  # tbody rows only
+
+
 async def test_acronym_redirects_without_auth(client, org_id):
     r = await client.get(
         f"/admin/orgs/{org_id}/acronyms/new-row/", follow_redirects=False

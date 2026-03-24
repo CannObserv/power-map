@@ -1,5 +1,7 @@
 """Admin CRUD for organization contact methods."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -22,7 +24,7 @@ async def _get_org_or_404(org_id: str, db):
 async def contact_new_row(
     org_id: str,
     request: Request,
-    contact_type: str = Query(...),
+    contact_type: Literal["email", "phone"] = Query(...),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):

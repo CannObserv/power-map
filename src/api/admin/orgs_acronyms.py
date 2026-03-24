@@ -52,14 +52,21 @@ async def acronym_create(
         return redirect
     await _get_org_or_404(org_id, db)
     aid = generate_id()
-    await db.execute(
-        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
-        " VALUES ($1, $2, $3, $4)",
-        aid,
-        org_id,
-        acronym.strip(),
-        is_canonical == "true",
-    )
+    async with db.transaction():
+        if is_canonical == "true":
+            await db.execute(
+                "UPDATE organization_acronyms SET is_canonical=FALSE"
+                " WHERE organization_id=$1 AND is_canonical=TRUE",
+                org_id,
+            )
+        await db.execute(
+            "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+            " VALUES ($1, $2, $3, $4)",
+            aid,
+            org_id,
+            acronym.strip(),
+            is_canonical == "true",
+        )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     acronyms = await db.fetch(
@@ -145,21 +152,31 @@ async def acronym_edit_row_post(
     )
     if not existing:
         raise HTTPException(status_code=404)
-    await db.execute(
-        "UPDATE organization_acronyms SET acronym=$1, is_canonical=$2 WHERE id=$3",
-        acronym.strip(),
-        is_canonical == "true",
-        acronym_id,
-    )
-    row = await db.fetchrow(
-        "SELECT * FROM organization_acronyms WHERE id=$1", acronym_id
-    )
+    async with db.transaction():
+        if is_canonical == "true":
+            await db.execute(
+                "UPDATE organization_acronyms SET is_canonical=FALSE"
+                " WHERE organization_id=$1 AND is_canonical=TRUE AND id != $2",
+                org_id,
+                acronym_id,
+            )
+        await db.execute(
+            "UPDATE organization_acronyms SET acronym=$1, is_canonical=$2 WHERE id=$3",
+            acronym.strip(),
+            is_canonical == "true",
+            acronym_id,
+        )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    acronyms = await db.fetch(
+        "SELECT * FROM organization_acronyms WHERE organization_id=$1"
+        " ORDER BY is_canonical DESC, acronym",
+        org_id,
+    )
     return templates.TemplateResponse(
         request,
-        "admin/orgs/partials/_acronym_row.html",
-        {"org_id": org_id, "a": row},
+        "admin/orgs/partials/_acronym_rows.html",
+        {"org_id": org_id, "acronyms": acronyms},
     )
 
 

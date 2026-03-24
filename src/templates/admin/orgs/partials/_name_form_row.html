@@ -3,8 +3,8 @@
   <td colspan="4" style="padding:var(--space-2) var(--space-4)">
     <form {% if n %}
           hx-post="/admin/orgs/{{ org_id }}/names/{{ n.id }}/edit-row/"
-          hx-target="#name-row-{{ n.id }}"
-          hx-swap="outerHTML"
+          hx-target="#names-table tbody"
+          hx-swap="innerHTML"
           {% else %}
           hx-post="/admin/orgs/{{ org_id }}/names/"
           hx-target="#names-table tbody"
