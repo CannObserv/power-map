@@ -1,0 +1,6 @@
+{# admin/orgs/partials/_acronym_rows.html — all acronym rows for tbody innerHTML replacement #}
+{% for a in acronyms %}
+{% include "admin/orgs/partials/_acronym_row.html" %}
+{% else %}
+<tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No acronyms</td></tr>
+{% endfor %}

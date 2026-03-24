@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from src.api.admin import imports as imports_module
 from src.api.admin import lookups as lookups_module
 from src.api.admin import orgs as orgs_module
+from src.api.admin import orgs_acronyms as orgs_acronyms_module
 from src.api.admin import orgs_addresses as orgs_addresses_module
 from src.api.admin import orgs_contacts as orgs_contacts_module
 from src.api.admin import orgs_identifiers as orgs_identifiers_module
@@ -75,6 +76,7 @@ admin_router.include_router(imports_module.router)
 admin_router.include_router(lookups_module.router)
 admin_router.include_router(orgs_module.router)
 admin_router.include_router(orgs_names_module.router)
+admin_router.include_router(orgs_acronyms_module.router)
 admin_router.include_router(orgs_addresses_module.router)
 admin_router.include_router(orgs_contacts_module.router)
 admin_router.include_router(orgs_links_module.router)

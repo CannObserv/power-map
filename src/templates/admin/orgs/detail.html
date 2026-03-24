@@ -10,15 +10,61 @@
 <div class="page-header">
   <h1>
     {{ _display or '(unnamed)' }}
-    {% if org.archived_at %}<span class="badge badge--archived">Archived</span>
-    {% elif not org.active %}<span class="badge badge--inactive">Inactive</span>
-    {% else %}<span class="badge badge--active">Active</span>{% endif %}
   </h1>
 </div>
 
-<div id="core-fields" class="entity-card">
-  {% include "admin/orgs/partials/_core_fields_read.html" %}
-</div>
+<section class="entity-section">
+  <h2>Details</h2>
+  <div class="entity-card">
+
+    {% include "admin/orgs/partials/_active_toggle.html" %}
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+      <h3 class="field-group-label">Names</h3>
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
+              hx-target="#names-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add name</button>
+    </div>
+    <div class="table-wrapper">
+      <table id="names-table" class="data-table" style="table-layout:fixed">
+        <thead><tr><th scope="col">Name</th><th scope="col" style="text-align:right;width:5rem">Type</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"></th></tr></thead>
+        <tbody>
+          {% for n in names %}
+          {% include "admin/orgs/partials/_name_row.html" %}
+          {% else %}
+          <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+      <h3 class="field-group-label">Acronyms</h3>
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/orgs/{{ org.id }}/acronyms/new-row/"
+              hx-target="#acronyms-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add acronym</button>
+    </div>
+    <div class="table-wrapper">
+      <table id="acronyms-table" class="data-table" style="table-layout:fixed">
+        <thead><tr><th scope="col">Acronym</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"></th></tr></thead>
+        <tbody>
+          {% for a in acronyms %}
+          {% include "admin/orgs/partials/_acronym_row.html" %}
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No acronyms</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% include "admin/orgs/partials/_notes_read.html" %}
+
+  </div>
+</section>
 
 <section id="section-hierarchy" class="entity-section">
   <h2>Hierarchy</h2>
@@ -43,36 +89,6 @@
           hx-target="#children-table tbody"
           hx-swap="afterbegin"
           type="button">+ Add child</button>
-</section>
-
-<section id="section-names" class="entity-section">
-  <h2>Names</h2>
-  <div class="table-wrapper">
-    <table id="names-table" class="data-table">
-      <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Canonical</th><th scope="col"></th></tr></thead>
-      <tbody>
-        {% for n in names %}
-        {% include "admin/orgs/partials/_name_row.html" %}
-        {% endfor %}
-        {% for a in acronyms %}
-        <tr id="name-row-{{ a.id }}">
-          <td>{{ a.acronym }}</td>
-          <td>acronym</td>
-          <td>{% if a.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
-          <td></td>
-        </tr>
-        {% endfor %}
-        {% if not names and not acronyms %}
-        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-  </div>
-  <button class="btn btn--sm btn--secondary" style="margin-top:var(--space-2)"
-          hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
-          hx-target="#names-table tbody"
-          hx-swap="afterbegin"
-          type="button">+ Add name</button>
 </section>
 
 <section class="entity-section">

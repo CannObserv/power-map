@@ -1,0 +1,20 @@
+{# admin/orgs/partials/_active_toggle.html — auto-saving active toggle #}
+<div id="active-toggle" class="form-group">
+  <label class="toggle">
+    <input type="checkbox"
+           name="active"
+           value="true"
+           {% if org.active %}checked{% endif %}
+           {% if org.archived_at %}disabled{% endif %}
+           hx-post="/admin/orgs/{{ org.id }}/inline/active/"
+           hx-target="#active-toggle"
+           hx-swap="outerHTML"
+           hx-include="this">
+    <span class="toggle__track"><span class="toggle__thumb"></span></span>
+    <span class="toggle__label">
+      {% if org.archived_at %}<span class="badge badge--archived">Archived</span>
+      {% elif not org.active %}<span class="badge badge--inactive">Inactive</span>
+      {% else %}<span class="badge badge--active">Active</span>{% endif %}
+    </span>
+  </label>
+</div>

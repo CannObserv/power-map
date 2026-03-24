@@ -22,8 +22,9 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db, is_htmx
     org_dups.py — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     router.py   — Mounts all admin sub-routers under /admin/
-    orgs.py     — Org list, detail, search typeahead, inline core/parent editing, children CRUD, archive/delete
+    orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/delete
     orgs_names.py       — Inline CRUD for organization_names (row-level HTMX swap)
+    orgs_acronyms.py    — Inline CRUD for organization_acronyms (row-level HTMX swap)
     orgs_addresses.py   — Inline CRUD for addresses + entity_addresses (row-level HTMX swap)
     orgs_contacts.py    — Inline CRUD for contact_methods (row-level HTMX swap)
     orgs_links.py       — Inline CRUD for links + link_types (row-level HTMX swap)
@@ -58,6 +59,10 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - Acronyms are stored in `organization_acronyms` (separate table); `organization_names` holds legal/dba/former names only. Each table has exactly one canonical row per org via a partial unique index.
 - Links: `link_types` table (slug, display_name, is_social) replaces the old `url_types` + `platforms` tables. `links` table (entity_type, entity_id, url, link_type_id, is_active, is_canonical) replaces `urls` + `social_links`. Social links: `JOIN link_types WHERE is_social = TRUE`. Unique canonical per entity enforced by `uq_link_canonical` partial index; use a transaction to clear sibling canonicals before setting a new one.
 - Row-level HTMX editing pattern: GET `/{id}/edit-row/` → edit form partial; POST `/{id}/edit-row/` → read partial (hx-swap="outerHTML"); GET `/{id}/read-row/` → read partial (Cancel on edit form, hx-swap="outerHTML"); GET `/new-row/` → blank form row (Cancel: `onclick="this.closest('tr').remove()"`, no server round-trip).
+- Row form input styling: inputs inside table form rows must be wrapped in `<div class="form-group" style="margin-bottom:0">` to activate `.form-group input` CSS rules. Use `flex:1` on the primary input, `margin-left:auto` on the button group to right-align Save/Cancel.
+- Auto-saving toggle pattern: put `hx-post` directly on `<input type="checkbox">` with `hx-include="this"`. Unchecked = no value submitted = `Form("")` = falsy; checked = `value="true"` = `True`. Always add `disabled` when `entity.archived_at IS NOT NULL` — archiving is a separate action; the toggle is for active/inactive only. See `_active_toggle.html` as canonical example.
+- Notes inline edit pattern: GET `/inline/notes/` → read partial; GET `/inline/notes/edit/` → form partial; POST `/inline/notes/` → read partial. Both target `id="notes-field"`. Form partial uses `<label for="notes-textarea">` (not `<h3>`) for screen reader association. Save `notes.strip() or None` (whitespace → NULL). See `docs/STYLE.md §15` for full pattern.
+- Subsection re-sort after create: when a create route must return sorted table content (not just the new row), return a `_*_rows.html` tbody-replacement partial and target `#{table-id} tbody` with `hx-swap="innerHTML"`. Non-HTMX path still uses `RedirectResponse` (full page reload preserves sort).
 
 ### Ingestion conventions
 - EVTL pattern: Extract (CSV read) → Validate (Pydantic) → Transform (normalize fields) → Load (DB insert)

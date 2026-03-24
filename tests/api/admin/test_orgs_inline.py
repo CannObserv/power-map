@@ -1,5 +1,5 @@
 # tests/api/admin/test_orgs_inline.py
-"""Integration tests for org core fields inline editing."""
+"""Integration tests for org inline editing (parent field)."""
 
 import asyncio
 import os
@@ -64,39 +64,6 @@ def org_id():
     asyncio.run(setup())
     yield oid
     asyncio.run(teardown())
-
-
-def test_core_fields_get_returns_partial(client, org_id):
-    r = client.get(f"/admin/orgs/{org_id}/inline/core/", headers=HTMX_HEADERS)
-    assert r.status_code == 200
-    assert "Inline Test Org" in r.text
-
-
-def test_core_fields_post_updates_name(client, org_id):
-    r = client.post(
-        f"/admin/orgs/{org_id}/inline/core/",
-        headers=HTMX_HEADERS,
-        data={"name": "Updated Name", "acronym": "", "active": "true", "notes": ""},
-        follow_redirects=False,
-    )
-    assert r.status_code == 200
-    assert "Updated Name" in r.text
-
-
-def test_core_fields_post_missing_name_returns_form(client, org_id):
-    r = client.post(
-        f"/admin/orgs/{org_id}/inline/core/",
-        headers=HTMX_HEADERS,
-        data={"name": "", "acronym": "", "active": "true", "notes": ""},
-    )
-    assert r.status_code == 422 or "required" in r.text.lower()
-
-
-def test_core_fields_edit_get_returns_form(client, org_id):
-    r = client.get(f"/admin/orgs/{org_id}/inline/core/edit/", headers=HTMX_HEADERS)
-    assert r.status_code == 200
-    assert "<form" in r.text
-    assert "Inline Test Org" in r.text
 
 
 def test_parent_get_returns_partial(client, org_id):

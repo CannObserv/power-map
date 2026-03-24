@@ -1,4 +1,4 @@
-"""Admin CRUD for organization names."""
+"""Admin CRUD for organization acronyms."""
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -8,7 +8,7 @@ from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, is
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
-router = APIRouter(prefix="/orgs/{org_id}/names", tags=["admin-org-names"])
+router = APIRouter(prefix="/orgs/{org_id}/acronyms", tags=["admin-org-acronyms"])
 
 
 async def _get_org_or_404(org_id: str, db):
@@ -19,166 +19,168 @@ async def _get_org_or_404(org_id: str, db):
 
 
 @router.get("/new-row/")
-async def name_new_row(
+async def acronym_new_row(
     org_id: str,
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Return empty name form row."""
+    """Return empty acronym form row."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     await _get_org_or_404(org_id, db)
     return templates.TemplateResponse(
         request,
-        "admin/orgs/partials/_name_form_row.html",
-        {"org_id": org_id, "n": None},
+        "admin/orgs/partials/_acronym_form_row.html",
+        {"org_id": org_id, "a": None},
     )
 
 
 @router.post("/")
-async def name_create(
+async def acronym_create(
     org_id: str,
     request: Request,
-    name: str = Form(...),
-    name_type: str = Form("legal"),
+    acronym: str = Form(...),
     is_canonical: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Create a new organization name."""
+    """Create a new organization acronym."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     await _get_org_or_404(org_id, db)
-    nid = generate_id()
+    aid = generate_id()
     await db.execute(
-        "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
-        " VALUES ($1, $2, $3, $4, $5)",
-        nid,
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, $3, $4)",
+        aid,
         org_id,
-        name.strip(),
-        name_type,
+        acronym.strip(),
         is_canonical == "true",
     )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
-    names = await db.fetch(
-        "SELECT * FROM organization_names WHERE organization_id=$1"
-        " ORDER BY is_canonical DESC, name_type, name",
+    acronyms = await db.fetch(
+        "SELECT * FROM organization_acronyms WHERE organization_id=$1"
+        " ORDER BY is_canonical DESC, acronym",
         org_id,
     )
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_name_rows.html", {"org_id": org_id, "names": names}
+        request, "admin/orgs/partials/_acronym_rows.html", {"org_id": org_id, "acronyms": acronyms}
     )
 
 
-@router.get("/{name_id}/read-row/")
-async def name_read_row(
+@router.get("/{acronym_id}/read-row/")
+async def acronym_read_row(
     org_id: str,
-    name_id: str,
+    acronym_id: str,
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Return read-only name row (used by Cancel on edit form)."""
+    """Return read-only acronym row (used by Cancel on edit form)."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    name_row = await db.fetchrow(
-        "SELECT * FROM organization_names WHERE id=$1 AND organization_id=$2",
-        name_id,
+    row = await db.fetchrow(
+        "SELECT * FROM organization_acronyms WHERE id=$1 AND organization_id=$2",
+        acronym_id,
         org_id,
     )
-    if not name_row:
-        raise HTTPException(status_code=404)
-    return templates.TemplateResponse(
-        request, "admin/orgs/partials/_name_row.html", {"org_id": org_id, "n": name_row}
-    )
-
-
-@router.get("/{name_id}/edit-row/")
-async def name_edit_row_get(
-    org_id: str,
-    name_id: str,
-    request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db=Depends(get_db),
-):
-    """Return name edit form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
-    name_row = await db.fetchrow(
-        "SELECT * FROM organization_names WHERE id=$1 AND organization_id=$2",
-        name_id,
-        org_id,
-    )
-    if not name_row:
+    if not row:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
         request,
-        "admin/orgs/partials/_name_form_row.html",
-        {"org_id": org_id, "n": name_row},
+        "admin/orgs/partials/_acronym_row.html",
+        {"org_id": org_id, "a": row},
     )
 
 
-@router.post("/{name_id}/edit-row/")
-async def name_edit_row_post(
+@router.get("/{acronym_id}/edit-row/")
+async def acronym_edit_row_get(
     org_id: str,
-    name_id: str,
+    acronym_id: str,
     request: Request,
-    name: str = Form(...),
-    name_type: str = Form("legal"),
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return acronym edit form row."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    row = await db.fetchrow(
+        "SELECT * FROM organization_acronyms WHERE id=$1 AND organization_id=$2",
+        acronym_id,
+        org_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_acronym_form_row.html",
+        {"org_id": org_id, "a": row},
+    )
+
+
+@router.post("/{acronym_id}/edit-row/")
+async def acronym_edit_row_post(
+    org_id: str,
+    acronym_id: str,
+    request: Request,
+    acronym: str = Form(...),
     is_canonical: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Update an organization name."""
+    """Update an organization acronym."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     existing = await db.fetchrow(
-        "SELECT * FROM organization_names WHERE id=$1 AND organization_id=$2",
-        name_id,
+        "SELECT * FROM organization_acronyms WHERE id=$1 AND organization_id=$2",
+        acronym_id,
         org_id,
     )
     if not existing:
         raise HTTPException(status_code=404)
     await db.execute(
-        "UPDATE organization_names SET name=$1, name_type=$2, is_canonical=$3 WHERE id=$4",
-        name.strip(),
-        name_type,
+        "UPDATE organization_acronyms SET acronym=$1, is_canonical=$2 WHERE id=$3",
+        acronym.strip(),
         is_canonical == "true",
-        name_id,
+        acronym_id,
     )
-    row = await db.fetchrow("SELECT * FROM organization_names WHERE id=$1", name_id)
+    row = await db.fetchrow(
+        "SELECT * FROM organization_acronyms WHERE id=$1", acronym_id
+    )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_name_row.html", {"org_id": org_id, "n": row}
+        request,
+        "admin/orgs/partials/_acronym_row.html",
+        {"org_id": org_id, "a": row},
     )
 
 
-@router.delete("/{name_id}/")
-async def name_delete(
+@router.delete("/{acronym_id}/")
+async def acronym_delete(
     org_id: str,
-    name_id: str,
+    acronym_id: str,
     request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Delete an organization name."""
+    """Delete an organization acronym."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     existing = await db.fetchrow(
-        "SELECT id FROM organization_names WHERE id=$1 AND organization_id=$2",
-        name_id,
+        "SELECT id FROM organization_acronyms WHERE id=$1 AND organization_id=$2",
+        acronym_id,
         org_id,
     )
     if not existing:
         raise HTTPException(status_code=404)
-    await db.execute("DELETE FROM organization_names WHERE id=$1", name_id)
+    await db.execute("DELETE FROM organization_acronyms WHERE id=$1", acronym_id)
     return HTMLResponse(content="", status_code=200)

@@ -1,9 +1,9 @@
 {# admin/orgs/partials/_name_row.html — inline name read row #}
 <tr id="name-row-{{ n.id }}">
   <td>{{ n.name }}</td>
-  <td>{{ n.name_type }}</td>
-  <td>{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
-  <td>
+  <td style="text-align:right">{{ n.name_type }}</td>
+  <td style="text-align:right">{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
+  <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
             hx-get="/admin/orgs/{{ org_id }}/names/{{ n.id }}/edit-row/"
             hx-target="#name-row-{{ n.id }}"
