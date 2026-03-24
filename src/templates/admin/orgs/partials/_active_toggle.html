@@ -5,6 +5,7 @@
            name="active"
            value="true"
            {% if org.active %}checked{% endif %}
+           {% if org.archived_at %}disabled{% endif %}
            hx-post="/admin/orgs/{{ org.id }}/inline/active/"
            hx-target="#active-toggle"
            hx-swap="outerHTML"

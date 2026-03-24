@@ -22,8 +22,9 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db, is_htmx
     org_dups.py — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     router.py   — Mounts all admin sub-routers under /admin/
-    orgs.py     — Org list, detail, search typeahead, inline core/parent editing, children CRUD, archive/delete
+    orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/delete
     orgs_names.py       — Inline CRUD for organization_names (row-level HTMX swap)
+    orgs_acronyms.py    — Inline CRUD for organization_acronyms (row-level HTMX swap)
     orgs_addresses.py   — Inline CRUD for addresses + entity_addresses (row-level HTMX swap)
     orgs_contacts.py    — Inline CRUD for contact_methods (row-level HTMX swap)
     orgs_links.py       — Inline CRUD for links + link_types (row-level HTMX swap)

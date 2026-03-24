@@ -20,7 +20,7 @@
     {% include "admin/orgs/partials/_active_toggle.html" %}
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
-      <h3 style="margin:0;font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Names</h3>
+      <h3 class="field-group-label">Names</h3>
       <button class="btn btn--sm btn--secondary"
               hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
               hx-target="#names-table tbody"
@@ -41,7 +41,7 @@
     </div>
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
-      <h3 style="margin:0;font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Acronyms</h3>
+      <h3 class="field-group-label">Acronyms</h3>
       <button class="btn btn--sm btn--secondary"
               hx-get="/admin/orgs/{{ org.id }}/acronyms/new-row/"
               hx-target="#acronyms-table tbody"

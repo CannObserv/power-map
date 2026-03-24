@@ -1,7 +1,7 @@
 {# admin/orgs/partials/_notes_read.html — notes read partial #}
 <div id="notes-field" style="margin-top:var(--space-5)">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
-    <h3 style="margin:0;font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Notes</h3>
+    <h3 class="field-group-label">Notes</h3>
     <button type="button" class="btn btn--sm btn--secondary"
             hx-get="/admin/orgs/{{ org.id }}/inline/notes/edit/"
             hx-target="#notes-field"

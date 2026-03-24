@@ -1,6 +1,6 @@
 {# admin/orgs/partials/_notes_form.html — notes inline edit form #}
 <div id="notes-field" style="margin-top:var(--space-5)">
-  <h3 style="margin:0 0 var(--space-3);font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Notes</h3>
+  <label for="notes-textarea" class="field-group-label" style="margin-bottom:var(--space-3)">Notes</label>
   <form hx-post="/admin/orgs/{{ org.id }}/inline/notes/"
         hx-target="#notes-field"
         hx-swap="outerHTML">
