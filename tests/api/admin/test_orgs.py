@@ -127,6 +127,13 @@ def test_org_detail_404_for_unknown_id(client):
     assert response.status_code == 404
 
 
+def test_org_detail_has_email_and_phone_tables(client, org_id):
+    r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert 'id="emails-table"' in r.text
+    assert 'id="phones-table"' in r.text
+
+
 def test_create_org_form_returns_200(client):
     response = client.get("/admin/orgs/new/", headers=AUTH_HEADERS)
     assert response.status_code == 200

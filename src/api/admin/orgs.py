@@ -605,8 +605,14 @@ async def org_detail(
            WHERE ea.entity_type = 'organization' AND ea.entity_id = $1""",
         org_id,
     )
-    contacts = await db.fetch(
-        "SELECT * FROM contact_methods WHERE entity_type = 'organization' AND entity_id = $1",
+    email_contacts = await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type = 'organization' AND entity_id = $1 AND contact_type = 'email'",
+        org_id,
+    )
+    phone_contacts = await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type = 'organization' AND entity_id = $1 AND contact_type = 'phone'",
         org_id,
     )
     links = await db.fetch(
@@ -659,7 +665,8 @@ async def org_detail(
             "names": names,
             "acronyms": acronyms,
             "addresses": addresses,
-            "contacts": contacts,
+            "email_contacts": email_contacts,
+            "phone_contacts": phone_contacts,
             "links": links,
             "identifiers": identifiers,
             "children": children,
