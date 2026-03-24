@@ -334,3 +334,11 @@ def test_orgs_list_htmx_request_returns_rows_partial(client):
     )
     assert response.status_code == 200
     assert "admin-layout" not in response.text
+
+
+def test_org_detail_hierarchy_has_entity_card(client, org_id):
+    r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "Parent Organization" in r.text
+    assert "Child Organizations" in r.text
+    assert "field-group-label" in r.text
