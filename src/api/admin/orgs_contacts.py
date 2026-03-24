@@ -1,6 +1,6 @@
 """Admin CRUD for organization contact methods."""
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -22,10 +22,11 @@ async def _get_org_or_404(org_id: str, db):
 async def contact_new_row(
     org_id: str,
     request: Request,
+    contact_type: str = Query(...),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Return empty contact form row."""
+    """Return empty contact form row for the given contact_type (email|phone)."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
@@ -33,7 +34,7 @@ async def contact_new_row(
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_contact_form_row.html",
-        {"org_id": org_id, "c": None},
+        {"org_id": org_id, "c": None, "contact_type": contact_type},
     )
 
 
@@ -119,7 +120,7 @@ async def contact_edit_row_get(
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_contact_form_row.html",
-        {"org_id": org_id, "c": contact},
+        {"org_id": org_id, "c": contact, "contact_type": contact["contact_type"]},
     )
 
 
@@ -128,13 +129,12 @@ async def contact_edit_row_post(
     org_id: str,
     contact_id: str,
     request: Request,
-    contact_type: str = Form(...),
     value: str = Form(...),
     display_label: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Update an organization contact method."""
+    """Update an organization contact method (contact_type is immutable)."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
@@ -147,8 +147,7 @@ async def contact_edit_row_post(
     if not existing:
         raise HTTPException(status_code=404)
     await db.execute(
-        "UPDATE contact_methods SET contact_type=$1, value=$2, display_label=$3 WHERE id=$4",
-        contact_type,
+        "UPDATE contact_methods SET value=$1, display_label=$2 WHERE id=$3",
         value.strip(),
         display_label.strip() or None,
         contact_id,
