@@ -236,6 +236,16 @@ a:hover { color: var(--color-brand-hover); }
 .form-group__hint { margin-top: var(--space-1); font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .form-actions { display: flex; gap: var(--space-3); margin-top: var(--space-5); align-items: center; }
 
+/* Pill toggle switch */
+.toggle { display: inline-flex; align-items: center; cursor: pointer; gap: var(--space-3); }
+.toggle input[type=checkbox] { position: absolute; opacity: 0; width: 0; height: 0; }
+.toggle__track { position: relative; display: inline-block; width: 44px; height: 24px; border-radius: 12px; background: var(--color-border); transition: background 0.2s; flex-shrink: 0; }
+.toggle input[type=checkbox]:checked + .toggle__track { background: var(--color-brand); }
+.toggle input[type=checkbox]:focus-visible + .toggle__track { box-shadow: 0 0 0 3px var(--color-brand-glow); }
+.toggle__thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: transform 0.2s; }
+.toggle input[type=checkbox]:checked + .toggle__track .toggle__thumb { transform: translateX(20px); }
+.toggle__label { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); }
+
 .filter-card { background: var(--color-surface-1); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-5); }
 .filter-card__search { display: block; width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-family: inherit; font-size: var(--font-size-sm); color: var(--color-text); background: var(--color-surface-1); margin-bottom: var(--space-3); min-height: 44px; }
 .filter-card__search:focus { outline: none; border-color: var(--color-border-focus); box-shadow: 0 0 0 3px var(--color-brand-glow); }

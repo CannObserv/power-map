@@ -21,7 +21,6 @@
   <div class="entity-card">
 
     {% include "admin/orgs/partials/_active_toggle.html" %}
-    {% include "admin/orgs/partials/_notes_read.html" %}
 
     <h3 style="margin:var(--space-5) 0 var(--space-3);font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted)">Names</h3>
     <div class="table-wrapper">
@@ -60,6 +59,8 @@
             hx-target="#acronyms-table tbody"
             hx-swap="afterbegin"
             type="button">+ Add acronym</button>
+
+    {% include "admin/orgs/partials/_notes_read.html" %}
 
   </div>
 </section>

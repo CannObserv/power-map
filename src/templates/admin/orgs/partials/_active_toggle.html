@@ -1,6 +1,6 @@
 {# admin/orgs/partials/_active_toggle.html — auto-saving active toggle #}
 <div id="active-toggle" class="form-group">
-  <label>
+  <label class="toggle">
     <input type="checkbox"
            name="active"
            value="true"
@@ -9,6 +9,7 @@
            hx-target="#active-toggle"
            hx-swap="outerHTML"
            hx-include="this">
-    Active
+    <span class="toggle__track"><span class="toggle__thumb"></span></span>
+    <span class="toggle__label">Active</span>
   </label>
 </div>
