@@ -1,6 +1,6 @@
 {# admin/orgs/partials/_search_results.html #}
 {% for r in results %}
-<li role="option"
+<li id="opt-{{ r.id }}" role="option"
     data-id="{{ r.id }}"
     data-label="{{ r.display_name }}">{{ r.display_name }}</li>
 {% endfor %}

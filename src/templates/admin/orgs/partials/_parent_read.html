@@ -1,13 +1,16 @@
 {# admin/orgs/partials/_parent_read.html #}
-<div id="parent-section">
-  <strong>Parent Organization</strong>
-  {% if parent %}
-  <a href="/admin/orgs/{{ parent.id }}/">{{ parent.display_name or parent.id }}</a>
-  {% else %}
-  <span style="color:var(--color-text-muted)">None</span>
-  {% endif %}
-  <button type="button" class="btn btn--sm btn--secondary"
-          hx-get="/admin/orgs/{{ org.id }}/inline/parent/edit/"
-          hx-target="#parent-section"
-          hx-swap="outerHTML">Change</button>
-</div>
+<tr id="parent-row">
+  <td>
+    {% if parent %}
+    <a href="/admin/orgs/{{ parent.id }}/">{{ parent.display_name or parent.id }}</a>
+    {% else %}
+    <span style="color:var(--color-text-muted)">-</span>
+    {% endif %}
+  </td>
+  <td style="text-align:right">
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org.id }}/inline/parent/edit/"
+            hx-target="#parent-row"
+            hx-swap="outerHTML">Change</button>
+  </td>
+</tr>

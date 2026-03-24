@@ -70,10 +70,15 @@
   <h2>Hierarchy</h2>
   <div class="entity-card">
 
-    <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 var(--space-3)">
-      <h3 class="field-group-label">Parent Organization</h3>
+    <h3 class="field-group-label" style="margin:0 0 var(--space-3)">Parent Organization</h3>
+    <div class="table-wrapper">
+      <table id="parent-table" class="data-table">
+        <thead><tr><th scope="col">Name</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% include "admin/orgs/partials/_parent_read.html" %}
+        </tbody>
+      </table>
     </div>
-    {% include "admin/orgs/partials/_parent_read.html" %}
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
       <h3 class="field-group-label">Child Organizations</h3>

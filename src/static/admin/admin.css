@@ -237,6 +237,12 @@ a:hover { color: var(--color-brand-hover); }
 .form-group__hint { margin-top: var(--space-1); font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .form-actions { display: flex; gap: var(--space-3); margin-top: var(--space-5); align-items: center; }
 
+/* Typeahead search dropdown */
+.typeahead-results { display: none; position: fixed; background: var(--color-surface-1); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: 0 4px 12px rgba(0,0,0,.12); list-style: none; margin: 0; padding: var(--space-1) 0; max-height: 240px; overflow-y: auto; z-index: 9999; }
+.typeahead-results li { padding: var(--space-2) var(--space-3); cursor: pointer; font-size: var(--font-size-sm); border-bottom: 1px solid var(--color-border); }
+.typeahead-results li:last-child { border-bottom: none; }
+.typeahead-results li:hover, .typeahead-results li.is-active { background: var(--color-surface-0); }
+
 /* Pill toggle switch */
 .toggle { display: inline-flex; align-items: center; cursor: pointer; gap: var(--space-3); }
 .toggle input[type=checkbox] { position: absolute; opacity: 0; width: 0; height: 0; }
