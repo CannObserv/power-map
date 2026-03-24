@@ -232,3 +232,10 @@ def test_names_edit_returns_tbody(client, org_and_name):
     assert f'id="name-row-{nid}"' in r.text
     assert f'id="name-row-{nid2}"' in r.text
     assert "<table" not in r.text  # not the full table
+
+
+def test_names_form_row_canonical_toggle_has_aria_label(client, org_and_name):
+    oid, _ = org_and_name
+    r = client.get(f"/admin/orgs/{oid}/names/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'aria-label="Canonical"' in r.text

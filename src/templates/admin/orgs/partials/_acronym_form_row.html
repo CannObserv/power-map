@@ -15,7 +15,7 @@
         <input type="text" name="acronym" required value="{{ a.acronym if a else '' }}" placeholder="Acronym">
       </div>
       <label class="toggle" style="flex-shrink:0">
-        <input type="checkbox" name="is_canonical" value="true"
+        <input type="checkbox" name="is_canonical" value="true" aria-label="Canonical"
                {% if a and a.is_canonical %} checked{% endif %}>
         <span class="toggle__track"><span class="toggle__thumb"></span></span>
       </label>

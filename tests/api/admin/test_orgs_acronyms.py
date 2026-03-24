@@ -272,3 +272,11 @@ async def test_acronym_redirects_without_auth(client, org_id):
         f"/admin/orgs/{org_id}/acronyms/new-row/", follow_redirects=False
     )
     assert r.status_code == 307
+
+
+async def test_acronym_form_row_canonical_toggle_has_aria_label(client, org_id):
+    r = await client.get(
+        f"/admin/orgs/{org_id}/acronyms/new-row/", headers=AUTH_HEADERS
+    )
+    assert r.status_code == 200
+    assert b'aria-label="Canonical"' in r.content
