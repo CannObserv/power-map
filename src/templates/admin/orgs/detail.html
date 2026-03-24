@@ -28,8 +28,8 @@
               type="button">+ Add name</button>
     </div>
     <div class="table-wrapper">
-      <table id="names-table" class="data-table">
-        <thead><tr><th scope="col">Name</th><th scope="col" style="text-align:right">Type</th><th scope="col" style="text-align:right">Canonical</th><th scope="col"></th></tr></thead>
+      <table id="names-table" class="data-table" style="table-layout:fixed">
+        <thead><tr><th scope="col">Name</th><th scope="col" style="text-align:right;width:5rem">Type</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"></th></tr></thead>
         <tbody>
           {% for n in names %}
           {% include "admin/orgs/partials/_name_row.html" %}
@@ -49,8 +49,8 @@
               type="button">+ Add acronym</button>
     </div>
     <div class="table-wrapper">
-      <table id="acronyms-table" class="data-table">
-        <thead><tr><th scope="col">Acronym</th><th scope="col" style="text-align:right">Canonical</th><th scope="col"></th></tr></thead>
+      <table id="acronyms-table" class="data-table" style="table-layout:fixed">
+        <thead><tr><th scope="col">Acronym</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"></th></tr></thead>
         <tbody>
           {% for a in acronyms %}
           {% include "admin/orgs/partials/_acronym_row.html" %}
