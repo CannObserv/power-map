@@ -6,7 +6,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    check_auth,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+)
 from src.api.admin.org_dups import (
     CANDIDATE_WHERE,
     get_org_dup_count,
@@ -327,7 +334,7 @@ async def org_merge(
     invalidate_dup_count_cache()
     if is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
-        flash_body = (
+        body = (
             f'Merged <strong>{escape(loser_name)}</strong> into '
             f'<a href="/admin/orgs/{winner_id}/"><strong>{escape(winner_name)}</strong></a>. '
             f'Review URLs, roles, and contact info for duplicates.'
@@ -336,10 +343,13 @@ async def org_merge(
             "user": user,
             "active_section": "orgs_duplicates",
             "pairs": pairs,
-            "flash_level": "success",
-            "flash_body": flash_body,
         }
-        return templates.TemplateResponse(request, "admin/orgs/_duplicates_region.html", ctx)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/_duplicates_region.html",
+            ctx,
+            headers=flash_trigger("success", body),
+        )
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
 
 
@@ -371,10 +381,13 @@ async def org_dismiss_duplicate(
             "user": user,
             "active_section": "orgs_duplicates",
             "pairs": pairs,
-            "flash_level": "info",
-            "flash_body": "Pair marked as not a duplicate.",
         }
-        return templates.TemplateResponse(request, "admin/orgs/_duplicates_region.html", ctx)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/_duplicates_region.html",
+            ctx,
+            headers=flash_trigger("info", "Pair marked as not a duplicate."),
+        )
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
 
 

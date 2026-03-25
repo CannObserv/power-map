@@ -15,9 +15,6 @@
 </script>
 {% endmacro %}
 
-{# OOB wrapper — include at the end of any HTMX partial to inject a flash into #flash-region #}
-{% macro oob(level, body, auto_dismiss_ms=4000) %}
-<div id="flash-region" hx-swap-oob="beforeend">
-  {{ message(level, body, auto_dismiss_ms) }}
-</div>
-{% endmacro %}
+{# oob() retired — use flash_trigger() from src.api.admin.deps:
+   set HX-Trigger: {"showFlash": {...}} on the response.
+   flash.js injects the flash into #flash-region without OOB fragility. #}

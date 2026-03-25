@@ -1,5 +1,6 @@
 """Admin dashboard dependencies."""
 
+import json
 from dataclasses import dataclass
 from urllib.parse import quote
 
@@ -40,6 +41,15 @@ def check_auth(user: AdminUser | RedirectResponse):
 def is_htmx(request: Request) -> bool:
     """Return True for HTMX non-boosted requests (for partial template selection)."""
     return bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
+
+
+def flash_trigger(level: str, body: str) -> dict[str, str]:
+    """Return an HX-Trigger header dict that dispatches a showFlash event on the client.
+
+    Spread into TemplateResponse(headers=flash_trigger(...)) on HTMX mutation routes.
+    The client-side flash.js listener catches the event and injects the flash into #flash-region.
+    """
+    return {"HX-Trigger": json.dumps({"showFlash": {"level": level, "body": body}})}
 
 
 async def get_db(request: Request) -> asyncpg.Connection:

@@ -5,6 +5,9 @@ from pathlib import Path
 _MODAL_JS_PATH = Path("src/static/admin/admin-modal.js")
 MODAL_JS = _MODAL_JS_PATH.read_text() if _MODAL_JS_PATH.exists() else ""
 
+_FLASH_JS_PATH = Path("src/static/admin/flash.js")
+FLASH_JS = _FLASH_JS_PATH.read_text() if _FLASH_JS_PATH.exists() else ""
+
 
 def test_admin_modal_js_exists():
     assert _MODAL_JS_PATH.exists()
@@ -42,3 +45,38 @@ def test_admin_modal_js_uses_data_action_selectors():
     assert 'data-confirm-action' in MODAL_JS
     assert '#pm-confirm-cancel' not in MODAL_JS
     assert '#pm-confirm-ok' not in MODAL_JS
+
+
+def test_flash_js_exists():
+    assert _FLASH_JS_PATH.exists()
+
+
+def test_flash_js_listens_for_show_flash_event():
+    """Listener must be keyed to the showFlash event dispatched by HTMX from HX-Trigger header.
+    Any other event name breaks delivery silently."""
+    assert "showFlash" in FLASH_JS
+
+
+def test_flash_js_guards_on_missing_detail():
+    """HTMX may dispatch other custom events; guard prevents TypeError on missing detail."""
+    assert "if (!f)" in FLASH_JS or "if (!e.detail)" in FLASH_JS
+
+
+def test_flash_js_targets_flash_region():
+    """Flash must be injected into #flash-region — changing this breaks the layout contract."""
+    assert "flash-region" in FLASH_JS
+
+
+def test_flash_js_auto_dismisses_via_settimeout():
+    """Flash must auto-dismiss — without setTimeout toasts linger indefinitely."""
+    assert "setTimeout" in FLASH_JS
+
+
+def test_flash_js_pauses_dismiss_on_mouseenter():
+    """Hover-pause prevents flash from disappearing while the user is reading it."""
+    assert "mouseenter" in FLASH_JS
+
+
+def test_flash_js_resumes_dismiss_on_mouseleave():
+    """Dismiss timer must restart when the cursor leaves."""
+    assert "mouseleave" in FLASH_JS
