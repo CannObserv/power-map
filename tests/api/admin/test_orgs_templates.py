@@ -154,3 +154,19 @@ def test_base_admin_modal_js_has_defer():
     scripts = re.findall(r'<script\b[^>]*admin-modal\.js[^>]*>', BASE_HTML)
     assert scripts, "admin-modal.js script tag not found in base.html"
     assert all("defer" in s for s in scripts), "admin-modal.js script tag must have defer"
+
+
+# flash.js loaded in base layout
+# ---------------------------------------------------------------------------
+
+
+def test_base_loads_flash_js():
+    """flash.js must be loaded for the showFlash HX-Trigger listener to be active."""
+    assert "flash.js" in BASE_HTML
+
+
+def test_base_flash_js_has_defer():
+    """Non-critical script; must not block page render."""
+    scripts = re.findall(r'<script\b[^>]*flash\.js[^>]*>', BASE_HTML)
+    assert scripts, "flash.js script tag not found in base.html"
+    assert all("defer" in s for s in scripts), "flash.js script tag must have defer"

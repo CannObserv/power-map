@@ -46,8 +46,16 @@ def is_htmx(request: Request) -> bool:
 def flash_trigger(level: str, body: str) -> dict[str, str]:
     """Return an HX-Trigger header dict that dispatches a showFlash event on the client.
 
-    Spread into TemplateResponse(headers=flash_trigger(...)) on HTMX mutation routes.
-    The client-side flash.js listener catches the event and injects the flash into #flash-region.
+    Pass directly as the headers argument to TemplateResponse on HTMX mutation routes:
+
+        return templates.TemplateResponse(
+            request, "partial.html", ctx,
+            headers=flash_trigger("success", f"Saved <strong>{escape(name)}</strong>."),
+        )
+
+    HTMX processes the HX-Trigger header and fires a showFlash DOM event. The flash.js
+    listener catches it and injects the flash into #flash-region — no OOB element needed.
+    Always escape DB-derived values in body with markupsafe.escape() before calling.
     """
     return {"HX-Trigger": json.dumps({"showFlash": {"level": level, "body": body}})}
 
