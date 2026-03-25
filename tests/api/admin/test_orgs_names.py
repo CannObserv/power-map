@@ -252,6 +252,7 @@ def test_names_create_returns_success_flash(client, org_and_name):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+    assert "Flash Test Name" in trigger["showFlash"]["body"]
 
 
 def test_names_update_returns_success_flash(client, org_and_name):
@@ -264,6 +265,7 @@ def test_names_update_returns_success_flash(client, org_and_name):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+    assert "Updated Name" in trigger["showFlash"]["body"]
 
 
 def test_names_delete_returns_info_flash(client, org_and_name):

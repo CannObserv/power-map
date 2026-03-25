@@ -199,6 +199,7 @@ def test_contacts_create_returns_success_flash(client, org_and_contact):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+    assert "flash@example.com" in trigger["showFlash"]["body"]
 
 
 def test_contacts_update_returns_success_flash(client, org_and_contact):
@@ -211,6 +212,7 @@ def test_contacts_update_returns_success_flash(client, org_and_contact):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+    assert "+13605559999" in trigger["showFlash"]["body"]
 
 
 def test_contacts_delete_returns_info_flash(client, org_and_contact):

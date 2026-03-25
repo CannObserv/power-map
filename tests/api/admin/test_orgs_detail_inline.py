@@ -212,7 +212,8 @@ async def test_name_create_returns_sorted_tbody(client, org_id, db):
 # ---------------------------------------------------------------------------
 
 
-async def test_active_post_activate_returns_success_flash(client, org_id):
+async def test_active_post_activate_returns_success_flash(client, org_id, db):
+    await db.execute("UPDATE organizations SET active=FALSE WHERE id=$1", org_id)
     r = await client.post(
         f"/admin/orgs/{org_id}/inline/active/",
         data={"active": "true"},
@@ -262,6 +263,7 @@ async def test_parent_post_set_returns_success_flash(client, org_id, db):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+    assert "Parent Org" in trigger["showFlash"]["body"]
 
 
 async def test_parent_post_clear_returns_info_flash(client, org_id, db):

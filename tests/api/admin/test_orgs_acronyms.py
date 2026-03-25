@@ -292,6 +292,7 @@ async def test_acronym_create_returns_success_flash(client, org_id):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+    assert "FLASH" in trigger["showFlash"]["body"]
 
 
 async def test_acronym_edit_returns_success_flash(client, org_id, db):
@@ -310,6 +311,7 @@ async def test_acronym_edit_returns_success_flash(client, org_id, db):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+    assert "NEW" in trigger["showFlash"]["body"]
 
 
 async def test_acronym_delete_returns_info_flash(client, org_id, db):

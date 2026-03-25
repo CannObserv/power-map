@@ -128,6 +128,7 @@ def test_add_child_returns_success_flash(client, parent_and_child):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+    assert "linked as child" in trigger["showFlash"]["body"]
 
 
 def test_remove_child_returns_info_flash(client, parent_and_child):

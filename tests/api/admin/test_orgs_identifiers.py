@@ -175,6 +175,7 @@ def test_identifiers_create_returns_success_flash(client, org_id_and_type):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+    assert "FLASH-001" in trigger["showFlash"]["body"]
 
 
 def test_identifiers_update_returns_success_flash(client, org_and_identifier):
@@ -187,6 +188,7 @@ def test_identifiers_update_returns_success_flash(client, org_and_identifier):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+    assert "FLASH-002" in trigger["showFlash"]["body"]
 
 
 def test_identifiers_delete_returns_info_flash(client, org_and_identifier):
