@@ -363,14 +363,21 @@ The `#flash-region` already has these attributes in `base.html`.
 
 ### XSS prevention
 
-Always `markupsafe.escape()` any DB-derived value before passing to `body`:
+**Two escaping contexts — not competing approaches:**
+
+| Context | Tool | Reason |
+|---|---|---|
+| Normal template variables (`{{ org.name }}`) | Jinja2 autoescape (automatic) | `Jinja2Templates` sets `autoescape=True` globally — no developer action needed |
+| Flash body string with intentional HTML markup | `markupsafe.escape()` on user values | Body exits the Jinja2 pipeline via `\| safe` (inline) or JS `innerHTML` (HX-Trigger) — autoescape never runs |
+
+Always `markupsafe.escape()` any DB-derived value before composing a flash body string:
 
 ```python
 from markupsafe import escape
-flash_body = f"Merged org <strong>{escape(org_name)}</strong>."
+body = f"Merged org <strong>{escape(org_name)}</strong>."
 ```
 
-The `body` parameter uses `{{ body | safe }}` — it trusts the caller.
+Do **not** add `markupsafe.escape()` to values passed as normal template context — Jinja2 autoescape already handles them, and double-escaping will corrupt output (`&amp;lt;` instead of `<`).
 
 ### Persistent banners
 
