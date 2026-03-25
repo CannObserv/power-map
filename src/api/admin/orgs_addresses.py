@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -97,7 +97,10 @@ async def address_create(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_address_row.html", {"org_id": org_id, "a": row}
+        request,
+        "admin/orgs/partials/_address_row.html",
+        {"org_id": org_id, "a": row},
+        headers=flash_trigger("success", "Address added."),
     )
 
 
@@ -179,7 +182,10 @@ async def address_edit_row_post(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_address_row.html", {"org_id": org_id, "a": row}
+        request,
+        "admin/orgs/partials/_address_row.html",
+        {"org_id": org_id, "a": row},
+        headers=flash_trigger("success", "Address saved."),
     )
 
 
@@ -207,4 +213,8 @@ async def address_delete(
     async with db.transaction():
         await db.execute("DELETE FROM entity_addresses WHERE id=$1", addr_id)
         await db.execute("DELETE FROM addresses WHERE id=$1", address_id)
-    return HTMLResponse(content="", status_code=200)
+    return HTMLResponse(
+        content="",
+        status_code=200,
+        headers=flash_trigger("info", "Address removed."),
+    )

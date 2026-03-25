@@ -3,8 +3,9 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -77,7 +78,10 @@ async def name_create(
         org_id,
     )
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_name_rows.html", {"org_id": org_id, "names": names}
+        request,
+        "admin/orgs/partials/_name_rows.html",
+        {"org_id": org_id, "names": names},
+        headers=flash_trigger("success", f"Name <strong>{escape(name.strip())}</strong> added."),
     )
 
 
@@ -176,7 +180,10 @@ async def name_edit_row_post(
         org_id,
     )
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_name_rows.html", {"org_id": org_id, "names": names}
+        request,
+        "admin/orgs/partials/_name_rows.html",
+        {"org_id": org_id, "names": names},
+        headers=flash_trigger("success", f"Name <strong>{escape(name.strip())}</strong> saved."),
     )
 
 
@@ -200,4 +207,4 @@ async def name_delete(
     if not existing:
         raise HTTPException(status_code=404)
     await db.execute("DELETE FROM organization_names WHERE id=$1", name_id)
-    return HTMLResponse(content="", status_code=200)
+    return HTMLResponse(content="", status_code=200, headers=flash_trigger("info", "Name removed."))

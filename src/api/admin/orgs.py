@@ -413,8 +413,12 @@ async def org_inline_active_post(
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    label = "Marked active." if new_active else "Marked inactive."
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_active_toggle.html", {"org": org}
+        request,
+        "admin/orgs/partials/_active_toggle.html",
+        {"org": org},
+        headers=flash_trigger("success", label),
     )
 
 
@@ -480,7 +484,10 @@ async def org_inline_notes_post(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_notes_read.html", {"org": org}
+        request,
+        "admin/orgs/partials/_notes_read.html",
+        {"org": org},
+        headers=flash_trigger("success", "Notes saved."),
     )
 
 
@@ -549,10 +556,15 @@ async def org_inline_parent_post(
         )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    if parent:
+        flash_body = f"Parent set to <strong>{escape(parent['display_name'])}</strong>."
+    else:
+        flash_body = "Parent organization cleared."
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_parent_read.html",
         {"org": org, "parent": parent},
+        headers=flash_trigger("success", flash_body),
     )
 
 
@@ -734,7 +746,13 @@ async def children_add(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_child_row.html", {"org_id": org_id, "child": row}
+        request,
+        "admin/orgs/partials/_child_row.html",
+        {"org_id": org_id, "child": row},
+        headers=flash_trigger(
+            "success",
+            f"<strong>{escape(row['canonical_name'])}</strong> linked as child.",
+        ),
     )
 
 
@@ -756,7 +774,11 @@ async def children_remove(
     if not child:
         raise HTTPException(status_code=404)
     await db.execute("UPDATE organizations SET parent_id=NULL WHERE id=$1", child_id)
-    return HTMLResponse(content="", status_code=200)
+    return HTMLResponse(
+        content="",
+        status_code=200,
+        headers=flash_trigger("info", "Child organization unlinked."),
+    )
 
 
 @router.post("/{org_id}/archive/")

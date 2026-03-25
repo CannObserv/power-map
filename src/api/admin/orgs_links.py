@@ -3,8 +3,9 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -93,7 +94,10 @@ async def link_create(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_link_row.html", {"org_id": org_id, "l": row}
+        request,
+        "admin/orgs/partials/_link_row.html",
+        {"org_id": org_id, "l": row},
+        headers=flash_trigger("success", f"Link <strong>{escape(url.strip())}</strong> added."),
     )
 
 
@@ -177,7 +181,10 @@ async def link_edit_row_post(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_link_row.html", {"org_id": org_id, "l": row}
+        request,
+        "admin/orgs/partials/_link_row.html",
+        {"org_id": org_id, "l": row},
+        headers=flash_trigger("success", f"Link <strong>{escape(url.strip())}</strong> saved."),
     )
 
 
@@ -201,4 +208,4 @@ async def link_delete(
     if not existing:
         raise HTTPException(status_code=404)
     await db.execute("DELETE FROM links WHERE id=$1", link_id)
-    return HTMLResponse(content="", status_code=200)
+    return HTMLResponse(content="", status_code=200, headers=flash_trigger("info", "Link removed."))
