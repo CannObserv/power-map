@@ -735,7 +735,7 @@ The Notes field uses a separate read/edit partial pair with a header row followi
 | `hx-confirm="<message>"` | yes | — | Modal body text |
 | `data-confirm-title="<text>"` | no | `"Are you sure?"` | Modal heading (`<h2>`) |
 | `data-confirm-label="<text>"` | no | `"Confirm"` | Confirm button text |
-| `data-confirm-variant="danger\|primary"` | no | `"danger"` | Confirm button variant |
+| `data-confirm-variant` | no | `"danger"` | Confirm button variant: `"danger"` or `"primary"` |
 
 ### Example
 

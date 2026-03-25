@@ -15,6 +15,12 @@ def test_admin_modal_js_intercepts_htmx_confirm():
     assert "htmx:confirm" in MODAL_JS
 
 
+def test_admin_modal_js_issues_request_with_skip_default():
+    """issueRequest() without true still calls window.confirm() in HTMX 1.9.x.
+    Must pass true to suppress the native dialog after our modal has confirmed."""
+    assert "issueRequest(true)" in MODAL_JS
+
+
 def test_admin_modal_js_reads_message_from_attribute():
     """HTMX 1.9.x does not reliably populate event.detail.question; read from element."""
     assert "getAttribute('hx-confirm')" in MODAL_JS

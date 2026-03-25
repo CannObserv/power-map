@@ -74,7 +74,7 @@
     cancelBtn.addEventListener('click', close);
     okBtn.addEventListener('click', function () {
       close();
-      event.detail.issueRequest();
+      event.detail.issueRequest(true);  // true = skip window.confirm(); we already confirmed
     });
     modal.addEventListener('keydown', trap);
     cancelBtn.focus();
