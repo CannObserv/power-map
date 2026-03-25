@@ -98,12 +98,16 @@
   </script>
   <script>
     /* Announce HTMX loading state to assistive technology */
-    document.addEventListener('htmx:beforeRequest', function (e) {
+    document.removeEventListener('htmx:beforeRequest', document.__pmAriaBefore);
+    document.__pmAriaBefore = function (e) {
       if (e.detail.target) e.detail.target.setAttribute('aria-busy', 'true');
-    });
-    document.addEventListener('htmx:afterSettle', function (e) {
+    };
+    document.addEventListener('htmx:beforeRequest', document.__pmAriaBefore);
+    document.removeEventListener('htmx:afterSettle', document.__pmAriaAfter);
+    document.__pmAriaAfter = function (e) {
       if (e.detail.target) e.detail.target.removeAttribute('aria-busy');
-    });
+    };
+    document.addEventListener('htmx:afterSettle', document.__pmAriaAfter);
   </script>
 </body>
 </html>
