@@ -804,6 +804,26 @@ async def org_archive(
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 
 
+@router.post("/{org_id}/unarchive/")
+async def org_unarchive(
+    org_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Restore an archived organization."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    org = await db.fetchrow("SELECT id, archived_at FROM organizations WHERE id = $1", org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    if not org["archived_at"]:
+        raise HTTPException(status_code=409, detail="Organization is not archived")
+    await db.execute("UPDATE organizations SET archived_at = NULL WHERE id = $1", org_id)
+    return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+
+
 @router.delete("/{org_id}/")
 async def org_delete(
     org_id: str,

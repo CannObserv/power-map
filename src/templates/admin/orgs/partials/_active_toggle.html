@@ -17,4 +17,9 @@
       {% else %}<span class="badge badge--active">Active</span>{% endif %}
     </span>
   </label>
+  {% if org.archived_at %}
+  <form method="POST" action="/admin/orgs/{{ org.id }}/unarchive/" style="display:inline;margin-left:var(--space-3)">
+    <button type="submit" class="btn btn--secondary btn--sm">Restore from archive</button>
+  </form>
+  {% endif %}
 </div>

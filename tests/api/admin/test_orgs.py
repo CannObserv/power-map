@@ -188,6 +188,49 @@ def test_archive_org(client, org_id):
     assert response.status_code in (302, 303)
 
 
+def test_unarchive_org_clears_archived_at(client, org_id):
+    dsn = _get_dsn()
+
+    async def archive():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute(
+                "UPDATE organizations SET archived_at = NOW(), active = FALSE WHERE id = $1",
+                org_id,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(archive())
+    response = client.post(
+        f"/admin/orgs/{org_id}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+
+    async def fetch():
+        conn = await _aconnect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT archived_at, active FROM organizations WHERE id = $1", org_id
+            )
+        finally:
+            await conn.close()
+
+    row = asyncio.run(fetch())
+    assert row["archived_at"] is None
+    assert row["active"] is False  # prior active state preserved
+
+
+def test_unarchive_org_rejects_non_archived(client, org_id):
+    response = client.post(
+        f"/admin/orgs/{org_id}/unarchive/",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 409
+
+
 def test_hard_delete_requires_archive_first(client, org_id):
     response = client.delete(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 409
