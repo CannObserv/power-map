@@ -160,7 +160,7 @@ def test_base_admin_modal_js_is_in_head():
     """Must be in <head> — body scripts are re-executed on every hx-boost navigation,
     causing duplicate document.addEventListener registrations."""
     head = BASE_HTML.split("</head>")[0]
-    assert "admin-modal.js" in head, "admin-modal.js must be in <head> to avoid hx-boost re-execution"
+    assert "admin-modal.js" in head, "admin-modal.js must be in <head> (hx-boost re-execution)"
 
 
 # flash.js loaded in base layout
