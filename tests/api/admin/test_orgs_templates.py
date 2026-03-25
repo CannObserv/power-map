@@ -156,6 +156,13 @@ def test_base_admin_modal_js_has_defer():
     assert all("defer" in s for s in scripts), "admin-modal.js script tag must have defer"
 
 
+def test_base_admin_modal_js_is_in_head():
+    """Must be in <head> — body scripts are re-executed on every hx-boost navigation,
+    causing duplicate document.addEventListener registrations."""
+    head = BASE_HTML.split("</head>")[0]
+    assert "admin-modal.js" in head, "admin-modal.js must be in <head> to avoid hx-boost re-execution"
+
+
 # flash.js loaded in base layout
 # ---------------------------------------------------------------------------
 
@@ -170,3 +177,10 @@ def test_base_flash_js_has_defer():
     scripts = re.findall(r'<script\b[^>]*flash\.js[^>]*>', BASE_HTML)
     assert scripts, "flash.js script tag not found in base.html"
     assert all("defer" in s for s in scripts), "flash.js script tag must have defer"
+
+
+def test_base_flash_js_is_in_head():
+    """Must be in <head> — body scripts are re-executed on every hx-boost navigation,
+    causing duplicate document.addEventListener registrations."""
+    head = BASE_HTML.split("</head>")[0]
+    assert "flash.js" in head, "flash.js must be in <head> to avoid hx-boost re-execution"
