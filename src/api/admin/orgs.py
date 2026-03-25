@@ -536,16 +536,10 @@ async def org_inline_parent_post(
         )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
-    if resolved is None:
-        flash_level, flash_body = "success", "Parent organization removed."
-    else:
-        flash_level, flash_body = "success", (
-            f'Parent set to <strong>{escape(parent["display_name"] or parent["id"])}</strong>.'
-        )
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_parent_read.html",
-        {"org": org, "parent": parent, "flash_level": flash_level, "flash_body": flash_body},
+        {"org": org, "parent": parent},
     )
 
 
