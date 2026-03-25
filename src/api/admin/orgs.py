@@ -789,7 +789,6 @@ async def children_remove(
 @router.post("/{org_id}/archive/")
 async def org_archive(
     org_id: str,
-    request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -807,7 +806,6 @@ async def org_archive(
 @router.post("/{org_id}/unarchive/")
 async def org_unarchive(
     org_id: str,
-    request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):

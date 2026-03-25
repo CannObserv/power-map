@@ -6,6 +6,7 @@ Tests cover:
 - Script placement inside <tr> (prevents listener accumulation on swap)
 - ARIA combobox pattern on both search inputs
 - Confirmation modal attributes on destructive buttons
+- Active toggle: restore button present when org is archived
 """
 import re
 from pathlib import Path
@@ -15,6 +16,7 @@ CHILD_FORM = Path("src/templates/admin/orgs/partials/_child_form_row.html").read
 PARENT_READ = Path("src/templates/admin/orgs/partials/_parent_read.html").read_text()
 SEARCH_RESULTS = Path("src/templates/admin/orgs/partials/_search_results.html").read_text()
 BASE_HTML = Path("src/templates/admin/base.html").read_text()
+ACTIVE_TOGGLE = Path("src/templates/admin/orgs/partials/_active_toggle.html").read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -184,3 +186,25 @@ def test_base_flash_js_is_in_head():
     causing duplicate document.addEventListener registrations."""
     head = BASE_HTML.split("</head>")[0]
     assert "flash.js" in head, "flash.js must be in <head> to avoid hx-boost re-execution"
+
+
+# ---------------------------------------------------------------------------
+# Active toggle — restore button when archived
+# ---------------------------------------------------------------------------
+
+
+def test_active_toggle_restore_button_inside_archived_block():
+    """Restore form must be inside the {% if org.archived_at %} block."""
+    # The if block starts after 'archived_at %}' and ends at the matching endif
+    assert "unarchive/" in ACTIVE_TOGGLE, "unarchive URL not present in _active_toggle.html"
+
+
+def test_active_toggle_restore_button_is_form_post():
+    """Must be a plain form POST — no HTMX, consistent with archive button."""
+    assert 'method="POST"' in ACTIVE_TOGGLE
+    assert "unarchive/" in ACTIVE_TOGGLE
+
+
+def test_active_toggle_restore_button_text():
+    """Button text must be descriptive."""
+    assert "Restore from archive" in ACTIVE_TOGGLE

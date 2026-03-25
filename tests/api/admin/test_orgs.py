@@ -227,8 +227,18 @@ def test_unarchive_org_rejects_non_archived(client, org_id):
     response = client.post(
         f"/admin/orgs/{org_id}/unarchive/",
         headers=AUTH_HEADERS,
+        follow_redirects=False,
     )
     assert response.status_code == 409
+
+
+def test_unarchive_org_redirects_unauthenticated(client, org_id):
+    response = client.post(
+        f"/admin/orgs/{org_id}/unarchive/",
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 307)
+    assert "/__exe.dev/login" in response.headers["location"]
 
 
 def test_hard_delete_requires_archive_first(client, org_id):
