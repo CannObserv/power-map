@@ -5,6 +5,7 @@ Run with:
         tests/api/admin/test_orgs_detail_inline.py
 """
 
+import json
 import os
 
 import asyncpg
@@ -204,3 +205,76 @@ async def test_name_create_returns_sorted_tbody(client, org_id, db):
     assert b"Test Org" in r.content
     assert b"New Name" in r.content
     assert b"Alt Name" in r.content
+
+
+# ---------------------------------------------------------------------------
+# Flash headers
+# ---------------------------------------------------------------------------
+
+
+async def test_active_post_activate_returns_success_flash(client, org_id):
+    r = await client.post(
+        f"/admin/orgs/{org_id}/inline/active/",
+        data={"active": "true"},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+async def test_active_post_deactivate_returns_info_flash(client, org_id):
+    r = await client.post(
+        f"/admin/orgs/{org_id}/inline/active/",
+        data={},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"
+
+
+async def test_notes_post_returns_success_flash(client, org_id):
+    r = await client.post(
+        f"/admin/orgs/{org_id}/inline/notes/",
+        data={"notes": "some notes"},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+async def test_parent_post_set_returns_success_flash(client, org_id, db):
+    parent_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", parent_id)
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+        " VALUES ($1, $2, 'Parent Org', TRUE)",
+        generate_id(),
+        parent_id,
+    )
+    r = await client.post(
+        f"/admin/orgs/{org_id}/inline/parent/",
+        data={"parent_id": parent_id},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+async def test_parent_post_clear_returns_info_flash(client, org_id, db):
+    parent_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", parent_id)
+    await db.execute(
+        "UPDATE organizations SET parent_id=$1 WHERE id=$2", parent_id, org_id
+    )
+    r = await client.post(
+        f"/admin/orgs/{org_id}/inline/parent/",
+        data={"parent_id": ""},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"

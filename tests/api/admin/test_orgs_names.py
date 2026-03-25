@@ -1,6 +1,7 @@
 """Integration tests for org names CRUD."""
 
 import asyncio
+import json
 import os
 
 import asyncpg
@@ -239,3 +240,52 @@ def test_names_form_row_canonical_toggle_has_aria_label(client, org_and_name):
     r = client.get(f"/admin/orgs/{oid}/names/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert 'aria-label="Canonical"' in r.text
+
+
+def test_names_create_returns_success_flash(client, org_and_name):
+    oid, _ = org_and_name
+    r = client.post(
+        f"/admin/orgs/{oid}/names/",
+        headers=HTMX_HEADERS,
+        data={"name": "Flash Test Name", "name_type": "dba", "is_canonical": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_names_update_returns_success_flash(client, org_and_name):
+    oid, nid = org_and_name
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"name": "Updated Name", "name_type": "legal", "is_canonical": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_names_delete_returns_info_flash(client, org_and_name):
+    dsn = _dsn()
+    oid, _ = org_and_name
+    nid2 = generate_id()
+
+    async def add():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Delete Me', FALSE)",
+                nid2,
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(add())
+    r = client.delete(f"/admin/orgs/{oid}/names/{nid2}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"

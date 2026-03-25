@@ -414,11 +414,12 @@ async def org_inline_active_post(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     label = "Marked active." if new_active else "Marked inactive."
+    level = "success" if new_active else "info"
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_active_toggle.html",
         {"org": org},
-        headers=flash_trigger("success", label),
+        headers=flash_trigger(level, label),
     )
 
 
@@ -558,13 +559,15 @@ async def org_inline_parent_post(
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     if parent:
         flash_body = f"Parent set to <strong>{escape(parent['display_name'])}</strong>."
+        flash_level = "success"
     else:
         flash_body = "Parent organization cleared."
+        flash_level = "info"
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_parent_read.html",
         {"org": org, "parent": parent},
-        headers=flash_trigger("success", flash_body),
+        headers=flash_trigger(flash_level, flash_body),
     )
 
 

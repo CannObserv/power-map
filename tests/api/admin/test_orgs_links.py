@@ -1,6 +1,7 @@
 """Integration tests for org links CRUD."""
 
 import asyncio
+import json
 import os
 
 import asyncpg
@@ -188,3 +189,50 @@ def test_link_form_row_has_toggle(client, org_and_link):
     oid, _ = org_and_link
     r = client.get(f"/admin/orgs/{oid}/links/new-row/", headers=HTMX_HEADERS)
     assert "toggle__track" in r.text
+
+
+def _get_link_type_id():
+    dsn = os.environ.get("DATABASE_URL")
+
+    async def _fetch():
+        conn = await asyncpg.connect(dsn)
+        try:
+            return await conn.fetchval("SELECT id FROM link_types WHERE slug='website'")
+        finally:
+            await conn.close()
+
+    return asyncio.run(_fetch())
+
+
+def test_links_create_returns_success_flash(client, org_and_link):
+    oid, _ = org_and_link
+    lt_id = _get_link_type_id()
+    r = client.post(
+        f"/admin/orgs/{oid}/links/",
+        headers=HTMX_HEADERS,
+        data={"url": "https://flash.example.com", "link_type_id": lt_id, "is_active": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_links_update_returns_success_flash(client, org_and_link):
+    oid, lid = org_and_link
+    lt_id = _get_link_type_id()
+    r = client.post(
+        f"/admin/orgs/{oid}/links/{lid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"url": "https://updated.example.com", "link_type_id": lt_id, "is_active": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_links_delete_returns_info_flash(client, org_and_link):
+    oid, lid = org_and_link
+    r = client.delete(f"/admin/orgs/{oid}/links/{lid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"

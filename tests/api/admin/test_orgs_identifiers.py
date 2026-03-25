@@ -1,6 +1,7 @@
 """Integration tests for org identifiers CRUD."""
 
 import asyncio
+import json
 import os
 
 import asyncpg
@@ -162,3 +163,35 @@ def test_identifiers_delete_unknown_returns_404(client, org_id_and_type):
     oid, _ = org_id_and_type
     r = client.delete(f"/admin/orgs/{oid}/identifiers/{generate_id()}/", headers=HTMX_HEADERS)
     assert r.status_code == 404
+
+
+def test_identifiers_create_returns_success_flash(client, org_id_and_type):
+    oid, type_id = org_id_and_type
+    r = client.post(
+        f"/admin/orgs/{oid}/identifiers/",
+        headers=HTMX_HEADERS,
+        data={"entity_identifier_type_id": type_id, "value": "FLASH-001"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_identifiers_update_returns_success_flash(client, org_and_identifier):
+    oid, iid, type_id = org_and_identifier
+    r = client.post(
+        f"/admin/orgs/{oid}/identifiers/{iid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"entity_identifier_type_id": type_id, "value": "FLASH-002"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_identifiers_delete_returns_info_flash(client, org_and_identifier):
+    oid, iid, _ = org_and_identifier
+    r = client.delete(f"/admin/orgs/{oid}/identifiers/{iid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"

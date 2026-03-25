@@ -5,6 +5,7 @@ Run with:
         tests/api/admin/test_orgs_acronyms.py
 """
 
+import json
 import os
 
 import asyncpg
@@ -280,3 +281,49 @@ async def test_acronym_form_row_canonical_toggle_has_aria_label(client, org_id):
     )
     assert r.status_code == 200
     assert b'aria-label="Canonical"' in r.content
+
+
+async def test_acronym_create_returns_success_flash(client, org_id):
+    r = await client.post(
+        f"/admin/orgs/{org_id}/acronyms/",
+        data={"acronym": "FLASH", "is_canonical": ""},
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+async def test_acronym_edit_returns_success_flash(client, org_id, db):
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'OLD', FALSE)",
+        aid,
+        org_id,
+    )
+    r = await client.post(
+        f"/admin/orgs/{org_id}/acronyms/{aid}/edit-row/",
+        data={"acronym": "NEW", "is_canonical": ""},
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+async def test_acronym_delete_returns_info_flash(client, org_id, db):
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'DEL', FALSE)",
+        aid,
+        org_id,
+    )
+    r = await client.delete(
+        f"/admin/orgs/{org_id}/acronyms/{aid}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"

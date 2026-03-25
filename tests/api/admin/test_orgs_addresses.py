@@ -1,6 +1,7 @@
 """Integration tests for org addresses CRUD."""
 
 import asyncio
+import json
 import os
 
 import asyncpg
@@ -170,3 +171,37 @@ def test_address_form_row_has_form_group(client, org_and_address):
     r = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "form-group" in r.text
+
+
+def test_addresses_create_returns_success_flash(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={"address_line_1": "1 Flash St", "city": "Seattle", "region": "WA",
+              "postal_code": "98101", "address_type": "physical"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_addresses_update_returns_success_flash(client, org_and_address):
+    oid, eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"address_line_1": "999 Flash Ave", "city": "Olympia", "region": "WA",
+              "postal_code": "98501", "address_type": "mailing"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_addresses_delete_returns_info_flash(client, org_and_address):
+    oid, eaid = org_and_address
+    r = client.delete(f"/admin/orgs/{oid}/addresses/{eaid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"

@@ -1,6 +1,7 @@
 """Integration tests for org contact methods CRUD."""
 
 import asyncio
+import json
 import os
 
 import asyncpg
@@ -186,3 +187,35 @@ def test_contacts_new_row_invalid_type_returns_422(client, org_and_contact):
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 422
+
+
+def test_contacts_create_returns_success_flash(client, org_and_contact):
+    oid, _ = org_and_contact
+    r = client.post(
+        f"/admin/orgs/{oid}/contacts/",
+        headers=HTMX_HEADERS,
+        data={"contact_type": "email", "value": "flash@example.com"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_contacts_update_returns_success_flash(client, org_and_contact):
+    oid, cid = org_and_contact
+    r = client.post(
+        f"/admin/orgs/{oid}/contacts/{cid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"value": "+13605559999"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_contacts_delete_returns_info_flash(client, org_and_contact):
+    oid, cid = org_and_contact
+    r = client.delete(f"/admin/orgs/{oid}/contacts/{cid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"

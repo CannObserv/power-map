@@ -1,6 +1,7 @@
 """Integration tests for org hierarchy children CRUD."""
 
 import asyncio
+import json
 import os
 
 import asyncpg
@@ -115,3 +116,24 @@ def test_circular_child_returns_422(client, parent_and_child):
         data={"child_id": pid},
     )
     assert r.status_code == 422
+
+
+def test_add_child_returns_success_flash(client, parent_and_child):
+    pid, cid = parent_and_child
+    r = client.post(
+        f"/admin/orgs/{pid}/children/",
+        headers=HTMX_HEADERS,
+        data={"child_id": cid},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+def test_remove_child_returns_info_flash(client, parent_and_child):
+    pid, cid = parent_and_child
+    client.post(f"/admin/orgs/{pid}/children/", headers=HTMX_HEADERS, data={"child_id": cid})
+    r = client.delete(f"/admin/orgs/{pid}/children/{cid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"
