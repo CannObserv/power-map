@@ -1,4 +1,6 @@
 {# admin/orgs/partials/_parent_read.html #}
+{% from "admin/macros/flash.html" import oob as flash_oob %}
+{% if flash_level %}{{ flash_oob(flash_level, flash_body) }}{% endif %}
 <tr id="parent-row">
   <td>
     {% if parent %}
