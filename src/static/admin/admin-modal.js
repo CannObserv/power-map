@@ -19,10 +19,11 @@
   }
 
   document.addEventListener('htmx:confirm', function (event) {
-    event.preventDefault();
-
     var trigger = event.target;
-    var message = trigger.getAttribute('hx-confirm') || event.detail.question || '';
+    var message = trigger.getAttribute('hx-confirm');
+    if (!message) return;  // htmx:confirm fires for all requests; only intercept hx-confirm elements
+
+    event.preventDefault();
     var title   = trigger.dataset.confirmTitle   || 'Are you sure?';
     var label   = trigger.dataset.confirmLabel   || 'Confirm';
     var variant = trigger.dataset.confirmVariant || 'danger';

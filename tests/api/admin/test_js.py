@@ -20,6 +20,12 @@ def test_admin_modal_js_reads_message_from_attribute():
     assert "getAttribute('hx-confirm')" in MODAL_JS
 
 
+def test_admin_modal_js_guards_on_message():
+    """htmx:confirm fires for ALL HTMX requests in 1.9.x, not just hx-confirm elements.
+    Must return early when the attribute is absent or buttons without hx-confirm get intercepted."""
+    assert "if (!message) return" in MODAL_JS
+
+
 def test_admin_modal_js_has_aria_describedby():
     """Dialog must expose the message paragraph to screen readers via aria-describedby."""
     assert "aria-describedby" in MODAL_JS
