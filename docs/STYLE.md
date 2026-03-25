@@ -285,16 +285,22 @@ def is_htmx(request: Request) -> bool:
 
 **Why the `HX-Boosted` guard:** `hx-boost="true"` on `admin-layout` means boosted navigation sends both `HX-Request` and `HX-Boosted` headers. Without the guard, boosted sidebar clicks receive bare fragments instead of full-page layouts.
 
-### OOB flash injection
+### Flash from HTMX mutation routes
 
-At the end of any HTMX partial response, include:
+Use `flash_trigger(level, body)` from `src.api.admin.deps`. Pass it as the `headers` argument to `TemplateResponse`:
 
-```jinja
-{% import "admin/macros/flash.html" as flash %}
-{{ flash.oob("success", "Org merged.") }}
+```python
+from src.api.admin.deps import flash_trigger
+
+return templates.TemplateResponse(
+    request, "admin/orgs/_region.html", ctx,
+    headers=flash_trigger("success", f"Merged <strong>{escape(name)}</strong>."),
+)
 ```
 
-This emits a `<div id="flash-region" hx-swap-oob="beforeend">` wrapper that HTMX swaps into the existing `#flash-region`.
+HTMX dispatches a `showFlash` DOM event when it processes the `HX-Trigger` response header. `flash.js` catches that event and injects a flash `<div>` into `#flash-region` imperatively — no OOB element in the response body. This works for any swap target, including `<tr>`.
+
+**Timing:** `HX-Trigger` fires immediately on response receipt, before the DOM swap. This is imperceptible for fixed-position flash overlays. If a future route needs to reference post-swap DOM state, use `HX-Trigger-After-Settle` as the header name instead.
 
 ### Mutation form pattern
 
@@ -332,14 +338,12 @@ The `#flash-region` already has these attributes in `base.html`.
 
 ## 8. Flash / Notification UX
 
-### Macros
+### API
 
-Import: `{% import "admin/macros/flash.html" as flash %}`
-
-| Macro | Use case | Signature |
-|---|---|---|
-| `flash.message(level, body, auto_dismiss_ms=4000)` | Inline flash (rendered in page) | `level`: success/info/warning/error |
-| `flash.oob(level, body, auto_dismiss_ms=4000)` | OOB injection from HTMX partials | Same levels |
+| Where | How |
+|---|---|
+| HTMX mutation route (Python) | `headers=flash_trigger(level, body)` from `src.api.admin.deps` |
+| Inline / non-HTMX (Jinja) | `{% from "admin/macros/flash.html" import message as flash_message %}` then `{{ flash_message(level, body) }}` |
 
 ### Levels
 
@@ -359,14 +363,21 @@ Import: `{% import "admin/macros/flash.html" as flash %}`
 
 ### XSS prevention
 
-Always `markupsafe.escape()` any DB-derived value before passing to `body`:
+**Two escaping contexts — not competing approaches:**
+
+| Context | Tool | Reason |
+|---|---|---|
+| Normal template variables (`{{ org.name }}`) | Jinja2 autoescape (automatic) | `Jinja2Templates` sets `autoescape=True` globally — no developer action needed |
+| Flash body string with intentional HTML markup | `markupsafe.escape()` on user values | Body exits the Jinja2 pipeline via `\| safe` (inline) or JS `innerHTML` (HX-Trigger) — autoescape never runs |
+
+Always `markupsafe.escape()` any DB-derived value before composing a flash body string:
 
 ```python
 from markupsafe import escape
-flash_body = f"Merged org <strong>{escape(org_name)}</strong>."
+body = f"Merged org <strong>{escape(org_name)}</strong>."
 ```
 
-The `body` parameter uses `{{ body | safe }}` — it trusts the caller.
+Do **not** add `markupsafe.escape()` to values passed as normal template context — Jinja2 autoescape already handles them, and double-escaping will corrupt output (`&amp;lt;` instead of `<`).
 
 ### Persistent banners
 

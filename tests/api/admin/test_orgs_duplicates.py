@@ -1,5 +1,6 @@
 """Integration tests for org duplicate detection and merge routes."""
 import asyncio
+import json
 import os
 
 import asyncpg
@@ -156,8 +157,8 @@ def test_merge_htmx_returns_200_with_region(client, org_pair):
     assert "candidate" in response.text or "No duplicate" in response.text
 
 
-def test_merge_htmx_includes_flash_oob(client, org_pair):
-    """HTMX merge response includes an OOB flash with winner name."""
+def test_merge_htmx_sends_hx_trigger_flash(client, org_pair):
+    """HTMX merge delivers flash via HX-Trigger header, not OOB in response body."""
     id_a, id_b = org_pair
     response = client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
@@ -165,9 +166,12 @@ def test_merge_htmx_includes_flash_oob(client, org_pair):
         follow_redirects=False,
     )
     assert response.status_code == 200
-    assert "flash" in response.text
-    assert "Alberta Gaming" in response.text  # winner name in flash
-    assert f"/admin/orgs/{id_a}/" in response.text  # link to winner
+    assert "HX-Trigger" in response.headers
+    payload = json.loads(response.headers["HX-Trigger"])
+    assert payload["showFlash"]["level"] == "success"
+    assert "Alberta Gaming" in payload["showFlash"]["body"]  # winner name in flash body
+    assert f"/admin/orgs/{id_a}/" in payload["showFlash"]["body"]  # link to winner
+    assert "hx-swap-oob" not in response.text
 
 
 def test_dismiss_htmx_returns_200_with_region(client, org_pair):
@@ -182,8 +186,8 @@ def test_dismiss_htmx_returns_200_with_region(client, org_pair):
     assert "candidate" in response.text or "No duplicate" in response.text
 
 
-def test_dismiss_htmx_includes_flash_oob(client, org_pair):
-    """HTMX dismiss response includes an OOB flash."""
+def test_dismiss_htmx_sends_hx_trigger_flash(client, org_pair):
+    """HTMX dismiss delivers flash via HX-Trigger header, not OOB in response body."""
     id_a, id_b = org_pair
     response = client.post(
         f"/admin/orgs/{id_a}/dismiss-duplicate/{id_b}/",
@@ -191,4 +195,7 @@ def test_dismiss_htmx_includes_flash_oob(client, org_pair):
         follow_redirects=False,
     )
     assert response.status_code == 200
-    assert "flash" in response.text
+    assert "HX-Trigger" in response.headers
+    payload = json.loads(response.headers["HX-Trigger"])
+    assert payload["showFlash"]["level"] == "info"
+    assert "hx-swap-oob" not in response.text

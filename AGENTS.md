@@ -19,7 +19,7 @@ Python ≥3.12, uv, pytest, ruff
 ```
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
   admin/        — Jinja2 + HTMX admin dashboard (people, orgs, roles, role_assignments, lookups, imports)
-    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db, is_htmx
+    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db, is_htmx, flash_trigger
     org_dups.py — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     router.py   — Mounts all admin sub-routers under /admin/
     orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/delete
@@ -44,7 +44,7 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived)
 - `check_auth(user)` from `src.api.admin.deps` — call at top of every route handler; returns `(redirect_response, user)` tuple
 - HTMX partial responses: use `is_htmx(request)` from `src.api.admin.deps` to select partial templates — checks `HX-Request and not HX-Boosted` (boost sends both; omitting the guard causes boosted sidebar nav to receive bare fragments instead of full page layouts).
-- Flash notifications: use `admin/macros/flash.html` — `message(level, body)` for inline, `oob(level, body)` for OOB injection into `#flash-region` from HTMX partial responses. Levels: `success`, `info`, `warning`, `error`. Always escape DB-derived values with `markupsafe.escape()` before interpolating into `body` HTML strings passed to these macros.
+- Flash notifications: use `flash_trigger(level, body)` from `src.api.admin.deps` on HTMX mutation routes — sets `HX-Trigger: {"showFlash": {...}}` response header; `flash.js` listener injects the flash into `#flash-region`. Pass as `headers=flash_trigger(level, body)` to `TemplateResponse`. For inline (non-HTMX) flash, use `message(level, body)` from `admin/macros/flash.html`. Levels: `success`, `info`, `warning`, `error`. Always escape DB-derived values with `markupsafe.escape()` before interpolating into `body` HTML strings.
 - Mutation routes returning HTMX partials: preserve a non-HTMX `RedirectResponse` fallback for graceful degradation (e.g. direct form POST without JS).
 - Dup count cache: `count_org_duplicates(db)` in `src.api.admin.org_dups` is TTL-cached (5 min, process-local). Call `invalidate_dup_count_cache()` after any merge or dismiss to keep count accurate. All routes (except the dashboard) inject `org_dup_count` via `get_org_dup_count` dep — the dashboard calls `count_org_duplicates(db)` directly inside its `pool.acquire()` block because FastAPI dep resolution runs before the handler body and would raise before auth completes. Sidebar badge uses `org_dup_count` template var directly (no HTMX XHR). **Caveat:** cache is not shared across gunicorn workers — counts may lag by up to 5 min per worker under multi-process deployments.
 
