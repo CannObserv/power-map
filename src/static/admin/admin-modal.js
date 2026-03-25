@@ -30,20 +30,21 @@
     var backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
     backdrop.innerHTML =
-      '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="pm-confirm-title">' +
+      '<div class="modal" role="dialog" aria-modal="true"' +
+           ' aria-labelledby="pm-confirm-title" aria-describedby="pm-confirm-desc">' +
         '<h2 id="pm-confirm-title">' + escHtml(title) + '</h2>' +
-        '<p>' + escHtml(message) + '</p>' +
+        '<p id="pm-confirm-desc">' + escHtml(message) + '</p>' +
         '<div class="modal__actions">' +
-          '<button class="btn btn--ghost" type="button" id="pm-confirm-cancel">Cancel</button>' +
-          '<button class="btn btn--' + escHtml(variant) + '" type="button" id="pm-confirm-ok">' + escHtml(label) + '</button>' +
+          '<button class="btn btn--ghost" type="button" data-confirm-action="cancel">Cancel</button>' +
+          '<button class="btn btn--' + escHtml(variant) + '" type="button" data-confirm-action="ok">' + escHtml(label) + '</button>' +
         '</div>' +
       '</div>';
 
     document.body.appendChild(backdrop);
 
     var modal     = backdrop.querySelector('.modal');
-    var cancelBtn = backdrop.querySelector('#pm-confirm-cancel');
-    var okBtn     = backdrop.querySelector('#pm-confirm-ok');
+    var cancelBtn = backdrop.querySelector('[data-confirm-action="cancel"]');
+    var okBtn     = backdrop.querySelector('[data-confirm-action="ok"]');
     var focusable = [cancelBtn, okBtn];
     var savedFocus = document.activeElement;
 

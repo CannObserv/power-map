@@ -719,3 +719,53 @@ The Notes field uses a separate read/edit partial pair with a header row followi
 - Edit partial: `<label for="notes-textarea" class="field-group-label">` (not `<h3>`) for proper screen-reader association; `form-actions` margin override `style="margin-top:var(--space-2)"` — the global `.form-actions` rule uses `var(--space-5)` which is too large for the compact inline context.
 - GET `/inline/notes/` → read partial; GET `/inline/notes/edit/` → form partial; POST `/inline/notes/` → read partial.
 - Empty/whitespace notes saved as `NULL` (`.strip() or None`).
+
+---
+
+## 16. Confirmation Modals
+
+### Pattern
+
+`admin-modal.js` registers a global `htmx:confirm` listener that intercepts HTMX's built-in `window.confirm()` call and renders a styled, accessible in-page modal instead. Add `hx-confirm` to any button that needs a confirmation step — no additional JS or server routes required.
+
+### Author-facing API
+
+| Attribute | Required | Default | Purpose |
+|---|---|---|---|
+| `hx-confirm="<message>"` | yes | — | Modal body text |
+| `data-confirm-title="<text>"` | no | `"Are you sure?"` | Modal heading (`<h2>`) |
+| `data-confirm-label="<text>"` | no | `"Confirm"` | Confirm button text |
+| `data-confirm-variant="danger\|primary"` | no | `"danger"` | Confirm button variant |
+
+### Example
+
+```html
+<button type="button"
+        hx-post="/admin/orgs/{{ org.id }}/inline/parent/"
+        hx-target="#parent-row"
+        hx-swap="outerHTML"
+        hx-vals='{"parent_id": ""}'
+        hx-confirm="Remove parent organization?"
+        data-confirm-label="Unlink">
+  Unlink
+</button>
+```
+
+### Default variant
+
+Default is `danger`. Confirmations in this admin are almost exclusively for destructive actions. Use `data-confirm-variant="primary"` only when the confirmed action is non-destructive.
+
+### Accessibility
+
+- `role="dialog"` with `aria-modal="true"`, `aria-labelledby` (title `<h2>`), `aria-describedby` (message `<p>`)
+- Focus defaults to **Cancel** on open — avoids accidental confirm on Enter
+- Tab / Shift-Tab trapped within the modal's focusable elements
+- Escape, Cancel, and Confirm all close the modal and restore focus to the trigger
+
+### No backdrop-click-to-close
+
+Intentional — prevents accidental dismissal from stray clicks. Consistent with `delete_modal.html`.
+
+### When NOT to use
+
+Do not use `hx-confirm` for the hard-delete modal (`delete_modal.html`). That modal requires inline error display (409 handling, network errors) and a server-rendered entity label — use the server-rendered partial pattern for that case.
