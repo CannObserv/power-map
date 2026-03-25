@@ -1,0 +1,27 @@
+"""Structural tests for admin JS files."""
+
+from pathlib import Path
+
+_MODAL_JS_PATH = Path("src/static/admin/admin-modal.js")
+MODAL_JS = _MODAL_JS_PATH.read_text() if _MODAL_JS_PATH.exists() else ""
+
+
+def test_admin_modal_js_exists():
+    assert _MODAL_JS_PATH.exists()
+
+
+def test_admin_modal_js_intercepts_htmx_confirm():
+    """Core functional anchor — without this listener the browser confirm() fires."""
+    assert "htmx:confirm" in MODAL_JS
+
+
+def test_admin_modal_js_has_aria_describedby():
+    """Dialog must expose the message paragraph to screen readers via aria-describedby."""
+    assert "aria-describedby" in MODAL_JS
+
+
+def test_admin_modal_js_uses_data_action_selectors():
+    """Buttons must be selected by data-confirm-action, not fragile hardcoded IDs."""
+    assert 'data-confirm-action' in MODAL_JS
+    assert '#pm-confirm-cancel' not in MODAL_JS
+    assert '#pm-confirm-ok' not in MODAL_JS

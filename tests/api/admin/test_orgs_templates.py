@@ -5,6 +5,7 @@ Tests cover:
 - Parent org table-row structure
 - Script placement inside <tr> (prevents listener accumulation on swap)
 - ARIA combobox pattern on both search inputs
+- Confirmation modal attributes on destructive buttons
 """
 import re
 from pathlib import Path
@@ -13,6 +14,7 @@ PARENT_FORM = Path("src/templates/admin/orgs/partials/_parent_form.html").read_t
 CHILD_FORM = Path("src/templates/admin/orgs/partials/_child_form_row.html").read_text()
 PARENT_READ = Path("src/templates/admin/orgs/partials/_parent_read.html").read_text()
 SEARCH_RESULTS = Path("src/templates/admin/orgs/partials/_search_results.html").read_text()
+BASE_HTML = Path("src/templates/admin/base.html").read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -110,3 +112,45 @@ def test_child_form_search_has_aria_haspopup():
 def test_search_results_options_have_ids():
     """IDs required for aria-activedescendant keyboard navigation."""
     assert 'id="opt-{{ r.id }}"' in SEARCH_RESULTS
+
+
+# ---------------------------------------------------------------------------
+# Confirmation modal — hx-confirm + data-confirm-label on destructive buttons
+# ---------------------------------------------------------------------------
+
+
+def test_unlink_button_has_hx_confirm():
+    """hx-confirm triggers the custom modal; without it the button fires immediately."""
+    assert 'hx-confirm="Remove parent organization?"' in PARENT_FORM
+
+
+def test_unlink_button_has_confirm_label():
+    """data-confirm-label overrides the default 'Confirm' text in the modal."""
+    assert 'data-confirm-label="Unlink"' in PARENT_FORM
+
+
+def test_unlink_hx_confirm_and_label_on_same_button():
+    """Both attrs must be on the same element so the modal shows the right label."""
+    buttons = re.findall(r'<button\b[^>]*hx-confirm=[^>]*>[^<]*</button>', PARENT_FORM, re.DOTALL)
+    unlink = [b for b in buttons if 'hx-confirm="Remove parent organization?"' in b]
+    assert unlink, "No button with hx-confirm='Remove parent organization?' found"
+    assert all('data-confirm-label="Unlink"' in b for b in unlink), (
+        "Unlink button with hx-confirm must also carry data-confirm-label='Unlink'"
+    )
+
+
+# ---------------------------------------------------------------------------
+# admin-modal.js loaded in base layout
+# ---------------------------------------------------------------------------
+
+
+def test_base_loads_admin_modal_js():
+    """admin-modal.js must be loaded for the htmx:confirm override to take effect."""
+    assert "admin-modal.js" in BASE_HTML
+
+
+def test_base_admin_modal_js_has_defer():
+    """Non-critical script; must not block page render."""
+    scripts = re.findall(r'<script\b[^>]*admin-modal\.js[^>]*>', BASE_HTML)
+    assert scripts, "admin-modal.js script tag not found in base.html"
+    assert all("defer" in s for s in scripts), "admin-modal.js script tag must have defer"
