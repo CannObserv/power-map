@@ -83,7 +83,6 @@ async def name_create(
             name_type,
             is_canonical == "true",
         )
-        await _maybe_promote_sole_name(org_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     names = await db.fetch(

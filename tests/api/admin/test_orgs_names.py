@@ -293,6 +293,31 @@ def test_names_delete_returns_info_flash(client, org_and_name):
     assert trigger["showFlash"]["level"] == "info"
 
 
+def test_name_edit_sole_non_canonical_auto_promotes(client, org_and_name):
+    """Editing the only name to non-canonical must auto-promote it back."""
+    dsn = _dsn()
+    oid, nid = org_and_name
+
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"name": "Original Name", "name_type": "legal", "is_canonical": ""},
+    )
+    assert r.status_code == 200
+
+    async def check():
+        conn = await asyncpg.connect(dsn)
+        try:
+            row = await conn.fetchrow(
+                "SELECT is_canonical FROM organization_names WHERE id=$1", nid
+            )
+            return row["is_canonical"]
+        finally:
+            await conn.close()
+
+    assert asyncio.run(check()) is True, "sole name must remain canonical after edit"
+
+
 def test_name_delete_promotes_sole_remaining_non_canonical(client, org_and_name):
     """Deleting the canonical name when one non-canonical remains must auto-promote it."""
     dsn = _dsn()
