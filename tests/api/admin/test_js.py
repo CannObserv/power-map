@@ -15,6 +15,11 @@ def test_admin_modal_js_intercepts_htmx_confirm():
     assert "htmx:confirm" in MODAL_JS
 
 
+def test_admin_modal_js_reads_message_from_attribute():
+    """HTMX 1.9.x does not reliably populate event.detail.question; read from element."""
+    assert "getAttribute('hx-confirm')" in MODAL_JS
+
+
 def test_admin_modal_js_has_aria_describedby():
     """Dialog must expose the message paragraph to screen readers via aria-describedby."""
     assert "aria-describedby" in MODAL_JS

@@ -22,7 +22,7 @@
     event.preventDefault();
 
     var trigger = event.target;
-    var message = event.detail.question;
+    var message = trigger.getAttribute('hx-confirm') || event.detail.question || '';
     var title   = trigger.dataset.confirmTitle   || 'Are you sure?';
     var label   = trigger.dataset.confirmLabel   || 'Confirm';
     var variant = trigger.dataset.confirmVariant || 'danger';
