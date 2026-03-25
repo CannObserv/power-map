@@ -1,7 +1,7 @@
 """Admin CRUD for organization names."""
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
@@ -17,6 +17,19 @@ async def _get_org_or_404(org_id: str, db):
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     return org
+
+
+async def _maybe_promote_sole_name(org_id: str, db) -> None:
+    """If the org has exactly one name and it is not canonical, promote it."""
+    rows = await db.fetch(
+        "SELECT id, is_canonical FROM organization_names WHERE organization_id=$1",
+        org_id,
+    )
+    if len(rows) == 1 and not rows[0]["is_canonical"]:
+        await db.execute(
+            "UPDATE organization_names SET is_canonical=TRUE WHERE id=$1",
+            rows[0]["id"],
+        )
 
 
 @router.get("/new-row/")
@@ -70,6 +83,7 @@ async def name_create(
             name_type,
             is_canonical == "true",
         )
+        await _maybe_promote_sole_name(org_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     names = await db.fetch(
@@ -172,6 +186,7 @@ async def name_edit_row_post(
             is_canonical == "true",
             name_id,
         )
+        await _maybe_promote_sole_name(org_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     names = await db.fetch(
@@ -206,5 +221,19 @@ async def name_delete(
     )
     if not existing:
         raise HTTPException(status_code=404)
-    await db.execute("DELETE FROM organization_names WHERE id=$1", name_id)
-    return HTMLResponse(content="", status_code=200, headers=flash_trigger("info", "Name removed."))
+    async with db.transaction():
+        await db.execute("DELETE FROM organization_names WHERE id=$1", name_id)
+        await _maybe_promote_sole_name(org_id, db)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    names = await db.fetch(
+        "SELECT * FROM organization_names WHERE organization_id=$1"
+        " ORDER BY is_canonical DESC, name_type, name",
+        org_id,
+    )
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_name_rows.html",
+        {"org_id": org_id, "names": names},
+        headers=flash_trigger("info", "Name removed."),
+    )

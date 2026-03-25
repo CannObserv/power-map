@@ -151,6 +151,8 @@ async def org_create(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
+    if not name.strip():
+        raise HTTPException(status_code=422, detail="Name is required")
     org_id = generate_id()
     async with db.transaction():
         await db.execute(
@@ -160,7 +162,7 @@ async def org_create(
         await db.execute(
             "INSERT INTO organization_names"
             " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-            generate_id(), org_id, name,
+            generate_id(), org_id, name.strip(),
         )
         if acronym.strip():
             await db.execute(

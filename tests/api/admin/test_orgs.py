@@ -157,6 +157,28 @@ def test_edit_route_removed(client):
     assert r.status_code == 404
 
 
+def test_org_create_rejects_empty_name(client):
+    """POST /admin/orgs/new/ with empty name must be rejected (422)."""
+    r = client.post(
+        "/admin/orgs/new/",
+        headers=AUTH_HEADERS,
+        data={"name": "", "active": "true"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 422
+
+
+def test_org_create_rejects_whitespace_only_name(client):
+    """POST /admin/orgs/new/ with whitespace-only name must be rejected (422)."""
+    r = client.post(
+        "/admin/orgs/new/",
+        headers=AUTH_HEADERS,
+        data={"name": "   ", "active": "true"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 422
+
+
 def test_archive_org(client, org_id):
     response = client.post(
         f"/admin/orgs/{org_id}/archive/",

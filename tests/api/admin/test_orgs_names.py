@@ -291,3 +291,68 @@ def test_names_delete_returns_info_flash(client, org_and_name):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "info"
+
+
+def test_name_delete_promotes_sole_remaining_non_canonical(client, org_and_name):
+    """Deleting the canonical name when one non-canonical remains must auto-promote it."""
+    dsn = _dsn()
+    oid, canonical_nid = org_and_name
+    non_canonical_nid = generate_id()
+
+    async def add_non_canonical():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Former Name', FALSE)",
+                non_canonical_nid,
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(add_non_canonical())
+    # Delete the canonical name
+    r = client.delete(f"/admin/orgs/{oid}/names/{canonical_nid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+
+    async def check():
+        conn = await asyncpg.connect(dsn)
+        try:
+            row = await conn.fetchrow(
+                "SELECT is_canonical FROM organization_names WHERE id=$1", non_canonical_nid
+            )
+            return row["is_canonical"]
+        finally:
+            await conn.close()
+
+    assert asyncio.run(check()) is True, "sole remaining name must be auto-promoted to canonical"
+
+
+def test_name_delete_response_reflects_promoted_canonical(client, org_and_name):
+    """Delete response must include the promoted name's canonical badge in returned rows."""
+    dsn = _dsn()
+    oid, canonical_nid = org_and_name
+    non_canonical_nid = generate_id()
+
+    async def add_non_canonical():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Former Name', FALSE)",
+                non_canonical_nid,
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(add_non_canonical())
+    r = client.delete(f"/admin/orgs/{oid}/names/{canonical_nid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    # Response must contain the remaining row (tbody replacement)
+    assert f'id="name-row-{non_canonical_nid}"' in r.text
+    # Must show the canonical badge (Yes) for the promoted name
+    assert "badge--active" in r.text

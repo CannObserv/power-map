@@ -10,8 +10,8 @@
             hx-swap="outerHTML">Edit</button>
     <button type="button" class="btn btn--sm btn--danger"
             hx-delete="/admin/orgs/{{ org_id }}/names/{{ n.id }}/"
-            hx-target="#name-row-{{ n.id }}"
-            hx-swap="outerHTML"
+            hx-target="#names-table tbody"
+            hx-swap="innerHTML"
             hx-confirm="Delete this name?">Delete</button>
   </td>
 </tr>
