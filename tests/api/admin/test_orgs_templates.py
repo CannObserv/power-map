@@ -195,14 +195,15 @@ def test_base_flash_js_is_in_head():
 
 def test_active_toggle_restore_button_inside_archived_block():
     """Restore form must be inside the {% if org.archived_at %} block."""
-    # The if block starts after 'archived_at %}' and ends at the matching endif
-    assert "unarchive/" in ACTIVE_TOGGLE, "unarchive URL not present in _active_toggle.html"
+    start = ACTIVE_TOGGLE.rindex("{% if org.archived_at %}")
+    end = ACTIVE_TOGGLE.index("{% endif %}", start)
+    if_block = ACTIVE_TOGGLE[start:end]
+    assert "unarchive/" in if_block, "restore form must be inside {% if org.archived_at %} block"
 
 
 def test_active_toggle_restore_button_is_form_post():
     """Must be a plain form POST — no HTMX, consistent with archive button."""
     assert 'method="POST"' in ACTIVE_TOGGLE
-    assert "unarchive/" in ACTIVE_TOGGLE
 
 
 def test_active_toggle_restore_button_text():

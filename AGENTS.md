@@ -22,7 +22,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db, is_htmx, flash_trigger
     org_dups.py — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     router.py   — Mounts all admin sub-routers under /admin/
-    orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/delete
+    orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/unarchive/delete
     orgs_names.py       — Inline CRUD for organization_names (row-level HTMX swap)
     orgs_acronyms.py    — Inline CRUD for organization_acronyms (row-level HTMX swap)
     orgs_addresses.py   — Inline CRUD for addresses + entity_addresses (row-level HTMX swap)
@@ -41,7 +41,7 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 
 ### Admin dashboard conventions
 - Auth: exe.dev proxy injects `X-ExeDev-UserID` + `X-ExeDev-Email` headers; missing headers → redirect to `/__exe.dev/login?redirect=<url-encoded path+query>`
-- Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived)
+- Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived); unarchive via `POST /{id}/unarchive/` sets `archived_at = NULL` and preserves prior `active` state (returns 409 if not archived)
 - `check_auth(user)` from `src.api.admin.deps` — call at top of every route handler; returns `(redirect_response, user)` tuple
 - HTMX partial responses: use `is_htmx(request)` from `src.api.admin.deps` to select partial templates — checks `HX-Request and not HX-Boosted` (boost sends both; omitting the guard causes boosted sidebar nav to receive bare fragments instead of full page layouts).
 - hx-boost re-execution: HTMX re-runs all `<script src>` tags found in `<body>` on every boosted navigation (via its `executeScripts` mechanism). Scripts with persistent `document.addEventListener` calls must live in `<head>` (`admin-modal.js`, `flash.js`, `dark-mode.js`). For unavoidable inline body scripts, use the remove/re-assign/add guard pattern: `document.removeEventListener(evt, document.__pmKey); document.__pmKey = fn; document.addEventListener(evt, document.__pmKey)` — see `base.html` aria-busy and `__pmNavKeydown` as examples.
