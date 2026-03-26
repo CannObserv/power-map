@@ -2,7 +2,7 @@
 <tr id="contact-row-{{ c.id }}">
   <td>{{ c.value }}</td>
   <td>{{ c.display_label or '—' }}</td>
-  <td>
+  <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
             hx-get="/admin/orgs/{{ org_id }}/contacts/{{ c.id }}/edit-row/"
             hx-target="#contact-row-{{ c.id }}"

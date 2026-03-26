@@ -9,9 +9,19 @@ from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
+from src.core.normalizers.email import EmailNormalizer
+from src.core.normalizers.phone import PhoneNormalizer
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/contacts", tags=["admin-org-contacts"])
+
+_email_normalizer = EmailNormalizer()
+_phone_normalizer = PhoneNormalizer()
+
+_CONTACT_ERROR_MESSAGES = {
+    "email": "Enter a valid email address.",
+    "phone": "Enter a valid phone number (e.g. (206) 555-1234 or +12065551234).",
+}
 
 
 async def _get_org_or_404(org_id: str, db):
@@ -45,7 +55,7 @@ async def contact_new_row(
 async def contact_create(
     org_id: str,
     request: Request,
-    contact_type: str = Form(...),
+    contact_type: Literal["email", "phone"] = Form(...),
     value: str = Form(...),
     display_label: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
@@ -56,6 +66,26 @@ async def contact_create(
     if redirect:
         return redirect
     await _get_org_or_404(org_id, db)
+    raw_value = value.strip()
+    try:
+        if contact_type == "email":
+            raw_value = _email_normalizer.normalize(raw_value).value
+        elif contact_type == "phone":
+            raw_value = _phone_normalizer.normalize(raw_value).value
+    except ValueError:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_contact_form_row.html",
+            {
+                "org_id": org_id,
+                "c": None,
+                "contact_type": contact_type,
+                "value_input": value.strip(),
+                "error": _CONTACT_ERROR_MESSAGES.get(contact_type, "Invalid value."),
+            },
+        )
     cid = generate_id()
     await db.execute(
         "INSERT INTO contact_methods"
@@ -64,7 +94,7 @@ async def contact_create(
         cid,
         org_id,
         contact_type,
-        value.strip(),
+        raw_value,
         display_label.strip() or None,
     )
     row = await db.fetchrow("SELECT * FROM contact_methods WHERE id=$1", cid)
@@ -74,7 +104,7 @@ async def contact_create(
         request,
         "admin/orgs/partials/_contact_row.html",
         {"org_id": org_id, "c": row},
-        headers=flash_trigger("success", f"<strong>{escape(value.strip())}</strong> added."),
+        headers=flash_trigger("success", f"<strong>{escape(raw_value)}</strong> added."),
     )
 
 
@@ -152,9 +182,30 @@ async def contact_edit_row_post(
     )
     if not existing:
         raise HTTPException(status_code=404)
+    raw_value = value.strip()
+    contact_type = existing["contact_type"]
+    try:
+        if contact_type == "email":
+            raw_value = _email_normalizer.normalize(raw_value).value
+        elif contact_type == "phone":
+            raw_value = _phone_normalizer.normalize(raw_value).value
+    except ValueError:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_contact_form_row.html",
+            {
+                "org_id": org_id,
+                "c": existing,
+                "contact_type": contact_type,
+                "value_input": value.strip(),
+                "error": _CONTACT_ERROR_MESSAGES.get(contact_type, "Invalid value."),
+            },
+        )
     await db.execute(
         "UPDATE contact_methods SET value=$1, display_label=$2 WHERE id=$3",
-        value.strip(),
+        raw_value,
         display_label.strip() or None,
         contact_id,
     )
@@ -165,7 +216,7 @@ async def contact_edit_row_post(
         request,
         "admin/orgs/partials/_contact_row.html",
         {"org_id": org_id, "c": row},
-        headers=flash_trigger("success", f"<strong>{escape(value.strip())}</strong> saved."),
+        headers=flash_trigger("success", f"<strong>{escape(raw_value)}</strong> saved."),
     )
 
 

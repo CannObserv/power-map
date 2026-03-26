@@ -10,31 +10,36 @@
           hx-target="#{{ contact_type }}-row-new"
           hx-swap="outerHTML"
           {% endif %}
-          style="display:flex;gap:var(--space-2);align-items:center">
-      {% if c %}
-      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted);white-space:nowrap">{{ c.contact_type }}</span>
-      {% else %}
-      <input type="hidden" name="contact_type" value="{{ contact_type }}">
+          style="display:grid;gap:var(--space-2)">
+      {% if error %}
+      <div class="alert alert--error" role="alert">{{ error }}</div>
       {% endif %}
-      <div class="form-group" style="margin-bottom:0;flex:1">
-        <input type="text" name="value" required
-               value="{{ c.value if c else '' }}"
-               placeholder="{{ 'Email address' if contact_type == 'email' else 'Phone number' }}">
-      </div>
-      <div class="form-group" style="margin-bottom:0">
-        <input type="text" name="display_label"
-               value="{{ c.display_label or '' if c else '' }}" placeholder="Label (optional)">
-      </div>
-      <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
-        <button type="submit" class="btn btn--sm btn--primary">Save</button>
-        <button type="button" class="btn btn--sm btn--secondary"
-                {% if c %}
-                hx-get="/admin/orgs/{{ org_id }}/contacts/{{ c.id }}/read-row/"
-                hx-target="#contact-row-{{ c.id }}"
-                hx-swap="outerHTML"
-                {% else %}
-                onclick="this.closest('tr').remove()"
-                {% endif %}>Cancel</button>
+      <div style="display:flex;gap:var(--space-2);align-items:center">
+        {% if c %}
+        <span style="font-size:var(--font-size-sm);color:var(--color-text-muted);white-space:nowrap">{{ c.contact_type }}</span>
+        {% else %}
+        <input type="hidden" name="contact_type" value="{{ contact_type }}">
+        {% endif %}
+        <div class="form-group" style="margin-bottom:0;flex:1">
+          <input type="{{ 'email' if contact_type == 'email' else 'text' }}" name="value" required
+                 value="{{ value_input if value_input is defined else (c.value if c else '') }}"
+                 placeholder="{{ 'Email address' if contact_type == 'email' else 'Phone number' }}">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="text" name="display_label"
+                 value="{{ c.display_label or '' if c else '' }}" placeholder="Label (optional)">
+        </div>
+        <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
+          <button type="submit" class="btn btn--sm btn--primary">Save</button>
+          <button type="button" class="btn btn--sm btn--secondary"
+                  {% if c %}
+                  hx-get="/admin/orgs/{{ org_id }}/contacts/{{ c.id }}/read-row/"
+                  hx-target="#contact-row-{{ c.id }}"
+                  hx-swap="outerHTML"
+                  {% else %}
+                  onclick="this.closest('tr').remove()"
+                  {% endif %}>Cancel</button>
+        </div>
       </div>
     </form>
   </td>

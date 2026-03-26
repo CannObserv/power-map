@@ -6,7 +6,7 @@
   </td>
   <td>{{ a.address_type }}</td>
   {% if a.display_name %}<td>{{ a.display_name }}</td>{% else %}<td>—</td>{% endif %}
-  <td>
+  <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
             hx-get="/admin/orgs/{{ org_id }}/addresses/{{ a.id }}/edit-row/"
             hx-target="#address-row-{{ a.id }}"

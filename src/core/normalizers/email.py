@@ -1,4 +1,4 @@
-"""Email address normalizer — validates and lowercases domain."""
+"""Email address normalizer — validates and normalizes to canonical form."""
 
 from dataclasses import dataclass
 
@@ -10,10 +10,10 @@ from src.core.normalizers.base import NormalizationResult, is_null_like
 
 @dataclass
 class EmailNormalizer:
-    """Validates email addresses and normalizes domain to lowercase.
+    """Validates email addresses and normalizes to canonical form.
 
-    Note: The local part (before @) case is preserved per RFC 5321.
-    Only the domain is lowercased.
+    Uses the email-validator library, which normalizes the full address
+    (local part and domain) per RFC 5321 / SMTPUTF8 rules.
     """
 
     def normalize(self, raw: str | None) -> NormalizationResult:

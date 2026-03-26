@@ -221,3 +221,124 @@ def test_contacts_delete_returns_info_flash(client, org_and_contact):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "info"
+
+
+# ---------------------------------------------------------------------------
+# Normalizer wiring — email
+# ---------------------------------------------------------------------------
+
+
+def test_contact_create_email_invalid_returns_form_with_error(client, org_and_contact):
+    """Invalid email must re-render the form row with an inline error, not a bare 422."""
+    oid, _ = org_and_contact
+    r = client.post(
+        f"/admin/orgs/{oid}/contacts/",
+        headers=HTMX_HEADERS,
+        data={"contact_type": "email", "value": "not-an-email"},
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "alert--error" in r.text
+
+
+def test_contact_create_email_invalid_preserves_input_value(client, org_and_contact):
+    """Invalid submission repopulates the input with what the user typed."""
+    oid, _ = org_and_contact
+    r = client.post(
+        f"/admin/orgs/{oid}/contacts/",
+        headers=HTMX_HEADERS,
+        data={"contact_type": "email", "value": "bad@@email"},
+    )
+    assert r.status_code == 200
+    assert "bad@@email" in r.text
+
+
+def test_contact_create_email_normalizes(client, org_and_contact):
+    """Valid email is normalized (domain lowercased, local part normalized) before storage."""
+    oid, _ = org_and_contact
+    r = client.post(
+        f"/admin/orgs/{oid}/contacts/",
+        headers=HTMX_HEADERS,
+        data={"contact_type": "email", "value": "Info@Example.COM"},
+    )
+    assert r.status_code == 200
+    assert "info@example.com" in r.text
+
+
+def test_contact_new_row_email_input_has_type_email(client, org_and_contact):
+    """Email form row must use type='email' for HTML5 browser validation hint."""
+    oid, _ = org_and_contact
+    r = client.get(
+        f"/admin/orgs/{oid}/contacts/new-row/?contact_type=email",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert 'type="email"' in r.text
+
+
+def test_contact_new_row_phone_input_has_type_text(client, org_and_contact):
+    """Phone form row must use type='text' (not email) for the value input."""
+    oid, _ = org_and_contact
+    r = client.get(
+        f"/admin/orgs/{oid}/contacts/new-row/?contact_type=phone",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert 'type="text"' in r.text
+
+
+# ---------------------------------------------------------------------------
+# Normalizer wiring — phone
+# ---------------------------------------------------------------------------
+
+
+def test_contact_create_phone_invalid_returns_form_with_error(client, org_and_contact):
+    """Invalid phone must re-render the form row with an inline error."""
+    oid, _ = org_and_contact
+    r = client.post(
+        f"/admin/orgs/{oid}/contacts/",
+        headers=HTMX_HEADERS,
+        data={"contact_type": "phone", "value": "not-a-phone"},
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "alert--error" in r.text
+
+
+def test_contact_create_phone_normalizes_to_e164(client, org_and_contact):
+    """Valid phone in formatted input is stored as E.164 and flash shows normalized value."""
+    oid, _ = org_and_contact
+    r = client.post(
+        f"/admin/orgs/{oid}/contacts/",
+        headers=HTMX_HEADERS,
+        data={"contact_type": "phone", "value": "(206) 555-1234"},
+    )
+    assert r.status_code == 200
+    assert "+12065551234" in r.text
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "+12065551234" in trigger["showFlash"]["body"]
+
+
+def test_contact_edit_phone_invalid_returns_form_with_error(client, org_and_contact):
+    """Invalid phone on edit must re-render the form row with an inline error."""
+    oid, cid = org_and_contact
+    r = client.post(
+        f"/admin/orgs/{oid}/contacts/{cid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"value": "zzz"},
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "alert--error" in r.text
+
+
+def test_contact_edit_phone_normalizes_to_e164(client, org_and_contact):
+    """Valid phone on edit is stored as E.164."""
+    oid, cid = org_and_contact
+    r = client.post(
+        f"/admin/orgs/{oid}/contacts/{cid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"value": "360-555-4321"},
+    )
+    assert r.status_code == 200
+    assert "+13605554321" in r.text
