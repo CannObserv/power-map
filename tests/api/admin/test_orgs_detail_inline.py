@@ -301,7 +301,7 @@ async def _make_org(db, name: str) -> str:
 
 
 async def test_children_search_returns_matching_org(client, org_id, db):
-    other_id = await _make_org(db, "Acme Corp")
+    await _make_org(db, "Acme Corp")
     r = await client.get(
         f"/admin/orgs/{org_id}/children/search/",
         params={"q": "Acme"},
