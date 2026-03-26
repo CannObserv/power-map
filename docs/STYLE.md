@@ -727,7 +727,7 @@ The Notes field uses a separate read/edit partial pair with a header row followi
 
 - `id="notes-field"` on the outer `<div>` — HTMX target for both read and edit partials.
 - Read partial: bordered content box (`border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-1)`) with muted placeholder `—` when empty.
-- Edit partial: `<label for="notes-textarea" class="field-group-label">` (not `<h3>`) for proper screen-reader association; `form-actions` margin override `style="margin-top:var(--space-2)"` — the global `.form-actions` rule uses `var(--space-5)` which is too large for the compact inline context.
+- Edit partial: `<form>` wraps the entire partial (header + textarea). Header is the same flex `display:flex;align-items:center;justify-content:space-between` row as the read partial, with `<label for="notes-textarea" class="field-group-label">` on the left (not `<h3>`) for proper screen-reader association, and Save (`type="submit"`) + Cancel (`hx-get`) buttons on the right inside a `<div>`. No `form-actions` div — buttons live in the header row.
 - GET `/inline/notes/` → read partial; GET `/inline/notes/edit/` → form partial; POST `/inline/notes/` → read partial.
 - Empty/whitespace notes saved as `NULL` (`.strip() or None`).
 
