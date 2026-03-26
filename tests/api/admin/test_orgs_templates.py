@@ -17,6 +17,7 @@ PARENT_READ = Path("src/templates/admin/orgs/partials/_parent_read.html").read_t
 SEARCH_RESULTS = Path("src/templates/admin/orgs/partials/_search_results.html").read_text()
 BASE_HTML = Path("src/templates/admin/base.html").read_text()
 ACTIVE_TOGGLE = Path("src/templates/admin/orgs/partials/_active_toggle.html").read_text()
+NOTES_FORM = Path("src/templates/admin/orgs/partials/_notes_form.html").read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -209,3 +210,32 @@ def test_active_toggle_restore_button_is_form_post():
 def test_active_toggle_restore_button_text():
     """Button text must be descriptive."""
     assert "Restore from archive" in ACTIVE_TOGGLE
+
+
+# ---------------------------------------------------------------------------
+# Notes edit form — Save/Cancel in header row (not below textarea)
+# ---------------------------------------------------------------------------
+
+
+def test_notes_form_save_before_textarea():
+    """Save must be in the header row (above the textarea), not in a form-actions div below."""
+    save_pos = NOTES_FORM.index('type="submit"')
+    textarea_pos = NOTES_FORM.index("<textarea")
+    assert save_pos < textarea_pos, "Save button must appear before <textarea> (in header row)"
+
+
+def test_notes_form_cancel_before_textarea():
+    """Cancel must be in the header row (above the textarea), not in a form-actions div below."""
+    cancel_pos = NOTES_FORM.index('type="button"')
+    textarea_pos = NOTES_FORM.index("<textarea")
+    assert cancel_pos < textarea_pos, "Cancel button must appear before <textarea> (in header row)"
+
+
+def test_notes_form_no_form_actions():
+    """Buttons live in the header row; form-actions div is not used."""
+    assert "form-actions" not in NOTES_FORM
+
+
+def test_notes_form_label_for_textarea():
+    """label[for=notes-textarea] must be present for screen-reader association."""
+    assert 'for="notes-textarea"' in NOTES_FORM
