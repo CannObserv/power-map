@@ -280,3 +280,61 @@ async def test_parent_post_clear_returns_info_flash(client, org_id, db):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "info"
+
+
+# ---------------------------------------------------------------------------
+# Children search — scoped endpoint
+# ---------------------------------------------------------------------------
+
+
+async def _make_org(db, name: str) -> str:
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        oid,
+        name,
+    )
+    return oid
+
+
+async def test_children_search_returns_matching_org(client, org_id, db):
+    other_id = await _make_org(db, "Acme Corp")
+    r = await client.get(
+        f"/admin/orgs/{org_id}/children/search/",
+        params={"q": "Acme"},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"Acme Corp" in r.content
+
+
+async def test_children_search_excludes_existing_child(client, org_id, db):
+    child_id = await _make_org(db, "Already Child")
+    await db.execute(
+        "UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, child_id
+    )
+    r = await client.get(
+        f"/admin/orgs/{org_id}/children/search/",
+        params={"q": "Already"},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"Already Child" not in r.content
+
+
+async def test_children_search_excludes_self(client, org_id, db):
+    # Rename the org so we can search for it by a known string
+    await db.execute(
+        "UPDATE organization_names SET name='Self Org' WHERE organization_id=$1",
+        org_id,
+    )
+    r = await client.get(
+        f"/admin/orgs/{org_id}/children/search/",
+        params={"q": "Self"},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"Self Org" not in r.content

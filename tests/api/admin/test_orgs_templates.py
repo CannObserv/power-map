@@ -239,3 +239,18 @@ def test_notes_form_no_form_actions():
 def test_notes_form_label_for_textarea():
     """label[for=notes-textarea] must be present for screen-reader association."""
     assert 'for="notes-textarea"' in NOTES_FORM
+
+
+# ---------------------------------------------------------------------------
+# Child form row — scoped search endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_child_form_uses_scoped_search_endpoint():
+    """Must hit /{org_id}/children/search/, not the generic /search/.
+
+    The scoped endpoint excludes existing children and self; the generic endpoint
+    would include them, allowing the user to accidentally re-link an already-linked child.
+    """
+    assert "children/search/" in CHILD_FORM
+    assert 'hx-get="/admin/orgs/search/"' not in CHILD_FORM

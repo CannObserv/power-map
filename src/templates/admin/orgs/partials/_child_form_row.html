@@ -8,7 +8,7 @@
       <div class="form-group" style="margin-bottom:0;flex:1;position:relative">
         <input type="text" autocomplete="off" placeholder="Search for an organization…"
                id="child-search-display"
-               hx-get="/admin/orgs/search/"
+               hx-get="/admin/orgs/{{ org_id }}/children/search/"
                hx-trigger="input changed delay:200ms"
                hx-target="#child-search-results"
                hx-params="q"

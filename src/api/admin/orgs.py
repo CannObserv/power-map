@@ -707,6 +707,40 @@ async def org_detail(
     )
 
 
+@router.get("/{org_id}/children/search/")
+async def children_search(
+    org_id: str,
+    request: Request,
+    q: str = "",
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Typeahead search for adding a child org — excludes self and existing children."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    results = []
+    if q.strip():
+        results = await db.fetch(
+            """SELECT o.id, dn.display_name
+               FROM organizations o
+               LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+               WHERE o.archived_at IS NULL
+                 AND o.id != $2
+                 AND (o.parent_id IS NULL OR o.parent_id != $2)
+                 AND dn.display_name ILIKE $1
+               ORDER BY dn.display_name NULLS LAST
+               LIMIT 20""",
+            f"%{q.strip()}%",
+            org_id,
+        )
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_search_results.html",
+        {"results": results},
+    )
+
+
 @router.get("/{org_id}/children/new-row/")
 async def children_new_row(
     org_id: str,
