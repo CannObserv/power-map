@@ -2,8 +2,8 @@
 <tr id="child-row-new">
   <td colspan="3" style="padding:var(--space-2) var(--space-4)">
     <form hx-post="/admin/orgs/{{ org_id }}/children/"
-          hx-target="#children-table tbody"
-          hx-swap="afterbegin"
+          hx-target="#child-row-new"
+          hx-swap="outerHTML"
           style="display:flex;gap:var(--space-2);align-items:center">
       <div class="form-group" style="margin-bottom:0;flex:1;position:relative">
         <input type="text" autocomplete="off" placeholder="Search for an organization…"
@@ -11,6 +11,7 @@
                hx-get="/admin/orgs/{{ org_id }}/children/search/"
                hx-trigger="input changed delay:200ms"
                hx-target="#child-search-results"
+               hx-swap="innerHTML"
                hx-params="q"
                name="q"
                role="combobox"

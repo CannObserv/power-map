@@ -324,6 +324,19 @@ CSS handles loading automatically — no per-form JS:
 }
 ```
 
+### HTMX attribute inheritance
+
+`hx-swap`, `hx-target`, and other HTMX attributes inherit from parent elements unless explicitly overridden. A typeahead `<input>` inside a `<form hx-swap="outerHTML">` will inherit `outerHTML` and replace its `hx-target` element entirely rather than updating its contents — destroying the `<ul>` the dropdown depends on.
+
+**Rule:** always set `hx-swap="innerHTML"` explicitly on any typeahead search input whose parent `<form>` carries a different `hx-swap`.
+
+```html
+<input hx-get="..."
+       hx-target="#search-results"
+       hx-swap="innerHTML"   <!-- explicit override — do not omit -->
+       ...>
+```
+
 ### Live regions
 
 All HTMX swap targets for list content must include:

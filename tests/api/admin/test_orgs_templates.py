@@ -254,3 +254,27 @@ def test_child_form_uses_scoped_search_endpoint():
     """
     assert "children/search/" in CHILD_FORM
     assert 'hx-get="/admin/orgs/search/"' not in CHILD_FORM
+
+
+def test_child_form_targets_own_row_on_submit():
+    """On successful add, the form row must replace itself (outerHTML swap).
+
+    Targeting tbody with afterbegin inserts the new child row but leaves the
+    form row in the DOM — the row never clears after submit.
+    """
+    assert 'hx-target="#child-row-new"' in CHILD_FORM
+    assert 'hx-swap="outerHTML"' in CHILD_FORM
+
+
+def test_child_search_input_has_explicit_innerhtml_swap():
+    """Search input must declare hx-swap="innerHTML" to override the form's outerHTML swap.
+
+    Without it, HTMX inherits outerHTML from the parent <form>, replacing the
+    entire <ul#child-search-results> with bare <li> elements on each keystroke —
+    the ul disappears from the DOM and the typeahead breaks.
+    """
+    pattern = r'<input\b[^>]*hx-target="#child-search-results"[^>]*/?\s*>'
+    inputs = re.findall(pattern, CHILD_FORM, re.DOTALL)
+    assert inputs, "No input with hx-target='#child-search-results' found"
+    for inp in inputs:
+        assert 'hx-swap="innerHTML"' in inp, "Search input must have hx-swap=\"innerHTML\""
