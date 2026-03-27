@@ -444,7 +444,7 @@ def test_address_confirm_shows_validation_status(mock_cls, client, org_and_addre
     assert r.status_code == 200
     assert r.headers.get("hx-retarget") == "#address-confirm-portal"
     assert "confirmed" in r.text
-    assert "Usps" in r.text or "usps" in r.text.lower()
+    assert "usps" in r.text.lower()
 
 
 @patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
