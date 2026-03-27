@@ -41,6 +41,66 @@ def _build_normalizer() -> FallbackAddressNormalizer:
     return FallbackAddressNormalizer(config=config)
 
 
+async def _maybe_confirm(
+    request,
+    org_id: str,
+    addr_id: str | None,
+    address_line_1: str,
+    address_line_2: str,
+    city: str,
+    region: str,
+    postal_code: str,
+    address_type: str,
+    display_name: str,
+):
+    """Call normalizer and return confirm partial if standardized result; else None."""
+    raw = " ".join(filter(None, [
+        address_line_1.strip(), address_line_2.strip(),
+        city.strip(), region.strip(), postal_code.strip(),
+    ]))
+    result = await _build_normalizer().normalize(raw)
+    if not (result.value and result.value.get("standardized")):
+        return None
+    validation_status = None
+    if result.validation_detail and "status" in result.validation_detail:
+        validation_status = result.validation_detail["status"]
+    components_val = result.value.get("components")
+    normalized_ctx = {
+        "address_line_1": result.value.get("address_line_1") or address_line_1.strip(),
+        "address_line_2": result.value.get("address_line_2") or address_line_2.strip(),
+        "city": result.value.get("city") or city.strip(),
+        "region": result.value.get("region") or region.strip(),
+        "postal_code": result.value.get("postal_code") or postal_code.strip(),
+        "country": result.value.get("country", "US"),
+        "standardized": result.value.get("standardized"),
+        "latitude": result.value.get("latitude"),
+        "longitude": result.value.get("longitude"),
+        "components_json": json.dumps(components_val) if components_val else "",
+    }
+    original_ctx = {
+        "address_line_1": address_line_1,
+        "address_line_2": address_line_2,
+        "city": city,
+        "region": region,
+        "postal_code": postal_code,
+        "address_type": address_type,
+        "display_name": display_name,
+    }
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_address_confirm_row.html",
+        {
+            "org_id": org_id,
+            "addr_id": addr_id,
+            "normalized": normalized_ctx,
+            "original": original_ctx,
+            "validation_status": validation_status,
+        },
+    )
+
+
 async def _get_org_or_404(org_id: str, db):
     org = await db.fetchrow("SELECT id FROM organizations WHERE id=$1", org_id)
     if not org:
@@ -148,51 +208,13 @@ async def address_create(
             },
         )
     if mode == "confirm":
-        raw = " ".join(filter(None, [
-            address_line_1.strip(), address_line_2.strip(),
-            city.strip(), region.strip(), postal_code.strip(),
-        ]))
-        result = await _build_normalizer().normalize(raw)
-        if result.value and result.value.get("standardized"):
-            validation_status = None
-            if result.validation_detail and "status" in result.validation_detail:
-                validation_status = result.validation_detail["status"]
-            components_val = result.value.get("components")
-            normalized_ctx = {
-                "address_line_1": result.value.get("address_line_1") or address_line_1.strip(),
-                "address_line_2": result.value.get("address_line_2") or address_line_2.strip(),
-                "city": result.value.get("city") or city.strip(),
-                "region": result.value.get("region") or region.strip(),
-                "postal_code": result.value.get("postal_code") or postal_code.strip(),
-                "country": result.value.get("country", "US"),
-                "standardized": result.value.get("standardized"),
-                "latitude": result.value.get("latitude"),
-                "longitude": result.value.get("longitude"),
-                "components_json": json.dumps(components_val) if components_val else "",
-            }
-            original_ctx = {
-                "address_line_1": address_line_1,
-                "address_line_2": address_line_2,
-                "city": city,
-                "region": region,
-                "postal_code": postal_code,
-                "address_type": address_type,
-                "display_name": display_name,
-            }
-            if not is_htmx(request):
-                return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
-            return templates.TemplateResponse(
-                request,
-                "admin/orgs/partials/_address_confirm_row.html",
-                {
-                    "org_id": org_id,
-                    "addr_id": None,
-                    "normalized": normalized_ctx,
-                    "original": original_ctx,
-                    "validation_status": validation_status,
-                },
-            )
-        # normalizer returned no standardized → fall through to save directly
+        confirm = await _maybe_confirm(
+            request, org_id, None,
+            address_line_1, address_line_2, city, region, postal_code,
+            address_type, display_name,
+        )
+        if confirm is not None:
+            return confirm
     aid = generate_id()
     eaid = generate_id()
     _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
@@ -340,51 +362,13 @@ async def address_edit_row_post(
             },
         )
     if mode == "confirm":
-        raw = " ".join(filter(None, [
-            address_line_1.strip(), address_line_2.strip(),
-            city.strip(), region.strip(), postal_code.strip(),
-        ]))
-        result = await _build_normalizer().normalize(raw)
-        if result.value and result.value.get("standardized"):
-            validation_status = None
-            if result.validation_detail and "status" in result.validation_detail:
-                validation_status = result.validation_detail["status"]
-            components_val = result.value.get("components")
-            normalized_ctx = {
-                "address_line_1": result.value.get("address_line_1") or address_line_1.strip(),
-                "address_line_2": result.value.get("address_line_2") or address_line_2.strip(),
-                "city": result.value.get("city") or city.strip(),
-                "region": result.value.get("region") or region.strip(),
-                "postal_code": result.value.get("postal_code") or postal_code.strip(),
-                "country": result.value.get("country", "US"),
-                "standardized": result.value.get("standardized"),
-                "latitude": result.value.get("latitude"),
-                "longitude": result.value.get("longitude"),
-                "components_json": json.dumps(components_val) if components_val else "",
-            }
-            original_ctx = {
-                "address_line_1": address_line_1,
-                "address_line_2": address_line_2,
-                "city": city,
-                "region": region,
-                "postal_code": postal_code,
-                "address_type": address_type,
-                "display_name": display_name,
-            }
-            if not is_htmx(request):
-                return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
-            return templates.TemplateResponse(
-                request,
-                "admin/orgs/partials/_address_confirm_row.html",
-                {
-                    "org_id": org_id,
-                    "addr_id": addr_id,
-                    "normalized": normalized_ctx,
-                    "original": original_ctx,
-                    "validation_status": validation_status,
-                },
-            )
-        # normalizer returned no standardized → fall through to save directly
+        confirm = await _maybe_confirm(
+            request, org_id, addr_id,
+            address_line_1, address_line_2, city, region, postal_code,
+            address_type, display_name,
+        )
+        if confirm is not None:
+            return confirm
     _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
         standardized, latitude, longitude, components
     )

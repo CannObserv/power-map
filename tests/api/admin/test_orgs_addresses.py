@@ -399,6 +399,44 @@ def test_address_confirm_shows_validation_status(mock_cls, client, org_and_addre
     assert "confirmed" in r.text
 
 
+@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+def test_address_edit_confirm_shows_confirm_partial(mock_cls, client, org_and_address):
+    oid, eaid = org_and_address
+    inst = AsyncMock()
+    inst.normalize.return_value = MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "123 MAIN ST",
+            "address_line_2": None,
+            "city": "OLYMPIA",
+            "region": "WA",
+            "postal_code": "98501",
+            "country": "US",
+            "standardized": "123 MAIN ST OLYMPIA WA 98501",
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
+        validation_detail=None,
+    )
+    mock_cls.return_value = inst
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+        },
+    )
+    assert r.status_code == 200
+    assert "123 MAIN ST OLYMPIA WA 98501" in r.text
+    assert "Accept" in r.text
+    assert "Keep my input" in r.text
+
+
 @pytest.mark.integration
 def test_addresses_table_has_normalizer_columns():
     dsn = _dsn()
