@@ -439,6 +439,80 @@ def test_address_edit_confirm_shows_confirm_partial(mock_cls, client, org_and_ad
     assert "Keep my input" in r.text
 
 
+@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+def test_address_create_confirm_non_htmx_redirects(mock_cls, client, org_and_address):
+    oid, _ = org_and_address
+    inst = AsyncMock()
+    inst.normalize.return_value = MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "123 MAIN ST",
+            "address_line_2": None,
+            "city": "SEATTLE",
+            "region": "WA",
+            "postal_code": "98101",
+            "country": "US",
+            "standardized": "123 MAIN ST SEATTLE WA 98101",
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
+        validation_detail=None,
+    )
+    mock_cls.return_value = inst
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=AUTH_HEADERS,  # no HX-Request
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/admin/orgs/{oid}/"
+
+
+@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+def test_address_edit_confirm_non_htmx_redirects(mock_cls, client, org_and_address):
+    oid, eaid = org_and_address
+    inst = AsyncMock()
+    inst.normalize.return_value = MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "123 MAIN ST",
+            "address_line_2": None,
+            "city": "OLYMPIA",
+            "region": "WA",
+            "postal_code": "98501",
+            "country": "US",
+            "standardized": "123 MAIN ST OLYMPIA WA 98501",
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
+        validation_detail=None,
+    )
+    mock_cls.return_value = inst
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=AUTH_HEADERS,  # no HX-Request
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/admin/orgs/{oid}/"
+
+
 @pytest.mark.integration
 def test_addresses_table_has_normalizer_columns():
     dsn = _dsn()
