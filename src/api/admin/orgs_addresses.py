@@ -25,11 +25,28 @@ def _parse_normalizer_fields(
     longitude: str,
     components: str,
 ) -> tuple:
-    """Parse mode=save normalizer form fields into DB-ready values."""
+    """Parse mode=save normalizer form fields into DB-ready values.
+
+    Raises ValueError if latitude/longitude are non-numeric or components is not valid JSON.
+    """
     _standardized = standardized.strip() or None
-    _latitude = float(latitude.strip()) if latitude.strip() else None
-    _longitude = float(longitude.strip()) if longitude.strip() else None
-    _components = components.strip() if components.strip() else None
+    lat_str = latitude.strip()
+    lon_str = longitude.strip()
+    comp_str = components.strip()
+    try:
+        _latitude = float(lat_str) if lat_str else None
+    except ValueError:
+        raise ValueError(f"latitude must be a number, got {lat_str!r}")
+    try:
+        _longitude = float(lon_str) if lon_str else None
+    except ValueError:
+        raise ValueError(f"longitude must be a number, got {lon_str!r}")
+    if comp_str:
+        try:
+            json.loads(comp_str)
+        except (json.JSONDecodeError, ValueError):
+            raise ValueError("components must be valid JSON")
+    _components = comp_str or None
     return _standardized, _latitude, _longitude, _components
 
 
@@ -219,9 +236,31 @@ async def address_create(
             return confirm
     aid = generate_id()
     eaid = generate_id()
-    _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
-        standardized, latitude, longitude, components
-    )
+    try:
+        _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
+            standardized, latitude, longitude, components
+        )
+    except ValueError:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_address_form_row.html",
+            {
+                "org_id": org_id,
+                "a": {
+                    "id": None,
+                    "address_line_1": address_line_1,
+                    "address_line_2": address_line_2,
+                    "city": city,
+                    "region": region,
+                    "postal_code": postal_code,
+                    "address_type": address_type,
+                    "display_name": display_name,
+                },
+                "error": "Invalid address data submitted. Please re-submit the form.",
+            },
+        )
     await db.execute(
         "INSERT INTO addresses"
         " (id, address_line_1, address_line_2, city, region, postal_code,"
@@ -371,9 +410,31 @@ async def address_edit_row_post(
         )
         if confirm is not None:
             return confirm
-    _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
-        standardized, latitude, longitude, components
-    )
+    try:
+        _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
+            standardized, latitude, longitude, components
+        )
+    except ValueError:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_address_form_row.html",
+            {
+                "org_id": org_id,
+                "a": {
+                    "id": addr_id,
+                    "address_line_1": address_line_1,
+                    "address_line_2": address_line_2,
+                    "city": city,
+                    "region": region,
+                    "postal_code": postal_code,
+                    "address_type": address_type,
+                    "display_name": display_name,
+                },
+                "error": "Invalid address data submitted. Please re-submit the form.",
+            },
+        )
     await db.execute(
         "UPDATE addresses"
         " SET address_line_1=$1, address_line_2=$2, city=$3, region=$4, postal_code=$5,"
