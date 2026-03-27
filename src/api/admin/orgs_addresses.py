@@ -44,7 +44,7 @@ def _parse_normalizer_fields(
     if comp_str:
         try:
             json.loads(comp_str)
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:
             raise ValueError("components must be valid JSON")
     _components = comp_str or None
     return _standardized, _latitude, _longitude, _components

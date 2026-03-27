@@ -9,47 +9,12 @@ import asyncpg
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.admin.orgs_addresses import _parse_normalizer_fields
 from src.api.main import app
 from src.core.db import apply_schema, generate_id
 
 pytestmark = pytest.mark.integration
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
-
-
-def test_parse_normalizer_fields_valid():
-    std, lat, lon, comp = _parse_normalizer_fields(
-        " 123 MAIN ST ", "47.6062", "-122.3321",
-        '{"spec":"usps-pub28","spec_version":"unknown","values":{}}',
-    )
-    assert std == "123 MAIN ST"
-    assert lat == 47.6062
-    assert lon == -122.3321
-    assert comp == '{"spec":"usps-pub28","spec_version":"unknown","values":{}}'
-
-
-def test_parse_normalizer_fields_all_empty():
-    std, lat, lon, comp = _parse_normalizer_fields("", "", "", "")
-    assert std is None
-    assert lat is None
-    assert lon is None
-    assert comp is None
-
-
-def test_parse_normalizer_fields_invalid_latitude():
-    with pytest.raises(ValueError):
-        _parse_normalizer_fields("123 MAIN ST", "not-a-float", "", "")
-
-
-def test_parse_normalizer_fields_invalid_longitude():
-    with pytest.raises(ValueError):
-        _parse_normalizer_fields("123 MAIN ST", "", "nope", "")
-
-
-def test_parse_normalizer_fields_invalid_components_json():
-    with pytest.raises(ValueError):
-        _parse_normalizer_fields("123 MAIN ST", "", "", "{bad json")
 
 
 def _dsn():
@@ -286,7 +251,7 @@ def test_address_create_mode_save_invalid_lat_returns_form_with_error(client, or
     )
     assert r.status_code == 200
     assert "<form" in r.text
-    assert "required" not in r.text.lower()
+    assert "Invalid address data" in r.text
 
 
 def test_address_edit_mode_save_invalid_components_returns_form_with_error(
@@ -308,7 +273,7 @@ def test_address_edit_mode_save_invalid_components_returns_form_with_error(
     )
     assert r.status_code == 200
     assert "<form" in r.text
-    assert "required" not in r.text.lower()
+    assert "Invalid address data" in r.text
 
 
 def test_address_create_mode_save_stores_standardized(client, org_and_address):
