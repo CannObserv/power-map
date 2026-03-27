@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS entity_identifier_types (
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS addresses (
-    id             TEXT        PRIMARY KEY,
+    id             TEXT             PRIMARY KEY,
     raw_input      TEXT,                         -- original string before standardization
     standardized   TEXT,                         -- single-line form returned by API
     address_line_1 TEXT,
@@ -44,9 +44,12 @@ CREATE TABLE IF NOT EXISTS addresses (
     city           TEXT,
     region         TEXT,                         -- state / province
     postal_code    TEXT,
-    country        TEXT        NOT NULL DEFAULT 'US',
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    country        TEXT             NOT NULL DEFAULT 'US',
+    latitude       DOUBLE PRECISION,
+    longitude      DOUBLE PRECISION,
+    components     JSONB,
+    created_at     TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ      NOT NULL DEFAULT NOW()
 );
 
 -- Polymorphic join: links any entity to one or more addresses with a typed relationship
@@ -591,3 +594,8 @@ CREATE TABLE IF NOT EXISTS field_confidence (
 
 CREATE INDEX IF NOT EXISTS idx_field_confidence_entity
     ON field_confidence(entity_type, entity_id, field_name);
+
+-- Migration: add normalizer enrichment columns to addresses
+ALTER TABLE addresses ADD COLUMN IF NOT EXISTS latitude   DOUBLE PRECISION;
+ALTER TABLE addresses ADD COLUMN IF NOT EXISTS longitude  DOUBLE PRECISION;
+ALTER TABLE addresses ADD COLUMN IF NOT EXISTS components JSONB;

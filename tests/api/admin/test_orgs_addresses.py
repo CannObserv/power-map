@@ -205,3 +205,25 @@ def test_addresses_delete_returns_info_flash(client, org_and_address):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "info"
+
+
+@pytest.mark.integration
+def test_addresses_table_has_normalizer_columns():
+    dsn = _dsn()
+
+    async def check():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await apply_schema(conn)
+            cols = await conn.fetch(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='addresses' AND table_schema='public'"
+            )
+            return {r["column_name"] for r in cols}
+        finally:
+            await conn.close()
+
+    col_names = asyncio.run(check())
+    assert "latitude" in col_names
+    assert "longitude" in col_names
+    assert "components" in col_names
