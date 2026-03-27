@@ -2,7 +2,12 @@
 
 import pytest
 
+import src.api.admin.orgs_addresses as orgs_addresses_module
 from src.api.admin.orgs_addresses import _parse_normalizer_fields
+
+
+def test_init_normalizer_deleted_from_module_namespace():
+    assert not hasattr(orgs_addresses_module, "_init_normalizer")
 
 
 def test_parse_normalizer_fields_valid():
