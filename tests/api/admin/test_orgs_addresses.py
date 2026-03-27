@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
@@ -293,6 +294,109 @@ def test_address_create_mode_edit_returns_prefilled_form(client, org_and_address
     assert r.status_code == 200
     assert "<form" in r.text
     assert "789 PINE RD" in r.text
+
+
+@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+def test_address_create_confirm_shows_confirm_partial(mock_cls, client, org_and_address):
+    oid, _ = org_and_address
+    inst = AsyncMock()
+    inst.normalize.return_value = MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "123 MAIN ST",
+            "address_line_2": None,
+            "city": "SEATTLE",
+            "region": "WA",
+            "postal_code": "98101",
+            "country": "US",
+            "standardized": "123 MAIN ST SEATTLE WA 98101",
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
+        validation_detail=None,
+    )
+    mock_cls.return_value = inst
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+        },
+    )
+    assert r.status_code == 200
+    assert "123 MAIN ST SEATTLE WA 98101" in r.text
+    assert "Accept" in r.text
+    assert "Keep my input" in r.text
+
+
+@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+def test_address_create_confirm_saves_directly_when_no_standardized(mock_cls, client, org_and_address):
+    oid, _ = org_and_address
+    inst = AsyncMock()
+    inst.normalize.return_value = MagicMock(
+        skipped=False,
+        value={"standardized": None, "address_line_1": "123 Main St",
+               "city": "Seattle", "region": "WA", "postal_code": "98101",
+               "country": "US", "address_line_2": None,
+               "latitude": None, "longitude": None, "components": None},
+        validation_detail=None,
+    )
+    mock_cls.return_value = inst
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" not in r.text
+    assert "Accept" not in r.text
+
+
+@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+def test_address_confirm_shows_validation_status(mock_cls, client, org_and_address):
+    oid, _ = org_and_address
+    inst = AsyncMock()
+    inst.normalize.return_value = MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "123 MAIN ST",
+            "address_line_2": None,
+            "city": "SEATTLE",
+            "region": "WA",
+            "postal_code": "98101",
+            "country": "US",
+            "standardized": "123 MAIN ST SEATTLE WA 98101",
+            "latitude": 47.6062,
+            "longitude": -122.3321,
+            "components": None,
+        },
+        validation_detail={"status": "confirmed", "dpv_match_code": "Y", "provider": "usps"},
+    )
+    mock_cls.return_value = inst
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+        },
+    )
+    assert r.status_code == 200
+    assert "confirmed" in r.text
 
 
 @pytest.mark.integration

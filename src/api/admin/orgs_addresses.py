@@ -1,6 +1,7 @@
 """Admin CRUD for organization addresses."""
 
 import json
+import os
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -8,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
+from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddressNormalizer
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/addresses", tags=["admin-org-addresses"])
@@ -29,6 +31,14 @@ def _parse_normalizer_fields(
     _longitude = float(longitude.strip()) if longitude.strip() else None
     _components = components.strip() if components.strip() else None
     return _standardized, _latitude, _longitude, _components
+
+
+def _build_normalizer() -> FallbackAddressNormalizer:
+    """Build a FallbackAddressNormalizer from environment config."""
+    api_key = os.environ.get("ADDRESS_VALIDATOR_API_KEY")
+    run_validation = os.environ.get("ADDRESS_VALIDATOR_RUN_VALIDATION", "").lower() == "true"
+    config = AddressNormalizerConfig(api_key=api_key, run_validation=run_validation) if api_key else None
+    return FallbackAddressNormalizer(config=config)
 
 
 async def _get_org_or_404(org_id: str, db):
@@ -137,6 +147,52 @@ async def address_create(
                 },
             },
         )
+    if mode == "confirm":
+        raw = " ".join(filter(None, [
+            address_line_1.strip(), address_line_2.strip(),
+            city.strip(), region.strip(), postal_code.strip(),
+        ]))
+        result = await _build_normalizer().normalize(raw)
+        if result.value and result.value.get("standardized"):
+            validation_status = None
+            if result.validation_detail and "status" in result.validation_detail:
+                validation_status = result.validation_detail["status"]
+            components_val = result.value.get("components")
+            normalized_ctx = {
+                "address_line_1": result.value.get("address_line_1") or address_line_1.strip(),
+                "address_line_2": result.value.get("address_line_2") or address_line_2.strip(),
+                "city": result.value.get("city") or city.strip(),
+                "region": result.value.get("region") or region.strip(),
+                "postal_code": result.value.get("postal_code") or postal_code.strip(),
+                "country": result.value.get("country", "US"),
+                "standardized": result.value.get("standardized"),
+                "latitude": result.value.get("latitude"),
+                "longitude": result.value.get("longitude"),
+                "components_json": json.dumps(components_val) if components_val else "",
+            }
+            original_ctx = {
+                "address_line_1": address_line_1,
+                "address_line_2": address_line_2,
+                "city": city,
+                "region": region,
+                "postal_code": postal_code,
+                "address_type": address_type,
+                "display_name": display_name,
+            }
+            if not is_htmx(request):
+                return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return templates.TemplateResponse(
+                request,
+                "admin/orgs/partials/_address_confirm_row.html",
+                {
+                    "org_id": org_id,
+                    "addr_id": None,
+                    "normalized": normalized_ctx,
+                    "original": original_ctx,
+                    "validation_status": validation_status,
+                },
+            )
+        # normalizer returned no standardized → fall through to save directly
     aid = generate_id()
     eaid = generate_id()
     _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
@@ -283,6 +339,52 @@ async def address_edit_row_post(
                 },
             },
         )
+    if mode == "confirm":
+        raw = " ".join(filter(None, [
+            address_line_1.strip(), address_line_2.strip(),
+            city.strip(), region.strip(), postal_code.strip(),
+        ]))
+        result = await _build_normalizer().normalize(raw)
+        if result.value and result.value.get("standardized"):
+            validation_status = None
+            if result.validation_detail and "status" in result.validation_detail:
+                validation_status = result.validation_detail["status"]
+            components_val = result.value.get("components")
+            normalized_ctx = {
+                "address_line_1": result.value.get("address_line_1") or address_line_1.strip(),
+                "address_line_2": result.value.get("address_line_2") or address_line_2.strip(),
+                "city": result.value.get("city") or city.strip(),
+                "region": result.value.get("region") or region.strip(),
+                "postal_code": result.value.get("postal_code") or postal_code.strip(),
+                "country": result.value.get("country", "US"),
+                "standardized": result.value.get("standardized"),
+                "latitude": result.value.get("latitude"),
+                "longitude": result.value.get("longitude"),
+                "components_json": json.dumps(components_val) if components_val else "",
+            }
+            original_ctx = {
+                "address_line_1": address_line_1,
+                "address_line_2": address_line_2,
+                "city": city,
+                "region": region,
+                "postal_code": postal_code,
+                "address_type": address_type,
+                "display_name": display_name,
+            }
+            if not is_htmx(request):
+                return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return templates.TemplateResponse(
+                request,
+                "admin/orgs/partials/_address_confirm_row.html",
+                {
+                    "org_id": org_id,
+                    "addr_id": addr_id,
+                    "normalized": normalized_ctx,
+                    "original": original_ctx,
+                    "validation_status": validation_status,
+                },
+            )
+        # normalizer returned no standardized → fall through to save directly
     _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
         standardized, latitude, longitude, components
     )
