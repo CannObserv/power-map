@@ -339,7 +339,7 @@ def test_address_create_mode_edit_returns_prefilled_form(client, org_and_address
 
 
 @patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
-def test_address_create_confirm_shows_confirm_partial(mock_cls, client, org_and_address):
+def test_address_create_confirm_shows_confirm_modal(mock_cls, client, org_and_address):
     oid, _ = org_and_address
     inst = AsyncMock()
     inst.normalize.return_value = MagicMock(
@@ -371,6 +371,8 @@ def test_address_create_confirm_shows_confirm_partial(mock_cls, client, org_and_
         },
     )
     assert r.status_code == 200
+    assert r.headers.get("hx-retarget") == "#address-confirm-portal"
+    assert r.headers.get("hx-reswap") == "innerHTML"
     assert "123 MAIN ST SEATTLE WA 98101" in r.text
     assert "Accept" in r.text
     assert "Keep my input" in r.text
@@ -440,11 +442,13 @@ def test_address_confirm_shows_validation_status(mock_cls, client, org_and_addre
         },
     )
     assert r.status_code == 200
+    assert r.headers.get("hx-retarget") == "#address-confirm-portal"
     assert "confirmed" in r.text
+    assert "usps" in r.text.lower()
 
 
 @patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
-def test_address_edit_confirm_shows_confirm_partial(mock_cls, client, org_and_address):
+def test_address_edit_confirm_shows_confirm_modal(mock_cls, client, org_and_address):
     oid, eaid = org_and_address
     inst = AsyncMock()
     inst.normalize.return_value = MagicMock(
@@ -476,6 +480,8 @@ def test_address_edit_confirm_shows_confirm_partial(mock_cls, client, org_and_ad
         },
     )
     assert r.status_code == 200
+    assert r.headers.get("hx-retarget") == "#address-confirm-portal"
+    assert r.headers.get("hx-reswap") == "innerHTML"
     assert "123 MAIN ST OLYMPIA WA 98501" in r.text
     assert "Accept" in r.text
     assert "Keep my input" in r.text

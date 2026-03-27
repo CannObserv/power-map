@@ -1,0 +1,126 @@
+{# admin/orgs/partials/_address_confirm_modal.html #}
+{# Context: org_id, addr_id (None for create), original (dict), normalized (dict),
+   validation_status (str|None), validation_provider (str|None) #}
+{# Rendered into #address-confirm-portal via HX-Retarget + HX-Reswap: innerHTML.
+   The form row that triggered the confirm step remains unchanged in the DOM.
+   Modal action forms target that row directly to complete the swap. #}
+<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="addr-confirm-title">
+  <div class="modal modal--wide">
+    <h2 id="addr-confirm-title">Confirm address</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);margin-bottom:var(--space-5)">
+      <div>
+        <div class="field-group-label" style="margin-bottom:var(--space-2)">You entered</div>
+        <div>
+          {{ original.address_line_1 }}
+          {% if original.address_line_2 %}<br>{{ original.address_line_2 }}{% endif %}
+          <br>{{ original.city }}, {{ original.region }} {{ original.postal_code }}
+        </div>
+      </div>
+      <div>
+        <div class="field-group-label" style="margin-bottom:var(--space-2)">
+          {% if validation_provider and validation_status and 'confirmed' in validation_status %}
+            Confirmed by {{ validation_provider | title }}
+          {% else %}
+            Normalized
+          {% endif %}
+          {% if validation_status %}
+            &nbsp;<span class="badge {% if 'confirmed' in validation_status %}badge--success{% else %}badge--warning{% endif %}">
+              {{ validation_status | replace("_", " ") }}
+            </span>
+          {% endif %}
+        </div>
+        <div>{{ normalized.standardized }}</div>
+      </div>
+    </div>
+
+    <div class="modal__actions">
+
+      {# Return to edit: close modal only — form row is still visible behind it #}
+      <button type="button" class="btn btn--ghost btn--sm"
+              onclick="window.__pmAddrConfirmClose()">Return to edit</button>
+
+      {# Keep my input: save with original values, no normalizer data #}
+      <form {% if addr_id %}
+            hx-post="/admin/orgs/{{ org_id }}/addresses/{{ addr_id }}/edit-row/"
+            hx-target="#address-row-{{ addr_id }}"
+            {% else %}
+            hx-post="/admin/orgs/{{ org_id }}/addresses/"
+            hx-target="#address-row-new"
+            {% endif %}
+            hx-swap="outerHTML"
+            hx-on::after-request="if (event.detail.successful) window.__pmAddrConfirmClose()">
+        <input type="hidden" name="mode" value="save">
+        <input type="hidden" name="address_line_1" value="{{ original.address_line_1 or '' }}">
+        <input type="hidden" name="address_line_2" value="{{ original.address_line_2 or '' }}">
+        <input type="hidden" name="city" value="{{ original.city or '' }}">
+        <input type="hidden" name="region" value="{{ original.region or '' }}">
+        <input type="hidden" name="postal_code" value="{{ original.postal_code or '' }}">
+        <input type="hidden" name="address_type" value="{{ original.address_type }}">
+        <input type="hidden" name="display_name" value="{{ original.display_name or '' }}">
+        <button type="submit" class="btn btn--sm btn--secondary">Keep my input</button>
+      </form>
+
+      {# Accept: save with normalized values #}
+      <form {% if addr_id %}
+            hx-post="/admin/orgs/{{ org_id }}/addresses/{{ addr_id }}/edit-row/"
+            hx-target="#address-row-{{ addr_id }}"
+            {% else %}
+            hx-post="/admin/orgs/{{ org_id }}/addresses/"
+            hx-target="#address-row-new"
+            {% endif %}
+            hx-swap="outerHTML"
+            hx-on::after-request="if (event.detail.successful) window.__pmAddrConfirmClose()">
+        <input type="hidden" name="mode" value="save">
+        <input type="hidden" name="address_line_1" value="{{ normalized.address_line_1 or '' }}">
+        <input type="hidden" name="address_line_2" value="{{ normalized.address_line_2 or '' }}">
+        <input type="hidden" name="city" value="{{ normalized.city or '' }}">
+        <input type="hidden" name="region" value="{{ normalized.region or '' }}">
+        <input type="hidden" name="postal_code" value="{{ normalized.postal_code or '' }}">
+        <input type="hidden" name="country" value="{{ normalized.country or 'US' }}">
+        <input type="hidden" name="standardized" value="{{ normalized.standardized or '' }}">
+        <input type="hidden" name="latitude" value="{{ normalized.latitude if normalized.latitude is not none else '' }}">
+        <input type="hidden" name="longitude" value="{{ normalized.longitude if normalized.longitude is not none else '' }}">
+        <input type="hidden" name="components" value="{{ normalized.components_json or '' }}">
+        <input type="hidden" name="address_type" value="{{ original.address_type }}">
+        <input type="hidden" name="display_name" value="{{ original.display_name or '' }}">
+        <button type="submit" class="btn btn--sm btn--primary">Accept</button>
+      </form>
+
+    </div>
+  </div>
+</div>
+<script>
+  (function () {
+    var portal = document.getElementById('address-confirm-portal');
+    var backdrop = portal.querySelector('[role="dialog"]');
+    var focusable = Array.from(backdrop.querySelectorAll('button'));
+    var savedFocus = document.activeElement;
+
+    function closePortal() {
+      document.removeEventListener('keydown', document.__pmAddrConfirmKey);
+      portal.innerHTML = '';
+      if (savedFocus && savedFocus.focus) savedFocus.focus();
+    }
+
+    window.__pmAddrConfirmClose = closePortal;
+
+    document.removeEventListener('keydown', document.__pmAddrConfirmKey);
+    document.__pmAddrConfirmKey = function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); closePortal(); return; }
+      if (e.key !== 'Tab' || !portal.innerHTML) return;
+      if (e.shiftKey) {
+        if (document.activeElement === focusable[0]) {
+          e.preventDefault(); focusable[focusable.length - 1].focus();
+        }
+      } else {
+        if (document.activeElement === focusable[focusable.length - 1]) {
+          e.preventDefault(); focusable[0].focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', document.__pmAddrConfirmKey);
+
+    if (focusable[0]) focusable[0].focus();
+  })();
+</script>
