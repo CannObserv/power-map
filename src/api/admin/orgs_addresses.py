@@ -1,5 +1,7 @@
 """Admin CRUD for organization addresses."""
 
+import json
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -13,6 +15,20 @@ router = APIRouter(prefix="/orgs/{org_id}/addresses", tags=["admin-org-addresses
 
 def _is_all_blank(*fields: str) -> bool:
     return not any(f.strip() for f in fields)
+
+
+def _parse_normalizer_fields(
+    standardized: str,
+    latitude: str,
+    longitude: str,
+    components: str,
+) -> tuple:
+    """Parse mode=save normalizer form fields into DB-ready values."""
+    _standardized = standardized.strip() or None
+    _latitude = float(latitude.strip()) if latitude.strip() else None
+    _longitude = float(longitude.strip()) if longitude.strip() else None
+    _components = components.strip() if components.strip() else None
+    return _standardized, _latitude, _longitude, _components
 
 
 async def _get_org_or_404(org_id: str, db):
@@ -67,6 +83,11 @@ async def address_create(
     postal_code: str = Form(""),
     address_type: str = Form("mailing"),
     display_name: str = Form(""),
+    mode: str = Form("confirm"),
+    standardized: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
+    components: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -96,17 +117,46 @@ async def address_create(
                 "error": "At least one address field is required.",
             },
         )
+    if mode == "edit":
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_address_form_row.html",
+            {
+                "org_id": org_id,
+                "a": {
+                    "id": None,
+                    "address_line_1": address_line_1,
+                    "address_line_2": address_line_2,
+                    "city": city,
+                    "region": region,
+                    "postal_code": postal_code,
+                    "address_type": address_type,
+                    "display_name": display_name,
+                },
+            },
+        )
     aid = generate_id()
     eaid = generate_id()
+    _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
+        standardized, latitude, longitude, components
+    )
     await db.execute(
-        "INSERT INTO addresses (id, address_line_1, address_line_2, city, region, postal_code)"
-        " VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO addresses"
+        " (id, address_line_1, address_line_2, city, region, postal_code,"
+        "  standardized, latitude, longitude, components)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         aid,
         address_line_1.strip() or None,
         address_line_2.strip() or None,
         city.strip() or None,
         region.strip() or None,
         postal_code.strip() or None,
+        _standardized,
+        _latitude,
+        _longitude,
+        _components,
     )
     await db.execute(
         "INSERT INTO entity_addresses"
@@ -179,6 +229,11 @@ async def address_edit_row_post(
     postal_code: str = Form(""),
     address_type: str = Form("mailing"),
     display_name: str = Form(""),
+    mode: str = Form("confirm"),
+    standardized: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
+    components: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -208,14 +263,43 @@ async def address_edit_row_post(
                 "error": "At least one address field is required.",
             },
         )
+    if mode == "edit":
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_address_form_row.html",
+            {
+                "org_id": org_id,
+                "a": {
+                    "id": addr_id,
+                    "address_line_1": address_line_1,
+                    "address_line_2": address_line_2,
+                    "city": city,
+                    "region": region,
+                    "postal_code": postal_code,
+                    "address_type": address_type,
+                    "display_name": display_name,
+                },
+            },
+        )
+    _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
+        standardized, latitude, longitude, components
+    )
     await db.execute(
-        "UPDATE addresses SET address_line_1=$1, address_line_2=$2, city=$3, region=$4,"
-        " postal_code=$5 WHERE id=$6",
+        "UPDATE addresses"
+        " SET address_line_1=$1, address_line_2=$2, city=$3, region=$4, postal_code=$5,"
+        "     standardized=$6, latitude=$7, longitude=$8, components=$9"
+        " WHERE id=$10",
         address_line_1.strip() or None,
         address_line_2.strip() or None,
         city.strip() or None,
         region.strip() or None,
         postal_code.strip() or None,
+        _standardized,
+        _latitude,
+        _longitude,
+        _components,
         existing["address_id"],
     )
     await db.execute(

@@ -233,6 +233,68 @@ def test_address_edit_blank_returns_form_with_error(client, org_and_address):
     assert "required" in r.text.lower()
 
 
+def test_address_create_mode_save_stores_standardized(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "456 OAK AVE",
+            "city": "SEATTLE",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+            "mode": "save",
+            "standardized": "456 OAK AVE SEATTLE WA 98101",
+            "latitude": "47.6062",
+            "longitude": "-122.3321",
+            "components": '{"spec":"usps-pub28","spec_version":"unknown","values":{}}',
+        },
+    )
+    assert r.status_code == 200
+    assert "456 OAK AVE SEATTLE WA 98101" in r.text
+    assert "<form" not in r.text
+
+
+def test_address_edit_mode_save_stores_standardized(client, org_and_address):
+    oid, eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 MAIN ST",
+            "city": "OLYMPIA",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+            "mode": "save",
+            "standardized": "123 MAIN ST OLYMPIA WA 98501",
+        },
+    )
+    assert r.status_code == 200
+    assert "123 MAIN ST OLYMPIA WA 98501" in r.text
+    assert "<form" not in r.text
+
+
+def test_address_create_mode_edit_returns_prefilled_form(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "789 PINE RD",
+            "city": "TACOMA",
+            "region": "WA",
+            "postal_code": "98402",
+            "address_type": "physical",
+            "mode": "edit",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "789 PINE RD" in r.text
+
+
 @pytest.mark.integration
 def test_addresses_table_has_normalizer_columns():
     dsn = _dsn()
