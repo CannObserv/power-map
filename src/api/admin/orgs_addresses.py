@@ -50,8 +50,8 @@ def _parse_normalizer_fields(
     return _standardized, _latitude, _longitude, _components
 
 
-def _build_normalizer() -> FallbackAddressNormalizer:
-    """Build a FallbackAddressNormalizer from environment config."""
+def _init_normalizer() -> FallbackAddressNormalizer:
+    """Initialize FallbackAddressNormalizer from environment config (called once at import)."""
     api_key = os.environ.get("ADDRESS_VALIDATOR_API_KEY")
     run_validation = os.environ.get("ADDRESS_VALIDATOR_RUN_VALIDATION", "").lower() == "true"
     config = (
@@ -60,7 +60,8 @@ def _build_normalizer() -> FallbackAddressNormalizer:
     return FallbackAddressNormalizer(config=config)
 
 
-_NORMALIZER: FallbackAddressNormalizer = _build_normalizer()
+_NORMALIZER: FallbackAddressNormalizer = _init_normalizer()
+del _init_normalizer  # prevent accidental re-invocation after module init
 
 
 async def _maybe_confirm(
