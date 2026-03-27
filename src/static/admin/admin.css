@@ -66,6 +66,8 @@ html.dark {
 html.dark .badge--active   { background: #14532d; color: #86efac; }
 html.dark .badge--inactive { background: #1e293b; color: var(--color-inactive); }
 html.dark .badge--archived { background: #450a0a; color: #fca5a5; }
+html.dark .badge--success  { background: #14532d; color: #86efac; }
+html.dark .badge--warning  { background: #422006; color: #fde68a; }
 /* Alert colors */
 html.dark .alert--success { background: #14532d; color: #86efac; border-color: #166534; }
 html.dark .alert--error   { background: #450a0a; color: #fca5a5; border-color: #991b1b; }
@@ -95,6 +97,8 @@ html.light {
 html.light .badge--active   { background: #dcfce7; color: #15803d; }
 html.light .badge--inactive { background: #f1f5f9; color: var(--color-inactive); }
 html.light .badge--archived { background: #fee2e2; color: #991b1b; }
+html.light .badge--success  { background: #dcfce7; color: #15803d; }
+html.light .badge--warning  { background: #fef9c3; color: #854d0e; }
 html.light .alert--success  { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
 html.light .alert--error    { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
 html.light .alert--warning  { background: #fef9c3; color: #854d0e; border-color: #fde68a; }
@@ -186,10 +190,14 @@ a:hover { color: var(--color-brand-hover); }
 .badge--active   { background: #dcfce7; color: #15803d; }
 .badge--inactive { background: #f1f5f9; color: var(--color-inactive); }
 .badge--archived { background: #fee2e2; color: #991b1b; }
+.badge--success  { background: #dcfce7; color: #15803d; }
+.badge--warning  { background: #fef9c3; color: #854d0e; }
 @media (prefers-color-scheme: dark) {
   .badge--active   { background: #14532d; color: #86efac; }
   .badge--inactive { background: #1e293b; color: var(--color-inactive); }
   .badge--archived { background: #450a0a; color: #fca5a5; }
+  .badge--success  { background: #14532d; color: #86efac; }
+  .badge--warning  { background: #422006; color: #fde68a; }
 }
 
 .table-wrapper { overflow-x: auto; border-radius: var(--radius-lg); border: 1px solid var(--color-border); }
