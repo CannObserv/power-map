@@ -172,3 +172,62 @@ async def test_fallback_uses_local_on_service_error(config):
         r = await n.normalize("123 Main St, Seattle WA 98101")
     assert r.validation_detail["provider"] == "usaddress"
     assert "fallback" in r.warnings[0].lower()
+
+
+async def test_external_standardize_captures_components(external):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "address_line_1": "123 MAIN ST",
+        "address_line_2": "",
+        "city": "SEATTLE",
+        "region": "WA",
+        "postal_code": "98101",
+        "country": "US",
+        "standardized": "123 MAIN ST SEATTLE WA 98101",
+        "components": {
+            "spec": "usps-pub28",
+            "spec_version": "unknown",
+            "values": {"AddressNumber": "123", "StreetName": "MAIN"},
+        },
+        "warnings": [],
+    }
+    with patch("httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value.post = AsyncMock(return_value=mock_response)
+        r = await external.normalize("123 Main St Seattle WA")
+    assert r.value["components"] == {
+        "spec": "usps-pub28",
+        "spec_version": "unknown",
+        "values": {"AddressNumber": "123", "StreetName": "MAIN"},
+    }
+    assert r.value["latitude"] is None
+    assert r.value["longitude"] is None
+
+
+async def test_external_validate_captures_lat_lng_and_components(external_validate):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "address_line_1": "123 MAIN ST",
+        "address_line_2": None,
+        "city": "SEATTLE",
+        "region": "WA",
+        "postal_code": "98101-1234",
+        "country": "US",
+        "validated": "123 MAIN ST  SEATTLE WA 98101-1234",
+        "components": {"spec": "usps-pub28", "spec_version": "unknown", "values": {}},
+        "latitude": 47.6062,
+        "longitude": -122.3321,
+        "warnings": [],
+        "validation": {"status": "confirmed", "dpv_match_code": "Y", "provider": "usps"},
+    }
+    with patch("httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value.post = AsyncMock(return_value=mock_response)
+        r = await external_validate.normalize("123 Main St Seattle WA")
+    assert r.value["latitude"] == 47.6062
+    assert r.value["longitude"] == -122.3321
+    assert r.value["components"] == {"spec": "usps-pub28", "spec_version": "unknown", "values": {}}
