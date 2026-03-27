@@ -81,8 +81,10 @@ async def _maybe_confirm(
     if not (result.value and result.value.get("standardized")):
         return None
     validation_status = None
-    if result.validation_detail and "status" in result.validation_detail:
-        validation_status = result.validation_detail["status"]
+    validation_provider = None
+    if result.validation_detail:
+        validation_status = result.validation_detail.get("status")
+        validation_provider = result.validation_detail.get("provider")
     components_val = result.value.get("components")
     normalized_ctx = {
         "address_line_1": result.value.get("address_line_1") or address_line_1.strip(),
@@ -109,14 +111,16 @@ async def _maybe_confirm(
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return templates.TemplateResponse(
         request,
-        "admin/orgs/partials/_address_confirm_row.html",
+        "admin/orgs/partials/_address_confirm_modal.html",
         {
             "org_id": org_id,
             "addr_id": addr_id,
             "normalized": normalized_ctx,
             "original": original_ctx,
             "validation_status": validation_status,
+            "validation_provider": validation_provider,
         },
+        headers={"HX-Retarget": "#address-confirm-portal", "HX-Reswap": "innerHTML"},
     )
 
 
