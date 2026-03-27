@@ -147,6 +147,9 @@ class ExternalAddressNormalizer:
             "postal_code": data.get("postal_code"),
             "country": data.get("country", "US"),
             "standardized": data.get("standardized") or data.get("validated"),
+            "latitude": data.get("latitude"),
+            "longitude": data.get("longitude"),
+            "components": data.get("components"),
         }
         detail: dict = {"provider": "address-validator"}
         confidence_hint = "unconfirmed"

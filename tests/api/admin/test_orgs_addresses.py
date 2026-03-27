@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
@@ -205,3 +206,256 @@ def test_addresses_delete_returns_info_flash(client, org_and_address):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "info"
+
+
+def test_address_create_blank_returns_form_with_error(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={"address_line_1": "", "city": "", "region": "", "postal_code": "",
+              "address_type": "mailing"},
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "required" in r.text.lower()
+
+
+def test_address_edit_blank_returns_form_with_error(client, org_and_address):
+    oid, eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"address_line_1": "", "city": "", "region": "", "postal_code": "",
+              "address_type": "mailing"},
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "required" in r.text.lower()
+
+
+def test_address_create_mode_save_stores_standardized(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "456 OAK AVE",
+            "city": "SEATTLE",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+            "mode": "save",
+            "standardized": "456 OAK AVE SEATTLE WA 98101",
+            "latitude": "47.6062",
+            "longitude": "-122.3321",
+            "components": '{"spec":"usps-pub28","spec_version":"unknown","values":{}}',
+        },
+    )
+    assert r.status_code == 200
+    assert "456 OAK AVE SEATTLE WA 98101" in r.text
+    assert "<form" not in r.text
+
+
+def test_address_edit_mode_save_stores_standardized(client, org_and_address):
+    oid, eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 MAIN ST",
+            "city": "OLYMPIA",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+            "mode": "save",
+            "standardized": "123 MAIN ST OLYMPIA WA 98501",
+        },
+    )
+    assert r.status_code == 200
+    assert "123 MAIN ST OLYMPIA WA 98501" in r.text
+    assert "<form" not in r.text
+
+
+def test_address_create_mode_edit_returns_prefilled_form(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "789 PINE RD",
+            "city": "TACOMA",
+            "region": "WA",
+            "postal_code": "98402",
+            "address_type": "physical",
+            "mode": "edit",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "789 PINE RD" in r.text
+
+
+@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+def test_address_create_confirm_shows_confirm_partial(mock_cls, client, org_and_address):
+    oid, _ = org_and_address
+    inst = AsyncMock()
+    inst.normalize.return_value = MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "123 MAIN ST",
+            "address_line_2": None,
+            "city": "SEATTLE",
+            "region": "WA",
+            "postal_code": "98101",
+            "country": "US",
+            "standardized": "123 MAIN ST SEATTLE WA 98101",
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
+        validation_detail=None,
+    )
+    mock_cls.return_value = inst
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+        },
+    )
+    assert r.status_code == 200
+    assert "123 MAIN ST SEATTLE WA 98101" in r.text
+    assert "Accept" in r.text
+    assert "Keep my input" in r.text
+
+
+@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+def test_address_create_confirm_saves_directly_when_no_standardized(
+    mock_cls, client, org_and_address
+):
+    oid, _ = org_and_address
+    inst = AsyncMock()
+    inst.normalize.return_value = MagicMock(
+        skipped=False,
+        value={"standardized": None, "address_line_1": "123 Main St",
+               "city": "Seattle", "region": "WA", "postal_code": "98101",
+               "country": "US", "address_line_2": None,
+               "latitude": None, "longitude": None, "components": None},
+        validation_detail=None,
+    )
+    mock_cls.return_value = inst
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" not in r.text
+    assert "Accept" not in r.text
+
+
+@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+def test_address_confirm_shows_validation_status(mock_cls, client, org_and_address):
+    oid, _ = org_and_address
+    inst = AsyncMock()
+    inst.normalize.return_value = MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "123 MAIN ST",
+            "address_line_2": None,
+            "city": "SEATTLE",
+            "region": "WA",
+            "postal_code": "98101",
+            "country": "US",
+            "standardized": "123 MAIN ST SEATTLE WA 98101",
+            "latitude": 47.6062,
+            "longitude": -122.3321,
+            "components": None,
+        },
+        validation_detail={"status": "confirmed", "dpv_match_code": "Y", "provider": "usps"},
+    )
+    mock_cls.return_value = inst
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+        },
+    )
+    assert r.status_code == 200
+    assert "confirmed" in r.text
+
+
+@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+def test_address_edit_confirm_shows_confirm_partial(mock_cls, client, org_and_address):
+    oid, eaid = org_and_address
+    inst = AsyncMock()
+    inst.normalize.return_value = MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "123 MAIN ST",
+            "address_line_2": None,
+            "city": "OLYMPIA",
+            "region": "WA",
+            "postal_code": "98501",
+            "country": "US",
+            "standardized": "123 MAIN ST OLYMPIA WA 98501",
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
+        validation_detail=None,
+    )
+    mock_cls.return_value = inst
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+        },
+    )
+    assert r.status_code == 200
+    assert "123 MAIN ST OLYMPIA WA 98501" in r.text
+    assert "Accept" in r.text
+    assert "Keep my input" in r.text
+
+
+@pytest.mark.integration
+def test_addresses_table_has_normalizer_columns():
+    dsn = _dsn()
+
+    async def check():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await apply_schema(conn)
+            cols = await conn.fetch(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='addresses' AND table_schema='public'"
+            )
+            return {r["column_name"] for r in cols}
+        finally:
+            await conn.close()
+
+    col_names = asyncio.run(check())
+    assert "latitude" in col_names
+    assert "longitude" in col_names
+    assert "components" in col_names

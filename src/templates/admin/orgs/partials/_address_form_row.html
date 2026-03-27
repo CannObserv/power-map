@@ -1,7 +1,7 @@
 {# admin/orgs/partials/_address_form_row.html #}
-<tr id="{% if a %}address-row-{{ a.id }}{% else %}address-row-new{% endif %}">
+<tr id="{% if a and a.id %}address-row-{{ a.id }}{% else %}address-row-new{% endif %}">
   <td colspan="4" style="padding:var(--space-2) var(--space-4)">
-    <form {% if a %}
+    <form {% if a and a.id %}
           hx-post="/admin/orgs/{{ org_id }}/addresses/{{ a.id }}/edit-row/"
           hx-target="#address-row-{{ a.id }}"
           {% else %}
@@ -10,6 +10,7 @@
           {% endif %}
           hx-swap="outerHTML"
           style="display:grid;gap:var(--space-2)">
+      {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
       <div class="form-group" style="margin-bottom:0">
         <input type="text" name="address_line_1" placeholder="Address line 1"
                value="{{ a.address_line_1 or '' if a else '' }}">
@@ -47,7 +48,7 @@
         <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
           <button type="submit" class="btn btn--sm btn--primary">Save</button>
           <button type="button" class="btn btn--sm btn--secondary"
-                  {% if a %}
+                  {% if a and a.id %}
                   hx-get="/admin/orgs/{{ org_id }}/addresses/{{ a.id }}/read-row/"
                   hx-target="#address-row-{{ a.id }}"
                   hx-swap="outerHTML"
