@@ -60,6 +60,9 @@ def _build_normalizer() -> FallbackAddressNormalizer:
     return FallbackAddressNormalizer(config=config)
 
 
+_NORMALIZER: FallbackAddressNormalizer = _build_normalizer()
+
+
 async def _maybe_confirm(
     request,
     org_id: str,
@@ -77,7 +80,7 @@ async def _maybe_confirm(
         address_line_1.strip(), address_line_2.strip(),
         city.strip(), region.strip(), postal_code.strip(),
     ]))
-    result = await _build_normalizer().normalize(raw)
+    result = await _NORMALIZER.normalize(raw)
     if not (result.value and result.value.get("standardized")):
         return None
     validation_status = None

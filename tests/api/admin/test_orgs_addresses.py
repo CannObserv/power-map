@@ -338,11 +338,10 @@ def test_address_create_mode_edit_returns_prefilled_form(client, org_and_address
     assert "789 PINE RD" in r.text
 
 
-@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
-def test_address_create_confirm_shows_confirm_modal(mock_cls, client, org_and_address):
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
+def test_address_create_confirm_shows_confirm_modal(mock_normalizer, client, org_and_address):
     oid, _ = org_and_address
-    inst = AsyncMock()
-    inst.normalize.return_value = MagicMock(
+    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
         skipped=False,
         value={
             "address_line_1": "123 MAIN ST",
@@ -357,8 +356,7 @@ def test_address_create_confirm_shows_confirm_modal(mock_cls, client, org_and_ad
             "components": None,
         },
         validation_detail=None,
-    )
-    mock_cls.return_value = inst
+    ))
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -378,21 +376,19 @@ def test_address_create_confirm_shows_confirm_modal(mock_cls, client, org_and_ad
     assert "Keep my input" in r.text
 
 
-@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
 def test_address_create_confirm_saves_directly_when_no_standardized(
-    mock_cls, client, org_and_address
+    mock_normalizer, client, org_and_address
 ):
     oid, _ = org_and_address
-    inst = AsyncMock()
-    inst.normalize.return_value = MagicMock(
+    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
         skipped=False,
         value={"standardized": None, "address_line_1": "123 Main St",
                "city": "Seattle", "region": "WA", "postal_code": "98101",
                "country": "US", "address_line_2": None,
                "latitude": None, "longitude": None, "components": None},
         validation_detail=None,
-    )
-    mock_cls.return_value = inst
+    ))
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -409,11 +405,10 @@ def test_address_create_confirm_saves_directly_when_no_standardized(
     assert "Accept" not in r.text
 
 
-@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
-def test_address_confirm_shows_validation_status(mock_cls, client, org_and_address):
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
+def test_address_confirm_shows_validation_status(mock_normalizer, client, org_and_address):
     oid, _ = org_and_address
-    inst = AsyncMock()
-    inst.normalize.return_value = MagicMock(
+    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
         skipped=False,
         value={
             "address_line_1": "123 MAIN ST",
@@ -428,8 +423,7 @@ def test_address_confirm_shows_validation_status(mock_cls, client, org_and_addre
             "components": None,
         },
         validation_detail={"status": "confirmed", "dpv_match_code": "Y", "provider": "usps"},
-    )
-    mock_cls.return_value = inst
+    ))
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -447,11 +441,10 @@ def test_address_confirm_shows_validation_status(mock_cls, client, org_and_addre
     assert "usps" in r.text.lower()
 
 
-@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
-def test_address_edit_confirm_shows_confirm_modal(mock_cls, client, org_and_address):
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
+def test_address_edit_confirm_shows_confirm_modal(mock_normalizer, client, org_and_address):
     oid, eaid = org_and_address
-    inst = AsyncMock()
-    inst.normalize.return_value = MagicMock(
+    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
         skipped=False,
         value={
             "address_line_1": "123 MAIN ST",
@@ -466,8 +459,7 @@ def test_address_edit_confirm_shows_confirm_modal(mock_cls, client, org_and_addr
             "components": None,
         },
         validation_detail=None,
-    )
-    mock_cls.return_value = inst
+    ))
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
         headers=HTMX_HEADERS,
@@ -487,11 +479,10 @@ def test_address_edit_confirm_shows_confirm_modal(mock_cls, client, org_and_addr
     assert "Keep my input" in r.text
 
 
-@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
-def test_address_create_confirm_non_htmx_redirects(mock_cls, client, org_and_address):
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
+def test_address_create_confirm_non_htmx_redirects(mock_normalizer, client, org_and_address):
     oid, _ = org_and_address
-    inst = AsyncMock()
-    inst.normalize.return_value = MagicMock(
+    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
         skipped=False,
         value={
             "address_line_1": "123 MAIN ST",
@@ -506,8 +497,7 @@ def test_address_create_confirm_non_htmx_redirects(mock_cls, client, org_and_add
             "components": None,
         },
         validation_detail=None,
-    )
-    mock_cls.return_value = inst
+    ))
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=AUTH_HEADERS,  # no HX-Request
@@ -524,11 +514,10 @@ def test_address_create_confirm_non_htmx_redirects(mock_cls, client, org_and_add
     assert r.headers["location"] == f"/admin/orgs/{oid}/"
 
 
-@patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
-def test_address_edit_confirm_non_htmx_redirects(mock_cls, client, org_and_address):
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
+def test_address_edit_confirm_non_htmx_redirects(mock_normalizer, client, org_and_address):
     oid, eaid = org_and_address
-    inst = AsyncMock()
-    inst.normalize.return_value = MagicMock(
+    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
         skipped=False,
         value={
             "address_line_1": "123 MAIN ST",
@@ -543,8 +532,7 @@ def test_address_edit_confirm_non_htmx_redirects(mock_cls, client, org_and_addre
             "components": None,
         },
         validation_detail=None,
-    )
-    mock_cls.return_value = inst
+    ))
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
         headers=AUTH_HEADERS,  # no HX-Request
