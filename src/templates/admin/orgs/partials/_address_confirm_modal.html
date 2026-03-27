@@ -19,15 +19,13 @@
       </div>
       <div>
         <div class="field-group-label" style="margin-bottom:var(--space-2)">
-          {% if validation_provider and validation_status and 'confirmed' in validation_status %}
-            Confirmed by {{ validation_provider | title }}
-          {% else %}
-            Normalized
-          {% endif %}
           {% if validation_status %}
-            &nbsp;<span class="badge {% if 'confirmed' in validation_status %}badge--success{% else %}badge--warning{% endif %}">
+            <span class="badge {% if 'confirmed' in validation_status %}badge--success{% else %}badge--warning{% endif %}">
               {{ validation_status | replace("_", " ") }}
             </span>
+            {% if validation_provider %} by {{ validation_provider | title }}{% endif %}
+          {% else %}
+            Normalized
           {% endif %}
         </div>
         <div>{{ normalized.standardized }}</div>
