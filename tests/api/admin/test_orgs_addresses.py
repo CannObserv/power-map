@@ -335,7 +335,9 @@ def test_address_create_confirm_shows_confirm_partial(mock_cls, client, org_and_
 
 
 @patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
-def test_address_create_confirm_saves_directly_when_no_standardized(mock_cls, client, org_and_address):
+def test_address_create_confirm_saves_directly_when_no_standardized(
+    mock_cls, client, org_and_address
+):
     oid, _ = org_and_address
     inst = AsyncMock()
     inst.normalize.return_value = MagicMock(

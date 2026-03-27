@@ -37,7 +37,9 @@ def _build_normalizer() -> FallbackAddressNormalizer:
     """Build a FallbackAddressNormalizer from environment config."""
     api_key = os.environ.get("ADDRESS_VALIDATOR_API_KEY")
     run_validation = os.environ.get("ADDRESS_VALIDATOR_RUN_VALIDATION", "").lower() == "true"
-    config = AddressNormalizerConfig(api_key=api_key, run_validation=run_validation) if api_key else None
+    config = (
+        AddressNormalizerConfig(api_key=api_key, run_validation=run_validation) if api_key else None
+    )
     return FallbackAddressNormalizer(config=config)
 
 
