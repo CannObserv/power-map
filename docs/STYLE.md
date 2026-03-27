@@ -337,6 +337,26 @@ CSS handles loading automatically — no per-form JS:
        ...>
 ```
 
+### Do not mix table elements and non-table elements in one HTMX response
+
+A `<tr>` and a `<div>` **cannot be siblings** in the same HTMX response body. When HTMX parses a response, it sets the HTML as `innerHTML` of a container `<div>`. A `<tr>` in non-table context is invalid HTML — the browser's foster-parenting algorithm moves or strips it. HTMX has special-case handling for table elements, but only when the **entire response** is a table fragment. Mixed content breaks that detection and silently discards the `<tr>`.
+
+**Use `HX-Retarget` + `HX-Reswap` response headers instead of OOB** when you need a server response to update a different element than the form's `hx-target` — for example, to fill a modal portal without touching the triggering row:
+
+```python
+return templates.TemplateResponse(
+    request, "admin/orgs/partials/_my_modal.html", ctx,
+    headers={
+        "HX-Retarget": "#modal-portal",
+        "HX-Reswap": "innerHTML",
+    },
+)
+```
+
+HTMX overrides the client-side `hx-target` / `hx-swap` with the header values. The triggering element (e.g. the `<tr>` form row) stays untouched in the DOM. The modal portal receives the response body. The modal's own action forms then target the original row directly.
+
+**When OOB is safe:** use it only when all elements in the response share the same parsing context (all are `<div>` / block, or all are wrapped in an explicit `<table>` / `<tbody>`). Never mix table and non-table elements as OOB siblings.
+
 ### Live regions
 
 All HTMX swap targets for list content must include:
