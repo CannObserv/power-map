@@ -11,6 +11,10 @@ templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/addresses", tags=["admin-org-addresses"])
 
 
+def _is_all_blank(*fields: str) -> bool:
+    return not any(f.strip() for f in fields)
+
+
 async def _get_org_or_404(org_id: str, db):
     org = await db.fetchrow("SELECT id FROM organizations WHERE id=$1", org_id)
     if not org:
@@ -71,6 +75,27 @@ async def address_create(
     if redirect:
         return redirect
     await _get_org_or_404(org_id, db)
+    if _is_all_blank(address_line_1, city, region, postal_code):
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_address_form_row.html",
+            {
+                "org_id": org_id,
+                "a": {
+                    "id": None,
+                    "address_line_1": address_line_1,
+                    "address_line_2": address_line_2,
+                    "city": city,
+                    "region": region,
+                    "postal_code": postal_code,
+                    "address_type": address_type,
+                    "display_name": display_name,
+                },
+                "error": "At least one address field is required.",
+            },
+        )
     aid = generate_id()
     eaid = generate_id()
     await db.execute(
@@ -162,6 +187,27 @@ async def address_edit_row_post(
     if redirect:
         return redirect
     existing = await _get_entity_address_or_404(addr_id, org_id, db)
+    if _is_all_blank(address_line_1, city, region, postal_code):
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_address_form_row.html",
+            {
+                "org_id": org_id,
+                "a": {
+                    "id": addr_id,
+                    "address_line_1": address_line_1,
+                    "address_line_2": address_line_2,
+                    "city": city,
+                    "region": region,
+                    "postal_code": postal_code,
+                    "address_type": address_type,
+                    "display_name": display_name,
+                },
+                "error": "At least one address field is required.",
+            },
+        )
     await db.execute(
         "UPDATE addresses SET address_line_1=$1, address_line_2=$2, city=$3, region=$4,"
         " postal_code=$5 WHERE id=$6",

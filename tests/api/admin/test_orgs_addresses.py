@@ -207,6 +207,32 @@ def test_addresses_delete_returns_info_flash(client, org_and_address):
     assert trigger["showFlash"]["level"] == "info"
 
 
+def test_address_create_blank_returns_form_with_error(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={"address_line_1": "", "city": "", "region": "", "postal_code": "",
+              "address_type": "mailing"},
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "required" in r.text.lower()
+
+
+def test_address_edit_blank_returns_form_with_error(client, org_and_address):
+    oid, eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"address_line_1": "", "city": "", "region": "", "postal_code": "",
+              "address_type": "mailing"},
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "required" in r.text.lower()
+
+
 @pytest.mark.integration
 def test_addresses_table_has_normalizer_columns():
     dsn = _dsn()
