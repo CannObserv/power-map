@@ -300,6 +300,22 @@ def test_orgs_list_flash_deleted_renders_message(client):
     assert "flash" in response.text.lower()
 
 
+def test_orgs_list_flash_deleted_strips_param_via_hx_replace_url(client):
+    """Full-page response with ?flash=deleted must include HX-Replace-Url without the flash param."""
+    response = client.get("/admin/orgs/?flash=deleted", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "HX-Replace-Url" in response.headers
+    assert "flash" not in response.headers["HX-Replace-Url"]
+
+
+def test_orgs_list_unknown_flash_key_ignored(client):
+    """GET /admin/orgs/?flash=bogus must return 200 with no flash rendered."""
+    response = client.get("/admin/orgs/?flash=bogus", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Organization deleted" not in response.text
+    assert "HX-Replace-Url" not in response.headers
+
+
 def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
     dsn = _get_dsn()
     oid = generate_id()

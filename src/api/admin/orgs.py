@@ -91,7 +91,7 @@ async def orgs_list(
         *list_params,
     )
 
-    flash_pair = _FLASH_MESSAGES.get(flash) if flash else None
+    flash_pair = _FLASH_MESSAGES.get(flash)
     flash_msg = {"level": flash_pair[0], "body": flash_pair[1]} if flash_pair else None
 
     ctx = {
@@ -106,12 +106,12 @@ async def orgs_list(
         "flash_msg": flash_msg,
         **pctx,
     }
-    template = (
-        "admin/orgs/_region.html"
-        if is_htmx(request)
-        else "admin/orgs/list.html"
-    )
-    return templates.TemplateResponse(request, template, ctx)
+    htmx = is_htmx(request)
+    template = "admin/orgs/_region.html" if htmx else "admin/orgs/list.html"
+    resp_headers = {}
+    if flash_msg and not htmx:
+        resp_headers["HX-Replace-Url"] = str(request.url.remove_query_params("flash"))
+    return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
 @router.get("/new/")
