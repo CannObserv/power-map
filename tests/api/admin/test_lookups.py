@@ -65,14 +65,16 @@ def test_platforms_new_form_returns_200(client):
     assert response.status_code == 200
 
 
-def test_create_platform_redirects(client):
+async def test_create_platform_redirects(client, db):
+    slug = f"test-platform-{generate_id()}"
     response = client.post(
         "/admin/lookups/platforms/new/",
         headers=AUTH_HEADERS,
-        data={"display_name": "Test Platform", "slug": f"test-platform-{generate_id()}"},
+        data={"display_name": "Test Platform", "slug": slug},
         follow_redirects=False,
     )
     assert response.status_code in (302, 303)
+    await db.execute("DELETE FROM link_types WHERE slug=$1", slug)
 
 
 async def test_edit_platform_form_returns_200(client, db):
@@ -81,9 +83,12 @@ async def test_edit_platform_form_returns_200(client, db):
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, TRUE)",
         pid, "Edit Me", f"edit-me-{pid}",
     )
-    response = client.get(f"/admin/lookups/platforms/{pid}/edit/", headers=AUTH_HEADERS)
-    assert response.status_code == 200
-    assert "Edit Me" in response.text
+    try:
+        response = client.get(f"/admin/lookups/platforms/{pid}/edit/", headers=AUTH_HEADERS)
+        assert response.status_code == 200
+        assert "Edit Me" in response.text
+    finally:
+        await db.execute("DELETE FROM link_types WHERE id=$1", pid)
 
 
 async def test_update_platform_redirects(client, db):
@@ -92,13 +97,16 @@ async def test_update_platform_redirects(client, db):
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, TRUE)",
         pid, "Update Me", f"update-me-{pid}",
     )
-    response = client.post(
-        f"/admin/lookups/platforms/{pid}/edit/",
-        headers=AUTH_HEADERS,
-        data={"display_name": "Updated Platform", "slug": f"updated-{pid}"},
-        follow_redirects=False,
-    )
-    assert response.status_code in (302, 303)
+    try:
+        response = client.post(
+            f"/admin/lookups/platforms/{pid}/edit/",
+            headers=AUTH_HEADERS,
+            data={"display_name": "Updated Platform", "slug": f"updated-{pid}"},
+            follow_redirects=False,
+        )
+        assert response.status_code in (302, 303)
+    finally:
+        await db.execute("DELETE FROM link_types WHERE id=$1", pid)
 
 
 async def test_delete_platform(client, db):
@@ -111,14 +119,16 @@ async def test_delete_platform(client, db):
     assert response.status_code == 200
 
 
-def test_create_url_type_redirects(client):
+async def test_create_url_type_redirects(client, db):
+    slug = f"test-url-type-{generate_id()}"
     response = client.post(
         "/admin/lookups/url-types/new/",
         headers=AUTH_HEADERS,
-        data={"display_name": "Test URL Type", "slug": f"test-url-type-{generate_id()}"},
+        data={"display_name": "Test URL Type", "slug": slug},
         follow_redirects=False,
     )
     assert response.status_code in (302, 303)
+    await db.execute("DELETE FROM link_types WHERE slug=$1", slug)
 
 
 async def test_delete_url_type(client, db):
@@ -131,19 +141,21 @@ async def test_delete_url_type(client, db):
     assert response.status_code == 200
 
 
-def test_create_identifier_type_redirects(client):
+async def test_create_identifier_type_redirects(client, db):
+    slug = f"test-id-type-{generate_id()}"
     response = client.post(
         "/admin/lookups/identifier-types/new/",
         headers=AUTH_HEADERS,
         data={
             "display_name": "Test ID Type",
-            "slug": f"test-id-type-{generate_id()}",
+            "slug": slug,
             "full_name": "Test Identifier Type Full Name",
             "entity_type": "organization",
         },
         follow_redirects=False,
     )
     assert response.status_code in (302, 303)
+    await db.execute("DELETE FROM entity_identifier_types WHERE slug=$1", slug)
 
 
 async def test_delete_identifier_type(client, db):
