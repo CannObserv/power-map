@@ -36,12 +36,6 @@
         <span class="toggle__track"><span class="toggle__thumb"></span></span>
         <span class="toggle__label" style="font-size:var(--font-size-sm);color:var(--color-text-muted)">Active</span>
       </label>
-      <label class="toggle" style="flex-shrink:0">
-        <input type="checkbox" name="is_canonical" value="true"
-               {% if l and l.is_canonical %} checked{% endif %}>
-        <span class="toggle__track"><span class="toggle__thumb"></span></span>
-        <span class="toggle__label" style="font-size:var(--font-size-sm);color:var(--color-text-muted)">Canonical</span>
-      </label>
       <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
         <button type="submit" class="btn btn--sm btn--primary">Save</button>
         <button type="button" class="btn btn--sm btn--secondary"
