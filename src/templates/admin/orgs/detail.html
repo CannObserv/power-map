@@ -223,18 +223,20 @@
 <section class="entity-section">
   <h2>Roles</h2>
   <input type="search" id="roles-filter" placeholder="Filter roles…"
-         style="margin-bottom:var(--space-2);font-size:var(--font-sm)"
+         class="filter-card__search"
          oninput="(function(v){document.querySelectorAll('#roles-table tbody tr[data-title]').forEach(function(r){r.style.display=r.dataset.title.toLowerCase().includes(v.toLowerCase())?'':'none'})})(this.value)">
   <div class="table-wrapper">
     <table id="roles-table" class="data-table">
-      <thead><tr><th scope="col">Title</th></tr></thead>
+      <thead><tr><th scope="col">Title</th><th scope="col" style="text-align:right">Assignments</th><th scope="col" style="text-align:right">Current</th></tr></thead>
       <tbody>
         {% for role in roles %}
         <tr data-title="{{ role.title or '' }}">
           <td><a href="/admin/roles/{{ role.id }}/">{{ role.title or '(untitled)' }}</a></td>
+          <td style="text-align:right;color:var(--color-text-muted)">{{ role.assignment_count }}</td>
+          <td style="text-align:right">{% if role.current_count %}<span class="badge badge--active">{{ role.current_count }}</span>{% else %}<span style="color:var(--color-text-muted)">0</span>{% endif %}</td>
         </tr>
         {% else %}
-        <tr><td style="text-align:center;color:var(--color-text-muted)">No roles</td></tr>
+        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No roles</td></tr>
         {% endfor %}
       </tbody>
     </table>

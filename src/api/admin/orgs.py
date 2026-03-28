@@ -666,7 +666,16 @@ async def org_detail(
         org_id,
     )
     roles = await db.fetch(
-        "SELECT * FROM roles WHERE organization_id = $1 AND archived_at IS NULL ORDER BY title",
+        """SELECT r.id, r.title, sub.assignment_count, sub.current_count
+           FROM roles r
+           CROSS JOIN LATERAL (
+               SELECT COUNT(*) AS assignment_count,
+                      COUNT(*) FILTER (WHERE is_current) AS current_count
+               FROM role_assignments
+               WHERE role_id = r.id AND archived_at IS NULL
+           ) sub
+           WHERE r.organization_id = $1 AND r.archived_at IS NULL
+           ORDER BY r.title""",
         org_id,
     )
     parent = None

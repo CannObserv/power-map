@@ -2,7 +2,7 @@
 <tr id="identifier-row-{{ ident.id }}">
   <td title="{{ ident.type_full_name }}">{{ ident.type_name }}</td>
   <td>{{ ident.value }}</td>
-  <td>
+  <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
             hx-get="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/edit-row/"
             hx-target="#identifier-row-{{ ident.id }}"
