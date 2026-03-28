@@ -61,7 +61,6 @@ async def link_create(
     url: str = Form(...),
     link_type_id: str = Form(...),
     is_active: str = Form(""),
-    is_canonical: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -71,25 +70,16 @@ async def link_create(
         return redirect
     await _get_org_or_404(org_id, db)
     lid = generate_id()
-    canonical = is_canonical == "true"
-    async with db.transaction():
-        if canonical:
-            await db.execute(
-                "UPDATE links SET is_canonical=FALSE"
-                " WHERE entity_type='organization' AND entity_id=$1 AND is_canonical=TRUE",
-                org_id,
-            )
-        await db.execute(
-            "INSERT INTO links"
-            " (id, entity_type, entity_id, url, link_type_id, is_active, is_canonical)"
-            " VALUES ($1, 'organization', $2, $3, $4, $5, $6)",
-            lid,
-            org_id,
-            url.strip(),
-            link_type_id,
-            is_active == "true",
-            canonical,
-        )
+    await db.execute(
+        "INSERT INTO links"
+        " (id, entity_type, entity_id, url, link_type_id, is_active)"
+        " VALUES ($1, 'organization', $2, $3, $4, $5)",
+        lid,
+        org_id,
+        url.strip(),
+        link_type_id,
+        is_active == "true",
+    )
     row = await _get_link_or_404(lid, org_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
@@ -150,7 +140,6 @@ async def link_edit_row_post(
     url: str = Form(...),
     link_type_id: str = Form(...),
     is_active: str = Form(""),
-    is_canonical: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -159,24 +148,13 @@ async def link_edit_row_post(
     if redirect:
         return redirect
     await _get_link_or_404(link_id, org_id, db)
-    canonical = is_canonical == "true"
-    async with db.transaction():
-        if canonical:
-            await db.execute(
-                "UPDATE links SET is_canonical=FALSE"
-                " WHERE entity_type='organization' AND entity_id=$1"
-                " AND is_canonical=TRUE AND id!=$2",
-                org_id,
-                link_id,
-            )
-        await db.execute(
-            "UPDATE links SET url=$1, link_type_id=$2, is_active=$3, is_canonical=$4 WHERE id=$5",
-            url.strip(),
-            link_type_id,
-            is_active == "true",
-            canonical,
-            link_id,
-        )
+    await db.execute(
+        "UPDATE links SET url=$1, link_type_id=$2, is_active=$3 WHERE id=$4",
+        url.strip(),
+        link_type_id,
+        is_active == "true",
+        link_id,
+    )
     row = await _get_link_or_404(link_id, org_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
