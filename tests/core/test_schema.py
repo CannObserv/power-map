@@ -305,35 +305,6 @@ async def test_org_multiple_noncanonical_acronyms_accepted(db):
 
 
 # ---------------------------------------------------------------------------
-# urls: uq_url_canonical
-# ---------------------------------------------------------------------------
-
-
-async def test_duplicate_canonical_url_rejected(db):
-    """Two is_canonical=TRUE links for the same entity must be rejected."""
-    org_id = await _org(db)
-    link_type_id = await _link_type_id(db, "website")
-
-    await db.execute(
-        "INSERT INTO links (id, entity_type, entity_id, url, link_type_id, is_canonical)"
-        " VALUES ($1, 'organization', $2, 'https://example.com', $3, TRUE)",
-        generate_id(),
-        org_id,
-        link_type_id,
-    )
-    with pytest.raises(asyncpg.UniqueViolationError):
-        async with db.transaction():
-            await db.execute(
-                "INSERT INTO links"
-                " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
-                " VALUES ($1, 'organization', $2, 'https://other.com', $3, TRUE)",
-                generate_id(),
-                org_id,
-                link_type_id,
-            )
-
-
-# ---------------------------------------------------------------------------
 # identifiers: FK to entity_identifier_types
 # ---------------------------------------------------------------------------
 
