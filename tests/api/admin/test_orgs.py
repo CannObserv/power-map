@@ -301,7 +301,7 @@ def test_orgs_list_flash_deleted_renders_message(client):
 
 
 def test_orgs_list_flash_deleted_strips_param_via_hx_replace_url(client):
-    """Full-page response with ?flash=deleted must include HX-Replace-Url without the flash param."""
+    """Full-page response with ?flash=deleted must include HX-Replace-Url without flash param."""
     response = client.get("/admin/orgs/?flash=deleted", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "HX-Replace-Url" in response.headers
