@@ -259,8 +259,45 @@ def test_hard_delete_archived_org(client, org_id):
             await conn.close()
 
     asyncio.run(archive())
-    response = client.delete(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
+    response = client.delete(
+        f"/admin/orgs/{org_id}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert "HX-Location" in response.headers
+    assert "flash=deleted" in response.headers["HX-Location"]
+
+
+def test_hard_delete_archived_org_non_htmx_redirects(client, org_id):
+    """Non-HTMX delete must redirect to org list."""
+    dsn = _get_dsn()
+
+    async def archive():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute(
+                "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(archive())
+    response = client.delete(
+        f"/admin/orgs/{org_id}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert "/admin/orgs/" in response.headers["location"]
+    assert "flash=deleted" in response.headers["location"]
+
+
+def test_orgs_list_flash_deleted_renders_message(client):
+    """GET /admin/orgs/?flash=deleted must render a flash notification."""
+    response = client.get("/admin/orgs/?flash=deleted", headers=AUTH_HEADERS)
     assert response.status_code == 200
+    assert "Organization deleted" in response.text
+    assert "flash" in response.text.lower()
 
 
 def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
