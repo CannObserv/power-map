@@ -237,16 +237,15 @@ CREATE TABLE IF NOT EXISTS links (
     url           TEXT        NOT NULL,
     link_type_id  TEXT        NOT NULL REFERENCES link_types(id),
     is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
-    is_canonical  BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_links_entity
     ON links(entity_type, entity_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_link_canonical
-    ON links(entity_type, entity_id)
-    WHERE is_canonical = TRUE;
+-- Remove is_canonical column and index (no display query uses them; concept retired)
+DROP INDEX IF EXISTS uq_link_canonical;
+ALTER TABLE links DROP COLUMN IF EXISTS is_canonical;
 
 -- entity_type is encoded in entity_identifier_types; no need to duplicate here
 CREATE TABLE IF NOT EXISTS identifiers (
@@ -454,9 +453,9 @@ BEGIN
         SELECT 1 FROM information_schema.tables WHERE table_name = 'urls' AND table_schema = 'public'
     ) THEN
         INSERT INTO links (id, entity_type, entity_id, url, link_type_id,
-                           is_active, is_canonical, created_at)
+                           is_active, created_at)
         SELECT u.id, u.entity_type, u.entity_id, u.url,
-               lt.id, TRUE, u.is_canonical, u.created_at
+               lt.id, TRUE, u.created_at
         FROM urls u
         JOIN url_types ut ON ut.id = u.url_type_id
         JOIN link_types lt ON lt.slug = ut.slug
@@ -470,9 +469,9 @@ BEGIN
         SELECT 1 FROM information_schema.tables WHERE table_name = 'social_links' AND table_schema = 'public'
     ) THEN
         INSERT INTO links (id, entity_type, entity_id, url, link_type_id,
-                           is_active, is_canonical, created_at)
+                           is_active, created_at)
         SELECT sl.id, sl.entity_type, sl.entity_id, sl.url,
-               lt.id, TRUE, FALSE, sl.created_at
+               lt.id, TRUE, sl.created_at
         FROM social_links sl
         JOIN platforms p ON p.id = sl.platform_id
         JOIN link_types lt ON lt.slug = p.slug
