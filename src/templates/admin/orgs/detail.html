@@ -260,9 +260,7 @@
   <p>This organization is archived. You may permanently delete it — this cannot be undone.</p>
   <button type="button" class="btn btn--danger"
           hx-delete="/admin/orgs/{{ org.id }}/"
-          hx-confirm="Permanently delete this organization? This cannot be undone."
-          hx-target="body"
-          hx-push-url="/admin/orgs/">
+          hx-confirm="Permanently delete this organization? This cannot be undone.">
     Delete permanently
   </button>
   {% endif %}

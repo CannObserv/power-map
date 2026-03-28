@@ -2,7 +2,7 @@
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
@@ -29,6 +29,11 @@ templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs", tags=["admin-orgs"])
 
 
+_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
+    "deleted": ("success", "Organization deleted."),
+}
+
+
 @router.get("/")
 async def orgs_list(
     request: Request,
@@ -36,6 +41,7 @@ async def orgs_list(
     status: str = "active",
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=10, le=500),
+    flash: str | None = Query(None),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
@@ -85,6 +91,9 @@ async def orgs_list(
         *list_params,
     )
 
+    flash_pair = _FLASH_MESSAGES.get(flash)
+    flash_msg = {"level": flash_pair[0], "body": flash_pair[1]} if flash_pair else None
+
     ctx = {
         "user": user,
         "active_section": "orgs",
@@ -94,14 +103,15 @@ async def orgs_list(
         "page_size": page_size,
         "total": count,
         "org_dup_count": org_dup_count,
+        "flash_msg": flash_msg,
         **pctx,
     }
-    template = (
-        "admin/orgs/_region.html"
-        if is_htmx(request)
-        else "admin/orgs/list.html"
-    )
-    return templates.TemplateResponse(request, template, ctx)
+    htmx = is_htmx(request)
+    template = "admin/orgs/_region.html" if htmx else "admin/orgs/list.html"
+    resp_headers = {}
+    if flash_msg and not htmx:
+        resp_headers["HX-Replace-Url"] = str(request.url.remove_query_params("flash"))
+    return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
 @router.get("/new/")
@@ -890,4 +900,9 @@ async def org_delete(
             status_code=409,
             detail="Cannot delete: organization has related records (roles, etc.)",
         )
-    return HTMLResponse(content="", status_code=200)
+    if is_htmx(request):
+        return Response(
+            status_code=204,
+            headers={"HX-Location": "/admin/orgs/?flash=deleted"},
+        )
+    return RedirectResponse("/admin/orgs/?flash=deleted", status_code=303)
