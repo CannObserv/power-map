@@ -1,33 +1,17 @@
 {% extends "admin/base.html" %}
-{% set _display = (names[0].name if names else (acronyms[0].acronym if acronyms else None)) %}
-{% block title %}{{ (_display or org.id) }} — Organization{% endblock %}
+{% block title %}{{ (display_name or org.id) }} — Organization{% endblock %}
 {% block breadcrumb %}
   <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
   <a href="/admin/orgs/">Organizations</a><span class="breadcrumb__sep">›</span>
-  <span id="breadcrumb-current">{{ _display or org.id }}</span>
+  <span id="breadcrumb-current">{{ display_name or org.id }}</span>
 {% endblock %}
 {% block extra_head %}
-<script>
-  (function () {
-    function _handleUpdateOrgHeader(e) {
-      var d = e.detail && e.detail.display;
-      if (!d) return;
-      var h1 = document.getElementById('page-heading');
-      var bc = document.getElementById('breadcrumb-current');
-      if (h1) h1.textContent = d;
-      if (bc) bc.textContent = d;
-      document.title = d + ' \u2014 Organization \u2014 power-map';
-    }
-    document.removeEventListener('updateOrgHeader', document.__pmUpdateOrgHeader);
-    document.__pmUpdateOrgHeader = _handleUpdateOrgHeader;
-    document.addEventListener('updateOrgHeader', document.__pmUpdateOrgHeader);
-  })();
-</script>
+  <script src="/static/admin/org-detail.js?v=1" defer></script>
 {% endblock %}
 {% block content %}
 <div class="page-header">
   <h1 id="page-heading">
-    {{ _display or '(unnamed)' }}
+    {{ display_name or '(unnamed)' }}
   </h1>
 </div>
 

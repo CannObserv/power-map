@@ -475,7 +475,7 @@ def test_names_create_returns_update_org_header(client, org_and_name):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert "updateOrgHeader" in trigger
-    assert trigger["updateOrgHeader"]["display"]  # non-empty — canonical name still "Original Name"
+    assert trigger["updateOrgHeader"]["display"] == "Original Name"
 
 
 def test_names_update_returns_update_org_header_with_new_display(client, org_and_name):

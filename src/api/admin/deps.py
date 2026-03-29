@@ -68,6 +68,20 @@ def flash_trigger(
     return {"HX-Trigger": json.dumps(payload)}
 
 
+async def org_header_extra(org_id: str, db) -> dict:
+    """Return extra dict for flash_trigger with the current org display name.
+
+    Queries v_org_display_names and falls back to org_id when display_name is NULL
+    (e.g. multiple names, none canonical). Pass as extra= to flash_trigger on any
+    HTMX mutation route that may change the org's canonical name or acronym.
+    """
+    row = await db.fetchrow(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", org_id
+    )
+    display = row["display_name"] if row and row["display_name"] else org_id
+    return {"updateOrgHeader": {"display": display}}
+
+
 async def get_db(request: Request) -> asyncpg.Connection:
     """Yield a connection from the app-level asyncpg pool."""
     pool: asyncpg.Pool | None = getattr(request.app.state, "db_pool", None)

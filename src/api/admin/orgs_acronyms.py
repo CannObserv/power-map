@@ -5,7 +5,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    check_auth,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    org_header_extra,
+)
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -17,15 +25,6 @@ async def _get_org_or_404(org_id: str, db):
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     return org
-
-
-async def _header_extra(org_id: str, db) -> dict:
-    """Return extra dict for flash_trigger with the current org display name."""
-    row = await db.fetchrow(
-        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", org_id
-    )
-    display = row["display_name"] if row and row["display_name"] else org_id
-    return {"updateOrgHeader": {"display": display}}
 
 
 async def _maybe_promote_sole_acronym(org_id: str, db) -> None:
@@ -104,7 +103,7 @@ async def acronym_create(
         headers=flash_trigger(
             "success",
             f"Acronym <strong>{escape(acronym.strip())}</strong> added.",
-            extra=await _header_extra(org_id, db),
+            extra=await org_header_extra(org_id, db),
         ),
     )
 
@@ -211,7 +210,7 @@ async def acronym_edit_row_post(
         headers=flash_trigger(
             "success",
             f"Acronym <strong>{escape(acronym.strip())}</strong> saved.",
-            extra=await _header_extra(org_id, db),
+            extra=await org_header_extra(org_id, db),
         ),
     )
 
@@ -272,5 +271,5 @@ async def acronym_delete(
         request,
         "admin/orgs/partials/_acronym_rows.html",
         {"org_id": org_id, "acronyms": acronyms},
-        headers=flash_trigger("info", "Acronym removed.", extra=await _header_extra(org_id, db)),
+        headers=flash_trigger("info", "Acronym removed.", extra=await org_header_extra(org_id, db)),
     )
