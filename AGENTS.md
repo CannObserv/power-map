@@ -133,20 +133,6 @@ Production runs under systemd (`deploy/power-map.service`). After any code chang
 
 ## Common Commands
 
-```bash
-# Install dependencies
-uv sync
-
-# Run tests
-uv run pytest
-
-# Run linter
-uv run ruff check .
-
-# Dev server (always from a worktree, never the main checkout)
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
-```
-
 Full reference: `docs/COMMANDS.md`
 
 ## Agent Skills

@@ -101,8 +101,11 @@ cd "$path"
 ### 3. Run Project Setup
 
 ```bash
+# From the new worktree directory
+cd "$path"
 uv sync
-cp "$(git rev-parse --show-toplevel)/.env" .env 2>/dev/null || true
+# git rev-parse --git-common-dir points to the main .git regardless of worktree
+cp "$(git rev-parse --git-common-dir | xargs dirname)/.env" .env 2>/dev/null || true
 ```
 
 ### 4. Reload Dev Server on Port 8001

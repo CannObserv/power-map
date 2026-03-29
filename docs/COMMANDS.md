@@ -92,7 +92,8 @@ uv run ruff check --fix .
 
 ```bash
 # Load env vars first
-export $(cat /etc/power-map/.env | xargs) 2>/dev/null && export $(cat .env | xargs) 2>/dev/null
+export $(cat /etc/power-map/.env | xargs) 2>/dev/null
+export $(cat .env | xargs) 2>/dev/null
 
 # Import Cannabis Observer CSV exports
 uv run python scripts/import_cannabis_observer.py \
@@ -117,7 +118,8 @@ uv run python scripts/import_cannabis_observer.py \
 
 ```bash
 # Load env vars first
-export $(cat /etc/power-map/.env | xargs) 2>/dev/null && export $(cat .env | xargs) 2>/dev/null
+export $(cat /etc/power-map/.env | xargs) 2>/dev/null
+export $(cat .env | xargs) 2>/dev/null
 
 # Dry run — report what would be removed (no DB changes)
 uv run python -m scripts.deduplicate_roles
