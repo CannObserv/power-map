@@ -19,6 +19,15 @@ async def _get_org_or_404(org_id: str, db):
     return org
 
 
+async def _header_extra(org_id: str, db) -> dict:
+    """Return extra dict for flash_trigger with the current org display name."""
+    row = await db.fetchrow(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", org_id
+    )
+    display = row["display_name"] if row and row["display_name"] else org_id
+    return {"updateOrgHeader": {"display": display}}
+
+
 async def _maybe_promote_sole_name(org_id: str, db) -> None:
     """If the org has exactly one name and it is not canonical, promote it."""
     rows = await db.fetch(
@@ -94,7 +103,11 @@ async def name_create(
         request,
         "admin/orgs/partials/_name_rows.html",
         {"org_id": org_id, "names": names},
-        headers=flash_trigger("success", f"Name <strong>{escape(name.strip())}</strong> added."),
+        headers=flash_trigger(
+            "success",
+            f"Name <strong>{escape(name.strip())}</strong> added.",
+            extra=await _header_extra(org_id, db),
+        ),
     )
 
 
@@ -197,7 +210,11 @@ async def name_edit_row_post(
         request,
         "admin/orgs/partials/_name_rows.html",
         {"org_id": org_id, "names": names},
-        headers=flash_trigger("success", f"Name <strong>{escape(name.strip())}</strong> saved."),
+        headers=flash_trigger(
+            "success",
+            f"Name <strong>{escape(name.strip())}</strong> saved.",
+            extra=await _header_extra(org_id, db),
+        ),
     )
 
 
@@ -257,5 +274,5 @@ async def name_delete(
         request,
         "admin/orgs/partials/_name_rows.html",
         {"org_id": org_id, "names": names},
-        headers=flash_trigger("info", "Name removed."),
+        headers=flash_trigger("info", "Name removed.", extra=await _header_extra(org_id, db)),
     )

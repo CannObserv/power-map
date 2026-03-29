@@ -43,7 +43,9 @@ def is_htmx(request: Request) -> bool:
     return bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
 
 
-def flash_trigger(level: str, body: str) -> dict[str, str]:
+def flash_trigger(
+    level: str, body: str, extra: dict | None = None
+) -> dict[str, str]:
     """Return an HX-Trigger header dict that dispatches a showFlash event on the client.
 
     Pass directly as the headers argument to TemplateResponse on HTMX mutation routes:
@@ -56,8 +58,14 @@ def flash_trigger(level: str, body: str) -> dict[str, str]:
     HTMX processes the HX-Trigger header and fires a showFlash DOM event. The flash.js
     listener catches it and injects the flash into #flash-region — no OOB element needed.
     Always escape DB-derived values in body with markupsafe.escape() before calling.
+
+    Pass extra to merge additional event keys into the same HX-Trigger header, e.g.:
+        flash_trigger("success", "Saved.", extra={"updateOrgHeader": {"display": name}})
     """
-    return {"HX-Trigger": json.dumps({"showFlash": {"level": level, "body": body}})}
+    payload: dict = {"showFlash": {"level": level, "body": body}}
+    if extra:
+        payload.update(extra)
+    return {"HX-Trigger": json.dumps(payload)}
 
 
 async def get_db(request: Request) -> asyncpg.Connection:

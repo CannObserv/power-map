@@ -123,6 +123,32 @@ def test_flash_trigger_returns_only_hx_trigger_key():
     assert list(headers.keys()) == ["HX-Trigger"]
 
 
+def test_flash_trigger_extra_merges_into_payload():
+    """extra dict keys must be merged alongside showFlash in the HX-Trigger JSON."""
+    headers = flash_trigger(
+        "success", "Saved.", extra={"updateOrgHeader": {"display": "Acme Corp"}}
+    )
+    payload = json.loads(headers["HX-Trigger"])
+    assert "showFlash" in payload
+    assert "updateOrgHeader" in payload
+    assert payload["updateOrgHeader"]["display"] == "Acme Corp"
+
+
+def test_flash_trigger_extra_none_leaves_payload_unchanged():
+    """Passing extra=None must produce the same output as omitting extra."""
+    headers = flash_trigger("info", "Done.", extra=None)
+    payload = json.loads(headers["HX-Trigger"])
+    assert list(payload.keys()) == ["showFlash"]
+
+
+def test_flash_trigger_extra_multiple_keys():
+    """extra may contain multiple keys; all must appear in the payload."""
+    headers = flash_trigger("info", "x", extra={"a": 1, "b": 2})
+    payload = json.loads(headers["HX-Trigger"])
+    assert payload["a"] == 1
+    assert payload["b"] == 2
+
+
 @pytest.mark.integration
 def test_admin_dashboard_returns_200_when_authenticated():
     with TestClient(app) as client:

@@ -19,6 +19,15 @@ async def _get_org_or_404(org_id: str, db):
     return org
 
 
+async def _header_extra(org_id: str, db) -> dict:
+    """Return extra dict for flash_trigger with the current org display name."""
+    row = await db.fetchrow(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", org_id
+    )
+    display = row["display_name"] if row and row["display_name"] else org_id
+    return {"updateOrgHeader": {"display": display}}
+
+
 async def _maybe_promote_sole_acronym(org_id: str, db) -> None:
     """If the org has exactly one acronym and it is not canonical, promote it."""
     rows = await db.fetch(
@@ -95,6 +104,7 @@ async def acronym_create(
         headers=flash_trigger(
             "success",
             f"Acronym <strong>{escape(acronym.strip())}</strong> added.",
+            extra=await _header_extra(org_id, db),
         ),
     )
 
@@ -201,6 +211,7 @@ async def acronym_edit_row_post(
         headers=flash_trigger(
             "success",
             f"Acronym <strong>{escape(acronym.strip())}</strong> saved.",
+            extra=await _header_extra(org_id, db),
         ),
     )
 
@@ -250,8 +261,16 @@ async def acronym_delete(
             )
         await db.execute("DELETE FROM organization_acronyms WHERE id=$1", acronym_id)
         await _maybe_promote_sole_acronym(org_id, db)
-    return HTMLResponse(
-        content="",
-        status_code=200,
-        headers=flash_trigger("info", "Acronym removed."),
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    acronyms = await db.fetch(
+        "SELECT * FROM organization_acronyms WHERE organization_id=$1"
+        " ORDER BY is_canonical DESC, acronym",
+        org_id,
+    )
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_acronym_rows.html",
+        {"org_id": org_id, "acronyms": acronyms},
+        headers=flash_trigger("info", "Acronym removed.", extra=await _header_extra(org_id, db)),
     )

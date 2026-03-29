@@ -447,3 +447,79 @@ async def test_acronym_delete_last_acronym_blocked_non_htmx_returns_409(client, 
     assert r.status_code == 409
     row = await db.fetchrow("SELECT id FROM organization_acronyms WHERE id=$1", aid)
     assert row is not None, "acronym must not be deleted"
+
+
+# ---------------------------------------------------------------------------
+# updateOrgHeader event tests
+# ---------------------------------------------------------------------------
+
+
+async def test_acronym_create_returns_update_org_header(client, org_id):
+    """Creating an acronym must emit updateOrgHeader in HX-Trigger."""
+    r = await client.post(
+        f"/admin/orgs/{org_id}/acronyms/",
+        data={"acronym": "UPD", "is_canonical": ""},
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "updateOrgHeader" in trigger
+    assert trigger["updateOrgHeader"]["display"]  # canonical name "Test Org" still present
+
+
+async def test_acronym_edit_returns_update_org_header(client, org_id, db):
+    """Editing an acronym must emit updateOrgHeader in HX-Trigger."""
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'OLD', TRUE)",
+        aid,
+        org_id,
+    )
+    r = await client.post(
+        f"/admin/orgs/{org_id}/acronyms/{aid}/edit-row/",
+        data={"acronym": "NEW", "is_canonical": "true"},
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "updateOrgHeader" in trigger
+    # display_name = "Test Org (NEW)" — canonical name + canonical acronym
+    assert "NEW" in trigger["updateOrgHeader"]["display"]
+
+
+async def test_acronym_delete_returns_update_org_header(client, org_id, db):
+    """Deleting an acronym must emit updateOrgHeader in HX-Trigger."""
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'DEL', FALSE)",
+        aid,
+        org_id,
+    )
+    r = await client.delete(
+        f"/admin/orgs/{org_id}/acronyms/{aid}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "updateOrgHeader" in trigger
+    assert trigger["updateOrgHeader"]["display"] == "Test Org"
+
+
+async def test_acronym_delete_returns_tbody_rows(client, org_id, db):
+    """After delete, response must contain tbody row content (not empty body)."""
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'DEL', FALSE)",
+        aid,
+        org_id,
+    )
+    r = await client.delete(
+        f"/admin/orgs/{org_id}/acronyms/{aid}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    # Response must be a tbody partial, not empty
+    assert b"<tr" in r.content
