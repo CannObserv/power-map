@@ -484,8 +484,7 @@ async def test_acronym_edit_returns_update_org_header(client, org_id, db):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert "updateOrgHeader" in trigger
-    # display_name = "Test Org (NEW)" — canonical name + canonical acronym
-    assert "NEW" in trigger["updateOrgHeader"]["display"]
+    assert trigger["updateOrgHeader"]["display"] == "Test Org (NEW)"
 
 
 async def test_acronym_delete_returns_update_org_header(client, org_id, db):
