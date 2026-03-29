@@ -1,7 +1,7 @@
 """Admin CRUD for organization names."""
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
@@ -220,6 +220,25 @@ async def name_delete(
     )
     if not existing:
         raise HTTPException(status_code=404)
+    name_count = await db.fetchval(
+        "SELECT count(*) FROM organization_names WHERE organization_id=$1",
+        org_id,
+    )
+    canonical_acronym_count = await db.fetchval(
+        "SELECT count(*) FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
+        org_id,
+    )
+    if name_count == 1 and canonical_acronym_count == 0:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return HTMLResponse(
+            content="",
+            status_code=200,
+            headers=flash_trigger(
+                "error",
+                "Cannot remove the only name when the organization has no canonical acronym.",
+            ),
+        )
     async with db.transaction():
         await db.execute("DELETE FROM organization_names WHERE id=$1", name_id)
         await _maybe_promote_sole_name(org_id, db)

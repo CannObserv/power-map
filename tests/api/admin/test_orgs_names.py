@@ -381,3 +381,60 @@ def test_name_delete_response_reflects_promoted_canonical(client, org_and_name):
     assert f'id="name-row-{non_canonical_nid}"' in r.text
     # Must show the canonical badge (Yes) for the promoted name
     assert "badge--active" in r.text
+
+
+def test_name_delete_last_name_blocked_when_no_acronym(client, org_and_name):
+    """Deleting the last name when there is no canonical acronym must be blocked."""
+    oid, nid = org_and_name
+    r = client.delete(f"/admin/orgs/{oid}/names/{nid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    # Name must still exist in the DB
+    dsn = _dsn()
+
+    async def check():
+        conn = await asyncpg.connect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT id FROM organization_names WHERE id=$1", nid
+            )
+        finally:
+            await conn.close()
+
+    assert asyncio.run(check()) is not None, "name must not be deleted"
+
+
+def test_name_delete_last_name_allowed_when_canonical_acronym_exists(client, org_and_name):
+    """Deleting the last name is allowed when a canonical acronym exists."""
+    dsn = _dsn()
+    oid, nid = org_and_name
+    aid = generate_id()
+
+    async def add_acronym():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute(
+                "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+                " VALUES ($1, $2, 'TEST', TRUE)",
+                aid,
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(add_acronym())
+    r = client.delete(f"/admin/orgs/{oid}/names/{nid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"
+
+    async def cleanup():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute("DELETE FROM organization_acronyms WHERE id=$1", aid)
+        finally:
+            await conn.close()
+
+    asyncio.run(cleanup())
