@@ -224,26 +224,26 @@ async def acronym_delete(
     )
     if not existing:
         raise HTTPException(status_code=404)
-    acronym_count = await db.fetchval(
-        "SELECT count(*) FROM organization_acronyms WHERE organization_id=$1",
-        org_id,
-    )
-    canonical_name_count = await db.fetchval(
-        "SELECT count(*) FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
-        org_id,
-    )
-    if acronym_count == 1 and canonical_name_count == 0:
-        if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
-        return HTMLResponse(
-            content="",
-            status_code=200,
-            headers=flash_trigger(
-                "error",
-                "Cannot remove the only acronym when the organization has no canonical name.",
-            ),
-        )
     async with db.transaction():
+        acronym_count = await db.fetchval(
+            "SELECT count(*) FROM organization_acronyms WHERE organization_id=$1",
+            org_id,
+        )
+        canonical_name_count = await db.fetchval(
+            "SELECT count(*) FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
+            org_id,
+        )
+        if acronym_count == 1 and canonical_name_count == 0:
+            if not is_htmx(request):
+                raise HTTPException(status_code=409, detail="Cannot remove the only acronym when the organization has no canonical name.")
+            return HTMLResponse(
+                content="",
+                status_code=200,
+                headers=flash_trigger(
+                    "error",
+                    "Cannot remove the only acronym when the organization has no canonical name.",
+                ),
+            )
         await db.execute("DELETE FROM organization_acronyms WHERE id=$1", acronym_id)
         await _maybe_promote_sole_acronym(org_id, db)
     return HTMLResponse(
