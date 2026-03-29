@@ -16,6 +16,7 @@ CHILD_FORM = Path("src/templates/admin/orgs/partials/_child_form_row.html").read
 PARENT_READ = Path("src/templates/admin/orgs/partials/_parent_read.html").read_text()
 SEARCH_RESULTS = Path("src/templates/admin/orgs/partials/_search_results.html").read_text()
 BASE_HTML = Path("src/templates/admin/base.html").read_text()
+DETAIL_HTML = Path("src/templates/admin/orgs/detail.html").read_text()
 ACTIVE_TOGGLE = Path("src/templates/admin/orgs/partials/_active_toggle.html").read_text()
 NOTES_FORM = Path("src/templates/admin/orgs/partials/_notes_form.html").read_text()
 
@@ -187,6 +188,30 @@ def test_base_flash_js_is_in_head():
     causing duplicate document.addEventListener registrations."""
     head = BASE_HTML.split("</head>")[0]
     assert "flash.js" in head, "flash.js must be in <head> to avoid hx-boost re-execution"
+
+
+# ---------------------------------------------------------------------------
+# org-detail.js loaded in detail template via extra_head block
+# ---------------------------------------------------------------------------
+
+
+def test_detail_html_loads_org_detail_js():
+    """org-detail.js must be loaded — it holds the updateOrgHeader listener."""
+    assert "org-detail.js" in DETAIL_HTML
+
+
+def test_detail_html_org_detail_js_has_defer():
+    """Must use defer so the script runs after DOM parse and HTMX is available."""
+    scripts = re.findall(r'<script\b[^>]*org-detail\.js[^>]*>', DETAIL_HTML)
+    assert scripts, "org-detail.js script tag not found in detail.html"
+    assert all("defer" in s for s in scripts), "org-detail.js script tag must have defer"
+
+
+def test_detail_html_org_detail_js_in_extra_head_block():
+    """org-detail.js must be in the extra_head block, which renders inside <head>.
+    Scripts in <head> are never re-executed by hx-boost; body scripts are."""
+    block_content = DETAIL_HTML.split("{% block extra_head %}")[1].split("{% endblock %}")[0]
+    assert "org-detail.js" in block_content, "org-detail.js must be inside {% block extra_head %}"
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,9 @@ MODAL_JS = _MODAL_JS_PATH.read_text() if _MODAL_JS_PATH.exists() else ""
 _FLASH_JS_PATH = Path("src/static/admin/flash.js")
 FLASH_JS = _FLASH_JS_PATH.read_text() if _FLASH_JS_PATH.exists() else ""
 
+_ORG_DETAIL_JS_PATH = Path("src/static/admin/org-detail.js")
+ORG_DETAIL_JS = _ORG_DETAIL_JS_PATH.read_text() if _ORG_DETAIL_JS_PATH.exists() else ""
+
 
 def test_admin_modal_js_exists():
     assert _MODAL_JS_PATH.exists()
@@ -80,3 +83,32 @@ def test_flash_js_pauses_dismiss_on_mouseenter():
 def test_flash_js_resumes_dismiss_on_mouseleave():
     """Dismiss timer must restart when the cursor leaves."""
     assert "mouseleave" in FLASH_JS
+
+
+# ---------------------------------------------------------------------------
+# org-detail.js
+# ---------------------------------------------------------------------------
+
+
+def test_org_detail_js_exists():
+    assert _ORG_DETAIL_JS_PATH.exists()
+
+
+def test_org_detail_js_listens_for_update_org_header():
+    """Listener must be keyed to updateOrgHeader — any other name breaks sync silently."""
+    assert "updateOrgHeader" in ORG_DETAIL_JS
+
+
+def test_org_detail_js_targets_page_heading():
+    """Must target id='page-heading' on the <h1> — changing the ID breaks live sync."""
+    assert "page-heading" in ORG_DETAIL_JS
+
+
+def test_org_detail_js_targets_breadcrumb_current():
+    """Must target id='breadcrumb-current' on the breadcrumb span."""
+    assert "breadcrumb-current" in ORG_DETAIL_JS
+
+
+def test_org_detail_js_updates_document_title():
+    """Must update document.title — tab title sync is the third live-update target."""
+    assert "document.title" in ORG_DETAIL_JS

@@ -457,3 +457,63 @@ def test_name_delete_last_name_allowed_when_canonical_acronym_exists(client, org
             await conn.close()
 
     asyncio.run(cleanup())
+
+
+# ---------------------------------------------------------------------------
+# updateOrgHeader event tests
+# ---------------------------------------------------------------------------
+
+
+def test_names_create_returns_update_org_header(client, org_and_name):
+    """Creating a name must emit updateOrgHeader in HX-Trigger."""
+    oid, _ = org_and_name
+    r = client.post(
+        f"/admin/orgs/{oid}/names/",
+        headers=HTMX_HEADERS,
+        data={"name": "DBA Name", "name_type": "dba", "is_canonical": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "updateOrgHeader" in trigger
+    assert trigger["updateOrgHeader"]["display"] == "Original Name"
+
+
+def test_names_update_returns_update_org_header_with_new_display(client, org_and_name):
+    """Updating the canonical name must emit updateOrgHeader with the new display value."""
+    oid, nid = org_and_name
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"name": "Renamed Corp", "name_type": "legal", "is_canonical": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "updateOrgHeader" in trigger
+    assert trigger["updateOrgHeader"]["display"] == "Renamed Corp"
+
+
+def test_names_delete_returns_update_org_header(client, org_and_name):
+    """Deleting a non-canonical name must emit updateOrgHeader with the remaining canonical."""
+    dsn = _dsn()
+    oid, _ = org_and_name
+    nid2 = generate_id()
+
+    async def add():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Former Name', FALSE)",
+                nid2,
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(add())
+    r = client.delete(f"/admin/orgs/{oid}/names/{nid2}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "updateOrgHeader" in trigger
+    assert trigger["updateOrgHeader"]["display"] == "Original Name"

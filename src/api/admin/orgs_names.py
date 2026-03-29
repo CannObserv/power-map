@@ -5,7 +5,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    check_auth,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    org_header_extra,
+)
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -94,7 +102,11 @@ async def name_create(
         request,
         "admin/orgs/partials/_name_rows.html",
         {"org_id": org_id, "names": names},
-        headers=flash_trigger("success", f"Name <strong>{escape(name.strip())}</strong> added."),
+        headers=flash_trigger(
+            "success",
+            f"Name <strong>{escape(name.strip())}</strong> added.",
+            extra=await org_header_extra(org_id, db),
+        ),
     )
 
 
@@ -197,7 +209,11 @@ async def name_edit_row_post(
         request,
         "admin/orgs/partials/_name_rows.html",
         {"org_id": org_id, "names": names},
-        headers=flash_trigger("success", f"Name <strong>{escape(name.strip())}</strong> saved."),
+        headers=flash_trigger(
+            "success",
+            f"Name <strong>{escape(name.strip())}</strong> saved.",
+            extra=await org_header_extra(org_id, db),
+        ),
     )
 
 
@@ -257,5 +273,5 @@ async def name_delete(
         request,
         "admin/orgs/partials/_name_rows.html",
         {"org_id": org_id, "names": names},
-        headers=flash_trigger("info", "Name removed."),
+        headers=flash_trigger("info", "Name removed.", extra=await org_header_extra(org_id, db)),
     )

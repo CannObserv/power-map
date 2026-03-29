@@ -118,9 +118,39 @@ def test_flash_trigger_payload_shape():
 
 
 def test_flash_trigger_returns_only_hx_trigger_key():
-    """Helper must return exactly one header key — callers spread it into TemplateResponse."""
+    """Helper must return exactly one header key regardless of extra payload.
+
+    All events (showFlash and any extra keys) are encoded inside the single
+    HX-Trigger JSON value — callers spread this one-key dict into TemplateResponse.
+    """
     headers = flash_trigger("warning", "Watch out.")
     assert list(headers.keys()) == ["HX-Trigger"]
+
+
+def test_flash_trigger_extra_merges_into_payload():
+    """extra dict keys must be merged alongside showFlash in the HX-Trigger JSON."""
+    headers = flash_trigger(
+        "success", "Saved.", extra={"updateOrgHeader": {"display": "Acme Corp"}}
+    )
+    payload = json.loads(headers["HX-Trigger"])
+    assert "showFlash" in payload
+    assert "updateOrgHeader" in payload
+    assert payload["updateOrgHeader"]["display"] == "Acme Corp"
+
+
+def test_flash_trigger_extra_none_leaves_payload_unchanged():
+    """Passing extra=None must produce the same output as omitting extra."""
+    headers = flash_trigger("info", "Done.", extra=None)
+    payload = json.loads(headers["HX-Trigger"])
+    assert list(payload.keys()) == ["showFlash"]
+
+
+def test_flash_trigger_extra_multiple_keys():
+    """extra may contain multiple keys; all must appear in the payload."""
+    headers = flash_trigger("info", "x", extra={"a": 1, "b": 2})
+    payload = json.loads(headers["HX-Trigger"])
+    assert payload["a"] == 1
+    assert payload["b"] == 2
 
 
 @pytest.mark.integration

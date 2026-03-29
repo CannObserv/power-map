@@ -5,7 +5,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    check_auth,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    org_header_extra,
+)
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -95,6 +103,7 @@ async def acronym_create(
         headers=flash_trigger(
             "success",
             f"Acronym <strong>{escape(acronym.strip())}</strong> added.",
+            extra=await org_header_extra(org_id, db),
         ),
     )
 
@@ -201,6 +210,7 @@ async def acronym_edit_row_post(
         headers=flash_trigger(
             "success",
             f"Acronym <strong>{escape(acronym.strip())}</strong> saved.",
+            extra=await org_header_extra(org_id, db),
         ),
     )
 
@@ -250,8 +260,16 @@ async def acronym_delete(
             )
         await db.execute("DELETE FROM organization_acronyms WHERE id=$1", acronym_id)
         await _maybe_promote_sole_acronym(org_id, db)
-    return HTMLResponse(
-        content="",
-        status_code=200,
-        headers=flash_trigger("info", "Acronym removed."),
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    acronyms = await db.fetch(
+        "SELECT * FROM organization_acronyms WHERE organization_id=$1"
+        " ORDER BY is_canonical DESC, acronym",
+        org_id,
+    )
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_acronym_rows.html",
+        {"org_id": org_id, "acronyms": acronyms},
+        headers=flash_trigger("info", "Acronym removed.", extra=await org_header_extra(org_id, db)),
     )

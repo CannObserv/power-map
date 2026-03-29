@@ -701,6 +701,11 @@ async def org_detail(
     canonical_name = next((n["name"] for n in names if n["is_canonical"]), "")
     canonical_acronym = next((a["acronym"] for a in acronyms if a["is_canonical"]), "")
 
+    display_name_row = await db.fetchrow(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id = $1", org_id
+    )
+    display_name = display_name_row["display_name"] if display_name_row else None
+
     return templates.TemplateResponse(
         request,
         "admin/orgs/detail.html",
@@ -711,6 +716,7 @@ async def org_detail(
             "org_id": org_id,
             "canonical_name": canonical_name,
             "canonical_acronym": canonical_acronym,
+            "display_name": display_name,
             "names": names,
             "acronyms": acronyms,
             "addresses": addresses,
