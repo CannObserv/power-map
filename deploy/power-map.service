@@ -1,0 +1,18 @@
+[Unit]
+Description=power-map API
+After=network.target postgresql.service
+
+[Service]
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# uv run resolves the venv from pyproject.toml — no hardcoded .venv path
+# Requires uv on PATH (/usr/local/bin/uv); verify: systemctl show power-map --property=Environment
+ExecStartPre=uv sync --quiet
+ExecStart=uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 2
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

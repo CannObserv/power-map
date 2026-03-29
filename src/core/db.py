@@ -31,7 +31,8 @@ async def create_pool(dsn: str | None = None) -> asyncpg.Pool:
     """Create and cache the global connection pool.
 
     Args:
-        dsn: PostgreSQL DSN. Falls back to ``DATABASE_URL`` env var.
+        dsn: PostgreSQL DSN. Falls back to ``DATABASE_URL`` env var
+            (set in ``/etc/power-map/.env``).
 
     Returns:
         The asyncpg connection pool.

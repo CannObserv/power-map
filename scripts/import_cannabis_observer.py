@@ -10,7 +10,7 @@ Usage:
 Environment variables:
     DATABASE_URL             — PostgreSQL DSN (written by scripts/setup-db.sh)
     ADDRESS_VALIDATOR_API_KEY — Required for external address standardization.
-                                Loaded from /etc/power-map/env in production.
+                                Loaded from /etc/power-map/.env in production.
                                 Without it, addresses are parsed locally only.
     VALIDATE_ADDRESSES       — Set to '1'/'true'/'yes' to enable /validate
                                 endpoint (equivalent to --validate-addresses).
@@ -67,7 +67,9 @@ async def main() -> None:
 
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
-        raise SystemExit("DATABASE_URL is not set. Run: export $(cat env | xargs)")
+        raise SystemExit(
+            "DATABASE_URL is not set. Run: export $(cat /etc/power-map/.env | xargs) 2>/dev/null"
+        )
 
     conn = await asyncpg.connect(dsn)
     try:
