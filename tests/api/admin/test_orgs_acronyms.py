@@ -430,3 +430,20 @@ async def test_acronym_delete_last_acronym_allowed_when_canonical_name_exists(cl
         "SELECT id FROM organization_acronyms WHERE id=$1", aid
     )
     assert row is None, "acronym must be deleted"
+
+
+async def test_acronym_delete_last_acronym_blocked_non_htmx_returns_409(client, db):
+    """Non-HTMX delete of the last acronym (no canonical name) must return 409."""
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'ONLY', TRUE)",
+        aid,
+        oid,
+    )
+    r = await client.delete(f"/admin/orgs/{oid}/acronyms/{aid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 409
+    row = await db.fetchrow("SELECT id FROM organization_acronyms WHERE id=$1", aid)
+    assert row is not None, "acronym must not be deleted"

@@ -405,6 +405,25 @@ def test_name_delete_last_name_blocked_when_no_acronym(client, org_and_name):
     assert asyncio.run(check()) is not None, "name must not be deleted"
 
 
+def test_name_delete_last_name_blocked_non_htmx_returns_409(client, org_and_name):
+    """Non-HTMX delete of the last name (no canonical acronym) must return 409."""
+    oid, nid = org_and_name
+    r = client.delete(f"/admin/orgs/{oid}/names/{nid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 409
+    dsn = _dsn()
+
+    async def check():
+        conn = await asyncpg.connect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT id FROM organization_names WHERE id=$1", nid
+            )
+        finally:
+            await conn.close()
+
+    assert asyncio.run(check()) is not None, "name must not be deleted"
+
+
 def test_name_delete_last_name_allowed_when_canonical_acronym_exists(client, org_and_name):
     """Deleting the last name is allowed when a canonical acronym exists."""
     dsn = _dsn()
