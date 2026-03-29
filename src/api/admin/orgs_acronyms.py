@@ -19,6 +19,19 @@ async def _get_org_or_404(org_id: str, db):
     return org
 
 
+async def _maybe_promote_sole_acronym(org_id: str, db) -> None:
+    """If the org has exactly one acronym and it is not canonical, promote it."""
+    rows = await db.fetch(
+        "SELECT id, is_canonical FROM organization_acronyms WHERE organization_id=$1",
+        org_id,
+    )
+    if len(rows) == 1 and not rows[0]["is_canonical"]:
+        await db.execute(
+            "UPDATE organization_acronyms SET is_canonical=TRUE WHERE id=$1",
+            rows[0]["id"],
+        )
+
+
 @router.get("/new-row/")
 async def acronym_new_row(
     org_id: str,
@@ -173,6 +186,7 @@ async def acronym_edit_row_post(
             is_canonical == "true",
             acronym_id,
         )
+        await _maybe_promote_sole_acronym(org_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     acronyms = await db.fetch(
@@ -210,7 +224,28 @@ async def acronym_delete(
     )
     if not existing:
         raise HTTPException(status_code=404)
-    await db.execute("DELETE FROM organization_acronyms WHERE id=$1", acronym_id)
+    acronym_count = await db.fetchval(
+        "SELECT count(*) FROM organization_acronyms WHERE organization_id=$1",
+        org_id,
+    )
+    canonical_name_count = await db.fetchval(
+        "SELECT count(*) FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
+        org_id,
+    )
+    if acronym_count == 1 and canonical_name_count == 0:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return HTMLResponse(
+            content="",
+            status_code=200,
+            headers=flash_trigger(
+                "error",
+                "Cannot remove the only acronym when the organization has no canonical name.",
+            ),
+        )
+    async with db.transaction():
+        await db.execute("DELETE FROM organization_acronyms WHERE id=$1", acronym_id)
+        await _maybe_promote_sole_acronym(org_id, db)
     return HTMLResponse(
         content="",
         status_code=200,

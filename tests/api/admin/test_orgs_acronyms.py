@@ -329,3 +329,104 @@ async def test_acronym_delete_returns_info_flash(client, org_id, db):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "info"
+
+
+async def test_acronym_delete_promotes_sole_remaining_non_canonical(client, org_id, db):
+    """Deleting the canonical acronym when exactly one non-canonical remains auto-promotes it."""
+    canonical_id = generate_id()
+    other_id = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'CANON', TRUE)",
+        canonical_id,
+        org_id,
+    )
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'ALT', FALSE)",
+        other_id,
+        org_id,
+    )
+    r = await client.delete(
+        f"/admin/orgs/{org_id}/acronyms/{canonical_id}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT is_canonical FROM organization_acronyms WHERE id=$1", other_id
+    )
+    assert row["is_canonical"] is True, "sole remaining acronym must be auto-promoted"
+
+
+async def test_acronym_edit_sole_non_canonical_auto_promotes(client, org_id, db):
+    """Editing the sole acronym to non-canonical must auto-promote it back."""
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'SOLE', TRUE)",
+        aid,
+        org_id,
+    )
+    r = await client.post(
+        f"/admin/orgs/{org_id}/acronyms/{aid}/edit-row/",
+        data={"acronym": "SOLE", "is_canonical": ""},
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT is_canonical FROM organization_acronyms WHERE id=$1", aid
+    )
+    assert row["is_canonical"] is True, "sole acronym must remain canonical after edit"
+
+
+async def test_acronym_delete_last_acronym_blocked_when_no_canonical_name(client, db):
+    """Deleting the last acronym when the org has no canonical name must be blocked."""
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    # No canonical name — insert a non-canonical one so auto-promote won't save us
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+        " VALUES ($1, $2, 'Unnamed', FALSE)",
+        generate_id(),
+        oid,
+    )
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'ONLY', TRUE)",
+        aid,
+        oid,
+    )
+    r = await client.delete(
+        f"/admin/orgs/{oid}/acronyms/{aid}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    row = await db.fetchrow(
+        "SELECT id FROM organization_acronyms WHERE id=$1", aid
+    )
+    assert row is not None, "acronym must not be deleted"
+
+
+async def test_acronym_delete_last_acronym_allowed_when_canonical_name_exists(client, org_id, db):
+    """Deleting the last acronym is allowed when a canonical name exists."""
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, 'ONLY', TRUE)",
+        aid,
+        org_id,
+    )
+    r = await client.delete(
+        f"/admin/orgs/{org_id}/acronyms/{aid}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"
+    row = await db.fetchrow(
+        "SELECT id FROM organization_acronyms WHERE id=$1", aid
+    )
+    assert row is None, "acronym must be deleted"
