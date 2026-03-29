@@ -230,12 +230,16 @@ async def acronym_delete(
             org_id,
         )
         canonical_name_count = await db.fetchval(
-            "SELECT count(*) FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
+            "SELECT count(*) FROM organization_names"
+            " WHERE organization_id=$1 AND is_canonical=TRUE",
             org_id,
         )
         if acronym_count == 1 and canonical_name_count == 0:
             if not is_htmx(request):
-                raise HTTPException(status_code=409, detail="Cannot remove the only acronym when the organization has no canonical name.")
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot remove the only acronym: no canonical name exists.",
+                )
             return HTMLResponse(
                 content="",
                 status_code=200,
