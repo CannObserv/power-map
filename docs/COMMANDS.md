@@ -10,6 +10,8 @@ bash scripts/setup-db.sh
 uv sync
 ```
 
+First-time setup: create `/etc/power-map/.env` (640, root:exedev) with production secrets before running any command that needs `DATABASE_URL` — see AGENTS.md § Environment Variables for the required contents.
+
 ## Environment
 
 Two env files; load both before any command that needs secrets:
