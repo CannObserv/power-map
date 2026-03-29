@@ -2,7 +2,7 @@
 
 Redirects DATABASE_URL to TEST_DATABASE_URL when the latter is set, so that
 integration tests never touch the production database when run with the
-standard `env` file loaded.
+standard `.env` file loaded.
 
 If TEST_DATABASE_URL is absent, all integration-marked tests are skipped rather
 than falling through to the production DATABASE_URL.

@@ -1,0 +1,14 @@
+[Unit]
+Description=power-map API
+After=network.target postgresql.service
+
+[Service]
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+ExecStart=/home/exedev/power-map/.venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 2
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

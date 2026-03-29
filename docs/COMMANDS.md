@@ -10,15 +10,53 @@ bash scripts/setup-db.sh
 uv sync
 ```
 
-## Development
+## Environment
+
+Two env files; load both before any command that needs secrets:
 
 ```bash
-# FastAPI dev server (auto-reload)
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+export $(cat /etc/power-map/.env | xargs) 2>/dev/null   # DATABASE_URL + address validator keys
+export $(cat .env | xargs) 2>/dev/null                  # GH_TOKEN, TEST_DATABASE_URL
+```
 
-# Inject admin auth headers locally via mitmdump reverse proxy (port 3000 → 8000)
+| File | Contents |
+|---|---|
+| `/etc/power-map/.env` (640, root:exedev) | `DATABASE_URL`, `ADDRESS_VALIDATOR_API_KEY`, `ADDRESS_VALIDATOR_RUN_VALIDATION` |
+| `.env` (repo, gitignored) | `GH_TOKEN`, `TEST_DATABASE_URL` |
+
+## Service Management
+
+Production runs on port 8000 under systemd.
+
+```bash
+# Status
+sudo systemctl status power-map
+
+# Restart after code changes
+sudo systemctl restart power-map
+
+# Tail logs
+sudo journalctl -u power-map -f
+
+# Install (first time or after updating deploy/power-map.service)
+sudo cp deploy/power-map.service /etc/systemd/system/power-map.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now power-map
+```
+
+## Development
+
+Dev server runs on port 8001 with `--reload`. Always run from a git worktree — never the main checkout.
+Accessible via exe.dev proxy at `https://power-map.exe.xyz:8001/`.
+
+```bash
+# Kill any existing dev server on 8001, then start fresh from your worktree
+fuser -k 8001/tcp 2>/dev/null; sleep 1
+uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+
+# Inject admin auth headers locally via mitmdump reverse proxy (port 3000 → 8001)
 mitmdump \
-  --mode reverse:http://localhost:8000 \
+  --mode reverse:http://localhost:8001 \
   --listen-port 3000 \
   --set modify_headers='/~q/X-Exedev-Email/admin@example.com' \
   --set modify_headers='/~q/X-Exedev-Userid/usr_local_dev'
@@ -54,7 +92,7 @@ uv run ruff check --fix .
 
 ```bash
 # Load env vars first
-export $(cat env | xargs)
+export $(cat /etc/power-map/.env | xargs) 2>/dev/null && export $(cat .env | xargs) 2>/dev/null
 
 # Import Cannabis Observer CSV exports
 uv run python scripts/import_cannabis_observer.py \
@@ -79,7 +117,7 @@ uv run python scripts/import_cannabis_observer.py \
 
 ```bash
 # Load env vars first
-export $(cat env | xargs)
+export $(cat /etc/power-map/.env | xargs) 2>/dev/null && export $(cat .env | xargs) 2>/dev/null
 
 # Dry run — report what would be removed (no DB changes)
 uv run python -m scripts.deduplicate_roles

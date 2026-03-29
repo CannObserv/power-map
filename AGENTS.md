@@ -86,35 +86,50 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - Schema tests for `uq_role_org_title` are guarded by a `require_uq_role_org_title` fixture that skips when the index is absent (expected on the production DB until the bootstrap sequence above is run).
 - **`pg_trgm` extension:** enabled via `CREATE EXTENSION IF NOT EXISTS pg_trgm` in `apply_schema`. Required for org duplicate detection (`similarity()` function). Re-run `apply_schema` (or restart the service) to install on existing databases. Gracefully degrades to `org_dup_count = 0` if extension is not yet installed.
 
+## Infrastructure
+
+Single VM running both production service and development. Port split prevents collision:
+
+| Port | Process | Managed by |
+|---|---|---|
+| 8000 | Production API (`--workers 2`) | systemd (`power-map.service`) |
+| 8001 | Dev server (`--reload`) | manual, always from a worktree |
+
+exe.dev proxy: dev server accessible at `https://power-map.exe.xyz:8001/`.
+
+**All development work must be done in a git worktree** — never edit the main checkout directly. `brainstorming` is the entry point that triggers worktree setup via `using-git-worktrees`.
+
+### Server Lifecycle
+
+| Situation | Action |
+|---|---|
+| After code change (production) | `sudo systemctl restart power-map` |
+| Worktree dev testing | kill+restart dev server on 8001 with `--reload` from worktree dir |
+| Env var change | restart service (env read at startup) |
+| Service debugging | `sudo journalctl -u power-map -f` |
+| New deployment | install `deploy/power-map.service` → see `docs/COMMANDS.md` |
+
+### Environment Variables
+
+| File | Owner | Contents |
+|---|---|---|
+| `/etc/power-map/.env` | root:exedev (640) | `DATABASE_URL`, `ADDRESS_VALIDATOR_API_KEY`, `ADDRESS_VALIDATOR_RUN_VALIDATION` |
+| `.env` (repo, gitignored) | developer | `GH_TOKEN`, `TEST_DATABASE_URL` |
+
+Load both before running any command that needs env vars:
+
+```bash
+export $(cat /etc/power-map/.env | xargs) 2>/dev/null
+export $(cat .env | xargs) 2>/dev/null
+```
+
 ## Services
 
 | Service | Framework | Port |
 |---|---|---|
-| API | FastAPI | 8000 |
+| API | FastAPI | 8000 (prod) / 8001 (dev) |
 
-```bash
-# FastAPI dev server
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-After any code change in production deployments, restart uvicorn/gunicorn — they do not auto-reload.
-
-## Secrets
-
-`env` (git-ignored): API keys and tokens. Never commit secrets.
-
-Load before running any command that needs env vars (e.g. `gh`, `DATABASE_URL`):
-
-```bash
-export $(cat env | xargs)
-```
-
-Currently defined:
-- `GH_TOKEN` — GitHub personal access token (used by `gh` CLI)
-- `DATABASE_URL` — PostgreSQL DSN
-
-Production secrets (from `/etc/power-map/env`):
-- `ADDRESS_VALIDATOR_API_KEY` — required for external address standardization
+Production runs under systemd (`deploy/power-map.service`). After any code change: `sudo systemctl restart power-map`.
 
 ## Common Commands
 
@@ -128,8 +143,8 @@ uv run pytest
 # Run linter
 uv run ruff check .
 
-# FastAPI dev server
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+# Dev server (always from a worktree, never the main checkout)
+uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 Full reference: `docs/COMMANDS.md`
