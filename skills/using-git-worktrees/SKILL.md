@@ -83,19 +83,22 @@ project=$(basename "$(git rev-parse --show-toplevel)")
 ### 2. Create Worktree
 
 ```bash
+# Set these from context before running:
+#   LOCATION   — the resolved worktree parent dir (e.g. .worktrees)
+#   BRANCH_NAME — the new branch name (e.g. fix/48-my-feature)
+
 # Determine full path
 case $LOCATION in
   .worktrees|worktrees)
     path="$LOCATION/$BRANCH_NAME"
     ;;
-  ~/.config/superpowers/worktrees/*)
-    path="~/.config/superpowers/worktrees/$project/$BRANCH_NAME"
+  *)
+    path="$LOCATION/$project/$BRANCH_NAME"
     ;;
 esac
 
 # Create worktree with new branch
 git worktree add "$path" -b "$BRANCH_NAME"
-cd "$path"
 ```
 
 ### 3. Run Project Setup

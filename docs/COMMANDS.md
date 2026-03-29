@@ -50,6 +50,10 @@ Dev server runs on port 8001 with `--reload`. Always run from a git worktree —
 Accessible via exe.dev proxy at `https://power-map.exe.xyz:8001/`.
 
 ```bash
+# Load env vars first
+export $(cat /etc/power-map/.env | xargs) 2>/dev/null
+export $(cat .env | xargs) 2>/dev/null
+
 # Kill any existing dev server on 8001, then start fresh from your worktree
 fuser -k 8001/tcp 2>/dev/null; sleep 1
 uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
