@@ -53,11 +53,9 @@
       <a class="admin-sidebar__sublink" href="/admin/orgs/duplicates/" {% if active_section == 'orgs_duplicates' %}aria-current="page"{% endif %}>Duplicates{% if org_dup_count %} ({{ org_dup_count }}){% endif %}</a>
       <a class="admin-sidebar__link" href="/admin/roles/" {% if active_section == 'roles' %}aria-current="page"{% endif %}>Roles</a>
       <a class="admin-sidebar__link" href="/admin/role-assignments/" {% if active_section == 'role_assignments' %}aria-current="page"{% endif %}>Assignments</a>
-      <span class="admin-sidebar__group-label">Reference</span>
-      <a class="admin-sidebar__link" href="/admin/lookups/link-types-social/" {% if active_section == 'lookups' %}aria-current="page"{% endif %}>Lookups</a>
       <span class="admin-sidebar__group-label">Ingestion</span>
       <a class="admin-sidebar__link" href="/admin/imports/" {% if active_section == 'imports' %}aria-current="page"{% endif %}>Import History</a>
-      <span class="admin-sidebar__group-label">Configuration</span>
+      <span class="admin-sidebar__group-label">Settings</span>
       <a class="admin-sidebar__link" href="/admin/settings/" {% if active_section == 'settings' %}aria-current="page"{% endif %}>Settings</a>
     </nav>
     <main id="main-content" class="admin-main">{% block content %}{% endblock %}
