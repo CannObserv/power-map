@@ -57,6 +57,8 @@
       <a class="admin-sidebar__link" href="/admin/lookups/link-types-social/" {% if active_section == 'lookups' %}aria-current="page"{% endif %}>Lookups</a>
       <span class="admin-sidebar__group-label">Ingestion</span>
       <a class="admin-sidebar__link" href="/admin/imports/" {% if active_section == 'imports' %}aria-current="page"{% endif %}>Import History</a>
+      <span class="admin-sidebar__group-label">Configuration</span>
+      <a class="admin-sidebar__link" href="/admin/settings/" {% if active_section == 'settings' %}aria-current="page"{% endif %}>Settings</a>
     </nav>
     <main id="main-content" class="admin-main">{% block content %}{% endblock %}
       <footer class="admin-footer">

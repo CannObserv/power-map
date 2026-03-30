@@ -1,0 +1,19 @@
+{# _identifier_type_row.html — read-only row; expects: eit #}
+<tr id="identifier-type-row-{{ eit.id }}">
+  <td>{{ eit.display_name }}</td>
+  <td style="color:var(--color-text-muted);font-family:monospace">{{ eit.slug or '—' }}</td>
+  <td>{{ eit.full_name or '—' }}</td>
+  <td><span class="badge badge--inactive">{{ eit.entity_type }}</span></td>
+  <td>{{ eit.usage_count if eit.usage_count else '—' }}</td>
+  <td style="text-align:right;white-space:nowrap">
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/settings/identifier-types/{{ eit.id }}/edit-row/"
+            hx-target="#identifier-type-row-{{ eit.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            hx-delete="/admin/settings/identifier-types/{{ eit.id }}/"
+            hx-target="#identifier-type-row-{{ eit.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete '{{ eit.display_name }}'?{% if eit.usage_count %} Warning: {{ eit.usage_count }} record{{ 's' if eit.usage_count != 1 else '' }} use this type.{% endif %}">Delete</button>
+  </td>
+</tr>

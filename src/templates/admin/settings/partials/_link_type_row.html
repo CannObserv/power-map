@@ -1,0 +1,17 @@
+{# _link_type_row.html — read-only row; expects: lt, scope #}
+<tr id="link-type-row-{{ lt.id }}">
+  <td>{{ lt.display_name }}</td>
+  <td style="color:var(--color-text-muted);font-family:monospace">{{ lt.slug or '—' }}</td>
+  <td>{{ lt.usage_count if lt.usage_count else '—' }}</td>
+  <td style="text-align:right;white-space:nowrap">
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/settings/link-types/{{ scope }}/{{ lt.id }}/edit-row/"
+            hx-target="#link-type-row-{{ lt.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            hx-delete="/admin/settings/link-types/{{ scope }}/{{ lt.id }}/"
+            hx-target="#link-type-row-{{ lt.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete '{{ lt.display_name }}'?{% if lt.usage_count %} Warning: {{ lt.usage_count }} record{{ 's' if lt.usage_count != 1 else '' }} use this type.{% endif %}">Delete</button>
+  </td>
+</tr>

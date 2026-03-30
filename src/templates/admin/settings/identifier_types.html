@@ -1,0 +1,37 @@
+{% extends "admin/base.html" %}
+{% block title %}Identifier Types{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/settings/">Settings</a><span class="breadcrumb__sep">›</span>
+  <span>Identifier Types</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Identifier Types</h1>
+  <button class="btn btn--secondary"
+          hx-get="/admin/settings/identifier-types/new-row/"
+          hx-target="#identifier-types-body"
+          hx-swap="beforeend">+ Add</button>
+</div>
+<div class="table-wrapper">
+  <table class="data-table" id="identifier-types-table">
+    <thead>
+      <tr>
+        <th scope="col">Display Name</th>
+        <th scope="col">Slug</th>
+        <th scope="col">Full Name</th>
+        <th scope="col">Entity Type</th>
+        <th scope="col">In Use</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody id="identifier-types-body">
+      {% for eit in rows %}
+      {% include "admin/settings/partials/_identifier_type_row.html" %}
+      {% else %}
+      <tr><td colspan="6" style="color:var(--color-text-muted)">No identifier types.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

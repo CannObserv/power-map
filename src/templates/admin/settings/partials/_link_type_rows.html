@@ -1,0 +1,6 @@
+{# _link_type_rows.html — full tbody replacement after create; expects: rows, scope #}
+{% for lt in rows %}
+{% include "admin/settings/partials/_link_type_row.html" %}
+{% else %}
+<tr><td colspan="4" style="color:var(--color-text-muted)">No link types.</td></tr>
+{% endfor %}

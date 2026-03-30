@@ -1,0 +1,6 @@
+{# _identifier_type_rows.html — full tbody replacement after create; expects: rows #}
+{% for eit in rows %}
+{% include "admin/settings/partials/_identifier_type_row.html" %}
+{% else %}
+<tr><td colspan="6" style="color:var(--color-text-muted)">No identifier types.</td></tr>
+{% endfor %}
