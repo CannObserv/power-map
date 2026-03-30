@@ -109,7 +109,7 @@ async def link_types_page(
     return templates.TemplateResponse(
         request,
         "admin/settings/link_types.html",
-        {**_base_ctx(user, org_dup_count), "general": general, "social": social},
+        {**_base_ctx(user, org_dup_count), "active_section": "settings_link_types", "general": general, "social": social},
     )
 
 
@@ -314,7 +314,7 @@ async def identifier_types_page(
     return templates.TemplateResponse(
         request,
         "admin/settings/identifier_types.html",
-        {**_base_ctx(user, org_dup_count), "rows": rows},
+        {**_base_ctx(user, org_dup_count), "active_section": "settings_identifier_types", "rows": rows},
     )
 
 
