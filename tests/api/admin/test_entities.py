@@ -3,8 +3,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.main import app
 from src.api.admin.org_dups import get_org_dup_count
+from src.api.main import app
 
 pytestmark = pytest.mark.integration
 
