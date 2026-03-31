@@ -1,0 +1,63 @@
+{% extends "admin/base.html" %}
+{% block title %}Entities{% endblock %}
+{% block breadcrumb %}<a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span><span>Entities</span>{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Entities</h1></div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-5)">
+
+  {# People #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">People</h2>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.people }} records</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Individuals with roles and organizational relationships.
+    </p>
+    <a href="/admin/people/" class="btn btn--sm btn--secondary">Manage →</a>
+  </div>
+
+  {# Organizations #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">Organizations</h2>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.orgs }} records</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Companies, agencies, and other entities.
+    </p>
+    <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
+      <a href="/admin/orgs/" class="btn btn--sm btn--secondary">Manage →</a>
+      {% if org_dup_count %}
+      <a href="/admin/orgs/duplicates/" class="btn btn--sm btn--ghost" style="color:var(--color-warning)">{{ org_dup_count }} duplicate{% if org_dup_count != 1 %}s{% endif %} →</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Roles #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">Roles</h2>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.roles }} records</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Positions and titles within organizations.
+    </p>
+    <a href="/admin/roles/" class="btn btn--sm btn--secondary">Manage →</a>
+  </div>
+
+  {# Assignments #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">Assignments</h2>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.assignments }} records</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Person–role relationships with temporal bounds.
+    </p>
+    <a href="/admin/role-assignments/" class="btn btn--sm btn--secondary">Manage →</a>
+  </div>
+
+</div>
+{% endblock %}
