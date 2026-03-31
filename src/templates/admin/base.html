@@ -56,8 +56,8 @@
       <span class="admin-sidebar__group-label">Ingestion</span>
       <a class="admin-sidebar__link" href="/admin/imports/" {% if active_section == 'imports' %}aria-current="page"{% endif %}>Import History</a>
       <a class="admin-sidebar__section-link" href="/admin/settings/" {% if active_section == 'settings' %}aria-current="page"{% endif %}>Settings</a>
-      <a class="admin-sidebar__sublink" href="/admin/settings/link-types/" {% if active_section == 'settings_link_types' %}aria-current="page"{% endif %}>Link Types</a>
-      <a class="admin-sidebar__sublink" href="/admin/settings/identifier-types/" {% if active_section == 'settings_identifier_types' %}aria-current="page"{% endif %}>Identifier Types</a>
+      <a class="admin-sidebar__link" href="/admin/settings/link-types/" {% if active_section == 'settings_link_types' %}aria-current="page"{% endif %}>Link Types</a>
+      <a class="admin-sidebar__link" href="/admin/settings/identifier-types/" {% if active_section == 'settings_identifier_types' %}aria-current="page"{% endif %}>Identifier Types</a>
     </nav>
     <main id="main-content" class="admin-main">{% block content %}{% endblock %}
       <footer class="admin-footer">
