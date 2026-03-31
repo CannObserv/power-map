@@ -131,6 +131,8 @@ a:hover { color: var(--color-brand-hover); }
 .admin-sidebar__link:hover, .admin-sidebar__link[aria-current="page"] { background: var(--color-sidebar-hover-bg); color: var(--color-sidebar-text-active); border-left-color: var(--color-brand); }
 .admin-sidebar__sublink { display: flex; align-items: center; padding: var(--space-1) var(--space-5) var(--space-1) var(--space-8); font-size: var(--font-size-sm); color: var(--color-sidebar-text); opacity: 0.8; text-decoration: none; min-height: 44px; transition: background 0.15s, color 0.15s; }
 .admin-sidebar__sublink:hover, .admin-sidebar__sublink[aria-current="page"] { opacity: 1; background: var(--color-sidebar-hover-bg); color: var(--color-sidebar-text-active); }
+.admin-sidebar__section-link { display: flex; align-items: center; padding: var(--space-2) var(--space-5); font-size: var(--font-size-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); text-decoration: none; border-left: 3px solid transparent; margin-top: var(--space-4); min-height: 44px; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+.admin-sidebar__section-link:hover, .admin-sidebar__section-link[aria-current="page"] { background: var(--color-sidebar-hover-bg); color: var(--color-sidebar-text-active); border-left-color: var(--color-brand); }
 .admin-main { padding: var(--space-6); overflow-y: auto; }
 .admin-footer { font-size: var(--font-size-sm); color: var(--color-text-muted); padding: var(--space-4); border-top: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; gap: var(--space-1); flex-wrap: wrap; }
 .admin-footer a { color: var(--color-text-muted); }
