@@ -46,7 +46,8 @@ def test_entities_landing_returns_200(client):
     assert response.status_code == 200
     for label in ("People", "Organizations", "Roles", "Assignments"):
         assert label in response.text
-    assert 'aria-current="page"' in response.text
+    # Entities section-link specifically carries aria-current (not just any sidebar link)
+    assert 'href="/admin/entities/" aria-current="page"' in response.text
 
 
 def test_entities_landing_redirects_unauthenticated(client):
@@ -74,7 +75,7 @@ def test_entities_landing_dup_link_shown_when_nonzero(client_with_dups):
 
 
 def test_entities_sidebar_link_renders(client):
-    """Entities section-link is present in the sidebar on any page."""
+    """Entities section-link is present in the sidebar with correct class."""
     response = client.get("/admin/entities/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert 'href="/admin/entities/"' in response.text
+    assert 'class="admin-sidebar__section-link" href="/admin/entities/"' in response.text
