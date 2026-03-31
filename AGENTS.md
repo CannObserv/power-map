@@ -18,7 +18,7 @@ Python ≥3.12, uv, pytest, ruff
 
 ```
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
-  admin/        — Jinja2 + HTMX admin dashboard (people, orgs, roles, role_assignments, lookups, imports)
+  admin/        — Jinja2 + HTMX admin dashboard (people, orgs, roles, role_assignments, settings, imports)
     deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db, is_htmx, flash_trigger, org_header_extra
     org_dups.py — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     router.py   — Mounts all admin sub-routers under /admin/
@@ -29,6 +29,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     orgs_contacts.py    — Inline CRUD for contact_methods (row-level HTMX swap)
     orgs_links.py       — Inline CRUD for links + link_types (row-level HTMX swap)
     orgs_identifiers.py — Inline CRUD for identifiers (row-level HTMX swap)
+    settings.py         — Settings landing page + inline CRUD for link_types and entity_identifier_types; templates in src/templates/admin/settings/
 src/core/       — Shared domain logic
   db.py         — Connection pool, apply_schema, generate_id
   schema.sql    — Canonical DDL (tables, indexes, triggers, seed data); source of truth

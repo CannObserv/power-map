@@ -163,6 +163,8 @@ a:hover { color: var(--color-brand-hover); }
 [dir="rtl"] .admin-layout { grid-template-columns: 1fr 240px; }
 [dir="rtl"] .admin-sidebar__link { border-left: none; border-right: 3px solid transparent; }
 [dir="rtl"] .admin-sidebar__link:hover, [dir="rtl"] .admin-sidebar__link[aria-current="page"] { border-right-color: var(--color-brand); }
+[dir="rtl"] .admin-sidebar__section-link { border-left: none; border-right: 3px solid transparent; }
+[dir="rtl"] .admin-sidebar__section-link:hover, [dir="rtl"] .admin-sidebar__section-link[aria-current="page"] { border-right-color: var(--color-brand); }
 @media (max-width: 768px) {
   [dir="rtl"] .admin-sidebar { left: auto; right: 0; transform: translateX(100%); }
   [dir="rtl"] .admin-sidebar.is-open { transform: translateX(0); }
