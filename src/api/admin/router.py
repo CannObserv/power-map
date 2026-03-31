@@ -5,7 +5,6 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin import imports as imports_module
-from src.api.admin import lookups as lookups_module
 from src.api.admin import orgs as orgs_module
 from src.api.admin import orgs_acronyms as orgs_acronyms_module
 from src.api.admin import orgs_addresses as orgs_addresses_module
@@ -16,6 +15,7 @@ from src.api.admin import orgs_names as orgs_names_module
 from src.api.admin import people as people_module
 from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
+from src.api.admin import settings as settings_module
 from src.api.admin.deps import AdminUser, get_admin_user
 from src.api.admin.org_dups import count_org_duplicates
 from src.core.logging import get_logger
@@ -73,7 +73,7 @@ async def dashboard(
 
 
 admin_router.include_router(imports_module.router)
-admin_router.include_router(lookups_module.router)
+admin_router.include_router(settings_module.router)
 admin_router.include_router(orgs_module.router)
 admin_router.include_router(orgs_names_module.router)
 admin_router.include_router(orgs_acronyms_module.router)

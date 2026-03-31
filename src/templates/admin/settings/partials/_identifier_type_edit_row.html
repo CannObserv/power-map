@@ -1,0 +1,46 @@
+{# _identifier_type_edit_row.html — edit/new form row; expects: eit (None for new) #}
+<tr id="{% if eit %}identifier-type-row-{{ eit.id }}{% else %}identifier-type-row-new{% endif %}">
+  <td colspan="6" style="padding:var(--space-2) var(--space-4)">
+    <form {% if eit %}
+          hx-post="/admin/settings/identifier-types/{{ eit.id }}/edit-row/"
+          hx-target="#identifier-type-row-{{ eit.id }}"
+          hx-swap="outerHTML"
+          {% else %}
+          hx-post="/admin/settings/identifier-types/"
+          hx-target="#identifier-types-body"
+          hx-swap="innerHTML"
+          {% endif %}
+          style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center">
+      <div class="form-group" style="margin-bottom:0;flex:2;min-width:9rem">
+        <input type="text" name="display_name" required placeholder="Display Name"
+               value="{{ eit.display_name if eit else '' }}">
+      </div>
+      <div class="form-group" style="margin-bottom:0;flex:1;min-width:6rem">
+        <input type="text" name="slug" required placeholder="slug"
+               value="{{ eit.slug if eit else '' }}">
+      </div>
+      <div class="form-group" style="margin-bottom:0;flex:2;min-width:10rem">
+        <input type="text" name="full_name" required placeholder="Full Name"
+               value="{{ eit.full_name if eit else '' }}">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:9rem">
+        <select name="entity_type" required>
+          {% for et in ('organization', 'person', 'role_assignment') %}
+          <option value="{{ et }}"{% if eit and eit.entity_type == et %} selected{% endif %}>{{ et }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
+        <button type="submit" class="btn btn--sm btn--primary">Save</button>
+        <button type="button" class="btn btn--sm btn--secondary"
+                {% if eit %}
+                hx-get="/admin/settings/identifier-types/{{ eit.id }}/read-row/"
+                hx-target="#identifier-type-row-{{ eit.id }}"
+                hx-swap="outerHTML"
+                {% else %}
+                onclick="this.closest('tr').remove()"
+                {% endif %}>Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>

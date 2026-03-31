@@ -1,0 +1,72 @@
+{% extends "admin/base.html" %}
+{% block title %}Link Types{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/settings/">Settings</a><span class="breadcrumb__sep">›</span>
+  <span>Link Types</span>
+{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Link Types</h1></div>
+
+{# General Link Types #}
+<div style="margin-bottom:var(--space-6)">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">General</h2>
+    <button class="btn btn--sm btn--secondary"
+            hx-get="/admin/settings/link-types/general/new-row/"
+            hx-target="#general-link-types-body"
+            hx-swap="afterbegin">+ Add</button>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">Display Name</th>
+          <th scope="col">Slug</th>
+          <th scope="col">In Use</th>
+          <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="general-link-types-body">
+        {% for lt in general %}
+        {% set scope = "general" %}
+        {% include "admin/settings/partials/_link_type_row.html" %}
+        {% else %}
+        <tr><td colspan="4" style="color:var(--color-text-muted)">No general link types.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# Social Link Types #}
+<div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">Social</h2>
+    <button class="btn btn--sm btn--secondary"
+            hx-get="/admin/settings/link-types/social/new-row/"
+            hx-target="#social-link-types-body"
+            hx-swap="afterbegin">+ Add</button>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">Display Name</th>
+          <th scope="col">Slug</th>
+          <th scope="col">In Use</th>
+          <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="social-link-types-body">
+        {% for lt in social %}
+        {% set scope = "social" %}
+        {% include "admin/settings/partials/_link_type_row.html" %}
+        {% else %}
+        <tr><td colspan="4" style="color:var(--color-text-muted)">No social link types.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

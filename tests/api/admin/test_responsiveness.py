@@ -58,6 +58,12 @@ def test_sidebar_sublinks_have_min_height_44():
     assert match, "Expected min-height: 44px on .admin-sidebar__sublink"
 
 
+def test_sidebar_section_links_have_min_height_44():
+    """Sidebar section-link entries (e.g. Settings) must meet 44 px touch target height."""
+    match = re.search(r"\.admin-sidebar__section-link\s*\{[^}]*min-height:\s*44px", CSS)
+    assert match, "Expected min-height: 44px on .admin-sidebar__section-link"
+
+
 def test_pagination_sticky_margins_adapt_to_mobile_padding():
     """pagination--sticky negative margins must match admin-main mobile padding (var(--space-4))."""
     mobile_block_match = re.search(
