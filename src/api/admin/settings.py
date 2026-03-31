@@ -55,8 +55,8 @@ async def _fetch_identifier_types(db) -> list:
     )
 
 
-def _base_ctx(user, org_dup_count):
-    return {"user": user, "active_section": "settings", "org_dup_count": org_dup_count}
+def _base_ctx(user, org_dup_count, active_section: str = "settings"):
+    return {"user": user, "active_section": active_section, "org_dup_count": org_dup_count}
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ async def link_types_page(
     return templates.TemplateResponse(
         request,
         "admin/settings/link_types.html",
-        {**_base_ctx(user, org_dup_count), "active_section": "settings_link_types", "general": general, "social": social},
+        {**_base_ctx(user, org_dup_count, "settings_link_types"), "general": general, "social": social},  # noqa: E501
     )
 
 
@@ -143,10 +143,13 @@ async def link_type_create(
     if redirect:
         return redirect
     is_social = _scope_to_is_social(scope)
+    slug_val = slug.strip()
+    if not slug_val:
+        raise HTTPException(status_code=422, detail="slug is required")
     lid = generate_id()
     await db.execute(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, $4)",
-        lid, display_name.strip(), slug.strip() or None, is_social,
+        lid, display_name.strip(), slug_val, is_social,
     )
     rows = await _fetch_link_types(db, is_social)
     if not is_htmx(request):
@@ -199,6 +202,9 @@ async def link_type_edit_row_post(
     if redirect:
         return redirect
     is_social = _scope_to_is_social(scope)
+    slug_val = slug.strip()
+    if not slug_val:
+        raise HTTPException(status_code=422, detail="slug is required")
     lt = await db.fetchrow(
         "SELECT id FROM link_types WHERE id=$1 AND is_social=$2", item_id, is_social
     )
@@ -206,7 +212,7 @@ async def link_type_edit_row_post(
         raise HTTPException(status_code=404)
     await db.execute(
         "UPDATE link_types SET display_name=$1, slug=$2 WHERE id=$3",
-        display_name.strip(), slug.strip() or None, item_id,
+        display_name.strip(), slug_val, item_id,
     )
     row = await db.fetchrow(
         """
@@ -314,7 +320,7 @@ async def identifier_types_page(
     return templates.TemplateResponse(
         request,
         "admin/settings/identifier_types.html",
-        {**_base_ctx(user, org_dup_count), "active_section": "settings_identifier_types", "rows": rows},
+        {**_base_ctx(user, org_dup_count, "settings_identifier_types"), "rows": rows},
     )
 
 
@@ -346,13 +352,18 @@ async def identifier_type_create(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
+    slug_val = slug.strip()
+    full_name_val = full_name.strip()
+    if not slug_val:
+        raise HTTPException(status_code=422, detail="slug is required")
+    if not full_name_val:
+        raise HTTPException(status_code=422, detail="full_name is required")
     iid = generate_id()
     await db.execute(
         "INSERT INTO entity_identifier_types"
         " (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid, display_name.strip(), slug.strip() or None,
-        full_name.strip() or None, entity_type,
+        iid, display_name.strip(), slug_val, full_name_val, entity_type,
     )
     rows = await _fetch_identifier_types(db)
     if not is_htmx(request):
@@ -403,6 +414,12 @@ async def identifier_type_edit_row_post(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
+    slug_val = slug.strip()
+    full_name_val = full_name.strip()
+    if not slug_val:
+        raise HTTPException(status_code=422, detail="slug is required")
+    if not full_name_val:
+        raise HTTPException(status_code=422, detail="full_name is required")
     existing = await db.fetchrow(
         "SELECT id FROM entity_identifier_types WHERE id=$1", item_id
     )
@@ -412,8 +429,7 @@ async def identifier_type_edit_row_post(
         "UPDATE entity_identifier_types"
         " SET display_name=$1, slug=$2, full_name=$3, entity_type=$4"
         " WHERE id=$5",
-        display_name.strip(), slug.strip() or None,
-        full_name.strip() or None, entity_type, item_id,
+        display_name.strip(), slug_val, full_name_val, entity_type, item_id,
     )
     row = await db.fetchrow(
         """

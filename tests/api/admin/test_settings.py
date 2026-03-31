@@ -67,6 +67,13 @@ def test_link_types_page_returns_200(client):
     assert "Social" in response.text
 
 
+def test_link_types_page_has_aria_current(client):
+    """Link types sidebar item is marked aria-current on the link types page."""
+    response = client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert 'aria-current="page"' in response.text
+
+
 def test_link_types_page_redirects_unauthenticated(client):
     response = client.get("/admin/settings/link-types/", follow_redirects=False)
     assert response.status_code in (302, 307)
@@ -77,6 +84,13 @@ def test_link_types_page_redirects_unauthenticated(client):
 def test_identifier_types_page_returns_200(client):
     response = client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
     assert response.status_code == 200
+
+
+def test_identifier_types_page_has_aria_current(client):
+    """Identifier types sidebar item is marked aria-current on the identifier types page."""
+    response = client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert 'aria-current="page"' in response.text
 
 
 # --- Link Type new-row ---
@@ -433,7 +447,7 @@ async def test_link_type_usage_count_shown(client, db):
     try:
         response = client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
         assert response.status_code == 200
-        assert "1" in response.text  # usage count visible
+        assert ">1<" in response.text  # usage count visible
     finally:
         await db.execute("DELETE FROM links WHERE id=$1", link_id)
         await db.execute("DELETE FROM link_types WHERE id=$1", lid)
@@ -533,7 +547,7 @@ async def test_identifier_type_usage_count_shown(client, db):
     try:
         response = client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
         assert response.status_code == 200
-        assert "1" in response.text
+        assert ">1<" in response.text
     finally:
         await db.execute("DELETE FROM identifiers WHERE id=$1", identifier_id)
         await db.execute("DELETE FROM entity_identifier_types WHERE id=$1", iid)
