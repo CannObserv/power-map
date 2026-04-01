@@ -13,7 +13,11 @@
   <form method="POST" action="{{ '/admin/orgs/' + org.id + '/edit/' if org else '/admin/orgs/new/' }}">
     <div class="form-group">
       <label for="name">Canonical name <span aria-hidden="true">*</span></label>
-      <input id="name" name="name" type="text" required value="{{ canonical_name }}">
+      <input id="name" name="name" type="text" required value="{{ canonical_name }}"
+             {% if (errors|default({})).name %}aria-describedby="name-error"{% endif %}>
+      {% if (errors|default({})).name %}
+      <div class="alert alert--error" id="name-error" role="alert">{{ errors.name }}</div>
+      {% endif %}
     </div>
     <div class="form-group">
       <label for="acronym">Acronym</label>
@@ -43,7 +47,7 @@
     </div>
     <div class="form-group">
       <label for="notes">Notes</label>
-      <textarea id="notes" name="notes" rows="3">{{ org.notes if org else '' }}</textarea>
+      <textarea id="notes" name="notes" rows="3">{{ org.notes if org else org_notes|default('') }}</textarea>
     </div>
     <div class="form-actions">
       <button type="submit" class="btn btn--primary">{{ 'Save changes' if org else 'Create organization' }}</button>

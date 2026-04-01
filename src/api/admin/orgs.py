@@ -114,6 +114,16 @@ async def orgs_list(
     return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
+async def _fetch_parents(db) -> list:
+    """Fetch all non-archived orgs for the parent dropdown."""
+    return await db.fetch(
+        """SELECT o.id, dn.display_name AS canonical_name
+           FROM organizations o
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           WHERE o.archived_at IS NULL ORDER BY dn.display_name NULLS LAST"""
+    )
+
+
 @router.get("/new/")
 async def org_new_form(
     request: Request,
@@ -125,12 +135,7 @@ async def org_new_form(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    parents = await db.fetch(
-        """SELECT o.id, dn.display_name AS canonical_name
-           FROM organizations o
-           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-           WHERE o.archived_at IS NULL ORDER BY dn.display_name NULLS LAST"""
-    )
+    parents = await _fetch_parents(db)
     return templates.TemplateResponse(
         request,
         "admin/orgs/form.html",
@@ -141,7 +146,9 @@ async def org_new_form(
             "parents": parents,
             "canonical_name": "",
             "canonical_acronym": "",
+            "org_notes": "",
             "org_dup_count": org_dup_count,
+            "errors": {},
         },
     )
 
@@ -149,20 +156,37 @@ async def org_new_form(
 @router.post("/new/")
 async def org_create(
     request: Request,
-    name: str = Form(...),
+    name: str = Form(""),
     acronym: str = Form(""),
     active: str = Form(""),
     parent_id: str = Form(""),
     notes: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
 ):
     """Create a new organization."""
     redirect, user = check_auth(user)
     if redirect:
         return redirect
     if not name.strip():
-        raise HTTPException(status_code=422, detail="Name is required")
+        parents = await _fetch_parents(db)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/form.html",
+            {
+                "user": user,
+                "active_section": "orgs",
+                "org": None,
+                "parents": parents,
+                "canonical_name": name,
+                "canonical_acronym": acronym,
+                "org_notes": notes,
+                "org_dup_count": org_dup_count,
+                "errors": {"name": "Name is required"},
+            },
+            status_code=422,
+        )
     org_id = generate_id()
     async with db.transaction():
         await db.execute(

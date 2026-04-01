@@ -444,6 +444,43 @@ def test_create_org_without_acronym_succeeds(client):
         asyncio.run(teardown())
 
 
+def test_org_create_blank_name_returns_html_not_json(client):
+    """POST /admin/orgs/new/ with blank name must return HTML form, not JSON."""
+    r = client.post(
+        "/admin/orgs/new/",
+        headers=AUTH_HEADERS,
+        data={"name": "", "active": "true"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 422
+    assert r.headers["content-type"].startswith("text/html")
+    assert "Name is required" in r.text
+
+
+def test_org_create_blank_name_preserves_submitted_values(client):
+    """POST /admin/orgs/new/ with blank name must re-render form with submitted acronym."""
+    r = client.post(
+        "/admin/orgs/new/",
+        headers=AUTH_HEADERS,
+        data={"name": "   ", "acronym": "ACME", "active": "true"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 422
+    assert "ACME" in r.text
+
+
+def test_org_create_blank_name_preserves_notes(client):
+    """POST /admin/orgs/new/ with blank name must re-render form with submitted notes."""
+    r = client.post(
+        "/admin/orgs/new/",
+        headers=AUTH_HEADERS,
+        data={"name": "", "notes": "Some notes here", "active": "true"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 422
+    assert "Some notes here" in r.text
+
+
 def test_orgs_list_htmx_boost_returns_full_page(client):
     """Boosted navigation must return the full page layout, not a bare rows partial."""
     response = client.get(
