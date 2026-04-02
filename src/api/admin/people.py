@@ -7,12 +7,14 @@ from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.org_dups import get_org_dup_count
+from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import (
     CANDIDATE_WHERE,
     get_person_dup_count,
+)
+from src.api.admin.people_dups import (
     invalidate_dup_count_cache as invalidate_person_dup_count_cache,
 )
-from src.api.admin.pagination import pagination_context
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
