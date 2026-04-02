@@ -455,3 +455,13 @@ def test_merge_htmx_sends_hx_trigger_flash(client, person_pair):
     assert "Jonathan Smithfield" in payload["showFlash"]["body"]
     assert f"/admin/people/{id_a}/" in payload["showFlash"]["body"]
     assert "hx-swap-oob" not in response.text
+
+
+def test_duplicates_region_has_keep_a_keep_b_buttons(client, person_pair):
+    id_a, id_b = person_pair
+    response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Keep A" in response.text
+    assert "Keep B" in response.text
+    assert f"/admin/people/{id_a}/merge/{id_b}/" in response.text
+    assert f"/admin/people/{id_b}/merge/{id_a}/" in response.text
