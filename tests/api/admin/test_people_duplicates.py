@@ -426,7 +426,7 @@ def test_merge_preserves_winner_existing_roles(client, person_pair_with_roles):
             await conn.close()
 
     count_after = asyncio.run(get_winner_role_count_after())
-    # Winner had 1 role; loser had 1 shared (deleted) + 1 unique (reassigned) = winner ends up with 2
+    # Winner had 1 role; loser had 1 shared (deleted) + 1 unique (reassigned) → winner gets 2
     assert count_after == count_before + 1  # shared conflict deleted; unique role added
 
 
