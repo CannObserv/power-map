@@ -1,5 +1,7 @@
 """Admin views for people."""
 
+from datetime import UTC, datetime
+
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -416,13 +418,25 @@ async def person_merge(
 
     async with db.transaction():
         winner = await db.fetchrow(
-            "SELECT id FROM people WHERE id=$1 FOR UPDATE", winner_id
+            "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", winner_id
         )
         loser = await db.fetchrow(
-            "SELECT id FROM people WHERE id=$1 FOR UPDATE", loser_id
+            "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", loser_id
         )
         if not winner or not loser:
             raise HTTPException(status_code=404, detail="Person not found")
+
+        # notes: prefix loser's notes with merge metadata and append to winner
+        if loser["notes"]:
+            merge_date = datetime.now(UTC).strftime("%Y-%m-%d")
+            prefix = f"Merged from {loser_name} on {merge_date} by {user.email}"
+            appended = f"{prefix}\n{loser['notes']}"
+            new_notes = (
+                f"{winner['notes']}\n\n{appended}" if winner["notes"] else appended
+            )
+            await db.execute(
+                "UPDATE people SET notes=$1 WHERE id=$2", new_notes, winner_id
+            )
 
         # person_names: demote loser's canonical to alias, drop exact name duplicates,
         # then reassign remaining loser names to winner

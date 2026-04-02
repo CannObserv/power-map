@@ -528,3 +528,133 @@ def test_duplicates_region_has_keep_a_keep_b_buttons(client, person_pair):
     assert "Keep B" in response.text
     assert f"/admin/people/{id_a}/merge/{id_b}/" in response.text
     assert f"/admin/people/{id_b}/merge/{id_a}/" in response.text
+
+
+# ── Notes merge ──────────────────────────────────────────────────────────────
+
+def test_merge_notes_loser_only(client, person_pair):
+    """Loser has notes, winner does not → winner gets prefixed loser notes."""
+    id_a, id_b = person_pair
+
+    async def set_notes():
+        conn = await asyncpg.connect(_get_dsn())
+        try:
+            await conn.execute(
+                "UPDATE people SET notes=$1 WHERE id=$2",
+                "Loser note content.", id_b,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(set_notes())
+
+    client.post(
+        f"/admin/people/{id_a}/merge/{id_b}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    async def check():
+        conn = await asyncpg.connect(_get_dsn())
+        try:
+            return await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
+        finally:
+            await conn.close()
+
+    notes = asyncio.run(check())
+    assert notes is not None
+    assert "Loser note content." in notes
+    assert "Merged from" in notes
+    assert "admin@test.com" in notes
+    # No leading blank line — winner had no prior notes
+    assert not notes.startswith("\n")
+
+
+def test_merge_notes_both(client, person_pair):
+    """Both have notes → winner's existing notes + blank line + prefixed loser notes."""
+    id_a, id_b = person_pair
+
+    async def set_notes():
+        conn = await asyncpg.connect(_get_dsn())
+        try:
+            await conn.execute(
+                "UPDATE people SET notes=$1 WHERE id=$2", "Winner original.", id_a
+            )
+            await conn.execute(
+                "UPDATE people SET notes=$1 WHERE id=$2", "Loser note.", id_b
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(set_notes())
+
+    client.post(
+        f"/admin/people/{id_a}/merge/{id_b}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    async def check():
+        conn = await asyncpg.connect(_get_dsn())
+        try:
+            return await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
+        finally:
+            await conn.close()
+
+    notes = asyncio.run(check())
+    assert notes.startswith("Winner original.")
+    assert "\n\n" in notes
+    assert "Loser note." in notes
+    assert "Merged from" in notes
+
+
+def test_merge_notes_skipped_when_loser_has_none(client, person_pair):
+    """Loser has no notes → winner notes unchanged (NULL stays NULL)."""
+    id_a, id_b = person_pair
+    # Both start with NULL notes (default from person_pair fixture)
+
+    client.post(
+        f"/admin/people/{id_a}/merge/{id_b}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    async def check():
+        conn = await asyncpg.connect(_get_dsn())
+        try:
+            return await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
+        finally:
+            await conn.close()
+
+    assert asyncio.run(check()) is None
+
+
+def test_merge_notes_skipped_preserves_winner_notes(client, person_pair):
+    """Loser has no notes, winner has notes → winner notes unchanged."""
+    id_a, id_b = person_pair
+
+    async def set_notes():
+        conn = await asyncpg.connect(_get_dsn())
+        try:
+            await conn.execute(
+                "UPDATE people SET notes=$1 WHERE id=$2", "Winner only.", id_a
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(set_notes())
+
+    client.post(
+        f"/admin/people/{id_a}/merge/{id_b}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    async def check():
+        conn = await asyncpg.connect(_get_dsn())
+        try:
+            return await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
+        finally:
+            await conn.close()
+
+    assert asyncio.run(check()) == "Winner only."
