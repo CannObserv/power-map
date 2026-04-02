@@ -23,6 +23,18 @@
       </td>
       <td>{{ "%.0f%%"|format(p.score * 100) }}</td>
       <td class="dup-actions">
+        <form hx-post="/admin/people/{{ p.a_id }}/merge/{{ p.b_id }}/"
+              hx-target="#people-duplicates-region" hx-swap="outerHTML"
+              hx-confirm="Merge {{ p.b_name }} into {{ p.a_name }}? This cannot be undone."
+              style="display:inline">
+          <button class="btn btn--primary btn--sm" type="submit">Keep A</button>
+        </form>
+        <form hx-post="/admin/people/{{ p.b_id }}/merge/{{ p.a_id }}/"
+              hx-target="#people-duplicates-region" hx-swap="outerHTML"
+              hx-confirm="Merge {{ p.a_name }} into {{ p.b_name }}? This cannot be undone."
+              style="display:inline">
+          <button class="btn btn--primary btn--sm" type="submit">Keep B</button>
+        </form>
         <form hx-post="/admin/people/{{ p.a_id }}/dismiss-duplicate/{{ p.b_id }}/"
               hx-target="#people-duplicates-region" hx-swap="outerHTML"
               style="display:inline">
