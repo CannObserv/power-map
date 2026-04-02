@@ -4,6 +4,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.org_dups import get_org_dup_count
@@ -391,6 +392,148 @@ async def person_delete(
             detail="Cannot delete: person has related records (role assignments, etc.)",
         )
     return HTMLResponse(content="", status_code=200)
+
+
+@router.post("/{winner_id}/merge/{loser_id}/")
+async def person_merge(
+    winner_id: str,
+    loser_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Merge loser into winner: reassign all references, hard-delete loser."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+
+    winner_name = await db.fetchval(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", winner_id
+    )
+    loser_name = await db.fetchval(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", loser_id
+    )
+
+    async with db.transaction():
+        winner = await db.fetchrow(
+            "SELECT id FROM people WHERE id=$1 FOR UPDATE", winner_id
+        )
+        loser = await db.fetchrow(
+            "SELECT id FROM people WHERE id=$1 FOR UPDATE", loser_id
+        )
+        if not winner or not loser:
+            raise HTTPException(status_code=404, detail="Person not found")
+
+        # person_names: demote loser's canonical to alias, then reassign all to winner
+        await db.execute(
+            "UPDATE person_names SET is_canonical=FALSE"
+            " WHERE person_id=$1 AND is_canonical=TRUE",
+            loser_id,
+        )
+        await db.execute(
+            "UPDATE person_names SET person_id=$1 WHERE person_id=$2",
+            winner_id, loser_id,
+        )
+
+        # role_assignments: delete conflicts (same role+start_date on both), then reassign
+        await db.execute(
+            """DELETE FROM role_assignments
+               WHERE person_id=$1 AND archived_at IS NULL
+                 AND (role_id, COALESCE(start_date, '0001-01-01')) IN (
+                     SELECT role_id, COALESCE(start_date, '0001-01-01')
+                     FROM role_assignments
+                     WHERE person_id=$2 AND archived_at IS NULL
+                 )""",
+            loser_id, winner_id,
+        )
+        await db.execute(
+            "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",
+            winner_id, loser_id,
+        )
+
+        # Polymorphic entity tables
+        for table in ("contact_methods", "links", "entity_addresses",
+                      "import_provenance", "field_confidence"):
+            await db.execute(
+                f"UPDATE {table} SET entity_id=$1"
+                f" WHERE entity_type='person' AND entity_id=$2",
+                winner_id, loser_id,
+            )
+
+        # identifiers (no entity_type column)
+        await db.execute(
+            "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
+            winner_id, loser_id,
+        )
+
+        # duplicate_dismissals: delete the merged pair, reassign any others referencing loser
+        await db.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_type='person'"
+            "   AND ((entity_a_id=$1 AND entity_b_id=$2)"
+            "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
+            winner_id, loser_id,
+        )
+        # Delete loser dismissals that would conflict with existing winner dismissals
+        # (winner already has a dismissal with the same third party)
+        await db.execute(
+            """DELETE FROM duplicate_dismissals dd
+               USING duplicate_dismissals dw
+               WHERE dd.entity_type = 'person'
+                 AND dw.entity_type = 'person'
+                 AND dw.entity_a_id = $2
+                 AND (
+                   (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_b_id)
+                   OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_b_id)
+                 )""",
+            loser_id, winner_id,
+        )
+        await db.execute(
+            """DELETE FROM duplicate_dismissals dd
+               USING duplicate_dismissals dw
+               WHERE dd.entity_type = 'person'
+                 AND dw.entity_type = 'person'
+                 AND dw.entity_b_id = $2
+                 AND (
+                   (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_a_id)
+                   OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_a_id)
+                 )""",
+            loser_id, winner_id,
+        )
+        await db.execute(
+            "UPDATE duplicate_dismissals SET entity_a_id=$1"
+            " WHERE entity_type='person' AND entity_a_id=$2",
+            winner_id, loser_id,
+        )
+        await db.execute(
+            "UPDATE duplicate_dismissals SET entity_b_id=$1"
+            " WHERE entity_type='person' AND entity_b_id=$2",
+            winner_id, loser_id,
+        )
+
+        await db.execute("DELETE FROM people WHERE id=$1", loser_id)
+
+    invalidate_person_dup_count_cache()
+
+    if is_htmx(request):
+        pairs = await _fetch_duplicate_pairs(db)
+        body = (
+            f'Merged <strong>{escape(loser_name)}</strong> into '
+            f'<a href="/admin/people/{winner_id}/"><strong>{escape(winner_name)}</strong></a>. '
+            f'Review role assignments and contact info for duplicates.'
+        )
+        ctx = {
+            "user": user,
+            "active_section": "people_duplicates",
+            "pairs": pairs,
+        }
+        return templates.TemplateResponse(
+            request,
+            "admin/people/_duplicates_region.html",
+            ctx,
+            headers=flash_trigger("success", body),
+        )
+    return RedirectResponse("/admin/people/duplicates/", status_code=303)
 
 
 @router.post("/{id_a}/dismiss-duplicate/{id_b}/")
