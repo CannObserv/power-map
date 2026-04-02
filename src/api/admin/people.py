@@ -148,6 +148,54 @@ async def person_create(
     return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
 
 
+async def _fetch_duplicate_pairs(db) -> list:
+    """Return near-duplicate person pairs; empty list if pg_trgm not installed."""
+    try:
+        return await db.fetch(
+            f"""SELECT
+                a.id AS a_id, dn_a.display_name AS a_name, a.created_at AS a_created,
+                b.id AS b_id, dn_b.display_name AS b_name, b.created_at AS b_created,
+                similarity(dn_a.display_name, dn_b.display_name) AS score,
+                (SELECT count(*) FROM role_assignments
+                 WHERE person_id = a.id AND archived_at IS NULL) AS a_roles,
+                (SELECT count(*) FROM role_assignments
+                 WHERE person_id = b.id AND archived_at IS NULL) AS b_roles
+            {CANDIDATE_WHERE}
+            ORDER BY score DESC"""
+        )
+    except asyncpg.exceptions.UndefinedFunctionError:
+        return []
+
+
+@router.get("/duplicates/")
+async def people_duplicates(
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
+):
+    """List near-duplicate person pairs for review."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    pairs = await _fetch_duplicate_pairs(db)
+    ctx = {
+        "user": user,
+        "active_section": "people_duplicates",
+        "pairs": pairs,
+        "org_dup_count": org_dup_count,
+        "person_dup_count": person_dup_count,
+    }
+    return templates.TemplateResponse(
+        request,
+        "admin/people/_duplicates_region.html"
+        if is_htmx(request)
+        else "admin/people/duplicates.html",
+        ctx,
+    )
+
+
 @router.get("/{person_id}/")
 async def person_detail(
     person_id: str,
@@ -341,3 +389,41 @@ async def person_delete(
             detail="Cannot delete: person has related records (role assignments, etc.)",
         )
     return HTMLResponse(content="", status_code=200)
+
+
+@router.post("/{id_a}/dismiss-duplicate/{id_b}/")
+async def person_dismiss_duplicate(
+    id_a: str,
+    id_b: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Record that this pair is not a duplicate (suppress from future results)."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    # Store with consistent ordering (a < b)
+    a, b = (id_a, id_b) if id_a < id_b else (id_b, id_a)
+    await db.execute(
+        "INSERT INTO duplicate_dismissals"
+        " (id, entity_type, entity_a_id, entity_b_id, dismissed_by)"
+        " VALUES ($1, 'person', $2, $3, $4)"
+        " ON CONFLICT (entity_type, entity_a_id, entity_b_id) DO NOTHING",
+        generate_id(), a, b, user.email,
+    )
+    invalidate_person_dup_count_cache()
+    if is_htmx(request):
+        pairs = await _fetch_duplicate_pairs(db)
+        ctx = {
+            "user": user,
+            "active_section": "people_duplicates",
+            "pairs": pairs,
+        }
+        return templates.TemplateResponse(
+            request,
+            "admin/people/_duplicates_region.html",
+            ctx,
+            headers=flash_trigger("info", "Pair marked as not a duplicate."),
+        )
+    return RedirectResponse("/admin/people/duplicates/", status_code=303)

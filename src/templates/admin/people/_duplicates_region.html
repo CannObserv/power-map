@@ -1,0 +1,39 @@
+<div id="people-duplicates-region" class="table-wrapper" aria-live="polite" aria-atomic="false">
+{% if pairs %}
+<table class="data-table">
+  <caption>{{ pairs|length }} candidate pair{{ 's' if pairs|length != 1 else '' }}</caption>
+  <thead>
+    <tr>
+      <th scope="col">Record A</th>
+      <th scope="col">Record B</th>
+      <th scope="col">Score</th>
+      <th scope="col"><span class="sr-only">Actions</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in pairs %}
+    <tr>
+      <td>
+        <a href="/admin/people/{{ p.a_id }}/">{{ p.a_name }}</a><br>
+        <small style="color:var(--color-text-muted)">{{ p.a_created.strftime('%Y-%m-%d') }} · {{ p.a_roles }} assignment{{ 's' if p.a_roles != 1 else '' }}</small>
+      </td>
+      <td>
+        <a href="/admin/people/{{ p.b_id }}/">{{ p.b_name }}</a><br>
+        <small style="color:var(--color-text-muted)">{{ p.b_created.strftime('%Y-%m-%d') }} · {{ p.b_roles }} assignment{{ 's' if p.b_roles != 1 else '' }}</small>
+      </td>
+      <td>{{ "%.0f%%"|format(p.score * 100) }}</td>
+      <td class="dup-actions">
+        <form hx-post="/admin/people/{{ p.a_id }}/dismiss-duplicate/{{ p.b_id }}/"
+              hx-target="#people-duplicates-region" hx-swap="outerHTML"
+              style="display:inline">
+          <button class="btn btn--ghost btn--sm" type="submit">Not a duplicate</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:var(--color-text-muted);text-align:center;padding:2rem">No duplicate candidates found.</p>
+{% endif %}
+</div>

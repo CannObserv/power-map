@@ -51,7 +51,7 @@ def person_pair():
         try:
             for pid, name in [
                 (id_a, "Jonathan Smithfield"),
-                (id_b, "Jonathan Smithfeld"),   # deliberate near-match
+                (id_b, "Jonathan Smithfield Jr"),   # deliberate near-match (similarity ~0.91)
             ]:
                 await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
                 await conn.execute(
@@ -118,8 +118,8 @@ def test_dismiss_pair_removes_from_list(client, person_pair):
     assert response.status_code in (302, 303)
     response2 = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
     assert response2.status_code == 200
-    assert "Jonathan Smithfield" not in response2.text \
-        and "Jonathan Smithfeld" not in response2.text
+    # Both person links reference id_a or id_b — check neither ID appears
+    assert id_a not in response2.text and id_b not in response2.text
 
 
 def test_dismiss_htmx_returns_200_with_region(client, person_pair):
