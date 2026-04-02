@@ -19,6 +19,8 @@ BASE_HTML = Path("src/templates/admin/base.html").read_text()
 DETAIL_HTML = Path("src/templates/admin/orgs/detail.html").read_text()
 ACTIVE_TOGGLE = Path("src/templates/admin/orgs/partials/_active_toggle.html").read_text()
 NOTES_FORM = Path("src/templates/admin/orgs/partials/_notes_form.html").read_text()
+LIST_HTML = Path("src/templates/admin/orgs/list.html").read_text()
+REGION_HTML = Path("src/templates/admin/orgs/_region.html").read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +291,43 @@ def test_child_form_targets_own_row_on_submit():
     """
     assert 'hx-target="#child-row-new"' in CHILD_FORM
     assert 'hx-swap="outerHTML"' in CHILD_FORM
+
+
+# ---------------------------------------------------------------------------
+# List page — pagination placement and dup notice position
+# ---------------------------------------------------------------------------
+
+
+def test_orgs_region_has_single_pagination_call():
+    """Top pagination was removed; only the sticky call should remain.
+
+    Two calls would render a redundant pagination bar above the table.
+    """
+    assert REGION_HTML.count("pagination(") == 1
+
+
+def test_orgs_list_dup_notice_precedes_filter_card():
+    """Dup notice must appear above the filter card in list.html (not inside
+    #orgs-list-region), so dismissing it survives HTMX filter changes."""
+    notice_pos = LIST_HTML.index("org_dup_count")
+    filter_pos = LIST_HTML.index('class="filter-card"')
+    assert notice_pos < filter_pos, (
+        "org_dup_count notice must precede the filter card in list.html"
+    )
+
+
+def test_orgs_region_has_no_dup_notice():
+    """Dup notice moved to list.html; must not reappear in _region.html.
+
+    If it were in _region.html, every HTMX filter change would restore the
+    banner even after the user dismissed it.
+    """
+    assert "org_dup_count" not in REGION_HTML
+
+
+# ---------------------------------------------------------------------------
+# Child form row — scoped search endpoint
+# ---------------------------------------------------------------------------
 
 
 def test_child_search_input_has_explicit_innerhtml_swap():
