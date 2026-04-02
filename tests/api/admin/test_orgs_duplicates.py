@@ -186,6 +186,72 @@ def test_dismiss_htmx_returns_200_with_region(client, org_pair):
     assert "candidate" in response.text or "No duplicate" in response.text
 
 
+def test_merge_reassigns_loser_dismissals_to_winner(client, org_pair):
+    """After merge, loser's dismissals with third orgs transfer to winner with correct ordering."""
+    id_a, id_b = org_pair  # id_a < id_b; merge id_b (loser) into id_a (winner)
+    dsn = _get_dsn()
+    id_c = generate_id()
+
+    async def setup_third():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", id_c)
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Third Org For Dismissal Test', TRUE)",
+                generate_id(), id_c,
+            )
+            a, b = (id_b, id_c) if id_b < id_c else (id_c, id_b)
+            await conn.execute(
+                "INSERT INTO duplicate_dismissals"
+                " (id, entity_type, entity_a_id, entity_b_id, dismissed_by)"
+                " VALUES ($1, 'organization', $2, $3, 'test@test.com')",
+                generate_id(), a, b,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown_third():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(
+                "DELETE FROM duplicate_dismissals"
+                " WHERE entity_a_id=$1 OR entity_b_id=$1",
+                id_c,
+            )
+            await conn.execute(
+                "DELETE FROM organization_names WHERE organization_id=$1", id_c
+            )
+            await conn.execute("DELETE FROM organizations WHERE id=$1", id_c)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup_third())
+    try:
+        client.post(
+            f"/admin/orgs/{id_a}/merge/{id_b}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+
+        async def check():
+            conn = await asyncpg.connect(dsn)
+            try:
+                a, b = (id_a, id_c) if id_a < id_c else (id_c, id_a)
+                return await conn.fetchrow(
+                    "SELECT id FROM duplicate_dismissals"
+                    " WHERE entity_type='organization'"
+                    " AND entity_a_id=$1 AND entity_b_id=$2",
+                    a, b,
+                )
+            finally:
+                await conn.close()
+
+        assert asyncio.run(check()) is not None
+    finally:
+        asyncio.run(teardown_third())
+
+
 def test_dismiss_htmx_sends_hx_trigger_flash(client, org_pair):
     """HTMX dismiss delivers flash via HX-Trigger header, not OOB in response body."""
     id_a, id_b = org_pair

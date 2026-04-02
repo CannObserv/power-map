@@ -424,11 +424,18 @@ async def person_merge(
         if not winner or not loser:
             raise HTTPException(status_code=404, detail="Person not found")
 
-        # person_names: demote loser's canonical to alias, then reassign all to winner
+        # person_names: demote loser's canonical to alias, drop exact name duplicates,
+        # then reassign remaining loser names to winner
         await db.execute(
             "UPDATE person_names SET is_canonical=FALSE"
             " WHERE person_id=$1 AND is_canonical=TRUE",
             loser_id,
+        )
+        await db.execute(
+            "DELETE FROM person_names"
+            " WHERE person_id=$1"
+            "   AND name IN (SELECT name FROM person_names WHERE person_id=$2)",
+            loser_id, winner_id,
         )
         await db.execute(
             "UPDATE person_names SET person_id=$1 WHERE person_id=$2",

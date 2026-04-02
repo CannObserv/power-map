@@ -366,6 +366,53 @@ async def org_merge(
             "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
             winner_id, loser_id,
         )
+        # duplicate_dismissals: delete the merged pair, reassign any others referencing loser
+        await db.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_type='organization'"
+            "   AND ((entity_a_id=$1 AND entity_b_id=$2)"
+            "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
+            winner_id, loser_id,
+        )
+        # Delete loser dismissals that would conflict with existing winner dismissals
+        await db.execute(
+            """DELETE FROM duplicate_dismissals dd
+               USING duplicate_dismissals dw
+               WHERE dd.entity_type = 'organization'
+                 AND dw.entity_type = 'organization'
+                 AND dw.entity_a_id = $2
+                 AND (
+                   (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_b_id)
+                   OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_b_id)
+                 )""",
+            loser_id, winner_id,
+        )
+        await db.execute(
+            """DELETE FROM duplicate_dismissals dd
+               USING duplicate_dismissals dw
+               WHERE dd.entity_type = 'organization'
+                 AND dw.entity_type = 'organization'
+                 AND dw.entity_b_id = $2
+                 AND (
+                   (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_a_id)
+                   OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_a_id)
+                 )""",
+            loser_id, winner_id,
+        )
+        await db.execute(
+            """UPDATE duplicate_dismissals
+               SET entity_a_id = LEAST($1, entity_b_id),
+                   entity_b_id = GREATEST($1, entity_b_id)
+               WHERE entity_type='organization' AND entity_a_id=$2""",
+            winner_id, loser_id,
+        )
+        await db.execute(
+            """UPDATE duplicate_dismissals
+               SET entity_a_id = LEAST(entity_a_id, $1),
+                   entity_b_id = GREATEST(entity_a_id, $1)
+               WHERE entity_type='organization' AND entity_b_id=$2""",
+            winner_id, loser_id,
+        )
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
     invalidate_dup_count_cache()
     if is_htmx(request):

@@ -457,6 +457,69 @@ def test_merge_htmx_sends_hx_trigger_flash(client, person_pair):
     assert "hx-swap-oob" not in response.text
 
 
+@pytest.fixture
+def person_pair_exact_name():
+    """Two people with the same canonical name — merge must not produce duplicate name rows."""
+    dsn = _get_dsn()
+    id_a, id_b = generate_id(), generate_id()
+    if id_a > id_b:
+        id_a, id_b = id_b, id_a
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            for pid in [id_a, id_b]:
+                await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+                await conn.execute(
+                    "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                    " VALUES ($1, $2, 'Jordan Smith', TRUE)",
+                    generate_id(), pid,
+                )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(
+                "DELETE FROM duplicate_dismissals"
+                " WHERE entity_a_id=$1 OR entity_b_id=$1"
+                " OR entity_a_id=$2 OR entity_b_id=$2",
+                id_a, id_b,
+            )
+            for pid in [id_a, id_b]:
+                await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+                await conn.execute("DELETE FROM people WHERE id=$1", pid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    yield id_a, id_b
+    asyncio.run(teardown())
+
+
+def test_merge_deduplicates_identical_names(client, person_pair_exact_name):
+    id_a, id_b = person_pair_exact_name
+    client.post(
+        f"/admin/people/{id_a}/merge/{id_b}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    async def check():
+        conn = await asyncpg.connect(_get_dsn())
+        try:
+            return await conn.fetch(
+                "SELECT name FROM person_names WHERE person_id=$1", id_a
+            )
+        finally:
+            await conn.close()
+
+    rows = asyncio.run(check())
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Jordan Smith"
+
+
 def test_duplicates_region_has_keep_a_keep_b_buttons(client, person_pair):
     id_a, id_b = person_pair
     response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
