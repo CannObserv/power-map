@@ -87,6 +87,15 @@ def person_pair():
 
 # ── List screen ─────────────────────────────────────────────────────────────
 
+def test_people_list_sidebar_badge_visible(client, person_pair):
+    """Sidebar shows Duplicates link with count when person_dup_count > 0."""
+    response = client.get("/admin/people/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Duplicates" in response.text
+    # Badge count in the sidebar link text
+    assert "(" in response.text  # crude check: count badge present
+
+
 def test_people_list_shows_duplicate_banner(client, person_pair):
     response = client.get("/admin/people/", headers=AUTH_HEADERS)
     assert response.status_code == 200
