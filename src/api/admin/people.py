@@ -51,7 +51,7 @@ async def people_list(
 
     if q:
         params.append(f"%{q}%")
-        conditions.append(f"n.name ILIKE ${len(params)}")
+        conditions.append(f"n.display_name ILIKE ${len(params)}")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]
@@ -59,8 +59,7 @@ async def people_list(
     count = await db.fetchval(
         f"""SELECT count(DISTINCT p.id)
             FROM people p
-            LEFT JOIN person_names n
-              ON n.person_id = p.id AND n.is_canonical = TRUE
+            LEFT JOIN v_person_display_names n ON n.person_id = p.id
             {where}""",
         *count_params,
     )
@@ -71,12 +70,11 @@ async def people_list(
 
     rows = await db.fetch(
         f"""SELECT p.id, p.archived_at, p.created_at,
-                   n.name AS canonical_name
+                   n.display_name AS canonical_name
             FROM people p
-            LEFT JOIN person_names n
-              ON n.person_id = p.id AND n.is_canonical = TRUE
+            LEFT JOIN v_person_display_names n ON n.person_id = p.id
             {where}
-            ORDER BY n.name NULLS LAST
+            ORDER BY n.display_name NULLS LAST
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
         *list_params,
     )
@@ -296,7 +294,7 @@ async def person_edit_form(
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     canonical = await db.fetchrow(
-        "SELECT name FROM person_names WHERE person_id = $1 AND is_canonical = TRUE",
+        "SELECT display_name FROM v_person_display_names WHERE person_id = $1",
         person_id,
     )
     return templates.TemplateResponse(
@@ -306,7 +304,7 @@ async def person_edit_form(
             "user": user,
             "active_section": "people",
             "person": person,
-            "canonical_name": canonical["name"] if canonical else "",
+            "canonical_name": canonical["display_name"] if canonical else "",
             "org_dup_count": org_dup_count,
             "person_dup_count": person_dup_count,
         },
