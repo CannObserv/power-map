@@ -289,7 +289,7 @@ def test_merge_hard_deletes_loser(client, person_pair):
         headers=AUTH_HEADERS,
         follow_redirects=False,
     )
-    assert response.status_code in (302, 303)
+    assert response.status_code == 303
 
     async def check():
         conn = await asyncpg.connect(_get_dsn())

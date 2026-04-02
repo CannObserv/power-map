@@ -501,13 +501,17 @@ async def person_merge(
             loser_id, winner_id,
         )
         await db.execute(
-            "UPDATE duplicate_dismissals SET entity_a_id=$1"
-            " WHERE entity_type='person' AND entity_a_id=$2",
+            """UPDATE duplicate_dismissals
+               SET entity_a_id = LEAST($1, entity_b_id),
+                   entity_b_id = GREATEST($1, entity_b_id)
+               WHERE entity_type='person' AND entity_a_id=$2""",
             winner_id, loser_id,
         )
         await db.execute(
-            "UPDATE duplicate_dismissals SET entity_b_id=$1"
-            " WHERE entity_type='person' AND entity_b_id=$2",
+            """UPDATE duplicate_dismissals
+               SET entity_a_id = LEAST(entity_a_id, $1),
+                   entity_b_id = GREATEST(entity_a_id, $1)
+               WHERE entity_type='person' AND entity_b_id=$2""",
             winner_id, loser_id,
         )
 
