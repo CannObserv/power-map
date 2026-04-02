@@ -94,6 +94,7 @@ def test_create_person_form_returns_200(client):
 
 
 def test_create_person_post_redirects(client):
+    dsn = _get_dsn()
     response = client.post(
         "/admin/people/new/",
         headers=AUTH_HEADERS,
@@ -102,6 +103,28 @@ def test_create_person_post_redirects(client):
     )
     assert response.status_code in (302, 303)
     assert "/admin/people/" in response.headers["location"]
+
+    async def _cleanup():
+        conn = await _aconnect(dsn)
+        try:
+            rows = await conn.fetch(
+                "SELECT person_id FROM person_names WHERE name = 'Test Person'"
+            )
+            pids = [r["person_id"] for r in rows]
+            if pids:
+                await conn.execute(
+                    "DELETE FROM role_assignments WHERE person_id = ANY($1)", pids
+                )
+                await conn.execute(
+                    "DELETE FROM person_names WHERE person_id = ANY($1)", pids
+                )
+                await conn.execute(
+                    "DELETE FROM people WHERE id = ANY($1)", pids
+                )
+        finally:
+            await conn.close()
+
+    asyncio.run(_cleanup())
 
 
 def test_edit_person_form_returns_200(client, person_id):
