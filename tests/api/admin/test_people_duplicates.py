@@ -611,7 +611,15 @@ def test_merge_notes_both(client, person_pair):
 def test_merge_notes_skipped_when_loser_has_none(client, person_pair):
     """Loser has no notes → winner notes unchanged (NULL stays NULL)."""
     id_a, id_b = person_pair
-    # Both start with NULL notes (default from person_pair fixture)
+
+    async def set_notes():
+        conn = await asyncpg.connect(_get_dsn())
+        try:
+            await conn.execute("UPDATE people SET notes=NULL WHERE id=$1", id_b)
+        finally:
+            await conn.close()
+
+    asyncio.run(set_notes())
 
     client.post(
         f"/admin/people/{id_a}/merge/{id_b}/",
