@@ -110,7 +110,7 @@ def test_merge_hard_deletes_loser(client, org_pair):
         headers=AUTH_HEADERS,
         follow_redirects=False,
     )
-    assert response.status_code in (302, 303)
+    assert response.status_code == 303
 
     dsn = _get_dsn()
 
@@ -133,7 +133,7 @@ def test_dismiss_pair_removes_from_list(client, org_pair):
         headers=AUTH_HEADERS,
         follow_redirects=False,
     )
-    assert response.status_code in (302, 303)
+    assert response.status_code == 303
     response2 = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
     assert response2.status_code == 200
     # The dismissed pair should no longer appear as a candidate
