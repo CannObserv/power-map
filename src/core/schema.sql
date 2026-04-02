@@ -146,6 +146,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
     ON person_names(person_id, name_type)
     WHERE is_canonical = TRUE;
 
+-- Display name view: canonical name for a person.
+-- Used by all admin queries that show a person name for display (not editing).
+CREATE OR REPLACE VIEW v_person_display_names AS
+SELECT p.id AS person_id,
+       n.name AS display_name
+FROM people p
+LEFT JOIN person_names n
+    ON n.person_id = p.id AND n.is_canonical = TRUE
+;
+
 -- Role = position definition at an organization (independent of who holds it or when)
 CREATE TABLE IF NOT EXISTS roles (
     id              TEXT        PRIMARY KEY,
