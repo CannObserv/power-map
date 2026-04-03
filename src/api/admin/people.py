@@ -304,7 +304,7 @@ async def person_edit_form(
             "user": user,
             "active_section": "people",
             "person": person,
-            "canonical_name": canonical["display_name"] if canonical else "",
+            "canonical_name": canonical["display_name"] or "" if canonical else "",
             "org_dup_count": org_dup_count,
             "person_dup_count": person_dup_count,
         },
