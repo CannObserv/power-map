@@ -3,15 +3,120 @@
 {% block breadcrumb %}<span>Dashboard</span>{% endblock %}
 {% block content %}
 <div class="page-header"><h1>Dashboard</h1></div>
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--space-4)">
-  {% for item in nav_items %}
-  <a href="{{ item.url }}" style="display:block;padding:var(--space-4);background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);text-decoration:none;color:var(--color-text);font-weight:600;">
-    {{ item.label }}
-    <span style="display:block;font-size:var(--font-size-sm);color:var(--color-text-muted);font-weight:400;margin-top:var(--space-1)">{{ item.count }} records</span>
-    {% if item.dup_count %}
-    <span style="display:block;font-size:var(--font-size-sm);color:#854d0e;font-weight:400;margin-top:var(--space-1)">{{ item.dup_count }} possible duplicate{{ 's' if item.dup_count != 1 else '' }}</span>
-    {% endif %}
-  </a>
-  {% endfor %}
+
+{# ── Entities ─────────────────────────────────────────────────────────── #}
+<h2 style="margin:0 0 var(--space-3);font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--color-text-muted)">
+  <a href="/admin/entities/" style="color:inherit;text-decoration:none">Entities</a>
+</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-5);margin-bottom:var(--space-7)">
+
+  {# People #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">People</h3>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.people }} records</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Individuals with roles and organizational relationships.
+    </p>
+    <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
+      <a href="/admin/people/" class="btn btn--sm btn--secondary">Manage →</a>
+      {% if person_dup_count %}
+      <a href="/admin/people/duplicates/" class="btn btn--sm btn--ghost" style="color:var(--color-warning)">{{ person_dup_count }} duplicate{% if person_dup_count != 1 %}s{% endif %} →</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Organizations #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">Organizations</h3>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.orgs }} records</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Companies, agencies, and other entities.
+    </p>
+    <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
+      <a href="/admin/orgs/" class="btn btn--sm btn--secondary">Manage →</a>
+      {% if org_dup_count %}
+      <a href="/admin/orgs/duplicates/" class="btn btn--sm btn--ghost" style="color:var(--color-warning)">{{ org_dup_count }} duplicate{% if org_dup_count != 1 %}s{% endif %} →</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Roles #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">Roles</h3>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.roles }} records</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Positions and titles within organizations.
+    </p>
+    <a href="/admin/roles/" class="btn btn--sm btn--secondary">Manage →</a>
+  </div>
+
+  {# Assignments #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">Assignments</h3>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.assignments }} records</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Person–role relationships with temporal bounds.
+    </p>
+    <a href="/admin/role-assignments/" class="btn btn--sm btn--secondary">Manage →</a>
+  </div>
+
+</div>
+
+{# ── Logging ──────────────────────────────────────────────────────────── #}
+<h2 style="margin:0 0 var(--space-3);font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--color-text-muted)">Logging</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-5);margin-bottom:var(--space-7)">
+
+  {# Import History #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">Import History</h3>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.imports }} records</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Audit log of CSV ingestion batches and their outcomes.
+    </p>
+    <a href="/admin/imports/" class="btn btn--sm btn--secondary">View →</a>
+  </div>
+
+</div>
+
+{# ── Settings ─────────────────────────────────────────────────────────── #}
+<h2 style="margin:0 0 var(--space-3);font-size:var(--font-size-sm);font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--color-text-muted)">
+  <a href="/admin/settings/" style="color:inherit;text-decoration:none">Settings</a>
+</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-5);margin-bottom:var(--space-7)">
+
+  {# Link Types #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">Link Types</h3>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.general_link_types }} general · {{ counts.social_link_types }} social</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      URL categories (general) and social platform types (social).
+    </p>
+    <a href="/admin/settings/link-types/" class="btn btn--sm btn--secondary">Manage →</a>
+  </div>
+
+  {# Identifier Types #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">Identifier Types</h3>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.identifier_types }} configured</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      External identifier schemas (e.g. UBI, EIN) per entity type.
+    </p>
+    <a href="/admin/settings/identifier-types/" class="btn btn--sm btn--secondary">Manage →</a>
+  </div>
+
 </div>
 {% endblock %}

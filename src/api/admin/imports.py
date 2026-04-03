@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
 from src.api.admin.org_dups import get_org_dup_count
+from src.api.admin.people_dups import get_person_dup_count
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/imports", tags=["admin-imports"])
@@ -20,6 +21,7 @@ async def imports_list(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List all import batches, most recent first."""
     redirect, user = check_auth(user)
@@ -43,6 +45,7 @@ async def imports_list(
             "page": page,
             "page_size": PAGE_SIZE,
             "org_dup_count": org_dup_count,
+            "person_dup_count": person_dup_count,
         },
     )
 
@@ -55,6 +58,7 @@ async def import_detail(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Detail view for one import batch, paginated provenance rows."""
     redirect, user = check_auth(user)
@@ -86,5 +90,6 @@ async def import_detail(
             "page": page,
             "page_size": PAGE_SIZE,
             "org_dup_count": org_dup_count,
+            "person_dup_count": person_dup_count,
         },
     )

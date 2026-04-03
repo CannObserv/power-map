@@ -15,6 +15,7 @@ from src.api.admin.deps import (
     is_htmx,
 )
 from src.api.admin.org_dups import get_org_dup_count
+from src.api.admin.people_dups import get_person_dup_count
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -55,8 +56,13 @@ async def _fetch_identifier_types(db) -> list:
     )
 
 
-def _base_ctx(user, org_dup_count, active_section: str = "settings"):
-    return {"user": user, "active_section": active_section, "org_dup_count": org_dup_count}
+def _base_ctx(user, org_dup_count, person_dup_count, active_section: str = "settings"):
+    return {
+        "user": user,
+        "active_section": active_section,
+        "org_dup_count": org_dup_count,
+        "person_dup_count": person_dup_count,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +76,7 @@ async def settings_index(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     redirect, user = check_auth(user)
     if redirect:
@@ -85,7 +92,7 @@ async def settings_index(
     return templates.TemplateResponse(
         request,
         "admin/settings/index.html",
-        {**_base_ctx(user, org_dup_count), "counts": counts},
+        {**_base_ctx(user, org_dup_count, person_dup_count), "counts": counts},
     )
 
 
@@ -100,6 +107,7 @@ async def link_types_page(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     redirect, user = check_auth(user)
     if redirect:
@@ -109,7 +117,7 @@ async def link_types_page(
     return templates.TemplateResponse(
         request,
         "admin/settings/link_types.html",
-        {**_base_ctx(user, org_dup_count, "settings_link_types"), "general": general, "social": social},  # noqa: E501
+        {**_base_ctx(user, org_dup_count, person_dup_count, "settings_link_types"), "general": general, "social": social},  # noqa: E501
     )
 
 
@@ -312,6 +320,7 @@ async def identifier_types_page(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     redirect, user = check_auth(user)
     if redirect:
@@ -320,7 +329,7 @@ async def identifier_types_page(
     return templates.TemplateResponse(
         request,
         "admin/settings/identifier_types.html",
-        {**_base_ctx(user, org_dup_count, "settings_identifier_types"), "rows": rows},
+        {**_base_ctx(user, org_dup_count, person_dup_count, "settings_identifier_types"), "rows": rows},  # noqa: E501
     )
 
 

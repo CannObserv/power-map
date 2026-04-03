@@ -3,6 +3,7 @@
 import asyncio
 import os
 import re
+from unittest.mock import AsyncMock, patch
 
 import asyncpg
 import pytest
@@ -92,9 +93,32 @@ def seeded_counts():
 
 
 def test_dashboard_shows_counts(client, seeded_counts):
-    """Stat boxes display five numeric counts, not placeholder dashes."""
+    """Entity and logging cards display numeric record counts."""
     resp = client.get("/admin/", headers=AUTH_HEADERS)
     assert resp.status_code == 200
     assert "— records" not in resp.text
     counts = re.findall(r"(\d+) records", resp.text)
+    # People, Organizations, Roles, Assignments, Import History
     assert len(counts) == 5, f"Expected 5 count boxes, found: {counts}"
+
+
+def test_dashboard_person_dup_badge_shown(client):
+    """Person dup count badge appears when count_person_duplicates returns > 0."""
+    with patch(
+        "src.api.admin.router.count_person_duplicates",
+        new=AsyncMock(return_value=7),
+    ):
+        resp = client.get("/admin/", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    assert "7 duplicates" in resp.text
+
+
+def test_dashboard_person_dup_badge_hidden_when_zero(client):
+    """Person dup count badge is absent when count_person_duplicates returns 0."""
+    with patch(
+        "src.api.admin.router.count_person_duplicates",
+        new=AsyncMock(return_value=0),
+    ):
+        resp = client.get("/admin/", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    assert "people/duplicates" not in resp.text

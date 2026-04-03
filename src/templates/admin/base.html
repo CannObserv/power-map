@@ -47,6 +47,7 @@
     </header>
     <div class="admin-nav-backdrop" id="nav-backdrop" aria-hidden="true"></div>
     <nav class="admin-sidebar" id="admin-sidebar" aria-label="Main navigation">
+      <a class="admin-sidebar__section-link" href="/admin/" {% if active_section == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
       <a class="admin-sidebar__section-link" href="/admin/entities/" {% if active_section == 'entities' %}aria-current="page"{% endif %}>Entities</a>
       <a class="admin-sidebar__link" href="/admin/people/" {% if active_section == 'people' %}aria-current="page"{% endif %}>People</a>
       <a class="admin-sidebar__sublink" href="/admin/people/duplicates/" {% if active_section == 'people_duplicates' %}aria-current="page"{% endif %}>Duplicates{% if person_dup_count %} ({{ person_dup_count }}){% endif %}</a>
@@ -54,7 +55,7 @@
       <a class="admin-sidebar__sublink" href="/admin/orgs/duplicates/" {% if active_section == 'orgs_duplicates' %}aria-current="page"{% endif %}>Duplicates{% if org_dup_count %} ({{ org_dup_count }}){% endif %}</a>
       <a class="admin-sidebar__link" href="/admin/roles/" {% if active_section == 'roles' %}aria-current="page"{% endif %}>Roles</a>
       <a class="admin-sidebar__link" href="/admin/role-assignments/" {% if active_section == 'role_assignments' %}aria-current="page"{% endif %}>Assignments</a>
-      <span class="admin-sidebar__group-label">Ingestion</span>
+      <span class="admin-sidebar__group-label">Logging</span>
       <a class="admin-sidebar__link" href="/admin/imports/" {% if active_section == 'imports' %}aria-current="page"{% endif %}>Import History</a>
       <a class="admin-sidebar__section-link" href="/admin/settings/" {% if active_section == 'settings' %}aria-current="page"{% endif %}>Settings</a>
       <a class="admin-sidebar__link" href="/admin/settings/link-types/" {% if active_section == 'settings_link_types' %}aria-current="page"{% endif %}>Link Types</a>

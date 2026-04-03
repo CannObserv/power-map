@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
+from src.api.admin.people_dups import get_person_dup_count
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -35,6 +36,7 @@ async def roles_list(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List roles with title/org search and status filter."""
     redirect, user = check_auth(user)
@@ -96,6 +98,7 @@ async def roles_list(
         "page_size": page_size,
         "total": count,
         "org_dup_count": org_dup_count,
+        "person_dup_count": person_dup_count,
         **pctx,
     }
     template = (
@@ -112,6 +115,7 @@ async def role_new_form(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """New role form."""
     redirect, user = check_auth(user)
@@ -132,6 +136,7 @@ async def role_new_form(
             "role": None,
             "orgs": orgs,
             "org_dup_count": org_dup_count,
+            "person_dup_count": person_dup_count,
         },
     )
 
@@ -164,6 +169,7 @@ async def role_detail(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Role detail view."""
     redirect, user = check_auth(user)
@@ -203,6 +209,7 @@ async def role_detail(
             "role": role,
             "assignments": assignments,
             "org_dup_count": org_dup_count,
+            "person_dup_count": person_dup_count,
         },
     )
 
@@ -214,6 +221,7 @@ async def role_edit_form(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Edit role form."""
     redirect, user = check_auth(user)
@@ -237,6 +245,7 @@ async def role_edit_form(
             "role": role,
             "orgs": orgs,
             "org_dup_count": org_dup_count,
+            "person_dup_count": person_dup_count,
         },
     )
 

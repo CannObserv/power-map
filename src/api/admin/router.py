@@ -19,6 +19,7 @@ from src.api.admin import roles as roles_module
 from src.api.admin import settings as settings_module
 from src.api.admin.deps import AdminUser, get_admin_user
 from src.api.admin.org_dups import count_org_duplicates
+from src.api.admin.people_dups import count_person_duplicates
 from src.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -42,17 +43,24 @@ async def dashboard(
         counts = await db.fetchrow(
             """
             SELECT
-                (SELECT COUNT(*) FROM people           WHERE archived_at IS NULL) AS people,
-                (SELECT COUNT(*) FROM organizations    WHERE archived_at IS NULL) AS orgs,
-                (SELECT COUNT(*) FROM roles            WHERE archived_at IS NULL) AS roles,
-                (SELECT COUNT(*) FROM role_assignments WHERE archived_at IS NULL) AS assignments,
-                (SELECT COUNT(*) FROM import_batches)                             AS imports
+                (SELECT COUNT(*) FROM people WHERE archived_at IS NULL)           AS people,
+                (SELECT COUNT(*) FROM organizations WHERE archived_at IS NULL)     AS orgs,
+                (SELECT COUNT(*) FROM roles WHERE archived_at IS NULL)             AS roles,
+                (SELECT COUNT(*) FROM role_assignments WHERE archived_at IS NULL)  AS assignments,
+                (SELECT COUNT(*) FROM import_batches)                              AS imports,
+                (SELECT COUNT(*) FROM link_types WHERE NOT is_social)    AS general_link_types,
+                (SELECT COUNT(*) FROM link_types WHERE is_social)        AS social_link_types,
+                (SELECT COUNT(*) FROM entity_identifier_types)           AS identifier_types
             """
         )
         try:
             org_dup_count = await count_org_duplicates(db)
         except Exception:
             org_dup_count = 0
+        try:
+            person_dup_count = await count_person_duplicates(db)
+        except Exception:
+            person_dup_count = 0
     return templates.TemplateResponse(
         request,
         "admin/dashboard.html",
@@ -60,15 +68,8 @@ async def dashboard(
             "user": user,
             "active_section": "dashboard",
             "org_dup_count": org_dup_count,
-            "nav_items": [
-                {"label": "People", "url": "/admin/people/", "count": counts["people"]},
-                {"label": "Organizations", "url": "/admin/orgs/",
-                 "count": counts["orgs"], "dup_count": org_dup_count},
-                {"label": "Roles", "url": "/admin/roles/", "count": counts["roles"]},
-                {"label": "Assignments", "url": "/admin/role-assignments/",
-                 "count": counts["assignments"]},
-                {"label": "Import History", "url": "/admin/imports/", "count": counts["imports"]},
-            ],
+            "person_dup_count": person_dup_count,
+            "counts": counts,
         },
     )
 

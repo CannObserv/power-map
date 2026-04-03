@@ -20,6 +20,7 @@ from src.api.admin.org_dups import (
     invalidate_dup_count_cache,
 )
 from src.api.admin.pagination import pagination_context
+from src.api.admin.people_dups import get_person_dup_count
 from src.core.db import generate_id
 from src.core.logging import get_logger
 
@@ -45,6 +46,7 @@ async def orgs_list(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List organizations with search and status filter."""
     redirect, user = check_auth(user)
@@ -103,6 +105,7 @@ async def orgs_list(
         "page_size": page_size,
         "total": count,
         "org_dup_count": org_dup_count,
+        "person_dup_count": person_dup_count,
         "flash_msg": flash_msg,
         **pctx,
     }
@@ -130,6 +133,7 @@ async def org_new_form(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """New organization form."""
     redirect, user = check_auth(user)
@@ -148,6 +152,7 @@ async def org_new_form(
             "canonical_acronym": "",
             "org_notes": "",
             "org_dup_count": org_dup_count,
+            "person_dup_count": person_dup_count,
             "errors": {},
         },
     )
@@ -164,6 +169,7 @@ async def org_create(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Create a new organization."""
     redirect, user = check_auth(user)
@@ -183,6 +189,7 @@ async def org_create(
                 "canonical_acronym": acronym,
                 "org_notes": notes,
                 "org_dup_count": org_dup_count,
+                "person_dup_count": person_dup_count,
                 "errors": {"name": "Name is required"},
             },
             status_code=422,
@@ -262,6 +269,7 @@ async def orgs_duplicates(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List near-duplicate organization pairs for review."""
     redirect, user = check_auth(user)
@@ -273,6 +281,7 @@ async def orgs_duplicates(
         "active_section": "orgs_duplicates",
         "pairs": pairs,
         "org_dup_count": org_dup_count,
+        "person_dup_count": person_dup_count,
     }
     template = (
         "admin/orgs/_duplicates_region.html"
@@ -690,6 +699,7 @@ async def org_detail(
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Organization detail view."""
     redirect, user = check_auth(user)
@@ -799,6 +809,7 @@ async def org_detail(
             "roles": roles,
             "parent": parent,
             "org_dup_count": org_dup_count,
+            "person_dup_count": person_dup_count,
         },
     )
 
