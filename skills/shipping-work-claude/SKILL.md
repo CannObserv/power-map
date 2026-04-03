@@ -4,10 +4,10 @@ description: "Finalizes work by ensuring everything is committed, pushed to the 
 compatibility: Designed for Claude. Requires git and gh CLI. Python project using uv, ruff, pytest, FastAPI.
 metadata:
   author: gregoryfoster
-  version: "1.1"
+  version: "1.2"
   triggers: ship it, push GH, close GH, wrap up
   overrides: shipping-work-claude
-  override-reason: "Concrete test/lint commands (uv run pytest --no-cov, uv run ruff check); project commit convention (#n [type]: desc); Iron Law + rationalization-prevention table; HARD-GATE on partial issue closure"
+  override-reason: "Concrete test/lint commands (uv run pytest --no-cov, uv run ruff check); project commit convention (#n [type]: desc); Iron Law + rationalization-prevention table; HARD-GATE on partial issue closure; worktree teardown + dev server shutdown"
 ---
 
 # Shipping Work — power-map
@@ -75,6 +75,17 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 
 If on a feature branch, merge to `main` first. Then continue.
 
+**If working in a worktree:** You must merge from the main checkout, not the worktree.
+
+```bash
+# Note the current branch name before leaving the worktree
+BRANCH=$(git branch --show-current)
+
+# Switch to main checkout and merge
+cd /home/exedev/power-map
+git merge "$BRANCH"
+```
+
 ### Step 4 — Push
 
 ```bash
@@ -138,3 +149,22 @@ Present only the items that apply. Be specific — name the file, table, or comm
 Then **offer to execute** any item within your capabilities (e.g., running `apply_schema`, running a migration script). Ask once — don't nag.
 
 If nothing applies, omit this step entirely.
+
+### Step 9 — Teardown worktree (if applicable)
+
+If work was done in a `.worktrees/` worktree, clean up after shipping:
+
+```bash
+# Kill the dev server on port 8001
+fuser -k 8001/tcp 2>/dev/null || true
+
+# Remove the worktree (from main checkout)
+git worktree remove --force .worktrees/<branch> 2>/dev/null || true
+
+# Delete the feature branch (now merged, safe to remove)
+git branch -d <branch> 2>/dev/null || true
+```
+
+Report: "Dev server stopped. Worktree and branch cleaned up."
+
+If no worktree was used (e.g. direct fix on main), skip this step.
