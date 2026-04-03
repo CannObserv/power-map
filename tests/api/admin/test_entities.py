@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.admin.org_dups import get_org_dup_count
+from src.api.admin.people_dups import get_person_dup_count
 from src.api.main import app
 
 pytestmark = pytest.mark.integration
@@ -79,3 +80,54 @@ def test_entities_sidebar_link_renders(client):
     response = client.get("/admin/entities/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'class="admin-sidebar__section-link" href="/admin/entities/"' in response.text
+
+
+# --- People duplicates ---
+
+
+@pytest.fixture
+def client_with_person_dups():
+    """Client with person_dup_count forced to 5 via dependency override."""
+    app.dependency_overrides[get_person_dup_count] = lambda: 5
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client_no_person_dups():
+    """Client with person_dup_count forced to 0 via dependency override."""
+    app.dependency_overrides[get_person_dup_count] = lambda: 0
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+def test_entities_people_dup_link_shown_when_nonzero(client_with_person_dups):
+    """People duplicates link rendered with count in card when person_dup_count > 0."""
+    response = client_with_person_dups.get("/admin/entities/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "/admin/people/duplicates/" in response.text
+    assert "5 duplicate" in response.text
+
+
+def test_entities_people_dup_link_hidden_when_zero(client_no_person_dups):
+    """People duplicates link not rendered in card when person_dup_count is 0."""
+    response = client_no_person_dups.get("/admin/entities/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    # orgs link absent too (both zero), so generic check suffices
+    assert "/admin/people/duplicates/" not in response.text
+
+
+def test_entities_sidebar_people_dup_badge_shown(client_with_person_dups):
+    """Sidebar People › Duplicates shows count badge when person_dup_count > 0."""
+    response = client_with_person_dups.get("/admin/entities/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Duplicates (5)" in response.text
+
+
+def test_entities_sidebar_people_dup_badge_hidden(client_no_person_dups):
+    """Sidebar People › Duplicates shows no badge when person_dup_count is 0."""
+    response = client_no_person_dups.get("/admin/entities/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Duplicates (0)" not in response.text
