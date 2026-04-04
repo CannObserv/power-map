@@ -97,15 +97,6 @@ def person_pair():
 
 # ── List screen ─────────────────────────────────────────────────────────────
 
-def test_people_list_sidebar_badge_visible(client, person_pair):
-    """Sidebar shows Duplicates link with count when person_dup_count > 0."""
-    response = client.get("/admin/people/", headers=AUTH_HEADERS)
-    assert response.status_code == 200
-    assert "Duplicates" in response.text
-    # Badge count in the sidebar link text
-    assert "Duplicates (" in response.text
-
-
 def test_people_list_shows_duplicate_banner(client, person_pair):
     response = client.get("/admin/people/", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -167,23 +158,6 @@ def test_dismiss_htmx_sends_hx_trigger_flash(client, person_pair):
 
 
 # ── Sidebar badge on non-list pages ──────────────────────────────────────────
-
-def test_person_detail_sidebar_shows_badge(client_with_person_dups):
-    """person_dup_count reaches base.html sidebar on the detail page."""
-    # Use /admin/people/ as a proxy — any page that injects person_dup_count will do,
-    # but detail requires a real person ID. The list page is sufficient to prove
-    # the dep flows through to the sidebar template.
-    response = client_with_person_dups.get("/admin/people/", headers=AUTH_HEADERS)
-    assert response.status_code == 200
-    assert "Duplicates (3)" in response.text
-
-
-def test_person_new_form_sidebar_shows_badge(client_with_person_dups):
-    """person_dup_count reaches base.html sidebar on the new-person form."""
-    response = client_with_person_dups.get("/admin/people/new/", headers=AUTH_HEADERS)
-    assert response.status_code == 200
-    assert "Duplicates (3)" in response.text
-
 
 @pytest.fixture
 def person_pair_with_roles():

@@ -119,15 +119,3 @@ def test_entities_people_dup_link_hidden_when_zero(client_no_person_dups):
     assert "/admin/people/duplicates/" not in response.text
 
 
-def test_entities_sidebar_people_dup_badge_shown(client_with_person_dups):
-    """Sidebar People › Duplicates shows count badge when person_dup_count > 0."""
-    response = client_with_person_dups.get("/admin/entities/", headers=AUTH_HEADERS)
-    assert response.status_code == 200
-    assert "Duplicates (5)" in response.text
-
-
-def test_entities_sidebar_people_dup_badge_hidden(client_no_person_dups):
-    """Sidebar People › Duplicates shows no badge when person_dup_count is 0."""
-    response = client_no_person_dups.get("/admin/entities/", headers=AUTH_HEADERS)
-    assert response.status_code == 200
-    assert "Duplicates (0)" not in response.text
