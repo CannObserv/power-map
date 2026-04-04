@@ -1,0 +1,22 @@
+{% extends "admin/base.html" %}
+{% block title %}Activity{% endblock %}
+{% block breadcrumb %}<a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span><span>Activity</span>{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Activity</h1></div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-5)">
+
+  {# Import History #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">Import History</h2>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.imports }} batch{{ 'es' if counts.imports != 1 else '' }}</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      CSV ingestion batches with row-level provenance.
+    </p>
+    <a href="/admin/imports/" class="btn btn--sm btn--secondary">View →</a>
+  </div>
+
+</div>
+{% endblock %}

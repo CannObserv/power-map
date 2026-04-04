@@ -33,6 +33,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     orgs_identifiers.py — Inline CRUD for identifiers (row-level HTMX swap)
     entities.py         — Entities landing page (card-grid overview with record counts); templates in src/templates/admin/entities/
     settings.py         — Settings landing page + inline CRUD for link_types and entity_identifier_types; templates in src/templates/admin/settings/
+    activity.py         — Activity landing page (card-grid overview of import batches); templates in src/templates/admin/activity/
 src/core/       — Shared domain logic
   db.py         — Connection pool, apply_schema, generate_id
   schema.sql    — Canonical DDL (tables, indexes, triggers, seed data); source of truth
