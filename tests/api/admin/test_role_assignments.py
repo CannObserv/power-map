@@ -246,6 +246,15 @@ def test_ra_list_search_matches_person_name(client, ra_id):
     assert "Test Person" in response.text
 
 
+def test_ra_list_search_no_match_excludes_person_name(client, ra_id):
+    """Non-matching search must not return rows for the person."""
+    response = client.get(
+        "/admin/role-assignments/?q=NoSuchPersonXYZ", headers=AUTH_HEADERS
+    )
+    assert response.status_code == 200
+    assert "Test Person" not in response.text
+
+
 def test_ra_detail_shows_person_name(client, ra_id):
     """RA detail must show canonical person name via v_person_display_names."""
     response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)

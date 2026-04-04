@@ -49,7 +49,10 @@ async def org_id(db):
         " VALUES ($1, $2, 'Test Org', TRUE)",
         generate_id(), oid,
     )
-    return oid
+    yield oid
+    await db.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
+    await db.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+    await db.execute("DELETE FROM organizations WHERE id = $1", oid)
 
 
 @pytest.fixture
@@ -59,7 +62,9 @@ async def role_id(db, org_id):
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Test Role')",
         rid, org_id,
     )
-    return rid
+    yield rid
+    await db.execute("DELETE FROM role_assignments WHERE role_id = $1", rid)
+    await db.execute("DELETE FROM roles WHERE id = $1", rid)
 
 
 @pytest.fixture
