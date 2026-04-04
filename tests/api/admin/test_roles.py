@@ -62,6 +62,36 @@ async def role_id(db, org_id):
     return rid
 
 
+@pytest.fixture
+async def person_id(db):
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, is_canonical)"
+        " VALUES ($1, $2, 'Test Person', TRUE)",
+        generate_id(), pid,
+    )
+    yield pid
+    await db.execute("DELETE FROM person_names WHERE person_id = $1", pid)
+    await db.execute("DELETE FROM people WHERE id = $1", pid)
+
+
+async def test_role_detail_shows_person_name(client, db, role_id, person_id):
+    """Role detail assignment list must show canonical name via v_person_display_names."""
+    ra_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        ra_id, person_id, role_id,
+    )
+    try:
+        response = client.get(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
+        assert response.status_code == 200
+        assert "Test Person" in response.text
+    finally:
+        await db.execute("DELETE FROM role_assignments WHERE id = $1", ra_id)
+
+
 def test_roles_list_returns_200(client):
     response = client.get("/admin/roles/", headers=AUTH_HEADERS)
     assert response.status_code == 200

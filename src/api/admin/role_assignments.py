@@ -62,7 +62,7 @@ _LIST_SELECT = """
     LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
 """
 
-_LIST_ORDER = "ORDER BY ra.is_current DESC, pn.display_name NULLS LAST, ra.start_date DESC NULLS LAST"
+_LIST_ORDER = "ORDER BY ra.is_current DESC, person_name NULLS LAST, ra.start_date DESC NULLS LAST"
 
 
 @router.get("/")

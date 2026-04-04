@@ -228,3 +228,33 @@ def test_ra_list_htmx_request_returns_rows_partial(client):
     )
     assert response.status_code == 200
     assert "admin-layout" not in response.text
+
+
+def test_ra_list_shows_person_name(client, ra_id):
+    """RA list must show canonical person name via v_person_display_names."""
+    response = client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Person" in response.text
+
+
+def test_ra_list_search_matches_person_name(client, ra_id):
+    """Search filter must match against v_person_display_names.display_name."""
+    response = client.get(
+        "/admin/role-assignments/?q=Test+Person", headers=AUTH_HEADERS
+    )
+    assert response.status_code == 200
+    assert "Test Person" in response.text
+
+
+def test_ra_detail_shows_person_name(client, ra_id):
+    """RA detail must show canonical person name via v_person_display_names."""
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Person" in response.text
+
+
+def test_ra_form_shows_person_in_dropdown(client, person_id):
+    """New RA form must include canonical person name in the people dropdown."""
+    response = client.get("/admin/role-assignments/new/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Person" in response.text
