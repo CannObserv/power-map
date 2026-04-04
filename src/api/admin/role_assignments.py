@@ -94,7 +94,9 @@ async def ra_list(
         params.append(f"%{q}%")
         idx = len(params)
         conditions.append(
-            f"(pn.display_name ILIKE ${idx} OR r.title ILIKE ${idx} OR dn.display_name ILIKE ${idx})"
+            f"(pn.display_name ILIKE ${idx}"
+            f" OR r.title ILIKE ${idx}"
+            f" OR dn.display_name ILIKE ${idx})"
         )
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
