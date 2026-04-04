@@ -191,10 +191,10 @@ async def role_detail(
     assignments = await db.fetch(
         """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
                   p.id AS person_id,
-                  pn.name AS person_name
+                  pn.display_name AS person_name
            FROM role_assignments ra
            JOIN people p ON p.id = ra.person_id
-           LEFT JOIN person_names pn ON pn.person_id = p.id AND pn.is_canonical = TRUE
+           LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
            WHERE ra.role_id = $1
            ORDER BY ra.is_current DESC, ra.start_date DESC NULLS LAST""",
         role_id,

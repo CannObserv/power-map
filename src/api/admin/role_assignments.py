@@ -27,11 +27,11 @@ def _parse_date(value: str) -> datetime.date | None:
 async def _fetch_people(db):
     """Fetch active people for select options."""
     return await db.fetch(
-        """SELECT p.id, pn.name
+        """SELECT p.id, pn.display_name AS name
            FROM people p
-           LEFT JOIN person_names pn ON pn.person_id = p.id AND pn.is_canonical = TRUE
+           LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
            WHERE p.archived_at IS NULL
-           ORDER BY pn.name NULLS LAST"""
+           ORDER BY pn.display_name NULLS LAST"""
     )
 
 
@@ -50,19 +50,19 @@ async def _fetch_roles(db):
 _LIST_SELECT = """
     SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.created_at,
            p.id AS person_id,
-           pn.name AS person_name,
+           pn.display_name AS person_name,
            r.id AS role_id, r.title AS role_title,
            o.id AS org_id,
            dn.display_name AS org_name
     FROM role_assignments ra
     JOIN people p ON p.id = ra.person_id
-    LEFT JOIN person_names pn ON pn.person_id = p.id AND pn.is_canonical = TRUE
+    LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
     JOIN roles r ON r.id = ra.role_id
     JOIN organizations o ON o.id = r.organization_id
     LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
 """
 
-_LIST_ORDER = "ORDER BY ra.is_current DESC, pn.name NULLS LAST, ra.start_date DESC NULLS LAST"
+_LIST_ORDER = "ORDER BY ra.is_current DESC, pn.display_name NULLS LAST, ra.start_date DESC NULLS LAST"
 
 
 @router.get("/")
@@ -94,7 +94,7 @@ async def ra_list(
         params.append(f"%{q}%")
         idx = len(params)
         conditions.append(
-            f"(pn.name ILIKE ${idx} OR r.title ILIKE ${idx} OR dn.display_name ILIKE ${idx})"
+            f"(pn.display_name ILIKE ${idx} OR r.title ILIKE ${idx} OR dn.display_name ILIKE ${idx})"
         )
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
@@ -104,7 +104,7 @@ async def ra_list(
         f"""SELECT count(DISTINCT ra.id)
             FROM role_assignments ra
             JOIN people p ON p.id = ra.person_id
-            LEFT JOIN person_names pn ON pn.person_id = p.id AND pn.is_canonical = TRUE
+            LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
             JOIN roles r ON r.id = ra.role_id
             JOIN organizations o ON o.id = r.organization_id
             LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
@@ -252,13 +252,13 @@ async def ra_detail(
         """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
                   ra.created_at, ra.notes,
                   p.id AS person_id,
-                  pn.name AS person_name,
+                  pn.display_name AS person_name,
                   r.id AS role_id, r.title AS role_title,
                   o.id AS org_id,
                   dn.display_name AS org_name
            FROM role_assignments ra
            JOIN people p ON p.id = ra.person_id
-           LEFT JOIN person_names pn ON pn.person_id = p.id AND pn.is_canonical = TRUE
+           LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
            JOIN roles r ON r.id = ra.role_id
            JOIN organizations o ON o.id = r.organization_id
            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
