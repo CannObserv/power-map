@@ -569,3 +569,91 @@ def test_addresses_table_has_normalizer_columns():
     assert "latitude" in col_names
     assert "longitude" in col_names
     assert "components" in col_names
+
+
+def test_address_create_persists_country(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "10 Downing St",
+            "city": "London",
+            "postal_code": "SW1A 2AA",
+            "address_type": "physical",
+            "country": "GB",
+            "mode": "save",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" not in r.text
+    # Country shown for non-US
+    assert "GB" in r.text
+
+
+def test_address_edit_persists_country(client, org_and_address):
+    oid, eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "10 Downing St",
+            "city": "London",
+            "postal_code": "SW1A 2AA",
+            "address_type": "physical",
+            "country": "GB",
+            "mode": "save",
+        },
+    )
+    assert r.status_code == 200
+    assert "GB" in r.text
+
+
+def test_address_read_row_returns_country(client, org_and_address):
+    """After creating a GB address, read-row returns the country."""
+    dsn = _dsn()
+    oid, _ = org_and_address
+
+    async def insert_gb_address():
+        conn = await asyncpg.connect(dsn)
+        try:
+            aid = generate_id()
+            eaid = generate_id()
+            await conn.execute(
+                "INSERT INTO addresses (id, address_line_1, city, postal_code, country)"
+                " VALUES ($1, '10 Downing St', 'London', 'SW1A 2AA', 'GB')",
+                aid,
+            )
+            await conn.execute(
+                "INSERT INTO entity_addresses"
+                " (id, entity_type, entity_id, address_id, address_type)"
+                " VALUES ($1, 'organization', $2, $3, 'physical')",
+                eaid, oid, aid,
+            )
+            return eaid, aid
+        finally:
+            await conn.close()
+
+    async def cleanup(aid, eaid):
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute("DELETE FROM entity_addresses WHERE id=$1", eaid)
+            await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
+        finally:
+            await conn.close()
+
+    eaid, aid = asyncio.run(insert_gb_address())
+    try:
+        r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/read-row/", headers=HTMX_HEADERS)
+        assert r.status_code == 200
+        assert "GB" in r.text
+    finally:
+        asyncio.run(cleanup(aid, eaid))
+
+
+def test_address_us_country_not_shown_in_read_row(client, org_and_address):
+    """US country is implicit — not shown in the read row."""
+    oid, eaid = org_and_address
+    r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert ">US<" not in r.text
