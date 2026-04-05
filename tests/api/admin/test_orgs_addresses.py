@@ -731,3 +731,58 @@ def test_confirm_modal_shows_country_in_you_entered_when_non_us(
         },
     )
     assert "GB" in r.text
+
+
+def test_address_form_row_has_country_field(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'name="country"' in r.text
+
+
+def test_country_format_endpoint_returns_fields_partial(client, org_and_address):
+    oid, _ = org_and_address
+    with patch(
+        "src.api.admin.orgs_addresses.get_country_format",
+        new=AsyncMock(return_value={
+            "country": "CA",
+            "fields": [
+                {"key": "address_line_1", "label": "Address line 1", "required": True},
+                {"key": "address_line_2", "label": "Apt/suite", "required": False},
+                {"key": "city", "label": "City", "required": True},
+                {"key": "region", "label": "Province", "required": True},
+                {"key": "postal_code", "label": "Postal code", "required": False},
+            ],
+        })
+    ):
+        r = client.get(
+            f"/admin/orgs/{oid}/addresses/country-format/?country=CA",
+            headers=HTMX_HEADERS,
+        )
+    assert r.status_code == 200
+    assert "Province" in r.text
+    assert "Postal code" in r.text
+
+
+def test_country_format_endpoint_us_returns_default_labels(client, org_and_address):
+    oid, _ = org_and_address
+    with patch(
+        "src.api.admin.orgs_addresses.get_country_format",
+        new=AsyncMock(return_value={
+            "country": "US",
+            "fields": [
+                {"key": "address_line_1", "label": "Address line 1", "required": True},
+                {"key": "address_line_2", "label": "Address line 2", "required": False},
+                {"key": "city", "label": "City", "required": True},
+                {"key": "region", "label": "State", "required": True},
+                {"key": "postal_code", "label": "ZIP code", "required": False},
+            ],
+        })
+    ):
+        r = client.get(
+            f"/admin/orgs/{oid}/addresses/country-format/?country=US",
+            headers=HTMX_HEADERS,
+        )
+    assert r.status_code == 200
+    assert "State" in r.text
+    assert "ZIP" in r.text

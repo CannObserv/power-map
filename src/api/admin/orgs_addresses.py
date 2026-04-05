@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddressNormalizer
+from src.core.normalizers.address_meta import get_country_format
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/addresses", tags=["admin-org-addresses"])
@@ -62,6 +63,15 @@ def _init_normalizer() -> FallbackAddressNormalizer:
 
 _NORMALIZER: FallbackAddressNormalizer = _init_normalizer()
 del _init_normalizer  # prevent accidental re-invocation after module init
+
+
+async def _field_context(country: str) -> dict:
+    """Return field_labels and field_visible for the given country code."""
+    fmt = await get_country_format(country.upper() if country else "US")
+    return {
+        "field_labels": {f["key"]: f["label"] for f in fmt.get("fields", [])},
+        "field_visible": {f["key"] for f in fmt.get("fields", [])},
+    }
 
 
 async def _maybe_confirm(
@@ -164,10 +174,11 @@ async def address_new_row(
     if redirect:
         return redirect
     await _get_org_or_404(org_id, db)
+    ctx = await _field_context("US")
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_form_row.html",
-        {"org_id": org_id, "a": None},
+        {"org_id": org_id, "a": None, **ctx},
     )
 
 
@@ -216,6 +227,7 @@ async def address_create(
                     "country": country,
                 },
                 "error": "At least one address field is required.",
+                **(await _field_context(country)),
             },
         )
     if mode == "edit":
@@ -237,6 +249,7 @@ async def address_create(
                     "display_name": display_name,
                     "country": country,
                 },
+                **(await _field_context(country)),
             },
         )
     if mode == "confirm":
@@ -273,6 +286,7 @@ async def address_create(
                     "country": country,
                 },
                 "error": "Invalid address data submitted. Please re-submit the form.",
+                **(await _field_context(country)),
             },
         )
     await db.execute(
@@ -344,10 +358,11 @@ async def address_edit_row_get(
     if redirect:
         return redirect
     row = await _get_entity_address_or_404(addr_id, org_id, db)
+    ctx = await _field_context(row["country"] or "US")
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_form_row.html",
-        {"org_id": org_id, "a": row},
+        {"org_id": org_id, "a": row, **ctx},
     )
 
 
@@ -397,6 +412,7 @@ async def address_edit_row_post(
                     "country": country,
                 },
                 "error": "At least one address field is required.",
+                **(await _field_context(country)),
             },
         )
     if mode == "edit":
@@ -418,6 +434,7 @@ async def address_edit_row_post(
                     "display_name": display_name,
                     "country": country,
                 },
+                **(await _field_context(country)),
             },
         )
     if mode == "confirm":
@@ -452,6 +469,7 @@ async def address_edit_row_post(
                     "country": country,
                 },
                 "error": "Invalid address data submitted. Please re-submit the form.",
+                **(await _field_context(country)),
             },
         )
     await db.execute(
@@ -485,6 +503,27 @@ async def address_edit_row_post(
         "admin/orgs/partials/_address_row.html",
         {"org_id": org_id, "a": row},
         headers=flash_trigger("success", "Address saved."),
+    )
+
+
+@router.get("/country-format/")
+async def address_country_format(
+    org_id: str,
+    request: Request,
+    country: str = "US",
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return HTMX partial of structured address fields for the given country code."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    await _get_org_or_404(org_id, db)
+    ctx = await _field_context(country)
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_address_fields_partial.html",
+        {"org_id": org_id, "a": None, **ctx},
     )
 
 

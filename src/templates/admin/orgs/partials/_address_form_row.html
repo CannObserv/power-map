@@ -12,26 +12,19 @@
           style="display:grid;gap:var(--space-2)">
       {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
       <div class="form-group" style="margin-bottom:0">
-        <input type="text" name="address_line_1" placeholder="Address line 1"
-               value="{{ a.address_line_1 or '' if a else '' }}">
+        <input type="text" name="country" id="address-country-input"
+               placeholder="Country (ISO code, e.g. US, GB, CA)"
+               maxlength="2"
+               value="{{ a.country or 'US' if a else 'US' }}"
+               hx-get="/admin/orgs/{{ org_id }}/addresses/country-format/"
+               hx-trigger="change"
+               hx-target="#address-structured-fields"
+               hx-swap="innerHTML"
+               hx-include="[name='country']">
       </div>
-      <div class="form-group" style="margin-bottom:0">
-        <input type="text" name="address_line_2" placeholder="Address line 2 (optional)"
-               value="{{ a.address_line_2 or '' if a else '' }}">
-      </div>
-      <div style="display:flex;gap:var(--space-2)">
-        <div class="form-group" style="margin-bottom:0;flex:2">
-          <input type="text" name="city" placeholder="City"
-                 value="{{ a.city or '' if a else '' }}">
-        </div>
-        <div class="form-group" style="margin-bottom:0;flex:1">
-          <input type="text" name="region" placeholder="State" maxlength="2"
-                 value="{{ a.region or '' if a else '' }}">
-        </div>
-        <div class="form-group" style="margin-bottom:0;flex:1">
-          <input type="text" name="postal_code" placeholder="ZIP"
-                 value="{{ a.postal_code or '' if a else '' }}">
-        </div>
+
+      <div id="address-structured-fields">
+        {% include "admin/orgs/partials/_address_fields_partial.html" %}
       </div>
       <div style="display:flex;gap:var(--space-2);align-items:center">
         <div class="form-group" style="margin-bottom:0;flex:1">
