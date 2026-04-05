@@ -302,6 +302,15 @@ END $$;
 
 DO $$ BEGIN
     IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name='roles' AND constraint_name='chk_roles_title_nonempty'
+    ) THEN
+        ALTER TABLE roles ADD CONSTRAINT chk_roles_title_nonempty CHECK (trim(title) <> '');
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name='role_assignments' AND column_name='archived_at'
     ) THEN

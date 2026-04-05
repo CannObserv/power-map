@@ -194,3 +194,26 @@ def test_roles_create_unknown_org_returns_404(client):
         data={"title": "Some Role"},
     )
     assert r.status_code == 404
+
+
+def test_roles_create_empty_title_returns_error_flash(client, org):
+    """Whitespace-only title is rejected server-side."""
+    r = client.post(
+        f"/admin/orgs/{org}/roles/",
+        headers=HTMX_HEADERS,
+        data={"title": "   "},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert "<form" in r.text
+
+
+def test_roles_create_empty_title_non_htmx_redirects(client, org):
+    r = client.post(
+        f"/admin/orgs/{org}/roles/",
+        headers=AUTH_HEADERS,
+        data={"title": "   "},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
