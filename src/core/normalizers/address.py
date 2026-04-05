@@ -43,12 +43,18 @@ class LocalAddressNormalizer:
     Always produces validation_status='not_attempted'.
     """
 
-    def normalize(self, raw: str | None) -> NormalizationResult:
+    def normalize(self, raw: str | None, country: str = "US") -> NormalizationResult:
         """Parse *raw* into address components. Skips null-like input."""
         if is_null_like(raw):
             return NormalizationResult(value=None, skipped=True)
         raw = raw.strip()
-        result: dict = {"raw_input": raw}
+        result: dict = {"raw_input": raw, "country": country}
+        if country.upper() != "US":
+            return NormalizationResult(
+                value=result,
+                confidence_hint="not_attempted",
+                validation_detail={"provider": "usaddress", "status": "not_attempted"},
+            )
         try:
             tagged, _ = usaddress.tag(raw)
             result.update({
@@ -57,7 +63,6 @@ class LocalAddressNormalizer:
                 "city": tagged.get("PlaceName"),
                 "region": tagged.get("StateName"),
                 "postal_code": tagged.get("ZipCode"),
-                "country": "US",
                 "standardized": None,
             })
         except usaddress.RepeatedLabelError:
@@ -108,14 +113,14 @@ class ExternalAddressNormalizer:
 
     config: AddressNormalizerConfig
 
-    async def normalize(self, raw: str | None) -> NormalizationResult:
+    async def normalize(self, raw: str | None, country: str = "US") -> NormalizationResult:
         """Standardize or validate *raw* via the external API."""
         if is_null_like(raw):
             return NormalizationResult(value=None, skipped=True)
         raw = raw.strip()
         endpoint = "validate" if self.config.run_validation else "standardize"
         url = f"{self.config.base_url}/api/v1/{endpoint}"
-        payload = {"address": raw, "country": "US"}
+        payload = {"address": raw, "country": country}
         headers = {"X-API-Key": self.config.api_key}
 
         async with httpx.AsyncClient() as client:
@@ -181,14 +186,14 @@ class FallbackAddressNormalizer:
     config: AddressNormalizerConfig | None = None
     _local: LocalAddressNormalizer = field(default_factory=LocalAddressNormalizer, init=False)
 
-    async def normalize(self, raw: str | None) -> NormalizationResult:
+    async def normalize(self, raw: str | None, country: str = "US") -> NormalizationResult:
         """Normalize *raw* via external service, with local fallback."""
         if self.config is None or is_null_like(raw):
-            return self._local.normalize(raw)
+            return self._local.normalize(raw, country=country)
         try:
             external = ExternalAddressNormalizer(self.config)
-            return await external.normalize(raw)
+            return await external.normalize(raw, country=country)
         except Exception as exc:
-            result = self._local.normalize(raw)
+            result = self._local.normalize(raw, country=country)
             result.warnings.insert(0, f"fallback to local address parser: {exc}")
             return result

@@ -43,8 +43,8 @@ def org_and_address():
         try:
             await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
             await conn.execute(
-                "INSERT INTO addresses (id, address_line_1, city, region, postal_code)"
-                " VALUES ($1, '123 Main St', 'Olympia', 'WA', '98501')",
+                "INSERT INTO addresses (id, address_line_1, city, region, postal_code, country)"
+                " VALUES ($1, '123 Main St', 'Olympia', 'WA', '98501', 'US')",
                 aid,
             )
             await conn.execute(
@@ -569,3 +569,220 @@ def test_addresses_table_has_normalizer_columns():
     assert "latitude" in col_names
     assert "longitude" in col_names
     assert "components" in col_names
+
+
+def test_address_create_persists_country(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "10 Downing St",
+            "city": "London",
+            "postal_code": "SW1A 2AA",
+            "address_type": "physical",
+            "country": "GB",
+            "mode": "save",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" not in r.text
+    # Country shown for non-US
+    assert "GB" in r.text
+
+
+def test_address_edit_persists_country(client, org_and_address):
+    oid, eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "10 Downing St",
+            "city": "London",
+            "postal_code": "SW1A 2AA",
+            "address_type": "physical",
+            "country": "GB",
+            "mode": "save",
+        },
+    )
+    assert r.status_code == 200
+    assert "GB" in r.text
+
+
+def test_address_read_row_returns_country(client, org_and_address):
+    """After creating a GB address, read-row returns the country."""
+    dsn = _dsn()
+    oid, _ = org_and_address
+
+    async def insert_gb_address():
+        conn = await asyncpg.connect(dsn)
+        try:
+            aid = generate_id()
+            eaid = generate_id()
+            await conn.execute(
+                "INSERT INTO addresses (id, address_line_1, city, postal_code, country)"
+                " VALUES ($1, '10 Downing St', 'London', 'SW1A 2AA', 'GB')",
+                aid,
+            )
+            await conn.execute(
+                "INSERT INTO entity_addresses"
+                " (id, entity_type, entity_id, address_id, address_type)"
+                " VALUES ($1, 'organization', $2, $3, 'physical')",
+                eaid, oid, aid,
+            )
+            return eaid, aid
+        finally:
+            await conn.close()
+
+    async def cleanup(aid, eaid):
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute("DELETE FROM entity_addresses WHERE id=$1", eaid)
+            await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
+        finally:
+            await conn.close()
+
+    eaid, aid = asyncio.run(insert_gb_address())
+    try:
+        r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/read-row/", headers=HTMX_HEADERS)
+        assert r.status_code == 200
+        assert "GB" in r.text
+    finally:
+        asyncio.run(cleanup(aid, eaid))
+
+
+def test_address_us_country_not_shown_in_read_row(client, org_and_address):
+    """US country is implicit — not shown in the read row."""
+    oid, eaid = org_and_address
+    r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert ">US<" not in r.text
+
+
+@pytest.mark.integration
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
+def test_confirm_modal_keep_my_input_has_country(mock_normalizer, client, org_and_address):
+    """Keep my input form must include country hidden field."""
+    oid, _ = org_and_address
+    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "10 DOWNING ST",
+            "address_line_2": None,
+            "city": "LONDON",
+            "region": None,
+            "postal_code": "SW1A 2AA",
+            "country": "GB",
+            "standardized": "10 DOWNING ST LONDON SW1A 2AA",
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
+        validation_detail=None,
+    ))
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "10 Downing St",
+            "city": "London",
+            "postal_code": "SW1A 2AA",
+            "address_type": "mailing",
+            "country": "GB",
+        },
+    )
+    assert r.status_code == 200
+    assert r.headers.get("hx-retarget") == "#address-confirm-portal"
+    # Both forms (Keep my input and Accept) must carry country
+    assert r.text.count('name="country"') == 2
+
+
+@pytest.mark.integration
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
+def test_confirm_modal_shows_country_in_you_entered_when_non_us(
+    mock_normalizer, client, org_and_address
+):
+    oid, _ = org_and_address
+    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "10 DOWNING ST",
+            "address_line_2": None,
+            "city": "LONDON",
+            "region": None,
+            "postal_code": "SW1A 2AA",
+            "country": "GB",
+            "standardized": "10 DOWNING ST LONDON SW1A 2AA",
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
+        validation_detail=None,
+    ))
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "10 Downing St",
+            "city": "London",
+            "postal_code": "SW1A 2AA",
+            "address_type": "mailing",
+            "country": "GB",
+        },
+    )
+    assert "GB" in r.text
+
+
+def test_address_form_row_has_country_field(client, org_and_address):
+    oid, _ = org_and_address
+    r = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'name="country"' in r.text
+
+
+def test_country_format_endpoint_returns_fields_partial(client, org_and_address):
+    oid, _ = org_and_address
+    with patch(
+        "src.api.admin.orgs_addresses.get_country_format",
+        new=AsyncMock(return_value={
+            "country": "CA",
+            "fields": [
+                {"key": "address_line_1", "label": "Address line 1", "required": True},
+                {"key": "address_line_2", "label": "Apt/suite", "required": False},
+                {"key": "city", "label": "City", "required": True},
+                {"key": "region", "label": "Province", "required": True},
+                {"key": "postal_code", "label": "Postal code", "required": False},
+            ],
+        })
+    ):
+        r = client.get(
+            f"/admin/orgs/{oid}/addresses/country-format/?country=CA",
+            headers=HTMX_HEADERS,
+        )
+    assert r.status_code == 200
+    assert "Province" in r.text
+    assert "Postal code" in r.text
+
+
+def test_country_format_endpoint_us_returns_default_labels(client, org_and_address):
+    oid, _ = org_and_address
+    with patch(
+        "src.api.admin.orgs_addresses.get_country_format",
+        new=AsyncMock(return_value={
+            "country": "US",
+            "fields": [
+                {"key": "address_line_1", "label": "Address line 1", "required": True},
+                {"key": "address_line_2", "label": "Address line 2", "required": False},
+                {"key": "city", "label": "City", "required": True},
+                {"key": "region", "label": "State", "required": True},
+                {"key": "postal_code", "label": "ZIP code", "required": False},
+            ],
+        })
+    ):
+        r = client.get(
+            f"/admin/orgs/{oid}/addresses/country-format/?country=US",
+            headers=HTMX_HEADERS,
+        )
+    assert r.status_code == 200
+    assert "State" in r.text
+    assert "ZIP" in r.text

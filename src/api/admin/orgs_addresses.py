@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddressNormalizer
+from src.core.normalizers.address_meta import get_country_format
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/addresses", tags=["admin-org-addresses"])
@@ -64,6 +65,15 @@ _NORMALIZER: FallbackAddressNormalizer = _init_normalizer()
 del _init_normalizer  # prevent accidental re-invocation after module init
 
 
+async def _field_context(country: str) -> dict:
+    """Return field_labels and field_visible for the given country code."""
+    fmt = await get_country_format(country.upper() if country else "US")
+    return {
+        "field_labels": {f["key"]: f["label"] for f in fmt.get("fields", [])},
+        "field_visible": {f["key"] for f in fmt.get("fields", [])},
+    }
+
+
 async def _maybe_confirm(
     request,
     org_id: str,
@@ -75,13 +85,14 @@ async def _maybe_confirm(
     postal_code: str,
     address_type: str,
     display_name: str,
+    country: str = "US",
 ):
     """Call normalizer and return confirm partial if standardized result; else None."""
     raw = " ".join(filter(None, [
         address_line_1.strip(), address_line_2.strip(),
         city.strip(), region.strip(), postal_code.strip(),
     ]))
-    result = await _NORMALIZER.normalize(raw)
+    result = await _NORMALIZER.normalize(raw, country=country)
     if not (result.value and result.value.get("standardized")):
         return None
     validation_status = None
@@ -96,7 +107,7 @@ async def _maybe_confirm(
         "city": result.value.get("city") or city.strip(),
         "region": result.value.get("region") or region.strip(),
         "postal_code": result.value.get("postal_code") or postal_code.strip(),
-        "country": result.value.get("country", "US"),
+        "country": result.value.get("country", country),
         "standardized": result.value.get("standardized"),
         "latitude": result.value.get("latitude"),
         "longitude": result.value.get("longitude"),
@@ -110,6 +121,7 @@ async def _maybe_confirm(
         "postal_code": postal_code,
         "address_type": address_type,
         "display_name": display_name,
+        "country": country,
     }
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
@@ -139,7 +151,7 @@ async def _get_entity_address_or_404(addr_id: str, org_id: str, db):
     row = await db.fetchrow(
         """SELECT ea.id, ea.address_type, ea.display_name,
                   a.id AS address_id, a.standardized, a.address_line_1, a.address_line_2,
-                  a.city, a.region, a.postal_code
+                  a.city, a.region, a.postal_code, a.country
            FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
            WHERE ea.id=$1 AND ea.entity_type='organization' AND ea.entity_id=$2""",
         addr_id,
@@ -162,10 +174,11 @@ async def address_new_row(
     if redirect:
         return redirect
     await _get_org_or_404(org_id, db)
+    ctx = await _field_context("US")
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_form_row.html",
-        {"org_id": org_id, "a": None},
+        {"org_id": org_id, "a": None, **ctx},
     )
 
 
@@ -185,6 +198,7 @@ async def address_create(
     latitude: str = Form(""),
     longitude: str = Form(""),
     components: str = Form(""),
+    country: str = Form("US"),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -210,8 +224,10 @@ async def address_create(
                     "postal_code": postal_code,
                     "address_type": address_type,
                     "display_name": display_name,
+                    "country": country,
                 },
                 "error": "At least one address field is required.",
+                **(await _field_context(country)),
             },
         )
     if mode == "edit":
@@ -231,14 +247,16 @@ async def address_create(
                     "postal_code": postal_code,
                     "address_type": address_type,
                     "display_name": display_name,
+                    "country": country,
                 },
+                **(await _field_context(country)),
             },
         )
     if mode == "confirm":
         confirm = await _maybe_confirm(
             request, org_id, None,
             address_line_1, address_line_2, city, region, postal_code,
-            address_type, display_name,
+            address_type, display_name, country,
         )
         if confirm is not None:
             return confirm
@@ -265,21 +283,24 @@ async def address_create(
                     "postal_code": postal_code,
                     "address_type": address_type,
                     "display_name": display_name,
+                    "country": country,
                 },
                 "error": "Invalid address data submitted. Please re-submit the form.",
+                **(await _field_context(country)),
             },
         )
     await db.execute(
         "INSERT INTO addresses"
         " (id, address_line_1, address_line_2, city, region, postal_code,"
-        "  standardized, latitude, longitude, components)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        "  country, standardized, latitude, longitude, components)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         aid,
         address_line_1.strip() or None,
         address_line_2.strip() or None,
         city.strip() or None,
         region.strip() or None,
         postal_code.strip() or None,
+        country.strip() or "US",
         _standardized,
         _latitude,
         _longitude,
@@ -337,10 +358,11 @@ async def address_edit_row_get(
     if redirect:
         return redirect
     row = await _get_entity_address_or_404(addr_id, org_id, db)
+    ctx = await _field_context(row["country"] or "US")
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_form_row.html",
-        {"org_id": org_id, "a": row},
+        {"org_id": org_id, "a": row, **ctx},
     )
 
 
@@ -361,6 +383,7 @@ async def address_edit_row_post(
     latitude: str = Form(""),
     longitude: str = Form(""),
     components: str = Form(""),
+    country: str = Form("US"),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -386,8 +409,10 @@ async def address_edit_row_post(
                     "postal_code": postal_code,
                     "address_type": address_type,
                     "display_name": display_name,
+                    "country": country,
                 },
                 "error": "At least one address field is required.",
+                **(await _field_context(country)),
             },
         )
     if mode == "edit":
@@ -407,14 +432,16 @@ async def address_edit_row_post(
                     "postal_code": postal_code,
                     "address_type": address_type,
                     "display_name": display_name,
+                    "country": country,
                 },
+                **(await _field_context(country)),
             },
         )
     if mode == "confirm":
         confirm = await _maybe_confirm(
             request, org_id, addr_id,
             address_line_1, address_line_2, city, region, postal_code,
-            address_type, display_name,
+            address_type, display_name, country,
         )
         if confirm is not None:
             return confirm
@@ -439,20 +466,23 @@ async def address_edit_row_post(
                     "postal_code": postal_code,
                     "address_type": address_type,
                     "display_name": display_name,
+                    "country": country,
                 },
                 "error": "Invalid address data submitted. Please re-submit the form.",
+                **(await _field_context(country)),
             },
         )
     await db.execute(
         "UPDATE addresses"
         " SET address_line_1=$1, address_line_2=$2, city=$3, region=$4, postal_code=$5,"
-        "     standardized=$6, latitude=$7, longitude=$8, components=$9"
-        " WHERE id=$10",
+        "     country=$6, standardized=$7, latitude=$8, longitude=$9, components=$10"
+        " WHERE id=$11",
         address_line_1.strip() or None,
         address_line_2.strip() or None,
         city.strip() or None,
         region.strip() or None,
         postal_code.strip() or None,
+        country.strip() or "US",
         _standardized,
         _latitude,
         _longitude,
@@ -473,6 +503,27 @@ async def address_edit_row_post(
         "admin/orgs/partials/_address_row.html",
         {"org_id": org_id, "a": row},
         headers=flash_trigger("success", "Address saved."),
+    )
+
+
+@router.get("/country-format/")
+async def address_country_format(
+    org_id: str,
+    request: Request,
+    country: str = "US",
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return HTMX partial of structured address fields for the given country code."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    await _get_org_or_404(org_id, db)
+    ctx = await _field_context(country)
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_address_fields_partial.html",
+        {"org_id": org_id, "a": None, **ctx},
     )
 
 

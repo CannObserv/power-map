@@ -608,3 +608,7 @@ CREATE INDEX IF NOT EXISTS idx_field_confidence_entity
 ALTER TABLE addresses ADD COLUMN IF NOT EXISTS latitude   DOUBLE PRECISION;
 ALTER TABLE addresses ADD COLUMN IF NOT EXISTS longitude  DOUBLE PRECISION;
 ALTER TABLE addresses ADD COLUMN IF NOT EXISTS components JSONB;
+
+-- Migration: drop DEFAULT 'US' from addresses.country
+-- Existing rows keep their 'US' value; application layer now always provides country explicitly.
+ALTER TABLE addresses ALTER COLUMN country DROP DEFAULT;

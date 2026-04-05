@@ -3,6 +3,9 @@
   <td>
     {% if a.standardized %}{{ a.standardized }}
     {% else %}{{ [a.address_line_1, a.city, a.region, a.postal_code] | select | join(', ') }}{% endif %}
+    {% if a.country and a.country != 'US' %}
+    <span class="badge badge--neutral" style="margin-left:var(--space-1)">{{ a.country }}</span>
+    {% endif %}
   </td>
   <td>{{ a.address_type }}</td>
   {% if a.display_name %}<td>{{ a.display_name }}</td>{% else %}<td>—</td>{% endif %}
