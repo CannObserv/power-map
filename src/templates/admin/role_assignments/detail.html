@@ -7,7 +7,10 @@
 {% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1>{{ ra.person_name or '(unnamed)' }} @ {{ ra.role_title }} ({{ ra.org_name or '(unnamed)' }})</h1>
+  <div>
+    <span class="page-header__type">Role Assignment</span>
+    <h1>{{ ra.person_name or '(unnamed)' }} @ {{ ra.role_title }} ({{ ra.org_name or '(unnamed)' }})</h1>
+  </div>
   <a href="/admin/role-assignments/{{ ra.id }}/edit/" class="btn btn--primary">Edit</a>
 </div>
 
