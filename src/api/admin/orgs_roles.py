@@ -82,7 +82,11 @@ async def role_create(
             "admin/orgs/partials/_role_form_row.html",
             {"org_id": org_id, "title_input": title},
             headers={
-                **flash_trigger("error", f"A role named <strong>{escape(title)}</strong> already exists for this organization."),
+                **flash_trigger(
+                    "error",
+                    f"A role named <strong>{escape(title)}</strong>"
+                    " already exists for this organization.",
+                ),
                 "HX-Retarget": "#role-row-new",
                 "HX-Reswap": "outerHTML",
             },
