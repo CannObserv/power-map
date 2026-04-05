@@ -14,7 +14,8 @@
         <div>
           {{ original.address_line_1 }}
           {% if original.address_line_2 %}<br>{{ original.address_line_2 }}{% endif %}
-          <br>{{ original.city }}, {{ original.region }} {{ original.postal_code }}
+          <br>{{ original.city }}{% if original.region %}, {{ original.region }}{% endif %} {{ original.postal_code }}
+          {% if original.country and original.country != 'US' %}<br>{{ original.country }}{% endif %}
         </div>
       </div>
       <div>
@@ -56,6 +57,7 @@
         <input type="hidden" name="postal_code" value="{{ original.postal_code or '' }}">
         <input type="hidden" name="address_type" value="{{ original.address_type }}">
         <input type="hidden" name="display_name" value="{{ original.display_name or '' }}">
+        <input type="hidden" name="country" value="{{ original.country or 'US' }}">
         <button type="submit" class="btn btn--sm btn--secondary">Keep my input</button>
       </form>
 

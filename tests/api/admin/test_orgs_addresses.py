@@ -43,8 +43,8 @@ def org_and_address():
         try:
             await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
             await conn.execute(
-                "INSERT INTO addresses (id, address_line_1, city, region, postal_code)"
-                " VALUES ($1, '123 Main St', 'Olympia', 'WA', '98501')",
+                "INSERT INTO addresses (id, address_line_1, city, region, postal_code, country)"
+                " VALUES ($1, '123 Main St', 'Olympia', 'WA', '98501', 'US')",
                 aid,
             )
             await conn.execute(
@@ -657,3 +657,77 @@ def test_address_us_country_not_shown_in_read_row(client, org_and_address):
     r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/read-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert ">US<" not in r.text
+
+
+@pytest.mark.integration
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
+def test_confirm_modal_keep_my_input_has_country(mock_normalizer, client, org_and_address):
+    """Keep my input form must include country hidden field."""
+    oid, _ = org_and_address
+    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "10 DOWNING ST",
+            "address_line_2": None,
+            "city": "LONDON",
+            "region": None,
+            "postal_code": "SW1A 2AA",
+            "country": "GB",
+            "standardized": "10 DOWNING ST LONDON SW1A 2AA",
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
+        validation_detail=None,
+    ))
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "10 Downing St",
+            "city": "London",
+            "postal_code": "SW1A 2AA",
+            "address_type": "mailing",
+            "country": "GB",
+        },
+    )
+    assert r.status_code == 200
+    assert r.headers.get("hx-retarget") == "#address-confirm-portal"
+    # Both forms (Keep my input and Accept) must carry country
+    assert r.text.count('name="country"') == 2
+
+
+@pytest.mark.integration
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
+def test_confirm_modal_shows_country_in_you_entered_when_non_us(
+    mock_normalizer, client, org_and_address
+):
+    oid, _ = org_and_address
+    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
+        skipped=False,
+        value={
+            "address_line_1": "10 DOWNING ST",
+            "address_line_2": None,
+            "city": "LONDON",
+            "region": None,
+            "postal_code": "SW1A 2AA",
+            "country": "GB",
+            "standardized": "10 DOWNING ST LONDON SW1A 2AA",
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
+        validation_detail=None,
+    ))
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "10 Downing St",
+            "city": "London",
+            "postal_code": "SW1A 2AA",
+            "address_type": "mailing",
+            "country": "GB",
+        },
+    )
+    assert "GB" in r.text
