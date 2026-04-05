@@ -223,7 +223,16 @@
 </section>
 
 <section class="entity-section">
-  <h2>Roles</h2>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2 style="margin:0">Roles</h2>
+    {% if not org.archived_at %}
+    <button class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org.id }}/roles/new-row/"
+            hx-target="#roles-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add role</button>
+    {% endif %}
+  </div>
   <input type="search" id="roles-filter" placeholder="Filter roles…"
          class="filter-card__search"
          oninput="(function(v){document.querySelectorAll('#roles-table tbody tr[data-title]').forEach(function(r){r.style.display=r.dataset.title.toLowerCase().includes(v.toLowerCase())?'':'none'})})(this.value)">

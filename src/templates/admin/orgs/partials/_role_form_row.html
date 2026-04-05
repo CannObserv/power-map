@@ -1,0 +1,18 @@
+{# admin/orgs/partials/_role_form_row.html — inline new-role form row #}
+<tr id="role-row-new">
+  <td colspan="3" style="padding:var(--space-2) var(--space-4)">
+    <form hx-post="/admin/orgs/{{ org_id }}/roles/"
+          hx-target="#roles-table tbody"
+          hx-swap="innerHTML"
+          style="display:flex;gap:var(--space-2);align-items:center">
+      <div class="form-group" style="margin-bottom:0;flex:1;min-width:8rem">
+        <input type="text" name="title" required value="{{ title_input or '' }}" placeholder="Role title">
+      </div>
+      <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
+        <button type="submit" class="btn btn--sm btn--primary">Save</button>
+        <button type="button" class="btn btn--sm btn--secondary"
+                onclick="this.closest('tr').remove()">Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>

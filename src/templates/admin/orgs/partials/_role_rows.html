@@ -1,0 +1,10 @@
+{# admin/orgs/partials/_role_rows.html — tbody rows for the org roles table #}
+{% for role in roles %}
+<tr data-title="{{ role.title or '' }}">
+  <td><a href="/admin/roles/{{ role.id }}/">{{ role.title or '(untitled)' }}</a></td>
+  <td style="text-align:right;color:var(--color-text-muted)">{{ role.assignment_count }}</td>
+  <td style="text-align:right">{% if role.current_count %}<span class="badge badge--active">{{ role.current_count }}</span>{% else %}<span style="color:var(--color-text-muted)">0</span>{% endif %}</td>
+</tr>
+{% else %}
+<tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No roles</td></tr>
+{% endfor %}
