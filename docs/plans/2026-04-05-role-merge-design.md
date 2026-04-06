@@ -34,9 +34,10 @@ Endpoint: `POST /admin/orgs/{org_id}/roles/{winner_id}/merge/{loser_id}/`
 
 Within a single transaction:
 1. **role_assignments**: Delete conflicting assignments (same `person_id` + `start_date` as an existing winner assignment), then reassign remaining from loser to winner.
-2. **import_provenance / field_confidence**: Reassign rows where `entity_type='role'` and `entity_id=loser` to winner.
-3. **notes**: If loser has notes, append to winner's notes with merge context prefix (same pattern as people merge).
-4. **Hard delete**: Remove loser role.
+2. **notes**: If loser has notes, append to winner's notes with merge context prefix (same pattern as people merge).
+3. **Hard delete**: Remove loser role.
+
+Note: `import_provenance` and `field_confidence` track `role_assignment` entities, not roles directly. Since assignment IDs are preserved during reassignment (only `role_id` changes), provenance records remain valid without any updates.
 
 **Guards:**
 - 404 if winner or loser not found.
@@ -56,8 +57,8 @@ Manual-only merge requires no `duplicate_dismissals` table or detection queries.
 **Integration tests** (real DB):
 - Merge reassigns all role_assignments from loser to winner
 - Merge deletes conflicting assignments (same person + start_date) before reassign
-- Merge reassigns import_provenance and field_confidence rows
 - Merge appends loser's notes to winner's notes
+- Merge preserves assignment provenance (assignment IDs survive with updated role_id)
 - Merge hard-deletes the loser role
 - 404 when winner or loser doesn't exist
 - 409 when either role is archived
