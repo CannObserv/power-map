@@ -331,3 +331,6 @@ a:hover { color: var(--color-brand-hover); }
 .danger-zone { border: 1px solid var(--color-danger); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); margin-top: var(--space-6); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
 .danger-zone__label { font-weight: 600; font-size: var(--font-size-sm); color: var(--color-danger); }
 .danger-zone__desc { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: var(--space-1); }
+/* Merge bar — sticky action bar at bottom of table wrapper */
+.merge-bar { position: sticky; bottom: 0; background: var(--color-surface-1); border-top: 1px solid var(--color-border); padding: var(--space-2) var(--space-4); align-items: center; gap: var(--space-2); z-index: 10; border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.merge-bar__label { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); white-space: nowrap; }

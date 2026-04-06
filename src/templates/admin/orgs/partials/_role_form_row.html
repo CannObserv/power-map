@@ -1,6 +1,6 @@
 {# admin/orgs/partials/_role_form_row.html — inline new-role form row #}
 <tr id="role-row-new">
-  <td colspan="3" style="padding:var(--space-2) var(--space-4)">
+  <td colspan="4" style="padding:var(--space-2) var(--space-4)">
     <form hx-post="/admin/orgs/{{ org_id }}/roles/"
           hx-target="#roles-table tbody"
           hx-swap="innerHTML"

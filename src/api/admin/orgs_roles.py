@@ -1,4 +1,6 @@
-"""Inline role create on the org detail page."""
+"""Inline role create and merge on the org detail page."""
+
+from datetime import UTC, datetime
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -113,3 +115,97 @@ async def role_create(
         {"roles": roles},
         headers=flash_trigger("success", f"Role <strong>{escape(title)}</strong> added."),
     )
+
+
+@router.post("/{winner_id}/merge/{loser_id}/")
+async def role_merge(
+    org_id: str,
+    winner_id: str,
+    loser_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Merge loser role into winner: reassign assignments, hard-delete loser."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+
+    async with db.transaction():
+        winner = await db.fetchrow(
+            "SELECT id, organization_id, title, notes, archived_at"
+            " FROM roles WHERE id=$1 FOR UPDATE",
+            winner_id,
+        )
+        loser = await db.fetchrow(
+            "SELECT id, organization_id, title, notes, archived_at"
+            " FROM roles WHERE id=$1 FOR UPDATE",
+            loser_id,
+        )
+        if not winner or not loser:
+            raise HTTPException(status_code=404, detail="Role not found")
+
+        if winner["archived_at"] or loser["archived_at"]:
+            raise HTTPException(status_code=409, detail="Cannot merge archived roles")
+
+        if (
+            winner["organization_id"] != org_id
+            or loser["organization_id"] != org_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Roles must belong to the same organization",
+            )
+
+        # Notes: prefix loser's notes with merge metadata, append to winner
+        if loser["notes"]:
+            merge_date = datetime.now(UTC).strftime("%Y-%m-%d")
+            prefix = (
+                f"Merged from {loser['title']} on {merge_date}"
+                f" by {user.email}"
+            )
+            appended = f"{prefix}\n{loser['notes']}"
+            new_notes = (
+                f"{winner['notes']}\n\n{appended}"
+                if winner["notes"]
+                else appended
+            )
+            await db.execute(
+                "UPDATE roles SET notes=$1 WHERE id=$2", new_notes, winner_id,
+            )
+
+        # role_assignments: delete conflicts (same person+start_date), reassign rest
+        await db.execute(
+            """DELETE FROM role_assignments ra
+               WHERE ra.role_id=$1 AND ra.archived_at IS NULL
+                 AND EXISTS (
+                     SELECT 1 FROM role_assignments w
+                     WHERE w.role_id=$2 AND w.archived_at IS NULL
+                       AND w.person_id = ra.person_id
+                       AND w.start_date IS NOT DISTINCT FROM ra.start_date
+                 )""",
+            loser_id, winner_id,
+        )
+        await db.execute(
+            "UPDATE role_assignments SET role_id=$1 WHERE role_id=$2",
+            winner_id, loser_id,
+        )
+
+        await db.execute("DELETE FROM roles WHERE id=$1", loser_id)
+
+    loser_title = loser["title"]
+    winner_title = winner["title"]
+
+    if is_htmx(request):
+        roles = await _fetch_roles(org_id, db)
+        body = (
+            f"Merged <strong>{escape(loser_title)}</strong>"
+            f" into <strong>{escape(winner_title)}</strong>."
+        )
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_role_rows.html",
+            {"roles": roles},
+            headers=flash_trigger("success", body),
+        )
+    return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
