@@ -1,6 +1,10 @@
 {
   "name": "power-map",
   "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test:js": "vitest run",
     "test:js:watch": "vitest"

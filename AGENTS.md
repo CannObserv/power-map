@@ -12,7 +12,7 @@ TDD required. Red → Green → Refactor. No production code without a failing t
 
 ## Environment & Tooling
 
-Python ≥3.12, uv, pytest, ruff
+Python ≥3.12, uv, pytest, ruff; Node ≥18, npm, vitest (JS tests only)
 
 ## Project Layout
 
@@ -42,6 +42,7 @@ src/core/       — Shared domain logic
   normalizers/  — Field normalizers: phone, email, url, identifier, address
   ingestion/    — EVTL pipeline: base types, CSV sources (org/person/role), pipeline coordinator
 tests/          — Mirrors src/ structure
+  js/           — Vitest behavioral tests for admin JS (role-merge.js, …)
 docs/           — Reference docs (API, COMMANDS, SKILLS)
 scripts/        — One-off operational scripts (import_cannabis_observer.py, deduplicate_roles.py)
 ```

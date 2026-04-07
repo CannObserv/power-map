@@ -31,7 +31,6 @@ gunicorn.ctl
 
 # Node
 node_modules/
-package-lock.json
 
 # CSV import data
 data/cannabis_observer/

@@ -3,18 +3,46 @@
  *
  * The script is an IIFE that attaches listeners to DOM elements immediately on
  * execution. Pattern: build DOM fixture → eval() the IIFE → simulate events →
- * assert state. afterEach clears the body so each test gets a fresh DOM.
+ * assert state.
+ *
+ * Listener cleanup: each eval() adds a document-level 'showFlash' listener.
+ * A global beforeEach/afterEach pair spies on document.addEventListener,
+ * captures every handler registered during the test, and removes them all in
+ * afterEach — preventing cross-test listener accumulation.
  */
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const scriptCode = readFileSync(
   resolve(__dirname, '../../src/static/admin/role-merge.js'),
   'utf-8',
 );
+
+// ---------------------------------------------------------------------------
+// Global listener cleanup
+// Spy on document.addEventListener before every test so we can remove all
+// handlers the IIFE registers. The spy calls through; vi.restoreAllMocks()
+// restores the original after each test.
+// ---------------------------------------------------------------------------
+
+let _addSpy;
+
+beforeEach(() => {
+  _addSpy = vi.spyOn(document, 'addEventListener');
+});
+
+afterEach(() => {
+  _addSpy.mock.calls.forEach(([type, handler]) => document.removeEventListener(type, handler));
+  vi.restoreAllMocks();
+  document.body.innerHTML = '';
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 // Build the required DOM fixture and eval the script.
 function setup({ orgId = 'org-1', numRoles = 3 } = {}) {
@@ -56,10 +84,6 @@ function uncheck(cb) {
   cb.checked = false;
   cb.dispatchEvent(new Event('change', { bubbles: true }));
 }
-
-afterEach(() => {
-  document.body.innerHTML = '';
-});
 
 // ---------------------------------------------------------------------------
 // Merge mode toggle
@@ -278,5 +302,45 @@ describe('bar at 2 selections', () => {
     const msg = document.querySelector('.merge-bar__keep-b').getAttribute('hx-confirm');
     expect(msg).toContain('"Role 1"'); // role being discarded
     expect(msg).toContain('"Role 2"'); // role being kept
+  });
+});
+
+// ---------------------------------------------------------------------------
+// showFlash event exits merge mode
+// ---------------------------------------------------------------------------
+
+describe('showFlash exits merge mode', () => {
+  beforeEach(() => {
+    setup();
+    document.getElementById('roles-merge-btn').click(); // enter merge mode
+  });
+
+  it('exits merge mode when showFlash fires while in merge mode', () => {
+    expect(document.getElementById('roles-table').dataset.mergeMode).toBe('true');
+    document.dispatchEvent(new CustomEvent('showFlash'));
+    expect(document.getElementById('roles-table').dataset.mergeMode).toBeUndefined();
+  });
+
+  it('resets button text and classes on showFlash exit', () => {
+    const btn = document.getElementById('roles-merge-btn');
+    document.dispatchEvent(new CustomEvent('showFlash'));
+    expect(btn.textContent).toBe('Merge');
+    expect(btn.classList.contains('btn--secondary')).toBe(true);
+    expect(btn.classList.contains('btn--ghost')).toBe(false);
+  });
+
+  it('clears checked selections on showFlash exit', () => {
+    const [cb1, cb2] = checkboxes();
+    check(cb1);
+    check(cb2);
+    document.dispatchEvent(new CustomEvent('showFlash'));
+    checkboxes().forEach((cb) => expect(cb.checked).toBe(false));
+  });
+
+  it('does nothing when showFlash fires outside merge mode', () => {
+    document.getElementById('roles-merge-btn').click(); // exit first
+    document.dispatchEvent(new CustomEvent('showFlash'));
+    // still outside merge mode, no error
+    expect(document.getElementById('roles-table').dataset.mergeMode).toBeUndefined();
   });
 });

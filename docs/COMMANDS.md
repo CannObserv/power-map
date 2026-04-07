@@ -84,6 +84,20 @@ uv run pytest tests/path/to/test_file.py --no-cov
 uv run pytest -m integration
 ```
 
+## JS Testing
+
+```bash
+# Run JS tests (one-shot)
+npm run test:js
+
+# Run JS tests in watch mode
+npm run test:js:watch
+```
+
+Note: Node ≥18 required. `npm install` first if `node_modules/` is absent.
+Uses vitest v2 + happy-dom. happy-dom is used instead of jsdom due to a
+CJS/ESM incompatibility in jsdom v29 on Node 18.
+
 ## Linting
 
 ```bash
