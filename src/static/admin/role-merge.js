@@ -2,7 +2,7 @@
  * role-merge.js — loaded via <script src defer> in extra_head on the org detail page.
  *
  * Manages merge mode for the roles table: toggle button, checkbox selection,
- * and sticky action bar with Keep A / Keep B buttons.
+ * and fixed floating action bar with progressive disclosure and Keep A / Keep B buttons.
  *
  * Lives in <head> via the extra_head block so hx-boost never re-executes it.
  */
@@ -55,47 +55,67 @@
   function updateCheckboxes() {
     var cbs = table.querySelectorAll('input[name="merge-select"]');
     var checkedIds = checked.map(function (c) { return c.id; });
+    var atMax = checked.length >= 2;
     cbs.forEach(function (cb) {
-      cb.checked = checkedIds.indexOf(cb.value) !== -1;
+      var isChecked = checkedIds.indexOf(cb.value) !== -1;
+      cb.checked = isChecked;
+      cb.disabled = atMax && !isChecked;
     });
   }
 
   function updateBar() {
-    if (checked.length < 2) {
+    if (table.dataset.mergeMode !== 'true') {
       mergeBar.style.display = 'none';
       return;
     }
-    var a = checked[0];
-    var b = checked[1];
+
     mergeBar.style.display = 'flex';
 
     var label = mergeBar.querySelector('.merge-bar__label');
-    if (label) {
-      label.innerHTML = 'Merge roles:';
-    }
-
     var btnA = mergeBar.querySelector('.merge-bar__keep-a');
     var btnB = mergeBar.querySelector('.merge-bar__keep-b');
+
+    if (checked.length === 0) {
+      if (label) label.textContent = 'Select 2 roles to merge:';
+      if (btnA) { btnA.textContent = '—'; btnA.disabled = true; btnA.removeAttribute('hx-post'); btnA.removeAttribute('hx-confirm'); }
+      if (btnB) { btnB.textContent = '—'; btnB.disabled = true; btnB.removeAttribute('hx-post'); btnB.removeAttribute('hx-confirm'); }
+      return;
+    }
+
+    if (checked.length === 1) {
+      var a = checked[0];
+      if (label) label.textContent = 'Select 1 more:';
+      if (btnA) { btnA.textContent = 'Selected: "' + a.title + '"'; btnA.disabled = true; btnA.removeAttribute('hx-post'); btnA.removeAttribute('hx-confirm'); }
+      if (btnB) { btnB.textContent = '—'; btnB.disabled = true; btnB.removeAttribute('hx-post'); btnB.removeAttribute('hx-confirm'); }
+      return;
+    }
+
+    var roleA = checked[0];
+    var roleB = checked[1];
+    if (label) label.textContent = 'Merge roles:';
+
     if (btnA) {
-      btnA.textContent = 'Keep "' + a.title + '"';
+      btnA.textContent = 'Keep "' + roleA.title + '"';
+      btnA.disabled = false;
       btnA.setAttribute(
         'hx-post',
-        '/admin/orgs/' + orgId + '/roles/' + a.id + '/merge/' + b.id + '/'
+        '/admin/orgs/' + orgId + '/roles/' + roleA.id + '/merge/' + roleB.id + '/'
       );
       btnA.setAttribute(
         'hx-confirm',
-        'Merge "' + b.title + '" into "' + a.title + '"? This cannot be undone.'
+        'Merge "' + roleB.title + '" into "' + roleA.title + '"? This cannot be undone.'
       );
     }
     if (btnB) {
-      btnB.textContent = 'Keep "' + b.title + '"';
+      btnB.textContent = 'Keep "' + roleB.title + '"';
+      btnB.disabled = false;
       btnB.setAttribute(
         'hx-post',
-        '/admin/orgs/' + orgId + '/roles/' + b.id + '/merge/' + a.id + '/'
+        '/admin/orgs/' + orgId + '/roles/' + roleB.id + '/merge/' + roleA.id + '/'
       );
       btnB.setAttribute(
         'hx-confirm',
-        'Merge "' + a.title + '" into "' + b.title + '"? This cannot be undone.'
+        'Merge "' + roleA.title + '" into "' + roleB.title + '"? This cannot be undone.'
       );
     }
 
@@ -115,10 +135,6 @@
     var title = row ? (row.dataset.title || '(untitled)') : '(untitled)';
 
     if (cb.checked) {
-      // Enforce max 2: if already 2 checked, remove oldest
-      if (checked.length >= 2) {
-        checked.shift();
-      }
       checked.push({ id: roleId, title: title });
     } else {
       checked = checked.filter(function (c) { return c.id !== roleId; });
