@@ -50,8 +50,9 @@ async def people_list(
         conditions.append("p.archived_at IS NOT NULL")
 
     if q:
-        params.append(f"%{q}%")
-        conditions.append(f"n.display_name ILIKE ${len(params)}")
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        params.append(f"%{escaped}%")
+        conditions.append(f"n.display_name ILIKE ${len(params)} ESCAPE '\\'")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]
@@ -212,15 +213,16 @@ async def people_search(
         return redirect
     results = []
     if q.strip():
+        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         results = await db.fetch(
             """SELECT p.id, pn.display_name
                FROM people p
                LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
                WHERE p.archived_at IS NULL
-                 AND pn.display_name ILIKE $1
+                 AND pn.display_name ILIKE $1 ESCAPE '\\'
                ORDER BY pn.display_name NULLS LAST
                LIMIT 20""",
-            f"%{q.strip()}%",
+            f"%{escaped}%",
         )
     return templates.TemplateResponse(
         request,

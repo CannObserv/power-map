@@ -9,6 +9,7 @@ from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import get_person_dup_count
+from src.api.admin.roles_detail import _fetch_assignments
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -178,27 +179,17 @@ async def role_detail(
 
     role = await db.fetchrow(
         """SELECT r.id, r.title, r.notes, r.archived_at, r.created_at, r.updated_at,
-                  o.id AS org_id, dn.display_name AS org_name
+                  r.organization_id AS org_id,
+                  dn.display_name AS org_name
            FROM roles r
-           JOIN organizations o ON o.id = r.organization_id
-           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = r.organization_id
            WHERE r.id = $1""",
         role_id,
     )
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
 
-    assignments = await db.fetch(
-        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
-                  p.id AS person_id,
-                  pn.display_name AS person_name
-           FROM role_assignments ra
-           JOIN people p ON p.id = ra.person_id
-           LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
-           WHERE ra.role_id = $1
-           ORDER BY ra.is_current DESC, ra.start_date DESC NULLS LAST""",
-        role_id,
-    )
+    assignments = await _fetch_assignments(role_id, db)
 
     return templates.TemplateResponse(
         request,

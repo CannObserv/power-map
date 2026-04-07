@@ -22,7 +22,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db, is_htmx, flash_trigger, org_header_extra
     org_dups.py    — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     people_dups.py — People-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_person_duplicates, get_person_dup_count dep, invalidate_dup_count_cache
-    people.py   — Person list, create, detail, edit, archive/delete, merge, dismiss-duplicate, duplicates review
+    people.py   — Person list, create, detail, edit, archive/delete, merge, dismiss-duplicate, duplicates review, search typeahead
     router.py   — Mounts all admin sub-routers under /admin/
     orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/unarchive/delete
     orgs_names.py       — Inline CRUD for organization_names (row-level HTMX swap)
@@ -32,6 +32,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     orgs_links.py       — Inline CRUD for links + link_types (row-level HTMX swap)
     orgs_identifiers.py — Inline CRUD for identifiers (row-level HTMX swap)
     orgs_roles.py       — Inline role create and merge on org detail (new-row GET, create POST, merge POST)
+    roles_detail.py     — Inline editing for role detail: org, title, notes, assignment create
     entities.py         — Entities landing page (card-grid overview with record counts); templates in src/templates/admin/entities/
     settings.py         — Settings landing page + inline CRUD for link_types and entity_identifier_types; templates in src/templates/admin/settings/
     activity.py         — Activity landing page (card-grid overview of import batches); templates in src/templates/admin/activity/

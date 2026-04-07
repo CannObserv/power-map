@@ -64,8 +64,9 @@ async def orgs_list(
         conditions.append("o.archived_at IS NOT NULL")
 
     if q:
-        params.append(f"%{q}%")
-        conditions.append(f"dn.display_name ILIKE ${len(params)}")
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        params.append(f"%{escaped}%")
+        conditions.append(f"dn.display_name ILIKE ${len(params)} ESCAPE '\\'")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]
@@ -246,15 +247,16 @@ async def orgs_search(
         return redirect
     results = []
     if q.strip():
+        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         results = await db.fetch(
             """SELECT o.id, dn.display_name
                FROM organizations o
                LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
                WHERE o.archived_at IS NULL
-                 AND dn.display_name ILIKE $1
+                 AND dn.display_name ILIKE $1 ESCAPE '\\'
                ORDER BY dn.display_name NULLS LAST
                LIMIT 20""",
-            f"%{q.strip()}%",
+            f"%{escaped}%",
         )
     return templates.TemplateResponse(
         request,
@@ -828,6 +830,7 @@ async def children_search(
         return redirect
     results = []
     if q.strip():
+        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         results = await db.fetch(
             """SELECT o.id, dn.display_name
                FROM organizations o
@@ -835,10 +838,10 @@ async def children_search(
                WHERE o.archived_at IS NULL
                  AND o.id != $2
                  AND (o.parent_id IS NULL OR o.parent_id != $2)
-                 AND dn.display_name ILIKE $1
+                 AND dn.display_name ILIKE $1 ESCAPE '\\'
                ORDER BY dn.display_name NULLS LAST
                LIMIT 20""",
-            f"%{q.strip()}%",
+            f"%{escaped}%",
             org_id,
         )
     return templates.TemplateResponse(
