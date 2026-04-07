@@ -214,66 +214,6 @@ async def role_detail(
     )
 
 
-@router.get("/{role_id}/edit/")
-async def role_edit_form(
-    role_id: str,
-    request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
-):
-    """Edit role form."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
-    role = await db.fetchrow("SELECT * FROM roles WHERE id = $1", role_id)
-    if not role:
-        raise HTTPException(status_code=404, detail="Role not found")
-    orgs = await db.fetch(
-        """SELECT o.id, dn.display_name AS name
-           FROM organizations o
-           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-           WHERE o.archived_at IS NULL ORDER BY dn.display_name NULLS LAST"""
-    )
-    return templates.TemplateResponse(
-        request,
-        "admin/roles/form.html",
-        {
-            "user": user,
-            "active_section": "roles",
-            "role": role,
-            "orgs": orgs,
-            "org_dup_count": org_dup_count,
-            "person_dup_count": person_dup_count,
-        },
-    )
-
-
-@router.post("/{role_id}/edit/")
-async def role_update(
-    role_id: str,
-    request: Request,
-    organization_id: str = Form(...),
-    title: str = Form(...),
-    notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db=Depends(get_db),
-):
-    """Update a role."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
-    role = await db.fetchrow("SELECT id FROM roles WHERE id = $1", role_id)
-    if not role:
-        raise HTTPException(status_code=404, detail="Role not found")
-    await db.execute(
-        "UPDATE roles SET organization_id = $1, title = $2, notes = $3 WHERE id = $4",
-        organization_id, title, notes or None, role_id,
-    )
-    return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
-
-
 @router.post("/{role_id}/archive/")
 async def role_archive(
     role_id: str,
