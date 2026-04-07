@@ -815,3 +815,349 @@ Intentional — prevents accidental dismissal from stray clicks. Consistent with
 ### When NOT to use
 
 Do not use `hx-confirm` for the hard-delete modal (`delete_modal.html`). That modal requires inline error display (409 handling, network errors) and a server-rendered entity label — use the server-rendered partial pattern for that case.
+
+---
+
+## 17. Page Header Pattern
+
+Two variants — pick by page type. Both live inside `{% block content %}`.
+
+### List page
+
+```html
+<div class="page-header">
+  <h1>Organizations</h1>
+  <a href="/admin/orgs/new/" class="btn btn--primary">+ Add organization</a>
+</div>
+```
+
+- `page-header` is a flex row (`justify-content: space-between`).
+- Action button is optional; omit the `<a>` when there is no primary list action.
+
+### Detail page
+
+```html
+<div class="page-header">
+  <div>
+    <span class="page-header__type">Organization</span>
+    <h1 id="page-heading">{{ display_name or '(unnamed)' }}</h1>
+  </div>
+</div>
+```
+
+- `page-header__type` — muted uppercase entity-type label above the `<h1>`. Always present on detail pages to orient the user.
+- `id="page-heading"` — required when the page title can change via HTMX (e.g. after an inline name edit). `org-detail.js` listens for `updateOrgHeader` events and updates `#page-heading`, `#breadcrumb-current`, and `document.title` in-place. See AGENTS.md → Page header sync.
+- Breadcrumb: `<span id="breadcrumb-current">` holds the live display name in the trail.
+
+```html
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/orgs/">Organizations</a><span class="breadcrumb__sep">›</span>
+  <span id="breadcrumb-current">{{ display_name or org.id }}</span>
+{% endblock %}
+```
+
+---
+
+## 18. Typeahead / Combobox
+
+Used when selecting a related entity by searching (e.g. parent organization, child organization). Combines an HTMX search input with a JS-managed dropdown and a hidden ID field.
+
+### HTML structure
+
+```html
+<div class="form-group" style="margin-bottom:0;position:relative">
+  <input id="parent-search" type="text" autocomplete="off"
+         placeholder="Type to search…"
+         value="{{ parent.display_name if parent else '' }}"
+         hx-get="/admin/orgs/search/"
+         hx-trigger="input changed delay:200ms"
+         hx-target="#parent-search-results"
+         hx-params="q"
+         name="q"
+         role="combobox"
+         aria-expanded="false"
+         aria-haspopup="listbox"
+         aria-controls="parent-search-results"
+         aria-autocomplete="list">
+  <input type="hidden" name="parent_id" id="parent-id-hidden"
+         value="{{ parent.id if parent else '' }}">
+</div>
+<ul id="parent-search-results" class="typeahead-results" role="listbox"></ul>
+```
+
+- **Hidden input** (`name="parent_id"`) holds the selected entity's ID. The visible text input is display-only; the form submits the hidden value.
+- **`hx-params="q"`** — sends only the query string, not the other form fields.
+- **`hx-trigger="input changed delay:200ms"`** — debounces; `changed` prevents re-firing on arrow-key navigation.
+- **`hx-swap="innerHTML"`** must be explicit when the input is inside a `<form>` with a different `hx-swap` — see §7 HTMX attribute inheritance.
+
+### Search results template (`_search_results.html`)
+
+```html
+{% for r in results %}
+<li id="opt-{{ r.id }}" role="option"
+    data-id="{{ r.id }}"
+    data-label="{{ r.display_name }}">{{ r.display_name }}</li>
+{% endfor %}
+```
+
+- `role="option"` on every `<li>`.
+- `data-id` — entity ID; JS copies this to the hidden input on selection.
+- `data-label` — display text; JS copies this to the visible input.
+- `id` must be unique across the page. When multiple typeaheads coexist, prefix the ID in the `htmx:afterSwap` listener: `li.id = listboxId + '-' + li.id`.
+
+### Scoped search endpoints
+
+When the candidate list must exclude already-linked items (e.g. children), use a scoped endpoint rather than the generic `/search/`:
+
+```
+GET /{org_id}/children/search/?q=...
+```
+
+The scoped endpoint filters out the current entity and any already-linked records. See AGENTS.md → Child org scoped search.
+
+### JavaScript contract
+
+The inline JS block in the form partial (or an extracted `.js` file) must implement:
+
+| Behaviour | Detail |
+|---|---|
+| **Open dropdown** | `htmx:afterSwap` on the `<ul>` — position via `getBoundingClientRect`, set `aria-expanded="true"` |
+| **Close dropdown** | Outside click, scroll (capture phase), Escape key, or item selection — set `aria-expanded="false"`, clear `ul` |
+| **Arrow navigation** | `ArrowDown` / `ArrowUp` — cycle `.is-active` class on `<li>` items, scroll into view, set `aria-activedescendant` |
+| **Enter to select** | Copy `data-id` → hidden input, `data-label` → visible input, close dropdown |
+| **Escape** | Close dropdown without selection |
+| **Click to select** | `ul.addEventListener('click')` — delegate to `closest('[data-id]')` |
+| **Scoped IDs** | In `afterSwap`, prefix each `li.id` with the listbox's own `id` to prevent duplicate IDs when two typeaheads are mounted |
+
+---
+
+## 19. Empty-State Table Rows
+
+Every `<tbody>` that can be empty must include a fallback row via Jinja `{% else %}`:
+
+```html
+<tbody>
+  {% for n in names %}
+  {% include "admin/orgs/partials/_name_row.html" %}
+  {% else %}
+  <tr>
+    <td colspan="4" style="text-align:center;color:var(--color-text-muted)">No names</td>
+  </tr>
+  {% endfor %}
+</tbody>
+```
+
+- `colspan` must match the actual column count of the table.
+- Text: `"No {plural noun}"` — lower-case, no punctuation.
+- Color: `var(--color-text-muted)` — never a lighter value.
+- No icon, no call-to-action link inside the cell — those belong in the section header row.
+
+---
+
+## 20. Toggle in Inline Form Rows (Non-Auto-Save)
+
+The `.toggle` component (§15) can also be used as a plain form field inside an edit row — for boolean attributes that are saved with the rest of the row, not auto-saved independently.
+
+```html
+<label class="toggle" style="flex-shrink:0">
+  <input type="checkbox" name="is_canonical" value="true" aria-label="Canonical"
+         {% if n and n.is_canonical %} checked{% endif %}>
+  <span class="toggle__track"><span class="toggle__thumb"></span></span>
+</label>
+```
+
+Differences from the auto-saving toggle (§15):
+
+| | Auto-save toggle | Form-row toggle |
+|---|---|---|
+| Has `hx-post` | Yes — fires on `change` | No — submits with the form |
+| Has `hx-include` | Yes | No |
+| Has `disabled` guard | Yes (when archived) | No (row is hidden when archived) |
+| `toggle__label` text | Present (Active / Inactive) | Omitted — column header provides context |
+| `aria-label` on `<input>` | Optional | Required — no visible label |
+
+No explicit `hx-trigger` needed on either variant: HTMX defaults to `change` for checkboxes. Do **not** use `hx-trigger="click"`.
+
+---
+
+## 21. Section-Level Add Button
+
+When a detail-page section contains a single flat table (no subsection `field-group-label` headers), the `+ Add` button sits next to the section `<h2>` rather than inside the entity card.
+
+```html
+<section class="entity-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Links</h2>
+    <button class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org.id }}/links/new-row/"
+            hx-target="#links-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add link</button>
+  </div>
+  <div class="table-wrapper">
+    <table id="links-table" class="data-table"> ... </table>
+  </div>
+</section>
+```
+
+Contrast with the within-card subsection pattern (§15) where the header and button are inside `.entity-card` and `<h3 class="field-group-label">` replaces `<h2>`.
+
+**Rule of thumb:**
+- One table → section-level (`<h2>` + button outside entity-card)
+- Multiple tables grouped by topic → within-card subsections (`<h3 class="field-group-label">` + button inside `.entity-card`)
+
+New rows prepend via `hx-swap="afterbegin"` on `<tbody>` — this keeps the new blank form row at the top without a server sort round-trip.
+
+---
+
+## 22. Metadata Footer
+
+All detail pages end with a metadata line showing the record's internal ID and timestamps, placed after the last section and before or inside `.danger-zone`.
+
+```html
+<p style="color:var(--color-text-muted);font-size:var(--font-size-sm);margin-top:var(--space-6)">
+  Metadata &middot; ID: <code>{{ entity.id }}</code>
+  &middot; Created: {{ entity.created_at.strftime('%Y-%m-%d') }}
+  &middot; Updated: {{ entity.updated_at.strftime('%Y-%m-%d') }}
+</p>
+```
+
+- `font-size: var(--font-size-sm)` — visually subordinate.
+- `color: var(--color-text-muted)` — lowest-priority text.
+- ID in `<code>` — monospace distinguishes it as a technical value.
+- Dates formatted `YYYY-MM-DD` (no time component — too verbose for a footer).
+- `&middot;` (·) as separator — not a pipe or dash.
+
+---
+
+## 23. `hx-push-url` on List Filters
+
+All list-view search inputs and filter selects include `hx-push-url="true"` so that filter state is reflected in the browser URL. This enables:
+
+- Bookmarking a filtered view
+- Browser back/forward restoring the filter state
+- Copying the URL to share a filtered result
+
+```html
+<input type="search" name="q" value="{{ q }}"
+       hx-get="/admin/orgs/"
+       hx-trigger="input delay:300ms, search"
+       hx-target="#orgs-list-region"
+       hx-include="[name='status'],[name='page_size']"
+       hx-push-url="true">
+
+<select name="status"
+        hx-get="/admin/orgs/"
+        hx-trigger="change"
+        hx-target="#orgs-list-region"
+        hx-include="[name='q'],[name='page_size']"
+        hx-push-url="true">
+  ...
+</select>
+```
+
+- Each filter `hx-include`s the other active filters so the URL reflects the full combined state.
+- Page-size selects add `hx-vals='{"page": 1}'` to reset pagination on page-size change.
+- The partial region (`#orgs-list-region`) must include `aria-live="polite" aria-atomic="false"` (§7).
+
+---
+
+## 24. Merge Bar Pattern
+
+A floating action strip for bulk-select-and-merge on tables with potentially duplicate rows. Currently used on the Roles table of the org detail page; `role-merge.js` drives it.
+
+### Required DOM structure
+
+```html
+<!-- Toggle button — outside the table -->
+<button id="roles-merge-btn" class="btn btn--sm btn--secondary" type="button">Merge</button>
+
+<!-- Table — data-org-id used by the JS to build merge POST URLs -->
+<div class="table-wrapper" style="position:relative">
+  <table id="roles-table" class="data-table" data-org-id="{{ org.id }}">
+    <thead>
+      <tr>
+        <!-- Merge checkbox column — hidden until merge mode -->
+        <th scope="col" class="merge-col" style="display:none;width:2rem;padding-right:0"></th>
+        <th scope="col">Title</th>
+        ...
+      </tr>
+    </thead>
+    <tbody>
+      {% for role in roles %}
+      <tr data-title="{{ role.title or '' }}" data-role-id="{{ role.id }}">
+        <td class="merge-col" style="display:none;padding-right:0">
+          <input type="checkbox" name="merge-select" value="{{ role.id }}">
+        </td>
+        <td>...</td>
+        ...
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Merge action bar — hidden until merge mode, positioned inside table-wrapper -->
+  <div id="roles-merge-bar" class="merge-bar" style="display:none">
+    <span class="merge-bar__label">Merge roles:</span>
+    <button class="btn btn--sm btn--primary merge-bar__keep-a" type="button"></button>
+    <button class="btn btn--sm btn--primary merge-bar__keep-b" type="button"></button>
+  </div>
+</div>
+```
+
+### JS data contract (`role-merge.js`)
+
+| Element / attribute | Purpose |
+|---|---|
+| `#roles-table` | Root — JS attaches change delegation and reads `data-org-id` |
+| `data-org-id` | Used to build `/admin/orgs/{id}/roles/{keep}/merge/{discard}/` POST URL |
+| `#roles-merge-btn` | Toggle button — JS toggles text ("Merge" ↔ "Cancel merge") and classes (`btn--secondary` ↔ `btn--ghost`) |
+| `#roles-merge-bar` | Action bar — shown when merge mode is active |
+| `.merge-col` | Column cells hidden/shown en bloc on mode toggle |
+| `input[name="merge-select"]` | Per-row checkbox; `value` = role ID; `data-title` read from the parent `<tr>` |
+| `tr[data-title]` | Used by both merge checkbox reading and the inline roles filter |
+| `.merge-bar__keep-a` / `.merge-bar__keep-b` | JS sets `hx-post` and `hx-confirm` dynamically; calls `htmx.process()` after attribute mutation |
+
+### Progressive disclosure states
+
+| Checked count | Label | Button A | Button B |
+|---|---|---|---|
+| 0 | "Select 2 roles to merge:" | `—` (disabled) | `—` (disabled) |
+| 1 | "Select 1 more:" | Selected role title (disabled) | `—` (disabled) |
+| 2 | "Merge roles:" | `Keep "A"` (enabled, `hx-post` set) | `Keep "B"` (enabled, `hx-post` set) |
+
+Max selection is 2; additional checkboxes are `disabled` once two are checked.
+
+### Exit conditions
+
+Merge mode exits automatically after a successful merge (JS listens for the `showFlash` event dispatched by the flash system after the server responds).
+
+### Client-side roles filter
+
+The same `role-merge.js` also handles the roles filter input (`#roles-filter`). It filters `tr[data-title]` rows client-side by comparing `data-title.toLowerCase()` against the input value — no server round-trip.
+
+```html
+<input type="search" id="roles-filter" placeholder="Filter roles…"
+       class="filter-card__search">
+```
+
+---
+
+## 25. Clipboard Copy Button
+
+For table rows that display a URL or other copyable value, add a Copy button that writes to the clipboard and emits a flash without a server request.
+
+```html
+<button type="button" class="btn btn--sm btn--secondary"
+        data-url="{{ l.url }}"
+        onclick="navigator.clipboard.writeText(this.dataset.url).then(
+          function() { htmx.trigger(document.body, 'showFlash', {level:'success', body:'URL copied to clipboard'}) },
+          function() { htmx.trigger(document.body, 'showFlash', {level:'error', body:'Copy failed \u2014 clipboard access denied'}) }
+        )">Copy</button>
+```
+
+- Store the value in a `data-*` attribute (`data-url`), not inline in the `onclick` string, to avoid escaping issues with quotes in URLs.
+- `htmx.trigger(document.body, 'showFlash', {...})` dispatches the same event that server-side `flash_trigger()` uses — `flash.js` handles it identically.
+- Two callbacks: success (green) and failure (red, clipboard access denied in insecure contexts or when user denies permission).
+- No `hx-*` attributes needed — this is purely client-side.
