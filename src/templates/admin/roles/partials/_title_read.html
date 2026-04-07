@@ -1,0 +1,15 @@
+{# admin/roles/partials/_title_read.html — title field read partial #}
+<div id="title-field">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h3 class="field-group-label">Title</h3>
+    {% if not role.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/roles/{{ role.id }}/inline/title/edit/"
+            hx-target="#title-field"
+            hx-swap="outerHTML">Edit</button>
+    {% endif %}
+  </div>
+  <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);background:var(--color-surface-1);font-size:var(--font-size-sm);color:{% if role.title %}var(--color-text){% else %}var(--color-text-muted){% endif %}">
+    {{ role.title or '—' }}
+  </div>
+</div>

@@ -1,0 +1,17 @@
+{# admin/roles/partials/_org_read.html — org field read partial #}
+<div id="org-field">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h3 class="field-group-label">Organization</h3>
+    {% if not role.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/roles/{{ role.id }}/inline/org/edit/"
+            hx-target="#org-field"
+            hx-swap="outerHTML">Change</button>
+    {% endif %}
+  </div>
+  <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);background:var(--color-surface-1);font-size:var(--font-size-sm)">
+    {% if role.org_id %}
+    <a href="/admin/orgs/{{ role.org_id }}/">{{ role.org_name or '(unnamed)' }}</a>
+    {% else %}<span style="color:var(--color-text-muted)">—</span>{% endif %}
+  </div>
+</div>
