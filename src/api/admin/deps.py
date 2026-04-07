@@ -68,6 +68,17 @@ def flash_trigger(
     return {"HX-Trigger": json.dumps(payload)}
 
 
+def escape_like(s: str) -> str:
+    r"""Escape LIKE/ILIKE special characters so user input is a literal substring.
+
+    Use with ``ILIKE $N ESCAPE '\\'`` in queries::
+
+        escaped = escape_like(q.strip())
+        await db.fetch("... ILIKE $1 ESCAPE '\\\\'", f"%{escaped}%")
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def org_header_extra(org_id: str, db) -> dict:
     """Return extra dict for flash_trigger with the current org display name.
 

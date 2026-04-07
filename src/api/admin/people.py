@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, check_auth, escape_like, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import (
@@ -50,8 +50,7 @@ async def people_list(
         conditions.append("p.archived_at IS NOT NULL")
 
     if q:
-        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        params.append(f"%{escaped}%")
+        params.append(f"%{escape_like(q)}%")
         conditions.append(f"n.display_name ILIKE ${len(params)} ESCAPE '\\'")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
@@ -213,7 +212,6 @@ async def people_search(
         return redirect
     results = []
     if q.strip():
-        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         results = await db.fetch(
             """SELECT p.id, pn.display_name
                FROM people p
@@ -222,7 +220,7 @@ async def people_search(
                  AND pn.display_name ILIKE $1 ESCAPE '\\'
                ORDER BY pn.display_name NULLS LAST
                LIMIT 20""",
-            f"%{escaped}%",
+            f"%{escape_like(q.strip())}%",
         )
     return templates.TemplateResponse(
         request,

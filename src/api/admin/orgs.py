@@ -9,6 +9,7 @@ from markupsafe import escape
 from src.api.admin.deps import (
     AdminUser,
     check_auth,
+    escape_like,
     flash_trigger,
     get_admin_user,
     get_db,
@@ -64,8 +65,7 @@ async def orgs_list(
         conditions.append("o.archived_at IS NOT NULL")
 
     if q:
-        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        params.append(f"%{escaped}%")
+        params.append(f"%{escape_like(q)}%")
         conditions.append(f"dn.display_name ILIKE ${len(params)} ESCAPE '\\'")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
@@ -247,7 +247,6 @@ async def orgs_search(
         return redirect
     results = []
     if q.strip():
-        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         results = await db.fetch(
             """SELECT o.id, dn.display_name
                FROM organizations o
@@ -256,7 +255,7 @@ async def orgs_search(
                  AND dn.display_name ILIKE $1 ESCAPE '\\'
                ORDER BY dn.display_name NULLS LAST
                LIMIT 20""",
-            f"%{escaped}%",
+            f"%{escape_like(q.strip())}%",
         )
     return templates.TemplateResponse(
         request,
@@ -830,7 +829,6 @@ async def children_search(
         return redirect
     results = []
     if q.strip():
-        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         results = await db.fetch(
             """SELECT o.id, dn.display_name
                FROM organizations o
@@ -841,7 +839,7 @@ async def children_search(
                  AND dn.display_name ILIKE $1 ESCAPE '\\'
                ORDER BY dn.display_name NULLS LAST
                LIMIT 20""",
-            f"%{escaped}%",
+            f"%{escape_like(q.strip())}%",
             org_id,
         )
     return templates.TemplateResponse(

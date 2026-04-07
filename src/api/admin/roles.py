@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, check_auth, escape_like, get_admin_user, get_db
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import get_person_dup_count
-from src.api.admin.roles_detail import _fetch_assignments
+from src.api.admin.roles_detail import fetch_role_assignments
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -19,11 +19,9 @@ router = APIRouter(prefix="/roles", tags=["admin-roles"])
 def _like(s: str) -> str:
     """Escape LIKE special characters and wrap with wildcards.
 
-    Escapes ``\\``, ``%``, and ``_`` so user input is treated as a literal
-    substring match. Use with ``ILIKE $N ESCAPE '\\'`` in queries.
+    Use with ``ILIKE $N ESCAPE '\\'`` in queries.
     """
-    s = s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{s}%"
+    return f"%{escape_like(s)}%"
 
 
 @router.get("/")
@@ -189,7 +187,7 @@ async def role_detail(
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
 
-    assignments = await _fetch_assignments(role_id, db)
+    assignments = await fetch_role_assignments(role_id, db)
 
     return templates.TemplateResponse(
         request,

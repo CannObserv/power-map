@@ -283,7 +283,7 @@ def _parse_date(value: str) -> datetime.date | None:
     return datetime.date.fromisoformat(value)
 
 
-async def _fetch_assignments(role_id: str, db) -> list:
+async def fetch_role_assignments(role_id: str, db) -> list:
     """Fetch all assignments for a role, sorted for display."""
     return await db.fetch(
         """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
@@ -434,7 +434,7 @@ async def assignment_create(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
 
-    assignments = await _fetch_assignments(role_id, db)
+    assignments = await fetch_role_assignments(role_id, db)
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_assignment_rows.html",
