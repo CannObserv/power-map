@@ -148,7 +148,7 @@ Key: `pm-color-scheme`
 |---|---|---|
 | `--color-*` | Colors | `--color-brand`, `--color-surface-0` |
 | `--space-*` | Spacing (numbered scale) | `--space-1` (0.25rem) through `--space-8` (4rem) |
-| `--font-size-*` | Font sizes | `--font-size-sm` (0.8125rem), `--font-size-md` (0.9375rem) |
+| `--font-size-*` | Font sizes | `--font-size-xs` (0.65rem) through `--font-size-xl` (1.375rem) |
 | `--radius-*` | Border radii | `--radius-sm` (0.25rem), `--radius-md` (0.375rem) |
 | `--topbar-h` | Topbar height | `3.25rem` |
 
@@ -164,6 +164,16 @@ Key: `pm-color-scheme`
 | `--space-6` | `2rem` |
 | `--space-7` | `3rem` |
 | `--space-8` | `4rem` |
+
+### Font size scale
+
+| Token | Value | Use |
+|---|---|---|
+| `--font-size-xs` | `0.65rem` | Entity-type label (`page-header__type`) |
+| `--font-size-sm` | `0.8125rem` | Tables, labels, sidebar, badges |
+| `--font-size-md` | `0.9375rem` | Body text, form inputs |
+| `--font-size-lg` | `1.125rem` | Card titles |
+| `--font-size-xl` | `1.375rem` | Page `<h1>` |
 
 ### Font family
 
@@ -889,7 +899,7 @@ Used when selecting a related entity by searching (e.g. parent organization, chi
 - **Hidden input** (`name="parent_id"`) holds the selected entity's ID. The visible text input is display-only; the form submits the hidden value.
 - **`hx-params="q"`** — sends only the query string, not the other form fields.
 - **`hx-trigger="input changed delay:200ms"`** — debounces; `changed` prevents re-firing on arrow-key navigation.
-- **`hx-swap="innerHTML"`** must be explicit when the input is inside a `<form>` with a different `hx-swap` — see §7 HTMX attribute inheritance.
+- **`hx-swap="innerHTML"`** must be explicit when the input is inside a `<form>` with a different `hx-swap` — see §7 HTMX attribute inheritance. If the typeahead input is not inside a `<form>` element (e.g. it sits directly in a `<tr>` with standalone `hx-post` buttons), HTMX defaults to `innerHTML` and no override is needed.
 
 ### Search results template (`_search_results.html`)
 
@@ -1065,7 +1075,9 @@ All list-view search inputs and filter selects include `hx-push-url="true"` so t
 
 ## 24. Merge Bar Pattern
 
-A floating action strip for bulk-select-and-merge on tables with potentially duplicate rows. Currently used on the Roles table of the org detail page; `role-merge.js` drives it.
+A fixed-position page overlay for bulk-select-and-merge on tables with potentially duplicate rows. Currently used on the Roles table of the org detail page; `role-merge.js` drives it.
+
+> **Positioning:** `.merge-bar` is `position: fixed; bottom: 3rem; left: var(--sidebar-w); right: 0` — a full-width overlay above the sticky pagination, not a block contained by its parent element. It is placed inside `table-wrapper` in the DOM for logical proximity only; the containing block has no effect on layout.
 
 ### Required DOM structure
 
@@ -1097,7 +1109,7 @@ A floating action strip for bulk-select-and-merge on tables with potentially dup
     </tbody>
   </table>
 
-  <!-- Merge action bar — hidden until merge mode, positioned inside table-wrapper -->
+  <!-- Merge action bar — hidden until merge mode; fixed-position overlay, placed here for DOM proximity -->
   <div id="roles-merge-bar" class="merge-bar" style="display:none">
     <span class="merge-bar__label">Merge roles:</span>
     <button class="btn btn--sm btn--primary merge-bar__keep-a" type="button"></button>
