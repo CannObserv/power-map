@@ -8,7 +8,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, escape_like, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    check_auth,
+    escape_like,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+)
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import (

@@ -191,7 +191,11 @@ async def role_inline_title_post(
             request,
             "admin/roles/partials/_title_form.html",
             {"role": role},
-            headers=flash_trigger("error", f"A role named <strong>{escape(cleaned)}</strong> already exists for this organization."),
+            headers=flash_trigger(
+                "error",
+                f"A role named <strong>{escape(cleaned)}</strong>"
+                " already exists for this organization.",
+            ),
         )
     role = await _get_role(role_id, db)
     if not is_htmx(request):
@@ -387,7 +391,8 @@ async def assignment_create(
     ra_id = generate_id()
     try:
         await db.execute(
-            """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
+            """INSERT INTO role_assignments
+               (id, person_id, role_id, is_current, start_date, end_date)
                VALUES ($1, $2, $3, $4, $5, $6)""",
             ra_id, person_id_val, role_id, is_current_val, start_date_val, end_date_val,
         )
