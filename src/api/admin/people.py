@@ -199,6 +199,36 @@ async def people_duplicates(
     )
 
 
+@router.get("/search/")
+async def people_search(
+    request: Request,
+    q: str = "",
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Typeahead search — returns HTML fragment of matching people."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    results = []
+    if q.strip():
+        results = await db.fetch(
+            """SELECT p.id, pn.display_name
+               FROM people p
+               LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
+               WHERE p.archived_at IS NULL
+                 AND pn.display_name ILIKE $1
+               ORDER BY pn.display_name NULLS LAST
+               LIMIT 20""",
+            f"%{q.strip()}%",
+        )
+    return templates.TemplateResponse(
+        request,
+        "admin/people/partials/_search_results.html",
+        {"results": results},
+    )
+
+
 @router.get("/{person_id}/")
 async def person_detail(
     person_id: str,
