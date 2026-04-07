@@ -1,0 +1,20 @@
+{# admin/roles/partials/_title_form.html — title inline edit form #}
+<div id="title-field">
+  <form hx-post="/admin/roles/{{ role.id }}/inline/title/"
+        hx-target="#title-field"
+        hx-swap="outerHTML">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+      <label for="title-input" class="field-group-label">Title</label>
+      <div>
+        <button type="submit" class="btn btn--primary btn--sm">Save</button>
+        <button type="button" class="btn btn--secondary btn--sm"
+                hx-get="/admin/roles/{{ role.id }}/inline/title/"
+                hx-target="#title-field"
+                hx-swap="outerHTML">Cancel</button>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <input id="title-input" type="text" name="title" value="{{ role.title or '' }}" required>
+    </div>
+  </form>
+</div>

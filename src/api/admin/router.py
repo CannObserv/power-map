@@ -18,6 +18,7 @@ from src.api.admin import orgs_roles as orgs_roles_module
 from src.api.admin import people as people_module
 from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
+from src.api.admin import roles_detail as roles_detail_module
 from src.api.admin import settings as settings_module
 from src.api.admin.deps import AdminUser, get_admin_user
 from src.api.admin.org_dups import count_org_duplicates
@@ -90,4 +91,5 @@ admin_router.include_router(orgs_identifiers_module.router)
 admin_router.include_router(orgs_roles_module.router)
 admin_router.include_router(people_module.router)
 admin_router.include_router(roles_module.router)
+admin_router.include_router(roles_detail_module.router)
 admin_router.include_router(role_assignments_module.router)

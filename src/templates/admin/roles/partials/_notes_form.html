@@ -1,0 +1,20 @@
+{# admin/roles/partials/_notes_form.html — notes inline edit form #}
+<div id="notes-field" style="margin-top:var(--space-5)">
+  <form hx-post="/admin/roles/{{ role.id }}/inline/notes/"
+        hx-target="#notes-field"
+        hx-swap="outerHTML">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+      <label for="notes-textarea" class="field-group-label">Notes</label>
+      <div>
+        <button type="submit" class="btn btn--primary btn--sm">Save</button>
+        <button type="button" class="btn btn--secondary btn--sm"
+                hx-get="/admin/roles/{{ role.id }}/inline/notes/"
+                hx-target="#notes-field"
+                hx-swap="outerHTML">Cancel</button>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <textarea id="notes-textarea" name="notes">{{ role.notes or '' }}</textarea>
+    </div>
+  </form>
+</div>
