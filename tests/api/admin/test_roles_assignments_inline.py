@@ -275,6 +275,24 @@ async def test_read_row_contains_edit_button(client, role_id, assignment_id):
     assert b"edit-row" in r.content
 
 
+async def test_read_row_archived_returns_200(client, role_id, archived_assignment_id):
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{archived_assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"Jane" in r.content
+
+
+async def test_read_row_archived_has_no_edit_button(client, role_id, archived_assignment_id):
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{archived_assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"edit-row" not in r.content
+
+
 async def test_read_row_unknown_returns_404(client, role_id):
     r = await client.get(
         f"/admin/roles/{role_id}/assignments/{generate_id()}/read-row/",
