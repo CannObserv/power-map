@@ -1,0 +1,23 @@
+{# admin/people/partials/_address_row.html #}
+<tr id="address-row-{{ a.id }}">
+  <td>
+    {% if a.standardized %}{{ a.standardized }}
+    {% else %}{{ [a.address_line_1, a.city, a.region, a.postal_code] | select | join(', ') }}{% endif %}
+    {% if a.country and a.country != 'US' %}
+    <span class="badge badge--neutral" style="margin-left:var(--space-1)">{{ a.country }}</span>
+    {% endif %}
+  </td>
+  <td>{{ a.address_type }}</td>
+  {% if a.display_name %}<td>{{ a.display_name }}</td>{% else %}<td>—</td>{% endif %}
+  <td style="text-align:right;white-space:nowrap">
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/people/{{ person_id }}/addresses/{{ a.id }}/edit-row/"
+            hx-target="#address-row-{{ a.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            hx-delete="/admin/people/{{ person_id }}/addresses/{{ a.id }}/"
+            hx-target="#address-row-{{ a.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this address?">Delete</button>
+  </td>
+</tr>

@@ -1,149 +1,191 @@
 {% extends "admin/base.html" %}
-{% block title %}{{ (names[0].name if names else person.id) }} — Person{% endblock %}
+{% block title %}{{ (display_name or person.id) }} — Person{% endblock %}
 {% block breadcrumb %}
   <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
   <a href="/admin/people/">People</a><span class="breadcrumb__sep">›</span>
-  <span>{{ names[0].name if names else person.id }}</span>
+  <span id="breadcrumb-current">{{ display_name or person.id }}</span>
+{% endblock %}
+{% block extra_head %}
+  <script src="/static/admin/person-detail.js?v=1" defer></script>
 {% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
     <span class="page-header__type">Person</span>
-    <h1>{{ names[0].name if names else '(unnamed)' }}</h1>
+    <h1 id="page-heading">{{ display_name or '(unnamed)' }}</h1>
   </div>
-  <a href="/admin/people/{{ person.id }}/edit/" class="btn btn--primary">Edit</a>
 </div>
 
-<div class="entity-card">
-  <dl class="detail-grid">
-    <dt>ID</dt><dd><code>{{ person.id }}</code></dd>
-    <dt>Status</dt>
-    <dd>
+<section class="entity-section">
+  <h2>Details</h2>
+  <div class="entity-card">
+
+    <div style="margin-bottom:var(--space-4)">
       {% if person.archived_at %}<span class="badge badge--archived">Archived</span>
       {% else %}<span class="badge badge--active">Active</span>{% endif %}
-    </dd>
-    {% if person.personal_pronouns %}
-    <dt>Pronouns</dt><dd>{{ person.personal_pronouns }}</dd>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 var(--space-3)">
+      <h3 class="field-group-label">Names</h3>
+      {% if not person.archived_at %}
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/people/{{ person.id }}/names/new-row/"
+              hx-target="#names-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add name</button>
+      {% endif %}
+    </div>
+    <div class="table-wrapper">
+      <table id="names-table" class="data-table" style="table-layout:fixed">
+        <thead><tr>
+          <th scope="col">Name</th>
+          <th scope="col" style="text-align:right;width:6rem">Type</th>
+          <th scope="col" style="text-align:right;width:6rem">Canonical</th>
+          <th scope="col" style="width:9rem"></th>
+        </tr></thead>
+        <tbody>
+          {% for n in names %}
+          {% set person_id = person.id %}
+          {% include "admin/people/partials/_name_row.html" %}
+          {% else %}
+          <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% include "admin/people/partials/_pronouns_read.html" %}
+
+    {% include "admin/people/partials/_notes_read.html" %}
+
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Contact Information</h2>
+  <div class="entity-card">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 var(--space-3)">
+      <h3 class="field-group-label">Email Addresses</h3>
+      {% if not person.archived_at %}
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/people/{{ person.id }}/contacts/new-row/?contact_type=email"
+              hx-target="#emails-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add email</button>
+      {% endif %}
+    </div>
+    <div class="table-wrapper">
+      <table id="emails-table" class="data-table">
+        <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% for c in email_contacts %}
+          {% set person_id = person.id %}
+          {% include "admin/people/partials/_contact_row.html" %}
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No email addresses</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+      <h3 class="field-group-label">Phone Numbers</h3>
+      {% if not person.archived_at %}
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/people/{{ person.id }}/contacts/new-row/?contact_type=phone"
+              hx-target="#phones-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add phone</button>
+      {% endif %}
+    </div>
+    <div class="table-wrapper">
+      <table id="phones-table" class="data-table">
+        <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% for c in phone_contacts %}
+          {% set person_id = person.id %}
+          {% include "admin/people/partials/_contact_row.html" %}
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No phone numbers</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+      <h3 class="field-group-label">Locations</h3>
+      {% if not person.archived_at %}
+      <button class="btn btn--sm btn--secondary"
+              hx-get="/admin/people/{{ person.id }}/addresses/new-row/"
+              hx-target="#addresses-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add location</button>
+      {% endif %}
+    </div>
+    <div class="table-wrapper">
+      <table id="addresses-table" class="data-table">
+        <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% for a in addresses %}
+          {% set person_id = person.id %}
+          {% include "admin/people/partials/_address_row.html" %}
+          {% else %}
+          <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No locations</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</section>
+
+<section class="entity-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Links</h2>
+    {% if not person.archived_at %}
+    <button class="btn btn--sm btn--secondary"
+            hx-get="/admin/people/{{ person.id }}/links/new-row/"
+            hx-target="#links-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add link</button>
     {% endif %}
-    {% if person.notes %}
-    <dt>Notes</dt><dd>{{ person.notes }}</dd>
+  </div>
+  <div class="table-wrapper">
+    <table id="links-table" class="data-table">
+      <thead><tr><th scope="col">URL</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
+      <tbody>
+        {% for l in links %}
+        {% set person_id = person.id %}
+        {% include "admin/people/partials/_link_row.html" %}
+        {% else %}
+        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No links</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Identifiers</h2>
+    {% if not person.archived_at %}
+    <button class="btn btn--sm btn--secondary"
+            hx-get="/admin/people/{{ person.id }}/identifiers/new-row/"
+            hx-target="#identifiers-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add identifier</button>
     {% endif %}
-    <dt>Created</dt><dd>{{ person.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
-    <dt>Updated</dt><dd>{{ person.updated_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
-    {% if person.archived_at %}
-    <dt>Archived</dt><dd>{{ person.archived_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
-    {% endif %}
-  </dl>
-</div>
-
-<section class="entity-section">
-  <h2>Names</h2>
-  <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Canonical</th></tr></thead>
-      <tbody>
-        {% for n in names %}
-        <tr>
-          <td>{{ n.name }}</td>
-          <td>{{ n.name_type }}</td>
-          <td>{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
   </div>
-</section>
-
-<section class="entity-section">
-  <h2>Contact Methods</h2>
   <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Type</th><th scope="col">Value</th></tr></thead>
+    <table id="identifiers-table" class="data-table">
+      <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"></th></tr></thead>
       <tbody>
-        {% for c in contacts %}
-        <tr><td>{{ c.contact_type }}</td><td>{{ c.value }}</td></tr>
+        {% for ident in identifiers %}
+        {% set person_id = person.id %}
+        {% include "admin/people/partials/_identifier_row.html" %}
         {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No contact methods</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="entity-section">
-  <h2>Addresses</h2>
-  <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Address</th><th scope="col">City</th><th scope="col">Region</th><th scope="col">Postal</th></tr></thead>
-      <tbody>
-        {% for a in addresses %}
-        <tr>
-          <td>{{ a.standardized or a.address_line_1 or '—' }}</td>
-          <td>{{ a.city or '—' }}</td>
-          <td>{{ a.region or '—' }}</td>
-          <td>{{ a.postal_code or '—' }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No addresses</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="entity-section">
-  <h2>URLs</h2>
-  <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Type</th><th scope="col">URL</th></tr></thead>
-      <tbody>
-        {% for u in urls %}
-        <tr>
-          <td>{{ u.url_type_name }}</td>
-          <td><a href="{{ u.url }}" target="_blank" rel="noopener noreferrer">{{ u.url }}</a></td>
-        </tr>
-        {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No URLs</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="entity-section">
-  <h2>Social Links</h2>
-  <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Platform</th><th scope="col">Handle / URL</th></tr></thead>
-      <tbody>
-        {% for s in social %}
-        <tr>
-          <td>{{ s.platform_name }}</td>
-          <td>{{ s.handle or s.url or '—' }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No social links</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="entity-section">
-  <h2>Identifiers</h2>
-  <div class="table-wrapper">
-    <table class="data-table">
-      <thead><tr><th scope="col">Type</th><th scope="col">Value</th></tr></thead>
-      <tbody>
-        {% for i in identifiers %}
-        <tr>
-          <td title="{{ i.type_full_name }}">{{ i.type_name }}</td>
-          <td>{{ i.value }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="2" style="text-align:center;color:var(--color-text-muted)">No identifiers</td></tr>
+        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No identifiers</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -184,6 +226,14 @@
   </div>
 </section>
 
+<div id="address-confirm-portal"></div>
+
+<p style="color:var(--color-text-muted);font-size:var(--font-size-sm);margin-top:var(--space-6)">
+  Metadata &middot; ID: <code>{{ person.id }}</code>
+  &middot; Created: {{ person.created_at.strftime('%Y-%m-%d') }}
+  &middot; Updated: {{ person.updated_at.strftime('%Y-%m-%d') }}
+</p>
+
 <div class="danger-zone">
   <h2>Danger Zone</h2>
   {% if not person.archived_at %}
@@ -192,14 +242,19 @@
     <button type="submit" class="btn btn--danger">Archive person</button>
   </form>
   {% else %}
-  <p>This person is archived. You may permanently delete them — this cannot be undone.</p>
-  <button class="btn btn--danger"
-          hx-delete="/admin/people/{{ person.id }}/"
-          hx-confirm="Permanently delete this person? This cannot be undone."
-          hx-target="body"
-          hx-push-url="/admin/people/">
-    Delete permanently
-  </button>
+  <p>This person is archived. You may restore them or permanently delete them — deletion cannot be undone.</p>
+  <div style="display:flex;gap:var(--space-3);flex-wrap:wrap">
+    <form method="POST" action="/admin/people/{{ person.id }}/unarchive/">
+      <button type="submit" class="btn btn--secondary">Unarchive</button>
+    </form>
+    <button type="button" class="btn btn--danger"
+            hx-delete="/admin/people/{{ person.id }}/"
+            hx-confirm="Permanently delete this person? This cannot be undone."
+            hx-target="body"
+            hx-push-url="/admin/people/">
+      Delete permanently
+    </button>
+  </div>
   {% endif %}
 </div>
 {% endblock %}

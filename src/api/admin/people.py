@@ -255,27 +255,39 @@ async def person_detail(
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
 
+    display_name_row = await db.fetchrow(
+        "SELECT display_name FROM v_person_display_names WHERE person_id = $1", person_id
+    )
+    display_name = display_name_row["display_name"] if display_name_row else None
+
     names = await db.fetch(
-        "SELECT * FROM person_names WHERE person_id = $1 ORDER BY is_canonical DESC",
+        "SELECT * FROM person_names WHERE person_id = $1"
+        " ORDER BY is_canonical DESC, name_type, name",
         person_id,
     )
     contacts = await db.fetch(
-        "SELECT * FROM contact_methods WHERE entity_type = 'person' AND entity_id = $1",
+        "SELECT * FROM contact_methods WHERE entity_type = 'person' AND entity_id = $1"
+        " ORDER BY contact_type, value",
         person_id,
     )
+    email_contacts = [c for c in contacts if c["contact_type"] == "email"]
+    phone_contacts = [c for c in contacts if c["contact_type"] == "phone"]
+
     addresses = await db.fetch(
-        """SELECT ea.*, a.standardized, a.address_line_1, a.city, a.region, a.postal_code
+        """SELECT ea.id, ea.address_type, ea.display_name,
+                  a.id AS address_id, a.standardized, a.address_line_1, a.address_line_2,
+                  a.city, a.region, a.postal_code, a.country
            FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
            WHERE ea.entity_type = 'person' AND ea.entity_id = $1""",
         person_id,
     )
-    urls = await db.fetch(
-        """SELECT l.*, lt.display_name AS url_type_name, lt.is_social
+    links = await db.fetch(
+        """SELECT l.*, lt.display_name AS link_type_name, lt.is_social
            FROM links l JOIN link_types lt ON lt.id = l.link_type_id
-           WHERE l.entity_type = 'person' AND l.entity_id = $1""",
+           WHERE l.entity_type = 'person' AND l.entity_id = $1
+           ORDER BY lt.is_social DESC, lt.display_name, l.url""",
         person_id,
     )
-    social = [r for r in urls if r["is_social"]]
     identifiers = await db.fetch(
         """SELECT i.*, eit.display_name AS type_name, eit.full_name AS type_full_name
            FROM identifiers i
@@ -302,89 +314,18 @@ async def person_detail(
             "user": user,
             "active_section": "people",
             "person": person,
+            "display_name": display_name,
             "names": names,
-            "contacts": contacts,
+            "email_contacts": email_contacts,
+            "phone_contacts": phone_contacts,
             "addresses": addresses,
-            "urls": urls,
-            "social": social,
+            "links": links,
             "identifiers": identifiers,
             "role_assignments": role_assignments,
             "org_dup_count": org_dup_count,
             "person_dup_count": person_dup_count,
         },
     )
-
-
-@router.get("/{person_id}/edit/")
-async def person_edit_form(
-    person_id: str,
-    request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
-):
-    """Edit person form."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
-    person = await db.fetchrow("SELECT * FROM people WHERE id = $1", person_id)
-    if not person:
-        raise HTTPException(status_code=404, detail="Person not found")
-    canonical = await db.fetchrow(
-        "SELECT display_name FROM v_person_display_names WHERE person_id = $1",
-        person_id,
-    )
-    return templates.TemplateResponse(
-        request,
-        "admin/people/form.html",
-        {
-            "user": user,
-            "active_section": "people",
-            "person": person,
-            "canonical_name": canonical["display_name"] or "" if canonical else "",
-            "org_dup_count": org_dup_count,
-            "person_dup_count": person_dup_count,
-        },
-    )
-
-
-@router.post("/{person_id}/edit/")
-async def person_update(
-    person_id: str,
-    request: Request,
-    name: str = Form(...),
-    personal_pronouns: str = Form(""),
-    notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
-    db=Depends(get_db),
-):
-    """Update a person."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
-    person = await db.fetchrow("SELECT id FROM people WHERE id = $1", person_id)
-    if not person:
-        raise HTTPException(status_code=404, detail="Person not found")
-    await db.execute(
-        "UPDATE people SET personal_pronouns = $1, notes = $2 WHERE id = $3",
-        personal_pronouns or None, notes or None, person_id,
-    )
-    existing = await db.fetchrow(
-        "SELECT id FROM person_names WHERE person_id = $1 AND is_canonical = TRUE",
-        person_id,
-    )
-    if existing:
-        await db.execute(
-            "UPDATE person_names SET name = $1 WHERE id = $2", name, existing["id"]
-        )
-    else:
-        await db.execute(
-            "INSERT INTO person_names"
-            " (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-            generate_id(), person_id, name,
-        )
-    return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
 
 
 @router.post("/{person_id}/archive/")
@@ -402,6 +343,26 @@ async def person_archive(
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     await db.execute("UPDATE people SET archived_at = NOW() WHERE id = $1", person_id)
+    return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+
+
+@router.post("/{person_id}/unarchive/")
+async def person_unarchive(
+    person_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Restore an archived person."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    person = await db.fetchrow("SELECT id, archived_at FROM people WHERE id = $1", person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    if not person["archived_at"]:
+        raise HTTPException(status_code=409, detail="Person is not archived")
+    await db.execute("UPDATE people SET archived_at = NULL WHERE id = $1", person_id)
     return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
 
 
@@ -430,6 +391,150 @@ async def person_delete(
             detail="Cannot delete: person has related records (role assignments, etc.)",
         )
     return HTMLResponse(content="", status_code=200)
+
+
+@router.get("/{person_id}/inline/notes/")
+async def person_notes_read(
+    person_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Notes read partial."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    person = await db.fetchrow("SELECT id, notes FROM people WHERE id = $1", person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    return templates.TemplateResponse(
+        request,
+        "admin/people/partials/_notes_read.html",
+        {"person": person},
+    )
+
+
+@router.get("/{person_id}/inline/notes/edit/")
+async def person_notes_edit(
+    person_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Notes edit partial."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    person = await db.fetchrow("SELECT id, notes FROM people WHERE id = $1", person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    return templates.TemplateResponse(
+        request,
+        "admin/people/partials/_notes_form.html",
+        {"person": person},
+    )
+
+
+@router.post("/{person_id}/inline/notes/")
+async def person_notes_save(
+    person_id: str,
+    request: Request,
+    notes: str = Form(""),
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Save notes and return read partial."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    person = await db.fetchrow("SELECT id FROM people WHERE id = $1", person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    saved = notes.strip() or None
+    await db.execute("UPDATE people SET notes = $1 WHERE id = $2", saved, person_id)
+    updated = await db.fetchrow("SELECT id, notes FROM people WHERE id = $1", person_id)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/people/partials/_notes_read.html",
+        {"person": updated},
+        headers=flash_trigger("success", "Notes saved."),
+    )
+
+
+@router.get("/{person_id}/inline/pronouns/")
+async def person_pronouns_read(
+    person_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Pronouns read partial."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    person = await db.fetchrow("SELECT id, personal_pronouns FROM people WHERE id = $1", person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    return templates.TemplateResponse(
+        request,
+        "admin/people/partials/_pronouns_read.html",
+        {"person": person},
+    )
+
+
+@router.get("/{person_id}/inline/pronouns/edit/")
+async def person_pronouns_edit(
+    person_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Pronouns edit partial."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    person = await db.fetchrow("SELECT id, personal_pronouns FROM people WHERE id = $1", person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    return templates.TemplateResponse(
+        request,
+        "admin/people/partials/_pronouns_form.html",
+        {"person": person},
+    )
+
+
+@router.post("/{person_id}/inline/pronouns/")
+async def person_pronouns_save(
+    person_id: str,
+    request: Request,
+    personal_pronouns: str = Form(""),
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Save pronouns and return read partial."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    person = await db.fetchrow("SELECT id FROM people WHERE id = $1", person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    saved = personal_pronouns.strip() or None
+    await db.execute(
+        "UPDATE people SET personal_pronouns = $1 WHERE id = $2", saved, person_id
+    )
+    updated = await db.fetchrow(
+        "SELECT id, personal_pronouns FROM people WHERE id = $1", person_id
+    )
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/people/partials/_pronouns_read.html",
+        {"person": updated},
+        headers=flash_trigger("success", "Pronouns saved."),
+    )
 
 
 @router.post("/{winner_id}/merge/{loser_id}/")
@@ -531,8 +636,6 @@ async def person_merge(
             "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
             winner_id, loser_id,
         )
-        # Delete loser dismissals that would conflict with existing winner dismissals
-        # (winner already has a dismissal with the same third party)
         await db.execute(
             """DELETE FROM duplicate_dismissals dd
                USING duplicate_dismissals dw

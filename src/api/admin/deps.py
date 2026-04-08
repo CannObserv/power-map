@@ -79,6 +79,20 @@ def escape_like(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+async def person_header_extra(person_id: str, db) -> dict:
+    """Return extra dict for flash_trigger with the current person display name.
+
+    Queries v_person_display_names and falls back to person_id when display_name is NULL.
+    Pass as extra= to flash_trigger on any HTMX mutation route that may change the
+    person's canonical name.
+    """
+    row = await db.fetchrow(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", person_id
+    )
+    display = row["display_name"] if row and row["display_name"] else person_id
+    return {"updatePersonHeader": {"display": display}}
+
+
 async def org_header_extra(org_id: str, db) -> dict:
     """Return extra dict for flash_trigger with the current org display name.
 

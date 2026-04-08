@@ -16,6 +16,11 @@ from src.api.admin import orgs_links as orgs_links_module
 from src.api.admin import orgs_names as orgs_names_module
 from src.api.admin import orgs_roles as orgs_roles_module
 from src.api.admin import people as people_module
+from src.api.admin import people_addresses as people_addresses_module
+from src.api.admin import people_contacts as people_contacts_module
+from src.api.admin import people_identifiers as people_identifiers_module
+from src.api.admin import people_links as people_links_module
+from src.api.admin import people_names as people_names_module
 from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
 from src.api.admin import roles_detail as roles_detail_module
@@ -90,6 +95,11 @@ admin_router.include_router(orgs_links_module.router)
 admin_router.include_router(orgs_identifiers_module.router)
 admin_router.include_router(orgs_roles_module.router)
 admin_router.include_router(people_module.router)
+admin_router.include_router(people_names_module.router)
+admin_router.include_router(people_contacts_module.router)
+admin_router.include_router(people_addresses_module.router)
+admin_router.include_router(people_links_module.router)
+admin_router.include_router(people_identifiers_module.router)
 admin_router.include_router(roles_module.router)
 admin_router.include_router(roles_detail_module.router)
 admin_router.include_router(role_assignments_module.router)
