@@ -22,7 +22,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db, is_htmx, flash_trigger, org_header_extra, person_header_extra
     org_dups.py    — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     people_dups.py — People-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_person_duplicates, get_person_dup_count dep, invalidate_dup_count_cache
-    people.py   — Person list, create, detail, inline notes/pronouns, archive/unarchive/delete, merge, dismiss-duplicate, duplicates review, search typeahead
+    people.py   — Person list, create (form.html), detail, inline notes/pronouns, archive/unarchive/delete, merge, dismiss-duplicate, duplicates review, search typeahead
     people_names.py     — Inline CRUD for person_names (row-level HTMX swap); last-identity guard; auto-promote sole name; emits updatePersonHeader on mutations
     people_contacts.py  — Inline CRUD for contact_methods (row-level HTMX swap); email/phone normalization with inline error re-render
     people_addresses.py — Inline CRUD for addresses + entity_addresses (row-level HTMX swap); normalizer confirm flow; country-format endpoint
