@@ -312,7 +312,21 @@ async def test_edit_row_get_returns_form(client, role_id, assignment_id):
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    assert b"<form" in r.content
+    assert b'name="start_date"' in r.content
+    assert b'name="end_date"' in r.content
+    assert b'name="is_current"' in r.content
+
+
+async def test_edit_row_get_uses_column_cells(client, role_id, assignment_id):
+    """Edit row must use individual <td> cells, not a single colspan, so controls
+    align with Person / Start / End / Status / Actions column headers."""
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"colspan" not in r.content
+    assert r.content.count(b"<td") == 5
 
 
 async def test_edit_row_get_prepopulates_dates(client, role_id, assignment_id):
@@ -427,7 +441,7 @@ async def test_edit_row_post_current_with_end_date_returns_error(
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "error"
-    assert b"<form" in r.content
+    assert b'name="start_date"' in r.content
 
 
 async def test_edit_row_post_bad_date_returns_error(client, role_id, assignment_id):
@@ -439,7 +453,7 @@ async def test_edit_row_post_bad_date_returns_error(client, role_id, assignment_
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "error"
-    assert b"<form" in r.content
+    assert b'name="start_date"' in r.content
 
 
 async def test_edit_row_post_bad_date_preserves_submitted_start_date(
