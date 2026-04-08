@@ -149,12 +149,15 @@ async def person_create(
     person_id = generate_id()
     await db.execute(
         "INSERT INTO people (id, personal_pronouns, notes) VALUES ($1, $2, $3)",
-        person_id, personal_pronouns or None, notes or None,
+        person_id,
+        personal_pronouns or None,
+        notes or None,
     )
     await db.execute(
-        "INSERT INTO person_names"
-        " (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-        generate_id(), person_id, name,
+        "INSERT INTO person_names (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        name,
     )
     return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
 
@@ -521,12 +524,8 @@ async def person_pronouns_save(
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     saved = personal_pronouns.strip() or None
-    await db.execute(
-        "UPDATE people SET personal_pronouns = $1 WHERE id = $2", saved, person_id
-    )
-    updated = await db.fetchrow(
-        "SELECT id, personal_pronouns FROM people WHERE id = $1", person_id
-    )
+    await db.execute("UPDATE people SET personal_pronouns = $1 WHERE id = $2", saved, person_id)
+    updated = await db.fetchrow("SELECT id, personal_pronouns FROM people WHERE id = $1", person_id)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
     return templates.TemplateResponse(
@@ -558,12 +557,8 @@ async def person_merge(
     )
 
     async with db.transaction():
-        winner = await db.fetchrow(
-            "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", winner_id
-        )
-        loser = await db.fetchrow(
-            "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", loser_id
-        )
+        winner = await db.fetchrow("SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", winner_id)
+        loser = await db.fetchrow("SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", loser_id)
         if not winner or not loser:
             raise HTTPException(status_code=404, detail="Person not found")
 
@@ -572,29 +567,26 @@ async def person_merge(
             merge_date = datetime.now(UTC).strftime("%Y-%m-%d")
             prefix = f"Merged from {loser_name} on {merge_date} by {user.email}"
             appended = f"{prefix}\n{loser['notes']}"
-            new_notes = (
-                f"{winner['notes']}\n\n{appended}" if winner["notes"] else appended
-            )
-            await db.execute(
-                "UPDATE people SET notes=$1 WHERE id=$2", new_notes, winner_id
-            )
+            new_notes = f"{winner['notes']}\n\n{appended}" if winner["notes"] else appended
+            await db.execute("UPDATE people SET notes=$1 WHERE id=$2", new_notes, winner_id)
 
         # person_names: demote loser's canonical to alias, drop exact name duplicates,
         # then reassign remaining loser names to winner
         await db.execute(
-            "UPDATE person_names SET is_canonical=FALSE"
-            " WHERE person_id=$1 AND is_canonical=TRUE",
+            "UPDATE person_names SET is_canonical=FALSE WHERE person_id=$1 AND is_canonical=TRUE",
             loser_id,
         )
         await db.execute(
             "DELETE FROM person_names"
             " WHERE person_id=$1"
             "   AND name IN (SELECT name FROM person_names WHERE person_id=$2)",
-            loser_id, winner_id,
+            loser_id,
+            winner_id,
         )
         await db.execute(
             "UPDATE person_names SET person_id=$1 WHERE person_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         # role_assignments: delete conflicts (same role+start_date on both), then reassign
@@ -606,26 +598,34 @@ async def person_merge(
                      FROM role_assignments
                      WHERE person_id=$2 AND archived_at IS NULL
                  )""",
-            loser_id, winner_id,
+            loser_id,
+            winner_id,
         )
         await db.execute(
             "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         # Polymorphic entity tables
-        for table in ("contact_methods", "links", "entity_addresses",
-                      "import_provenance", "field_confidence"):
+        for table in (
+            "contact_methods",
+            "links",
+            "entity_addresses",
+            "import_provenance",
+            "field_confidence",
+        ):
             await db.execute(
-                f"UPDATE {table} SET entity_id=$1"
-                f" WHERE entity_type='person' AND entity_id=$2",
-                winner_id, loser_id,
+                f"UPDATE {table} SET entity_id=$1 WHERE entity_type='person' AND entity_id=$2",
+                winner_id,
+                loser_id,
             )
 
         # identifiers (no entity_type column)
         await db.execute(
             "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         # duplicate_dismissals: delete the merged pair, reassign any others referencing loser
@@ -634,7 +634,8 @@ async def person_merge(
             " WHERE entity_type='person'"
             "   AND ((entity_a_id=$1 AND entity_b_id=$2)"
             "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute(
             """DELETE FROM duplicate_dismissals dd
@@ -646,7 +647,8 @@ async def person_merge(
                    (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_b_id)
                    OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_b_id)
                  )""",
-            loser_id, winner_id,
+            loser_id,
+            winner_id,
         )
         await db.execute(
             """DELETE FROM duplicate_dismissals dd
@@ -658,21 +660,24 @@ async def person_merge(
                    (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_a_id)
                    OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_a_id)
                  )""",
-            loser_id, winner_id,
+            loser_id,
+            winner_id,
         )
         await db.execute(
             """UPDATE duplicate_dismissals
                SET entity_a_id = LEAST($1, entity_b_id),
                    entity_b_id = GREATEST($1, entity_b_id)
                WHERE entity_type='person' AND entity_a_id=$2""",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute(
             """UPDATE duplicate_dismissals
                SET entity_a_id = LEAST(entity_a_id, $1),
                    entity_b_id = GREATEST(entity_a_id, $1)
                WHERE entity_type='person' AND entity_b_id=$2""",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         await db.execute("DELETE FROM people WHERE id=$1", loser_id)
@@ -682,9 +687,9 @@ async def person_merge(
     if is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         body = (
-            f'Merged <strong>{escape(loser_name)}</strong> into '
+            f"Merged <strong>{escape(loser_name)}</strong> into "
             f'<a href="/admin/people/{winner_id}/"><strong>{escape(winner_name)}</strong></a>. '
-            f'Review role assignments and contact info for duplicates.'
+            f"Review role assignments and contact info for duplicates."
         )
         ctx = {
             "user": user,
@@ -719,7 +724,10 @@ async def person_dismiss_duplicate(
         " (id, entity_type, entity_a_id, entity_b_id, dismissed_by)"
         " VALUES ($1, 'person', $2, $3, $4)"
         " ON CONFLICT (entity_type, entity_a_id, entity_b_id) DO NOTHING",
-        generate_id(), a, b, user.email,
+        generate_id(),
+        a,
+        b,
+        user.email,
     )
     invalidate_person_dup_count_cache()
     if is_htmx(request):

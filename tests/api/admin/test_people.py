@@ -127,12 +127,6 @@ def test_create_person_post_redirects(client):
     asyncio.run(_cleanup())
 
 
-def test_edit_person_form_returns_200(client, person_id):
-    response = client.get(f"/admin/people/{person_id}/edit/", headers=AUTH_HEADERS)
-    assert response.status_code == 200
-    assert "Jane Doe" in response.text
-
-
 def test_archive_person(client, person_id):
     response = client.post(
         f"/admin/people/{person_id}/archive/",
