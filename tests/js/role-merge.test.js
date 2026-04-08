@@ -55,15 +55,16 @@ function setup({ orgId = 'org-1', numRoles = 3 } = {}) {
   }).join('');
 
   document.body.innerHTML = `
+    <input id="roles-filter" type="search">
     <table id="roles-table" data-org-id="${orgId}">
       <thead><tr><th class="merge-col">Sel</th><th>Title</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <button id="roles-merge-btn" class="btn btn--secondary">Merge</button>
     <div id="roles-merge-bar" style="display:none">
-      <span class="merge-bar__label">Select 2 roles to merge:</span>
-      <button class="merge-bar__keep-a" disabled>—</button>
-      <button class="merge-bar__keep-b" disabled>—</button>
+      <span class="merge-bar__label">Merge roles:</span>
+      <button class="merge-bar__keep-a" type="button"></button>
+      <button class="merge-bar__keep-b" type="button"></button>
     </div>
   `;
 
@@ -342,5 +343,48 @@ describe('showFlash exits merge mode', () => {
     document.dispatchEvent(new CustomEvent('showFlash'));
     // still outside merge mode, no error
     expect(document.getElementById('roles-table').dataset.mergeMode).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Roles filter
+// ---------------------------------------------------------------------------
+
+describe('roles filter', () => {
+  function tableRows() {
+    return Array.from(document.querySelectorAll('tbody tr[data-title]'));
+  }
+
+  function fireInput(value) {
+    const input = document.getElementById('roles-filter');
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  }
+
+  beforeEach(() => setup({ numRoles: 3 }));
+
+  it('hides rows whose title does not match', () => {
+    fireInput('Role 1');
+    const hidden = tableRows().filter((r) => r.style.display === 'none');
+    expect(hidden).toHaveLength(2);
+  });
+
+  it('shows rows whose title matches', () => {
+    fireInput('Role 1');
+    const visible = tableRows().filter((r) => r.style.display !== 'none');
+    expect(visible).toHaveLength(1);
+    expect(visible[0].dataset.title).toBe('Role 1');
+  });
+
+  it('is case-insensitive', () => {
+    fireInput('role 1');
+    const visible = tableRows().filter((r) => r.style.display !== 'none');
+    expect(visible).toHaveLength(1);
+  });
+
+  it('shows all rows when query is cleared', () => {
+    fireInput('Role 1');
+    fireInput('');
+    tableRows().forEach((r) => expect(r.style.display).not.toBe('none'));
   });
 });
