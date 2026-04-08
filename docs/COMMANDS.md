@@ -116,6 +116,23 @@ npm run format:js:check
 
 ESLint config: `eslint.config.js` (flat config). Targets: `src/static/admin/` (browser globals, `no-eval` warn) and `tests/js/` (`no-eval` off — intentional in IIFE test harness). Requires ESLint ≤9 due to `eslint-plugin-vitest` peer constraint.
 
+## Pre-commit hooks
+
+Hooks run automatically on `git commit`. Covers: ruff, pytest (unit), ESLint, Prettier check, vitest.
+
+```bash
+# Install hooks (once per clone)
+uv run pre-commit install
+
+# Run all hooks manually against all files
+uv run pre-commit run --all-files
+
+# Run a single hook by id
+uv run pre-commit run pytest --all-files
+```
+
+Hook ids: `ruff`, `pytest`, `eslint`, `prettier`, `vitest`
+
 ## Linting
 
 ```bash
