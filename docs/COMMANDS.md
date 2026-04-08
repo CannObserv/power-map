@@ -6,8 +6,14 @@
 # Provision local PostgreSQL (idempotent; run once after cloning)
 bash scripts/setup-db.sh
 
-# Install dependencies (creates .venv automatically)
+# Install Python dependencies (creates .venv automatically)
 uv sync
+
+# Install Node dependencies
+npm install
+
+# Install git pre-commit hooks (runs ruff, pytest, ESLint, Prettier, vitest on every commit)
+uv run pre-commit install
 ```
 
 First-time setup: create `/etc/power-map/.env` (640, root:exedev) with production secrets before running any command that needs `DATABASE_URL` — see AGENTS.md § Environment Variables for the required contents.
@@ -83,6 +89,55 @@ uv run pytest tests/path/to/test_file.py --no-cov
 # Run integration tests (hits live external services)
 uv run pytest -m integration
 ```
+
+## JS Testing
+
+```bash
+# Run JS tests (one-shot)
+npm run test:js
+
+# Run JS tests in watch mode
+npm run test:js:watch
+```
+
+Note: Node ≥18 required. `npm install` first if `node_modules/` is absent.
+Uses vitest v2 + happy-dom. happy-dom is used instead of jsdom due to a
+CJS/ESM incompatibility in jsdom v29 on Node 18.
+
+## JS Linting & Formatting
+
+```bash
+# Lint JS (ESLint)
+npm run lint:js
+
+# Auto-fix lint issues
+npm run lint:js:fix
+
+# Format JS (Prettier)
+npm run format:js
+
+# Check formatting without writing
+npm run format:js:check
+```
+
+ESLint config: `eslint.config.js` (flat config). Targets: `src/static/admin/` (browser globals, `no-eval` warn) and `tests/js/` (`no-eval` off — intentional in IIFE test harness). Requires ESLint ≤9 due to `eslint-plugin-vitest` peer constraint.
+
+## Pre-commit hooks
+
+Hooks run automatically on `git commit`. Covers: ruff, pytest (unit), ESLint, Prettier check, vitest.
+
+```bash
+# Install hooks (once per clone)
+uv run pre-commit install
+
+# Run all hooks manually against all files
+uv run pre-commit run --all-files
+
+# Run a single hook by id
+uv run pre-commit run pytest --all-files
+```
+
+Hook ids: `ruff`, `pytest`, `eslint`, `prettier`, `vitest`
 
 ## Linting
 

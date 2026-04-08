@@ -36,5 +36,11 @@ echo "=== Recent commits ==="
 git log --oneline -10
 
 echo ""
-echo "=== Test suite ==="
+echo "=== Test suite (Python) ==="
 uv run pytest --no-cov -m "not integration"
+
+if [[ -f "package.json" ]]; then
+  echo ""
+  echo "=== Test suite (JS) ==="
+  npm run test:js
+fi

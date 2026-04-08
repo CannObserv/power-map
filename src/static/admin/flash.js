@@ -20,15 +20,23 @@
     // f.body is server-composed HTML with markupsafe.escape() applied to all
     // DB-derived values — innerHTML here is intentional, not an XSS risk.
     div.innerHTML =
-      '<div class="flash__body">' + f.body + '</div>' +
+      '<div class="flash__body">' +
+      f.body +
+      '</div>' +
       '<button class="flash__close" aria-label="Dismiss" onclick="this.parentElement.remove()">\u00d7</button>';
 
     region.appendChild(div);
 
-    var t = setTimeout(function () { if (div.parentElement) div.remove(); }, AUTO_DISMISS_MS);
-    div.addEventListener('mouseenter', function () { clearTimeout(t); });
+    var t = setTimeout(function () {
+      if (div.parentElement) div.remove();
+    }, AUTO_DISMISS_MS);
+    div.addEventListener('mouseenter', function () {
+      clearTimeout(t);
+    });
     div.addEventListener('mouseleave', function () {
-      t = setTimeout(function () { if (div.parentElement) div.remove(); }, AUTO_DISMISS_MS);
+      t = setTimeout(function () {
+        if (div.parentElement) div.remove();
+      }, AUTO_DISMISS_MS);
     });
   });
 })();

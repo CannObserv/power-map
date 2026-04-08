@@ -29,5 +29,9 @@ gunicorn.ctl
 # Git worktrees
 .worktrees/
 
+# Node
+node_modules/
+.eslintcache
+
 # CSV import data
 data/cannabis_observer/

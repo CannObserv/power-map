@@ -9,8 +9,8 @@ set -euo pipefail
 if [[ "${1:-}" == "--help" ]]; then
   echo "Usage: bash skills/shipping-work-claude/scripts/pre-ship.sh"
   echo ""
-  echo "Runs ruff lint and pytest. Exits non-zero on any failure."
-  echo "Must pass before committing or pushing."
+  echo "Runs ruff lint, pytest, ESLint, Prettier check, and vitest."
+  echo "Exits non-zero on any failure. Must pass before committing or pushing."
   echo ""
   echo "Exit codes:"
   echo "  0  All checks passed"
@@ -25,7 +25,7 @@ echo "=== Lint (ruff) ==="
 uv run ruff check .
 
 echo ""
-echo "=== Tests ==="
+echo "=== Tests (Python) ==="
 CURRENT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 STAMP_FILE="/tmp/pm-tests-clean-${CURRENT_SHA}"
 WORKING_TREE_DIRTY=$(git status --porcelain 2>/dev/null \
@@ -41,6 +41,20 @@ else
   if [[ -z "$WORKING_TREE_DIRTY" ]]; then
     touch "$STAMP_FILE"
   fi
+fi
+
+if [[ -f "package.json" ]]; then
+  echo ""
+  echo "=== Lint (ESLint) ==="
+  npm run lint:js
+
+  echo ""
+  echo "=== Format check (Prettier) ==="
+  npm run format:js:check
+
+  echo ""
+  echo "=== Tests (JS) ==="
+  npm run test:js
 fi
 
 echo ""
