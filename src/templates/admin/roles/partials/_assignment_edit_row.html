@@ -11,18 +11,18 @@
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:8rem">
         <input type="date" name="start_date" title="Start date"
                id="start-date-input-{{ ra.id }}"
-               value="{{ ra.start_date.isoformat() if ra.start_date else '' }}">
+               value="{{ start_date_input }}">
       </div>
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:8rem">
         <input type="date" name="end_date" title="End date"
                id="end-date-input-{{ ra.id }}"
-               value="{{ ra.end_date.isoformat() if ra.end_date else '' }}"
-               {% if ra.is_current %}disabled{% endif %}>
+               value="{{ end_date_input }}"
+               {% if is_current_input %}disabled{% endif %}>
       </div>
       <div class="form-group" style="margin-bottom:0;display:flex;align-items:center;gap:var(--space-1)">
         <input type="checkbox" name="is_current" value="true"
                id="is-current-cb-{{ ra.id }}"
-               {% if ra.is_current %}checked{% endif %}>
+               {% if is_current_input %}checked{% endif %}>
         <label for="is-current-cb-{{ ra.id }}" style="font-size:var(--font-size-sm);white-space:nowrap">Current</label>
       </div>
       <div style="display:flex;gap:var(--space-2);white-space:nowrap">

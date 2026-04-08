@@ -37,7 +37,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     orgs_links.py       — Inline CRUD for links + link_types (row-level HTMX swap)
     orgs_identifiers.py — Inline CRUD for identifiers (row-level HTMX swap)
     orgs_roles.py       — Inline role create and merge on org detail (new-row GET, create POST, merge POST)
-    roles_detail.py     — Inline editing for role detail: org, title, notes, assignment create
+    roles_detail.py     — Inline editing for role detail: org, title, notes, assignment create/read-row/edit-row
     entities.py         — Entities landing page (card-grid overview with record counts); templates in src/templates/admin/entities/
     settings.py         — Settings landing page + inline CRUD for link_types and entity_identifier_types; templates in src/templates/admin/settings/
     activity.py         — Activity landing page (card-grid overview of import batches); templates in src/templates/admin/activity/

@@ -223,6 +223,7 @@ async def test_create_tbody_includes_edit_url(client, role_id, person_id):
     )
     assert r.status_code == 200
     assert f"/admin/roles/{role_id}/assignments/".encode() in r.content
+    assert b"edit-row" in r.content
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +424,32 @@ async def test_edit_row_post_bad_date_returns_error(client, role_id, assignment_
     assert b"<form" in r.content
 
 
+async def test_edit_row_post_bad_date_preserves_submitted_start_date(
+    client, role_id, assignment_id
+):
+    r = await client.post(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "not-a-date", "end_date": ""},
+    )
+    assert r.status_code == 200
+    assert b"not-a-date" in r.content
+
+
+async def test_edit_row_post_check_violation_preserves_end_date_input(
+    client, role_id, assignment_id
+):
+    # Submit end_date that differs from DB value (2022-12-31) to prove re-render
+    # uses submitted value, not stale ra.end_date.
+    r = await client.post(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2020-01-01", "end_date": "2023-06-15", "is_current": "true"},
+    )
+    assert r.status_code == 200
+    assert b"2023-06-15" in r.content
+
+
 async def test_edit_row_post_non_htmx_redirects(client, role_id, assignment_id):
     r = await client.post(
         f"/admin/roles/{role_id}/assignments/{assignment_id}/edit-row/",
@@ -440,3 +467,41 @@ async def test_edit_row_post_unknown_returns_404(client, role_id):
         data={"start_date": "2020-01-01", "end_date": ""},
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Archived assignment guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def archived_assignment_id(db, role_id, person_id):
+    ra_id = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments
+               (id, person_id, role_id, is_current, start_date, end_date, archived_at)
+           VALUES ($1, $2, $3, FALSE, '2018-01-01', '2019-12-31', NOW())""",
+        ra_id, person_id, role_id,
+    )
+    return ra_id
+
+
+async def test_edit_row_get_archived_returns_409(
+    client, role_id, archived_assignment_id
+):
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{archived_assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 409
+
+
+async def test_edit_row_post_archived_returns_409(
+    client, role_id, archived_assignment_id
+):
+    r = await client.post(
+        f"/admin/roles/{role_id}/assignments/{archived_assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2018-01-01", "end_date": "2019-12-31"},
+    )
+    assert r.status_code == 409

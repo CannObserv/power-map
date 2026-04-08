@@ -503,10 +503,18 @@ async def assignment_edit_row_get(
     if redirect:
         return redirect
     ra = await _get_assignment(assignment_id, role_id, db)
+    if ra["archived_at"]:
+        raise HTTPException(status_code=409, detail="Cannot edit an archived assignment")
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_assignment_edit_row.html",
-        {"ra": ra, "role_id": role_id},
+        {
+            "ra": ra,
+            "role_id": role_id,
+            "start_date_input": ra["start_date"].isoformat() if ra["start_date"] else "",
+            "end_date_input": ra["end_date"].isoformat() if ra["end_date"] else "",
+            "is_current_input": ra["is_current"],
+        },
     )
 
 
@@ -526,7 +534,18 @@ async def assignment_edit_row_post(
     if redirect:
         return redirect
     ra = await _get_assignment(assignment_id, role_id, db)
+    if ra["archived_at"]:
+        raise HTTPException(status_code=409, detail="Cannot edit an archived assignment")
     is_current_val = bool(is_current)
+
+    def _error_ctx():
+        return {
+            "ra": ra,
+            "role_id": role_id,
+            "start_date_input": start_date,
+            "end_date_input": end_date,
+            "is_current_input": is_current_val,
+        }
 
     try:
         start_date_val = _parse_date(start_date)
@@ -537,7 +556,7 @@ async def assignment_edit_row_post(
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_assignment_edit_row.html",
-            {"ra": ra, "role_id": role_id},
+            _error_ctx(),
             headers={
                 **flash_trigger("error", "Invalid date format. Use YYYY-MM-DD."),
                 "HX-Retarget": f"#assignment-row-{assignment_id}",
@@ -558,7 +577,7 @@ async def assignment_edit_row_post(
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_assignment_edit_row.html",
-            {"ra": ra, "role_id": role_id},
+            _error_ctx(),
             headers={
                 **flash_trigger("error", "Current assignments cannot have an end date."),
                 "HX-Retarget": f"#assignment-row-{assignment_id}",
