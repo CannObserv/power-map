@@ -21,31 +21,39 @@
   document.addEventListener('htmx:confirm', function (event) {
     var trigger = event.target;
     var message = trigger.getAttribute('hx-confirm');
-    if (!message) return;  // htmx:confirm fires for all requests; only intercept hx-confirm elements
+    if (!message) return; // htmx:confirm fires for all requests; only intercept hx-confirm elements
 
     event.preventDefault();
-    var title   = trigger.dataset.confirmTitle   || 'Are you sure?';
-    var label   = trigger.dataset.confirmLabel   || 'Confirm';
+    var title = trigger.dataset.confirmTitle || 'Are you sure?';
+    var label = trigger.dataset.confirmLabel || 'Confirm';
     var variant = trigger.dataset.confirmVariant || 'danger';
 
     var backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
     backdrop.innerHTML =
       '<div class="modal" role="dialog" aria-modal="true"' +
-           ' aria-labelledby="pm-confirm-title" aria-describedby="pm-confirm-desc">' +
-        '<h2 id="pm-confirm-title">' + escHtml(title) + '</h2>' +
-        '<p id="pm-confirm-desc">' + escHtml(message) + '</p>' +
-        '<div class="modal__actions">' +
-          '<button class="btn btn--ghost" type="button" data-confirm-action="cancel">Cancel</button>' +
-          '<button class="btn btn--' + escHtml(variant) + '" type="button" data-confirm-action="ok">' + escHtml(label) + '</button>' +
-        '</div>' +
+      ' aria-labelledby="pm-confirm-title" aria-describedby="pm-confirm-desc">' +
+      '<h2 id="pm-confirm-title">' +
+      escHtml(title) +
+      '</h2>' +
+      '<p id="pm-confirm-desc">' +
+      escHtml(message) +
+      '</p>' +
+      '<div class="modal__actions">' +
+      '<button class="btn btn--ghost" type="button" data-confirm-action="cancel">Cancel</button>' +
+      '<button class="btn btn--' +
+      escHtml(variant) +
+      '" type="button" data-confirm-action="ok">' +
+      escHtml(label) +
+      '</button>' +
+      '</div>' +
       '</div>';
 
     document.body.appendChild(backdrop);
 
-    var modal     = backdrop.querySelector('.modal');
+    var modal = backdrop.querySelector('.modal');
     var cancelBtn = backdrop.querySelector('[data-confirm-action="cancel"]');
-    var okBtn     = backdrop.querySelector('[data-confirm-action="ok"]');
+    var okBtn = backdrop.querySelector('[data-confirm-action="ok"]');
     var focusable = [cancelBtn, okBtn];
     var savedFocus = document.activeElement;
 
@@ -56,7 +64,11 @@
     }
 
     function trap(e) {
-      if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+        return;
+      }
       if (e.key !== 'Tab') return;
       if (e.shiftKey) {
         if (document.activeElement === focusable[0]) {
@@ -74,7 +86,7 @@
     cancelBtn.addEventListener('click', close);
     okBtn.addEventListener('click', function () {
       close();
-      event.detail.issueRequest(true);  // true = skip window.confirm(); we already confirmed
+      event.detail.issueRequest(true); // true = skip window.confirm(); we already confirmed
     });
     modal.addEventListener('keydown', trap);
     cancelBtn.focus();

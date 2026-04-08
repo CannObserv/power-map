@@ -7,10 +7,19 @@
   },
   "scripts": {
     "test:js": "vitest run",
-    "test:js:watch": "vitest"
+    "test:js:watch": "vitest",
+    "lint:js": "eslint src/static/admin tests/js",
+    "lint:js:fix": "eslint src/static/admin tests/js --fix",
+    "format:js": "prettier --write \"src/static/admin/**/*.js\" \"tests/js/**/*.test.js\" \"*.config.js\"",
+    "format:js:check": "prettier --check \"src/static/admin/**/*.js\" \"tests/js/**/*.test.js\" \"*.config.js\""
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vitest": "^0.5.4",
     "happy-dom": "^20.8.9",
+    "prettier": "^3.8.1",
     "vitest": "^2.0.0"
   }
 }

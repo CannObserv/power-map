@@ -98,6 +98,24 @@ Note: Node ≥18 required. `npm install` first if `node_modules/` is absent.
 Uses vitest v2 + happy-dom. happy-dom is used instead of jsdom due to a
 CJS/ESM incompatibility in jsdom v29 on Node 18.
 
+## JS Linting & Formatting
+
+```bash
+# Lint JS (ESLint)
+npm run lint:js
+
+# Auto-fix lint issues
+npm run lint:js:fix
+
+# Format JS (Prettier)
+npm run format:js
+
+# Check formatting without writing
+npm run format:js:check
+```
+
+ESLint config: `eslint.config.js` (flat config). Targets: `src/static/admin/` (browser globals, `no-eval` warn) and `tests/js/` (`no-eval` off — intentional in IIFE test harness). Requires ESLint ≤9 due to `eslint-plugin-vitest` peer constraint.
+
 ## Linting
 
 ```bash

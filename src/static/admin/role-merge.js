@@ -54,7 +54,9 @@
 
   function updateCheckboxes() {
     var cbs = table.querySelectorAll('input[name="merge-select"]');
-    var checkedIds = checked.map(function (c) { return c.id; });
+    var checkedIds = checked.map(function (c) {
+      return c.id;
+    });
     var atMax = checked.length >= 2;
     cbs.forEach(function (cb) {
       var isChecked = checkedIds.indexOf(cb.value) !== -1;
@@ -77,16 +79,36 @@
 
     if (checked.length === 0) {
       if (label) label.textContent = 'Select 2 roles to merge:';
-      if (btnA) { btnA.textContent = '—'; btnA.disabled = true; btnA.removeAttribute('hx-post'); btnA.removeAttribute('hx-confirm'); }
-      if (btnB) { btnB.textContent = '—'; btnB.disabled = true; btnB.removeAttribute('hx-post'); btnB.removeAttribute('hx-confirm'); }
+      if (btnA) {
+        btnA.textContent = '—';
+        btnA.disabled = true;
+        btnA.removeAttribute('hx-post');
+        btnA.removeAttribute('hx-confirm');
+      }
+      if (btnB) {
+        btnB.textContent = '—';
+        btnB.disabled = true;
+        btnB.removeAttribute('hx-post');
+        btnB.removeAttribute('hx-confirm');
+      }
       return;
     }
 
     if (checked.length === 1) {
       var a = checked[0];
       if (label) label.textContent = 'Select 1 more:';
-      if (btnA) { btnA.textContent = 'Selected: "' + a.title + '"'; btnA.disabled = true; btnA.removeAttribute('hx-post'); btnA.removeAttribute('hx-confirm'); }
-      if (btnB) { btnB.textContent = '—'; btnB.disabled = true; btnB.removeAttribute('hx-post'); btnB.removeAttribute('hx-confirm'); }
+      if (btnA) {
+        btnA.textContent = 'Selected: "' + a.title + '"';
+        btnA.disabled = true;
+        btnA.removeAttribute('hx-post');
+        btnA.removeAttribute('hx-confirm');
+      }
+      if (btnB) {
+        btnB.textContent = '—';
+        btnB.disabled = true;
+        btnB.removeAttribute('hx-post');
+        btnB.removeAttribute('hx-confirm');
+      }
       return;
     }
 
@@ -99,11 +121,11 @@
       btnA.disabled = false;
       btnA.setAttribute(
         'hx-post',
-        '/admin/orgs/' + orgId + '/roles/' + roleA.id + '/merge/' + roleB.id + '/'
+        '/admin/orgs/' + orgId + '/roles/' + roleA.id + '/merge/' + roleB.id + '/',
       );
       btnA.setAttribute(
         'hx-confirm',
-        'Merge "' + roleB.title + '" into "' + roleA.title + '"? This cannot be undone.'
+        'Merge "' + roleB.title + '" into "' + roleA.title + '"? This cannot be undone.',
       );
     }
     if (btnB) {
@@ -111,11 +133,11 @@
       btnB.disabled = false;
       btnB.setAttribute(
         'hx-post',
-        '/admin/orgs/' + orgId + '/roles/' + roleB.id + '/merge/' + roleA.id + '/'
+        '/admin/orgs/' + orgId + '/roles/' + roleB.id + '/merge/' + roleA.id + '/',
       );
       btnB.setAttribute(
         'hx-confirm',
-        'Merge "' + roleA.title + '" into "' + roleB.title + '"? This cannot be undone.'
+        'Merge "' + roleA.title + '" into "' + roleB.title + '"? This cannot be undone.',
       );
     }
 
@@ -132,12 +154,14 @@
 
     var roleId = cb.value;
     var row = cb.closest('tr');
-    var title = row ? (row.dataset.title || '(untitled)') : '(untitled)';
+    var title = row ? row.dataset.title || '(untitled)' : '(untitled)';
 
     if (cb.checked) {
       checked.push({ id: roleId, title: title });
     } else {
-      checked = checked.filter(function (c) { return c.id !== roleId; });
+      checked = checked.filter(function (c) {
+        return c.id !== roleId;
+      });
     }
 
     updateCheckboxes();

@@ -68,8 +68,7 @@ function setup({ orgId = 'org-1', numRoles = 3 } = {}) {
     </div>
   `;
 
-  // eslint-disable-next-line no-eval
-  eval(scriptCode);
+  eval(scriptCode); // no-eval disabled for test files in eslint.config.js
 }
 
 function checkboxes() {
