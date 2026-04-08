@@ -1,6 +1,6 @@
 {# admin/roles/partials/_assignment_form_row.html — new assignment inline form #}
 <tr id="assignment-row-new">
-  <td colspan="4" style="padding:var(--space-2) var(--space-4)">
+  <td colspan="5" style="padding:var(--space-2) var(--space-4)">
     <form hx-post="/admin/roles/{{ role_id }}/assignments/"
           hx-target="#assignments-table tbody"
           hx-swap="innerHTML"

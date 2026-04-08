@@ -196,6 +196,7 @@ async def role_detail(
             "user": user,
             "active_section": "roles",
             "role": role,
+            "role_id": role_id,
             "assignments": assignments,
             "org_dup_count": org_dup_count,
             "person_dup_count": person_dup_count,

@@ -302,6 +302,23 @@ async def fetch_role_assignments(role_id: str, db) -> list:
     )
 
 
+async def _get_assignment(assignment_id: str, role_id: str, db):
+    """Fetch a single assignment with person name, or raise 404."""
+    row = await db.fetchrow(
+        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
+                  p.id AS person_id,
+                  pn.display_name AS person_name
+           FROM role_assignments ra
+           JOIN people p ON p.id = ra.person_id
+           LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
+           WHERE ra.id = $1 AND ra.role_id = $2""",
+        assignment_id, role_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    return row
+
+
 @router.get("/assignments/new-row/")
 async def assignment_new_row(
     role_id: str,
@@ -443,6 +460,119 @@ async def assignment_create(
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_assignment_rows.html",
-        {"assignments": assignments},
+        {"assignments": assignments, "role_id": role_id},
         headers=flash_trigger("success", "Assignment added."),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Assignment read-row / edit-row
+# ---------------------------------------------------------------------------
+
+
+@router.get("/assignments/{assignment_id}/read-row/")
+async def assignment_read_row(
+    role_id: str,
+    assignment_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return read partial for a single assignment row."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    ra = await _get_assignment(assignment_id, role_id, db)
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/partials/_assignment_row.html",
+        {"ra": ra, "role_id": role_id},
+    )
+
+
+@router.get("/assignments/{assignment_id}/edit-row/")
+async def assignment_edit_row_get(
+    role_id: str,
+    assignment_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return edit form partial for a single assignment row."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    ra = await _get_assignment(assignment_id, role_id, db)
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/partials/_assignment_edit_row.html",
+        {"ra": ra, "role_id": role_id},
+    )
+
+
+@router.post("/assignments/{assignment_id}/edit-row/")
+async def assignment_edit_row_post(
+    role_id: str,
+    assignment_id: str,
+    request: Request,
+    start_date: str = Form(""),
+    end_date: str = Form(""),
+    is_current: str = Form(""),
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Save assignment edits; return full sorted tbody."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    ra = await _get_assignment(assignment_id, role_id, db)
+    is_current_val = bool(is_current)
+
+    try:
+        start_date_val = _parse_date(start_date)
+        end_date_val = _parse_date(end_date)
+    except ValueError:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_assignment_edit_row.html",
+            {"ra": ra, "role_id": role_id},
+            headers={
+                **flash_trigger("error", "Invalid date format. Use YYYY-MM-DD."),
+                "HX-Retarget": f"#assignment-row-{assignment_id}",
+                "HX-Reswap": "outerHTML",
+            },
+        )
+
+    try:
+        await db.execute(
+            """UPDATE role_assignments
+               SET is_current=$1, start_date=$2, end_date=$3
+               WHERE id=$4""",
+            is_current_val, start_date_val, end_date_val, assignment_id,
+        )
+    except asyncpg.CheckViolationError:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_assignment_edit_row.html",
+            {"ra": ra, "role_id": role_id},
+            headers={
+                **flash_trigger("error", "Current assignments cannot have an end date."),
+                "HX-Retarget": f"#assignment-row-{assignment_id}",
+                "HX-Reswap": "outerHTML",
+            },
+        )
+
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+
+    assignments = await fetch_role_assignments(role_id, db)
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/partials/_assignment_rows.html",
+        {"assignments": assignments, "role_id": role_id},
+        headers=flash_trigger("success", "Assignment saved."),
     )
