@@ -6,8 +6,14 @@
 # Provision local PostgreSQL (idempotent; run once after cloning)
 bash scripts/setup-db.sh
 
-# Install dependencies (creates .venv automatically)
+# Install Python dependencies (creates .venv automatically)
 uv sync
+
+# Install Node dependencies
+npm install
+
+# Install git pre-commit hooks (runs ruff, pytest, ESLint, Prettier, vitest on every commit)
+uv run pre-commit install
 ```
 
 First-time setup: create `/etc/power-map/.env` (640, root:exedev) with production secrets before running any command that needs `DATABASE_URL` — see AGENTS.md § Environment Variables for the required contents.

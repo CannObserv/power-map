@@ -6,7 +6,7 @@ repos:
         language: system
         entry: uv run ruff check .
         pass_filenames: false
-        types_or: [python]
+        always_run: true
 
       - id: pytest
         name: pytest (unit)

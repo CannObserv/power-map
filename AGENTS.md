@@ -12,7 +12,7 @@ TDD required. Red → Green → Refactor. No production code without a failing t
 
 ## Environment & Tooling
 
-Python ≥3.12, uv, pytest, ruff; Node ≥18, npm, vitest + ESLint + Prettier (JS only)
+Python ≥3.12, uv, pytest, ruff; Node ≥18, npm, vitest + ESLint + Prettier (JS only); pre-commit (git hooks)
 
 ## Project Layout
 

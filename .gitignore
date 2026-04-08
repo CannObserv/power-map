@@ -32,7 +32,6 @@ gunicorn.ctl
 # Node
 node_modules/
 .eslintcache
-.prettier_cache
 
 # CSV import data
 data/cannabis_observer/
