@@ -367,6 +367,8 @@ return templates.TemplateResponse(
 
 HTMX overrides the client-side `hx-target` / `hx-swap` with the header values. The triggering element (e.g. the `<tr>` form row) stays untouched in the DOM. The modal portal receives the response body. The modal's own action forms then target the original row directly.
 
+**Portal pattern — first-class use case:** `HX-Retarget` is also the right tool when a mutation *may or may not* produce a secondary UI element (confirm dialog, validation step). The form row's `hx-target` always points at itself; the server conditionally redirects the response to a dedicated portal `<div>` elsewhere in the page. The row is never touched. See §29 (Address confirm flow) for the full example.
+
 **When OOB is safe:** use it only when all elements in the response share the same parsing context (all are `<div>` / block, or all are wrapped in an explicit `<table>` / `<tbody>`). Never mix table and non-table elements as OOB siblings.
 
 ### Live regions
@@ -775,6 +777,7 @@ The Notes field uses a separate read/edit partial pair with a header row followi
 - Edit partial: `<form>` wraps the entire partial (header + textarea). Header is the same flex `display:flex;align-items:center;justify-content:space-between` row as the read partial, with `<label for="notes-textarea" class="field-group-label">` on the left (not `<h3>`) for proper screen-reader association, and Save (`type="submit"`) + Cancel (`hx-get`) buttons on the right inside a `<div>`. No `form-actions` div — buttons live in the header row.
 - GET `/inline/notes/` → read partial; GET `/inline/notes/edit/` → form partial; POST `/inline/notes/` → read partial.
 - Empty/whitespace notes saved as `NULL` (`.strip() or None`).
+- **Archived guard:** the Edit button in the read partial must be hidden when the entity is archived. Wrap it in `{% if not entity.archived_at %}…{% endif %}`. This applies to all inline edit buttons in all read partials — see §26 for the general rule.
 
 ---
 
@@ -866,6 +869,16 @@ Two variants — pick by page type. Both live inside `{% block content %}`.
   <span id="breadcrumb-current">{{ display_name or org.id }}</span>
 {% endblock %}
 ```
+
+### Adding live header sync to a new entity type
+
+Follow these steps whenever a new entity detail page needs its `<h1>`, breadcrumb, and `document.title` to update live after an inline name edit. See §30 for the full pattern spec.
+
+1. **JS file** — create `src/static/admin/{entity}-detail.js` listening for `update{Entity}Header` (camelCase, e.g. `updatePersonHeader`).
+2. **`deps.py`** — add `{entity}_header_extra(entity_id, db)`: query the display-name view, fall back to `entity_id`, return `{"update{Entity}Header": {"display": display}}`.
+3. **Mutation routes** — on every route that can change the canonical name, pass `extra=await {entity}_header_extra(entity_id, db)` to `flash_trigger()`.
+4. **Detail template** — load the JS in `{% block extra_head %}` with `defer`.
+5. **Tests** — add 5 structural tests in `test_js.py` (file exists, event key, `page-heading`, `breadcrumb-current`, `document.title`). See §30 for the checklist.
 
 ---
 
@@ -962,6 +975,17 @@ Every `<tbody>` that can be empty must include a fallback row via Jinja `{% else
 - Text: `"No {plural noun}"` — lower-case, no punctuation.
 - Color: `var(--color-text-muted)` — never a lighter value.
 - No icon, no call-to-action link inside the cell — those belong in the section header row.
+
+### Jinja2 include variable scoping
+
+`{% include %}` shares the caller's full template context, but the partial uses variables by name. If a partial references `person_id` while the outer template's context only contains `person`, set the variable explicitly immediately before each `{% include %}`:
+
+```html
+{% set person_id = person.id %}
+{% include "admin/people/partials/_name_row.html" %}
+```
+
+Do this for every `{% include %}` of that partial in the same template — Jinja2 `{% set %}` in a `{% for %}` loop does not leak out of the loop body.
 
 ---
 
@@ -1173,3 +1197,294 @@ For table rows that display a URL or other copyable value, add a Copy button tha
 - `htmx.trigger(document.body, 'showFlash', {...})` dispatches the same event that server-side `flash_trigger()` uses — `flash.js` handles it identically.
 - Two callbacks: success (green) and failure (red, clipboard access denied in insecure contexts or when user denies permission).
 - No `hx-*` attributes needed — this is purely client-side.
+
+---
+
+## 26. Generic Single-Field Inline Edit Pattern
+
+For any short text field that lives on a detail page and needs inline editing (e.g. pronouns, display label, short description), follow this pattern. The Notes variant (§15) is a special case of this general form.
+
+### HTML structure
+
+**Read partial** (`_{field}_read.html`):
+
+```html
+<div id="{field}-field" style="margin-top:var(--space-5)">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h3 class="field-group-label">{Label}</h3>
+    {% if not entity.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/{entities}/{{ entity.id }}/inline/{field}/edit/"
+            hx-target="#{field}-field"
+            hx-swap="outerHTML">Edit</button>
+    {% endif %}
+  </div>
+  <div style="font-size:var(--font-size-sm);color:{% if entity.{field} %}var(--color-text){% else %}var(--color-text-muted){% endif %}">
+    {{ entity.{field} or '—' }}
+  </div>
+</div>
+```
+
+**Edit partial** (`_{field}_form.html`):
+
+```html
+<div id="{field}-field" style="margin-top:var(--space-5)">
+  <form hx-post="/admin/{entities}/{{ entity.id }}/inline/{field}/"
+        hx-target="#{field}-field"
+        hx-swap="outerHTML">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+      <label for="{field}-input" class="field-group-label">{Label}</label>
+      <div>
+        <button type="submit" class="btn btn--primary btn--sm">Save</button>
+        <button type="button" class="btn btn--secondary btn--sm"
+                hx-get="/admin/{entities}/{{ entity.id }}/inline/{field}/"
+                hx-target="#{field}-field"
+                hx-swap="outerHTML">Cancel</button>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <input id="{field}-input" type="text" name="{field}"
+             value="{{ entity.{field} or '' }}"
+             placeholder="…">
+    </div>
+  </form>
+</div>
+```
+
+### Rules
+
+- `id="{field}-field"` on the outer `<div>` is the shared HTMX target for read and edit partials.
+- Read partial uses `<h3 class="field-group-label">`. Edit partial replaces it with `<label for="{field}-input" class="field-group-label">` for proper screen-reader association — no `<h3>` in the edit state.
+- Save and Cancel sit in the header row (same `display:flex` row as the label), not in a `form-actions` div. This prevents layout shift on toggle.
+- **Archived guard:** the Edit button is wrapped in `{% if not entity.archived_at %}`. Read partials returned by route handlers (not via the full detail page) must still receive `entity` in context with `archived_at` populated.
+- Empty/whitespace values saved as `NULL` (`.strip() or None`).
+- Non-HTMX fallback: `POST /inline/{field}/` returns `RedirectResponse` to the detail page.
+
+### Routes
+
+```
+GET  /admin/{entities}/{id}/inline/{field}/       → read partial
+GET  /admin/{entities}/{id}/inline/{field}/edit/  → edit partial
+POST /admin/{entities}/{id}/inline/{field}/       → save → read partial
+```
+
+---
+
+## 27. Re-sort Response: `_rows.html` vs. `_row.html`
+
+Row-level HTMX editing normally returns a single updated row (`hx-swap="outerHTML"` on `#{row-id}`). When a mutation can change the **sort order** of the table, return a full tbody replacement instead.
+
+### When to use each
+
+| Response | Swap | Use when |
+|---|---|---|
+| `_row.html` single row | `hx-target="#{row-id}" hx-swap="outerHTML"` | Edit doesn't affect ordering (value, label, URL) |
+| `_rows.html` full tbody | `hx-target="#{table-id} tbody" hx-swap="innerHTML"` | Edit may reorder (canonical flag, type affecting sort) |
+
+### `_rows.html` partial
+
+A minimal partial that re-renders all rows from a fresh sorted query result:
+
+```html
+{# admin/{entity}/partials/_{subsection}_rows.html #}
+{% for n in names %}
+{% include "admin/{entity}/partials/_{subsection}_row.html" %}
+{% else %}
+<tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
+{% endfor %}
+```
+
+The route fetches all rows with the canonical sort (`ORDER BY is_canonical DESC, name_type, name`) and passes the full list as `names` (or equivalent). The client-side `hx-target` on the form points at `#{table-id} tbody`.
+
+### Non-HTMX path
+
+Always use `RedirectResponse` to the detail page — the full page reload re-renders with the correct sort naturally.
+
+### New-row (create) also uses `_rows.html`
+
+Even the create route uses `_rows.html` (not the new single row) when the new row must be inserted in sorted position rather than prepended. Contrast with §21 (section-level add button) where `hx-swap="afterbegin"` prepends the blank form row — create POST then replaces the full tbody to insert the saved row in its sorted position.
+
+---
+
+## 28. Last-Identity Guard: HTMX Response for Blocked Deletes
+
+When a delete is blocked because it would leave the entity with no identity (e.g. deleting the only name), the server cannot return a 4xx — **HTMX ignores non-2xx responses by default** and swaps nothing, showing no feedback.
+
+### Correct pattern
+
+```python
+# HTMX path — return 200 with empty body + flash error; row stays in DOM
+if is_htmx(request):
+    return HTMLResponse(
+        content="",
+        status_code=200,
+        headers=flash_trigger("error", "Cannot remove the only name."),
+    )
+# Non-HTMX path — browser receives a proper error response
+raise HTTPException(status_code=409, detail="Cannot remove the only name.")
+```
+
+- Empty `content=""` means the HTMX swap target is unchanged — the row stays in the DOM.
+- The flash delivers the error message via `HX-Trigger: {"showFlash": {...}}` (§8).
+- The `is_htmx()` check must come before the guard logic so the non-HTMX path raises a meaningful HTTP error for API callers.
+
+### When this applies
+
+Any delete route that enforces a minimum-count invariant:
+- Last name on a person or org
+- Last acronym on an org (when no canonical name exists)
+
+### Contrast with archive gate
+
+The archive gate (§10) blocks hard delete when `archived_at IS NULL` — that can safely return 409 unconditionally because the delete button is served via HTMX but the error surface is the `delete_modal.html` which reads the response status explicitly.
+
+---
+
+## 29. Address Confirm Flow
+
+When an address form is submitted, the server normalizes the input and — if normalization produces a meaningful result — shows a confirm modal before persisting. This uses `HX-Retarget` (§7) to inject the modal without touching the form row.
+
+### Two-mode POST
+
+The address create and edit routes accept a `mode` form field:
+
+| `mode` value | Behaviour |
+|---|---|
+| `confirm` (default) | Normalize input; if result differs, return the confirm modal via `HX-Retarget` |
+| `save` | Skip normalization; persist immediately and return the updated row |
+
+The form row's `hx-post` always omits `mode` (defaults to `confirm`). The confirm modal's action buttons submit `mode=save`.
+
+### Portal div
+
+Place an empty `<div id="address-confirm-portal"></div>` in the detail template **after** the last section and **before** the metadata footer. The server uses `HX-Retarget: #address-confirm-portal` to inject the modal here without touching the form row.
+
+```html
+<!-- detail.html — after last <section>, before metadata <p> -->
+<div id="address-confirm-portal"></div>
+```
+
+### Server response when confirm needed
+
+```python
+return templates.TemplateResponse(
+    request,
+    "admin/{entity}/partials/_address_confirm_modal.html",
+    {
+        "entity_id": entity_id,
+        "addr_id": addr_id,          # None for create, str for edit
+        "original": original_ctx,    # dict of submitted field values
+        "normalized": normalized_ctx, # dict from normalizer result
+        "validation_status": ...,
+        "validation_provider": ...,
+    },
+    headers={"HX-Retarget": "#address-confirm-portal", "HX-Reswap": "innerHTML"},
+)
+```
+
+### Confirm modal structure
+
+The modal contains two action forms that both POST to the same create/edit endpoint with `mode=save`:
+- **Keep my input** — hidden inputs carry the original field values
+- **Accept** — hidden inputs carry the normalized field values
+
+Both forms include `hx-on::after-request="if (event.detail.successful) window.__pmAddrConfirmClose()"` to close the modal on success.
+
+The modal JS (inline in the partial) handles: Escape to close, Tab/Shift-Tab focus trap, `window.__pmAddrConfirmClose()` for programmatic close, focus restoration to the triggering element.
+
+### When normalization is skipped
+
+If the normalizer returns no result (service unavailable, address unparseable), `_maybe_confirm()` returns `None` and the route falls through to the save path directly — no modal, no `HX-Retarget`.
+
+---
+
+## 30. Per-Entity Live Header Sync
+
+Full reference for the live header sync pattern introduced in §17. Follow this checklist when adding it to a new entity type.
+
+### Checklist
+
+- [ ] `src/static/admin/{entity}-detail.js` — event listener
+- [ ] `{entity}_header_extra()` in `src/api/admin/deps.py`
+- [ ] `extra=` argument on all name-mutation routes
+- [ ] `{% block extra_head %}` in the detail template
+- [ ] 5 structural tests in `tests/api/admin/test_js.py`
+
+### JS file (`src/static/admin/{entity}-detail.js`)
+
+```javascript
+document.addEventListener('update{Entity}Header', function (e) {
+  var display = e.detail && e.detail.display ? e.detail.display : '';
+  var h1 = document.getElementById('page-heading');
+  var crumb = document.getElementById('breadcrumb-current');
+  if (h1) h1.textContent = display;
+  if (crumb) crumb.textContent = display;
+  if (display) document.title = display + ' \u2014 {Entity type label}';
+});
+```
+
+- Event name is `update{Entity}Header` — camelCase, e.g. `updatePersonHeader`.
+- `\u2014` is an em dash — never a hyphen.
+
+### `deps.py` helper
+
+```python
+async def {entity}_header_extra({entity}_id: str, db) -> dict:
+    """Return extra dict for flash_trigger with the current {entity} display name."""
+    row = await db.fetchrow(
+        "SELECT display_name FROM v_{entity}_display_names WHERE {entity}_id=$1",
+        {entity}_id,
+    )
+    display = row["display_name"] if row and row["display_name"] else {entity}_id
+    return {"update{Entity}Header": {"display": display}}
+```
+
+### Mutation route usage
+
+```python
+headers=flash_trigger(
+    "success",
+    f"Name <strong>{escape(name)}</strong> saved.",
+    extra=await {entity}_header_extra({entity}_id, db),
+)
+```
+
+Pass `extra=` on every route that creates, edits, or deletes a name row — including deletes (the display name may change after a deletion removes the canonical).
+
+### Detail template
+
+```html
+{% block extra_head %}
+  <script src="/static/admin/{entity}-detail.js?v=1" defer></script>
+{% endblock %}
+```
+
+The `?v=1` cache-bust parameter must be incremented when the JS file changes.
+
+### Structural tests (`test_js.py`)
+
+Add a block after the analogous org-detail block:
+
+```python
+_ENTITY_DETAIL_JS_PATH = Path("src/static/admin/{entity}-detail.js")
+ENTITY_DETAIL_JS = _ENTITY_DETAIL_JS_PATH.read_text() if _ENTITY_DETAIL_JS_PATH.exists() else ""
+
+def test_{entity}_detail_js_exists():
+    assert _ENTITY_DETAIL_JS_PATH.exists()
+
+def test_{entity}_detail_js_listens_for_update_{entity}_header():
+    """Listener must be keyed to update{Entity}Header — any other name breaks sync silently."""
+    assert "update{Entity}Header" in ENTITY_DETAIL_JS
+
+def test_{entity}_detail_js_targets_page_heading():
+    """Must target id='page-heading' on the <h1> — changing the ID breaks live sync."""
+    assert "page-heading" in ENTITY_DETAIL_JS
+
+def test_{entity}_detail_js_targets_breadcrumb_current():
+    """Must target id='breadcrumb-current' on the breadcrumb span."""
+    assert "breadcrumb-current" in ENTITY_DETAIL_JS
+
+def test_{entity}_detail_js_updates_document_title():
+    """Must update document.title — tab title sync is the third live-update target."""
+    assert "document.title" in ENTITY_DETAIL_JS
+```
