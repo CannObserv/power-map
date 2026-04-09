@@ -15,7 +15,7 @@
       <input type="date" name="end_date" title="End date"
              id="end-date-input-{{ ra.id }}"
              value="{{ end_date_input }}"
-             {% if is_current_input %}disabled{% endif %}>
+             {% if is_current_input %}class="input--muted"{% endif %}>
     </div>
   </td>
   <td style="vertical-align:middle">
@@ -43,8 +43,8 @@
   var cb    = document.getElementById('is-current-cb-{{ ra.id }}');
   var endDt = document.getElementById('end-date-input-{{ ra.id }}');
   cb.addEventListener('change', function() {
-    if (cb.checked) { endDt.value = ''; endDt.disabled = true; }
-    else { endDt.disabled = false; }
+    if (cb.checked) { endDt.value = ''; endDt.classList.add('input--muted'); }
+    else { endDt.classList.remove('input--muted'); }
   });
 })();
 </script>

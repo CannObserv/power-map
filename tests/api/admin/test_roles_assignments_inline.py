@@ -537,3 +537,46 @@ async def test_edit_row_post_archived_returns_409(
         data={"start_date": "2018-01-01", "end_date": "2019-12-31"},
     )
     assert r.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# End-date disabled state — visual styling
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def current_assignment_id(db, role_id, person_id):
+    ra_id = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)
+           VALUES ($1, $2, $3, TRUE, '2024-01-01')""",
+        ra_id, person_id, role_id,
+    )
+    return ra_id
+
+
+async def test_edit_row_get_current_end_date_uses_muted_class(
+    client, role_id, current_assignment_id
+):
+    """When is_current=True the end_date input must use input--muted class for
+    visual disabled state, NOT the HTML disabled attribute (which hides the
+    browser calendar icon entirely instead of just muting it)."""
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{current_assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b'class="input--muted"' in r.content
+    assert b" disabled" not in r.content
+
+
+async def test_edit_row_get_non_current_end_date_no_muted_class(
+    client, role_id, assignment_id
+):
+    """When is_current=False the end_date input must NOT have input--muted class."""
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b'class="input--muted"' not in r.content
