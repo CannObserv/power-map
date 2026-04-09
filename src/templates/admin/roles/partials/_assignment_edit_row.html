@@ -19,12 +19,13 @@
     </div>
   </td>
   <td style="vertical-align:middle">
-    <div style="display:flex;align-items:center;gap:var(--space-1)">
+    <label class="toggle">
       <input type="checkbox" name="is_current" value="true"
              id="is-current-cb-{{ ra.id }}"
+             aria-label="Current"
              {% if is_current_input %}checked{% endif %}>
-      <label for="is-current-cb-{{ ra.id }}" style="font-size:var(--font-size-sm);white-space:nowrap">Current</label>
-    </div>
+      <span class="toggle__track"><span class="toggle__thumb"></span></span>
+    </label>
   </td>
   <td style="text-align:right;vertical-align:middle;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--primary"

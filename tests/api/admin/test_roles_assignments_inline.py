@@ -580,3 +580,15 @@ async def test_edit_row_get_non_current_end_date_no_muted_class(
     )
     assert r.status_code == 200
     assert b'class="input--muted"' not in r.content
+
+
+async def test_edit_row_get_is_current_uses_pill_toggle(client, role_id, assignment_id):
+    """is_current control must be a pill toggle (.toggle / toggle__track), not a
+    bare checkbox, consistent with other boolean fields in the admin UI."""
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b'class="toggle"' in r.content
+    assert b"toggle__track" in r.content
