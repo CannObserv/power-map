@@ -30,11 +30,12 @@
         <input type="date" name="end_date" placeholder="End date"
                title="End date" id="end-date-input" value="{{ end_date_input or '' }}">
       </div>
-      <div class="form-group" style="margin-bottom:0;display:flex;align-items:center;gap:var(--space-1)">
+      <label class="toggle" style="align-self:center">
         <input type="checkbox" name="is_current" value="true" id="is-current-cb"
+               aria-label="Current"
                {% if is_current_input %}checked{% endif %}>
-        <label for="is-current-cb" style="font-size:var(--font-size-sm);white-space:nowrap">Current</label>
-      </div>
+        <span class="toggle__track"><span class="toggle__thumb"></span></span>
+      </label>
       <div style="display:flex;gap:var(--space-2);white-space:nowrap">
         <button type="submit" class="btn btn--sm btn--primary">Save</button>
         <button type="button" class="btn btn--sm btn--secondary"

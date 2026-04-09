@@ -540,7 +540,7 @@ async def test_edit_row_post_archived_returns_409(
 
 
 # ---------------------------------------------------------------------------
-# End-date disabled state — visual styling
+# Edit-row visual behaviour
 # ---------------------------------------------------------------------------
 
 
@@ -564,7 +564,7 @@ async def test_edit_row_get_current_end_date_is_disabled(
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    assert b"disabled" in r.content
+    assert b' disabled>' in r.content
 
 
 async def test_edit_row_get_non_current_end_date_not_disabled(
@@ -586,6 +586,17 @@ async def test_edit_row_get_is_current_uses_pill_toggle(client, role_id, assignm
     r = await client.get(
         f"/admin/roles/{role_id}/assignments/{assignment_id}/edit-row/",
         headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b'class="toggle"' in r.content
+    assert b"toggle__track" in r.content
+
+
+async def test_new_row_is_current_uses_pill_toggle(client, role_id):
+    """New-assignment form row must use a pill toggle for is_current, consistent
+    with the edit-row pattern."""
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/new-row/", headers=HTMX_HEADERS
     )
     assert r.status_code == 200
     assert b'class="toggle"' in r.content
