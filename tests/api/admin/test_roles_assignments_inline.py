@@ -601,3 +601,14 @@ async def test_new_row_is_current_uses_pill_toggle(client, role_id):
     assert r.status_code == 200
     assert b'class="toggle"' in r.content
     assert b"toggle__track" in r.content
+
+
+async def test_new_row_js_disables_end_date_when_is_current_checked(client, role_id):
+    """new-row inline script must wire the is_current toggle to disable end_date.
+    Verifies the coupling JS is present; runtime behaviour is browser-only."""
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/new-row/", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    assert b"endDt.disabled = true" in r.content
+    assert b"endDt.disabled = false" in r.content
