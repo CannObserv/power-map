@@ -1,0 +1,6 @@
+{# admin/people/partials/_assignment_rows.html — full tbody for person assignments table #}
+{% for ra in assignments %}
+{% include "admin/people/partials/_assignment_row.html" %}
+{% else %}
+<tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No role assignments</td></tr>
+{% endfor %}
