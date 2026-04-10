@@ -539,3 +539,43 @@ async def test_edit_row_post_unknown_returns_404(client, person_id):
         data={"start_date": "2020-01-01", "end_date": ""},
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Person detail page integration
+# ---------------------------------------------------------------------------
+
+
+async def test_person_detail_shows_role_assignments_table(client, person_id, assignment_id):
+    """Person detail page must render the role assignments table with HTMX controls."""
+    r = await client.get(f"/admin/people/{person_id}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert b"person-assignments-table" in r.content
+
+
+async def test_person_detail_shows_add_assignment_button(client, person_id):
+    r = await client.get(f"/admin/people/{person_id}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert b"Add assignment" in r.content
+
+
+async def test_person_detail_role_title_links_to_role_detail(
+    client, person_id, assignment_id, role_id
+):
+    r = await client.get(f"/admin/people/{person_id}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert f"/admin/roles/{role_id}/".encode() in r.content
+
+
+async def test_person_detail_hides_add_button_when_archived(client, db):
+    pid = generate_id()
+    await db.execute(
+        "INSERT INTO people (id, archived_at) VALUES ($1, NOW())", pid
+    )
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
+        generate_id(), pid, "Archived Person",
+    )
+    r = await client.get(f"/admin/people/{pid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert b"Add assignment" not in r.content

@@ -300,7 +300,8 @@ async def person_detail(
     )
     role_assignments = await db.fetch(
         """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
-                  r.title, o.id AS org_id, dn.display_name AS org_name
+                  r.id AS role_id, r.title AS role_title,
+                  o.id AS org_id, dn.display_name AS org_name
            FROM role_assignments ra
            JOIN roles r ON r.id = ra.role_id
            JOIN organizations o ON o.id = r.organization_id

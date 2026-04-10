@@ -193,33 +193,34 @@
 </section>
 
 <section class="entity-section">
-  <h2>Role Assignments</h2>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Role Assignments</h2>
+    {% if not person.archived_at %}
+    <button class="btn btn--sm btn--secondary"
+            hx-get="/admin/people/{{ person.id }}/assignments/new-row/"
+            hx-target="#person-assignments-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add assignment</button>
+    {% endif %}
+  </div>
   <div class="table-wrapper">
-    <table class="data-table">
+    <table id="person-assignments-table" class="data-table">
       <thead>
         <tr>
           <th scope="col">Organization</th>
-          <th scope="col">Role Title</th>
+          <th scope="col">Role</th>
           <th scope="col">Start</th>
           <th scope="col">End</th>
           <th scope="col">Status</th>
+          <th scope="col"></th>
         </tr>
       </thead>
       <tbody>
+        {% set person_id = person.id %}
         {% for ra in role_assignments %}
-        <tr>
-          <td><a href="/admin/orgs/{{ ra.org_id }}/">{{ ra.org_name or '(unnamed)' }}</a></td>
-          <td>{{ ra.title or '(untitled)' }}</td>
-          <td>{{ ra.start_date or '—' }}</td>
-          <td>{{ ra.end_date or '—' }}</td>
-          <td>
-            {% if ra.archived_at %}<span class="badge badge--archived">Archived</span>
-            {% elif ra.is_current %}<span class="badge badge--active">Current</span>
-            {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
-          </td>
-        </tr>
+        {% include "admin/people/partials/_assignment_row.html" %}
         {% else %}
-        <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No role assignments</td></tr>
+        <tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No role assignments</td></tr>
         {% endfor %}
       </tbody>
     </table>
