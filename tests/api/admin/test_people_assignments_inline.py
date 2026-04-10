@@ -646,6 +646,15 @@ async def test_delete_wrong_person_returns_404(client, person_id, assignment_id,
     assert r.status_code == 404
 
 
+async def test_delete_non_htmx_redirects(client, person_id, assignment_id):
+    r = await client.delete(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+
 async def test_read_row_has_delete_button(client, person_id, assignment_id):
     r = await client.get(
         f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
@@ -653,4 +662,5 @@ async def test_read_row_has_delete_button(client, person_id, assignment_id):
     )
     assert r.status_code == 200
     assert b"hx-delete" in r.content
+    assert b"hx-confirm" in r.content
     assert b"Delete" in r.content

@@ -670,8 +670,7 @@ async def test_delete_unknown_returns_404(client, role_id):
 
 
 async def test_delete_wrong_role_returns_404(client, role_id, assignment_id, db):
-    oid = generate_id()
-    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    oid = await _make_org(db, "Other Org")
     other_rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
@@ -684,6 +683,15 @@ async def test_delete_wrong_role_returns_404(client, role_id, assignment_id, db)
     assert r.status_code == 404
 
 
+async def test_delete_non_htmx_redirects(client, role_id, assignment_id):
+    r = await client.delete(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+
 async def test_read_row_has_delete_button(client, role_id, assignment_id):
     r = await client.get(
         f"/admin/roles/{role_id}/assignments/{assignment_id}/read-row/",
@@ -691,4 +699,5 @@ async def test_read_row_has_delete_button(client, role_id, assignment_id):
     )
     assert r.status_code == 200
     assert b"hx-delete" in r.content
+    assert b"hx-confirm" in r.content
     assert b"Delete" in r.content

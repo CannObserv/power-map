@@ -609,8 +609,8 @@ async def assignment_delete(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    ra = await _get_assignment(assignment_id, role_id, db)
-    await db.execute("DELETE FROM role_assignments WHERE id=$1", ra["id"])
+    await _get_assignment(assignment_id, role_id, db)
+    await db.execute("DELETE FROM role_assignments WHERE id=$1", assignment_id)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
     assignments = await fetch_role_assignments(role_id, db)
