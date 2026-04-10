@@ -408,7 +408,7 @@ async def person_notes_read(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    person = await db.fetchrow("SELECT id, notes FROM people WHERE id = $1", person_id)
+    person = await db.fetchrow("SELECT id, notes, archived_at FROM people WHERE id = $1", person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     return templates.TemplateResponse(
@@ -456,7 +456,9 @@ async def person_notes_save(
         raise HTTPException(status_code=404, detail="Person not found")
     saved = notes.strip() or None
     await db.execute("UPDATE people SET notes = $1 WHERE id = $2", saved, person_id)
-    updated = await db.fetchrow("SELECT id, notes FROM people WHERE id = $1", person_id)
+    updated = await db.fetchrow(
+        "SELECT id, notes, archived_at FROM people WHERE id = $1", person_id
+    )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
     return templates.TemplateResponse(
@@ -478,7 +480,9 @@ async def person_pronouns_read(
     redirect, user = check_auth(user)
     if redirect:
         return redirect
-    person = await db.fetchrow("SELECT id, personal_pronouns FROM people WHERE id = $1", person_id)
+    person = await db.fetchrow(
+        "SELECT id, personal_pronouns, archived_at FROM people WHERE id = $1", person_id
+    )
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     return templates.TemplateResponse(
@@ -526,7 +530,9 @@ async def person_pronouns_save(
         raise HTTPException(status_code=404, detail="Person not found")
     saved = personal_pronouns.strip() or None
     await db.execute("UPDATE people SET personal_pronouns = $1 WHERE id = $2", saved, person_id)
-    updated = await db.fetchrow("SELECT id, personal_pronouns FROM people WHERE id = $1", person_id)
+    updated = await db.fetchrow(
+        "SELECT id, personal_pronouns, archived_at FROM people WHERE id = $1", person_id
+    )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
     return templates.TemplateResponse(

@@ -2,10 +2,12 @@
 <div id="pronouns-field" style="margin-top:var(--space-5)">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h3 class="field-group-label">Pronouns</h3>
+    {% if not person.archived_at %}
     <button type="button" class="btn btn--sm btn--secondary"
             hx-get="/admin/people/{{ person.id }}/inline/pronouns/edit/"
             hx-target="#pronouns-field"
             hx-swap="outerHTML">Edit</button>
+    {% endif %}
   </div>
   <div style="font-size:var(--font-size-sm);color:{% if person.personal_pronouns %}var(--color-text){% else %}var(--color-text-muted){% endif %}">
     {{ person.personal_pronouns or '—' }}

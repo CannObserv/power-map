@@ -181,6 +181,26 @@ async def test_notes_post_returns_read_partial(client, org_id):
     assert b"notes-textarea" not in r.content  # read partial, not form
 
 
+async def test_notes_read_hides_edit_when_archived(client, org_id, db):
+    await db.execute(
+        "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_id
+    )
+    r = await client.get(
+        f"/admin/orgs/{org_id}/inline/notes/", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    assert b"notes-field" in r.content
+    assert b"inline/notes/edit/" not in r.content
+
+
+async def test_notes_read_shows_edit_when_not_archived(client, org_id):
+    r = await client.get(
+        f"/admin/orgs/{org_id}/inline/notes/", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    assert b"inline/notes/edit/" in r.content
+
+
 # ---------------------------------------------------------------------------
 # Name create — tbody replacement (re-sort)
 # ---------------------------------------------------------------------------
