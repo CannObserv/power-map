@@ -579,3 +579,78 @@ async def test_person_detail_hides_add_button_when_archived(client, db):
     r = await client.get(f"/admin/people/{pid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"Add assignment" not in r.content
+
+
+# ---------------------------------------------------------------------------
+# Delete assignment
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_removes_assignment(client, person_id, assignment_id, db):
+    r = await client.delete(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow("SELECT id FROM role_assignments WHERE id=$1", assignment_id)
+    assert row is None
+
+
+async def test_delete_returns_sorted_tbody(client, person_id, role_id, db):
+    """After delete, full tbody is returned so remaining rows stay sorted."""
+    ra_keep = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)
+           VALUES ($1, $2, $3, TRUE, '2024-01-01')""",
+        ra_keep, person_id, role_id,
+    )
+    ra_del = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
+           VALUES ($1, $2, $3, FALSE, '2020-01-01', '2023-12-31')""",
+        ra_del, person_id, role_id,
+    )
+    r = await client.delete(
+        f"/admin/people/{person_id}/assignments/{ra_del}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"2024-01-01" in r.content
+    assert b"2020-01-01" not in r.content
+
+
+async def test_delete_returns_info_flash(client, person_id, assignment_id):
+    r = await client.delete(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/",
+        headers=HTMX_HEADERS,
+    )
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"
+
+
+async def test_delete_unknown_returns_404(client, person_id):
+    r = await client.delete(
+        f"/admin/people/{person_id}/assignments/{generate_id()}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 404
+
+
+async def test_delete_wrong_person_returns_404(client, person_id, assignment_id, db):
+    other_pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", other_pid)
+    r = await client.delete(
+        f"/admin/people/{other_pid}/assignments/{assignment_id}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 404
+
+
+async def test_read_row_has_delete_button(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"hx-delete" in r.content
+    assert b"Delete" in r.content

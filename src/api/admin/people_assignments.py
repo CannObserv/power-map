@@ -298,3 +298,28 @@ async def assignment_edit_row_post(
         {"assignments": assignments, "person_id": person_id},
         headers=flash_trigger("success", "Assignment saved."),
     )
+
+
+@router.delete("/{assignment_id}/")
+async def assignment_delete(
+    person_id: str,
+    assignment_id: str,
+    request: Request,
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Delete a role assignment from person detail."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    ra = await _get_assignment(assignment_id, person_id, db)
+    await db.execute("DELETE FROM role_assignments WHERE id=$1", ra["id"])
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+    assignments = await fetch_person_assignments(person_id, db)
+    return templates.TemplateResponse(
+        request,
+        "admin/people/partials/_assignment_rows.html",
+        {"assignments": assignments, "person_id": person_id},
+        headers=flash_trigger("info", "Assignment removed."),
+    )

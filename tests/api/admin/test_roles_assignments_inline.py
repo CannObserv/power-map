@@ -612,3 +612,83 @@ async def test_new_row_js_disables_end_date_when_is_current_checked(client, role
     assert r.status_code == 200
     assert b"endDt.disabled = true" in r.content
     assert b"endDt.disabled = false" in r.content
+
+
+# ---------------------------------------------------------------------------
+# Delete assignment
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_removes_assignment(client, role_id, assignment_id, db):
+    r = await client.delete(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow("SELECT id FROM role_assignments WHERE id=$1", assignment_id)
+    assert row is None
+
+
+async def test_delete_returns_sorted_tbody(client, role_id, person_id, db):
+    """After delete, full tbody is returned so remaining rows stay sorted."""
+    ra_keep = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)
+           VALUES ($1, $2, $3, TRUE, '2024-01-01')""",
+        ra_keep, person_id, role_id,
+    )
+    ra_del = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
+           VALUES ($1, $2, $3, FALSE, '2020-01-01', '2023-12-31')""",
+        ra_del, person_id, role_id,
+    )
+    r = await client.delete(
+        f"/admin/roles/{role_id}/assignments/{ra_del}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"2024-01-01" in r.content
+    assert b"2020-01-01" not in r.content
+
+
+async def test_delete_returns_info_flash(client, role_id, assignment_id):
+    r = await client.delete(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/",
+        headers=HTMX_HEADERS,
+    )
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"
+
+
+async def test_delete_unknown_returns_404(client, role_id):
+    r = await client.delete(
+        f"/admin/roles/{role_id}/assignments/{generate_id()}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 404
+
+
+async def test_delete_wrong_role_returns_404(client, role_id, assignment_id, db):
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    other_rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+        other_rid, oid, "Other Role",
+    )
+    r = await client.delete(
+        f"/admin/roles/{other_rid}/assignments/{assignment_id}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 404
+
+
+async def test_read_row_has_delete_button(client, role_id, assignment_id):
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"hx-delete" in r.content
+    assert b"Delete" in r.content
