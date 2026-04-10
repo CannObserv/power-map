@@ -236,3 +236,306 @@ async def test_create_non_htmx_redirects(client, person_id, role_id):
         follow_redirects=False,
     )
     assert r.status_code == 303
+
+# ---------------------------------------------------------------------------
+# Shared fixture — existing assignment
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def assignment_id(db, person_id, role_id):
+    ra_id = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
+           VALUES ($1, $2, $3, FALSE, '2020-01-01', '2022-12-31')""",
+        ra_id, person_id, role_id,
+    )
+    return ra_id
+
+
+@pytest.fixture
+async def archived_assignment_id(db, person_id, role_id):
+    ra_id = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments
+               (id, person_id, role_id, is_current, start_date, end_date, archived_at)
+           VALUES ($1, $2, $3, FALSE, '2018-01-01', '2019-12-31', NOW())""",
+        ra_id, person_id, role_id,
+    )
+    return ra_id
+
+
+@pytest.fixture
+async def current_assignment_id(db, person_id, role_id):
+    ra_id = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)
+           VALUES ($1, $2, $3, TRUE, '2024-01-01')""",
+        ra_id, person_id, role_id,
+    )
+    return ra_id
+
+
+# ---------------------------------------------------------------------------
+# Read row
+# ---------------------------------------------------------------------------
+
+
+async def test_read_row_returns_org_and_role(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"Test Org" in r.content
+    assert b"Executive Director" in r.content
+
+
+async def test_read_row_returns_dates(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"2020-01-01" in r.content
+    assert b"2022-12-31" in r.content
+
+
+async def test_read_row_contains_edit_button(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"edit-row" in r.content
+
+
+async def test_read_row_archived_has_no_edit_button(client, person_id, archived_assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{archived_assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"edit-row" not in r.content
+
+
+async def test_read_row_unknown_returns_404(client, person_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{generate_id()}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Edit row GET
+# ---------------------------------------------------------------------------
+
+
+async def test_edit_row_get_returns_form(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b'name="start_date"' in r.content
+    assert b'name="end_date"' in r.content
+    assert b'name="is_current"' in r.content
+
+
+async def test_edit_row_get_uses_individual_cells(client, person_id, assignment_id):
+    """Edit row must use 6 individual <td> cells (not colspan) so controls align
+    with Org / Role / Start / End / Status / Actions column headers."""
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"colspan" not in r.content
+    assert r.content.count(b"<td") == 6
+
+
+async def test_edit_row_get_prepopulates_dates(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"2020-01-01" in r.content
+    assert b"2022-12-31" in r.content
+
+
+async def test_edit_row_get_shows_org_and_role(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"Test Org" in r.content
+    assert b"Executive Director" in r.content
+
+
+async def test_edit_row_get_archived_returns_409(client, person_id, archived_assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{archived_assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 409
+
+
+async def test_edit_row_get_unknown_returns_404(client, person_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{generate_id()}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 404
+
+
+async def test_edit_row_get_current_end_date_is_disabled(client, person_id, current_assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{current_assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b' disabled>' in r.content
+
+
+async def test_edit_row_get_non_current_end_date_not_disabled(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b' disabled>' not in r.content
+
+
+async def test_edit_row_get_is_current_uses_pill_toggle(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b'class="toggle"' in r.content
+    assert b"toggle__track" in r.content
+
+
+# ---------------------------------------------------------------------------
+# Edit row POST — success
+# ---------------------------------------------------------------------------
+
+
+async def test_edit_row_post_updates_start_date(client, person_id, assignment_id, db):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2021-03-01", "end_date": "2022-12-31"},
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow("SELECT start_date FROM role_assignments WHERE id=$1", assignment_id)
+    assert str(row["start_date"]) == "2021-03-01"
+
+
+async def test_edit_row_post_sets_is_current(client, person_id, assignment_id, db):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2020-01-01", "end_date": "", "is_current": "true"},
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT is_current, end_date FROM role_assignments WHERE id=$1", assignment_id
+    )
+    assert row["is_current"] is True
+    assert row["end_date"] is None
+
+
+async def test_edit_row_post_returns_all_rows(client, person_id, assignment_id):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2020-01-01", "end_date": "2022-12-31"},
+    )
+    assert r.status_code == 200
+    assert b"Test Org" in r.content
+    assert b"Executive Director" in r.content
+
+
+async def test_edit_row_post_returns_success_flash(client, person_id, assignment_id):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2020-01-01", "end_date": "2022-12-31"},
+    )
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
+# ---------------------------------------------------------------------------
+# Edit row POST — errors
+# ---------------------------------------------------------------------------
+
+
+async def test_edit_row_post_current_with_end_date_returns_error(
+    client, person_id, assignment_id
+):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2020-01-01", "end_date": "2022-12-31", "is_current": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert b'name="start_date"' in r.content
+
+
+async def test_edit_row_post_bad_date_returns_error(client, person_id, assignment_id):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "not-a-date", "end_date": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert b"not-a-date" in r.content
+
+
+async def test_edit_row_post_check_violation_preserves_end_date_input(
+    client, person_id, assignment_id
+):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2020-01-01", "end_date": "2023-06-15", "is_current": "true"},
+    )
+    assert r.status_code == 200
+    assert b"2023-06-15" in r.content
+
+
+async def test_edit_row_post_archived_returns_409(client, person_id, archived_assignment_id):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{archived_assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2018-01-01", "end_date": "2019-12-31"},
+    )
+    assert r.status_code == 409
+
+
+async def test_edit_row_post_non_htmx_redirects(client, person_id, assignment_id):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=AUTH_HEADERS,
+        data={"start_date": "2020-01-01", "end_date": "2022-12-31"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+
+async def test_edit_row_post_unknown_returns_404(client, person_id):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{generate_id()}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2020-01-01", "end_date": ""},
+    )
+    assert r.status_code == 404

@@ -1,0 +1,54 @@
+{# admin/people/partials/_assignment_edit_row.html — inline edit for one assignment #}
+<tr id="person-assignment-row-{{ ra.id }}">
+  <td style="font-size:var(--font-size-sm);vertical-align:middle">
+    <a href="/admin/orgs/{{ ra.org_id }}/">{{ ra.org_name or '(unnamed)' }}</a>
+  </td>
+  <td style="font-size:var(--font-size-sm);vertical-align:middle">
+    <a href="/admin/roles/{{ ra.role_id }}/">{{ ra.role_title or '(untitled)' }}</a>
+  </td>
+  <td>
+    <div class="form-group" style="margin-bottom:0">
+      <input type="date" name="start_date" title="Start date"
+             id="start-date-input-{{ ra.id }}"
+             value="{{ start_date_input }}">
+    </div>
+  </td>
+  <td>
+    <div class="form-group" style="margin-bottom:0">
+      <input type="date" name="end_date" title="End date"
+             id="end-date-input-{{ ra.id }}"
+             value="{{ end_date_input }}"
+             {% if is_current_input %}disabled{% endif %}>
+    </div>
+  </td>
+  <td style="vertical-align:middle">
+    <label class="toggle">
+      <input type="checkbox" name="is_current" value="true"
+             id="is-current-cb-{{ ra.id }}"
+             aria-label="Current"
+             {% if is_current_input %}checked{% endif %}>
+      <span class="toggle__track"><span class="toggle__thumb"></span></span>
+    </label>
+  </td>
+  <td style="text-align:right;vertical-align:middle;white-space:nowrap">
+    <button type="button" class="btn btn--sm btn--primary"
+            hx-post="/admin/people/{{ person_id }}/assignments/{{ ra.id }}/edit-row/"
+            hx-target="#person-assignments-table tbody"
+            hx-swap="innerHTML"
+            hx-include="closest tr">Save</button>
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/people/{{ person_id }}/assignments/{{ ra.id }}/read-row/"
+            hx-target="#person-assignment-row-{{ ra.id }}"
+            hx-swap="outerHTML">Cancel</button>
+  </td>
+</tr>
+<script>
+(function() {
+  var cb    = document.getElementById('is-current-cb-{{ ra.id }}');
+  var endDt = document.getElementById('end-date-input-{{ ra.id }}');
+  cb.addEventListener('change', function() {
+    if (cb.checked) { endDt.value = ''; endDt.disabled = true; }
+    else { endDt.disabled = false; }
+  });
+})();
+</script>
