@@ -161,6 +161,36 @@ async def role_create(
     return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
 
 
+@router.get("/search/")
+async def roles_search(
+    request: Request,
+    q: str = "",
+    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Typeahead search — returns HTML fragment of matching roles."""
+    redirect, user = check_auth(user)
+    if redirect:
+        return redirect
+    results = []
+    if q.strip():
+        results = await db.fetch(
+            """SELECT r.id, r.title, dn.display_name AS org_name
+               FROM roles r
+               LEFT JOIN v_org_display_names dn ON dn.organization_id = r.organization_id
+               WHERE r.archived_at IS NULL
+                 AND (r.title ILIKE $1 ESCAPE '\\' OR dn.display_name ILIKE $1 ESCAPE '\\')
+               ORDER BY dn.display_name NULLS LAST, r.title
+               LIMIT 20""",
+            f"%{escape_like(q.strip())}%",
+        )
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/partials/_search_results.html",
+        {"results": results},
+    )
+
+
 @router.get("/{role_id}/")
 async def role_detail(
     role_id: str,
