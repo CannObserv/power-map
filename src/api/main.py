@@ -3,10 +3,10 @@
 import os
 from contextlib import asynccontextmanager
 
-import asyncpg
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+import src.core.db as db
 from src.api.admin.router import admin_router
 from src.core.logging import configure_logging
 
@@ -18,12 +18,9 @@ async def lifespan(app: FastAPI):
     """Create and close the asyncpg connection pool."""
     dsn = os.environ.get("DATABASE_URL")
     if dsn:
-        app.state.db_pool = await asyncpg.create_pool(dsn)
-    else:
-        app.state.db_pool = None
+        await db.create_pool(dsn)
     yield
-    if getattr(app.state, "db_pool", None):
-        await app.state.db_pool.close()
+    await db.close_pool()
 
 
 app = FastAPI(title="power-map", version="0.1.0", lifespan=lifespan)

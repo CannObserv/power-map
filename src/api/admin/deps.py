@@ -4,9 +4,10 @@ import json
 from dataclasses import dataclass
 from urllib.parse import quote
 
-import asyncpg
 from fastapi import Request
 from fastapi.responses import RedirectResponse
+
+import src.core.db as db
 
 
 @dataclass
@@ -107,10 +108,8 @@ async def org_header_extra(org_id: str, db) -> dict:
     return {"updateOrgHeader": {"display": display}}
 
 
-async def get_db(request: Request) -> asyncpg.Connection:
-    """Yield a connection from the app-level asyncpg pool."""
-    pool: asyncpg.Pool | None = getattr(request.app.state, "db_pool", None)
-    if pool is None:
-        raise RuntimeError("Database pool not initialized — is DATABASE_URL set?")
+async def get_db():
+    """Yield a connection from the global asyncpg pool."""
+    pool = db.get_pool()
     async with pool.acquire() as conn:
         yield conn

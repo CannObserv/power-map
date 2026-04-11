@@ -1,5 +1,8 @@
 """Tests for src.core.db — schema helpers and ULID generation."""
 
+import pytest
+
+import src.core.db as db_module
 from src.core.db import generate_id
 
 # ---------------------------------------------------------------------------
@@ -19,6 +22,22 @@ def test_generate_id_is_26_chars():
 def test_generate_id_unique():
     ids = {generate_id() for _ in range(100)}
     assert len(ids) == 100
+
+
+# ---------------------------------------------------------------------------
+# Pool lifecycle
+# ---------------------------------------------------------------------------
+
+
+def test_get_pool_raises_when_not_initialised():
+    """get_pool must raise RuntimeError when _pool is None (pool not created)."""
+    original = db_module._pool
+    db_module._pool = None
+    try:
+        with pytest.raises(RuntimeError, match="not initialised"):
+            db_module.get_pool()
+    finally:
+        db_module._pool = original
 
 
 def test_generate_id_timestamp_nondecreasing():
