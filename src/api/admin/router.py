@@ -27,6 +27,8 @@ from src.api.admin import roles as roles_module
 from src.api.admin import roles_assignments_inline as roles_assignments_inline_module
 from src.api.admin import roles_detail as roles_detail_module
 from src.api.admin import settings as settings_module
+from src.api.admin import settings_identifier_types as settings_identifier_types_module
+from src.api.admin import settings_link_types as settings_link_types_module
 
 templates = Jinja2Templates(directory="src/templates")
 admin_router = APIRouter(prefix="/admin")
@@ -35,6 +37,8 @@ admin_router.include_router(dashboard_module.router)
 admin_router.include_router(entities_module.router)
 admin_router.include_router(imports_module.router)
 admin_router.include_router(settings_module.router)
+admin_router.include_router(settings_link_types_module.router)
+admin_router.include_router(settings_identifier_types_module.router)
 admin_router.include_router(activity_module.router)
 admin_router.include_router(orgs_module.router)
 admin_router.include_router(orgs_names_module.router)
