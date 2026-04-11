@@ -183,6 +183,9 @@ async def name_edit_row_post(
     if not existing:
         raise HTTPException(status_code=404)
     if is_canonical != "true" and existing["is_canonical"]:
+        # Guard runs outside the transaction intentionally: a concurrent promotion
+        # (another request canonicalizing a different name) would make this check
+        # false — i.e., the save would be allowed — which is the safe direction.
         other_canonical = await db.fetchval(
             "SELECT id FROM organization_names"
             " WHERE organization_id=$1 AND is_canonical=TRUE AND id != $2",
@@ -197,7 +200,7 @@ async def name_edit_row_post(
                 status_code=200,
                 headers=flash_trigger(
                     "error",
-                    "Cannot remove canonical — promote another name first.",
+                    "Cannot remove canonical. Promote another name first.",
                 ),
             )
     async with db.transaction():

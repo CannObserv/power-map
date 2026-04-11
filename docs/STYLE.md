@@ -1364,7 +1364,7 @@ if is_canonical != "true" and existing["is_canonical"]:
             status_code=200,
             headers=flash_trigger(
                 "error",
-                "Cannot remove canonical — promote another name first.",
+                "Cannot remove canonical. Promote another name first.",
             ),
         )
 ```

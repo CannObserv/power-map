@@ -16,6 +16,12 @@ AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
 
 
+@pytest.fixture
+def client():
+    with TestClient(app) as c:
+        yield c
+
+
 def _dsn():
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
@@ -294,7 +300,103 @@ def test_name_edit_non_canonical_row_can_stay_non_canonical(client, person_and_n
     assert trigger["showFlash"]["level"] == "success"
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
+# ---------------------------------------------------------------------------
+# Parity tests (mirror test_orgs_names.py coverage)
+# ---------------------------------------------------------------------------
+
+
+def test_names_new_row_returns_form(client, person_and_name):
+    pid, _ = person_and_name
+    r = client.get(f"/admin/people/{pid}/names/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "<form" in r.text
+
+
+def test_names_form_row_canonical_toggle_has_aria_label(client, person_and_name):
+    pid, _ = person_and_name
+    r = client.get(f"/admin/people/{pid}/names/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'aria-label="Canonical"' in r.text
+
+
+def test_names_edit_returns_tbody(client, person_and_name):
+    """Edit response must return all rows (tbody innerHTML), not just the edited row."""
+    dsn = _dsn()
+    pid, nid = person_and_name
+    nid2 = generate_id()
+
+    async def add_second():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute(
+                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, 'Second Name', 'former', FALSE)",
+                nid2,
+                pid,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(add_second())
+    r = client.post(
+        f"/admin/people/{pid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"name": "Original Name", "name_type": "legal", "is_canonical": "true"},
+    )
+    assert r.status_code == 200
+    assert f'id="name-row-{nid}"' in r.text
+    assert f'id="name-row-{nid2}"' in r.text
+    assert "<table" not in r.text
+
+
+def test_names_create_returns_update_person_header(client, person_and_name):
+    """Creating a name must emit updatePersonHeader in HX-Trigger."""
+    pid, _ = person_and_name
+    r = client.post(
+        f"/admin/people/{pid}/names/",
+        headers=HTMX_HEADERS,
+        data={"name": "Former Name", "name_type": "former", "is_canonical": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "updatePersonHeader" in trigger
+
+
+def test_names_update_returns_update_person_header_with_new_display(client, person_and_name):
+    """Updating the canonical name must emit updatePersonHeader."""
+    pid, nid = person_and_name
+    r = client.post(
+        f"/admin/people/{pid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"name": "Renamed Person", "name_type": "legal", "is_canonical": "true"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "updatePersonHeader" in trigger
+
+
+def test_names_delete_returns_update_person_header(client, person_and_name):
+    """Deleting a non-canonical name must emit updatePersonHeader."""
+    dsn = _dsn()
+    pid, _ = person_and_name
+    nid2 = generate_id()
+
+    async def add():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute(
+                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, 'Former Name', 'former', FALSE)",
+                nid2,
+                pid,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(add())
+    r = client.delete(f"/admin/people/{pid}/names/{nid2}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "updatePersonHeader" in trigger

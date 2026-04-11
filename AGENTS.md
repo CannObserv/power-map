@@ -23,14 +23,14 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     org_dups.py    — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     people_dups.py — People-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_person_duplicates, get_person_dup_count dep, invalidate_dup_count_cache
     people.py   — Person list, create (form.html), detail, inline notes/pronouns, archive/unarchive/delete, merge, dismiss-duplicate, duplicates review, search typeahead
-    people_names.py     — Inline CRUD for person_names (row-level HTMX swap); last-identity guard; auto-promote sole name; emits updatePersonHeader on mutations
+    people_names.py     — Inline CRUD for person_names (row-level HTMX swap); last-identity guard on delete; canonical edit guard (rejects un-canonicalizing the sole canonical name); auto-promote sole name; emits updatePersonHeader on mutations
     people_contacts.py  — Inline CRUD for contact_methods (row-level HTMX swap); email/phone normalization with inline error re-render
     people_addresses.py — Inline CRUD for addresses + entity_addresses (row-level HTMX swap); normalizer confirm flow; country-format endpoint
     people_links.py     — Inline CRUD for links + link_types (row-level HTMX swap)
     people_identifiers.py — Inline CRUD for identifiers filtered to entity_type='person' (row-level HTMX swap)
     router.py   — Mounts all admin sub-routers under /admin/
     orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/unarchive/delete
-    orgs_names.py       — Inline CRUD for organization_names (row-level HTMX swap)
+    orgs_names.py       — Inline CRUD for organization_names (row-level HTMX swap); last-identity guard on delete; canonical edit guard (rejects un-canonicalizing the sole canonical name); auto-promote sole name; emits updateOrgHeader on mutations
     orgs_acronyms.py    — Inline CRUD for organization_acronyms (row-level HTMX swap)
     orgs_addresses.py   — Inline CRUD for addresses + entity_addresses (row-level HTMX swap)
     orgs_contacts.py    — Inline CRUD for contact_methods (row-level HTMX swap)
