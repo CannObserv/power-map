@@ -27,6 +27,8 @@ from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
 from src.api.admin import roles_detail as roles_detail_module
 from src.api.admin import settings as settings_module
+from src.api.admin import settings_identifier_types as settings_identifier_types_module
+from src.api.admin import settings_link_types as settings_link_types_module
 from src.api.admin.deps import AdminUser, get_admin_user
 from src.api.admin.org_dups import count_org_duplicates
 from src.api.admin.people_dups import count_person_duplicates
@@ -84,6 +86,8 @@ async def dashboard(
 admin_router.include_router(entities_module.router)
 admin_router.include_router(imports_module.router)
 admin_router.include_router(settings_module.router)
+admin_router.include_router(settings_link_types_module.router)
+admin_router.include_router(settings_identifier_types_module.router)
 admin_router.include_router(activity_module.router)
 admin_router.include_router(orgs_module.router)
 admin_router.include_router(orgs_names_module.router)
