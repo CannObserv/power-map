@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 from src.core.normalizers.address import get_address_normalizer
 from src.core.normalizers.address_meta import get_country_format
@@ -154,13 +154,10 @@ async def _get_entity_address_or_404(addr_id: str, org_id: str, db):
 async def address_new_row(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return empty address form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     ctx = await _field_context("US")
     return templates.TemplateResponse(
@@ -187,13 +184,10 @@ async def address_create(
     longitude: str = Form(""),
     components: str = Form(""),
     country: str = Form("US"),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Create a new organization address."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     if _is_all_blank(address_line_1, city, region, postal_code):
         if not is_htmx(request):
@@ -320,13 +314,10 @@ async def address_read_row(
     org_id: str,
     addr_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return read-only address row (used by Cancel on edit form)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     row = await _get_entity_address_or_404(addr_id, org_id, db)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_address_row.html", {"org_id": org_id, "a": row}
@@ -338,13 +329,10 @@ async def address_edit_row_get(
     org_id: str,
     addr_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return address edit form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     row = await _get_entity_address_or_404(addr_id, org_id, db)
     ctx = await _field_context(row["country"] or "US")
     return templates.TemplateResponse(
@@ -372,13 +360,10 @@ async def address_edit_row_post(
     longitude: str = Form(""),
     components: str = Form(""),
     country: str = Form("US"),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Update an organization address."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await _get_entity_address_or_404(addr_id, org_id, db)
     if _is_all_blank(address_line_1, city, region, postal_code):
         if not is_htmx(request):
@@ -499,13 +484,10 @@ async def address_country_format(
     org_id: str,
     request: Request,
     country: str = "US",
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return HTMX partial of structured address fields for the given country code."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     ctx = await _field_context(country)
     return templates.TemplateResponse(
@@ -520,13 +502,10 @@ async def address_delete(
     org_id: str,
     addr_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Delete an org address and cascade-delete its underlying addresses row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await db.fetchrow(
         "SELECT ea.id, ea.address_id FROM entity_addresses ea"
         " WHERE ea.id=$1 AND ea.entity_type='organization' AND ea.entity_id=$2",

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, get_admin_user, get_db
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import get_person_dup_count
@@ -72,15 +72,12 @@ async def ra_list(
     status: str = "active",
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=10, le=500),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List role assignments with search and status filter."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     conditions = []
     params: list = []
@@ -149,15 +146,12 @@ async def ra_list(
 @router.get("/new/")
 async def ra_new_form(
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """New role assignment form."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     people = await _fetch_people(db)
     roles = await _fetch_roles(db)
     return templates.TemplateResponse(
@@ -185,15 +179,12 @@ async def ra_create(
     start_date: str = Form(""),
     end_date: str = Form(""),
     notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Create a new role assignment."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     is_current_bool = is_current == "true"
     start_date_val = _parse_date(start_date)
@@ -240,15 +231,12 @@ async def ra_create(
 async def ra_detail(
     ra_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Role assignment detail view."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     ra = await db.fetchrow(
         """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
@@ -287,15 +275,12 @@ async def ra_detail(
 async def ra_edit_form(
     ra_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Edit role assignment form."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     ra = await db.fetchrow(
         "SELECT * FROM role_assignments WHERE id = $1",
@@ -332,15 +317,12 @@ async def ra_update(
     start_date: str = Form(""),
     end_date: str = Form(""),
     notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Update a role assignment."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     ra = await db.fetchrow("SELECT id FROM role_assignments WHERE id = $1", ra_id)
     if not ra:
@@ -392,13 +374,10 @@ async def ra_update(
 async def ra_archive(
     ra_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Archive a role assignment (soft delete)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     ra = await db.fetchrow("SELECT id FROM role_assignments WHERE id = $1", ra_id)
     if not ra:
@@ -414,13 +393,10 @@ async def ra_archive(
 async def ra_delete(
     ra_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Hard delete an archived role assignment."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     ra = await db.fetchrow(
         "SELECT id, archived_at FROM role_assignments WHERE id = $1", ra_id

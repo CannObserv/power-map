@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
@@ -36,13 +36,10 @@ async def contact_new_row(
     person_id: str,
     request: Request,
     contact_type: Literal["email", "phone"] = Query(...),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return empty contact form row for the given contact_type (email|phone)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_person_or_404(person_id, db)
     return templates.TemplateResponse(
         request,
@@ -58,13 +55,10 @@ async def contact_create(
     contact_type: Literal["email", "phone"] = Form(...),
     value: str = Form(...),
     display_label: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Create a new person contact method."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_person_or_404(person_id, db)
     raw_value = value.strip()
     try:
@@ -113,13 +107,10 @@ async def contact_read_row(
     person_id: str,
     contact_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return read-only contact row (used by Cancel on edit form)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     contact = await db.fetchrow(
         "SELECT * FROM contact_methods"
         " WHERE id=$1 AND entity_type='person' AND entity_id=$2",
@@ -138,13 +129,10 @@ async def contact_edit_row_get(
     person_id: str,
     contact_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return contact edit form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     contact = await db.fetchrow(
         "SELECT * FROM contact_methods"
         " WHERE id=$1 AND entity_type='person' AND entity_id=$2",
@@ -167,13 +155,10 @@ async def contact_edit_row_post(
     request: Request,
     value: str = Form(...),
     display_label: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Update a person contact method (contact_type is immutable)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await db.fetchrow(
         "SELECT * FROM contact_methods"
         " WHERE id=$1 AND entity_type='person' AND entity_id=$2",
@@ -225,13 +210,10 @@ async def contact_delete(
     person_id: str,
     contact_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Delete a person contact method."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await db.fetchrow(
         "SELECT id FROM contact_methods"
         " WHERE id=$1 AND entity_type='person' AND entity_id=$2",

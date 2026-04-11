@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, escape_like, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, escape_like, get_admin_user, get_db
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import get_person_dup_count
@@ -32,15 +32,12 @@ async def roles_list(
     status: str = "active",
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=10, le=500),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List roles with title/org search and status filter."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     conditions = []
     params: list = []
@@ -111,15 +108,12 @@ async def roles_list(
 @router.get("/new/")
 async def role_new_form(
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """New role form."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     orgs = await db.fetch(
         """SELECT o.id, dn.display_name AS name
            FROM organizations o
@@ -146,13 +140,10 @@ async def role_create(
     organization_id: str = Form(...),
     title: str = Form(...),
     notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Create a new role."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role_id = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title, notes) VALUES ($1, $2, $3, $4)",
@@ -165,13 +156,10 @@ async def role_create(
 async def roles_search(
     request: Request,
     q: str = "",
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Typeahead search — returns HTML fragment of matching roles."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     results = []
     if q.strip():
         results = await db.fetch(
@@ -195,15 +183,12 @@ async def roles_search(
 async def role_detail(
     role_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Role detail view."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     role = await db.fetchrow(
         """SELECT r.id, r.title, r.notes, r.archived_at, r.created_at, r.updated_at,
@@ -238,13 +223,10 @@ async def role_detail(
 async def role_archive(
     role_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Archive a role (soft delete)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role = await db.fetchrow("SELECT id FROM roles WHERE id = $1", role_id)
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
@@ -256,13 +238,10 @@ async def role_archive(
 async def role_delete(
     role_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Hard delete an archived role."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role = await db.fetchrow("SELECT id, archived_at FROM roles WHERE id = $1", role_id)
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")

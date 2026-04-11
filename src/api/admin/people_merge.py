@@ -10,7 +10,6 @@ from markupsafe import escape
 
 from src.api.admin.deps import (
     AdminUser,
-    check_auth,
     flash_trigger,
     get_admin_user,
     get_db,
@@ -52,15 +51,12 @@ async def _fetch_duplicate_pairs(db) -> list:
 @router.get("/duplicates/")
 async def people_duplicates(
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List near-duplicate person pairs for review."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     pairs = await _fetch_duplicate_pairs(db)
     ctx = {
         "user": user,
@@ -83,13 +79,10 @@ async def person_merge(
     winner_id: str,
     loser_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Merge loser into winner: reassign all references, hard-delete loser."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     winner_name = await db.fetchval(
         "SELECT display_name FROM v_person_display_names WHERE person_id=$1", winner_id
@@ -252,13 +245,10 @@ async def person_dismiss_duplicate(
     id_a: str,
     id_b: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Record that this pair is not a duplicate (suppress from future results)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     # Store with consistent ordering (a < b)
     a, b = (id_a, id_b) if id_a < id_b else (id_b, id_a)
     await db.execute(

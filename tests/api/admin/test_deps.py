@@ -5,11 +5,11 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi.responses import RedirectResponse
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import src.core.db as db_module
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.main import app
 from tests.api.admin.conftest import AUTH_HEADERS
 
@@ -60,25 +60,24 @@ def test_get_admin_user_returns_user_when_headers_present():
     assert result.email == "test@example.com"
 
 
+def test_get_admin_user_raises_307_when_headers_absent():
+    """get_admin_user must raise HTTPException(307) with login Location when headers absent."""
+    request = MagicMock()
+    request.headers = {}
+    request.url.path = "/admin/"
+    request.url.query = ""
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(get_admin_user(request))
+    assert exc_info.value.status_code == 307
+    assert "/__exe.dev/login" in exc_info.value.headers["Location"]
+
+
 def test_admin_root_redirect_preserves_query_string():
     response = _client.get("/admin/?page=2&q=foo", follow_redirects=False)
     assert response.status_code in (302, 307)
     location = response.headers["location"]
     assert "redirect=/admin/%3Fpage%3D2%26q%3Dfoo" in location
-
-
-def test_check_auth_passes_through_user():
-    user = AdminUser(id="u1", email="a@b.com")
-    redirect, out = check_auth(user)
-    assert redirect is None
-    assert out is user
-
-
-def test_check_auth_returns_redirect():
-    r = RedirectResponse("/__exe.dev/login")
-    redirect, out = check_auth(r)
-    assert redirect is r
-    assert out is None
 
 
 def test_is_htmx_returns_true_for_htmx_non_boosted_request():

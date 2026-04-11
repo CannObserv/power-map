@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -37,13 +37,10 @@ async def _get_identifier_or_404(ident_id: str, org_id: str, db):
 async def identifier_new_row(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return empty identifier form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     ident_types = await db.fetch(
         "SELECT * FROM entity_identifier_types"
@@ -62,13 +59,10 @@ async def identifier_create(
     request: Request,
     entity_identifier_type_id: str = Form(...),
     value: str = Form(...),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Create a new organization identifier."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     iid = generate_id()
     await db.execute(
@@ -95,13 +89,10 @@ async def identifier_read_row(
     org_id: str,
     ident_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return read-only identifier row (used by Cancel on edit form)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     row = await _get_identifier_or_404(ident_id, org_id, db)
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_identifier_row.html", {"org_id": org_id, "ident": row}
@@ -113,13 +104,10 @@ async def identifier_edit_row_get(
     org_id: str,
     ident_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return identifier edit form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     row = await _get_identifier_or_404(ident_id, org_id, db)
     ident_types = await db.fetch(
         "SELECT * FROM entity_identifier_types"
@@ -139,13 +127,10 @@ async def identifier_edit_row_post(
     request: Request,
     entity_identifier_type_id: str = Form(...),
     value: str = Form(...),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Update an organization identifier."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_identifier_or_404(ident_id, org_id, db)
     await db.execute(
         "UPDATE identifiers SET entity_identifier_type_id=$1, value=$2 WHERE id=$3",
@@ -169,13 +154,10 @@ async def identifier_delete(
     org_id: str,
     ident_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Delete an organization identifier."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await db.fetchrow(
         """SELECT i.id FROM identifiers i
            JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
