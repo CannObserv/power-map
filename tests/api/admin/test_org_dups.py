@@ -1,5 +1,6 @@
 """Unit tests for org-duplicate detection logic (cache, count, dep)."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -83,3 +84,15 @@ class TestGetOrgDupCount:
         result = await get_org_dup_count(db=db_good)
         assert result == 3
         db_good.fetchval.assert_awaited_once()
+
+    async def test_logs_warning_on_exception(self, caplog):
+        """Exception in get_org_dup_count should emit a WARNING with exc_info."""
+        db = MagicMock()
+        db.fetchval = AsyncMock(side_effect=RuntimeError("boom"))
+        with caplog.at_level(logging.WARNING, logger="src.api.admin.org_dups"):
+            result = await get_org_dup_count(db=db)
+        assert result == 0
+        assert any(
+            r.levelno == logging.WARNING and r.exc_info is not None
+            for r in caplog.records
+        )
