@@ -105,7 +105,7 @@ def test_dashboard_shows_counts(client, seeded_counts):
 def test_dashboard_person_dup_badge_shown(client):
     """Person dup count badge appears when count_person_duplicates returns > 0."""
     with patch(
-        "src.api.admin.router.count_person_duplicates",
+        "src.api.admin.dashboard.count_person_duplicates",
         new=AsyncMock(return_value=7),
     ):
         resp = client.get("/admin/", headers=AUTH_HEADERS)
@@ -116,7 +116,7 @@ def test_dashboard_person_dup_badge_shown(client):
 def test_dashboard_person_dup_badge_hidden_when_zero(client):
     """Person dup count badge is absent when count_person_duplicates returns 0."""
     with patch(
-        "src.api.admin.router.count_person_duplicates",
+        "src.api.admin.dashboard.count_person_duplicates",
         new=AsyncMock(return_value=0),
     ):
         resp = client.get("/admin/", headers=AUTH_HEADERS)
