@@ -25,6 +25,7 @@ from src.api.admin import people_links as people_links_module
 from src.api.admin import people_names as people_names_module
 from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
+from src.api.admin import roles_assignments_inline as roles_assignments_inline_module
 from src.api.admin import roles_detail as roles_detail_module
 from src.api.admin import settings as settings_module
 from src.api.admin.deps import AdminUser, get_admin_user
@@ -102,4 +103,5 @@ admin_router.include_router(people_identifiers_module.router)
 admin_router.include_router(people_assignments_module.router)
 admin_router.include_router(roles_module.router)
 admin_router.include_router(roles_detail_module.router)
+admin_router.include_router(roles_assignments_inline_module.router)
 admin_router.include_router(role_assignments_module.router)

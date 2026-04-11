@@ -9,7 +9,7 @@ from src.api.admin.deps import AdminUser, check_auth, escape_like, get_admin_use
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import get_person_dup_count
-from src.api.admin.roles_detail import fetch_role_assignments
+from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
