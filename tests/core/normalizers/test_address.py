@@ -10,6 +10,8 @@ from src.core.normalizers.address import (
     ExternalAddressNormalizer,
     FallbackAddressNormalizer,
     LocalAddressNormalizer,
+    _reset_normalizer,
+    get_address_normalizer,
 )
 
 # ---------------------------------------------------------------------------
@@ -313,3 +315,69 @@ async def test_fallback_non_us_falls_back_to_local_raw_only(config):
         r = await n.normalize("10 Downing St, London SW1A 2AA", country="GB")
     assert r.value["country"] == "GB"
     assert r.value.get("city") is None  # local doesn't parse non-US
+
+
+# ---------------------------------------------------------------------------
+# get_address_normalizer singleton
+# ---------------------------------------------------------------------------
+
+def test_get_address_normalizer_returns_fallback_instance():
+    """get_address_normalizer returns a FallbackAddressNormalizer."""
+    _reset_normalizer()
+    n = get_address_normalizer()
+    assert isinstance(n, FallbackAddressNormalizer)
+
+
+def test_get_address_normalizer_returns_same_instance():
+    """Repeated calls return the same cached instance."""
+    _reset_normalizer()
+    n1 = get_address_normalizer()
+    n2 = get_address_normalizer()
+    assert n1 is n2
+
+
+def test_get_address_normalizer_without_api_key_has_no_config():
+    """Without ADDRESS_VALIDATOR_API_KEY, config is None (local-only normalizer)."""
+    _reset_normalizer()
+    with patch.dict("os.environ", {}, clear=True):
+        # Ensure key absent
+        import os
+        os.environ.pop("ADDRESS_VALIDATOR_API_KEY", None)
+        n = get_address_normalizer()
+    assert n.config is None
+
+
+def test_get_address_normalizer_with_api_key_sets_config():
+    """With ADDRESS_VALIDATOR_API_KEY set, config is populated."""
+    _reset_normalizer()
+    with patch.dict("os.environ", {"ADDRESS_VALIDATOR_API_KEY": "test-key-123"}, clear=False):
+        n = get_address_normalizer()
+    assert n.config is not None
+    assert n.config.api_key == "test-key-123"
+    assert n.config.run_validation is False
+
+
+def test_get_address_normalizer_with_run_validation_true():
+    """ADDRESS_VALIDATOR_RUN_VALIDATION=true sets run_validation=True."""
+    _reset_normalizer()
+    with patch.dict(
+        "os.environ",
+        {"ADDRESS_VALIDATOR_API_KEY": "key", "ADDRESS_VALIDATOR_RUN_VALIDATION": "true"},
+        clear=False,
+    ):
+        n = get_address_normalizer()
+    assert n.config is not None
+    assert n.config.run_validation is True
+
+
+def test_reset_normalizer_clears_cache():
+    """_reset_normalizer allows re-initialization on next call."""
+    _reset_normalizer()
+    with patch.dict("os.environ", {"ADDRESS_VALIDATOR_API_KEY": "key-a"}, clear=False):
+        n1 = get_address_normalizer()
+    _reset_normalizer()
+    with patch.dict("os.environ", {"ADDRESS_VALIDATOR_API_KEY": "key-b"}, clear=False):
+        n2 = get_address_normalizer()
+    assert n1 is not n2
+    assert n1.config.api_key == "key-a"
+    assert n2.config.api_key == "key-b"

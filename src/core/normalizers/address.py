@@ -1,6 +1,7 @@
 """Address normalizers: local (usaddress), external (address-validator API), and fallback."""
 
 import asyncio
+import os
 from dataclasses import dataclass, field
 
 import httpx
@@ -197,3 +198,38 @@ class FallbackAddressNormalizer:
             result = self._local.normalize(raw, country=country)
             result.warnings.insert(0, f"fallback to local address parser: {exc}")
             return result
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton
+# ---------------------------------------------------------------------------
+
+_normalizer: FallbackAddressNormalizer | None = None
+
+
+def get_address_normalizer() -> FallbackAddressNormalizer:
+    """Return a shared FallbackAddressNormalizer, initializing lazily on first call.
+
+    Reads ADDRESS_VALIDATOR_API_KEY and ADDRESS_VALIDATOR_RUN_VALIDATION from
+    the environment on first call; result is cached for the lifetime of the process.
+    Call _reset_normalizer() in tests to clear the cache.
+    """
+    global _normalizer
+    if _normalizer is None:
+        api_key = os.environ.get("ADDRESS_VALIDATOR_API_KEY")
+        run_validation = (
+            os.environ.get("ADDRESS_VALIDATOR_RUN_VALIDATION", "").lower() == "true"
+        )
+        config = (
+            AddressNormalizerConfig(api_key=api_key, run_validation=run_validation)
+            if api_key
+            else None
+        )
+        _normalizer = FallbackAddressNormalizer(config=config)
+    return _normalizer
+
+
+def _reset_normalizer() -> None:
+    """Reset the singleton cache. For use in tests only."""
+    global _normalizer
+    _normalizer = None
