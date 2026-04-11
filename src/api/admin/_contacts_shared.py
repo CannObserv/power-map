@@ -128,8 +128,9 @@ def make_contacts_router(
         await db.execute(
             "INSERT INTO contact_methods"
             " (id, entity_type, entity_id, contact_type, value, display_label)"
-            f" VALUES ($1, '{entity_type}', $2, $3, $4, $5)",
+            " VALUES ($1, $2, $3, $4, $5, $6)",
             cid,
+            entity_type,
             entity_id,
             contact_type,
             raw_value,
@@ -156,8 +157,9 @@ def make_contacts_router(
         """Return read-only contact row (used by Cancel on edit form)."""
         contact = await db.fetchrow(
             "SELECT * FROM contact_methods"
-            f" WHERE id=$1 AND entity_type='{entity_type}' AND entity_id=$2",
+            " WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
             contact_id,
+            entity_type,
             entity_id,
         )
         if not contact:
@@ -177,8 +179,9 @@ def make_contacts_router(
         """Return contact edit form row."""
         contact = await db.fetchrow(
             "SELECT * FROM contact_methods"
-            f" WHERE id=$1 AND entity_type='{entity_type}' AND entity_id=$2",
+            " WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
             contact_id,
+            entity_type,
             entity_id,
         )
         if not contact:
@@ -202,8 +205,9 @@ def make_contacts_router(
         """Update a contact method (contact_type is immutable)."""
         existing = await db.fetchrow(
             "SELECT * FROM contact_methods"
-            f" WHERE id=$1 AND entity_type='{entity_type}' AND entity_id=$2",
+            " WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
             contact_id,
+            entity_type,
             entity_id,
         )
         if not existing:
@@ -256,8 +260,9 @@ def make_contacts_router(
         """Delete a contact method."""
         existing = await db.fetchrow(
             "SELECT id FROM contact_methods"
-            f" WHERE id=$1 AND entity_type='{entity_type}' AND entity_id=$2",
+            " WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
             contact_id,
+            entity_type,
             entity_id,
         )
         if not existing:

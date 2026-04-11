@@ -19,28 +19,39 @@ Python ≥3.12, uv, pytest, ruff; Node ≥18, npm, vitest + ESLint + Prettier (J
 ```
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
   admin/        — Jinja2 + HTMX admin dashboard (entities, people, orgs, roles, role_assignments, settings, imports)
-    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth), check_auth helper, get_db, is_htmx, flash_trigger, org_header_extra, person_header_extra
+    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth, raises HTTPException 307), get_db, is_htmx, flash_trigger, escape_like, org_header_extra, person_header_extra
     org_dups.py    — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     people_dups.py — People-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_person_duplicates, get_person_dup_count dep, invalidate_dup_count_cache
-    people.py   — Person list, create (form.html), detail, inline notes/pronouns, archive/unarchive/delete, merge, dismiss-duplicate, duplicates review, search typeahead
+    dashboard.py        — Admin dashboard landing page (record counts, dup badge counts)
+    people.py   — Person list, create (form.html), detail, inline notes/pronouns, archive/unarchive/delete, search typeahead
+    people_merge.py     — Person merge, dismiss-duplicate, duplicates review
     people_names.py     — Inline CRUD for person_names (row-level HTMX swap); last-identity guard on delete; canonical edit guard (rejects un-canonicalizing the sole canonical name); auto-promote sole name; emits updatePersonHeader on mutations
-    people_contacts.py  — Inline CRUD for contact_methods (row-level HTMX swap); email/phone normalization with inline error re-render
+    people_contacts.py  — Inline CRUD for contact_methods (row-level HTMX swap); delegates to _contacts_shared factory
     people_addresses.py — Inline CRUD for addresses + entity_addresses (row-level HTMX swap); normalizer confirm flow; country-format endpoint
-    people_links.py     — Inline CRUD for links + link_types (row-level HTMX swap)
-    people_identifiers.py — Inline CRUD for identifiers filtered to entity_type='person' (row-level HTMX swap)
+    people_links.py     — Inline CRUD for links + link_types (row-level HTMX swap); delegates to _links_shared factory
+    people_identifiers.py — Inline CRUD for identifiers filtered to entity_type='person' (row-level HTMX swap); delegates to _identifiers_shared factory
+    people_assignments.py — Inline CRUD for person → role_assignments (row-level HTMX swap)
     router.py   — Mounts all admin sub-routers under /admin/
     orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/unarchive/delete
+    orgs_merge.py       — Org merge, dismiss-duplicate, duplicates review
     orgs_names.py       — Inline CRUD for organization_names (row-level HTMX swap); last-identity guard on delete; canonical edit guard (rejects un-canonicalizing the sole canonical name); auto-promote sole name; emits updateOrgHeader on mutations
     orgs_acronyms.py    — Inline CRUD for organization_acronyms (row-level HTMX swap)
     orgs_addresses.py   — Inline CRUD for addresses + entity_addresses (row-level HTMX swap)
-    orgs_contacts.py    — Inline CRUD for contact_methods (row-level HTMX swap)
-    orgs_links.py       — Inline CRUD for links + link_types (row-level HTMX swap)
-    orgs_identifiers.py — Inline CRUD for identifiers (row-level HTMX swap)
+    orgs_contacts.py    — Inline CRUD for contact_methods (row-level HTMX swap); delegates to _contacts_shared factory
+    orgs_links.py       — Inline CRUD for links + link_types (row-level HTMX swap); delegates to _links_shared factory
+    orgs_identifiers.py — Inline CRUD for identifiers (row-level HTMX swap); delegates to _identifiers_shared factory
     orgs_roles.py       — Inline role create and merge on org detail (new-row GET, create POST, merge POST)
-    roles_detail.py     — Inline editing for role detail: org, title, notes, assignment create/read-row/edit-row
+    roles_detail.py     — Inline editing for role detail fields: org, title, notes
+    roles_assignments_inline.py — Inline assignment CRUD on role detail (create/read-row/edit-row); fetch_role_assignments helper
     entities.py         — Entities landing page (card-grid overview with record counts); templates in src/templates/admin/entities/
-    settings.py         — Settings landing page + inline CRUD for link_types and entity_identifier_types; templates in src/templates/admin/settings/
+    settings.py         — Settings landing page; templates in src/templates/admin/settings/
+    settings_link_types.py      — Inline CRUD for link_types (row-level HTMX swap)
+    settings_identifier_types.py — Inline CRUD for entity_identifier_types (row-level HTMX swap)
     activity.py         — Activity landing page (card-grid overview of import batches); templates in src/templates/admin/activity/
+    _contacts_shared.py   — Factory make_contacts_router(entity_type, ...) — shared CRUD logic for org and person contact methods
+    _links_shared.py      — Factory make_links_router(entity_type, ...) — shared CRUD logic for org and person links
+    _identifiers_shared.py — Factory make_identifiers_router(entity_type, ...) — shared CRUD logic for org and person identifiers
+    _names_shared.py      — Factory make_names_router(...) — shared CRUD logic for org and person names; accepts entity-specific promote/guard/header callbacks
 src/core/       — Shared domain logic
   db.py         — Connection pool, apply_schema, generate_id
   schema.sql    — Canonical DDL (tables, indexes, triggers, seed data); source of truth
@@ -55,7 +66,7 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 ### Admin dashboard conventions
 - Auth: exe.dev proxy injects `X-ExeDev-UserID` + `X-ExeDev-Email` headers; missing headers → redirect to `/__exe.dev/login?redirect=<url-encoded path+query>`
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived); unarchive via `POST /{id}/unarchive/` sets `archived_at = NULL` and preserves prior `active` state (returns 409 if not archived)
-- `check_auth(user)` from `src.api.admin.deps` — call at top of every route handler; returns `(redirect_response, user)` tuple
+- Auth dependency: `user: AdminUser = Depends(get_admin_user)` on every route handler — `get_admin_user` raises `HTTPException(307)` with `Location: /__exe.dev/login?redirect=<url>` when headers are absent; FastAPI propagates the redirect automatically.
 - HTMX partial responses: use `is_htmx(request)` from `src.api.admin.deps` to select partial templates — checks `HX-Request and not HX-Boosted` (boost sends both; omitting the guard causes boosted sidebar nav to receive bare fragments instead of full page layouts).
 - hx-boost re-execution: HTMX re-runs all `<script src>` tags found in `<body>` on every boosted navigation (via its `executeScripts` mechanism). Scripts with persistent `document.addEventListener` calls must live in `<head>` (`admin-modal.js`, `flash.js`, `dark-mode.js`). For unavoidable inline body scripts, use the remove/re-assign/add guard pattern: `document.removeEventListener(evt, document.__pmKey); document.__pmKey = fn; document.addEventListener(evt, document.__pmKey)` — see `base.html` aria-busy and `__pmNavKeydown` as examples.
 - Flash notifications: use `flash_trigger(level, body, extra=None)` from `src.api.admin.deps` on HTMX mutation routes — sets `HX-Trigger: {"showFlash": {...}}` response header; `flash.js` listener injects the flash into `#flash-region`. Pass as `headers=flash_trigger(level, body)` to `TemplateResponse`. For inline (non-HTMX) flash, use `message(level, body)` from `admin/macros/flash.html`. Levels: `success`, `info`, `warning`, `error`. Always escape DB-derived values with `markupsafe.escape()` before interpolating into `body` HTML strings. Pass `extra` to co-emit additional HX-Trigger events in the same header (all keys merged into one JSON object): `flash_trigger("success", "Saved.", extra={"myEvent": {...}})`.

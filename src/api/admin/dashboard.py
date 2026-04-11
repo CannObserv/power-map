@@ -21,6 +21,11 @@ async def dashboard(
     user: AdminUser = Depends(get_admin_user),
 ):
     """Admin dashboard landing page."""
+    # Acquire directly rather than via Depends(get_db): the dashboard calls
+    # count_org_duplicates / count_person_duplicates directly (not through their
+    # FastAPI deps) and needs to wrap each in its own try/except.  Using
+    # db_module.acquire() keeps a single connection for the whole handler while
+    # allowing the dup-count calls to be isolated from one another.
     async with db_module.acquire() as db:
         counts = await db.fetchrow(
             """

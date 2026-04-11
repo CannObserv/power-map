@@ -111,8 +111,9 @@ def make_links_router(
         await db.execute(
             "INSERT INTO links"
             " (id, entity_type, entity_id, url, link_type_id, is_active)"
-            f" VALUES ($1, '{entity_type}', $2, $3, $4, $5)",
+            " VALUES ($1, $2, $3, $4, $5, $6)",
             lid,
+            entity_type,
             entity_id,
             url.strip(),
             link_type_id,
