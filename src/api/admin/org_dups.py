@@ -5,6 +5,9 @@ import time
 from fastapi import Depends
 
 from src.api.admin.deps import get_db
+from src.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 CANDIDATE_WHERE = """
     FROM organizations a
@@ -21,6 +24,8 @@ CANDIDATE_WHERE = """
 """
 
 _DUP_COUNT_TTL = 300.0  # seconds
+# Process-local cache — not shared across gunicorn workers; counts may lag by
+# up to 5 min per worker under multi-process deployments.
 _dup_count_cache: dict[str, int | float] = {"value": 0, "expires": 0.0}
 
 
@@ -45,4 +50,5 @@ async def get_org_dup_count(db=Depends(get_db)) -> int:
     try:
         return await count_org_duplicates(db)
     except Exception:
+        logger.warning("Failed to fetch org duplicate count", exc_info=True)
         return 0
