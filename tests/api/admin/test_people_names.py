@@ -162,8 +162,8 @@ def test_names_delete_last_non_htmx_returns_409(client, person_and_name):
     assert r.status_code == 409
 
 
-def test_name_edit_sole_non_canonical_auto_promotes(client, person_and_name):
-    """Editing the only name to non-canonical must auto-promote it back."""
+def test_name_edit_sole_uncanonical_is_blocked(client, person_and_name):
+    """Unchecking canonical on the only name must be blocked with an error flash."""
     dsn = _dsn()
     pid, nid = person_and_name
 
@@ -173,6 +173,8 @@ def test_name_edit_sole_non_canonical_auto_promotes(client, person_and_name):
         data={"name": "Original Name", "name_type": "legal", "is_canonical": ""},
     )
     assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
 
     async def check():
         conn = await asyncpg.connect(dsn)
@@ -184,7 +186,7 @@ def test_name_edit_sole_non_canonical_auto_promotes(client, person_and_name):
         finally:
             await conn.close()
 
-    assert asyncio.run(check()) is True, "sole name must remain canonical after edit"
+    assert asyncio.run(check()) is True, "sole name must remain canonical after blocked edit"
 
 
 def test_name_edit_uncanonical_with_multiple_names_blocked(client, person_and_name):

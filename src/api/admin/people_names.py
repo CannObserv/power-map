@@ -218,7 +218,6 @@ async def name_edit_row_post(
             is_canonical == "true",
             name_id,
         )
-        await _maybe_promote_sole_name(person_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
     names = await db.fetch(
