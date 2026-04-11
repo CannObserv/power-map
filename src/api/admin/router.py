@@ -14,6 +14,7 @@ from src.api.admin import orgs_addresses as orgs_addresses_module
 from src.api.admin import orgs_contacts as orgs_contacts_module
 from src.api.admin import orgs_identifiers as orgs_identifiers_module
 from src.api.admin import orgs_links as orgs_links_module
+from src.api.admin import orgs_merge as orgs_merge_module
 from src.api.admin import orgs_names as orgs_names_module
 from src.api.admin import orgs_roles as orgs_roles_module
 from src.api.admin import people as people_module
@@ -22,6 +23,7 @@ from src.api.admin import people_assignments as people_assignments_module
 from src.api.admin import people_contacts as people_contacts_module
 from src.api.admin import people_identifiers as people_identifiers_module
 from src.api.admin import people_links as people_links_module
+from src.api.admin import people_merge as people_merge_module
 from src.api.admin import people_names as people_names_module
 from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
@@ -86,6 +88,7 @@ admin_router.include_router(imports_module.router)
 admin_router.include_router(settings_module.router)
 admin_router.include_router(activity_module.router)
 admin_router.include_router(orgs_module.router)
+admin_router.include_router(orgs_merge_module.router)
 admin_router.include_router(orgs_names_module.router)
 admin_router.include_router(orgs_acronyms_module.router)
 admin_router.include_router(orgs_addresses_module.router)
@@ -94,6 +97,7 @@ admin_router.include_router(orgs_links_module.router)
 admin_router.include_router(orgs_identifiers_module.router)
 admin_router.include_router(orgs_roles_module.router)
 admin_router.include_router(people_module.router)
+admin_router.include_router(people_merge_module.router)
 admin_router.include_router(people_names_module.router)
 admin_router.include_router(people_contacts_module.router)
 admin_router.include_router(people_addresses_module.router)
