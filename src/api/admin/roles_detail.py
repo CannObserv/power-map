@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles/{role_id}", tags=["admin-roles-detail"])
@@ -37,13 +37,10 @@ async def _get_role(role_id: str, db):
 async def role_inline_org_get(
     role_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return org read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role = await _get_role(role_id, db)
     return templates.TemplateResponse(
         request, "admin/roles/partials/_org_read.html", {"role": role}
@@ -54,13 +51,10 @@ async def role_inline_org_get(
 async def role_inline_org_edit_get(
     role_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return org typeahead form partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role = await _get_role(role_id, db)
     return templates.TemplateResponse(
         request, "admin/roles/partials/_org_form.html", {"role": role}
@@ -72,13 +66,10 @@ async def role_inline_org_post(
     role_id: str,
     request: Request,
     organization_id: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Save org change; return updated read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role = await _get_role(role_id, db)
     resolved = organization_id.strip()
     if not resolved:
@@ -126,13 +117,10 @@ async def role_inline_org_post(
 async def role_inline_title_get(
     role_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return title read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role = await _get_role(role_id, db)
     return templates.TemplateResponse(
         request, "admin/roles/partials/_title_read.html", {"role": role}
@@ -143,13 +131,10 @@ async def role_inline_title_get(
 async def role_inline_title_edit_get(
     role_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return title edit form partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role = await _get_role(role_id, db)
     return templates.TemplateResponse(
         request, "admin/roles/partials/_title_form.html", {"role": role}
@@ -161,13 +146,10 @@ async def role_inline_title_post(
     role_id: str,
     request: Request,
     title: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Save title; return updated read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role = await _get_role(role_id, db)
     cleaned = title.strip()
     if not cleaned:
@@ -214,13 +196,10 @@ async def role_inline_title_post(
 async def role_inline_notes_get(
     role_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return notes read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role = await _get_role(role_id, db)
     return templates.TemplateResponse(
         request, "admin/roles/partials/_notes_read.html", {"role": role}
@@ -231,13 +210,10 @@ async def role_inline_notes_get(
 async def role_inline_notes_edit_get(
     role_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return notes edit form partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     role = await _get_role(role_id, db)
     return templates.TemplateResponse(
         request, "admin/roles/partials/_notes_form.html", {"role": role}
@@ -249,13 +225,10 @@ async def role_inline_notes_post(
     role_id: str,
     request: Request,
     notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Save notes; return updated read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_role(role_id, db)  # 404 check
     await db.execute(
         "UPDATE roles SET notes=$1 WHERE id=$2", notes.strip() or None, role_id

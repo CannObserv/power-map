@@ -1,12 +1,10 @@
 """Admin settings landing page."""
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import (
     AdminUser,
-    check_auth,
     get_admin_user,
     get_db,
 )
@@ -29,14 +27,11 @@ def _base_ctx(user, org_dup_count, person_dup_count, active_section: str = "sett
 @router.get("/")
 async def settings_index(
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     counts = await db.fetchrow(
         """
         SELECT

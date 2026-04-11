@@ -7,7 +7,6 @@ from markupsafe import escape
 
 from src.api.admin.deps import (
     AdminUser,
-    check_auth,
     flash_trigger,
     get_admin_user,
     get_db,
@@ -44,13 +43,10 @@ async def _maybe_promote_sole_name(org_id: str, db) -> None:
 async def name_new_row(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return empty name form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     return templates.TemplateResponse(
         request,
@@ -66,13 +62,10 @@ async def name_create(
     name: str = Form(...),
     name_type: str = Form("legal"),
     is_canonical: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Create a new organization name."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     nid = generate_id()
     async with db.transaction():
@@ -115,13 +108,10 @@ async def name_read_row(
     org_id: str,
     name_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return read-only name row (used by Cancel on edit form)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     name_row = await db.fetchrow(
         "SELECT * FROM organization_names WHERE id=$1 AND organization_id=$2",
         name_id,
@@ -139,13 +129,10 @@ async def name_edit_row_get(
     org_id: str,
     name_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return name edit form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     name_row = await db.fetchrow(
         "SELECT * FROM organization_names WHERE id=$1 AND organization_id=$2",
         name_id,
@@ -168,13 +155,10 @@ async def name_edit_row_post(
     name: str = Form(...),
     name_type: str = Form("legal"),
     is_canonical: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Update an organization name."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await db.fetchrow(
         "SELECT * FROM organization_names WHERE id=$1 AND organization_id=$2",
         name_id,
@@ -242,13 +226,10 @@ async def name_delete(
     org_id: str,
     name_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Delete an organization name."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await db.fetchrow(
         "SELECT id FROM organization_names WHERE id=$1 AND organization_id=$2",
         name_id,

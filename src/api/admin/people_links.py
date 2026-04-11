@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -36,13 +36,10 @@ async def _get_link_or_404(link_id: str, person_id: str, db):
 async def link_new_row(
     person_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return empty link form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_person_or_404(person_id, db)
     link_types = await db.fetch(
         "SELECT * FROM link_types ORDER BY is_social DESC, display_name"
@@ -61,13 +58,10 @@ async def link_create(
     url: str = Form(...),
     link_type_id: str = Form(...),
     is_active: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Create a new person link."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_person_or_404(person_id, db)
     lid = generate_id()
     await db.execute(
@@ -96,13 +90,10 @@ async def link_read_row(
     person_id: str,
     link_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return read-only link row (used by Cancel on edit form)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     row = await _get_link_or_404(link_id, person_id, db)
     return templates.TemplateResponse(
         request, "admin/people/partials/_link_row.html", {"person_id": person_id, "l": row}
@@ -114,13 +105,10 @@ async def link_edit_row_get(
     person_id: str,
     link_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return link edit form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     row = await _get_link_or_404(link_id, person_id, db)
     link_types = await db.fetch(
         "SELECT * FROM link_types ORDER BY is_social DESC, display_name"
@@ -140,13 +128,10 @@ async def link_edit_row_post(
     url: str = Form(...),
     link_type_id: str = Form(...),
     is_active: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Update a person link."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_link_or_404(link_id, person_id, db)
     await db.execute(
         "UPDATE links SET url=$1, link_type_id=$2, is_active=$3 WHERE id=$4",
@@ -171,13 +156,10 @@ async def link_delete(
     person_id: str,
     link_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Delete a person link."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await db.fetchrow(
         "SELECT id FROM links WHERE id=$1 AND entity_type='person' AND entity_id=$2",
         link_id,

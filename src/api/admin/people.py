@@ -7,7 +7,6 @@ from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import (
     AdminUser,
-    check_auth,
     escape_like,
     flash_trigger,
     get_admin_user,
@@ -30,15 +29,12 @@ async def people_list(
     status: str = "active",
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=10, le=500),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List people with search and status filter."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     conditions = []
     params: list = []
@@ -101,15 +97,12 @@ async def people_list(
 @router.get("/new/")
 async def person_new_form(
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """New person form."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     return templates.TemplateResponse(
         request,
         "admin/people/form.html",
@@ -130,13 +123,10 @@ async def person_create(
     name: str = Form(...),
     personal_pronouns: str = Form(""),
     notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Create a new person."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     person_id = generate_id()
     await db.execute(
         "INSERT INTO people (id, personal_pronouns, notes) VALUES ($1, $2, $3)",
@@ -157,13 +147,10 @@ async def person_create(
 async def people_search(
     request: Request,
     q: str = "",
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Typeahead search — returns HTML fragment of matching people."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     results = []
     if q.strip():
         results = await db.fetch(
@@ -187,15 +174,12 @@ async def people_search(
 async def person_detail(
     person_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Person detail view."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     person = await db.fetchrow("SELECT * FROM people WHERE id = $1", person_id)
     if not person:
@@ -279,13 +263,10 @@ async def person_detail(
 async def person_archive(
     person_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Archive a person (soft delete)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     person = await db.fetchrow("SELECT id FROM people WHERE id = $1", person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -297,13 +278,10 @@ async def person_archive(
 async def person_unarchive(
     person_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Restore an archived person."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     person = await db.fetchrow("SELECT id, archived_at FROM people WHERE id = $1", person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -317,13 +295,10 @@ async def person_unarchive(
 async def person_delete(
     person_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Hard delete an archived person."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     person = await db.fetchrow("SELECT id, archived_at FROM people WHERE id = $1", person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -344,13 +319,10 @@ async def person_delete(
 async def person_notes_read(
     person_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Notes read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     person = await db.fetchrow("SELECT id, notes, archived_at FROM people WHERE id = $1", person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -365,13 +337,10 @@ async def person_notes_read(
 async def person_notes_edit(
     person_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Notes edit partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     person = await db.fetchrow("SELECT id, notes FROM people WHERE id = $1", person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -387,13 +356,10 @@ async def person_notes_save(
     person_id: str,
     request: Request,
     notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Save notes and return read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     person = await db.fetchrow("SELECT id FROM people WHERE id = $1", person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -416,13 +382,10 @@ async def person_notes_save(
 async def person_pronouns_read(
     person_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Pronouns read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     person = await db.fetchrow(
         "SELECT id, personal_pronouns, archived_at FROM people WHERE id = $1", person_id
     )
@@ -439,13 +402,10 @@ async def person_pronouns_read(
 async def person_pronouns_edit(
     person_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Pronouns edit partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     person = await db.fetchrow("SELECT id, personal_pronouns FROM people WHERE id = $1", person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -461,13 +421,10 @@ async def person_pronouns_save(
     person_id: str,
     request: Request,
     personal_pronouns: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Save pronouns and return read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     person = await db.fetchrow("SELECT id FROM people WHERE id = $1", person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")

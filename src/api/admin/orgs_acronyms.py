@@ -7,7 +7,6 @@ from markupsafe import escape
 
 from src.api.admin.deps import (
     AdminUser,
-    check_auth,
     flash_trigger,
     get_admin_user,
     get_db,
@@ -44,13 +43,10 @@ async def _maybe_promote_sole_acronym(org_id: str, db) -> None:
 async def acronym_new_row(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return empty acronym form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     return templates.TemplateResponse(
         request,
@@ -65,13 +61,10 @@ async def acronym_create(
     request: Request,
     acronym: str = Form(...),
     is_canonical: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Create a new organization acronym."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     aid = generate_id()
     async with db.transaction():
@@ -113,13 +106,10 @@ async def acronym_read_row(
     org_id: str,
     acronym_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return read-only acronym row (used by Cancel on edit form)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     row = await db.fetchrow(
         "SELECT * FROM organization_acronyms WHERE id=$1 AND organization_id=$2",
         acronym_id,
@@ -139,13 +129,10 @@ async def acronym_edit_row_get(
     org_id: str,
     acronym_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return acronym edit form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     row = await db.fetchrow(
         "SELECT * FROM organization_acronyms WHERE id=$1 AND organization_id=$2",
         acronym_id,
@@ -167,13 +154,10 @@ async def acronym_edit_row_post(
     request: Request,
     acronym: str = Form(...),
     is_canonical: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Update an organization acronym."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await db.fetchrow(
         "SELECT * FROM organization_acronyms WHERE id=$1 AND organization_id=$2",
         acronym_id,
@@ -220,13 +204,10 @@ async def acronym_delete(
     org_id: str,
     acronym_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Delete an organization acronym."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await db.fetchrow(
         "SELECT id FROM organization_acronyms WHERE id=$1 AND organization_id=$2",
         acronym_id,

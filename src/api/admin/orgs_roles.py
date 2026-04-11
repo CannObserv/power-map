@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -41,13 +41,10 @@ async def _fetch_roles(org_id: str, db) -> list:
 async def role_new_row(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return blank inline role form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     return templates.TemplateResponse(
         request,
@@ -61,13 +58,10 @@ async def role_create(
     org_id: str,
     request: Request,
     title: str = Form(...),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Create a new role for this org (inline HTMX path)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_org_or_404(org_id, db)
     title = title.strip()
     if not title:
@@ -123,13 +117,10 @@ async def role_merge(
     winner_id: str,
     loser_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Merge loser role into winner: reassign assignments, hard-delete loser."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     async with db.transaction():
         winner = await db.fetchrow(
