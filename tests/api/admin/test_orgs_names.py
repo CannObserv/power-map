@@ -517,3 +517,121 @@ def test_names_delete_returns_update_org_header(client, org_and_name):
     trigger = json.loads(r.headers["hx-trigger"])
     assert "updateOrgHeader" in trigger
     assert trigger["updateOrgHeader"]["display"] == "Original Name"
+
+
+# ---------------------------------------------------------------------------
+# Canonical edit guard tests
+# ---------------------------------------------------------------------------
+
+
+def test_name_edit_uncanonical_with_multiple_names_blocked(client, org_and_name):
+    """Unchecking canonical on the only canonical name (when others exist) must be blocked."""
+    dsn = _dsn()
+    oid, canonical_nid = org_and_name
+    other_nid = generate_id()
+
+    async def add_second():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Former Name', FALSE)",
+                other_nid,
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(add_second())
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{canonical_nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"name": "Original Name", "name_type": "legal", "is_canonical": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+
+    async def check():
+        conn = await asyncpg.connect(dsn)
+        try:
+            row = await conn.fetchrow(
+                "SELECT is_canonical FROM organization_names WHERE id=$1", canonical_nid
+            )
+            return row["is_canonical"]
+        finally:
+            await conn.close()
+
+    assert asyncio.run(check()) is True, "canonical must not be changed"
+
+
+def test_name_edit_uncanonical_non_htmx_redirects(client, org_and_name):
+    """Non-HTMX path: unchecking canonical on only canonical (multiple names) must redirect."""
+    dsn = _dsn()
+    oid, canonical_nid = org_and_name
+    other_nid = generate_id()
+
+    async def add_second():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Former Name', FALSE)",
+                other_nid,
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(add_second())
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{canonical_nid}/edit-row/",
+        headers=AUTH_HEADERS,
+        data={"name": "Original Name", "name_type": "legal", "is_canonical": ""},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    async def check():
+        conn = await asyncpg.connect(dsn)
+        try:
+            row = await conn.fetchrow(
+                "SELECT is_canonical FROM organization_names WHERE id=$1", canonical_nid
+            )
+            return row["is_canonical"]
+        finally:
+            await conn.close()
+
+    assert asyncio.run(check()) is True, "canonical must not be changed"
+
+
+def test_name_edit_non_canonical_row_can_stay_non_canonical(client, org_and_name):
+    """Editing a non-canonical name without checking canonical must succeed."""
+    dsn = _dsn()
+    oid, _ = org_and_name
+    other_nid = generate_id()
+
+    async def add_second():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Former Name', FALSE)",
+                other_nid,
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(add_second())
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{other_nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"name": "Renamed Former", "name_type": "former", "is_canonical": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"

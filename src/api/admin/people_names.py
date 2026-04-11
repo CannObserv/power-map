@@ -182,6 +182,24 @@ async def name_edit_row_post(
     )
     if not existing:
         raise HTTPException(status_code=404)
+    if is_canonical != "true" and existing["is_canonical"]:
+        other_canonical = await db.fetchval(
+            "SELECT id FROM person_names"
+            " WHERE person_id=$1 AND is_canonical=TRUE AND id != $2",
+            person_id,
+            name_id,
+        )
+        if not other_canonical:
+            if not is_htmx(request):
+                return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return HTMLResponse(
+                content="",
+                status_code=200,
+                headers=flash_trigger(
+                    "error",
+                    "Cannot remove canonical — promote another name first.",
+                ),
+            )
     async with db.transaction():
         if is_canonical == "true":
             await db.execute(

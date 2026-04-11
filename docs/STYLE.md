@@ -1330,13 +1330,50 @@ raise HTTPException(status_code=409, detail="Cannot remove the only name.")
 
 ### When this applies
 
-Any delete route that enforces a minimum-count invariant:
-- Last name on a person or org
-- Last acronym on an org (when no canonical name exists)
+Any route that enforces a minimum-count or canonical invariant:
+- Last name on a person or org (delete)
+- Last acronym on an org when no canonical name exists (delete)
+- Edit route that would leave zero canonical names (see §28a below)
 
 ### Contrast with archive gate
 
 The archive gate (§10) blocks hard delete when `archived_at IS NULL` — that can safely return 409 unconditionally because the delete button is served via HTMX but the error surface is the `delete_modal.html` which reads the response status explicitly.
+
+---
+
+## 28a. Canonical Invariant Guard on Edit Routes
+
+Name edit routes (`POST /{name_id}/edit-row/`) must never allow the entity to end up with zero canonical names. The `_maybe_promote_sole_name` helper only fires when exactly one name exists; it does not cover the multi-name case where the user unchecks canonical on the only canonical row.
+
+### Guard pattern
+
+Check **before** the transaction whether the edit would leave zero canonical names:
+
+```python
+if is_canonical != "true" and existing["is_canonical"]:
+    other_canonical = await db.fetchval(
+        "SELECT id FROM person_names"
+        " WHERE person_id=$1 AND is_canonical=TRUE AND id != $2",
+        person_id, name_id,
+    )
+    if not other_canonical:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return HTMLResponse(
+            content="",
+            status_code=200,
+            headers=flash_trigger(
+                "error",
+                "Cannot remove canonical — promote another name first.",
+            ),
+        )
+```
+
+- The guard fires only when the row being edited **is currently canonical** and **is_canonical is not being re-asserted**.
+- HTMX path: HTTP 200, empty body, flash error (same pattern as §28).
+- Non-HTMX path: `RedirectResponse` 303 (not 409 — there is no modal to surface an error, so redirect is the least-surprising degradation).
+- The guard does **not** fire when editing a non-canonical row (no invariant at risk).
+- The correct workflow for changing which name is canonical: promote the replacement (check its canonical toggle), which atomically demotes the current canonical via the existing `is_canonical == "true"` branch.
 
 ---
 
