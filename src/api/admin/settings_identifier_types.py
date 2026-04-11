@@ -8,7 +8,6 @@ from markupsafe import escape
 
 from src.api.admin.deps import (
     AdminUser,
-    check_auth,
     flash_trigger,
     get_admin_user,
     get_db,
@@ -46,14 +45,11 @@ def _base_ctx(user, org_dup_count, person_dup_count, active_section: str = "sett
 @router.get("/")
 async def identifier_types_page(
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     rows = await _fetch_identifier_types(db)
     return templates.TemplateResponse(
         request,
@@ -65,11 +61,8 @@ async def identifier_types_page(
 @router.get("/new-row/")
 async def identifier_type_new_row(
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_identifier_type_edit_row.html",
@@ -84,12 +77,9 @@ async def identifier_type_create(
     slug: str = Form(...),
     full_name: str = Form(...),
     entity_type: str = Form(...),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     slug_val = slug.strip()
     full_name_val = full_name.strip()
     if not slug_val:
@@ -120,12 +110,9 @@ async def identifier_type_create(
 async def identifier_type_edit_row_get(
     item_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     eit = await db.fetchrow(
         "SELECT * FROM entity_identifier_types WHERE id=$1", item_id
     )
@@ -146,12 +133,9 @@ async def identifier_type_edit_row_post(
     slug: str = Form(...),
     full_name: str = Form(...),
     entity_type: str = Form(...),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     slug_val = slug.strip()
     full_name_val = full_name.strip()
     if not slug_val:
@@ -195,12 +179,9 @@ async def identifier_type_edit_row_post(
 async def identifier_type_read_row(
     item_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     row = await db.fetchrow(
         """
         SELECT eit.*, COUNT(i.id) AS usage_count
@@ -224,12 +205,9 @@ async def identifier_type_read_row(
 async def identifier_type_delete(
     item_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     existing = await db.fetchrow(
         "SELECT id FROM entity_identifier_types WHERE id=$1", item_id
     )

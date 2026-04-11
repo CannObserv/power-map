@@ -8,7 +8,6 @@ from markupsafe import escape
 
 from src.api.admin.deps import (
     AdminUser,
-    check_auth,
     escape_like,
     flash_trigger,
     get_admin_user,
@@ -40,15 +39,12 @@ async def orgs_list(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=10, le=500),
     flash: str | None = Query(None),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List organizations with search and status filter."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     conditions = []
     params: list = []
@@ -127,15 +123,12 @@ async def _fetch_parents(db) -> list:
 @router.get("/new/")
 async def org_new_form(
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """New organization form."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     parents = await _fetch_parents(db)
     return templates.TemplateResponse(
         request,
@@ -163,15 +156,12 @@ async def org_create(
     active: str = Form(""),
     parent_id: str = Form(""),
     notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Create a new organization."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     if not name.strip():
         parents = await _fetch_parents(db)
         return templates.TemplateResponse(
@@ -215,13 +205,10 @@ async def org_create(
 async def orgs_search(
     request: Request,
     q: str = "",
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Typeahead search — returns an HTML fragment of matching org options."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     results = []
     if q.strip():
         results = await db.fetch(
@@ -246,13 +233,10 @@ async def org_inline_active_post(
     org_id: str,
     request: Request,
     active: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Toggle org active flag; return updated active-toggle partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
         raise HTTPException(status_code=404)
@@ -277,13 +261,10 @@ async def org_inline_active_post(
 async def org_inline_notes_get(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return notes read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
         raise HTTPException(status_code=404)
@@ -296,13 +277,10 @@ async def org_inline_notes_get(
 async def org_inline_notes_edit_get(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return notes edit form partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
         raise HTTPException(status_code=404)
@@ -316,13 +294,10 @@ async def org_inline_notes_post(
     org_id: str,
     request: Request,
     notes: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Save notes; return updated notes read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
         raise HTTPException(status_code=404)
@@ -346,13 +321,10 @@ async def org_inline_notes_post(
 async def org_inline_parent_get(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return read partial for parent org field."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
         raise HTTPException(status_code=404)
@@ -376,13 +348,10 @@ async def org_inline_parent_post(
     org_id: str,
     request: Request,
     parent_id: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Save parent org inline; return updated read partial."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     if parent_id and parent_id == org_id:
         raise HTTPException(status_code=422, detail="An organization cannot be its own parent")
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
@@ -425,13 +394,10 @@ async def org_inline_parent_post(
 async def org_inline_parent_edit_get(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return the edit form partial for parent org field."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
         raise HTTPException(status_code=404)
@@ -454,15 +420,12 @@ async def org_inline_parent_edit_get(
 async def org_detail(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Organization detail view."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
 
     org = await db.fetchrow("SELECT * FROM organizations WHERE id = $1", org_id)
     if not org:
@@ -577,13 +540,10 @@ async def children_search(
     org_id: str,
     request: Request,
     q: str = "",
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Typeahead search for adding a child org — excludes self and existing children."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     results = []
     if q.strip():
         results = await db.fetch(
@@ -610,13 +570,10 @@ async def children_search(
 async def children_new_row(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return empty child search form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_child_form_row.html", {"org_id": org_id}
     )
@@ -627,13 +584,10 @@ async def children_add(
     org_id: str,
     request: Request,
     child_id: str = Form(...),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Link an existing org as a child of this org."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     if child_id == org_id:
         raise HTTPException(status_code=422, detail="An organization cannot be its own child")
     child = await db.fetchrow("SELECT id FROM organizations WHERE id=$1", child_id)
@@ -665,13 +619,10 @@ async def children_remove(
     org_id: str,
     child_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Unlink a child org (clears its parent_id)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     child = await db.fetchrow(
         "SELECT id FROM organizations WHERE id=$1 AND parent_id=$2", child_id, org_id
     )
@@ -688,13 +639,10 @@ async def children_remove(
 @router.post("/{org_id}/archive/")
 async def org_archive(
     org_id: str,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Archive an organization (soft delete)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     org = await db.fetchrow("SELECT id FROM organizations WHERE id = $1", org_id)
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -705,13 +653,10 @@ async def org_archive(
 @router.post("/{org_id}/unarchive/")
 async def org_unarchive(
     org_id: str,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Restore an archived organization."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     org = await db.fetchrow("SELECT id, archived_at FROM organizations WHERE id = $1", org_id)
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -725,13 +670,10 @@ async def org_unarchive(
 async def org_delete(
     org_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Hard delete an archived organization."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     org = await db.fetchrow("SELECT id, archived_at FROM organizations WHERE id = $1", org_id)
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")

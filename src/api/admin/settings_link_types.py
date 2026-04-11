@@ -8,7 +8,6 @@ from markupsafe import escape
 
 from src.api.admin.deps import (
     AdminUser,
-    check_auth,
     flash_trigger,
     get_admin_user,
     get_db,
@@ -56,14 +55,11 @@ def _base_ctx(user, org_dup_count, person_dup_count, active_section: str = "sett
 @router.get("/")
 async def link_types_page(
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     general = await _fetch_link_types(db, False)
     social = await _fetch_link_types(db, True)
     return templates.TemplateResponse(
@@ -77,11 +73,8 @@ async def link_types_page(
 async def link_type_new_row(
     scope: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     is_social = _scope_to_is_social(scope)
     return templates.TemplateResponse(
         request,
@@ -96,12 +89,9 @@ async def link_type_create(
     request: Request,
     display_name: str = Form(...),
     slug: str = Form(...),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     is_social = _scope_to_is_social(scope)
     slug_val = slug.strip()
     if not slug_val:
@@ -129,12 +119,9 @@ async def link_type_edit_row_get(
     scope: str,
     item_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     is_social = _scope_to_is_social(scope)
     lt = await db.fetchrow(
         "SELECT * FROM link_types WHERE id=$1 AND is_social=$2", item_id, is_social
@@ -155,12 +142,9 @@ async def link_type_edit_row_post(
     request: Request,
     display_name: str = Form(...),
     slug: str = Form(...),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     is_social = _scope_to_is_social(scope)
     slug_val = slug.strip()
     if not slug_val:
@@ -201,12 +185,9 @@ async def link_type_read_row(
     scope: str,
     item_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     is_social = _scope_to_is_social(scope)
     row = await db.fetchrow(
         """
@@ -232,12 +213,9 @@ async def link_type_delete(
     scope: str,
     item_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     is_social = _scope_to_is_social(scope)
     existing = await db.fetchrow(
         "SELECT id FROM link_types WHERE id=$1 AND is_social=$2", item_id, is_social

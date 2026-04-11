@@ -1,7 +1,6 @@
 """Admin dashboard landing page."""
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 import src.core.db as db_module
@@ -19,11 +18,9 @@ router = APIRouter()
 @router.get("/")
 async def dashboard(
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
 ):
     """Admin dashboard landing page."""
-    if isinstance(user, RedirectResponse):
-        return user
     async with db_module.acquire() as db:
         counts = await db.fetchrow(
             """

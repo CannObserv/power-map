@@ -1,10 +1,9 @@
 """Admin views for import history (read-only)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, get_admin_user, get_db
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.people_dups import get_person_dup_count
 
@@ -18,15 +17,12 @@ PAGE_SIZE = 50
 async def imports_list(
     request: Request,
     page: int = 1,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List all import batches, most recent first."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     offset = (page - 1) * PAGE_SIZE
     batches = await db.fetch(
         "SELECT * FROM import_batches ORDER BY imported_at DESC LIMIT $1 OFFSET $2",
@@ -55,15 +51,12 @@ async def import_detail(
     batch_id: str,
     request: Request,
     page: int = 1,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Detail view for one import batch, paginated provenance rows."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     batch = await db.fetchrow("SELECT * FROM import_batches WHERE id = $1", batch_id)
     if not batch:
         raise HTTPException(status_code=404, detail="Import batch not found")

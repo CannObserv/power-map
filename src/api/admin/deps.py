@@ -4,8 +4,7 @@ import json
 from dataclasses import dataclass
 from urllib.parse import quote
 
-from fastapi import Request
-from fastapi.responses import RedirectResponse
+from fastapi import HTTPException, Request
 
 import src.core.db as db
 
@@ -18,25 +17,19 @@ class AdminUser:
     email: str
 
 
-async def get_admin_user(request: Request) -> AdminUser | RedirectResponse:
-    """Require exe.dev auth headers; redirect to login if absent."""
+async def get_admin_user(request: Request) -> AdminUser:
+    """Require exe.dev auth headers; raise 307 redirect to login if absent."""
     user_id = request.headers.get("X-ExeDev-UserID")
     email = request.headers.get("X-ExeDev-Email")
     if not user_id or not email:
         path = request.url.path
         query = request.url.query
         next_url = f"{path}?{query}" if query else path
-        return RedirectResponse(
-            f"/__exe.dev/login?redirect={quote(next_url)}", status_code=307
+        raise HTTPException(
+            status_code=307,
+            headers={"Location": f"/__exe.dev/login?redirect={quote(next_url)}"},
         )
     return AdminUser(id=user_id, email=email)
-
-
-def check_auth(user: AdminUser | RedirectResponse):
-    """Return (redirect, user) tuple. Return redirect immediately if unauthenticated."""
-    if isinstance(user, RedirectResponse):
-        return user, None
-    return None, user
 
 
 def is_htmx(request: Request) -> bool:

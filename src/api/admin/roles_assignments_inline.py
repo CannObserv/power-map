@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.roles_detail import _get_role
 from src.core.db import generate_id
 
@@ -59,13 +59,10 @@ async def _get_assignment(assignment_id: str, role_id: str, db):
 async def assignment_new_row(
     role_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return blank inline assignment form row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_role(role_id, db)  # 404 check
     return templates.TemplateResponse(
         request,
@@ -87,13 +84,10 @@ async def assignment_create(
     start_date: str = Form(""),
     end_date: str = Form(""),
     is_current: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Create a new role assignment (inline HTMX path)."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_role(role_id, db)  # 404 check
 
     person_id_val = person_id.strip()
@@ -211,13 +205,10 @@ async def assignment_read_row(
     role_id: str,
     assignment_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return read partial for a single assignment row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     ra = await _get_assignment(assignment_id, role_id, db)
     return templates.TemplateResponse(
         request,
@@ -231,13 +222,10 @@ async def assignment_edit_row_get(
     role_id: str,
     assignment_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Return edit form partial for a single assignment row."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     ra = await _get_assignment(assignment_id, role_id, db)
     if ra["archived_at"]:
         raise HTTPException(status_code=409, detail="Cannot edit an archived assignment")
@@ -262,13 +250,10 @@ async def assignment_edit_row_post(
     start_date: str = Form(""),
     end_date: str = Form(""),
     is_current: str = Form(""),
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Save assignment edits; return full sorted tbody."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     ra = await _get_assignment(assignment_id, role_id, db)
     if ra["archived_at"]:
         raise HTTPException(status_code=409, detail="Cannot edit an archived assignment")
@@ -338,13 +323,10 @@ async def assignment_delete(
     role_id: str,
     assignment_id: str,
     request: Request,
-    user: AdminUser | RedirectResponse = Depends(get_admin_user),
+    user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Delete a role assignment from role detail."""
-    redirect, user = check_auth(user)
-    if redirect:
-        return redirect
     await _get_assignment(assignment_id, role_id, db)
     await db.execute("DELETE FROM role_assignments WHERE id=$1", assignment_id)
     if not is_htmx(request):
