@@ -17,7 +17,11 @@ from src.core.ingestion.sources.csv_org import transform_org, validate_org
 from src.core.ingestion.sources.csv_person import transform_person, validate_person
 from src.core.ingestion.sources.csv_role import transform_role, validate_role
 from src.core.logging import get_logger
-from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddressNormalizer
+from src.core.normalizers.address import (
+    AddressNormalizerConfig,
+    FallbackAddressNormalizer,
+    get_address_normalizer,
+)
 
 logger = get_logger(__name__)
 
@@ -69,21 +73,28 @@ async def _load_reference_data(conn: asyncpg.Connection) -> ReferenceData:
 def _build_address_normalizer(validate_addresses: bool) -> FallbackAddressNormalizer:
     """Build address normalizer from environment.
 
-    Reads ADDRESS_VALIDATOR_API_KEY and VALIDATE_ADDRESSES from the environment.
-    Always calls /standardize; calls /validate instead when validate_addresses
-    is True or VALIDATE_ADDRESSES env var is set to a truthy value.
-    Falls back to local usaddress parsing if the API key is absent.
+    Uses the shared get_address_normalizer() singleton as the base, but overrides
+    run_validation when validate_addresses=True or VALIDATE_ADDRESSES env var is set.
+    Falls back to local usaddress parsing if ADDRESS_VALIDATOR_API_KEY is absent.
     """
-    api_key = os.environ.get("ADDRESS_VALIDATOR_API_KEY")
-    if not api_key:
+    normalizer = get_address_normalizer()
+    if normalizer.config is None:
         logger.warning("ADDRESS_VALIDATOR_API_KEY not set; using local address parser")
-        return FallbackAddressNormalizer()
+        return normalizer
     run_validation = validate_addresses or os.environ.get("VALIDATE_ADDRESSES", "").lower() in (
         "1", "true", "yes",
     )
-    return FallbackAddressNormalizer(
-        config=AddressNormalizerConfig(api_key=api_key, run_validation=run_validation)
-    )
+    if run_validation and not normalizer.config.run_validation:
+        # Return a new instance with run_validation enabled; don't mutate the singleton.
+        return FallbackAddressNormalizer(
+            config=AddressNormalizerConfig(
+                api_key=normalizer.config.api_key,
+                run_validation=True,
+                base_url=normalizer.config.base_url,
+                max_retries=normalizer.config.max_retries,
+            )
+        )
+    return normalizer
 
 
 def _file_hash(path: Path) -> str:

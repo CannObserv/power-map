@@ -1,7 +1,6 @@
 """Admin CRUD for person addresses."""
 
 import json
-import os
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -9,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, check_auth, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
-from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddressNormalizer
+from src.core.normalizers.address import get_address_normalizer
 from src.core.normalizers.address_meta import get_country_format
 
 templates = Jinja2Templates(directory="src/templates")
@@ -48,17 +47,7 @@ def _parse_normalizer_fields(
     return _standardized, _latitude, _longitude, _components
 
 
-def _init_normalizer() -> FallbackAddressNormalizer:
-    api_key = os.environ.get("ADDRESS_VALIDATOR_API_KEY")
-    run_validation = os.environ.get("ADDRESS_VALIDATOR_RUN_VALIDATION", "").lower() == "true"
-    config = (
-        AddressNormalizerConfig(api_key=api_key, run_validation=run_validation) if api_key else None
-    )
-    return FallbackAddressNormalizer(config=config)
-
-
-_NORMALIZER: FallbackAddressNormalizer = _init_normalizer()
-del _init_normalizer
+_NORMALIZER = get_address_normalizer()
 
 
 async def _field_context(country: str) -> dict:
