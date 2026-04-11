@@ -93,7 +93,7 @@ def seeded_counts():
 
 
 def test_dashboard_shows_counts(client, seeded_counts):
-    """Entity and logging cards display numeric record counts."""
+    """Entity, settings, and activity cards display numeric record counts."""
     resp = client.get("/admin/", headers=AUTH_HEADERS)
     assert resp.status_code == 200
     assert "— records" not in resp.text
