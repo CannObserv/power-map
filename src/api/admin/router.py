@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+import src.core.db as db_module
 from src.api.admin import activity as activity_module
 from src.api.admin import entities as entities_module
 from src.api.admin import imports as imports_module
@@ -45,10 +46,7 @@ async def dashboard(
     """Admin dashboard landing page."""
     if isinstance(user, RedirectResponse):
         return user
-    pool = request.app.state.db_pool
-    if pool is None:
-        raise RuntimeError("Database pool not initialized — is DATABASE_URL set?")
-    async with pool.acquire() as db:
+    async with db_module.acquire() as db:
         counts = await db.fetchrow(
             """
             SELECT

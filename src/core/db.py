@@ -1,8 +1,9 @@
 """Database connection pool and shared helpers.
 
 Call ``configure_logging()`` before creating a pool in entry points.
-Import ``get_pool`` in route handlers; call ``create_pool`` / ``close_pool``
-in the FastAPI lifespan.
+Call ``create_pool`` / ``close_pool`` in the FastAPI lifespan; route handlers
+acquire connections via ``deps.get_db`` (which calls ``get_pool`` internally)
+or directly via the ``acquire`` async context manager.
 """
 
 import os
