@@ -82,9 +82,7 @@
   <p>This role is archived. You may permanently delete it — this cannot be undone.</p>
   <button class="btn btn--danger"
           hx-delete="/admin/roles/{{ role.id }}/"
-          hx-confirm="Permanently delete this role? This cannot be undone."
-          hx-target="body"
-          hx-push-url="/admin/roles/">
+          hx-confirm="Permanently delete this role? This cannot be undone.">
     Delete permanently
   </button>
   {% endif %}

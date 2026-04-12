@@ -146,7 +146,11 @@ def test_hard_delete_requires_archive(client, role_id):
 
 async def test_hard_delete_archived_role(client, db, role_id):
     await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
-    response = client.delete(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
+    response = client.delete(
+        f"/admin/roles/{role_id}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        follow_redirects=False,
+    )
     assert response.status_code == 200
 
 
