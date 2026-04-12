@@ -60,7 +60,7 @@ function setup({ orgId = 'org-1', numRoles = 3 } = {}) {
       <thead><tr><th class="merge-col">Sel</th><th>Title</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <button id="roles-merge-btn" class="btn btn--secondary">Merge</button>
+    <span id="roles-merge-btn-wrap" style="display:inline-block"><button id="roles-merge-btn" class="btn btn--secondary">Merge</button></span>
     <div id="roles-merge-bar" style="display:none">
       <span class="merge-bar__label">Merge roles:</span>
       <button class="merge-bar__keep-a" type="button"></button>
@@ -393,27 +393,30 @@ describe('roles filter', () => {
 // ---------------------------------------------------------------------------
 
 describe('merge button disabled state', () => {
-  it('is disabled with not-allowed cursor when there are 0 roles', () => {
+  it('is disabled with not-allowed cursor on wrapper when there are 0 roles', () => {
     setup({ numRoles: 0 });
     const btn = document.getElementById('roles-merge-btn');
+    const wrap = document.getElementById('roles-merge-btn-wrap');
     expect(btn.disabled).toBe(true);
-    expect(btn.style.cursor).toBe('not-allowed');
-    expect(btn.title).toBe('At least 2 roles required to merge');
+    expect(wrap.style.cursor).toBe('not-allowed');
+    expect(wrap.title).toBe('At least 2 roles required to merge');
   });
 
   it('is disabled when there is exactly 1 role', () => {
     setup({ numRoles: 1 });
     const btn = document.getElementById('roles-merge-btn');
+    const wrap = document.getElementById('roles-merge-btn-wrap');
     expect(btn.disabled).toBe(true);
-    expect(btn.style.cursor).toBe('not-allowed');
+    expect(wrap.style.cursor).toBe('not-allowed');
   });
 
-  it('is enabled when there are exactly 2 roles', () => {
+  it('is enabled with no cursor override on wrapper when there are exactly 2 roles', () => {
     setup({ numRoles: 2 });
     const btn = document.getElementById('roles-merge-btn');
+    const wrap = document.getElementById('roles-merge-btn-wrap');
     expect(btn.disabled).toBe(false);
-    expect(btn.style.cursor).toBe('');
-    expect(btn.title).toBe('');
+    expect(wrap.style.cursor).toBe('');
+    expect(wrap.title).toBe('');
   });
 
   it('is enabled when there are more than 2 roles', () => {
@@ -425,6 +428,7 @@ describe('merge button disabled state', () => {
   it('re-evaluates after htmx:afterSwap on the table', () => {
     setup({ numRoles: 2 });
     const btn = document.getElementById('roles-merge-btn');
+    const wrap = document.getElementById('roles-merge-btn-wrap');
     expect(btn.disabled).toBe(false);
 
     // Simulate a merge that leaves 1 role in the tbody
@@ -436,6 +440,6 @@ describe('merge button disabled state', () => {
     document.getElementById('roles-table').dispatchEvent(new Event('htmx:afterSwap'));
 
     expect(btn.disabled).toBe(true);
-    expect(btn.style.cursor).toBe('not-allowed');
+    expect(wrap.style.cursor).toBe('not-allowed');
   });
 });

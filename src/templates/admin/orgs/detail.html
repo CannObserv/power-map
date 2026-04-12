@@ -7,7 +7,7 @@
 {% endblock %}
 {% block extra_head %}
   <script src="/static/admin/org-detail.js?v=1" defer></script>
-  <script src="/static/admin/role-merge.js?v=5" defer></script>
+  <script src="/static/admin/role-merge.js?v=6" defer></script>
 {% endblock %}
 {% block content %}
 <div class="page-header">
@@ -231,7 +231,7 @@
     <h2 style="margin:0">Roles</h2>
     {% if not org.archived_at %}
     <div style="display:flex;gap:var(--space-2)">
-      <button id="roles-merge-btn" class="btn btn--sm btn--secondary" type="button">Merge</button>
+      <span id="roles-merge-btn-wrap" style="display:inline-block"><button id="roles-merge-btn" class="btn btn--sm btn--secondary" type="button">Merge</button></span>
       <button class="btn btn--sm btn--secondary"
               hx-get="/admin/orgs/{{ org.id }}/roles/new-row/"
               hx-target="#roles-table tbody"

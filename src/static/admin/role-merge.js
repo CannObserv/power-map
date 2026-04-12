@@ -9,6 +9,7 @@
 (function () {
   var table = document.getElementById('roles-table');
   var mergeBtn = document.getElementById('roles-merge-btn');
+  var mergeBtnWrap = document.getElementById('roles-merge-btn-wrap');
   var mergeBar = document.getElementById('roles-merge-bar');
   if (!table || !mergeBtn || !mergeBar) return;
 
@@ -172,11 +173,15 @@
     var roleRows = table.querySelectorAll('tbody tr[data-role-id]');
     var canMerge = roleRows.length >= 2;
     mergeBtn.disabled = !canMerge;
-    mergeBtn.style.cursor = canMerge ? '' : 'not-allowed';
-    if (canMerge) {
-      mergeBtn.removeAttribute('title');
-    } else {
-      mergeBtn.title = 'At least 2 roles required to merge';
+    // cursor/title go on the wrapper — .btn:disabled sets pointer-events:none
+    // on the button itself, which would swallow hover events otherwise
+    if (mergeBtnWrap) {
+      mergeBtnWrap.style.cursor = canMerge ? '' : 'not-allowed';
+      if (canMerge) {
+        mergeBtnWrap.removeAttribute('title');
+      } else {
+        mergeBtnWrap.title = 'At least 2 roles required to merge';
+      }
     }
   }
 
