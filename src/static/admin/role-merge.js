@@ -168,6 +168,18 @@
     updateBar();
   }
 
+  function syncMergeBtn() {
+    var roleRows = table.querySelectorAll('tbody tr[data-role-id]');
+    var canMerge = roleRows.length >= 2;
+    mergeBtn.disabled = !canMerge;
+    mergeBtn.style.cursor = canMerge ? '' : 'not-allowed';
+    if (canMerge) {
+      mergeBtn.removeAttribute('title');
+    } else {
+      mergeBtn.title = 'At least 2 roles required to merge';
+    }
+  }
+
   // Listen for checkbox changes via delegation on the table
   table.addEventListener('change', onCheckboxChange);
 
@@ -191,4 +203,9 @@
       exitMergeMode();
     }
   });
+
+  // Re-evaluate button state after any tbody swap (role added or merged)
+  table.addEventListener('htmx:afterSwap', syncMergeBtn);
+
+  syncMergeBtn();
 })();

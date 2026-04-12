@@ -48,7 +48,7 @@ afterEach(() => {
 function setup({ orgId = 'org-1', numRoles = 3 } = {}) {
   const rows = Array.from({ length: numRoles }, (_, i) => {
     const n = i + 1;
-    return `<tr data-title="Role ${n}">
+    return `<tr data-title="Role ${n}" data-role-id="role-${n}">
       <td class="merge-col"><input type="checkbox" name="merge-select" value="role-${n}"></td>
       <td>Role ${n}</td>
     </tr>`;
