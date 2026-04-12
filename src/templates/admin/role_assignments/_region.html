@@ -1,7 +1,5 @@
 {% from "admin/macros/pagination.html" import controls as pagination %}
 {% set _qs = "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode ~ "&page_size=" ~ page_size %}
-{{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
-             "/admin/role-assignments/", "#ra-list-region", _qs) }}
 <div class="table-wrapper">
   <table class="data-table" id="ra-table">
     <caption>Role Assignments — {{ total }} record{{ 's' if total != 1 else '' }}</caption>
