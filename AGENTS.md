@@ -48,7 +48,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     settings_link_types.py      — Inline CRUD for link_types (row-level HTMX swap)
     settings_identifier_types.py — Inline CRUD for entity_identifier_types (row-level HTMX swap)
     activity.py         — Activity landing page (card-grid overview of import batches); templates in src/templates/admin/activity/
-    _contacts_shared.py   — Factory make_contacts_router(entity_type, ...) — shared CRUD logic for org and person contact methods
+    _contacts_shared.py   — Factory make_contacts_router(entity_type, ...) — shared CRUD logic for org and person contact methods; email/phone normalization with inline error re-render on validation failure
     _links_shared.py      — Factory make_links_router(entity_type, ...) — shared CRUD logic for org and person links
     _identifiers_shared.py — Factory make_identifiers_router(entity_type, ...) — shared CRUD logic for org and person identifiers
     _names_shared.py      — Factory make_names_router(...) — shared CRUD logic for org and person names; accepts entity-specific promote/guard/header callbacks
