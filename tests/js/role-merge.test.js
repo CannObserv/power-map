@@ -387,3 +387,55 @@ describe('roles filter', () => {
     tableRows().forEach((r) => expect(r.style.display).not.toBe('none'));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Merge button disabled state (syncMergeBtn)
+// ---------------------------------------------------------------------------
+
+describe('merge button disabled state', () => {
+  it('is disabled with not-allowed cursor when there are 0 roles', () => {
+    setup({ numRoles: 0 });
+    const btn = document.getElementById('roles-merge-btn');
+    expect(btn.disabled).toBe(true);
+    expect(btn.style.cursor).toBe('not-allowed');
+    expect(btn.title).toBe('At least 2 roles required to merge');
+  });
+
+  it('is disabled when there is exactly 1 role', () => {
+    setup({ numRoles: 1 });
+    const btn = document.getElementById('roles-merge-btn');
+    expect(btn.disabled).toBe(true);
+    expect(btn.style.cursor).toBe('not-allowed');
+  });
+
+  it('is enabled when there are exactly 2 roles', () => {
+    setup({ numRoles: 2 });
+    const btn = document.getElementById('roles-merge-btn');
+    expect(btn.disabled).toBe(false);
+    expect(btn.style.cursor).toBe('');
+    expect(btn.title).toBe('');
+  });
+
+  it('is enabled when there are more than 2 roles', () => {
+    setup({ numRoles: 3 });
+    const btn = document.getElementById('roles-merge-btn');
+    expect(btn.disabled).toBe(false);
+  });
+
+  it('re-evaluates after htmx:afterSwap on the table', () => {
+    setup({ numRoles: 2 });
+    const btn = document.getElementById('roles-merge-btn');
+    expect(btn.disabled).toBe(false);
+
+    // Simulate a merge that leaves 1 role in the tbody
+    const tbody = document.querySelector('#roles-table tbody');
+    tbody.innerHTML = `<tr data-title="Role 1" data-role-id="role-1">
+      <td class="merge-col"><input type="checkbox" name="merge-select" value="role-1"></td>
+      <td>Role 1</td>
+    </tr>`;
+    document.getElementById('roles-table').dispatchEvent(new Event('htmx:afterSwap'));
+
+    expect(btn.disabled).toBe(true);
+    expect(btn.style.cursor).toBe('not-allowed');
+  });
+});
