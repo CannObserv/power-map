@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, escape_like, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, escape_like, get_admin_user, get_db, is_htmx
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import get_person_dup_count
@@ -251,4 +251,6 @@ async def role_delete(
         await db.execute("DELETE FROM roles WHERE id = $1", role_id)
     except asyncpg.ForeignKeyViolationError:
         raise HTTPException(status_code=409, detail="Cannot delete role with existing assignments")
-    return HTMLResponse(content="", status_code=200)
+    if is_htmx(request):
+        return HTMLResponse(content="", status_code=200, headers={"HX-Redirect": "/admin/roles/"})
+    return RedirectResponse("/admin/roles/", status_code=303)

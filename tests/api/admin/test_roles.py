@@ -150,6 +150,29 @@ async def test_hard_delete_archived_role(client, db, role_id):
     assert response.status_code == 200
 
 
+async def test_hard_delete_archived_role_htmx_redirects(client, db, role_id):
+    """HTMX delete of archived role must return HX-Redirect to /admin/roles/."""
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    response = client.delete(
+        f"/admin/roles/{role_id}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert response.headers.get("HX-Redirect") == "/admin/roles/"
+
+
+async def test_hard_delete_archived_role_non_htmx_redirects(client, db, role_id):
+    """Non-HTMX delete of archived role must 303-redirect to /admin/roles/."""
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    response = client.delete(
+        f"/admin/roles/{role_id}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers.get("location") == "/admin/roles/"
+
+
 def test_roles_list_filters_by_org_name(client, role_id):
     response = client.get("/admin/roles/?org_q=Test", headers=AUTH_HEADERS)
     assert response.status_code == 200
