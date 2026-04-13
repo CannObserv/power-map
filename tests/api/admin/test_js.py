@@ -1,5 +1,6 @@
 """Structural tests for admin JS files."""
 
+import hashlib
 from pathlib import Path
 
 _MODAL_JS_PATH = Path("src/static/admin/admin-modal.js")
@@ -144,3 +145,40 @@ def test_person_detail_js_targets_breadcrumb_current():
 def test_person_detail_js_updates_document_title():
     """Must update document.title — tab title sync is the third live-update target."""
     assert "document.title" in PERSON_DETAIL_JS
+
+
+# --- Vendored HTMX bundle -----------------------------------------------------
+# Pinned to HTMX 2.0.8 from https://unpkg.com/htmx.org@2.0.8/dist/htmx.min.js
+# SHA-256 of the upstream bundle — mutating or silently upgrading the file
+# flips this test, forcing a conscious provenance review.
+_HTMX_VENDOR_PATH = Path("src/static/admin/vendor/htmx-2.0.8.min.js")
+_HTMX_EXPECTED_SHA256 = (
+    "22283ef68cb7545914f0a88a1bdedc7256a703d1d580c1d255217d0a50d31313"
+)
+_BASE_HTML_PATH = Path("src/templates/admin/base.html")
+
+
+def test_htmx_vendor_js_exists():
+    """Vendored HTMX bundle must be present and non-empty."""
+    assert _HTMX_VENDOR_PATH.exists(), f"Missing {_HTMX_VENDOR_PATH}"
+    assert _HTMX_VENDOR_PATH.stat().st_size > 0
+
+
+def test_htmx_vendor_js_matches_pinned_sha256():
+    """Bundle contents must match the pinned SHA-256 from upstream unpkg."""
+    digest = hashlib.sha256(_HTMX_VENDOR_PATH.read_bytes()).hexdigest()
+    assert digest == _HTMX_EXPECTED_SHA256, (
+        f"Vendored htmx bundle hash mismatch.\n"
+        f"  expected: {_HTMX_EXPECTED_SHA256}\n"
+        f"  actual:   {digest}\n"
+        f"If this is an intentional upgrade, update both the filename and "
+        f"the _HTMX_EXPECTED_SHA256 constant."
+    )
+
+
+def test_base_html_references_vendored_htmx():
+    """base.html must point at the vendored bundle — not a CDN."""
+    base = _BASE_HTML_PATH.read_text()
+    assert "/static/admin/vendor/htmx-2.0.8.min.js" in base
+    assert "unpkg.com" not in base, "CDN regression — htmx must be self-hosted"
+    assert "cdn.jsdelivr.net" not in base

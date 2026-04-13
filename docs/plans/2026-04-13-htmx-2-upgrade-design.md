@@ -52,6 +52,21 @@ Issue #33 notes that OOB swap scanning inside `<template>` was broken in 1.9.12 
 - Adopting HTMX 2.x extensions.
 - Any refactor of existing HTMX attributes — this is a drop-in version bump.
 
+## Provenance
+
+The vendored bundle at `src/static/admin/vendor/htmx-2.0.8.min.js` was
+downloaded on 2026-04-13 from:
+
+    https://unpkg.com/htmx.org@2.0.8/dist/htmx.min.js
+
+SHA-256: `22283ef68cb7545914f0a88a1bdedc7256a703d1d580c1d255217d0a50d31313`
+
+The hash is pinned in `tests/api/admin/test_js.py::test_htmx_vendor_js_matches_pinned_sha256` —
+any tampering or silent upgrade flips that test. When upgrading, update
+the filename (e.g. `htmx-2.1.0.min.js`), the `<script src=...>` in
+`base.html`, and both constants in the test (`_HTMX_VENDOR_PATH`,
+`_HTMX_EXPECTED_SHA256`) in the same commit.
+
 ## Rollback
 
 Revert the single commit. The previous CDN `<script>` tag is restored, and no template or JS changes accompany the bump, so there is nothing else to undo.
