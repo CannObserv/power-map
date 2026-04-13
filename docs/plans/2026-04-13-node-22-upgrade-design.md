@@ -67,6 +67,7 @@ If Node 22 breaks tests and can't be fixed quickly:
 ```bash
 sudo apt purge nodejs
 sudo rm /etc/apt/sources.list.d/nodesource.list
+sudo rm -f /etc/apt/keyrings/nodesource.gpg       # installed by setup_22.x
 sudo apt update && sudo apt install -y nodejs    # back to 18.x from universe
 git checkout package.json package-lock.json
 npm install

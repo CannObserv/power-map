@@ -100,9 +100,10 @@ npm run test:js
 npm run test:js:watch
 ```
 
-Note: Node ≥18 required. `npm install` first if `node_modules/` is absent.
-Uses vitest v2 + happy-dom. happy-dom is used instead of jsdom due to a
-CJS/ESM incompatibility in jsdom v29 on Node 18.
+Note: Node ≥22 required. `npm install` first if `node_modules/` is absent.
+Uses vitest v2 + happy-dom. happy-dom was chosen over jsdom historically
+due to a CJS/ESM incompatibility in jsdom v29 on Node 18; kept on happy-dom
+for speed.
 
 ## JS Linting & Formatting
 
