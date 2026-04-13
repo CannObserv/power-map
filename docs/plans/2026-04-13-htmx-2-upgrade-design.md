@@ -16,7 +16,7 @@ Replace the unpkg-hosted HTMX 1.9.12 dependency in `src/templates/admin/base.htm
 ## Approved approach
 
 1. Download `htmx.min.js` v2.0.8 to `src/static/admin/vendor/htmx-2.0.8.min.js` (version in filename acts as cache-buster and makes the audited version obvious).
-2. Swap the `<script>` tag in `src/templates/admin/base.html` from the unpkg URL to a `{{ url_for('static', path=...) }}` reference, keeping the `defer` attribute.
+2. Swap the `<script>` tag in `src/templates/admin/base.html` from the unpkg URL to a hardcoded `/static/admin/vendor/htmx-2.0.8.min.js` path (matches the existing convention used by every other script and stylesheet in `base.html`), keeping the `defer` attribute. A separate initiative may migrate all static refs to `url_for`.
 3. Smoke-test the admin flows that exercise HTMX surface area (sidebar boost nav, flash triggers, typeahead search, row-level edit swaps, delete modal, address confirm modal).
 4. Ship as one commit: `#33 chore: upgrade htmx to 2.0.8 and self-host`.
 
