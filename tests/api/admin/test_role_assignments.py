@@ -237,6 +237,24 @@ def test_ra_list_shows_person_name(client, ra_id):
     assert "Test Person" in response.text
 
 
+def test_ra_list_uses_composed_format(client, ra_id):
+    """List row must render 'Person – Role @ Org' (issue #98)."""
+    response = client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Person \u2013 Test Role @ Test Org" in response.text
+
+
+def test_ra_detail_uses_composed_format(client, ra_id):
+    """Detail h1 and <title> must render 'Person – Role @ Org' (issue #98)."""
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Test Person \u2013 Test Role @ Test Org" in response.text
+    assert (
+        "<title>Test Person \u2013 Test Role @ Test Org \u2014 Assignment \u2014 Power Map</title>"
+        in response.text
+    )
+
+
 def test_ra_list_search_matches_person_name(client, ra_id):
     """Search filter must match against v_person_display_names.display_name."""
     response = client.get(

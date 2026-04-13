@@ -2,7 +2,7 @@
 <tr class="{% if ra.archived_at %}is-archived{% endif %}">
   <td>
     <a href="/admin/role-assignments/{{ ra.id }}/">
-      {{ ra.person_name or '(unnamed)' }} @ {{ ra.role_title }} ({{ ra.org_name or '(unnamed)' }})
+      {{ ra.person_name or '(unnamed)' }} – {{ ra.role_title }} @ {{ ra.org_name or '(unnamed)' }}
     </a>
   </td>
   <td>
