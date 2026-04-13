@@ -57,6 +57,7 @@ src/core/       — Shared domain logic
   schema.sql    — Canonical DDL (tables, indexes, triggers, seed data); source of truth
   normalizers/  — Field normalizers: phone, email, url, identifier, address
   ingestion/    — EVTL pipeline: base types, CSV sources (org/person/role), pipeline coordinator
+src/static/admin/vendor/ — Vendored third-party JS (htmx, etc.); pinned by SHA-256 in tests/api/admin/test_js.py; excluded from ESLint/Prettier and marked linguist-vendored
 tests/          — Mirrors src/ structure
   js/           — Vitest behavioral tests for admin JS (role-merge.js, …)
 docs/           — Reference docs (API, COMMANDS, SKILLS)

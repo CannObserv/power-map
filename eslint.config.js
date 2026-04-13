@@ -4,6 +4,11 @@ import prettier from 'eslint-config-prettier';
 import globals from 'globals';
 
 export default [
+  // Ignore vendored third-party bundles
+  {
+    ignores: ['src/static/admin/vendor/**'],
+  },
+
   // Production JS: browser IIFE scripts
   {
     files: ['src/static/admin/**/*.js'],

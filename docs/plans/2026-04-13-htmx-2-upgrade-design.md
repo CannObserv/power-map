@@ -16,7 +16,7 @@ Replace the unpkg-hosted HTMX 1.9.12 dependency in `src/templates/admin/base.htm
 ## Approved approach
 
 1. Download `htmx.min.js` v2.0.8 to `src/static/admin/vendor/htmx-2.0.8.min.js` (version in filename acts as cache-buster and makes the audited version obvious).
-2. Swap the `<script>` tag in `src/templates/admin/base.html` from the unpkg URL to a `{{ url_for('static', path=...) }}` reference, keeping the `defer` attribute.
+2. Swap the `<script>` tag in `src/templates/admin/base.html` from the unpkg URL to a hardcoded `/static/admin/vendor/htmx-2.0.8.min.js` path (matches the existing convention used by every other script and stylesheet in `base.html`), keeping the `defer` attribute. A separate initiative may migrate all static refs to `url_for`.
 3. Smoke-test the admin flows that exercise HTMX surface area (sidebar boost nav, flash triggers, typeahead search, row-level edit swaps, delete modal, address confirm modal).
 4. Ship as one commit: `#33 chore: upgrade htmx to 2.0.8 and self-host`.
 
@@ -51,6 +51,21 @@ Issue #33 notes that OOB swap scanning inside `<template>` was broken in 1.9.12 
 - Flash message redesign (#32).
 - Adopting HTMX 2.x extensions.
 - Any refactor of existing HTMX attributes — this is a drop-in version bump.
+
+## Provenance
+
+The vendored bundle at `src/static/admin/vendor/htmx-2.0.8.min.js` was
+downloaded on 2026-04-13 from:
+
+    https://unpkg.com/htmx.org@2.0.8/dist/htmx.min.js
+
+SHA-256: `22283ef68cb7545914f0a88a1bdedc7256a703d1d580c1d255217d0a50d31313`
+
+The hash is pinned in `tests/api/admin/test_js.py::test_htmx_vendor_js_matches_pinned_sha256` —
+any tampering or silent upgrade flips that test. When upgrading, update
+the filename (e.g. `htmx-2.1.0.min.js`), the `<script src=...>` in
+`base.html`, and both constants in the test (`_HTMX_VENDOR_PATH`,
+`_HTMX_EXPECTED_SHA256`) in the same commit.
 
 ## Rollback
 
