@@ -242,6 +242,7 @@ def test_ra_list_uses_composed_format(client, ra_id):
     response = client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Person \u2013 Test Role @ Test Org" in response.text
+    assert "@ Test Role (Test Org)" not in response.text
 
 
 def test_ra_detail_uses_composed_format(client, ra_id):
@@ -253,6 +254,55 @@ def test_ra_detail_uses_composed_format(client, ra_id):
         "<title>Test Person \u2013 Test Role @ Test Org \u2014 Assignment \u2014 Power Map</title>"
         in response.text
     )
+    assert "@ Test Role (Test Org)" not in response.text
+
+
+async def test_ra_list_renders_unnamed_fallback_for_missing_person_name(
+    client, db, role_id
+):
+    """List must render '(unnamed) – Role @ Org' when person has no canonical name."""
+    pid = generate_id()
+    raid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        raid, pid, role_id,
+    )
+    try:
+        response = client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
+        assert response.status_code == 200
+        assert "(unnamed) \u2013 Test Role @ Test Org" in response.text
+    finally:
+        await db.execute("DELETE FROM role_assignments WHERE id = $1", raid)
+        await db.execute("DELETE FROM people WHERE id = $1", pid)
+
+
+async def test_ra_detail_renders_unnamed_fallback_for_missing_org_name(
+    client, db, person_id
+):
+    """Detail h1 must render 'Person – Role @ (unnamed)' when org has no canonical name."""
+    oid = generate_id()
+    rid = generate_id()
+    raid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Nameless Role')",
+        rid, oid,
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        raid, person_id, rid,
+    )
+    try:
+        response = client.get(f"/admin/role-assignments/{raid}/", headers=AUTH_HEADERS)
+        assert response.status_code == 200
+        assert "Test Person \u2013 Nameless Role @ (unnamed)" in response.text
+    finally:
+        await db.execute("DELETE FROM role_assignments WHERE id = $1", raid)
+        await db.execute("DELETE FROM roles WHERE id = $1", rid)
+        await db.execute("DELETE FROM organizations WHERE id = $1", oid)
 
 
 def test_ra_list_search_matches_person_name(client, ra_id):
