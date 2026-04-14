@@ -204,7 +204,7 @@ async def test_hard_delete_archived_ra(client, db, ra_id):
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )
     assert response.status_code == 204
-    assert response.headers.get("HX-Location", "").startswith("/admin/role-assignments/")
+    assert response.headers.get("HX-Location") == "/admin/role-assignments/?flash=deleted"
 
 
 async def test_detail_delete_button_has_no_legacy_push_url(client, db, ra_id):

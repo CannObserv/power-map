@@ -539,4 +539,4 @@ async def ra_delete(
             status_code=204,
             headers={"HX-Location": "/admin/role-assignments/?flash=deleted"},
         )
-    return RedirectResponse("/admin/role-assignments/", status_code=303)
+    return RedirectResponse("/admin/role-assignments/?flash=deleted", status_code=303)

@@ -76,7 +76,7 @@ def resolve_query_flash(
     """
     pair = flash_messages.get(flash_key) if flash_key else None
     flash_msg = {"level": pair[0], "body": pair[1]} if pair else None
-    headers: dict = {}
+    headers: dict[str, str] = {}
     if flash_msg and not is_htmx(request):
         headers["HX-Replace-Url"] = str(request.url.remove_query_params("flash"))
     return flash_msg, headers
