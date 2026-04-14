@@ -7,7 +7,14 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    resolve_query_flash,
+)
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import get_person_dup_count
@@ -19,6 +26,7 @@ router = APIRouter(prefix="/role-assignments", tags=["admin-role-assignments"])
 
 _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "archived": ("success", "Assignment archived."),
+    "deleted": ("success", "Assignment deleted."),
 }
 
 
@@ -83,6 +91,7 @@ async def ra_list(
     status: str = "active",
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=10, le=500),
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
@@ -134,6 +143,8 @@ async def ra_list(
         *list_params,
     )
 
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
+
     ctx = {
         "user": user,
         "active_section": "role_assignments",
@@ -144,14 +155,15 @@ async def ra_list(
         "total": count,
         "org_dup_count": org_dup_count,
         "person_dup_count": person_dup_count,
+        "flash_msg": flash_msg,
         **pctx,
     }
     template = (
         "admin/role_assignments/_region.html"
-        if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
+        if is_htmx(request)
         else "admin/role_assignments/list.html"
     )
-    return templates.TemplateResponse(request, template, ctx)
+    return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
 @router.get("/new/")
@@ -249,12 +261,7 @@ async def ra_detail(
     """Role assignment detail view."""
 
     ra = await _get_ra(ra_id, db)
-    flash_pair = _FLASH_MESSAGES.get(flash)
-    flash_msg = {"level": flash_pair[0], "body": flash_pair[1]} if flash_pair else None
-
-    resp_headers = {}
-    if flash_msg and not is_htmx(request):
-        resp_headers["HX-Replace-Url"] = str(request.url.remove_query_params("flash"))
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
 
     return templates.TemplateResponse(
         request,
@@ -491,7 +498,6 @@ async def ra_inline_notes_post(
 @router.post("/{ra_id}/archive/")
 async def ra_archive(
     ra_id: str,
-    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):

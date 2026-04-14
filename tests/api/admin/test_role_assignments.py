@@ -158,6 +158,40 @@ def test_archive_ra(client, ra_id):
     assert response.status_code in (302, 303)
 
 
+def test_archive_ra_redirects_with_flash_query(client, ra_id):
+    """Archive redirects to detail with ?flash=archived so the detail view can render a flash."""
+    response = client.post(
+        f"/admin/role-assignments/{ra_id}/archive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/role-assignments/{ra_id}/?flash=archived"
+
+
+def test_archived_flash_renders_on_detail(client, ra_id):
+    """Detail page with ?flash=archived renders the archived success flash."""
+    response = client.get(
+        f"/admin/role-assignments/{ra_id}/?flash=archived", headers=AUTH_HEADERS
+    )
+    assert response.status_code == 200
+    assert "Assignment archived." in response.text
+    assert "flash--success" in response.text
+    assert response.headers.get("HX-Replace-Url", "").endswith(
+        f"/admin/role-assignments/{ra_id}/"
+    )
+
+
+def test_deleted_flash_renders_on_list(client):
+    """List with ?flash=deleted renders the deleted success flash."""
+    response = client.get(
+        "/admin/role-assignments/?flash=deleted", headers=AUTH_HEADERS
+    )
+    assert response.status_code == 200
+    assert "Assignment deleted." in response.text
+    assert "flash--success" in response.text
+
+
 def test_hard_delete_requires_archive(client, ra_id):
     response = client.delete(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 409

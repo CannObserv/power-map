@@ -62,6 +62,26 @@ def flash_trigger(
     return {"HX-Trigger": json.dumps(payload)}
 
 
+def resolve_query_flash(
+    request: Request,
+    flash_messages: dict[str, tuple[str, str]],
+    flash_key: str | None,
+) -> tuple[dict | None, dict]:
+    """Resolve a ``?flash=<key>`` query param against a router-local registry.
+
+    Returns ``(flash_msg, headers)``. ``flash_msg`` is ``{"level", "body"}`` or ``None``.
+    When a flash is resolved on a non-HTMX request, ``headers`` carries an
+    ``HX-Replace-Url`` entry that strips the ``flash`` query param so a refresh
+    won't re-trigger the message. HTMX requests get an empty headers dict.
+    """
+    pair = flash_messages.get(flash_key) if flash_key else None
+    flash_msg = {"level": pair[0], "body": pair[1]} if pair else None
+    headers: dict = {}
+    if flash_msg and not is_htmx(request):
+        headers["HX-Replace-Url"] = str(request.url.remove_query_params("flash"))
+    return flash_msg, headers
+
+
 def escape_like(s: str) -> str:
     r"""Escape LIKE/ILIKE special characters so user input is a literal substring.
 

@@ -138,6 +138,22 @@ async def test_is_current_toggle_rejects_when_end_date_set(client, db, ra_id):
     assert row["is_current"] is False
 
 
+async def test_is_current_non_htmx_end_date_set_returns_400(client, db, ra_id):
+    """Non-HTMX CHECK violation on is_current raises 400 instead of silent redirect."""
+    await db.execute(
+        "UPDATE role_assignments SET is_current=FALSE, end_date='2024-01-01' WHERE id=$1",
+        ra_id,
+    )
+    response = client.post(
+        f"/admin/role-assignments/{ra_id}/inline/is_current/",
+        headers=AUTH_HEADERS,
+        data={"is_current": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "end date" in response.text.lower()
+
+
 async def test_is_current_toggle_disabled_when_archived(client, db, ra_id):
     """Archived RA: toggle rendered with `disabled` attribute in the detail page."""
     await db.execute(
@@ -203,6 +219,18 @@ def test_dates_post_rejects_end_date_when_current(client, ra_id):
     # repopulated values
     assert "2020-01-01" in response.text
     assert "2021-12-31" in response.text
+
+
+def test_dates_non_htmx_check_violation_returns_400(client, ra_id):
+    """Non-HTMX CHECK violation on dates raises 400 instead of silent redirect."""
+    response = client.post(
+        f"/admin/role-assignments/{ra_id}/inline/dates/",
+        headers=AUTH_HEADERS,
+        data={"start_date": "2020-01-01", "end_date": "2021-12-31"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "end date" in response.text.lower()
 
 
 async def test_dates_edit_hidden_when_archived(client, db, ra_id):
