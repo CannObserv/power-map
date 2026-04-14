@@ -1,5 +1,7 @@
 {% extends "admin/base.html" %}
+{% from "admin/macros/flash.html" import message %}
 {% block title %}{{ ra.person_name or '(unnamed)' }} – {{ ra.role_title }} @ {{ ra.org_name or '(unnamed)' }} — Assignment{% endblock %}
+{% block flash %}{% if flash_msg %}{{ message(flash_msg.level, flash_msg.body) }}{% endif %}{% endblock %}
 {% block breadcrumb %}
   <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
   <a href="/admin/role-assignments/">Role Assignments</a><span class="breadcrumb__sep">›</span>

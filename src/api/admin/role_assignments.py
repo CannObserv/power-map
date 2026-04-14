@@ -17,6 +17,11 @@ templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/role-assignments", tags=["admin-role-assignments"])
 
 
+_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
+    "archived": ("success", "Assignment archived."),
+}
+
+
 def _parse_date(value: str) -> datetime.date | None:
     """Parse an ISO date string to datetime.date, or return None if empty.
 
@@ -235,6 +240,7 @@ async def ra_create(
 async def ra_detail(
     ra_id: str,
     request: Request,
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
@@ -243,6 +249,12 @@ async def ra_detail(
     """Role assignment detail view."""
 
     ra = await _get_ra(ra_id, db)
+    flash_pair = _FLASH_MESSAGES.get(flash)
+    flash_msg = {"level": flash_pair[0], "body": flash_pair[1]} if flash_pair else None
+
+    resp_headers = {}
+    if flash_msg and not is_htmx(request):
+        resp_headers["HX-Replace-Url"] = str(request.url.remove_query_params("flash"))
 
     return templates.TemplateResponse(
         request,
@@ -251,9 +263,11 @@ async def ra_detail(
             "user": user,
             "active_section": "role_assignments",
             "ra": ra,
+            "flash_msg": flash_msg,
             "org_dup_count": org_dup_count,
             "person_dup_count": person_dup_count,
         },
+        headers=resp_headers,
     )
 
 
@@ -301,10 +315,13 @@ async def ra_inline_is_current(
             "UPDATE role_assignments SET is_current=$1 WHERE id=$2 RETURNING id",
             new_val, ra_id,
         )
-    except asyncpg.exceptions.CheckViolationError:
-        ra = await _get_ra(ra_id, db)
+    except asyncpg.exceptions.CheckViolationError as exc:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+            raise HTTPException(
+                status_code=400,
+                detail="Current assignments cannot have an end date.",
+            ) from exc
+        ra = await _get_ra(ra_id, db)
         return templates.TemplateResponse(
             request,
             "admin/role_assignments/partials/_is_current_toggle.html",
@@ -316,9 +333,9 @@ async def ra_inline_is_current(
         )
     if not updated:
         raise HTTPException(status_code=404, detail="Role assignment not found")
-    ra = await _get_ra(ra_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+    ra = await _get_ra(ra_id, db)
     return templates.TemplateResponse(
         request,
         "admin/role_assignments/partials/_is_current_toggle.html",
@@ -382,10 +399,13 @@ async def ra_inline_dates_post(
             "UPDATE role_assignments SET start_date=$1, end_date=$2 WHERE id=$3 RETURNING id",
             start_val, end_val, ra_id,
         )
-    except asyncpg.exceptions.CheckViolationError:
-        ra = await _get_ra(ra_id, db)
+    except asyncpg.exceptions.CheckViolationError as exc:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+            raise HTTPException(
+                status_code=400,
+                detail="Current assignments cannot have an end date.",
+            ) from exc
+        ra = await _get_ra(ra_id, db)
         return templates.TemplateResponse(
             request,
             "admin/role_assignments/partials/_dates_form.html",
@@ -398,9 +418,9 @@ async def ra_inline_dates_post(
         )
     if not updated:
         raise HTTPException(status_code=404, detail="Role assignment not found")
-    ra = await _get_ra(ra_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+    ra = await _get_ra(ra_id, db)
     return templates.TemplateResponse(
         request,
         "admin/role_assignments/partials/_dates_read.html",
@@ -457,9 +477,9 @@ async def ra_inline_notes_post(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Role assignment not found")
-    ra = await _get_ra(ra_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+    ra = await _get_ra(ra_id, db)
     return templates.TemplateResponse(
         request,
         "admin/role_assignments/partials/_notes_read.html",
@@ -477,14 +497,15 @@ async def ra_archive(
 ):
     """Archive a role assignment (soft delete)."""
 
-    ra = await db.fetchrow("SELECT id FROM role_assignments WHERE id = $1", ra_id)
-    if not ra:
-        raise HTTPException(status_code=404, detail="Role assignment not found")
-
-    await db.execute(
-        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
+    updated = await db.fetchval(
+        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1 RETURNING id",
+        ra_id,
     )
-    return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Role assignment not found")
+    return RedirectResponse(
+        f"/admin/role-assignments/{ra_id}/?flash=archived", status_code=303
+    )
 
 
 @router.delete("/{ra_id}/")
