@@ -1,6 +1,14 @@
 {# admin/roles/partials/_assignment_form_row.html — new assignment inline form #}
 <tr id="assignment-row-new">
   <td colspan="5" style="padding:var(--space-2) var(--space-4)">
+    {% if role and (role.established_on or role.abolished_on) %}
+    <p style="margin:0 0 var(--space-2);font-size:var(--font-size-xs);color:var(--color-text-muted)">
+      Role active:
+      {% if role.established_on %}{{ role.established_on }}{% else %}?{% endif %}
+      –
+      {% if role.abolished_on %}{{ role.abolished_on }}{% else %}present{% endif %}
+    </p>
+    {% endif %}
     <form hx-post="/admin/roles/{{ role_id }}/assignments/"
           hx-target="#assignments-table tbody"
           hx-swap="innerHTML"

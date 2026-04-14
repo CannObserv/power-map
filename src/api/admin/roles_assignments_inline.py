@@ -83,12 +83,13 @@ async def assignment_new_row(
     db=Depends(get_db),
 ):
     """Return blank inline assignment form row."""
-    await _get_role(role_id, db)  # 404 check
+    role = await _get_role(role_id, db)
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_assignment_form_row.html",
         {
             "role_id": role_id,
+            "role": role,
             "start_date_input": "",
             "end_date_input": "",
             "is_current_input": False,
@@ -108,7 +109,7 @@ async def assignment_create(
     db=Depends(get_db),
 ):
     """Create a new role assignment (inline HTMX path)."""
-    await _get_role(role_id, db)  # 404 check
+    role = await _get_role(role_id, db)
 
     person_id_val = person_id.strip()
     is_current_val = bool(is_current)
@@ -122,6 +123,7 @@ async def assignment_create(
             "admin/roles/partials/_assignment_form_row.html",
             {
                 "role_id": role_id,
+                "role": role,
                 "start_date_input": start_date,
                 "end_date_input": end_date,
                 "is_current_input": is_current_val,
@@ -144,12 +146,37 @@ async def assignment_create(
             "admin/roles/partials/_assignment_form_row.html",
             {
                 "role_id": role_id,
+                "role": role,
                 "start_date_input": start_date,
                 "end_date_input": end_date,
                 "is_current_input": is_current_val,
             },
             headers={
                 **flash_trigger("error", "Invalid date format. Use YYYY-MM-DD."),
+                "HX-Retarget": "#assignment-row-new",
+                "HX-Reswap": "outerHTML",
+            },
+        )
+
+    bound_err = _check_assignment_within_bounds(
+        start_date_val, end_date_val,
+        role["established_on"], role["abolished_on"],
+    )
+    if bound_err:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_assignment_form_row.html",
+            {
+                "role_id": role_id,
+                "role": role,
+                "start_date_input": start_date,
+                "end_date_input": end_date,
+                "is_current_input": is_current_val,
+            },
+            headers={
+                **flash_trigger("error", bound_err),
                 "HX-Retarget": "#assignment-row-new",
                 "HX-Reswap": "outerHTML",
             },
@@ -171,6 +198,7 @@ async def assignment_create(
             "admin/roles/partials/_assignment_form_row.html",
             {
                 "role_id": role_id,
+                "role": role,
                 "start_date_input": start_date,
                 "end_date_input": end_date,
                 "is_current_input": is_current_val,
@@ -189,6 +217,7 @@ async def assignment_create(
             "admin/roles/partials/_assignment_form_row.html",
             {
                 "role_id": role_id,
+                "role": role,
                 "start_date_input": start_date,
                 "end_date_input": end_date,
                 "is_current_input": is_current_val,
@@ -249,12 +278,14 @@ async def assignment_edit_row_get(
     ra = await _get_assignment(assignment_id, role_id, db)
     if ra["archived_at"]:
         raise HTTPException(status_code=409, detail="Cannot edit an archived assignment")
+    role = await _get_role(role_id, db)
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_assignment_edit_row.html",
         {
             "ra": ra,
             "role_id": role_id,
+            "role": role,
             "start_date_input": ra["start_date"].isoformat() if ra["start_date"] else "",
             "end_date_input": ra["end_date"].isoformat() if ra["end_date"] else "",
             "is_current_input": ra["is_current"],
@@ -277,12 +308,14 @@ async def assignment_edit_row_post(
     ra = await _get_assignment(assignment_id, role_id, db)
     if ra["archived_at"]:
         raise HTTPException(status_code=409, detail="Cannot edit an archived assignment")
+    role = await _get_role(role_id, db)
     is_current_val = bool(is_current)
 
     def _error_ctx():
         return {
             "ra": ra,
             "role_id": role_id,
+            "role": role,
             "start_date_input": start_date,
             "end_date_input": end_date,
             "is_current_input": is_current_val,
@@ -300,6 +333,24 @@ async def assignment_edit_row_post(
             _error_ctx(),
             headers={
                 **flash_trigger("error", "Invalid date format. Use YYYY-MM-DD."),
+                "HX-Retarget": f"#assignment-row-{assignment_id}",
+                "HX-Reswap": "outerHTML",
+            },
+        )
+
+    bound_err = _check_assignment_within_bounds(
+        start_date_val, end_date_val,
+        role["established_on"], role["abolished_on"],
+    )
+    if bound_err:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_assignment_edit_row.html",
+            _error_ctx(),
+            headers={
+                **flash_trigger("error", bound_err),
                 "HX-Retarget": f"#assignment-row-{assignment_id}",
                 "HX-Reswap": "outerHTML",
             },

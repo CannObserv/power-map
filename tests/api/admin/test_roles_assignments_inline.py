@@ -150,6 +150,20 @@ async def role_id(db):
 
 
 @pytest.fixture
+async def bounded_role_id(db):
+    """Role with established_on=2010-01-01, abolished_on=2020-12-31."""
+    oid = await _make_org(db, "Bounded Org")
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title, established_on, abolished_on)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        rid, oid, "Bounded Director",
+        dt.date(2010, 1, 1), dt.date(2020, 12, 31),
+    )
+    return rid
+
+
+@pytest.fixture
 async def person_id(db):
     return await _make_person(db, "Jane Doe")
 
@@ -768,3 +782,101 @@ async def test_read_row_has_delete_button(client, role_id, assignment_id):
     assert b"hx-delete" in r.content
     assert b"hx-confirm" in r.content
     assert b"Delete" in r.content
+
+
+# ---------------------------------------------------------------------------
+# Boundary enforcement: create
+# ---------------------------------------------------------------------------
+
+
+async def test_create_start_before_established_returns_error(
+    client, bounded_role_id, person_id
+):
+    r = await client.post(
+        f"/admin/roles/{bounded_role_id}/assignments/",
+        headers=HTMX_HEADERS,
+        data={"person_id": person_id, "start_date": "2009-12-31", "end_date": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert b"<form" in r.content
+
+
+async def test_create_end_after_abolished_returns_error(
+    client, bounded_role_id, person_id
+):
+    r = await client.post(
+        f"/admin/roles/{bounded_role_id}/assignments/",
+        headers=HTMX_HEADERS,
+        data={
+            "person_id": person_id,
+            "start_date": "2015-01-01",
+            "end_date": "2021-01-01",
+        },
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert b"<form" in r.content
+
+
+async def test_create_within_bounds_succeeds(client, bounded_role_id, person_id, db):
+    r = await client.post(
+        f"/admin/roles/{bounded_role_id}/assignments/",
+        headers=HTMX_HEADERS,
+        data={
+            "person_id": person_id,
+            "start_date": "2015-01-01",
+            "end_date": "2019-12-31",
+        },
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT id FROM role_assignments WHERE role_id=$1 AND person_id=$2",
+        bounded_role_id, person_id,
+    )
+    assert row is not None
+
+
+# ---------------------------------------------------------------------------
+# Boundary enforcement: edit
+# ---------------------------------------------------------------------------
+
+
+async def _make_assignment(db, role_id, person_id) -> str:
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, FALSE)",
+        aid, person_id, role_id,
+    )
+    return aid
+
+
+async def test_edit_start_before_established_returns_error(
+    client, bounded_role_id, person_id, db
+):
+    aid = await _make_assignment(db, bounded_role_id, person_id)
+    r = await client.post(
+        f"/admin/roles/{bounded_role_id}/assignments/{aid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2009-06-01", "end_date": "", "is_current": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+
+
+async def test_edit_end_after_abolished_returns_error(
+    client, bounded_role_id, person_id, db
+):
+    aid = await _make_assignment(db, bounded_role_id, person_id)
+    r = await client.post(
+        f"/admin/roles/{bounded_role_id}/assignments/{aid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2015-01-01", "end_date": "2021-06-01", "is_current": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
