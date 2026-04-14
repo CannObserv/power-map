@@ -1,0 +1,32 @@
+{# admin/role_assignments/partials/_dates_form.html — dates inline edit form #}
+<div id="dates-field" style="margin-top:var(--space-5)">
+  <form hx-post="/admin/role-assignments/{{ ra.id }}/inline/dates/"
+        hx-target="#dates-field"
+        hx-swap="outerHTML">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+      <span class="field-group-label">Dates</span>
+      <div>
+        <button type="submit" class="btn btn--primary btn--sm">Save</button>
+        <button type="button" class="btn btn--secondary btn--sm"
+                hx-get="/admin/role-assignments/{{ ra.id }}/inline/dates/"
+                hx-target="#dates-field"
+                hx-swap="outerHTML">Cancel</button>
+      </div>
+    </div>
+    {% if error %}
+    <div class="alert alert--error" role="alert" style="margin-bottom:var(--space-3)">{{ error }}</div>
+    {% endif %}
+    <div style="display:flex;gap:var(--space-4)">
+      <div class="form-group" style="margin-bottom:0;flex:1">
+        <label for="start-date-input" class="field-group-label" style="font-size:var(--font-size-xs)">Start</label>
+        <input id="start-date-input" type="date" name="start_date"
+               value="{{ start_date_value if start_date_value is not none else (ra.start_date.isoformat() if ra.start_date else '') }}">
+      </div>
+      <div class="form-group" style="margin-bottom:0;flex:1">
+        <label for="end-date-input" class="field-group-label" style="font-size:var(--font-size-xs)">End</label>
+        <input id="end-date-input" type="date" name="end_date"
+               value="{{ end_date_value if end_date_value is not none else (ra.end_date.isoformat() if ra.end_date else '') }}">
+      </div>
+    </div>
+  </form>
+</div>

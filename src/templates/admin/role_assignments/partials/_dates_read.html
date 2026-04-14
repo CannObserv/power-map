@@ -1,0 +1,15 @@
+{# admin/role_assignments/partials/_dates_read.html — dates read partial #}
+<div id="dates-field" style="margin-top:var(--space-5)">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h3 class="field-group-label">Dates</h3>
+    {% if not ra.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/role-assignments/{{ ra.id }}/inline/dates/edit/"
+            hx-target="#dates-field"
+            hx-swap="outerHTML">Edit</button>
+    {% endif %}
+  </div>
+  <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);background:var(--color-surface-1);font-size:var(--font-size-sm);min-height:3rem">
+    {{ ra.start_date or '—' }} &ndash; {{ ra.end_date or '—' }}
+  </div>
+</div>

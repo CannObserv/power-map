@@ -1,0 +1,20 @@
+{# admin/role_assignments/partials/_is_current_toggle.html — auto-saving is_current toggle #}
+<div id="is-current-toggle" class="form-group" style="display:flex;align-items:center;margin-bottom:0">
+  <label class="toggle" style="margin-bottom:0">
+    <input type="checkbox"
+           name="is_current"
+           value="true"
+           {% if ra.is_current %}checked{% endif %}
+           {% if ra.archived_at %}disabled{% endif %}
+           hx-post="/admin/role-assignments/{{ ra.id }}/inline/is_current/"
+           hx-target="#is-current-toggle"
+           hx-swap="outerHTML"
+           hx-include="this">
+    <span class="toggle__track"><span class="toggle__thumb"></span></span>
+    <span class="toggle__label">
+      {% if ra.archived_at %}<span class="badge badge--archived">Archived</span>
+      {% elif ra.is_current %}<span class="badge badge--active">Current</span>
+      {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
+    </span>
+  </label>
+</div>
