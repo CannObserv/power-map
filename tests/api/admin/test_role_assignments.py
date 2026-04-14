@@ -165,8 +165,24 @@ def test_hard_delete_requires_archive(client, ra_id):
 
 async def test_hard_delete_archived_ra(client, db, ra_id):
     await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
-    response = client.delete(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    response = client.delete(
+        f"/admin/role-assignments/{ra_id}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert response.headers.get("HX-Location", "").startswith("/admin/role-assignments/")
+
+
+async def test_detail_delete_button_has_no_legacy_push_url(client, db, ra_id):
+    """Delete button relies on server HX-Location redirect, not hx-target/hx-push-url."""
+    await db.execute(
+        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
+    )
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
+    assert 'Delete permanently' in response.text
+    assert 'hx-target="body"' not in response.text
+    assert "hx-push-url" not in response.text
 
 
 async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(

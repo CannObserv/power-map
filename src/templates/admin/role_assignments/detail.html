@@ -64,11 +64,9 @@
   </form>
   {% else %}
   <p>This assignment is archived. You may permanently delete it — this cannot be undone.</p>
-  <button class="btn btn--danger"
+  <button type="button" class="btn btn--danger"
           hx-delete="/admin/role-assignments/{{ ra.id }}/"
-          hx-confirm="Permanently delete this assignment? This cannot be undone."
-          hx-target="body"
-          hx-push-url="/admin/role-assignments/">
+          hx-confirm="Permanently delete this assignment? This cannot be undone.">
     Delete permanently
   </button>
   {% endif %}

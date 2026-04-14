@@ -4,7 +4,7 @@ import datetime
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
@@ -516,4 +516,9 @@ async def ra_delete(
         )
 
     await db.execute("DELETE FROM role_assignments WHERE id = $1", ra_id)
-    return HTMLResponse(content="", status_code=200)
+    if is_htmx(request):
+        return Response(
+            status_code=204,
+            headers={"HX-Location": "/admin/role-assignments/?flash=deleted"},
+        )
+    return RedirectResponse("/admin/role-assignments/", status_code=303)
