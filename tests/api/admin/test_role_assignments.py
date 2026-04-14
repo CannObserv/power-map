@@ -335,3 +335,33 @@ def test_ra_form_shows_person_in_dropdown(client, person_id):
     response = client.get("/admin/role-assignments/new/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Person" in response.text
+
+
+def test_ra_detail_uses_entity_section_wrapper(client, ra_id):
+    """Detail layout must wrap content in <section class="entity-section">."""
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert 'class="entity-section"' in response.text
+
+
+def test_ra_detail_drops_detail_grid_dl(client, ra_id):
+    """Legacy <dl class="detail-grid"> must be gone."""
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert 'detail-grid' not in response.text
+
+
+def test_ra_detail_metadata_footer(client, ra_id):
+    """Metadata footer must render ID + Created muted line (not a grid row)."""
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Metadata" in response.text
+    assert f"<code>{ra_id}</code>" in response.text
+
+
+def test_ra_detail_status_field_group_label(client, ra_id):
+    """Status renders in a field-group-label row, not a <dt>."""
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert 'class="field-group-label"' in response.text
+    assert "Status" in response.text

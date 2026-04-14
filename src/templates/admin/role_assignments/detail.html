@@ -1,53 +1,77 @@
 {% extends "admin/base.html" %}
-{% block title %}{{ ra.person_name or ra.id }} – {{ ra.role_title }} @ {{ ra.org_name or '(unnamed)' }} — Assignment{% endblock %}
+{% block title %}{{ ra.person_name or '(unnamed)' }} – {{ ra.role_title }} @ {{ ra.org_name or '(unnamed)' }} — Assignment{% endblock %}
 {% block breadcrumb %}
   <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
   <a href="/admin/role-assignments/">Role Assignments</a><span class="breadcrumb__sep">›</span>
-  <span>{{ ra.person_name or ra.id }}</span>
+  <span id="breadcrumb-current">{{ ra.person_name or '(unnamed)' }} – {{ ra.role_title }} @ {{ ra.org_name or '(unnamed)' }}</span>
 {% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
     <span class="page-header__type">Role Assignment</span>
-    <h1>{{ ra.person_name or '(unnamed)' }} – {{ ra.role_title }} @ {{ ra.org_name or '(unnamed)' }}</h1>
+    <h1 id="page-heading">{{ ra.person_name or '(unnamed)' }} – {{ ra.role_title }} @ {{ ra.org_name or '(unnamed)' }}</h1>
   </div>
   <a href="/admin/role-assignments/{{ ra.id }}/edit/" class="btn btn--primary">Edit</a>
 </div>
 
-<div class="entity-card">
-  <dl class="detail-grid">
-    <dt>ID</dt><dd><code>{{ ra.id }}</code></dd>
-    <dt>Person</dt>
-    <dd>
-      {% if ra.person_id %}
-      <a href="/admin/people/{{ ra.person_id }}/">{{ ra.person_name or '(unnamed)' }}</a>
-      {% else %}—{% endif %}
-    </dd>
-    <dt>Role</dt>
-    <dd>
-      {% if ra.role_id %}
-      <a href="/admin/roles/{{ ra.role_id }}/">{{ ra.role_title }}</a>
-      at
-      <a href="/admin/orgs/{{ ra.org_id }}/">{{ ra.org_name or '(unnamed)' }}</a>
-      {% else %}—{% endif %}
-    </dd>
-    <dt>Status</dt>
-    <dd>
-      {% if ra.archived_at %}<span class="badge badge--archived">Archived</span>
-      {% elif ra.is_current %}<span class="badge badge--active">Current</span>
-      {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
-    </dd>
-    <dt>Start date</dt><dd>{{ ra.start_date or '—' }}</dd>
-    <dt>End date</dt><dd>{{ ra.end_date or '—' }}</dd>
-    {% if ra.notes %}
-    <dt>Notes</dt><dd>{{ ra.notes }}</dd>
-    {% endif %}
-    <dt>Created</dt><dd>{{ ra.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
-    {% if ra.archived_at %}
-    <dt>Archived</dt><dd>{{ ra.archived_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
-    {% endif %}
-  </dl>
-</div>
+<section class="entity-section">
+  <h2>Details</h2>
+  <div class="entity-card">
+
+    <div style="margin-bottom:var(--space-4)">
+      <span class="field-group-label">Status</span>
+      <span style="margin-left:var(--space-2)">
+        {% if ra.archived_at %}<span class="badge badge--archived">Archived</span>
+        {% elif ra.is_current %}<span class="badge badge--active">Current</span>
+        {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
+      </span>
+    </div>
+
+    <div style="margin-top:var(--space-5)">
+      <span class="field-group-label">Person</span>
+      <div style="margin-top:var(--space-2)">
+        {% if ra.person_id %}
+        <a href="/admin/people/{{ ra.person_id }}/">{{ ra.person_name or '(unnamed)' }}</a>
+        {% else %}—{% endif %}
+      </div>
+    </div>
+
+    <div style="margin-top:var(--space-5)">
+      <span class="field-group-label">Role</span>
+      <div style="margin-top:var(--space-2)">
+        {% if ra.role_id %}
+        <a href="/admin/roles/{{ ra.role_id }}/">{{ ra.role_title }}</a>
+        at
+        <a href="/admin/orgs/{{ ra.org_id }}/">{{ ra.org_name or '(unnamed)' }}</a>
+        {% else %}—{% endif %}
+      </div>
+    </div>
+
+    <div style="margin-top:var(--space-5)">
+      <span class="field-group-label">Current</span>
+      <div style="margin-top:var(--space-2)">{% if ra.is_current %}Yes{% else %}No{% endif %}</div>
+    </div>
+
+    <div style="margin-top:var(--space-5)">
+      <span class="field-group-label">Dates</span>
+      <div style="margin-top:var(--space-2)">
+        {{ ra.start_date or '—' }} &ndash; {{ ra.end_date or '—' }}
+      </div>
+    </div>
+
+    <div style="margin-top:var(--space-5)">
+      <span class="field-group-label">Notes</span>
+      <div style="margin-top:var(--space-2)">{{ ra.notes or '—' }}</div>
+    </div>
+
+  </div>
+</section>
+
+<p style="color:var(--color-text-muted);font-size:var(--font-size-sm);margin-top:var(--space-6)">
+  Metadata &middot; ID: <code>{{ ra.id }}</code>
+  &middot; Created: {{ ra.created_at.strftime('%Y-%m-%d') }}
+  {% if ra.archived_at %}&middot; Archived: {{ ra.archived_at.strftime('%Y-%m-%d') }}{% endif %}
+</p>
 
 <div class="danger-zone">
   <h2>Danger Zone</h2>
