@@ -23,6 +23,26 @@ def _parse_date(value: str) -> datetime.date | None:
     return datetime.date.fromisoformat(value)
 
 
+def _check_assignment_within_bounds(
+    start_date: datetime.date | None,
+    end_date: datetime.date | None,
+    established_on: datetime.date | None,
+    abolished_on: datetime.date | None,
+) -> str | None:
+    """Return an error string if dates violate role boundaries, else None."""
+    if established_on is not None:
+        if start_date is not None and start_date < established_on:
+            return f"Start date cannot be before role established date ({established_on})."
+        if end_date is not None and end_date < established_on:
+            return f"End date cannot be before role established date ({established_on})."
+    if abolished_on is not None:
+        if start_date is not None and start_date > abolished_on:
+            return f"Start date cannot be after role abolished date ({abolished_on})."
+        if end_date is not None and end_date > abolished_on:
+            return f"End date cannot be after role abolished date ({abolished_on})."
+    return None
+
+
 async def fetch_role_assignments(role_id: str, db) -> list:
     """Fetch all assignments for a role, sorted for display."""
     return await db.fetch(
