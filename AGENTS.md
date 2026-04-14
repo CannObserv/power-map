@@ -31,6 +31,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     people_links.py     — Inline CRUD for links + link_types (row-level HTMX swap); delegates to _links_shared factory
     people_identifiers.py — Inline CRUD for identifiers filtered to entity_type='person' (row-level HTMX swap); delegates to _identifiers_shared factory
     people_assignments.py — Inline CRUD for person → role_assignments (row-level HTMX swap)
+    role_assignments.py — Role assignment list, create, detail, archive, delete; inline editing for is_current/dates/notes (row-level HTMX swap)
     router.py   — Mounts all admin sub-routers under /admin/
     orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/unarchive/delete
     orgs_merge.py       — Org merge, dismiss-duplicate, duplicates review

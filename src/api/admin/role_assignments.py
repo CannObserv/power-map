@@ -18,10 +18,16 @@ router = APIRouter(prefix="/role-assignments", tags=["admin-role-assignments"])
 
 
 def _parse_date(value: str) -> datetime.date | None:
-    """Parse an ISO date string to datetime.date, or return None if empty."""
+    """Parse an ISO date string to datetime.date, or return None if empty.
+
+    Raises HTTPException(400) on malformed input.
+    """
     if not value:
         return None
-    return datetime.date.fromisoformat(value)
+    try:
+        return datetime.date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {value!r}") from exc
 
 
 async def _fetch_people(db):
@@ -160,7 +166,6 @@ async def ra_new_form(
         {
             "user": user,
             "active_section": "role_assignments",
-            "ra": None,
             "people": people,
             "roles": roles,
             "error": None,
@@ -208,7 +213,6 @@ async def ra_create(
             {
                 "user": user,
                 "active_section": "role_assignments",
-                "ra": None,
                 "people": people,
                 "roles": roles,
                 "error": "Current assignments cannot have an end date.",
@@ -238,25 +242,7 @@ async def ra_detail(
 ):
     """Role assignment detail view."""
 
-    ra = await db.fetchrow(
-        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
-                  ra.created_at, ra.notes,
-                  p.id AS person_id,
-                  pn.display_name AS person_name,
-                  r.id AS role_id, r.title AS role_title,
-                  o.id AS org_id,
-                  dn.display_name AS org_name
-           FROM role_assignments ra
-           JOIN people p ON p.id = ra.person_id
-           LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
-           JOIN roles r ON r.id = ra.role_id
-           JOIN organizations o ON o.id = r.organization_id
-           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-           WHERE ra.id = $1""",
-        ra_id,
-    )
-    if not ra:
-        raise HTTPException(status_code=404, detail="Role assignment not found")
+    ra = await _get_ra(ra_id, db)
 
     return templates.TemplateResponse(
         request,
@@ -309,14 +295,14 @@ async def ra_inline_is_current(
     db=Depends(get_db),
 ):
     """Toggle is_current; on CHECK violation, re-render prior state + error flash."""
-    ra = await _get_ra(ra_id, db)
     new_val = is_current == "true"
     try:
-        await db.execute(
-            "UPDATE role_assignments SET is_current=$1 WHERE id=$2",
+        updated = await db.fetchval(
+            "UPDATE role_assignments SET is_current=$1 WHERE id=$2 RETURNING id",
             new_val, ra_id,
         )
     except asyncpg.exceptions.CheckViolationError:
+        ra = await _get_ra(ra_id, db)
         if not is_htmx(request):
             return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
         return templates.TemplateResponse(
@@ -328,6 +314,8 @@ async def ra_inline_is_current(
                 "Current assignments cannot have an end date. Clear the end date first.",
             ),
         )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Role assignment not found")
     ra = await _get_ra(ra_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
@@ -387,15 +375,15 @@ async def ra_inline_dates_post(
     db=Depends(get_db),
 ):
     """Save dates; on CHECK violation, re-render form with inline error."""
-    ra = await _get_ra(ra_id, db)
     start_val = _parse_date(start_date)
     end_val = _parse_date(end_date)
     try:
-        await db.execute(
-            "UPDATE role_assignments SET start_date=$1, end_date=$2 WHERE id=$3",
+        updated = await db.fetchval(
+            "UPDATE role_assignments SET start_date=$1, end_date=$2 WHERE id=$3 RETURNING id",
             start_val, end_val, ra_id,
         )
     except asyncpg.exceptions.CheckViolationError:
+        ra = await _get_ra(ra_id, db)
         if not is_htmx(request):
             return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
         return templates.TemplateResponse(
@@ -408,6 +396,8 @@ async def ra_inline_dates_post(
                 "end_date_value": end_date,
             },
         )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Role assignment not found")
     ra = await _get_ra(ra_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
@@ -461,11 +451,12 @@ async def ra_inline_notes_post(
     db=Depends(get_db),
 ):
     """Save notes; return read partial."""
-    await _get_ra(ra_id, db)  # 404 check
-    await db.execute(
-        "UPDATE role_assignments SET notes=$1 WHERE id=$2",
+    updated = await db.fetchval(
+        "UPDATE role_assignments SET notes=$1 WHERE id=$2 RETURNING id",
         notes.strip() or None, ra_id,
     )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Role assignment not found")
     ra = await _get_ra(ra_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)

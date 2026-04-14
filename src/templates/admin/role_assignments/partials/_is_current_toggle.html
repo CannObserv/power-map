@@ -4,6 +4,7 @@
     <input type="checkbox"
            name="is_current"
            value="true"
+           aria-label="Mark assignment as current"
            {% if ra.is_current %}checked{% endif %}
            {% if ra.archived_at %}disabled{% endif %}
            hx-post="/admin/role-assignments/{{ ra.id }}/inline/is_current/"
