@@ -1,0 +1,26 @@
+{# admin/roles/partials/_dates_read.html — boundary dates read partial #}
+<div id="dates-field" style="margin-top:var(--space-5)">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h3 class="field-group-label">Boundary Dates</h3>
+    {% if not role.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/roles/{{ role.id }}/inline/dates/edit/"
+            hx-target="#dates-field"
+            hx-swap="outerHTML">Edit</button>
+    {% endif %}
+  </div>
+  <div style="display:flex;gap:var(--space-6);font-size:var(--font-size-sm)">
+    <div>
+      <div class="field-group-label" style="font-size:var(--font-size-xs)">Established</div>
+      <div style="color:{% if role.established_on %}var(--color-text){% else %}var(--color-text-muted){% endif %}">
+        {{ role.established_on or '—' }}
+      </div>
+    </div>
+    <div>
+      <div class="field-group-label" style="font-size:var(--font-size-xs)">Abolished</div>
+      <div style="color:{% if role.abolished_on %}var(--color-text){% else %}var(--color-text-muted){% endif %}">
+        {{ role.abolished_on or '—' }}
+      </div>
+    </div>
+  </div>
+</div>

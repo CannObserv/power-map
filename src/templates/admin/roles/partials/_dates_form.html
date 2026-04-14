@@ -1,0 +1,29 @@
+{# admin/roles/partials/_dates_form.html — boundary dates edit form #}
+<div id="dates-field" style="margin-top:var(--space-5)">
+  <form hx-post="/admin/roles/{{ role.id }}/inline/dates/"
+        hx-target="#dates-field"
+        hx-swap="outerHTML">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+      <span class="field-group-label">Boundary Dates</span>
+      <div>
+        <button type="submit" class="btn btn--primary btn--sm">Save</button>
+        <button type="button" class="btn btn--secondary btn--sm"
+                hx-get="/admin/roles/{{ role.id }}/inline/dates/"
+                hx-target="#dates-field"
+                hx-swap="outerHTML">Cancel</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:var(--space-4);flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0">
+        <label for="established-on-input" style="font-size:var(--font-size-xs)">Established</label>
+        <input type="date" id="established-on-input" name="established_on"
+               value="{{ established_on_input or '' }}">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label for="abolished-on-input" style="font-size:var(--font-size-xs)">Abolished</label>
+        <input type="date" id="abolished-on-input" name="abolished_on"
+               value="{{ abolished_on_input or '' }}">
+      </div>
+    </div>
+  </form>
+</div>

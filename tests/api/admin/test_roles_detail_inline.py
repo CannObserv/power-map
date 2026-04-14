@@ -298,3 +298,113 @@ async def test_inline_routes_return_404_for_missing_role(client):
     ]:
         r = await client.get(path, headers=HTMX_HEADERS)
         assert r.status_code == 404, f"Expected 404 for {path}"
+
+
+# ---------------------------------------------------------------------------
+# Dates inline
+# ---------------------------------------------------------------------------
+
+
+async def _make_person(db, name: str) -> str:
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, is_canonical)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(), pid, name,
+    )
+    return pid
+
+
+async def test_dates_read_returns_partial(client, role_id):
+    r = await client.get(
+        f"/admin/roles/{role_id}/inline/dates/", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    assert b"dates-field" in r.content
+
+
+async def test_dates_edit_returns_form(client, role_id):
+    r = await client.get(
+        f"/admin/roles/{role_id}/inline/dates/edit/", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    assert b"established_on" in r.content
+    assert b"abolished_on" in r.content
+
+
+async def test_dates_post_saves_both_dates(client, role_id, db):
+    r = await client.post(
+        f"/admin/roles/{role_id}/inline/dates/",
+        data={"established_on": "2010-01-01", "abolished_on": "2020-12-31"},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT established_on, abolished_on FROM roles WHERE id=$1", role_id
+    )
+    assert str(row["established_on"]) == "2010-01-01"
+    assert str(row["abolished_on"]) == "2020-12-31"
+
+
+async def test_dates_post_clears_dates(client, role_id, db):
+    await db.execute(
+        "UPDATE roles SET established_on=$1, abolished_on=$2 WHERE id=$3",
+        datetime.date(2010, 1, 1), datetime.date(2020, 12, 31), role_id,
+    )
+    r = await client.post(
+        f"/admin/roles/{role_id}/inline/dates/",
+        data={"established_on": "", "abolished_on": ""},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT established_on, abolished_on FROM roles WHERE id=$1", role_id
+    )
+    assert row["established_on"] is None
+    assert row["abolished_on"] is None
+
+
+async def test_dates_post_rejects_inverted_order(client, role_id):
+    r = await client.post(
+        f"/admin/roles/{role_id}/inline/dates/",
+        data={"established_on": "2020-01-01", "abolished_on": "2010-01-01"},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert b"established_on" in r.content  # form re-rendered
+
+
+async def test_dates_post_rejects_when_assignments_outside_bounds(
+    client, role_id, db
+):
+    """Saving bounds that would exclude an existing assignment must fail."""
+    # Create a person and assignment with start_date in 2005
+    pid = await _make_person(db, "Early Bird")
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)"
+        " VALUES ($1, $2, $3, FALSE, $4)",
+        generate_id(), pid, role_id, datetime.date(2005, 3, 1),
+    )
+    r = await client.post(
+        f"/admin/roles/{role_id}/inline/dates/",
+        data={"established_on": "2010-01-01", "abolished_on": ""},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert b"established_on" in r.content  # form re-rendered
+
+
+async def test_dates_post_returns_success_flash(client, role_id):
+    r = await client.post(
+        f"/admin/roles/{role_id}/inline/dates/",
+        data={"established_on": "2010-01-01", "abolished_on": ""},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"

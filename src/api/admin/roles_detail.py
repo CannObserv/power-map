@@ -244,3 +244,136 @@ async def role_inline_notes_post(
         headers=flash_trigger("success", "Notes saved."),
     )
 
+
+# ---------------------------------------------------------------------------
+# Boundary dates inline
+# ---------------------------------------------------------------------------
+
+
+@router.get("/inline/dates/")
+async def role_inline_dates_get(
+    role_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return boundary dates read partial."""
+    role = await _get_role(role_id, db)
+    return templates.TemplateResponse(
+        request, "admin/roles/partials/_dates_read.html", {"role": role}
+    )
+
+
+@router.get("/inline/dates/edit/")
+async def role_inline_dates_edit_get(
+    role_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return boundary dates edit form partial."""
+    role = await _get_role(role_id, db)
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/partials/_dates_form.html",
+        {
+            "role": role,
+            "established_on_input": (
+                role["established_on"].isoformat() if role["established_on"] else ""
+            ),
+            "abolished_on_input": (
+                role["abolished_on"].isoformat() if role["abolished_on"] else ""
+            ),
+        },
+    )
+
+
+@router.post("/inline/dates/")
+async def role_inline_dates_post(
+    role_id: str,
+    request: Request,
+    established_on: str = Form(""),
+    abolished_on: str = Form(""),
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Save boundary dates; validate against existing assignments."""
+    # Local import: roles_assignments_inline imports _get_role from here; avoid circular dep.
+    from src.api.admin.roles_assignments_inline import (  # noqa: PLC0415
+        _check_assignment_within_bounds,
+        _parse_date,
+    )
+
+    role = await _get_role(role_id, db)
+
+    def _form_ctx(est_input: str, abol_input: str):
+        return {
+            "role": role,
+            "established_on_input": est_input,
+            "abolished_on_input": abol_input,
+        }
+
+    try:
+        established_on_val = _parse_date(established_on)
+        abolished_on_val = _parse_date(abolished_on)
+    except ValueError:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_dates_form.html",
+            _form_ctx(established_on, abolished_on),
+            headers=flash_trigger("error", "Invalid date format. Use YYYY-MM-DD."),
+        )
+
+    if established_on_val and abolished_on_val and established_on_val > abolished_on_val:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_dates_form.html",
+            _form_ctx(established_on, abolished_on),
+            headers=flash_trigger("error", "Established date must be on or before abolished date."),
+        )
+
+    # Check existing active assignments
+    assignments = await db.fetch(
+        """SELECT start_date, end_date FROM role_assignments
+           WHERE role_id = $1 AND archived_at IS NULL""",
+        role_id,
+    )
+    violations = [
+        ra for ra in assignments
+        if _check_assignment_within_bounds(
+            ra["start_date"], ra["end_date"], established_on_val, abolished_on_val
+        )
+    ]
+    if violations:
+        count = len(violations)
+        msg = (
+            f"{count} existing assignment{'s' if count > 1 else ''} "
+            f"fall{'s' if count == 1 else ''} outside these boundaries."
+        )
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_dates_form.html",
+            _form_ctx(established_on, abolished_on),
+            headers=flash_trigger("error", msg),
+        )
+
+    await db.execute(
+        "UPDATE roles SET established_on=$1, abolished_on=$2 WHERE id=$3",
+        established_on_val, abolished_on_val, role_id,
+    )
+    role = await _get_role(role_id, db)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/partials/_dates_read.html",
+        {"role": role},
+        headers=flash_trigger("success", "Boundary dates saved."),
+    )
+
