@@ -158,6 +158,40 @@ def test_archive_ra(client, ra_id):
     assert response.status_code in (302, 303)
 
 
+def test_archive_ra_redirects_with_flash_query(client, ra_id):
+    """Archive redirects to detail with ?flash=archived so the detail view can render a flash."""
+    response = client.post(
+        f"/admin/role-assignments/{ra_id}/archive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/role-assignments/{ra_id}/?flash=archived"
+
+
+def test_archived_flash_renders_on_detail(client, ra_id):
+    """Detail page with ?flash=archived renders the archived success flash."""
+    response = client.get(
+        f"/admin/role-assignments/{ra_id}/?flash=archived", headers=AUTH_HEADERS
+    )
+    assert response.status_code == 200
+    assert "Assignment archived." in response.text
+    assert "flash--success" in response.text
+    assert response.headers.get("HX-Replace-Url", "").endswith(
+        f"/admin/role-assignments/{ra_id}/"
+    )
+
+
+def test_deleted_flash_renders_on_list(client):
+    """List with ?flash=deleted renders the deleted success flash."""
+    response = client.get(
+        "/admin/role-assignments/?flash=deleted", headers=AUTH_HEADERS
+    )
+    assert response.status_code == 200
+    assert "Assignment deleted." in response.text
+    assert "flash--success" in response.text
+
+
 def test_hard_delete_requires_archive(client, ra_id):
     response = client.delete(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 409
@@ -165,8 +199,24 @@ def test_hard_delete_requires_archive(client, ra_id):
 
 async def test_hard_delete_archived_ra(client, db, ra_id):
     await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
-    response = client.delete(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    response = client.delete(
+        f"/admin/role-assignments/{ra_id}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert response.headers.get("HX-Location") == "/admin/role-assignments/?flash=deleted"
+
+
+async def test_detail_delete_button_has_no_legacy_push_url(client, db, ra_id):
+    """Delete button relies on server HX-Location redirect, not hx-target/hx-push-url."""
+    await db.execute(
+        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
+    )
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
+    assert 'Delete permanently' in response.text
+    assert 'hx-target="body"' not in response.text
+    assert "hx-push-url" not in response.text
 
 
 async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
@@ -335,3 +385,33 @@ def test_ra_form_shows_person_in_dropdown(client, person_id):
     response = client.get("/admin/role-assignments/new/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Person" in response.text
+
+
+def test_ra_detail_uses_entity_section_wrapper(client, ra_id):
+    """Detail layout must wrap content in <section class="entity-section">."""
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert 'class="entity-section"' in response.text
+
+
+def test_ra_detail_drops_detail_grid_dl(client, ra_id):
+    """Legacy <dl class="detail-grid"> must be gone."""
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert 'detail-grid' not in response.text
+
+
+def test_ra_detail_metadata_footer(client, ra_id):
+    """Metadata footer must render ID + Created muted line (not a grid row)."""
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Metadata" in response.text
+    assert f"<code>{ra_id}</code>" in response.text
+
+
+def test_ra_detail_status_field_group_label(client, ra_id):
+    """Status renders in a field-group-label row, not a <dt>."""
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert 'class="field-group-label"' in response.text
+    assert "Status" in response.text

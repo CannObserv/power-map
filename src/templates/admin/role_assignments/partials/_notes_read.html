@@ -1,0 +1,15 @@
+{# admin/role_assignments/partials/_notes_read.html — notes read partial #}
+<div id="notes-field" style="margin-top:var(--space-5)">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h3 class="field-group-label">Notes</h3>
+    {% if not ra.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/role-assignments/{{ ra.id }}/inline/notes/edit/"
+            hx-target="#notes-field"
+            hx-swap="outerHTML">Edit</button>
+    {% endif %}
+  </div>
+  <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);background:var(--color-surface-1);font-size:var(--font-size-sm);min-height:3rem;color:{% if ra.notes %}var(--color-text){% else %}var(--color-text-muted){% endif %}">
+    {{ ra.notes or '—' }}
+  </div>
+</div>

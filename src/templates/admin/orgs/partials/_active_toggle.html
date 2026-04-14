@@ -4,6 +4,7 @@
     <input type="checkbox"
            name="active"
            value="true"
+           aria-label="Mark organization as active"
            {% if org.active %}checked{% endif %}
            {% if org.archived_at %}disabled{% endif %}
            hx-post="/admin/orgs/{{ org.id }}/inline/active/"

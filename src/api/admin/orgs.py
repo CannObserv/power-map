@@ -13,6 +13,7 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    resolve_query_flash,
 )
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
@@ -86,8 +87,7 @@ async def orgs_list(
         *list_params,
     )
 
-    flash_pair = _FLASH_MESSAGES.get(flash)
-    flash_msg = {"level": flash_pair[0], "body": flash_pair[1]} if flash_pair else None
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
 
     ctx = {
         "user": user,
@@ -102,11 +102,9 @@ async def orgs_list(
         "flash_msg": flash_msg,
         **pctx,
     }
-    htmx = is_htmx(request)
-    template = "admin/orgs/_region.html" if htmx else "admin/orgs/list.html"
-    resp_headers = {}
-    if flash_msg and not htmx:
-        resp_headers["HX-Replace-Url"] = str(request.url.remove_query_params("flash"))
+    template = (
+        "admin/orgs/_region.html" if is_htmx(request) else "admin/orgs/list.html"
+    )
     return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 

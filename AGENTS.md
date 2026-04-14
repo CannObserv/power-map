@@ -19,7 +19,7 @@ Python ≥3.12, uv, pytest, ruff; Node ≥22, npm, vitest + ESLint + Prettier (J
 ```
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
   admin/        — Jinja2 + HTMX admin dashboard (entities, people, orgs, roles, role_assignments, settings, imports)
-    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth, raises HTTPException 307), get_db, is_htmx, flash_trigger, escape_like, org_header_extra, person_header_extra
+    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth, raises HTTPException 307), get_db, is_htmx, flash_trigger, resolve_query_flash, escape_like, org_header_extra, person_header_extra
     org_dups.py    — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     people_dups.py — People-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_person_duplicates, get_person_dup_count dep, invalidate_dup_count_cache
     dashboard.py        — Admin dashboard landing page (record counts, dup badge counts)
@@ -31,6 +31,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     people_links.py     — Inline CRUD for links + link_types (row-level HTMX swap); delegates to _links_shared factory
     people_identifiers.py — Inline CRUD for identifiers filtered to entity_type='person' (row-level HTMX swap); delegates to _identifiers_shared factory
     people_assignments.py — Inline CRUD for person → role_assignments (row-level HTMX swap)
+    role_assignments.py — Role assignment list, create, detail, archive, delete; inline editing for is_current/dates/notes (row-level HTMX swap)
     router.py   — Mounts all admin sub-routers under /admin/
     orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/unarchive/delete
     orgs_merge.py       — Org merge, dismiss-duplicate, duplicates review

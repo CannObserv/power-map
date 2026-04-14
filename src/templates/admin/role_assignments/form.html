@@ -1,27 +1,26 @@
 {% extends "admin/base.html" %}
-{% block title %}{{ 'Edit' if ra else 'New' }} Role Assignment{% endblock %}
+{% block title %}New Role Assignment{% endblock %}
 {% block breadcrumb %}
   <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
   <a href="/admin/role-assignments/">Role Assignments</a><span class="breadcrumb__sep">›</span>
-  <span>{{ 'Edit' if ra else 'New' }}</span>
+  <span>New</span>
 {% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1>{{ 'Edit Role Assignment' if ra else 'New Role Assignment' }}</h1>
+  <h1>New Role Assignment</h1>
 </div>
 <div class="entity-card">
   {% if error %}
   <div class="alert alert--error" role="alert">{{ error }}</div>
   {% endif %}
-  <form method="POST" action="{{ '/admin/role-assignments/' + ra.id + '/edit/' if ra else '/admin/role-assignments/new/' }}">
+  <form method="POST" action="/admin/role-assignments/new/">
     <div class="form-group">
       <label for="person_id">Person <span aria-hidden="true">*</span></label>
       <select id="person_id" name="person_id" required>
         <option value="">— select person —</option>
         {% for person in people %}
         <option value="{{ person.id }}"
-          {% if form_person_id is defined and form_person_id == person.id %}selected
-          {% elif ra and ra.person_id == person.id %}selected{% endif %}>
+          {% if form_person_id is defined and form_person_id == person.id %}selected{% endif %}>
           {{ person.name or person.id }}
         </option>
         {% endfor %}
@@ -33,8 +32,7 @@
         <option value="">— select role —</option>
         {% for role in roles %}
         <option value="{{ role.id }}"
-          {% if form_role_id is defined and form_role_id == role.id %}selected
-          {% elif ra and ra.role_id == role.id %}selected{% endif %}>
+          {% if form_role_id is defined and form_role_id == role.id %}selected{% endif %}>
           {{ role.title }} ({{ role.org_name or '(unnamed)' }})
         </option>
         {% endfor %}
@@ -44,28 +42,28 @@
       <label>
         <input type="checkbox" id="is_current" name="is_current" value="true"
                onchange="document.getElementById('end_date').disabled = this.checked"
-               {% if (form_is_current is defined and form_is_current) or (ra and ra.is_current) %}checked{% endif %}>
+               {% if form_is_current is defined and form_is_current %}checked{% endif %}>
         Current assignment
       </label>
     </div>
     <div class="form-group">
       <label for="start_date">Start date</label>
       <input id="start_date" name="start_date" type="date"
-             value="{{ form_start_date if form_start_date is defined else (ra.start_date | string if ra and ra.start_date else '') }}">
+             value="{{ form_start_date if form_start_date is defined else '' }}">
     </div>
     <div class="form-group">
       <label for="end_date">End date</label>
       <input id="end_date" name="end_date" type="date"
-             value="{{ form_end_date if form_end_date is defined else (ra.end_date | string if ra and ra.end_date else '') }}"
-             {% if (form_is_current is defined and form_is_current) or (ra and ra.is_current and not form_is_current is defined) %}disabled{% endif %}>
+             value="{{ form_end_date if form_end_date is defined else '' }}"
+             {% if form_is_current is defined and form_is_current %}disabled{% endif %}>
     </div>
     <div class="form-group">
       <label for="notes">Notes</label>
-      <textarea id="notes" name="notes" rows="3">{{ form_notes if form_notes is defined else (ra.notes if ra else '') }}</textarea>
+      <textarea id="notes" name="notes" rows="3">{{ form_notes if form_notes is defined else '' }}</textarea>
     </div>
     <div class="form-actions">
-      <button type="submit" class="btn btn--primary">{{ 'Save changes' if ra else 'Create assignment' }}</button>
-      <a href="{{ '/admin/role-assignments/' + ra.id + '/' if ra else '/admin/role-assignments/' }}" class="btn btn--ghost">Cancel</a>
+      <button type="submit" class="btn btn--primary">Create assignment</button>
+      <a href="/admin/role-assignments/" class="btn btn--ghost">Cancel</a>
     </div>
   </form>
 </div>

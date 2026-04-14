@@ -4,10 +4,17 @@ import datetime
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    resolve_query_flash,
+)
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import get_person_dup_count
@@ -17,11 +24,23 @@ templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/role-assignments", tags=["admin-role-assignments"])
 
 
+_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
+    "archived": ("success", "Assignment archived."),
+    "deleted": ("success", "Assignment deleted."),
+}
+
+
 def _parse_date(value: str) -> datetime.date | None:
-    """Parse an ISO date string to datetime.date, or return None if empty."""
+    """Parse an ISO date string to datetime.date, or return None if empty.
+
+    Raises HTTPException(400) on malformed input.
+    """
     if not value:
         return None
-    return datetime.date.fromisoformat(value)
+    try:
+        return datetime.date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {value!r}") from exc
 
 
 async def _fetch_people(db):
@@ -72,6 +91,7 @@ async def ra_list(
     status: str = "active",
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=10, le=500),
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
@@ -123,6 +143,8 @@ async def ra_list(
         *list_params,
     )
 
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
+
     ctx = {
         "user": user,
         "active_section": "role_assignments",
@@ -133,14 +155,15 @@ async def ra_list(
         "total": count,
         "org_dup_count": org_dup_count,
         "person_dup_count": person_dup_count,
+        "flash_msg": flash_msg,
         **pctx,
     }
     template = (
         "admin/role_assignments/_region.html"
-        if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
+        if is_htmx(request)
         else "admin/role_assignments/list.html"
     )
-    return templates.TemplateResponse(request, template, ctx)
+    return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
 @router.get("/new/")
@@ -160,7 +183,6 @@ async def ra_new_form(
         {
             "user": user,
             "active_section": "role_assignments",
-            "ra": None,
             "people": people,
             "roles": roles,
             "error": None,
@@ -208,7 +230,6 @@ async def ra_create(
             {
                 "user": user,
                 "active_section": "role_assignments",
-                "ra": None,
                 "people": people,
                 "roles": roles,
                 "error": "Current assignments cannot have an end date.",
@@ -231,6 +252,7 @@ async def ra_create(
 async def ra_detail(
     ra_id: str,
     request: Request,
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
@@ -238,7 +260,27 @@ async def ra_detail(
 ):
     """Role assignment detail view."""
 
-    ra = await db.fetchrow(
+    ra = await _get_ra(ra_id, db)
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
+
+    return templates.TemplateResponse(
+        request,
+        "admin/role_assignments/detail.html",
+        {
+            "user": user,
+            "active_section": "role_assignments",
+            "ra": ra,
+            "flash_msg": flash_msg,
+            "org_dup_count": org_dup_count,
+            "person_dup_count": person_dup_count,
+        },
+        headers=resp_headers,
+    )
+
+
+async def _get_ra(ra_id: str, db):
+    """Fetch enriched RA row for detail/partial rendering, or raise 404."""
+    row = await db.fetchrow(
         """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
                   ra.created_at, ra.notes,
                   p.id AS person_id,
@@ -255,138 +297,221 @@ async def ra_detail(
            WHERE ra.id = $1""",
         ra_id,
     )
-    if not ra:
+    if not row:
         raise HTTPException(status_code=404, detail="Role assignment not found")
+    return row
 
+
+# ---------------------------------------------------------------------------
+# is_current toggle (auto-save)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{ra_id}/inline/is_current/")
+async def ra_inline_is_current(
+    ra_id: str,
+    request: Request,
+    is_current: str = Form(""),
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Toggle is_current; on CHECK violation, re-render prior state + error flash."""
+    new_val = is_current == "true"
+    try:
+        updated = await db.fetchval(
+            "UPDATE role_assignments SET is_current=$1 WHERE id=$2 RETURNING id",
+            new_val, ra_id,
+        )
+    except asyncpg.exceptions.CheckViolationError as exc:
+        if not is_htmx(request):
+            raise HTTPException(
+                status_code=400,
+                detail="Current assignments cannot have an end date.",
+            ) from exc
+        ra = await _get_ra(ra_id, db)
+        return templates.TemplateResponse(
+            request,
+            "admin/role_assignments/partials/_is_current_toggle.html",
+            {"ra": ra},
+            headers=flash_trigger(
+                "error",
+                "Current assignments cannot have an end date. Clear the end date first.",
+            ),
+        )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Role assignment not found")
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+    ra = await _get_ra(ra_id, db)
     return templates.TemplateResponse(
         request,
-        "admin/role_assignments/detail.html",
-        {
-            "user": user,
-            "active_section": "role_assignments",
-            "ra": ra,
-            "org_dup_count": org_dup_count,
-            "person_dup_count": person_dup_count,
-        },
+        "admin/role_assignments/partials/_is_current_toggle.html",
+        {"ra": ra},
+        headers=flash_trigger(
+            "success",
+            "Marked as current." if new_val else "Marked as former.",
+        ),
     )
 
 
-@router.get("/{ra_id}/edit/")
-async def ra_edit_form(
+# ---------------------------------------------------------------------------
+# Dates inline
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{ra_id}/inline/dates/")
+async def ra_inline_dates_get(
     ra_id: str,
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
-    """Edit role assignment form."""
-
-    ra = await db.fetchrow(
-        "SELECT * FROM role_assignments WHERE id = $1",
-        ra_id,
-    )
-    if not ra:
-        raise HTTPException(status_code=404, detail="Role assignment not found")
-
-    people = await _fetch_people(db)
-    roles = await _fetch_roles(db)
+    """Return dates read partial."""
+    ra = await _get_ra(ra_id, db)
     return templates.TemplateResponse(
-        request,
-        "admin/role_assignments/form.html",
-        {
-            "user": user,
-            "active_section": "role_assignments",
-            "ra": ra,
-            "people": people,
-            "roles": roles,
-            "error": None,
-            "org_dup_count": org_dup_count,
-            "person_dup_count": person_dup_count,
-        },
+        request, "admin/role_assignments/partials/_dates_read.html", {"ra": ra}
     )
 
 
-@router.post("/{ra_id}/edit/")
-async def ra_update(
+@router.get("/{ra_id}/inline/dates/edit/")
+async def ra_inline_dates_edit_get(
     ra_id: str,
     request: Request,
-    person_id: str = Form(...),
-    role_id: str = Form(...),
-    is_current: str = Form(""),
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return dates edit form partial."""
+    ra = await _get_ra(ra_id, db)
+    return templates.TemplateResponse(
+        request,
+        "admin/role_assignments/partials/_dates_form.html",
+        {"ra": ra, "error": None, "start_date_value": None, "end_date_value": None},
+    )
+
+
+@router.post("/{ra_id}/inline/dates/")
+async def ra_inline_dates_post(
+    ra_id: str,
+    request: Request,
     start_date: str = Form(""),
     end_date: str = Form(""),
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Save dates; on CHECK violation, re-render form with inline error."""
+    start_val = _parse_date(start_date)
+    end_val = _parse_date(end_date)
+    try:
+        updated = await db.fetchval(
+            "UPDATE role_assignments SET start_date=$1, end_date=$2 WHERE id=$3 RETURNING id",
+            start_val, end_val, ra_id,
+        )
+    except asyncpg.exceptions.CheckViolationError as exc:
+        if not is_htmx(request):
+            raise HTTPException(
+                status_code=400,
+                detail="Current assignments cannot have an end date.",
+            ) from exc
+        ra = await _get_ra(ra_id, db)
+        return templates.TemplateResponse(
+            request,
+            "admin/role_assignments/partials/_dates_form.html",
+            {
+                "ra": ra,
+                "error": "Current assignments cannot have an end date. Mark as former first.",
+                "start_date_value": start_date,
+                "end_date_value": end_date,
+            },
+        )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Role assignment not found")
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+    ra = await _get_ra(ra_id, db)
+    return templates.TemplateResponse(
+        request,
+        "admin/role_assignments/partials/_dates_read.html",
+        {"ra": ra},
+        headers=flash_trigger("success", "Dates saved."),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Notes inline
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{ra_id}/inline/notes/")
+async def ra_inline_notes_get(
+    ra_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return notes read partial."""
+    ra = await _get_ra(ra_id, db)
+    return templates.TemplateResponse(
+        request, "admin/role_assignments/partials/_notes_read.html", {"ra": ra}
+    )
+
+
+@router.get("/{ra_id}/inline/notes/edit/")
+async def ra_inline_notes_edit_get(
+    ra_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return notes edit form partial."""
+    ra = await _get_ra(ra_id, db)
+    return templates.TemplateResponse(
+        request, "admin/role_assignments/partials/_notes_form.html", {"ra": ra}
+    )
+
+
+@router.post("/{ra_id}/inline/notes/")
+async def ra_inline_notes_post(
+    ra_id: str,
+    request: Request,
     notes: str = Form(""),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
-    """Update a role assignment."""
-
-    ra = await db.fetchrow("SELECT id FROM role_assignments WHERE id = $1", ra_id)
-    if not ra:
+    """Save notes; return read partial."""
+    updated = await db.fetchval(
+        "UPDATE role_assignments SET notes=$1 WHERE id=$2 RETURNING id",
+        notes.strip() or None, ra_id,
+    )
+    if not updated:
         raise HTTPException(status_code=404, detail="Role assignment not found")
-
-    is_current_bool = is_current == "true"
-    start_date_val = _parse_date(start_date)
-    end_date_val = _parse_date(end_date)
-
-    try:
-        await db.execute(
-            """UPDATE role_assignments
-               SET person_id = $1, role_id = $2, is_current = $3,
-                   start_date = $4, end_date = $5, notes = $6
-               WHERE id = $7""",
-            person_id, role_id, is_current_bool,
-            start_date_val, end_date_val, notes or None, ra_id,
-        )
-    except asyncpg.exceptions.CheckViolationError:
-        full_ra = await db.fetchrow("SELECT * FROM role_assignments WHERE id = $1", ra_id)
-        people = await _fetch_people(db)
-        roles = await _fetch_roles(db)
-        return templates.TemplateResponse(
-            request,
-            "admin/role_assignments/form.html",
-            {
-                "user": user,
-                "active_section": "role_assignments",
-                "ra": full_ra,
-                "people": people,
-                "roles": roles,
-                "error": "Current assignments cannot have an end date.",
-                "form_person_id": person_id,
-                "form_role_id": role_id,
-                "form_is_current": is_current_bool,
-                "form_start_date": start_date,
-                "form_end_date": end_date,
-                "form_notes": notes,
-                "org_dup_count": org_dup_count,
-                "person_dup_count": person_dup_count,
-            },
-            status_code=200,
-        )
-
-    return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+    ra = await _get_ra(ra_id, db)
+    return templates.TemplateResponse(
+        request,
+        "admin/role_assignments/partials/_notes_read.html",
+        {"ra": ra},
+        headers=flash_trigger("success", "Notes saved."),
+    )
 
 
 @router.post("/{ra_id}/archive/")
 async def ra_archive(
     ra_id: str,
-    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Archive a role assignment (soft delete)."""
 
-    ra = await db.fetchrow("SELECT id FROM role_assignments WHERE id = $1", ra_id)
-    if not ra:
-        raise HTTPException(status_code=404, detail="Role assignment not found")
-
-    await db.execute(
-        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
+    updated = await db.fetchval(
+        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1 RETURNING id",
+        ra_id,
     )
-    return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Role assignment not found")
+    return RedirectResponse(
+        f"/admin/role-assignments/{ra_id}/?flash=archived", status_code=303
+    )
 
 
 @router.delete("/{ra_id}/")
@@ -409,4 +534,9 @@ async def ra_delete(
         )
 
     await db.execute("DELETE FROM role_assignments WHERE id = $1", ra_id)
-    return HTMLResponse(content="", status_code=200)
+    if is_htmx(request):
+        return Response(
+            status_code=204,
+            headers={"HX-Location": "/admin/role-assignments/?flash=deleted"},
+        )
+    return RedirectResponse("/admin/role-assignments/?flash=deleted", status_code=303)
