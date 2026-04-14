@@ -1,5 +1,6 @@
 """Integration tests for role detail inline editing routes."""
 
+import datetime
 import json
 import os
 
@@ -70,6 +71,43 @@ async def role_id(db):
         rid, oid, "Executive Director", "Some notes",
     )
     return rid
+
+
+# ---------------------------------------------------------------------------
+# Schema constraint: chk_role_date_order
+# ---------------------------------------------------------------------------
+
+
+async def test_chk_role_date_order_rejects_inverted_dates(db):
+    """established_on > abolished_on must raise CheckViolationError."""
+    oid = await _make_org(db, "Boundary Org")
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+        rid, oid, "Test Role",
+    )
+    with pytest.raises(asyncpg.exceptions.CheckViolationError):
+        await db.execute(
+            "UPDATE roles SET established_on=$1, abolished_on=$2 WHERE id=$3",
+            datetime.date(2020, 1, 1), datetime.date(2010, 1, 1), rid,
+        )
+
+
+async def test_chk_role_date_order_allows_same_date(db):
+    """established_on == abolished_on is valid (single-day role)."""
+    oid = await _make_org(db, "Same Day Org")
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+        rid, oid, "One Day Role",
+    )
+    await db.execute(
+        "UPDATE roles SET established_on=$1, abolished_on=$2 WHERE id=$3",
+        datetime.date(2020, 6, 15), datetime.date(2020, 6, 15), rid,
+    )
+    row = await db.fetchrow("SELECT established_on, abolished_on FROM roles WHERE id=$1", rid)
+    assert row["established_on"] == datetime.date(2020, 6, 15)
+    assert row["abolished_on"] == datetime.date(2020, 6, 15)
 
 
 # ---------------------------------------------------------------------------

@@ -318,6 +318,35 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='roles' AND column_name='established_on'
+    ) THEN
+        ALTER TABLE roles ADD COLUMN established_on DATE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='roles' AND column_name='abolished_on'
+    ) THEN
+        ALTER TABLE roles ADD COLUMN abolished_on DATE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name='roles' AND constraint_name='chk_role_date_order'
+    ) THEN
+        ALTER TABLE roles ADD CONSTRAINT chk_role_date_order
+            CHECK (established_on IS NULL OR abolished_on IS NULL
+                   OR established_on <= abolished_on);
+    END IF;
+END $$;
+
 -- =============================================================================
 -- Organization names/acronyms schema migration
 -- Moves acronym rows from organization_names to organization_acronyms,
