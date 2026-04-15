@@ -4,7 +4,7 @@
         hx-target="#dates-field"
         hx-swap="outerHTML">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
-      <span class="field-group-label">Boundary Dates</span>
+      <h3 class="field-group-label">Boundary Dates</h3>
       <div>
         <button type="submit" class="btn btn--primary btn--sm">Save</button>
         <button type="button" class="btn btn--secondary btn--sm"
@@ -13,14 +13,14 @@
                 hx-swap="outerHTML">Cancel</button>
       </div>
     </div>
-    <div style="display:flex;gap:var(--space-4);flex-wrap:wrap">
-      <div class="form-group" style="margin-bottom:0">
-        <label for="established-on-input" style="font-size:var(--font-size-xs)">Established</label>
+    <div style="display:flex;gap:var(--space-4)">
+      <div class="form-group" style="margin-bottom:0;flex:1">
+        <label for="established-on-input" class="field-group-label" style="font-size:var(--font-size-xs)">Established</label>
         <input type="date" id="established-on-input" name="established_on"
                value="{{ established_on_input or '' }}">
       </div>
-      <div class="form-group" style="margin-bottom:0">
-        <label for="abolished-on-input" style="font-size:var(--font-size-xs)">Abolished</label>
+      <div class="form-group" style="margin-bottom:0;flex:1">
+        <label for="abolished-on-input" class="field-group-label" style="font-size:var(--font-size-xs)">Abolished</label>
         <input type="date" id="abolished-on-input" name="abolished_on"
                value="{{ abolished_on_input or '' }}">
       </div>
