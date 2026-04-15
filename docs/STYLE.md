@@ -1525,3 +1525,106 @@ def test_{entity}_detail_js_updates_document_title():
     """Must update document.title — tab title sync is the third live-update target."""
     assert "document.title" in ENTITY_DETAIL_JS
 ```
+
+---
+
+## 31. Paired Date Control Pattern
+
+For any section that displays two related date fields side-by-side on a detail page (e.g. boundary dates, service dates), follow this pattern. Both read and edit partials share the same outer `id` as their HTMX swap target.
+
+### Section label naming
+
+Use a descriptive two-word label that clarifies the *semantic role* of the date pair:
+
+| Context | Section label |
+|---|---|
+| Role boundary dates (established / abolished) | **Boundary Dates** |
+| Role assignment service dates (start / end) | **Service Dates** |
+
+Avoid the bare label "Dates" — it gives no context.
+
+### Read partial (`_dates_read.html`)
+
+```html
+<div id="dates-field" style="margin-top:var(--space-5)">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h3 class="field-group-label">{Section Label}</h3>
+    {% if not entity.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/{entities}/{{ entity.id }}/inline/dates/edit/"
+            hx-target="#dates-field"
+            hx-swap="outerHTML">Edit</button>
+    {% endif %}
+  </div>
+  <div style="display:flex;gap:var(--space-6);font-size:var(--font-size-sm)">
+    <div>
+      <div class="field-group-label" style="font-size:var(--font-size-xs)">{Field A label}</div>
+      <div style="color:{% if entity.{field_a} %}var(--color-text){% else %}var(--color-text-muted){% endif %}">
+        {{ entity.{field_a} or '—' }}
+      </div>
+    </div>
+    <div>
+      <div class="field-group-label" style="font-size:var(--font-size-xs)">{Field B label}</div>
+      <div style="color:{% if entity.{field_b} %}var(--color-text){% else %}var(--color-text-muted){% endif %}">
+        {{ entity.{field_b} or '—' }}
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+- Each field renders its sub-label (e.g. "Established", "Start") as a `<div class="field-group-label">` — all-caps via CSS, xs size via inline override.
+- Null values display as `—` in muted text color. Non-null values use `var(--color-text)`.
+- Do **not** lump both values into a single bordered box (`start — end`) — that conflates two distinct fields and makes null states ambiguous.
+
+### Edit partial (`_dates_form.html`)
+
+```html
+<div id="dates-field" style="margin-top:var(--space-5)">
+  <form hx-post="/admin/{entities}/{{ entity.id }}/inline/dates/"
+        hx-target="#dates-field"
+        hx-swap="outerHTML">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+      <h3 class="field-group-label">{Section Label}</h3>
+      <div>
+        <button type="submit" class="btn btn--primary btn--sm">Save</button>
+        <button type="button" class="btn btn--secondary btn--sm"
+                hx-get="/admin/{entities}/{{ entity.id }}/inline/dates/"
+                hx-target="#dates-field"
+                hx-swap="outerHTML">Cancel</button>
+      </div>
+    </div>
+    {% if error %}
+    <div class="alert alert--error" role="alert" style="margin-bottom:var(--space-3)">{{ error }}</div>
+    {% endif %}
+    <div style="display:flex;gap:var(--space-4)">
+      <div class="form-group" style="margin-bottom:0;flex:1">
+        <label for="{field-a}-input" class="field-group-label" style="font-size:var(--font-size-xs)">{Field A label}</label>
+        <input type="date" id="{field-a}-input" name="{field_a}" value="{{ {field_a}_input or '' }}">
+      </div>
+      <div class="form-group" style="margin-bottom:0;flex:1">
+        <label for="{field-b}-input" class="field-group-label" style="font-size:var(--font-size-xs)">{Field B label}</label>
+        <input type="date" id="{field-b}-input" name="{field_b}" value="{{ {field_b}_input or '' }}">
+      </div>
+    </div>
+  </form>
+</div>
+```
+
+### Rules
+
+- **Section label:** `<h3 class="field-group-label">` in both read and edit states — no layout shift on toggle.
+- **Field sub-labels in edit:** `<label class="field-group-label" style="font-size:var(--font-size-xs)">` — all-caps from the class, xs size from the inline override. Associates correctly with the input for screen readers.
+- **`flex:1` on both form-groups** — inputs share available width equally; no hard widths.
+- **No `flex-wrap`** — date inputs are compact enough to sit side-by-side at all supported viewport widths.
+- **Error alert** between the header row and the inputs — same position used by the contact form inline error pattern (§ DB conventions).
+- **Non-HTMX fallback:** POST returns `RedirectResponse` to the detail page.
+- **Archived guard:** Edit button hidden when `entity.archived_at` is non-null.
+
+### Routes
+
+```
+GET  /admin/{entities}/{id}/inline/dates/       → read partial
+GET  /admin/{entities}/{id}/inline/dates/edit/  → edit partial
+POST /admin/{entities}/{id}/inline/dates/       → save → read partial (or re-render form on error)
+```
