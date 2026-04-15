@@ -553,7 +553,10 @@ INSERT INTO link_types (id, slug, display_name, is_social) VALUES
     ('01KKZ3WGJSZF0F96SMYC000AVM', 'wikipedia',    'Wikipedia',                        FALSE),
     ('01KKZ3WGJSZF0F96SMYC000AVN', 'other',        'Other',                            FALSE),
     ('01KM0YSNEMMPY35FSS3CX49SFJ', 'google_drive', 'Google Drive',                     FALSE)
-ON CONFLICT (slug) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET
+    slug         = EXCLUDED.slug,
+    display_name = EXCLUDED.display_name,
+    is_social    = EXCLUDED.is_social;
 
 INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name) VALUES
     ('01KKZ3WGJSZF0F96SMYC000AVP', 'organization',    'org_ubi',       'UBI',    'Washington Unified Business Identifier'),
@@ -562,7 +565,11 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     ('01KKZ3WGJSZF0F96SMYC000AVS', 'person',          'person_wa_pdc', 'WA PDC', 'Washington State Public Disclosure Commission'),
     ('01KKZ3WGJSZF0F96SMYC000AVT', 'person',          'person_ssn',    'SSN',    'United States Social Security Number'),
     ('01KKZ3WGJSZF0F96SMYC000AVV', 'role_assignment', 'role_wa_pdc',   'WA PDC', 'Washington State Public Disclosure Commission')
-ON CONFLICT (slug) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET
+    entity_type  = EXCLUDED.entity_type,
+    slug         = EXCLUDED.slug,
+    display_name = EXCLUDED.display_name,
+    full_name    = EXCLUDED.full_name;
 
 -- =============================================================================
 -- Duplicate Management
