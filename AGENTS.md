@@ -42,7 +42,8 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     orgs_links.py       — Inline CRUD for links + link_types (row-level HTMX swap); delegates to _links_shared factory
     orgs_identifiers.py — Inline CRUD for identifiers (row-level HTMX swap); delegates to _identifiers_shared factory
     orgs_roles.py       — Inline role create and merge on org detail (new-row GET, create POST, merge POST)
-    roles_detail.py     — Inline editing for role detail fields: org, title, notes
+    roles_shared.py     — Shared helpers: _get_role (fetch + 404), _parse_date, _check_assignment_within_bounds; imported by roles_detail and roles_assignments_inline to avoid circular deps
+    roles_detail.py     — Inline editing for role detail fields: org, title, notes, boundary dates (established_on / abolished_on)
     roles_assignments_inline.py — Inline assignment CRUD on role detail (create/read-row/edit-row); fetch_role_assignments helper
     entities.py         — Entities landing page (card-grid overview with record counts); templates in src/templates/admin/entities/
     settings.py         — Settings landing page; templates in src/templates/admin/settings/

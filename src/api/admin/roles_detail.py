@@ -1,32 +1,20 @@
-"""Inline editing routes for the role detail page (org, title, notes)."""
+"""Inline editing routes for the role detail page (org, title, notes, boundary dates)."""
 
 import asyncpg
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.roles_shared import (
+    _check_assignment_within_bounds,
+    _get_role,
+    _parse_date,
+)
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles/{role_id}", tags=["admin-roles-detail"])
-
-
-async def _get_role(role_id: str, db):
-    """Fetch role with org display name, or raise 404."""
-    row = await db.fetchrow(
-        """SELECT r.id, r.title, r.notes, r.archived_at, r.created_at, r.updated_at,
-                  r.established_on, r.abolished_on,
-                  r.organization_id AS org_id,
-                  dn.display_name AS org_name
-           FROM roles r
-           LEFT JOIN v_org_display_names dn ON dn.organization_id = r.organization_id
-           WHERE r.id = $1""",
-        role_id,
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail="Role not found")
-    return row
 
 
 # ---------------------------------------------------------------------------
@@ -298,12 +286,6 @@ async def role_inline_dates_post(
     db=Depends(get_db),
 ):
     """Save boundary dates; validate against existing assignments."""
-    # Local import: roles_assignments_inline imports _get_role from here; avoid circular dep.
-    from src.api.admin.roles_assignments_inline import (  # noqa: PLC0415
-        _check_assignment_within_bounds,
-        _parse_date,
-    )
-
     role = await _get_role(role_id, db)
 
     def _form_ctx(est_input: str, abol_input: str):

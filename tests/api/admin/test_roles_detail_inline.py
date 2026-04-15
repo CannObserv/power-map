@@ -295,6 +295,8 @@ async def test_inline_routes_return_404_for_missing_role(client):
         f"/admin/roles/{fake_id}/inline/org/",
         f"/admin/roles/{fake_id}/inline/title/",
         f"/admin/roles/{fake_id}/inline/notes/",
+        f"/admin/roles/{fake_id}/inline/dates/",
+        f"/admin/roles/{fake_id}/inline/dates/edit/",
     ]:
         r = await client.get(path, headers=HTMX_HEADERS)
         assert r.status_code == 404, f"Expected 404 for {path}"

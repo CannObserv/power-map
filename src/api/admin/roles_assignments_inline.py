@@ -1,46 +1,20 @@
 """Inline assignment CRUD routes for the role detail page."""
 
-import datetime
-
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
-from src.api.admin.roles_detail import _get_role
+from src.api.admin.roles_shared import (
+    _check_assignment_within_bounds,
+    _get_role,
+    _parse_date,
+)
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles/{role_id}", tags=["admin-roles-assignments"])
-
-
-def _parse_date(value: str) -> datetime.date | None:
-    """Parse ISO date string, return None if empty."""
-    value = value.strip()
-    if not value:
-        return None
-    return datetime.date.fromisoformat(value)
-
-
-def _check_assignment_within_bounds(
-    start_date: datetime.date | None,
-    end_date: datetime.date | None,
-    established_on: datetime.date | None,
-    abolished_on: datetime.date | None,
-) -> str | None:
-    """Return an error string if dates violate role boundaries, else None."""
-    if established_on is not None:
-        if start_date is not None and start_date < established_on:
-            return f"Start date cannot be before role established date ({established_on})."
-        if end_date is not None and end_date < established_on:
-            return f"End date cannot be before role established date ({established_on})."
-    if abolished_on is not None:
-        if start_date is not None and start_date > abolished_on:
-            return f"Start date cannot be after role abolished date ({abolished_on})."
-        if end_date is not None and end_date > abolished_on:
-            return f"End date cannot be after role abolished date ({abolished_on})."
-    return None
 
 
 async def fetch_role_assignments(role_id: str, db) -> list:
@@ -372,6 +346,22 @@ async def assignment_edit_row_post(
             _error_ctx(),
             headers={
                 **flash_trigger("error", "Current assignments cannot have an end date."),
+                "HX-Retarget": f"#assignment-row-{assignment_id}",
+                "HX-Reswap": "outerHTML",
+            },
+        )
+    except asyncpg.UniqueViolationError:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_assignment_edit_row.html",
+            _error_ctx(),
+            headers={
+                **flash_trigger(
+                    "error",
+                    "An assignment for this person with this start date already exists.",
+                ),
                 "HX-Retarget": f"#assignment-row-{assignment_id}",
                 "HX-Reswap": "outerHTML",
             },

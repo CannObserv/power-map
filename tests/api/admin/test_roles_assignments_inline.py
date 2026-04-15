@@ -9,7 +9,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from src.api.admin.deps import get_db
-from src.api.admin.roles_assignments_inline import _check_assignment_within_bounds
+from src.api.admin.roles_shared import _check_assignment_within_bounds
 from src.api.main import app
 from src.core.db import apply_schema, generate_id
 
@@ -561,6 +561,34 @@ async def test_edit_row_post_check_violation_preserves_end_date_input(
     )
     assert r.status_code == 200
     assert b"2023-06-15" in r.content
+
+
+async def test_edit_row_post_duplicate_start_date_returns_error(
+    client, role_id, person_id, db
+):
+    """Changing start_date to collide with an existing assignment returns an error flash."""
+    # ra1 holds 2020-01-01; editing ra2 to the same date should hit the unique index
+    ra1 = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)"
+        " VALUES ($1, $2, $3, FALSE, '2020-01-01')",
+        ra1, person_id, role_id,
+    )
+    ra2 = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)"
+        " VALUES ($1, $2, $3, FALSE, '2021-06-01')",
+        ra2, person_id, role_id,
+    )
+    r = await client.post(
+        f"/admin/roles/{role_id}/assignments/{ra2}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2020-01-01", "end_date": "", "is_current": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert b'name="start_date"' in r.content
 
 
 async def test_edit_row_post_non_htmx_redirects(client, role_id, assignment_id):
