@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from urllib.parse import quote
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 
 import src.core.db as db
 
@@ -126,3 +126,23 @@ async def get_db():
     pool = db.get_pool()
     async with pool.acquire() as conn:
         yield conn
+
+
+async def provision_app_user(
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+) -> AdminUser:
+    """Upsert the app_users row for the current exe.dev user, then return the user.
+
+    Use as a drop-in replacement for get_admin_user on routes that require the
+    user to exist in the app_users table (e.g., API key management routes).
+    """
+    await db.execute(
+        """
+        INSERT INTO app_users (id, email) VALUES ($1, $2)
+        ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email
+        """,
+        user.id,
+        user.email,
+    )
+    return user

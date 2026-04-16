@@ -72,3 +72,36 @@ async def test_api_keys_key_hash_unique(db):
         )
     await db.execute("DELETE FROM api_keys WHERE user_id=$1", uid)
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+
+
+# --- provision_app_user ---
+
+async def test_provision_app_user_creates_row(db):
+    """provision_app_user upserts an app_users row for the current user."""
+    from src.api.admin.deps import AdminUser, provision_app_user
+
+    user = AdminUser(id="usr_provision_test", email="provision@test.com")
+
+    # Call dep directly with real db
+    result = await provision_app_user(user=user, db=db)
+    assert result.id == "usr_provision_test"
+
+    row = await db.fetchrow("SELECT id, email FROM app_users WHERE id=$1", "usr_provision_test")
+    assert row is not None
+    assert row["email"] == "provision@test.com"
+    await db.execute("DELETE FROM app_users WHERE id='usr_provision_test'")
+
+
+async def test_provision_app_user_updates_email_on_conflict(db):
+    """provision_app_user updates email when user already exists."""
+    from src.api.admin.deps import AdminUser, provision_app_user
+
+    uid = "usr_upsert_test"
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "old@test.com")
+    try:
+        user = AdminUser(id=uid, email="new@test.com")
+        await provision_app_user(user=user, db=db)
+        row = await db.fetchrow("SELECT email FROM app_users WHERE id=$1", uid)
+        assert row["email"] == "new@test.com"
+    finally:
+        await db.execute("DELETE FROM app_users WHERE id=$1", uid)
