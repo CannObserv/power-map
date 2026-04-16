@@ -939,9 +939,23 @@ GET /{org_id}/children/search/?q=...
 
 The scoped endpoint filters out the current entity and any already-linked records. See AGENTS.md → Child org scoped search.
 
+### JavaScript — shared factory
+
+All typeahead comboboxes use the shared factory loaded from `base.html`:
+
+```javascript
+window.initTypeaheadCombobox({
+  inputId:   'my-search',
+  listboxId: 'my-results',
+  hiddenId:  'my-id-hidden',
+});
+```
+
+The factory is defined in `src/static/admin/typeahead-combobox.js` and loaded with `defer` in `<head>`, so it is available when any inline `<script>` in `<body>` runs. If a form partial also needs extra logic (e.g. disabling a date field when a checkbox is checked), put it in a separate IIFE after the factory call — do not mix it into the combobox wiring.
+
 ### JavaScript contract
 
-The inline JS block in the form partial (or an extracted `.js` file) must implement:
+The factory implements:
 
 | Behaviour | Detail |
 |---|---|
@@ -950,7 +964,7 @@ The inline JS block in the form partial (or an extracted `.js` file) must implem
 | **Arrow navigation** | `ArrowDown` / `ArrowUp` — cycle `.is-active` class on `<li>` items, scroll into view, set `aria-activedescendant` |
 | **Enter to select** | Copy `data-id` → hidden input, `data-label` → visible input, close dropdown |
 | **Escape** | Close dropdown without selection |
-| **Click to select** | `ul.addEventListener('click')` — delegate to `closest('[data-id]')` |
+| **Mouse select** | `ul.addEventListener('mousedown')` + `e.preventDefault()` — delegate to `closest('[data-id]')`. `mousedown` is used instead of `click` because mousedown fires first; without `preventDefault`, the input loses focus before `click` fires and the event is swallowed or re-routed in some browsers. |
 | **Scoped IDs** | In `afterSwap`, prefix each `li.id` with the listbox's own `id` to prevent duplicate IDs when two typeaheads are mounted |
 
 ---

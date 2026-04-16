@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const scriptCode = readFileSync(
@@ -24,17 +24,15 @@ const scriptCode = readFileSync(
 // Global listener cleanup
 // ---------------------------------------------------------------------------
 
-let _addSpy;
-
-beforeEach(() => {
-  _addSpy = vi.spyOn(document, 'addEventListener');
-});
-
 afterEach(() => {
-  _addSpy.mock.calls.forEach(([type, handler, opts]) =>
-    document.removeEventListener(type, handler, opts),
-  );
-  vi.restoreAllMocks();
+  // Close any open dropdown via Escape so closeDropdown() removes the
+  // document-level click/scroll listeners it registered in openDropdown().
+  // This is more precise than spying on addEventListener — it cleans up via
+  // the same removeEventListener calls the factory itself uses.
+  const input = document.getElementById(INPUT_ID);
+  if (input) {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  }
   document.body.innerHTML = '';
 });
 
