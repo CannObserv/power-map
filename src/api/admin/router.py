@@ -44,8 +44,11 @@ admin_router.include_router(settings_api_keys_module.router)
 admin_router.include_router(settings_link_types_module.router)
 admin_router.include_router(settings_identifier_types_module.router)
 admin_router.include_router(activity_module.router)
-admin_router.include_router(orgs_module.router)
+# Merge routers must precede their entity routers: FastAPI matches routes in
+# registration order, and the entity routers carry /{id}/ wildcards that would
+# otherwise swallow literal paths like /duplicates/.
 admin_router.include_router(orgs_merge_module.router)
+admin_router.include_router(orgs_module.router)
 admin_router.include_router(orgs_names_module.router)
 admin_router.include_router(orgs_acronyms_module.router)
 admin_router.include_router(orgs_addresses_module.router)
@@ -53,8 +56,9 @@ admin_router.include_router(orgs_contacts_module.router)
 admin_router.include_router(orgs_links_module.router)
 admin_router.include_router(orgs_identifiers_module.router)
 admin_router.include_router(orgs_roles_module.router)
-admin_router.include_router(people_module.router)
+# Same ordering constraint as orgs above.
 admin_router.include_router(people_merge_module.router)
+admin_router.include_router(people_module.router)
 admin_router.include_router(people_names_module.router)
 admin_router.include_router(people_contacts_module.router)
 admin_router.include_router(people_addresses_module.router)
