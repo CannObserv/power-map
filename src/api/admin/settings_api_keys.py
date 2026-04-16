@@ -83,8 +83,6 @@ async def api_key_create(
     label: str = Form(...),
     user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     label_val = label.strip()
     if not label_val:

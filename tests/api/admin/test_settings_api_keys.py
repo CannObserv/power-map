@@ -7,6 +7,7 @@ import asyncpg
 import pytest
 from fastapi.testclient import TestClient
 
+from src.api.admin.settings_api_keys import generate_api_key
 from src.api.main import app
 from src.core.db import apply_schema, generate_id
 
@@ -111,7 +112,6 @@ async def test_provision_app_user_updates_email_on_conflict(db):
 # --- generate_api_key (unit) ---
 
 def test_generate_api_key_format():
-    from src.api.admin.settings_api_keys import generate_api_key
     raw_key, key_hash, key_prefix = generate_api_key()
     assert raw_key.startswith("pm_")
     assert len(raw_key) == 35          # "pm_" + 32 hex chars
@@ -120,15 +120,12 @@ def test_generate_api_key_format():
 
 
 def test_generate_api_key_is_random():
-    from src.api.admin.settings_api_keys import generate_api_key
     raw1, _, _ = generate_api_key()
     raw2, _, _ = generate_api_key()
     assert raw1 != raw2
 
 
 def test_generate_api_key_hash_matches():
-    from src.api.admin.settings_api_keys import generate_api_key
-
     raw_key, key_hash, _ = generate_api_key()
     expected = hashlib.sha256(raw_key.encode()).hexdigest()
     assert key_hash == expected
@@ -263,3 +260,78 @@ async def test_api_keys_delete_404_when_not_found(client, db):
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )
     assert r.status_code == 404
+
+
+async def test_api_keys_create_empty_label_rejected(client, db):
+    r = client.post(
+        "/admin/settings/api-keys/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={"label": "   "},
+    )
+    assert r.status_code == 422
+
+
+async def test_api_keys_edit_row_empty_label_rejected(client, db):
+    uid, kid, _ = await _make_user_and_key(db)
+    try:
+        r = client.post(
+            f"/admin/settings/api-keys/{kid}/edit-row/",
+            headers={**AUTH_HEADERS, "HX-Request": "true"},
+            data={"label": "   "},
+        )
+        assert r.status_code == 422
+    finally:
+        await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
+        await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+
+
+async def test_api_keys_edit_other_users_key_returns_404(client, db):
+    """User cannot edit a key belonging to a different user."""
+    other_uid = generate_id()
+    kid = generate_id()
+    raw_key = "pm_" + os.urandom(16).hex()
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    await db.execute(
+        "INSERT INTO app_users (id, email) VALUES ($1,$2)", other_uid, "other@test.com"
+    )
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
+        " VALUES ($1,$2,$3,$4,$5)",
+        kid, other_uid, "Other Key", raw_key[:8], key_hash,
+    )
+    try:
+        # AUTH_HEADERS authenticates as usr_test, not other_uid
+        r = client.post(
+            f"/admin/settings/api-keys/{kid}/edit-row/",
+            headers={**AUTH_HEADERS, "HX-Request": "true"},
+            data={"label": "Hijacked"},
+        )
+        assert r.status_code == 404
+    finally:
+        await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
+        await db.execute("DELETE FROM app_users WHERE id=$1", other_uid)
+
+
+async def test_api_keys_delete_other_users_key_returns_404(client, db):
+    """User cannot delete a key belonging to a different user."""
+    other_uid = generate_id()
+    kid = generate_id()
+    raw_key = "pm_" + os.urandom(16).hex()
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    await db.execute(
+        "INSERT INTO app_users (id, email) VALUES ($1,$2)", other_uid, "other@test.com"
+    )
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
+        " VALUES ($1,$2,$3,$4,$5)",
+        kid, other_uid, "Other Key", raw_key[:8], key_hash,
+    )
+    try:
+        r = client.delete(
+            f"/admin/settings/api-keys/{kid}/",
+            headers={**AUTH_HEADERS, "HX-Request": "true"},
+        )
+        assert r.status_code == 404
+    finally:
+        await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
+        await db.execute("DELETE FROM app_users WHERE id=$1", other_uid)
