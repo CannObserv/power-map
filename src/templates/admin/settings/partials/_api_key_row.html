@@ -1,0 +1,20 @@
+{# _api_key_row.html — read-only row; expects: key #}
+<tr id="api-key-row-{{ key.id }}">
+  <td>{{ key.label }}</td>
+  <td style="font-family:monospace;color:var(--color-text-muted)">{{ key.key_prefix }}…</td>
+  <td style="color:var(--color-text-muted)">{{ key.created_at.strftime('%Y-%m-%d') if key.created_at else '—' }}</td>
+  <td style="color:var(--color-text-muted)">{{ key.last_used_at.strftime('%Y-%m-%d') if key.last_used_at else 'Never' }}</td>
+  <td style="text-align:right;white-space:nowrap">
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/settings/api-keys/{{ key.id }}/edit-row/"
+            hx-target="#api-key-row-{{ key.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            hx-delete="/admin/settings/api-keys/{{ key.id }}/"
+            hx-target="#api-key-row-{{ key.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete key '{{ key.label }}'? This cannot be undone."
+            data-confirm-title="Delete API key?"
+            data-confirm-label="Delete">Delete</button>
+  </td>
+</tr>

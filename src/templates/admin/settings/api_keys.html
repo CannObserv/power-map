@@ -1,0 +1,46 @@
+{% extends "admin/base.html" %}
+{% block title %}API Keys{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/settings/">Settings</a><span class="breadcrumb__sep">›</span>
+  <span>API Keys</span>
+{% endblock %}
+{% block content %}
+<div class="page-header"><h1>API Keys</h1></div>
+
+<div style="margin-bottom:var(--space-4)">
+  <p style="color:var(--color-text-muted);margin:0 0 var(--space-3)">
+    Keys authenticate requests to the public API (<code>X-API-Key</code> header).
+    Each key is shown only once on creation.
+  </p>
+</div>
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+  <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">Your Keys</h2>
+  <button class="btn btn--sm btn--secondary"
+          hx-get="/admin/settings/api-keys/new-row/"
+          hx-target="#api-keys-body"
+          hx-swap="afterbegin">+ Generate new key</button>
+</div>
+
+<div class="table-wrapper">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th scope="col">Label</th>
+        <th scope="col">Key prefix</th>
+        <th scope="col">Created</th>
+        <th scope="col">Last used</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody id="api-keys-body">
+      {% for key in keys %}
+      {% include "admin/settings/partials/_api_key_row.html" %}
+      {% else %}
+      <tr><td colspan="5" style="color:var(--color-text-muted)">No API keys yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

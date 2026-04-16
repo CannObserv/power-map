@@ -1,0 +1,52 @@
+{# _api_key_new_key_modal.html — one-time key display; expects: raw_key, label #}
+<div class="modal-backdrop" id="new-key-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="new-key-title">
+    <h2 id="new-key-title">API key generated</h2>
+    <p>Key <strong>{{ label }}</strong> created. Copy it now — it will not be shown again.</p>
+    <div class="form-group" style="margin-bottom:var(--space-4)">
+      <label for="new-key-value" class="sr-only">API key</label>
+      <input id="new-key-value" type="text" readonly
+             value="{{ raw_key }}"
+             style="font-family:monospace;font-size:var(--font-size-sm)"
+             onclick="this.select()">
+    </div>
+    <div class="alert alert--warning" role="alert" style="margin-bottom:var(--space-4)">
+      This key will not be shown again. If you lose it, delete it and generate a new one.
+    </div>
+    <div class="modal__actions">
+      <button class="btn btn--ghost" type="button" id="new-key-copy">Copy to clipboard</button>
+      <a href="/admin/settings/api-keys/" class="btn btn--primary">Done</a>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var modal = document.getElementById('new-key-modal');
+  if (!modal) return;
+  var input = document.getElementById('new-key-value');
+  var copyBtn = document.getElementById('new-key-copy');
+
+  // Auto-select on load
+  input.select();
+
+  copyBtn.addEventListener('click', function () {
+    navigator.clipboard.writeText(input.value).then(function () {
+      copyBtn.textContent = 'Copied!';
+      copyBtn.disabled = true;
+    });
+  });
+
+  // Trap focus inside modal
+  var focusable = Array.from(modal.querySelectorAll('button, a, input'));
+  modal.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { window.location.href = '/admin/settings/api-keys/'; }
+    if (e.key !== 'Tab') return;
+    var first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+})();
+</script>

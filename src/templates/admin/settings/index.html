@@ -34,6 +34,20 @@
     <a href="/admin/settings/identifier-types/" class="btn btn--sm btn--secondary">Manage →</a>
   </div>
 
+  {# API Keys #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">API Keys</h2>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">
+        {{ counts.api_keys }} {{ 'key' if counts.api_keys == 1 else 'keys' }}
+      </span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Static keys for programmatic access to the public API.
+    </p>
+    <a href="/admin/settings/api-keys/" class="btn btn--sm btn--secondary">Manage →</a>
+  </div>
+
   {# Read-only: Organization Name Types #}
   <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
     <h2 style="margin:0 0 var(--space-3);font-size:var(--font-size-md);font-weight:700">Organization Name Types</h2>

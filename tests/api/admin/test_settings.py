@@ -41,9 +41,9 @@ def client():
 def test_settings_landing_returns_200(client):
     response = client.get("/admin/settings/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    # Verify all 5 cards render
+    # Verify all 6 cards render
     for label in ("Link Types", "Identifier Types", "Organization Name Types",
-                  "Person Name Types", "Address Types"):
+                  "Person Name Types", "Address Types", "API Keys"):
         assert label in response.text
     # Read-only chips present
     assert "legal" in response.text

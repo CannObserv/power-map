@@ -586,6 +586,35 @@ CREATE TABLE IF NOT EXISTS duplicate_dismissals (
 );
 
 -- =============================================================================
+-- Application Users & API Keys
+-- =============================================================================
+
+-- One row per exe.dev user; keyed by X-ExeDev-UserID. Upserted on each admin login.
+CREATE TABLE IF NOT EXISTS app_users (
+    id         TEXT        PRIMARY KEY,  -- X-ExeDev-UserID value
+    email      TEXT        NOT NULL,     -- X-ExeDev-Email, updated on each login
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE TRIGGER trg_updated_at_app_users
+    BEFORE UPDATE ON app_users
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Hashed static API keys for programmatic access. Direct hard delete (no archive).
+CREATE TABLE IF NOT EXISTS api_keys (
+    id           TEXT        PRIMARY KEY,         -- ULID
+    user_id      TEXT        NOT NULL REFERENCES app_users(id),
+    label        TEXT        NOT NULL,
+    key_prefix   TEXT        NOT NULL,            -- first 8 chars of raw key, for display
+    key_hash     TEXT        NOT NULL UNIQUE,     -- SHA-256 hex of raw key
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+
+-- =============================================================================
 -- Ingestion Audit Tables
 -- =============================================================================
 
