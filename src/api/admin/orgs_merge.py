@@ -126,17 +126,6 @@ async def org_merge(
             "UPDATE roles SET organization_id=$1 WHERE organization_id=$2",
             winner_id, loser_id,
         )
-        # links: demote loser's canonical link if winner already has one to avoid
-        # uq_link_canonical violation before the bulk reassignment below
-        await db.execute(
-            "UPDATE links SET is_canonical=FALSE"
-            " WHERE entity_type='organization' AND entity_id=$1 AND is_canonical=TRUE"
-            " AND EXISTS ("
-            "   SELECT 1 FROM links"
-            "   WHERE entity_type='organization' AND entity_id=$2 AND is_canonical=TRUE"
-            " )",
-            loser_id, winner_id,
-        )
         # Polymorphic entity tables (entity_type TEXT + entity_id TEXT, no FK)
         for table in ("entity_addresses", "contact_methods", "links",
                       "import_provenance", "field_confidence"):
