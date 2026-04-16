@@ -1,5 +1,6 @@
 """Integration tests for API key management admin routes."""
 
+import hashlib
 import os
 
 import asyncpg
@@ -105,3 +106,29 @@ async def test_provision_app_user_updates_email_on_conflict(db):
         assert row["email"] == "new@test.com"
     finally:
         await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+
+
+# --- generate_api_key (unit) ---
+
+def test_generate_api_key_format():
+    from src.api.admin.settings_api_keys import generate_api_key
+    raw_key, key_hash, key_prefix = generate_api_key()
+    assert raw_key.startswith("pm_")
+    assert len(raw_key) == 35          # "pm_" + 32 hex chars
+    assert len(key_hash) == 64         # SHA-256 hex
+    assert key_prefix == raw_key[:8]
+
+
+def test_generate_api_key_is_random():
+    from src.api.admin.settings_api_keys import generate_api_key
+    raw1, _, _ = generate_api_key()
+    raw2, _, _ = generate_api_key()
+    assert raw1 != raw2
+
+
+def test_generate_api_key_hash_matches():
+    from src.api.admin.settings_api_keys import generate_api_key
+
+    raw_key, key_hash, _ = generate_api_key()
+    expected = hashlib.sha256(raw_key.encode()).hexdigest()
+    assert key_hash == expected
