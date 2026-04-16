@@ -21,6 +21,14 @@ const scriptCode = readFileSync(
 );
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const INPUT_ID = 'test-search';
+const LIST_ID = 'test-results';
+const HIDDEN_ID = 'test-hidden';
+
+// ---------------------------------------------------------------------------
 // Global listener cleanup
 // ---------------------------------------------------------------------------
 
@@ -35,14 +43,6 @@ afterEach(() => {
   }
   document.body.innerHTML = '';
 });
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const INPUT_ID = 'test-search';
-const LIST_ID = 'test-results';
-const HIDDEN_ID = 'test-hidden';
 
 function setup() {
   document.body.innerHTML = `
