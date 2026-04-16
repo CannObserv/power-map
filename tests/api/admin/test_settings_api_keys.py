@@ -132,3 +132,134 @@ def test_generate_api_key_hash_matches():
     raw_key, key_hash, _ = generate_api_key()
     expected = hashlib.sha256(raw_key.encode()).hexdigest()
     assert key_hash == expected
+
+
+# --- API keys routes ---
+
+async def _make_user_and_key(db, label="My Key"):
+    """Helper: insert app_user + api_key owned by usr_test, return (uid, kid, raw_key).
+
+    Uses usr_test as the user ID so AUTH_HEADERS routes can find the key.
+    """
+    uid = "usr_test"
+    kid = generate_id()
+    raw_key = "pm_" + os.urandom(16).hex()
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    await db.execute(
+        "INSERT INTO app_users (id, email) VALUES ($1,$2)"
+        " ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email",
+        uid, "admin@test.com",
+    )
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
+        " VALUES ($1,$2,$3,$4,$5)",
+        kid, uid, label, raw_key[:8], key_hash,
+    )
+    return uid, kid, raw_key
+
+
+def test_api_keys_list_requires_auth(client):
+    r = client.get("/admin/settings/api-keys/", follow_redirects=False)
+    assert r.status_code in (302, 307)
+
+
+def test_api_keys_list_returns_200(client):
+    r = client.get("/admin/settings/api-keys/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+
+
+def test_api_keys_new_row_returns_form(client):
+    r = client.get("/admin/settings/api-keys/new-row/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "label" in r.text
+
+
+async def test_api_keys_create_returns_modal(client, db):
+    r = client.post(
+        "/admin/settings/api-keys/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={"label": "Test Key"},
+    )
+    assert r.status_code == 200
+    assert "pm_" in r.text          # raw key in modal
+    assert "not be shown again" in r.text
+    # Clean up: find the inserted key
+    await db.execute("DELETE FROM api_keys WHERE user_id='usr_test'")
+    await db.execute("DELETE FROM app_users WHERE id='usr_test'")
+
+
+async def test_api_keys_create_non_htmx_redirects(client, db):
+    r = client.post(
+        "/admin/settings/api-keys/",
+        headers=AUTH_HEADERS,
+        data={"label": "Non-HTMX Key"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == "/admin/settings/api-keys/"
+    await db.execute("DELETE FROM api_keys WHERE user_id='usr_test'")
+    await db.execute("DELETE FROM app_users WHERE id='usr_test'")
+
+
+async def test_api_keys_edit_row_get(client, db):
+    uid, kid, _ = await _make_user_and_key(db)
+    try:
+        r = client.get(
+            f"/admin/settings/api-keys/{kid}/edit-row/", headers=AUTH_HEADERS
+        )
+        assert r.status_code == 200
+        assert "My Key" in r.text
+    finally:
+        await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
+        await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+
+
+async def test_api_keys_edit_row_post(client, db):
+    uid, kid, _ = await _make_user_and_key(db)
+    try:
+        r = client.post(
+            f"/admin/settings/api-keys/{kid}/edit-row/",
+            headers={**AUTH_HEADERS, "HX-Request": "true"},
+            data={"label": "Renamed Key"},
+        )
+        assert r.status_code == 200
+        assert "Renamed Key" in r.text
+    finally:
+        await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
+        await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+
+
+async def test_api_keys_read_row(client, db):
+    uid, kid, _ = await _make_user_and_key(db)
+    try:
+        r = client.get(
+            f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS
+        )
+        assert r.status_code == 200
+        assert "My Key" in r.text
+    finally:
+        await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
+        await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+
+
+async def test_api_keys_delete(client, db):
+    uid, kid, _ = await _make_user_and_key(db)
+    try:
+        r = client.delete(
+            f"/admin/settings/api-keys/{kid}/",
+            headers={**AUTH_HEADERS, "HX-Request": "true"},
+        )
+        assert r.status_code == 200
+        row = await db.fetchrow("SELECT id FROM api_keys WHERE id=$1", kid)
+        assert row is None
+    finally:
+        await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
+        await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+
+
+async def test_api_keys_delete_404_when_not_found(client, db):
+    r = client.delete(
+        "/admin/settings/api-keys/nonexistent/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 404
