@@ -253,7 +253,8 @@ CREATE TABLE IF NOT EXISTS links (
 CREATE INDEX IF NOT EXISTS idx_links_entity
     ON links(entity_type, entity_id);
 
--- Remove is_canonical column and index (no display query uses them; concept retired)
+-- Remove is_canonical column and index (no display query uses them; concept retired).
+-- Application-level callers removed in c71270a (orgs_merge.py pre-demote block).
 DROP INDEX IF EXISTS uq_link_canonical;
 ALTER TABLE links DROP COLUMN IF EXISTS is_canonical;
 
