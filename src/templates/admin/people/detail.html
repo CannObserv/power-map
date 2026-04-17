@@ -235,27 +235,39 @@
   &middot; Updated: {{ person.updated_at.strftime('%Y-%m-%d') }}
 </p>
 
+<h2>Danger Zone</h2>
+{% if not person.archived_at %}
 <div class="danger-zone">
-  <h2>Danger Zone</h2>
-  {% if not person.archived_at %}
-  <p>Archiving hides this person from active views but preserves all data.</p>
+  <div>
+    <p class="danger-zone__label">Archive person</p>
+    <p class="danger-zone__desc">Hides this person from active views but preserves all data.</p>
+  </div>
   <form method="POST" action="/admin/people/{{ person.id }}/archive/">
     <button type="submit" class="btn btn--danger">Archive person</button>
   </form>
-  {% else %}
-  <p>This person is archived. You may restore them or permanently delete them — deletion cannot be undone.</p>
-  <div style="display:flex;gap:var(--space-3);flex-wrap:wrap">
-    <form method="POST" action="/admin/people/{{ person.id }}/unarchive/">
-      <button type="submit" class="btn btn--secondary">Unarchive</button>
-    </form>
-    <button type="button" class="btn btn--danger"
-            hx-delete="/admin/people/{{ person.id }}/"
-            hx-confirm="Permanently delete this person? This cannot be undone."
-            hx-target="body"
-            hx-push-url="/admin/people/">
-      Delete permanently
-    </button>
-  </div>
-  {% endif %}
 </div>
+{% else %}
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Unarchive person</p>
+    <p class="danger-zone__desc">Restores this person to active views.</p>
+  </div>
+  <form method="POST" action="/admin/people/{{ person.id }}/unarchive/">
+    <button type="submit" class="btn btn--secondary">Unarchive</button>
+  </form>
+</div>
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Delete permanently</p>
+    <p class="danger-zone__desc">This person is archived. Permanently deleting cannot be undone.</p>
+  </div>
+  <button type="button" class="btn btn--danger"
+          hx-delete="/admin/people/{{ person.id }}/"
+          hx-confirm="Permanently delete this person? This cannot be undone."
+          hx-target="body"
+          hx-push-url="/admin/people/">
+    Delete permanently
+  </button>
+</div>
+{% endif %}
 {% endblock %}

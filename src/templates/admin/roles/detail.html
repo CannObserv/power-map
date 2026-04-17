@@ -73,20 +73,28 @@
   &middot; Updated: {{ role.updated_at.strftime('%Y-%m-%d') }}
 </p>
 
+<h2>Danger Zone</h2>
+{% if not role.archived_at %}
 <div class="danger-zone">
-  <h2>Danger Zone</h2>
-  {% if not role.archived_at %}
-  <p>Archiving hides this role from active views but preserves all data.</p>
+  <div>
+    <p class="danger-zone__label">Archive role</p>
+    <p class="danger-zone__desc">Hides this role from active views but preserves all data.</p>
+  </div>
   <form method="POST" action="/admin/roles/{{ role.id }}/archive/">
     <button type="submit" class="btn btn--danger">Archive role</button>
   </form>
-  {% else %}
-  <p>This role is archived. You may permanently delete it — this cannot be undone.</p>
+</div>
+{% else %}
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Delete permanently</p>
+    <p class="danger-zone__desc">This role is archived. Permanently deleting cannot be undone.</p>
+  </div>
   <button class="btn btn--danger"
           hx-delete="/admin/roles/{{ role.id }}/"
           hx-confirm="Permanently delete this role? This cannot be undone.">
     Delete permanently
   </button>
-  {% endif %}
 </div>
+{% endif %}
 {% endblock %}

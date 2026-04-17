@@ -57,20 +57,28 @@
   {% if ra.archived_at %}&middot; Archived: {{ ra.archived_at.strftime('%Y-%m-%d') }}{% endif %}
 </p>
 
+<h2>Danger Zone</h2>
+{% if not ra.archived_at %}
 <div class="danger-zone">
-  <h2>Danger Zone</h2>
-  {% if not ra.archived_at %}
-  <p>Archiving hides this assignment from active views but preserves all data.</p>
+  <div>
+    <p class="danger-zone__label">Archive assignment</p>
+    <p class="danger-zone__desc">Hides this assignment from active views but preserves all data.</p>
+  </div>
   <form method="POST" action="/admin/role-assignments/{{ ra.id }}/archive/">
     <button type="submit" class="btn btn--danger">Archive assignment</button>
   </form>
-  {% else %}
-  <p>This assignment is archived. You may permanently delete it — this cannot be undone.</p>
+</div>
+{% else %}
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Delete permanently</p>
+    <p class="danger-zone__desc">This assignment is archived. Permanently deleting cannot be undone.</p>
+  </div>
   <button type="button" class="btn btn--danger"
           hx-delete="/admin/role-assignments/{{ ra.id }}/"
           hx-confirm="Permanently delete this assignment? This cannot be undone.">
     Delete permanently
   </button>
-  {% endif %}
 </div>
+{% endif %}
 {% endblock %}
