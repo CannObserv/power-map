@@ -281,6 +281,17 @@
   &middot; Updated: {{ org.updated_at.strftime('%Y-%m-%d') }}
 </p>
 
+{% if not org.archived_at %}
+<div style="margin-top:var(--space-6)">
+  <button type="button" class="btn btn--secondary"
+          hx-get="/admin/orgs/{{ org.id }}/merge-search/"
+          hx-target="#merge-modal-portal"
+          hx-swap="innerHTML">
+    Merge with…
+  </button>
+</div>
+{% endif %}
+
 <div class="danger-zone">
   <h2>Danger Zone</h2>
   {% if not org.archived_at %}
