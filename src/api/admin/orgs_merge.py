@@ -162,6 +162,54 @@ async def _execute_merge(
                 loser_id,
             )
 
+        # Safeguard: auto-resolve any title conflicts not covered by role_pairs_to_merge
+        # (e.g. after a JS-only winner/loser swap the submitted pairs have stale IDs).
+        remaining_conflicts = await db.fetch(
+            """SELECT r_l.id AS loser_role_id, r_w.id AS winner_role_id
+               FROM roles r_l
+               JOIN roles r_w ON lower(r_w.title) = lower(r_l.title)
+                              AND r_w.organization_id = $2
+                              AND r_w.archived_at IS NULL
+               WHERE r_l.organization_id = $1
+                 AND r_l.archived_at IS NULL""",
+            loser_id, winner_id,
+        )
+        for conflict in remaining_conflicts:
+            w_role = conflict["winner_role_id"]
+            l_role = conflict["loser_role_id"]
+            active = await db.fetch(
+                "SELECT person_id, start_date, end_date, is_current, notes"
+                " FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
+                l_role,
+            )
+            for a in active:
+                exists = await db.fetchval(
+                    "SELECT 1 FROM role_assignments"
+                    " WHERE person_id=$1 AND role_id=$2 AND archived_at IS NULL"
+                    " AND start_date IS NOT DISTINCT FROM $3",
+                    a["person_id"], w_role, a["start_date"],
+                )
+                if not exists:
+                    await db.execute(
+                        "INSERT INTO role_assignments"
+                        " (id, person_id, role_id, start_date, end_date, is_current, notes)"
+                        " VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                        generate_id(), a["person_id"], w_role,
+                        a["start_date"], a["end_date"], a["is_current"], a["notes"],
+                    )
+                else:
+                    dropped_assignments += 1
+            await db.execute(
+                "UPDATE role_assignments SET role_id=$1"
+                " WHERE role_id=$2 AND archived_at IS NOT NULL",
+                w_role, l_role,
+            )
+            await db.execute(
+                "DELETE FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
+                l_role,
+            )
+            await db.execute("DELETE FROM roles WHERE id=$1", l_role)
+
         await db.execute(
             "UPDATE roles SET organization_id=$1 WHERE organization_id=$2",
             winner_id, loser_id,
