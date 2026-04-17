@@ -34,7 +34,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     role_assignments.py — Role assignment list, create, detail, archive, delete; inline editing for is_current/dates/notes (row-level HTMX swap)
     router.py   — Mounts all admin sub-routers under /admin/
     orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/unarchive/delete
-    orgs_merge.py       — Org merge, dismiss-duplicate, duplicates review
+    orgs_merge.py       — Org merge (duplicates-review flow + manual merge-with from detail page), dismiss-duplicate, duplicates review; merge-search/merge-target-search/merge-preview modal routes; shared _execute_merge helper
     orgs_names.py       — Inline CRUD for organization_names (row-level HTMX swap); last-identity guard on delete; canonical edit guard (rejects un-canonicalizing the sole canonical name); auto-promote sole name; emits updateOrgHeader on mutations
     orgs_acronyms.py    — Inline CRUD for organization_acronyms (row-level HTMX swap)
     orgs_addresses.py   — Inline CRUD for addresses + entity_addresses (row-level HTMX swap)

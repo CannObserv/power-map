@@ -331,6 +331,8 @@ async def org_merge_preview(
     db=Depends(get_db),
 ):
     """Return preview modal: impact of merging id_b into id_a (or flipped via ?winner=)."""
+    if id_a == id_b:
+        raise HTTPException(status_code=400, detail="Cannot merge an organization with itself")
     winner_id = winner if winner in (id_a, id_b) else id_a
     loser_id = id_b if winner_id == id_a else id_a
 

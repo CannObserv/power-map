@@ -114,7 +114,7 @@ def test_org_merge_with_post_non_htmx_redirects(org_client):
 
 
 def test_org_merge_target_search_returns_200(org_client):
-    """GET merge-target-search must not 404."""
+    """Smoke: merge-target-search endpoint is reachable (mock DB may 500)."""
     response = org_client.get(
         "/admin/orgs/ORGID00000000000000000000000/merge-target-search/?q=test",
         headers=AUTH_HEADERS,
@@ -123,7 +123,7 @@ def test_org_merge_target_search_returns_200(org_client):
 
 
 def test_org_merge_search_modal_returns_200(org_client):
-    """GET merge-search must not 404."""
+    """Smoke: merge-search endpoint is reachable (mock DB may 500)."""
     response = org_client.get(
         "/admin/orgs/ORGID00000000000000000000000/merge-search/",
         headers=AUTH_HEADERS,
@@ -132,7 +132,7 @@ def test_org_merge_search_modal_returns_200(org_client):
 
 
 def test_org_merge_preview_returns_200(org_client):
-    """GET merge-preview must not 404."""
+    """Smoke: merge-preview endpoint is reachable (mock DB may 500)."""
     response = org_client.get(
         "/admin/orgs/ORGID00000000000000000000000/merge-preview/OTHERID0000000000000000000/",
         headers=AUTH_HEADERS,

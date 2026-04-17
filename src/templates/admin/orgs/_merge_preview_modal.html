@@ -112,6 +112,7 @@
     }
   }
   window.__pmMergeClose = closePortal;
+  document.__pmMergeSavedFocus = document.__pmMergeSavedFocus || document.activeElement;
 
   document.removeEventListener('keydown', document.__pmMergeKey);
   document.__pmMergeKey = function (e) {
