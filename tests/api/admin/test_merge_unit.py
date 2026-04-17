@@ -42,7 +42,7 @@ def _make_merge_db(fetchrow_result):
 
 
 async def _org_merge_db():
-    yield _make_merge_db({"id": "test_id"})
+    yield _make_merge_db({"id": "test_id", "name": "Test Name", "acronym": "TST"})
 
 
 async def _person_merge_db():

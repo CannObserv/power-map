@@ -453,24 +453,57 @@ async def org_merge_preview(
         "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", loser_id
     )
 
-    transferred_names = await db.fetch(
-        "SELECT id, name, name_type FROM organization_names"
-        " WHERE organization_id=$1 AND is_canonical=FALSE",
+    winner_names_lower = {
+        r["name"].lower()
+        for r in await db.fetch(
+            "SELECT name FROM organization_names WHERE organization_id=$1", winner_id
+        )
+    }
+    winner_acronyms_lower = {
+        r["acronym"].lower()
+        for r in await db.fetch(
+            "SELECT acronym FROM organization_acronyms WHERE organization_id=$1", winner_id
+        )
+    }
+
+    transferred_names = [
+        r
+        for r in await db.fetch(
+            "SELECT id, name, name_type FROM organization_names"
+            " WHERE organization_id=$1 AND is_canonical=FALSE",
+            loser_id,
+        )
+        if r["name"].lower() not in winner_names_lower
+    ]
+    _dropped_name = await db.fetchrow(
+        "SELECT id, name FROM organization_names"
+        " WHERE organization_id=$1 AND is_canonical=TRUE",
         loser_id,
     )
-    dropped_name = await db.fetchrow(
-        "SELECT id, name FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
-        loser_id,
+    dropped_name = (
+        _dropped_name
+        if _dropped_name and _dropped_name["name"].lower() not in winner_names_lower
+        else None
     )
-    transferred_acronyms = await db.fetch(
-        "SELECT id, acronym FROM organization_acronyms"
-        " WHERE organization_id=$1 AND is_canonical=FALSE",
-        loser_id,
-    )
-    dropped_acronym = await db.fetchrow(
+    transferred_acronyms = [
+        r
+        for r in await db.fetch(
+            "SELECT id, acronym FROM organization_acronyms"
+            " WHERE organization_id=$1 AND is_canonical=FALSE",
+            loser_id,
+        )
+        if r["acronym"].lower() not in winner_acronyms_lower
+    ]
+    _dropped_acronym = await db.fetchrow(
         "SELECT id, acronym FROM organization_acronyms"
         " WHERE organization_id=$1 AND is_canonical=TRUE",
         loser_id,
+    )
+    dropped_acronym = (
+        _dropped_acronym
+        if _dropped_acronym
+        and _dropped_acronym["acronym"].lower() not in winner_acronyms_lower
+        else None
     )
 
     roles_count = await db.fetchval(

@@ -9,35 +9,36 @@
   <div class="modal modal--wide">
     <h2 id="merge-preview-title">Merge organizations</h2>
 
-    <form hx-post="/admin/orgs/{{ winner_id }}/merge-with/{{ loser_id }}/" hx-target="body">
+    <form id="merge-form" hx-post="/admin/orgs/{{ winner_id }}/merge-with/{{ loser_id }}/" hx-target="body">
 
-    <table class="data-table" style="margin-bottom:var(--space-4)">
-      <tbody>
-        <tr>
-          <th scope="row" style="width:6rem">Kept</th>
-          <td><strong>{{ winner_name }}</strong></td>
-          <td rowspan="2" style="width:3rem;text-align:right;vertical-align:middle">
-            <button class="btn btn--sm btn--ghost" type="button"
-                    hx-get="/admin/orgs/{{ org_a_id }}/merge-preview/{{ org_b_id }}/?winner={{ org_b_id if winner_id == org_a_id else org_a_id }}"
-                    hx-target="#merge-modal-portal" hx-swap="innerHTML"
-                    title="Swap kept and deleted" aria-label="Swap kept and deleted">⇅</button>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">Deleted</th>
-          <td><span style="color:var(--color-text-muted)">{{ loser_name }}</span></td>
-        </tr>
-      </tbody>
-    </table>
+    <div style="display:flex;align-items:stretch;margin-bottom:var(--space-4)">
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) 0;border-bottom:1px solid var(--color-border)">
+          <span id="merge-label-top" style="width:4.5rem;font-size:var(--font-size-sm);font-weight:600;color:var(--color-text-muted)">Kept</span>
+          <strong id="merge-name-winner">{{ winner_name }}</strong>
+        </div>
+        <div style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) 0">
+          <span id="merge-label-bot" style="width:4.5rem;font-size:var(--font-size-sm);font-weight:600;color:var(--color-text-muted)">Deleted</span>
+          <span id="merge-name-loser" style="color:var(--color-text-muted)">{{ loser_name }}</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;padding-left:var(--space-3)">
+        <button id="merge-swap-btn" class="btn btn--sm btn--ghost" type="button"
+                title="Swap kept and deleted" aria-label="Swap kept and deleted">⇅</button>
+      </div>
+    </div>
 
-    <h3 class="field-group-label" style="margin-bottom:var(--space-2)">Names</h3>
+    {% if dropped_name or transferred_names %}
+    <h3 class="field-group-label" style="margin-bottom:var(--space-1)">Names</h3>
+    <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:0 0 var(--space-2)">
+      Checked names will be added to the kept org. The kept org's existing canonical name is not affected.
+    </p>
     <ul style="margin:0 0 var(--space-4) var(--space-4);padding:0;list-style:none">
       {% if dropped_name %}
       <li style="margin-bottom:var(--space-1)">
         <label style="display:flex;align-items:center;gap:var(--space-2)">
           <input type="checkbox" name="keep_name_ids" value="{{ dropped_name.id }}">
           <span style="color:var(--color-text-muted)">{{ dropped_name.name }}</span>
-          <span class="badge badge--warning" style="margin-left:var(--space-1)">canonical</span>
         </label>
       </li>
       {% endif %}
@@ -49,20 +50,20 @@
         </label>
       </li>
       {% endfor %}
-      {% if not dropped_name and not transferred_names %}
-      <li style="color:var(--color-text-muted)">No additional names</li>
-      {% endif %}
     </ul>
+    {% endif %}
 
     {% if dropped_acronym or transferred_acronyms %}
-    <h3 class="field-group-label" style="margin-bottom:var(--space-2)">Acronyms</h3>
+    <h3 class="field-group-label" style="margin-bottom:var(--space-1)">Acronyms</h3>
+    <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:0 0 var(--space-2)">
+      Checked acronyms will be added to the kept org. The kept org's existing canonical acronym is not affected.
+    </p>
     <ul style="margin:0 0 var(--space-4) var(--space-4);padding:0;list-style:none">
       {% if dropped_acronym %}
       <li style="margin-bottom:var(--space-1)">
         <label style="display:flex;align-items:center;gap:var(--space-2)">
           <input type="checkbox" name="keep_acronym_ids" value="{{ dropped_acronym.id }}">
           <span style="color:var(--color-text-muted)">{{ dropped_acronym.acronym }}</span>
-          <span class="badge badge--warning" style="margin-left:var(--space-1)">canonical</span>
         </label>
       </li>
       {% endif %}
@@ -105,8 +106,9 @@
         {% endfor %}
       </ul>
       <p style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm)">
-        Checked roles will have their assignments merged and deduplicated.
-        Uncheck to skip — you'll need to resolve that conflict manually before merging.
+        Checked pairs will have their role assignments merged and deduplicated.
+        All pairs must be checked to proceed — uncheck any pair to block the merge until
+        the conflict is resolved manually.
       </p>
     </div>
     {% endif %}
@@ -154,6 +156,27 @@
   }
   portal.addEventListener('change', function (e) {
     if (e.target.classList.contains('merge-role-pair-cb')) syncExecute();
+  });
+
+  // JS-only swap: update labels, bold/muted styling, and form hx-post URL.
+  var state = {
+    winner: { id: '{{ winner_id }}', name: {{ winner_name | tojson }} },
+    loser:  { id: '{{ loser_id }}',  name: {{ loser_name | tojson }} },
+  };
+  document.getElementById('merge-swap-btn').addEventListener('click', function () {
+    var tmp = state.winner;
+    state.winner = state.loser;
+    state.loser = tmp;
+
+    document.getElementById('merge-name-winner').textContent = state.winner.name;
+    document.getElementById('merge-name-loser').textContent  = state.loser.name;
+
+    var form = document.getElementById('merge-form');
+    form.setAttribute(
+      'hx-post',
+      '/admin/orgs/' + state.winner.id + '/merge-with/' + state.loser.id + '/'
+    );
+    htmx.process(form);
   });
 
   var firstBtn = portal.querySelector('button');
