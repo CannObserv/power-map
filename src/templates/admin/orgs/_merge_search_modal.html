@@ -1,1 +1,72 @@
-<!-- merge search modal stub — Task 4 will implement -->
+{# admin/orgs/_merge_search_modal.html #}
+{# Context: org_id, org_name #}
+{# Rendered into #merge-modal-portal via hx-target="#merge-modal-portal" hx-swap="innerHTML". #}
+<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="merge-search-title">
+  <div class="modal">
+    <h2 id="merge-search-title">Merge organization</h2>
+    <p style="margin-bottom:var(--space-4)">
+      Search for the organization to merge with <strong>{{ org_name }}</strong>:
+    </p>
+
+    <div class="form-group" style="margin-bottom:0;position:relative">
+      <input type="text" id="merge-target-display"
+             autocomplete="off"
+             placeholder="Search organizations…"
+             hx-get="/admin/orgs/{{ org_id }}/merge-target-search/"
+             hx-trigger="input changed delay:200ms"
+             hx-target="#merge-target-results"
+             hx-swap="innerHTML"
+             hx-params="q"
+             name="q"
+             role="combobox"
+             aria-expanded="false"
+             aria-haspopup="listbox"
+             aria-controls="merge-target-results"
+             aria-autocomplete="list">
+      <input type="hidden" id="merge-target-id">
+      <ul id="merge-target-results" class="typeahead-results" role="listbox"></ul>
+    </div>
+
+    <div class="modal__actions" style="margin-top:var(--space-5)">
+      <button type="button" class="btn btn--ghost"
+              onclick="window.__pmMergeClose()">Cancel</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var portal = document.getElementById('merge-modal-portal');
+
+  function closePortal() {
+    document.removeEventListener('keydown', document.__pmMergeKey);
+    portal.innerHTML = '';
+    if (document.__pmMergeSavedFocus && document.__pmMergeSavedFocus.focus) {
+      document.__pmMergeSavedFocus.focus();
+    }
+  }
+  window.__pmMergeClose = closePortal;
+  document.__pmMergeSavedFocus = document.activeElement;
+
+  document.removeEventListener('keydown', document.__pmMergeKey);
+  document.__pmMergeKey = function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); closePortal(); }
+  };
+  document.addEventListener('keydown', document.__pmMergeKey);
+
+  var inp = document.getElementById('merge-target-display');
+  if (inp) inp.focus();
+
+  window.initTypeaheadCombobox({
+    inputId: 'merge-target-display',
+    listboxId: 'merge-target-results',
+    hiddenId: 'merge-target-id',
+    onSelect: function (id) {
+      htmx.ajax(
+        'GET',
+        '/admin/orgs/{{ org_id }}/merge-preview/' + id + '/',
+        { target: '#merge-modal-portal', swap: 'innerHTML' }
+      );
+    },
+  });
+}());
+</script>
