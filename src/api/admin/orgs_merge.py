@@ -8,6 +8,7 @@ from markupsafe import escape
 
 from src.api.admin.deps import (
     AdminUser,
+    escape_like,
     flash_trigger,
     get_admin_user,
     get_db,
@@ -267,3 +268,160 @@ async def org_dismiss_duplicate(
             headers=flash_trigger("info", "Pair marked as not a duplicate."),
         )
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
+
+
+@router.get("/{org_id}/merge-target-search/")
+async def org_merge_target_search(
+    org_id: str,
+    request: Request,
+    q: str = "",
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Typeahead search for merge target — excludes current org and archived orgs."""
+    results = []
+    if q.strip():
+        results = await db.fetch(
+            """SELECT o.id, dn.display_name
+               FROM organizations o
+               LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+               WHERE o.archived_at IS NULL
+                 AND o.id != $1
+                 AND dn.display_name ILIKE $2 ESCAPE '\\'
+               ORDER BY dn.display_name NULLS LAST
+               LIMIT 20""",
+            org_id,
+            f"%{escape_like(q.strip())}%",
+        )
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_search_results.html",
+        {"results": results},
+    )
+
+
+@router.get("/{org_id}/merge-search/")
+async def org_merge_search_modal(
+    org_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return modal fragment for step 1 of manual merge: typeahead search."""
+    org = await db.fetchrow("SELECT id FROM organizations WHERE id=$1", org_id)
+    if not org:
+        raise HTTPException(status_code=404)
+    org_name = await db.fetchval(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", org_id
+    )
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/_merge_search_modal.html",
+        {"org_id": org_id, "org_name": org_name},
+    )
+
+
+@router.get("/{id_a}/merge-preview/{id_b}/")
+async def org_merge_preview(
+    id_a: str,
+    id_b: str,
+    request: Request,
+    winner: str | None = None,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return preview modal: impact of merging id_b into id_a (or flipped via ?winner=)."""
+    winner_id = winner if winner in (id_a, id_b) else id_a
+    loser_id = id_b if winner_id == id_a else id_a
+
+    org_a = await db.fetchrow(
+        "SELECT id FROM organizations WHERE id=$1 AND archived_at IS NULL", id_a
+    )
+    org_b = await db.fetchrow(
+        "SELECT id FROM organizations WHERE id=$1 AND archived_at IS NULL", id_b
+    )
+    if not org_a or not org_b:
+        raise HTTPException(status_code=404)
+
+    winner_name = await db.fetchval(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", winner_id
+    )
+    loser_name = await db.fetchval(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", loser_id
+    )
+
+    transferred_names = await db.fetch(
+        "SELECT name, name_type FROM organization_names"
+        " WHERE organization_id=$1 AND is_canonical=FALSE",
+        loser_id,
+    )
+    dropped_name = await db.fetchrow(
+        "SELECT name FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
+        loser_id,
+    )
+    transferred_acronyms = await db.fetch(
+        "SELECT acronym FROM organization_acronyms"
+        " WHERE organization_id=$1 AND is_canonical=FALSE",
+        loser_id,
+    )
+    dropped_acronym = await db.fetchrow(
+        "SELECT acronym FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
+        loser_id,
+    )
+
+    roles_count = await db.fetchval(
+        "SELECT count(*) FROM roles WHERE organization_id=$1 AND archived_at IS NULL",
+        loser_id,
+    )
+    contacts_count = await db.fetchval(
+        "SELECT count(*) FROM contact_methods"
+        " WHERE entity_type='organization' AND entity_id=$1",
+        loser_id,
+    )
+    links_count = await db.fetchval(
+        "SELECT count(*) FROM links WHERE entity_type='organization' AND entity_id=$1",
+        loser_id,
+    )
+    addresses_count = await db.fetchval(
+        "SELECT count(*) FROM entity_addresses"
+        " WHERE entity_type='organization' AND entity_id=$1",
+        loser_id,
+    )
+    identifiers_count = await db.fetchval(
+        "SELECT count(*) FROM identifiers WHERE entity_id=$1",
+        loser_id,
+    )
+
+    conflicting_roles = await db.fetch(
+        """SELECT r_l.title
+           FROM roles r_l
+           JOIN roles r_w ON lower(r_w.title) = lower(r_l.title)
+                          AND r_w.organization_id = $2
+                          AND r_w.archived_at IS NULL
+           WHERE r_l.organization_id = $1
+             AND r_l.archived_at IS NULL""",
+        loser_id, winner_id,
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/_merge_preview_modal.html",
+        {
+            "org_a_id": id_a,
+            "org_b_id": id_b,
+            "winner_id": winner_id,
+            "loser_id": loser_id,
+            "winner_name": winner_name,
+            "loser_name": loser_name,
+            "transferred_names": transferred_names,
+            "dropped_name": dropped_name,
+            "transferred_acronyms": transferred_acronyms,
+            "dropped_acronym": dropped_acronym,
+            "roles_count": roles_count,
+            "contacts_count": contacts_count,
+            "links_count": links_count,
+            "addresses_count": addresses_count,
+            "identifiers_count": identifiers_count,
+            "conflicting_roles": conflicting_roles,
+        },
+    )
