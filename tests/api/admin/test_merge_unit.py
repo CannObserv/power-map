@@ -90,3 +90,24 @@ def test_person_merge_post_returns_200(person_client):
         headers=HTMX_HEADERS,
     )
     assert response.status_code == 200
+
+
+def test_org_merge_with_post_htmx_redirects(org_client):
+    """POST to merge-with must return HX-Redirect, not 500."""
+    response = org_client.post(
+        "/admin/orgs/WINNER000000000000000000000/merge-with/LOSER0000000000000000000000/",
+        headers=HTMX_HEADERS,
+    )
+    assert response.status_code == 200
+    assert response.headers.get("HX-Redirect")
+
+
+def test_org_merge_with_post_non_htmx_redirects(org_client):
+    """Non-HTMX POST to merge-with must return 303 redirect."""
+    response = org_client.post(
+        "/admin/orgs/WINNER000000000000000000000/merge-with/LOSER0000000000000000000000/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "/admin/orgs/WINNER000000000000000000000/" in response.headers["location"]

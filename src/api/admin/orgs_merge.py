@@ -2,7 +2,7 @@
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
@@ -44,47 +44,8 @@ async def _fetch_duplicate_pairs(db) -> list:
         return []
 
 
-@router.get("/duplicates/")
-async def orgs_duplicates(
-    request: Request,
-    user: AdminUser = Depends(get_admin_user),
-    db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
-):
-    """List near-duplicate organization pairs for review."""
-    pairs = await _fetch_duplicate_pairs(db)
-    ctx = {
-        "user": user,
-        "active_section": "orgs_duplicates",
-        "pairs": pairs,
-        "org_dup_count": org_dup_count,
-        "person_dup_count": person_dup_count,
-    }
-    template = (
-        "admin/orgs/_duplicates_region.html"
-        if is_htmx(request)
-        else "admin/orgs/duplicates.html"
-    )
-    return templates.TemplateResponse(request, template, ctx)
-
-
-@router.post("/{winner_id}/merge/{loser_id}/")
-async def org_merge(
-    winner_id: str,
-    loser_id: str,
-    request: Request,
-    user: AdminUser = Depends(get_admin_user),
-    db=Depends(get_db),
-):
-    """Merge loser into winner: reassign all references, hard-delete loser."""
-    # Fetch display names before transaction for flash message
-    winner_name = await db.fetchval(
-        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", winner_id
-    )
-    loser_name = await db.fetchval(
-        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", loser_id
-    )
+async def _execute_merge(db, winner_id: str, loser_id: str) -> None:
+    """Merge loser into winner inside a transaction. Invalidates dup count cache."""
     async with db.transaction():
         winner = await db.fetchrow(
             "SELECT id FROM organizations WHERE id=$1 FOR UPDATE", winner_id
@@ -94,12 +55,10 @@ async def org_merge(
         )
         if not winner or not loser:
             raise HTTPException(status_code=404, detail="Organization not found")
-        # organizations.parent_id (FK — reassign before deleting loser)
         await db.execute(
             "UPDATE organizations SET parent_id=$1 WHERE parent_id=$2",
             winner_id, loser_id,
         )
-        # organization_names
         await db.execute(
             "UPDATE organization_names SET organization_id=$1"
             " WHERE organization_id=$2 AND is_canonical=FALSE",
@@ -110,7 +69,6 @@ async def org_merge(
             " WHERE organization_id=$1 AND is_canonical=TRUE",
             loser_id,
         )
-        # organization_acronyms
         await db.execute(
             "UPDATE organization_acronyms SET organization_id=$1"
             " WHERE organization_id=$2 AND is_canonical=FALSE",
@@ -121,12 +79,10 @@ async def org_merge(
             " WHERE organization_id=$1 AND is_canonical=TRUE",
             loser_id,
         )
-        # roles
         await db.execute(
             "UPDATE roles SET organization_id=$1 WHERE organization_id=$2",
             winner_id, loser_id,
         )
-        # Polymorphic entity tables (entity_type TEXT + entity_id TEXT, no FK)
         for table in ("entity_addresses", "contact_methods", "links",
                       "import_provenance", "field_confidence"):
             await db.execute(
@@ -134,12 +90,10 @@ async def org_merge(
                 f" WHERE entity_type='organization' AND entity_id=$2",
                 winner_id, loser_id,
             )
-        # identifiers (entity_type encoded in entity_identifier_type_id, not a column)
         await db.execute(
             "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
             winner_id, loser_id,
         )
-        # duplicate_dismissals: delete the merged pair, reassign any others referencing loser
         await db.execute(
             "DELETE FROM duplicate_dismissals"
             " WHERE entity_type='organization'"
@@ -147,7 +101,6 @@ async def org_merge(
             "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
             winner_id, loser_id,
         )
-        # Delete loser dismissals that would conflict with existing winner dismissals
         await db.execute(
             """DELETE FROM duplicate_dismissals dd
                USING duplicate_dismissals dw
@@ -188,6 +141,49 @@ async def org_merge(
         )
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
     invalidate_dup_count_cache()
+
+
+@router.get("/duplicates/")
+async def orgs_duplicates(
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+    org_dup_count: int = Depends(get_org_dup_count),
+    person_dup_count: int = Depends(get_person_dup_count),
+):
+    """List near-duplicate organization pairs for review."""
+    pairs = await _fetch_duplicate_pairs(db)
+    ctx = {
+        "user": user,
+        "active_section": "orgs_duplicates",
+        "pairs": pairs,
+        "org_dup_count": org_dup_count,
+        "person_dup_count": person_dup_count,
+    }
+    template = (
+        "admin/orgs/_duplicates_region.html"
+        if is_htmx(request)
+        else "admin/orgs/duplicates.html"
+    )
+    return templates.TemplateResponse(request, template, ctx)
+
+
+@router.post("/{winner_id}/merge/{loser_id}/")
+async def org_merge(
+    winner_id: str,
+    loser_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Merge loser into winner: reassign all references, hard-delete loser."""
+    winner_name = await db.fetchval(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", winner_id
+    )
+    loser_name = await db.fetchval(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", loser_id
+    )
+    await _execute_merge(db, winner_id, loser_id)
     if is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         body = (
@@ -209,6 +205,36 @@ async def org_merge(
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
 
 
+@router.post("/{winner_id}/merge-with/{loser_id}/")
+async def org_merge_with(
+    winner_id: str,
+    loser_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Merge loser into winner from detail page; redirect to winner detail."""
+    winner_name = await db.fetchval(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", winner_id
+    )
+    loser_name = await db.fetchval(
+        "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", loser_id
+    )
+    await _execute_merge(db, winner_id, loser_id)
+    body = (
+        f'Merged <strong>{escape(loser_name)}</strong> into '
+        f'<strong>{escape(winner_name)}</strong>. '
+        f'Review names, roles, and contact info for duplicates.'
+    )
+    redirect_url = f"/admin/orgs/{winner_id}/"
+    if is_htmx(request):
+        return HTMLResponse(
+            "",
+            headers={**flash_trigger("success", body), "HX-Redirect": redirect_url},
+        )
+    return RedirectResponse(redirect_url, status_code=303)
+
+
 @router.post("/{id_a}/dismiss-duplicate/{id_b}/")
 async def org_dismiss_duplicate(
     id_a: str,
@@ -218,7 +244,6 @@ async def org_dismiss_duplicate(
     db=Depends(get_db),
 ):
     """Record that this pair is not a duplicate (suppress from future results)."""
-    # Store with consistent ordering (a < b)
     a, b = (id_a, id_b) if id_a < id_b else (id_b, id_a)
     await db.execute(
         "INSERT INTO duplicate_dismissals"

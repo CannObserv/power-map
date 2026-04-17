@@ -252,6 +252,43 @@ def test_merge_reassigns_loser_dismissals_to_winner(client, org_pair):
         asyncio.run(teardown_third())
 
 
+def test_merge_with_hard_deletes_loser(client, org_pair):
+    """POST merge-with hard-deletes loser (same transaction as merge)."""
+    id_a, id_b = org_pair
+    response = client.post(
+        f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert f"/admin/orgs/{id_a}/" in response.headers["location"]
+
+    dsn = _get_dsn()
+
+    async def check_deleted():
+        conn = await asyncpg.connect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT id FROM organizations WHERE id=$1", id_b
+            )
+        finally:
+            await conn.close()
+
+    assert asyncio.run(check_deleted()) is None
+
+
+def test_merge_with_htmx_returns_hx_redirect(client, org_pair):
+    """HTMX merge-with returns HX-Redirect to winner detail, not an inline region."""
+    id_a, id_b = org_pair
+    response = client.post(
+        f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+        headers=HTMX_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert response.headers.get("HX-Redirect") == f"/admin/orgs/{id_a}/"
+
+
 def test_dismiss_htmx_sends_hx_trigger_flash(client, org_pair):
     """HTMX dismiss delivers flash via HX-Trigger header, not OOB in response body."""
     id_a, id_b = org_pair
