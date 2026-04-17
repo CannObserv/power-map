@@ -302,3 +302,88 @@ def test_dismiss_htmx_sends_hx_trigger_flash(client, org_pair):
     payload = json.loads(response.headers["HX-Trigger"])
     assert payload["showFlash"]["level"] == "info"
     assert "hx-swap-oob" not in response.text
+
+
+def test_merge_search_modal_returns_fragment(client, org_pair):
+    """GET merge-search returns modal fragment with typeahead input."""
+    id_a, _ = org_pair
+    response = client.get(
+        f"/admin/orgs/{id_a}/merge-search/",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200
+    assert "merge-target-display" in response.text
+    assert "merge-target-results" in response.text
+
+
+def test_merge_preview_shows_winner_and_loser(client, org_pair):
+    """GET merge-preview shows winner and loser org names."""
+    id_a, id_b = org_pair
+    response = client.get(
+        f"/admin/orgs/{id_a}/merge-preview/{id_b}/",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200
+    assert "Alberta Gaming" in response.text
+    assert "Execute merge" in response.text
+
+
+def test_merge_preview_winner_param_flips_direction(client, org_pair):
+    """?winner=id_b makes id_b the winner in the preview."""
+    id_a, id_b = org_pair
+    response = client.get(
+        f"/admin/orgs/{id_a}/merge-preview/{id_b}/?winner={id_b}",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200
+    assert "Execute merge" in response.text
+    assert f"winner={id_b}" in response.text
+
+
+def test_merge_preview_shows_conflict_warning(client):
+    """GET merge-preview shows role conflict warning when title clash exists."""
+    dsn = _get_dsn()
+    id_a, id_b = generate_id(), generate_id()
+    role_a, role_b = generate_id(), generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            for oid, name in [(id_a, "Conflict Org A"), (id_b, "Conflict Org B")]:
+                await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+                await conn.execute(
+                    "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                    " VALUES ($1, $2, $3, TRUE)",
+                    generate_id(), oid, name,
+                )
+            for rid, oid in [(role_a, id_a), (role_b, id_b)]:
+                await conn.execute(
+                    "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Director')",
+                    rid, oid,
+                )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await asyncpg.connect(dsn)
+        try:
+            for rid in [role_a, role_b]:
+                await conn.execute("DELETE FROM roles WHERE id=$1", rid)
+            for oid in [id_a, id_b]:
+                await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+                await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        with TestClient(app) as c:
+            response = c.get(
+                f"/admin/orgs/{id_a}/merge-preview/{id_b}/",
+                headers=AUTH_HEADERS,
+            )
+        assert response.status_code == 200
+        assert "Director" in response.text
+        assert "conflict" in response.text.lower()
+    finally:
+        asyncio.run(teardown())
