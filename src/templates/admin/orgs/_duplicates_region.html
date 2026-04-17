@@ -23,18 +23,16 @@
       </td>
       <td>{{ "%.0f%%"|format(p.score * 100) }}</td>
       <td class="dup-actions">
-        <form hx-post="/admin/orgs/{{ p.a_id }}/merge/{{ p.b_id }}/"
-              hx-target="#orgs-duplicates-region" hx-swap="outerHTML"
-              hx-confirm="Merge {{ p.b_name }} into {{ p.a_name }}? This cannot be undone."
-              style="display:inline">
-          <button class="btn btn--primary btn--sm" type="submit">Keep A</button>
-        </form>
-        <form hx-post="/admin/orgs/{{ p.b_id }}/merge/{{ p.a_id }}/"
-              hx-target="#orgs-duplicates-region" hx-swap="outerHTML"
-              hx-confirm="Merge {{ p.a_name }} into {{ p.b_name }}? This cannot be undone."
-              style="display:inline">
-          <button class="btn btn--primary btn--sm" type="submit">Keep B</button>
-        </form>
+        <button class="btn btn--primary btn--sm"
+                hx-get="/admin/orgs/{{ p.a_id }}/merge-preview/{{ p.b_id }}/?winner={{ p.a_id }}"
+                hx-target="#merge-modal-portal"
+                hx-swap="innerHTML"
+                type="button">Keep A</button>
+        <button class="btn btn--primary btn--sm"
+                hx-get="/admin/orgs/{{ p.a_id }}/merge-preview/{{ p.b_id }}/?winner={{ p.b_id }}"
+                hx-target="#merge-modal-portal"
+                hx-swap="innerHTML"
+                type="button">Keep B</button>
         <form hx-post="/admin/orgs/{{ p.a_id }}/dismiss-duplicate/{{ p.b_id }}/"
               hx-target="#orgs-duplicates-region" hx-swap="outerHTML"
               style="display:inline">

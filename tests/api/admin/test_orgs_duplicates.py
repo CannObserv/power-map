@@ -86,6 +86,14 @@ def org_pair():
     asyncio.run(teardown())
 
 
+def test_duplicates_region_has_no_hx_confirm_on_merge(client, org_pair):
+    """Keep A / Keep B buttons must not use hx-confirm (replaced by preview modal)."""
+    response = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "merge-preview" in response.text
+    assert 'hx-confirm="Merge' not in response.text
+
+
 def test_duplicates_list_returns_200(client, org_pair):
     response = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
     assert response.status_code == 200
