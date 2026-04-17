@@ -282,30 +282,38 @@
 </p>
 
 {% if not org.archived_at %}
-<div style="margin-top:var(--space-6)">
-  <button type="button" class="btn btn--secondary"
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Merge with another organization</p>
+    <p class="danger-zone__desc">Permanently deletes the other org and reassigns all its roles, contacts, and names to this one.</p>
+  </div>
+  <button type="button" class="btn btn--danger"
           hx-get="/admin/orgs/{{ org.id }}/merge-search/"
           hx-target="#merge-modal-portal"
           hx-swap="innerHTML">
     Merge with…
   </button>
 </div>
-{% endif %}
-
 <div class="danger-zone">
-  <h2>Danger Zone</h2>
-  {% if not org.archived_at %}
-  <p>Archiving hides this organization from active views but preserves all data.</p>
+  <div>
+    <p class="danger-zone__label">Archive organization</p>
+    <p class="danger-zone__desc">Hides this organization from active views but preserves all data.</p>
+  </div>
   <form method="POST" action="/admin/orgs/{{ org.id }}/archive/">
     <button type="submit" class="btn btn--danger">Archive organization</button>
   </form>
-  {% else %}
-  <p>This organization is archived. You may permanently delete it — this cannot be undone.</p>
+</div>
+{% else %}
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Delete permanently</p>
+    <p class="danger-zone__desc">This organization is archived. Permanently deleting it cannot be undone.</p>
+  </div>
   <button type="button" class="btn btn--danger"
           hx-delete="/admin/orgs/{{ org.id }}/"
           hx-confirm="Permanently delete this organization? This cannot be undone.">
     Delete permanently
   </button>
-  {% endif %}
 </div>
+{% endif %}
 {% endblock %}

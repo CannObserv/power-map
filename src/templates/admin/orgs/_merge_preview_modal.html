@@ -1,30 +1,27 @@
 {# admin/orgs/_merge_preview_modal.html #}
 {# Context: org_a_id, org_b_id, winner_id, loser_id,
    winner_name, loser_name,
-   transferred_names (list of {name, name_type}), dropped_name ({name}|None),
-   transferred_acronyms (list of {acronym}), dropped_acronym ({acronym}|None),
+   transferred_names (list of {id, name, name_type}), dropped_name ({id, name}|None),
+   transferred_acronyms (list of {id, acronym}), dropped_acronym ({id, acronym}|None),
    roles_count, contacts_count, links_count, addresses_count, identifiers_count,
-   conflicting_roles (list of {title}) #}
+   conflicting_roles (list of {loser_role_id, winner_role_id, title}) #}
 <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="merge-preview-title">
   <div class="modal modal--wide">
     <h2 id="merge-preview-title">Merge organizations</h2>
 
-    <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-5)">
-      <button class="btn btn--sm {% if winner_id == org_a_id %}btn--primary{% else %}btn--ghost{% endif %}"
-              hx-get="/admin/orgs/{{ org_a_id }}/merge-preview/{{ org_b_id }}/?winner={{ org_a_id }}"
-              hx-target="#merge-modal-portal" hx-swap="innerHTML"
-              type="button">Keep {{ winner_name if winner_id == org_a_id else loser_name }}</button>
-      <button class="btn btn--sm {% if winner_id == org_b_id %}btn--primary{% else %}btn--ghost{% endif %}"
-              hx-get="/admin/orgs/{{ org_a_id }}/merge-preview/{{ org_b_id }}/?winner={{ org_b_id }}"
-              hx-target="#merge-modal-portal" hx-swap="innerHTML"
-              type="button">Keep {{ winner_name if winner_id == org_b_id else loser_name }}</button>
-    </div>
+    <form hx-post="/admin/orgs/{{ winner_id }}/merge-with/{{ loser_id }}/" hx-target="body">
 
     <table class="data-table" style="margin-bottom:var(--space-4)">
       <tbody>
         <tr>
-          <th scope="row" style="width:8rem">Kept</th>
+          <th scope="row" style="width:6rem">Kept</th>
           <td><strong>{{ winner_name }}</strong></td>
+          <td rowspan="2" style="width:3rem;text-align:right;vertical-align:middle">
+            <button class="btn btn--sm btn--ghost" type="button"
+                    hx-get="/admin/orgs/{{ org_a_id }}/merge-preview/{{ org_b_id }}/?winner={{ org_b_id if winner_id == org_a_id else org_a_id }}"
+                    hx-target="#merge-modal-portal" hx-swap="innerHTML"
+                    title="Swap kept and deleted" aria-label="Swap kept and deleted">⇅</button>
+          </td>
         </tr>
         <tr>
           <th scope="row">Deleted</th>
@@ -34,14 +31,23 @@
     </table>
 
     <h3 class="field-group-label" style="margin-bottom:var(--space-2)">Names</h3>
-    <ul style="margin:0 0 var(--space-4) var(--space-4);padding:0">
+    <ul style="margin:0 0 var(--space-4) var(--space-4);padding:0;list-style:none">
       {% if dropped_name %}
-      <li><span style="color:var(--color-text-muted)">{{ dropped_name.name }}</span>
-          <span class="badge badge--warning" style="margin-left:var(--space-2)">dropped</span></li>
+      <li style="margin-bottom:var(--space-1)">
+        <label style="display:flex;align-items:center;gap:var(--space-2)">
+          <input type="checkbox" name="keep_name_ids" value="{{ dropped_name.id }}">
+          <span style="color:var(--color-text-muted)">{{ dropped_name.name }}</span>
+          <span class="badge badge--warning" style="margin-left:var(--space-1)">canonical</span>
+        </label>
+      </li>
       {% endif %}
       {% for n in transferred_names %}
-      <li>{{ n.name }}
-          <span class="badge" style="margin-left:var(--space-2)">added to {{ winner_name }}</span></li>
+      <li style="margin-bottom:var(--space-1)">
+        <label style="display:flex;align-items:center;gap:var(--space-2)">
+          <input type="checkbox" name="keep_name_ids" value="{{ n.id }}" checked>
+          {{ n.name }}
+        </label>
+      </li>
       {% endfor %}
       {% if not dropped_name and not transferred_names %}
       <li style="color:var(--color-text-muted)">No additional names</li>
@@ -50,14 +56,23 @@
 
     {% if dropped_acronym or transferred_acronyms %}
     <h3 class="field-group-label" style="margin-bottom:var(--space-2)">Acronyms</h3>
-    <ul style="margin:0 0 var(--space-4) var(--space-4);padding:0">
+    <ul style="margin:0 0 var(--space-4) var(--space-4);padding:0;list-style:none">
       {% if dropped_acronym %}
-      <li><span style="color:var(--color-text-muted)">{{ dropped_acronym.acronym }}</span>
-          <span class="badge badge--warning" style="margin-left:var(--space-2)">dropped</span></li>
+      <li style="margin-bottom:var(--space-1)">
+        <label style="display:flex;align-items:center;gap:var(--space-2)">
+          <input type="checkbox" name="keep_acronym_ids" value="{{ dropped_acronym.id }}">
+          <span style="color:var(--color-text-muted)">{{ dropped_acronym.acronym }}</span>
+          <span class="badge badge--warning" style="margin-left:var(--space-1)">canonical</span>
+        </label>
+      </li>
       {% endif %}
       {% for a in transferred_acronyms %}
-      <li>{{ a.acronym }}
-          <span class="badge" style="margin-left:var(--space-2)">added to {{ winner_name }}</span></li>
+      <li style="margin-bottom:var(--space-1)">
+        <label style="display:flex;align-items:center;gap:var(--space-2)">
+          <input type="checkbox" name="keep_acronym_ids" value="{{ a.id }}" checked>
+          {{ a.acronym }}
+        </label>
+      </li>
       {% endfor %}
     </ul>
     {% endif %}
@@ -75,15 +90,23 @@
     {% endif %}
 
     {% if conflicting_roles %}
-    <div class="alert alert--error" role="alert" style="margin-bottom:var(--space-4)">
-      <strong>Role title conflicts — resolve before merging:</strong>
-      <ul style="margin:var(--space-2) 0 0 var(--space-4);padding:0">
+    <div class="alert alert--warning" role="alert" style="margin-bottom:var(--space-4)">
+      <strong>Role title conflicts — assignments will be merged:</strong>
+      <ul style="margin:var(--space-2) 0 0 var(--space-4);padding:0;list-style:none">
         {% for r in conflicting_roles %}
-        <li>{{ r.title }}</li>
+        <li style="margin-bottom:var(--space-1)">
+          <label style="display:flex;align-items:center;gap:var(--space-2)">
+            <input type="checkbox" name="merge_role_pair"
+                   value="{{ r.winner_role_id }}:{{ r.loser_role_id }}" checked
+                   class="merge-role-pair-cb">
+            {{ r.title }}
+          </label>
+        </li>
         {% endfor %}
       </ul>
-      <p style="margin:var(--space-2) 0 0">
-        Archive or rename one of these roles on each organization, then return to merge.
+      <p style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm)">
+        Checked roles will have their assignments merged and deduplicated.
+        Uncheck to skip — you'll need to resolve that conflict manually before merging.
       </p>
     </div>
     {% endif %}
@@ -91,13 +114,12 @@
     <div class="modal__actions">
       <button type="button" class="btn btn--ghost"
               onclick="window.__pmMergeClose()">Cancel</button>
-      <button type="button" class="btn btn--danger"
-              {% if conflicting_roles %}disabled aria-disabled="true"{% endif %}
-              hx-post="/admin/orgs/{{ winner_id }}/merge-with/{{ loser_id }}/"
-              hx-target="body">
+      <button type="submit" class="btn btn--danger" id="merge-execute-btn">
         Execute merge
       </button>
     </div>
+
+    </form>
   </div>
 </div>
 <script>
@@ -113,10 +135,6 @@
     document.__pmMergeSavedFocus = null;
   }
   window.__pmMergeClose = closePortal;
-  // Preserve focus saved by the search modal across winner-toggle swaps (hx-get replaces
-  // portal content without calling closePortal, so the saved value persists). When the
-  // preview is opened directly (duplicates page), __pmMergeSavedFocus is null after any
-  // prior close, so we capture the current active element.
   document.__pmMergeSavedFocus = document.__pmMergeSavedFocus || document.activeElement;
 
   document.removeEventListener('keydown', document.__pmMergeKey);
@@ -124,6 +142,19 @@
     if (e.key === 'Escape') { e.preventDefault(); closePortal(); }
   };
   document.addEventListener('keydown', document.__pmMergeKey);
+
+  // Disable execute if any conflict role-pair checkbox is unchecked.
+  function syncExecute() {
+    var unchecked = portal.querySelectorAll('.merge-role-pair-cb:not(:checked)');
+    var btn = document.getElementById('merge-execute-btn');
+    if (btn) {
+      btn.disabled = unchecked.length > 0;
+      btn.setAttribute('aria-disabled', unchecked.length > 0 ? 'true' : 'false');
+    }
+  }
+  portal.addEventListener('change', function (e) {
+    if (e.target.classList.contains('merge-role-pair-cb')) syncExecute();
+  });
 
   var firstBtn = portal.querySelector('button');
   if (firstBtn) firstBtn.focus();

@@ -395,3 +395,154 @@ def test_merge_preview_shows_conflict_warning(client):
         assert "conflict" in response.text.lower()
     finally:
         asyncio.run(teardown())
+
+
+def test_merge_with_keep_name_ids_transfers_only_checked(client, org_pair):
+    """POSTing keep_name_ids transfers only the specified names; others are deleted."""
+    dsn = _get_dsn()
+    id_a, id_b = org_pair
+    former_name_id = generate_id()
+
+    async def setup():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Former Name B', FALSE)",
+                former_name_id, id_b,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(
+                "DELETE FROM organization_names WHERE id=$1", former_name_id
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        with TestClient(app) as c:
+            response = c.post(
+                f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+                data={"keep_name_ids": former_name_id},
+                headers=AUTH_HEADERS,
+                follow_redirects=False,
+            )
+        assert response.status_code == 303
+
+        async def check():
+            conn = await asyncpg.connect(dsn)
+            try:
+                kept = await conn.fetchval(
+                    "SELECT name FROM organization_names WHERE organization_id=$1"
+                    " AND name='Former Name B'",
+                    id_a,
+                )
+                return kept
+            finally:
+                await conn.close()
+
+        assert asyncio.run(check()) == "Former Name B"
+    finally:
+        asyncio.run(teardown())
+
+
+def test_merge_with_role_pairs_merges_assignments_and_deduplicates(client):
+    """merge_role_pairs reassigns loser role assignments; drops duplicates."""
+    dsn = _get_dsn()
+    id_a, id_b = generate_id(), generate_id()
+    role_a, role_b = generate_id(), generate_id()
+    person_id = generate_id()
+    assign_a, assign_b = generate_id(), generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            for oid, name in [(id_a, "Role Merge Org A"), (id_b, "Role Merge Org B")]:
+                await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+                await conn.execute(
+                    "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                    " VALUES ($1, $2, $3, TRUE)",
+                    generate_id(), oid, name,
+                )
+            for rid, oid in [(role_a, id_a), (role_b, id_b)]:
+                await conn.execute(
+                    "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Director')",
+                    rid, oid,
+                )
+            await conn.execute(
+                "INSERT INTO people (id) VALUES ($1)", person_id
+            )
+            await conn.execute(
+                "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Test Person', TRUE)",
+                generate_id(), person_id,
+            )
+            # Same person assigned to both roles (same start_date = duplicate)
+            for aid, rid in [(assign_a, role_a), (assign_b, role_b)]:
+                await conn.execute(
+                    "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+                    " VALUES ($1, $2, $3, '2020-01-01')",
+                    aid, person_id, rid,
+                )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(
+                "DELETE FROM role_assignments WHERE person_id=$1", person_id
+            )
+            for rid in [role_a, role_b]:
+                await conn.execute("DELETE FROM roles WHERE id=$1", rid)
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", person_id)
+            await conn.execute("DELETE FROM people WHERE id=$1", person_id)
+            for oid in [id_a, id_b]:
+                await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+                await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        with TestClient(app) as c:
+            response = c.post(
+                f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+                data={"merge_role_pairs": f"{role_a}:{role_b}"},
+                headers=AUTH_HEADERS,
+                follow_redirects=False,
+            )
+        assert response.status_code == 303
+
+        async def check():
+            conn = await asyncpg.connect(dsn)
+            try:
+                # loser org deleted
+                loser_exists = await conn.fetchval(
+                    "SELECT id FROM organizations WHERE id=$1", id_b
+                )
+                # loser role deleted
+                loser_role_exists = await conn.fetchval(
+                    "SELECT id FROM roles WHERE id=$1", role_b
+                )
+                # exactly one assignment on winner role for the person (deduplicated)
+                assignment_count = await conn.fetchval(
+                    "SELECT count(*) FROM role_assignments"
+                    " WHERE role_id=$1 AND person_id=$2 AND archived_at IS NULL",
+                    role_a, person_id,
+                )
+                return loser_exists, loser_role_exists, assignment_count
+            finally:
+                await conn.close()
+
+        loser_exists, loser_role_exists, count = asyncio.run(check())
+        assert loser_exists is None
+        assert loser_role_exists is None
+        assert count == 1
+    finally:
+        asyncio.run(teardown())
