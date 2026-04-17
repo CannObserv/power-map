@@ -242,3 +242,62 @@ describe('outside click', () => {
     expect(ul().style.display).toBe('block');
   });
 });
+
+// ---------------------------------------------------------------------------
+// onSelect callback
+// ---------------------------------------------------------------------------
+
+describe('onSelect callback', () => {
+  it('calls onSelect with the selected item id on mousedown', () => {
+    document.body.innerHTML = `
+      <input id="${INPUT_ID}" type="text" autocomplete="off"
+             role="combobox" aria-expanded="false"
+             aria-haspopup="listbox" aria-controls="${LIST_ID}" aria-autocomplete="list">
+      <input type="hidden" id="${HIDDEN_ID}" value="">
+      <ul id="${LIST_ID}" class="typeahead-results" role="listbox" style="display:none"></ul>
+    `;
+    eval(scriptCode);
+    const calls = [];
+    window.initTypeaheadCombobox({
+      inputId: INPUT_ID,
+      listboxId: LIST_ID,
+      hiddenId: HIDDEN_ID,
+      onSelect: (id) => calls.push(id),
+    });
+    populateResults([{ id: 'org-1', label: 'Acme' }]);
+    const li = getItems()[0];
+    li.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    expect(calls).toEqual(['org-1']);
+  });
+
+  it('calls onSelect with the selected item id on keyboard Enter', () => {
+    document.body.innerHTML = `
+      <input id="${INPUT_ID}" type="text" autocomplete="off"
+             role="combobox" aria-expanded="false"
+             aria-haspopup="listbox" aria-controls="${LIST_ID}" aria-autocomplete="list">
+      <input type="hidden" id="${HIDDEN_ID}" value="">
+      <ul id="${LIST_ID}" class="typeahead-results" role="listbox" style="display:none"></ul>
+    `;
+    eval(scriptCode);
+    const calls = [];
+    window.initTypeaheadCombobox({
+      inputId: INPUT_ID,
+      listboxId: LIST_ID,
+      hiddenId: HIDDEN_ID,
+      onSelect: (id) => calls.push(id),
+    });
+    populateResults([{ id: 'org-2', label: 'Beta' }]);
+    inp().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    inp().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(calls).toEqual(['org-2']);
+  });
+
+  it('does not throw when onSelect is not provided', () => {
+    setup(); // uses existing setup() without onSelect
+    populateResults([{ id: 'org-3', label: 'Gamma' }]);
+    const li = getItems()[0];
+    expect(() =>
+      li.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })),
+    ).not.toThrow();
+  });
+});

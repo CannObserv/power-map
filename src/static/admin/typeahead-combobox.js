@@ -19,7 +19,12 @@
  *   first, moves focus away from the input, and the subsequent click may be
  *   swallowed or re-routed before the listbox handler can run.
  */
-window.initTypeaheadCombobox = function initTypeaheadCombobox({ inputId, listboxId, hiddenId }) {
+window.initTypeaheadCombobox = function initTypeaheadCombobox({
+  inputId,
+  listboxId,
+  hiddenId,
+  onSelect,
+}) {
   var inp = document.getElementById(inputId);
   var ul = document.getElementById(listboxId);
   var hidden = document.getElementById(hiddenId);
@@ -43,6 +48,7 @@ window.initTypeaheadCombobox = function initTypeaheadCombobox({ inputId, listbox
     hidden.value = li.dataset.id;
     inp.value = li.dataset.label;
     closeDropdown();
+    if (onSelect) onSelect(li.dataset.id);
   }
 
   function openDropdown() {
