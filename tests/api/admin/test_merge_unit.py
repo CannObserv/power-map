@@ -138,3 +138,12 @@ def test_org_merge_preview_returns_200(org_client):
         headers=AUTH_HEADERS,
     )
     assert response.status_code in (200, 500)
+
+
+def test_org_merge_preview_self_merge_returns_400(org_client):
+    """merge-preview with same id for both orgs returns 400 before any DB call."""
+    response = org_client.get(
+        "/admin/orgs/ORGID00000000000000000000000/merge-preview/ORGID00000000000000000000000/",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 400

@@ -43,6 +43,7 @@
     if (document.__pmMergeSavedFocus && document.__pmMergeSavedFocus.focus) {
       document.__pmMergeSavedFocus.focus();
     }
+    document.__pmMergeSavedFocus = null;
   }
   window.__pmMergeClose = closePortal;
   document.__pmMergeSavedFocus = document.activeElement;

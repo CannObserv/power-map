@@ -110,8 +110,13 @@
     if (document.__pmMergeSavedFocus && document.__pmMergeSavedFocus.focus) {
       document.__pmMergeSavedFocus.focus();
     }
+    document.__pmMergeSavedFocus = null;
   }
   window.__pmMergeClose = closePortal;
+  // Preserve focus saved by the search modal across winner-toggle swaps (hx-get replaces
+  // portal content without calling closePortal, so the saved value persists). When the
+  // preview is opened directly (duplicates page), __pmMergeSavedFocus is null after any
+  // prior close, so we capture the current active element.
   document.__pmMergeSavedFocus = document.__pmMergeSavedFocus || document.activeElement;
 
   document.removeEventListener('keydown', document.__pmMergeKey);
