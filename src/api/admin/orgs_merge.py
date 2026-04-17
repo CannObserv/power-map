@@ -388,7 +388,9 @@ async def org_merge_preview(
         loser_id,
     )
     identifiers_count = await db.fetchval(
-        "SELECT count(*) FROM identifiers WHERE entity_id=$1",
+        """SELECT count(*) FROM identifiers i
+           JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
+           WHERE i.entity_id=$1 AND eit.entity_type='organization'""",
         loser_id,
     )
 
