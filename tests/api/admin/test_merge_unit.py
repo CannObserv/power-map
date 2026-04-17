@@ -132,12 +132,26 @@ def test_org_merge_search_modal_returns_200(org_client):
 
 
 def test_org_merge_preview_returns_200(org_client):
-    """Smoke: merge-preview endpoint is reachable (mock DB may 500)."""
+    """Smoke: merge-preview endpoint returns 200 with mock DB."""
     response = org_client.get(
         "/admin/orgs/ORGID00000000000000000000000/merge-preview/OTHERID0000000000000000000/",
         headers=AUTH_HEADERS,
     )
-    assert response.status_code in (200, 500)
+    assert response.status_code == 200
+
+
+def test_org_merge_preview_swap_button_has_hx_get_pointing_to_loser_as_winner(org_client):
+    """Swap button hx-get must request the same pair with the current loser as ?winner."""
+    id_a = "ORGID00000000000000000000000"
+    id_b = "OTHERID0000000000000000000"
+    response = org_client.get(
+        f"/admin/orgs/{id_a}/merge-preview/{id_b}/",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200
+    # Default: id_a is winner, id_b is loser. Swap button must request winner=id_b.
+    assert f"winner={id_b}" in response.text
+    assert "merge-swap-btn" in response.text
 
 
 def test_org_merge_preview_self_merge_returns_400(org_client):

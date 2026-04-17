@@ -24,6 +24,10 @@
       </div>
       <div style="display:flex;align-items:center;padding-left:var(--space-3)">
         <button id="merge-swap-btn" class="btn btn--sm btn--ghost" type="button"
+                hx-get="/admin/orgs/{{ org_a_id }}/merge-preview/{{ org_b_id }}/?winner={{ loser_id }}"
+                hx-target="#merge-modal-portal"
+                hx-swap="innerHTML"
+                hx-push-url="false"
                 title="Swap kept and deleted" aria-label="Swap kept and deleted">⇅</button>
       </div>
     </div>
@@ -78,11 +82,12 @@
     </ul>
     {% endif %}
 
-    {% set total = roles_count|int + contacts_count|int + links_count|int + addresses_count|int + identifiers_count|int %}
+    {% set reassigned_roles = roles_count|int - conflicting_roles|length %}
+    {% set total = reassigned_roles + contacts_count|int + links_count|int + addresses_count|int + identifiers_count|int %}
     {% if total > 0 %}
     <h3 class="field-group-label" style="margin-bottom:var(--space-2)">Reassigned</h3>
     <ul style="margin:0 0 var(--space-4) var(--space-4);padding:0">
-      {% if roles_count %}<li>{{ roles_count }} role{{ 's' if roles_count != 1 }}</li>{% endif %}
+      {% if reassigned_roles > 0 %}<li>{{ reassigned_roles }} role{{ 's' if reassigned_roles != 1 }}</li>{% endif %}
       {% if contacts_count %}<li>{{ contacts_count }} contact method{{ 's' if contacts_count != 1 }}</li>{% endif %}
       {% if links_count %}<li>{{ links_count }} link{{ 's' if links_count != 1 }}</li>{% endif %}
       {% if addresses_count %}<li>{{ addresses_count }} address{{ 'es' if addresses_count != 1 }}</li>{% endif %}
@@ -97,7 +102,7 @@
         {% for r in conflicting_roles %}
         <li style="margin-bottom:var(--space-1)">
           <label style="display:flex;align-items:center;gap:var(--space-2)">
-            <input type="checkbox" name="merge_role_pair"
+            <input type="checkbox" name="merge_role_pairs"
                    value="{{ r.winner_role_id }}:{{ r.loser_role_id }}" checked
                    class="merge-role-pair-cb">
             {{ r.title }}
@@ -156,27 +161,6 @@
   }
   portal.addEventListener('change', function (e) {
     if (e.target.classList.contains('merge-role-pair-cb')) syncExecute();
-  });
-
-  // JS-only swap: update labels, bold/muted styling, and form hx-post URL.
-  var state = {
-    winner: { id: '{{ winner_id }}', name: {{ winner_name | tojson }} },
-    loser:  { id: '{{ loser_id }}',  name: {{ loser_name | tojson }} },
-  };
-  document.getElementById('merge-swap-btn').addEventListener('click', function () {
-    var tmp = state.winner;
-    state.winner = state.loser;
-    state.loser = tmp;
-
-    document.getElementById('merge-name-winner').textContent = state.winner.name;
-    document.getElementById('merge-name-loser').textContent  = state.loser.name;
-
-    var form = document.getElementById('merge-form');
-    form.setAttribute(
-      'hx-post',
-      '/admin/orgs/' + state.winner.id + '/merge-with/' + state.loser.id + '/'
-    );
-    htmx.process(form);
   });
 
   var firstBtn = portal.querySelector('button');
