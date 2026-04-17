@@ -282,10 +282,11 @@
 </p>
 
 {% if not org.archived_at %}
+<h2>Danger Zone</h2>
 <div class="danger-zone">
   <div>
     <p class="danger-zone__label">Merge with another organization</p>
-    <p class="danger-zone__desc">Permanently deletes the other org and reassigns all its roles, contacts, and names to this one.</p>
+    <p class="danger-zone__desc">Permanently deletes the other org and reassigns its data.</p>
   </div>
   <button type="button" class="btn btn--danger"
           hx-get="/admin/orgs/{{ org.id }}/merge-search/"
