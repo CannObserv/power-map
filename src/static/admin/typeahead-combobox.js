@@ -2,7 +2,8 @@
  * typeahead-combobox.js — factory for HTMX-backed typeahead combobox inputs.
  *
  * Usage (inline <script> in an HTMX partial, runs after the factory is loaded):
- *   window.initTypeaheadCombobox({ inputId, listboxId, hiddenId });
+ *   window.initTypeaheadCombobox({ inputId, listboxId, hiddenId, onSelect });
+ * onSelect (optional): callback(selectedId) invoked when an item is selected.
  *
  * The input must have:
  *   hx-get="<search endpoint>"
