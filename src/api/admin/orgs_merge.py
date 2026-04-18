@@ -162,8 +162,9 @@ async def _execute_merge(
                 loser_id,
             )
 
-        # Safeguard: auto-resolve any title conflicts not covered by role_pairs_to_merge
-        # (e.g. after a JS-only winner/loser swap the submitted pairs have stale IDs).
+        # Safeguard: auto-resolve any remaining title conflicts not covered by
+        # role_pairs_to_merge (defense-in-depth against form manipulation or
+        # race conditions between preview load and merge submit).
         remaining_conflicts = await db.fetch(
             """SELECT r_l.id AS loser_role_id, r_w.id AS winner_role_id
                FROM roles r_l
@@ -309,6 +310,8 @@ async def org_merge(
     db=Depends(get_db),
 ):
     """Merge loser into winner: reassign all references, hard-delete loser."""
+    if winner_id == loser_id:
+        raise HTTPException(status_code=400, detail="Cannot merge an organization with itself")
     winner_name = await db.fetchval(
         "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", winner_id
     )
@@ -349,6 +352,8 @@ async def org_merge_with(
     merge_role_pairs: list[str] = Form(default=[]),
 ):
     """Merge loser into winner from detail page; redirect to winner detail."""
+    if winner_id == loser_id:
+        raise HTTPException(status_code=400, detail="Cannot merge an organization with itself")
     winner_name = await db.fetchval(
         "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", winner_id
     )

@@ -442,11 +442,19 @@ def test_merge_with_keep_name_ids_transfers_only_checked(client, org_pair):
                     " AND name='Former Name B'",
                     id_a,
                 )
-                return kept
+                # id_b's canonical name was NOT in keep_name_ids — must not appear on winner
+                unchecked_on_winner = await conn.fetchval(
+                    "SELECT name FROM organization_names WHERE organization_id=$1"
+                    " AND name='Alberta Gaming, Liquor, and Cannabis Commission'",
+                    id_a,
+                )
+                return kept, unchecked_on_winner
             finally:
                 await conn.close()
 
-        assert asyncio.run(check()) == "Former Name B"
+        kept, unchecked_on_winner = asyncio.run(check())
+        assert kept == "Former Name B"
+        assert unchecked_on_winner is None
     finally:
         asyncio.run(teardown())
 
@@ -544,5 +552,148 @@ def test_merge_with_role_pairs_merges_assignments_and_deduplicates(client):
         assert loser_exists is None
         assert loser_role_exists is None
         assert count == 1
+    finally:
+        asyncio.run(teardown())
+
+
+def test_merge_with_keep_acronym_ids_transfers_only_checked(client, org_pair):
+    """keep_acronym_ids transfers checked acronym; unchecked acronym is dropped."""
+    dsn = _get_dsn()
+    id_a, id_b = org_pair
+    canonical_id = generate_id()
+    non_canonical_id = generate_id()
+
+    async def setup():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(
+                "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+                " VALUES ($1, $2, 'AGLCC', TRUE)",
+                canonical_id, id_b,
+            )
+            await conn.execute(
+                "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+                " VALUES ($1, $2, 'AGLCC-OLD', FALSE)",
+                non_canonical_id, id_b,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await asyncpg.connect(dsn)
+        try:
+            for aid in [canonical_id, non_canonical_id]:
+                await conn.execute("DELETE FROM organization_acronyms WHERE id=$1", aid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        with TestClient(app) as c:
+            response = c.post(
+                f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+                data={"keep_acronym_ids": canonical_id},
+                headers=AUTH_HEADERS,
+                follow_redirects=False,
+            )
+        assert response.status_code == 303
+
+        async def check():
+            conn = await asyncpg.connect(dsn)
+            try:
+                transferred = await conn.fetchval(
+                    "SELECT acronym FROM organization_acronyms"
+                    " WHERE organization_id=$1 AND acronym='AGLCC'",
+                    id_a,
+                )
+                dropped_on_winner = await conn.fetchval(
+                    "SELECT acronym FROM organization_acronyms"
+                    " WHERE organization_id=$1 AND acronym='AGLCC-OLD'",
+                    id_a,
+                )
+                return transferred, dropped_on_winner
+            finally:
+                await conn.close()
+
+        transferred, dropped_on_winner = asyncio.run(check())
+        assert transferred == "AGLCC"
+        assert dropped_on_winner is None
+    finally:
+        asyncio.run(teardown())
+
+
+def test_merge_with_safeguard_handles_conflicts_not_in_submitted_pairs(client):
+    """Safeguard block auto-resolves title conflicts not submitted in merge_role_pairs."""
+    dsn = _get_dsn()
+    id_a, id_b = generate_id(), generate_id()
+    role_a1, role_b1 = generate_id(), generate_id()
+    role_a2, role_b2 = generate_id(), generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            for oid, name in [(id_a, "Safeguard Org A"), (id_b, "Safeguard Org B")]:
+                await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+                await conn.execute(
+                    "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                    " VALUES ($1, $2, $3, TRUE)",
+                    generate_id(), oid, name,
+                )
+            for rid, oid, title in [
+                (role_a1, id_a, "Director"), (role_b1, id_b, "director"),
+                (role_a2, id_a, "Manager"), (role_b2, id_b, "manager"),
+            ]:
+                await conn.execute(
+                    "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+                    rid, oid, title,
+                )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await asyncpg.connect(dsn)
+        try:
+            for rid in [role_a1, role_b1, role_a2, role_b2]:
+                await conn.execute("DELETE FROM roles WHERE id=$1", rid)
+            for oid in [id_a, id_b]:
+                await conn.execute(
+                    "DELETE FROM organization_names WHERE organization_id=$1", oid
+                )
+                await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        with TestClient(app) as c:
+            # Submit only the first pair; safeguard must handle the second
+            response = c.post(
+                f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+                data={"merge_role_pairs": f"{role_a1}:{role_b1}"},
+                headers=AUTH_HEADERS,
+                follow_redirects=False,
+            )
+        assert response.status_code == 303
+
+        async def check():
+            conn = await asyncpg.connect(dsn)
+            try:
+                loser_exists = await conn.fetchval(
+                    "SELECT id FROM organizations WHERE id=$1", id_b
+                )
+                rb1_exists = await conn.fetchval("SELECT id FROM roles WHERE id=$1", role_b1)
+                rb2_exists = await conn.fetchval("SELECT id FROM roles WHERE id=$1", role_b2)
+                ra1_exists = await conn.fetchval("SELECT id FROM roles WHERE id=$1", role_a1)
+                ra2_exists = await conn.fetchval("SELECT id FROM roles WHERE id=$1", role_a2)
+                return loser_exists, rb1_exists, rb2_exists, ra1_exists, ra2_exists
+            finally:
+                await conn.close()
+
+        loser, rb1, rb2, ra1, ra2 = asyncio.run(check())
+        assert loser is None
+        assert rb1 is None   # handled by explicit merge_role_pairs
+        assert rb2 is None   # handled by safeguard block
+        assert ra1 is not None
+        assert ra2 is not None
     finally:
         asyncio.run(teardown())
