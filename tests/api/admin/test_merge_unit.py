@@ -161,3 +161,23 @@ def test_org_merge_preview_self_merge_returns_400(org_client):
         headers=AUTH_HEADERS,
     )
     assert response.status_code == 400
+
+
+def test_org_merge_post_self_merge_returns_400(org_client):
+    """POST to merge with same winner/loser id returns 400 before any DB call."""
+    same_id = "ORGID00000000000000000000000"
+    response = org_client.post(
+        f"/admin/orgs/{same_id}/merge/{same_id}/",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 400
+
+
+def test_org_merge_with_post_self_merge_returns_400(org_client):
+    """POST to merge-with with same winner/loser id returns 400 before any DB call."""
+    same_id = "ORGID00000000000000000000000"
+    response = org_client.post(
+        f"/admin/orgs/{same_id}/merge-with/{same_id}/",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 400

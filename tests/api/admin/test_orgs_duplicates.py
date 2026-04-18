@@ -606,18 +606,17 @@ def test_merge_with_keep_acronym_ids_transfers_only_checked(client, org_pair):
                     " WHERE organization_id=$1 AND acronym='AGLCC'",
                     id_a,
                 )
-                dropped_on_winner = await conn.fetchval(
-                    "SELECT acronym FROM organization_acronyms"
-                    " WHERE organization_id=$1 AND acronym='AGLCC-OLD'",
-                    id_a,
+                # Check entire table — unchecked acronym must be fully deleted, not orphaned
+                dropped_anywhere = await conn.fetchval(
+                    "SELECT acronym FROM organization_acronyms WHERE acronym='AGLCC-OLD'"
                 )
-                return transferred, dropped_on_winner
+                return transferred, dropped_anywhere
             finally:
                 await conn.close()
 
-        transferred, dropped_on_winner = asyncio.run(check())
+        transferred, dropped_anywhere = asyncio.run(check())
         assert transferred == "AGLCC"
-        assert dropped_on_winner is None
+        assert dropped_anywhere is None
     finally:
         asyncio.run(teardown())
 
@@ -695,5 +694,94 @@ def test_merge_with_safeguard_handles_conflicts_not_in_submitted_pairs(client):
         assert rb2 is None   # handled by safeguard block
         assert ra1 is not None
         assert ra2 is not None
+    finally:
+        asyncio.run(teardown())
+
+
+def test_merge_with_safeguard_migrates_assignments_from_unsubmitted_pairs(client):
+    """Safeguard migrates assignments from a conflicting loser role not in merge_role_pairs."""
+    dsn = _get_dsn()
+    id_a, id_b = generate_id(), generate_id()
+    role_a1, role_b1 = generate_id(), generate_id()
+    role_a2, role_b2 = generate_id(), generate_id()
+    person_id = generate_id()
+    assign_b2 = generate_id()
+
+    async def setup():
+        conn = await _aconnect(dsn)
+        try:
+            for oid, name in [(id_a, "Safeguard Assign Org A"), (id_b, "Safeguard Assign Org B")]:
+                await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+                await conn.execute(
+                    "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                    " VALUES ($1, $2, $3, TRUE)",
+                    generate_id(), oid, name,
+                )
+            for rid, oid, title in [
+                (role_a1, id_a, "Director"), (role_b1, id_b, "director"),
+                (role_a2, id_a, "Manager"), (role_b2, id_b, "manager"),
+            ]:
+                await conn.execute(
+                    "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+                    rid, oid, title,
+                )
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+            await conn.execute(
+                "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Safeguard Person', TRUE)",
+                generate_id(), person_id,
+            )
+            # Assign person to role_b2 only — the safeguard (not explicit pair) must migrate it
+            await conn.execute(
+                "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+                " VALUES ($1, $2, $3, '2021-06-01')",
+                assign_b2, person_id, role_b2,
+            )
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute("DELETE FROM role_assignments WHERE person_id=$1", person_id)
+            for rid in [role_a1, role_b1, role_a2, role_b2]:
+                await conn.execute("DELETE FROM roles WHERE id=$1", rid)
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", person_id)
+            await conn.execute("DELETE FROM people WHERE id=$1", person_id)
+            for oid in [id_a, id_b]:
+                await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+                await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    try:
+        with TestClient(app) as c:
+            # Submit only the first pair; safeguard must migrate assign_b2 to role_a2
+            response = c.post(
+                f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+                data={"merge_role_pairs": f"{role_a1}:{role_b1}"},
+                headers=AUTH_HEADERS,
+                follow_redirects=False,
+            )
+        assert response.status_code == 303
+
+        async def check():
+            conn = await asyncpg.connect(dsn)
+            try:
+                rb2_exists = await conn.fetchval("SELECT id FROM roles WHERE id=$1", role_b2)
+                # Assignment must have been migrated to role_a2
+                migrated = await conn.fetchval(
+                    "SELECT id FROM role_assignments"
+                    " WHERE role_id=$1 AND person_id=$2 AND archived_at IS NULL",
+                    role_a2, person_id,
+                )
+                return rb2_exists, migrated
+            finally:
+                await conn.close()
+
+        rb2, migrated = asyncio.run(check())
+        assert rb2 is None       # loser role deleted by safeguard
+        assert migrated is not None  # assignment landed on winner role
     finally:
         asyncio.run(teardown())
