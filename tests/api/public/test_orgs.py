@@ -141,6 +141,11 @@ def test_get_org_missing_key_returns_403(client):
     assert r.status_code == 403
 
 
+def test_get_org_invalid_key_returns_401(client):
+    r = client.get("/api/v1/orgs/someid", headers={"X-API-Key": "pm_bad"})
+    assert r.status_code == 401
+
+
 # ---------------------------------------------------------------------------
 # Search — response shape
 # ---------------------------------------------------------------------------
@@ -275,6 +280,12 @@ async def test_search_empty_q_returns_empty_envelope(client, api_key):
     assert body["data"] == []
     assert body["meta"]["count"] == 0
     assert body["meta"]["has_more"] is False
+
+
+async def test_search_limit_capped_at_50_for_empty_q(client, api_key):
+    r = _search(client, api_key, "", limit=999)
+    assert r.status_code == 200
+    assert r.json()["meta"]["limit"] == 50
 
 
 # ---------------------------------------------------------------------------

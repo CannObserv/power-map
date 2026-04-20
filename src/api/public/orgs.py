@@ -39,13 +39,13 @@ async def search_orgs(
     db=Depends(get_db),
 ) -> Any:
     """Search organizations by name, acronym, or name variant."""
+    limit = min(limit, 50)
+
     if not q.strip():
         return {
             "data": [],
             "meta": {"limit": limit, "offset": offset, "count": 0, "has_more": False},
         }
-
-    limit = min(limit, 50)
 
     # Fetch limit+1 to determine has_more without a COUNT(*) query.
     rows = await db.fetch(
@@ -136,7 +136,7 @@ async def get_org(
 
 
 async def _fetch_detail_arrays(org_id: str, db: Any) -> tuple:
-    """Fetch names, acronyms, and identifiers for an org in parallel."""
+    """Fetch names, acronyms, and identifiers for an org."""
     names = await db.fetch(
         """
         SELECT id, name, name_type, is_canonical
