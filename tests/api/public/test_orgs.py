@@ -268,7 +268,9 @@ async def test_get_archived_org_still_returned(client, api_key, org_fixture, db)
     )
     r = client.get(f"/api/v1/orgs/{org_fixture['org_id']}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
-    assert r.json()["archived_at"] is not None
+    archived_at = r.json()["archived_at"]
+    assert archived_at is not None
+    assert archived_at.endswith("Z"), f"expected Z suffix, got {archived_at}"
     # restore
     await db.execute(
         "UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"]

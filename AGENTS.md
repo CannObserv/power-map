@@ -54,6 +54,10 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     _links_shared.py      — Factory make_links_router(entity_type, ...) — shared CRUD logic for org and person links
     _identifiers_shared.py — Factory make_identifiers_router(entity_type, ...) — shared CRUD logic for org and person identifiers
     _names_shared.py      — Factory make_names_router(...) — shared CRUD logic for org and person names; accepts entity-specific promote/guard/header callbacks
+  public/       — JSON API (X-API-Key auth, server-to-server; no HTMX)
+    deps.py     — require_api_key dep: validates X-API-Key header, updates last_used_at; returns 403 (missing) or 401 (invalid)
+    orgs.py     — GET /api/v1/orgs/search?q= (name/acronym/variant search, include_archived, limit≤50, offset); GET /api/v1/orgs/{id} (full record: names[], acronyms[], identifiers[]); slug derived as lower(canonical_acronym)
+    router.py   — Mounts public sub-routers under /api/v1/; health check at GET /api/v1/
 src/core/       — Shared domain logic
   db.py         — Connection pool, apply_schema, generate_id
   schema.sql    — Canonical DDL (tables, indexes, triggers, seed data); source of truth

@@ -10,8 +10,13 @@ from src.api.public.deps import require_api_key
 router = APIRouter(prefix="/orgs", tags=["public-api"])
 
 
+def _fmt_ts(dt: Any) -> str | None:
+    """Format a timezone-aware datetime as ISO 8601 with Z suffix."""
+    return dt.isoformat().replace("+00:00", "Z") if dt else None
+
+
 def _org_row_to_dict(r: Any) -> dict[str, Any]:
-    """Map a search-result row to the search response shape."""
+    """Map an org row to the common search/detail base fields."""
     acronym = r["acronym"]
     return {
         "id": r["id"],
@@ -20,7 +25,7 @@ def _org_row_to_dict(r: Any) -> dict[str, Any]:
         # slug derived from canonical acronym (lower); null when no acronym exists
         "slug": acronym.lower() if acronym else None,
         "parent_id": r["parent_id"],
-        "archived_at": r["archived_at"].isoformat() if r["archived_at"] else None,
+        "archived_at": _fmt_ts(r["archived_at"]),
     }
 
 
@@ -38,10 +43,9 @@ async def search_orgs(
         return []
 
     limit = min(limit, 50)
-    archived_filter = "" if include_archived else "AND o.archived_at IS NULL"
 
     rows = await db.fetch(
-        f"""
+        """
         SELECT
             o.id,
             n.name,
@@ -51,8 +55,7 @@ async def search_orgs(
         FROM organizations o
         LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
         LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
-        WHERE 1=1
-          {archived_filter}
+        WHERE ($4 OR o.archived_at IS NULL)
           AND (
               n.name ILIKE $1
               OR a.acronym ILIKE $1
@@ -72,6 +75,7 @@ async def search_orgs(
         f"%{q}%",
         limit,
         offset,
+        include_archived,
     )
 
     return [_org_row_to_dict(r) for r in rows]
@@ -127,20 +131,14 @@ async def get_org(
         SELECT i.id, i.entity_identifier_type_id AS type_id, t.slug AS type_slug, i.value
         FROM identifiers i
         JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
-        WHERE i.entity_id = $1
+        WHERE i.entity_id = $1 AND t.entity_type = 'organization'
         ORDER BY t.slug, i.value
         """,
         org_id,
     )
 
-    acronym = row["acronym"]
     return {
-        "id": row["id"],
-        "name": row["name"],
-        "acronym": acronym,
-        "slug": acronym.lower() if acronym else None,
-        "parent_id": row["parent_id"],
-        "archived_at": row["archived_at"].isoformat() if row["archived_at"] else None,
+        **_org_row_to_dict(row),
         "names": [
             {
                 "id": n["id"],
