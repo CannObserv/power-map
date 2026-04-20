@@ -58,6 +58,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     deps.py     — require_api_key dep: validates X-API-Key header, updates last_used_at; returns 403 (missing) or 401 (invalid)
     orgs.py     — GET /api/v1/orgs/search?q= (name/acronym/variant search, include_archived, limit≤50, offset); GET /api/v1/orgs/{id} (full record: names[], acronyms[], identifiers[]); slug derived as lower(canonical_acronym)
     router.py   — Mounts public sub-routers under /api/v1/; health check at GET /api/v1/
+    schemas.py  — Pydantic response models: OrgSearchResult, OrgSearchMeta, OrgSearchResponse, OrgDetail, OrgName, OrgAcronym, OrgIdentifier
 src/core/       — Shared domain logic
   db.py         — Connection pool, apply_schema, generate_id
   schema.sql    — Canonical DDL (tables, indexes, triggers, seed data); source of truth
@@ -81,6 +82,15 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - Page-specific head scripts: use `{% block extra_head %}{% endblock %}` (defined in `base.html`) to inject a `<script src defer>` tag from a detail template. Scripts in this block live in `<head>` so hx-boost never re-executes them; using `defer` ensures they run after DOM parse and HTMX is available. Do not put inline `<script>` blocks here — extract to a file in `src/static/admin/` instead.
 - Mutation routes returning HTMX partials: preserve a non-HTMX `RedirectResponse` fallback for graceful degradation (e.g. direct form POST without JS).
 - Dup count cache: `count_org_duplicates(db)` in `src.api.admin.org_dups` and `count_person_duplicates(db)` in `src.api.admin.people_dups` are TTL-cached (5 min, process-local). Call `invalidate_dup_count_cache()` from the appropriate module after any merge or dismiss to keep counts accurate. All people and org routes inject both `org_dup_count` and `person_dup_count` via their respective deps — the dashboard calls the count functions directly (FastAPI dep resolution runs before auth). Sidebar badges use these template vars directly (no HTMX XHR). **Caveat:** cache is not shared across gunicorn workers — counts may lag by up to 5 min per worker under multi-process deployments.
+
+### Public API conventions
+- Auth: `X-API-Key` header → `require_api_key` dep (in `src.api.public.deps`); 403 on missing, 401 on invalid; updates `api_keys.last_used_at`.
+- Versioning: path-based (`/api/v1/`). Bump the prefix when introducing breaking changes.
+- Response models: all public routes must declare a Pydantic `response_model` (in `schemas.py`) and an explicit `operation_id`. `dict[str, Any]` return types are not allowed — OpenAPI schema must be typed.
+- List endpoints: return `{"data": [...], "meta": {"limit", "offset", "count", "has_more"}}`. Fetch `limit + 1` rows to compute `has_more` without a `COUNT(*)` query; return only `limit` rows in `data`.
+- Single-resource endpoints: return the resource object directly (no envelope).
+- Timestamps: serialize with `_fmt_ts()` from `schemas.py` — ISO 8601 with `Z` suffix. Raw `datetime` objects are passed through to Pydantic models; the `field_serializer` on `OrgSearchResult.archived_at` formats them.
+- CORS: not required — the public API is server-to-server only (no browser callers).
 
 ### DB conventions
 - All PKs are ULIDs; generate with `generate_id()` from `src.core.db`

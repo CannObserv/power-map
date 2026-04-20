@@ -6,17 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.admin.deps import get_db
 from src.api.public.deps import require_api_key
+from src.api.public.schemas import OrgDetail, OrgSearchResponse
 
 router = APIRouter(prefix="/orgs", tags=["public-api"])
 
 
-def _fmt_ts(dt: Any) -> str | None:
-    """Format a timezone-aware datetime as ISO 8601 with Z suffix."""
-    return dt.isoformat().replace("+00:00", "Z") if dt else None
-
-
 def _org_row_to_dict(r: Any) -> dict[str, Any]:
-    """Map an org row to the common search/detail base fields."""
+    """Map an org row to the common base fields shared by search and detail."""
     acronym = r["acronym"]
     return {
         "id": r["id"],
@@ -25,11 +21,15 @@ def _org_row_to_dict(r: Any) -> dict[str, Any]:
         # slug derived from canonical acronym (lower); null when no acronym exists
         "slug": acronym.lower() if acronym else None,
         "parent_id": r["parent_id"],
-        "archived_at": _fmt_ts(r["archived_at"]),
+        "archived_at": r["archived_at"],  # datetime; serialized to Z-suffix by schema
     }
 
 
-@router.get("/search")
+@router.get(
+    "/search",
+    response_model=OrgSearchResponse,
+    operation_id="searchOrgs",
+)
 async def search_orgs(
     q: str = Query(default=""),
     limit: int = Query(default=10, ge=1),
@@ -37,13 +37,17 @@ async def search_orgs(
     include_archived: bool = Query(default=False),
     _: str = Depends(require_api_key),
     db=Depends(get_db),
-) -> list[dict[str, Any]]:
+) -> Any:
     """Search organizations by name, acronym, or name variant."""
     if not q.strip():
-        return []
+        return {
+            "data": [],
+            "meta": {"limit": limit, "offset": offset, "count": 0, "has_more": False},
+        }
 
     limit = min(limit, 50)
 
+    # Fetch limit+1 to determine has_more without a COUNT(*) query.
     rows = await db.fetch(
         """
         SELECT
@@ -73,20 +77,35 @@ async def search_orgs(
         LIMIT $2 OFFSET $3
         """,
         f"%{q}%",
-        limit,
+        limit + 1,
         offset,
         include_archived,
     )
 
-    return [_org_row_to_dict(r) for r in rows]
+    has_more = len(rows) > limit
+    page = rows[:limit]
+
+    return {
+        "data": [_org_row_to_dict(r) for r in page],
+        "meta": {
+            "limit": limit,
+            "offset": offset,
+            "count": len(page),
+            "has_more": has_more,
+        },
+    }
 
 
-@router.get("/{org_id}")
+@router.get(
+    "/{org_id}",
+    response_model=OrgDetail,
+    operation_id="getOrg",
+)
 async def get_org(
     org_id: str,
     _: str = Depends(require_api_key),
     db=Depends(get_db),
-) -> dict[str, Any]:
+) -> Any:
     """Return full org record with names, acronyms, and identifiers."""
     row = await db.fetchrow(
         """
@@ -106,6 +125,18 @@ async def get_org(
     if not row:
         raise HTTPException(status_code=404, detail="Organization not found")
 
+    names, acronyms, identifiers = await _fetch_detail_arrays(org_id, db)
+
+    return {
+        **_org_row_to_dict(row),
+        "names": [dict(n) for n in names],
+        "acronyms": [dict(a) for a in acronyms],
+        "identifiers": [dict(i) for i in identifiers],
+    }
+
+
+async def _fetch_detail_arrays(org_id: str, db: Any) -> tuple:
+    """Fetch names, acronyms, and identifiers for an org in parallel."""
     names = await db.fetch(
         """
         SELECT id, name, name_type, is_canonical
@@ -115,7 +146,6 @@ async def get_org(
         """,
         org_id,
     )
-
     acronyms = await db.fetch(
         """
         SELECT id, acronym, is_canonical
@@ -125,7 +155,6 @@ async def get_org(
         """,
         org_id,
     )
-
     identifiers = await db.fetch(
         """
         SELECT i.id, i.entity_identifier_type_id AS type_id, t.slug AS type_slug, i.value
@@ -136,33 +165,4 @@ async def get_org(
         """,
         org_id,
     )
-
-    return {
-        **_org_row_to_dict(row),
-        "names": [
-            {
-                "id": n["id"],
-                "name": n["name"],
-                "name_type": n["name_type"],
-                "is_canonical": n["is_canonical"],
-            }
-            for n in names
-        ],
-        "acronyms": [
-            {
-                "id": a["id"],
-                "acronym": a["acronym"],
-                "is_canonical": a["is_canonical"],
-            }
-            for a in acronyms
-        ],
-        "identifiers": [
-            {
-                "id": i["id"],
-                "type_id": i["type_id"],
-                "type_slug": i["type_slug"],
-                "value": i["value"],
-            }
-            for i in identifiers
-        ],
-    }
+    return names, acronyms, identifiers

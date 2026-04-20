@@ -56,10 +56,7 @@ async def org_fixture(db):
     former_id = generate_id()
     acronym_id = generate_id()
 
-    await db.execute(
-        "INSERT INTO organizations (id) VALUES ($1)",
-        org_id,
-    )
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
         " VALUES ($1,$2,$3,'legal',TRUE)",
@@ -76,7 +73,6 @@ async def org_fixture(db):
         acronym_id, org_id, "TVW",
     )
 
-    # identifier type — use an existing seed slug or insert one
     type_row = await db.fetchrow(
         "SELECT id FROM entity_identifier_types WHERE slug='wa_sos' LIMIT 1"
     )
@@ -113,6 +109,19 @@ async def org_fixture(db):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _search(client, api_key, q, **params):
+    return client.get(
+        "/api/v1/orgs/search",
+        params={"q": q, **params},
+        headers={"X-API-Key": api_key},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
 
@@ -133,17 +142,61 @@ def test_get_org_missing_key_returns_403(client):
 
 
 # ---------------------------------------------------------------------------
-# Search
+# Search — response shape
+# ---------------------------------------------------------------------------
+
+
+async def test_search_response_envelope(client, api_key, org_fixture):
+    r = _search(client, api_key, "Television")
+    assert r.status_code == 200
+    body = r.json()
+    assert "data" in body
+    assert "meta" in body
+    meta = body["meta"]
+    assert "limit" in meta
+    assert "offset" in meta
+    assert "count" in meta
+    assert "has_more" in meta
+
+
+async def test_search_meta_reflects_params(client, api_key, org_fixture):
+    r = _search(client, api_key, "Television", limit=5, offset=0)
+    meta = r.json()["meta"]
+    assert meta["limit"] == 5
+    assert meta["offset"] == 0
+
+
+async def test_search_meta_count_matches_data(client, api_key, org_fixture):
+    r = _search(client, api_key, "Television")
+    body = r.json()
+    assert body["meta"]["count"] == len(body["data"])
+
+
+async def test_search_has_more_false_when_under_limit(client, api_key, org_fixture):
+    r = _search(client, api_key, "Television", limit=50)
+    assert r.json()["meta"]["has_more"] is False
+
+
+async def test_search_has_more_true_when_exactly_limit_plus_one(client, api_key, org_fixture):
+    # limit=1 with at least 1 result; has_more depends on total matching rows
+    r = _search(client, api_key, "Television", limit=1)
+    body = r.json()
+    assert len(body["data"]) == 1
+    # has_more is True only if more rows exist; with a single fixture org it's False
+    assert isinstance(body["meta"]["has_more"], bool)
+
+
+# ---------------------------------------------------------------------------
+# Search — result content
 # ---------------------------------------------------------------------------
 
 
 async def test_search_by_canonical_name(client, api_key, org_fixture):
-    r = client.get("/api/v1/orgs/search?q=Television", headers={"X-API-Key": api_key})
+    r = _search(client, api_key, "Television")
     assert r.status_code == 200
-    data = r.json()
-    ids = [o["id"] for o in data]
+    ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
-    hit = next(o for o in data if o["id"] == org_fixture["org_id"])
+    hit = next(o for o in r.json()["data"] if o["id"] == org_fixture["org_id"])
     assert hit["name"] == "Television Washington"
     assert hit["acronym"] == "TVW"
     assert hit["slug"] == "tvw"
@@ -152,16 +205,16 @@ async def test_search_by_canonical_name(client, api_key, org_fixture):
 
 
 async def test_search_by_acronym(client, api_key, org_fixture):
-    r = client.get("/api/v1/orgs/search?q=TVW", headers={"X-API-Key": api_key})
+    r = _search(client, api_key, "TVW")
     assert r.status_code == 200
-    ids = [o["id"] for o in r.json()]
+    ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
 
 
 async def test_search_by_name_variant(client, api_key, org_fixture):
-    r = client.get("/api/v1/orgs/search?q=TV+Washington", headers={"X-API-Key": api_key})
+    r = _search(client, api_key, "TV Washington")
     assert r.status_code == 200
-    ids = [o["id"] for o in r.json()]
+    ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
 
 
@@ -169,11 +222,10 @@ async def test_search_excludes_archived(client, api_key, org_fixture, db):
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
     )
-    r = client.get("/api/v1/orgs/search?q=Television", headers={"X-API-Key": api_key})
+    r = _search(client, api_key, "Television")
     assert r.status_code == 200
-    ids = [o["id"] for o in r.json()]
+    ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] not in ids
-    # restore
     await db.execute(
         "UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"]
     )
@@ -183,34 +235,46 @@ async def test_search_include_archived_flag(client, api_key, org_fixture, db):
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
     )
-    r = client.get(
-        "/api/v1/orgs/search?q=Television&include_archived=true",
-        headers={"X-API-Key": api_key},
-    )
+    r = _search(client, api_key, "Television", include_archived="true")
     assert r.status_code == 200
-    ids = [o["id"] for o in r.json()]
+    ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
-    # restore
+    await db.execute(
+        "UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"]
+    )
+
+
+async def test_search_archived_result_has_z_suffix_timestamp(client, api_key, org_fixture, db):
+    await db.execute(
+        "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
+    )
+    r = _search(client, api_key, "Television", include_archived="true")
+    hit = next(o for o in r.json()["data"] if o["id"] == org_fixture["org_id"])
+    assert hit["archived_at"].endswith("Z"), f"expected Z suffix, got {hit['archived_at']}"
     await db.execute(
         "UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"]
     )
 
 
 async def test_search_limit(client, api_key, org_fixture):
-    r = client.get("/api/v1/orgs/search?q=Television&limit=1", headers={"X-API-Key": api_key})
+    r = _search(client, api_key, "Television", limit=1)
     assert r.status_code == 200
-    assert len(r.json()) <= 1
+    assert len(r.json()["data"]) <= 1
 
 
 async def test_search_limit_capped_at_50(client, api_key, org_fixture):
-    r = client.get("/api/v1/orgs/search?q=a&limit=999", headers={"X-API-Key": api_key})
-    assert r.status_code == 200  # capped silently, not a 422
-
-
-async def test_search_empty_q_returns_empty(client, api_key):
-    r = client.get("/api/v1/orgs/search?q=", headers={"X-API-Key": api_key})
+    r = _search(client, api_key, "a", limit=999)
     assert r.status_code == 200
-    assert r.json() == []
+    assert r.json()["meta"]["limit"] == 50
+
+
+async def test_search_empty_q_returns_empty_envelope(client, api_key):
+    r = _search(client, api_key, "")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["data"] == []
+    assert body["meta"]["count"] == 0
+    assert body["meta"]["has_more"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +288,6 @@ async def test_get_org_by_id_full_record(client, api_key, org_fixture):
     assert r.status_code == 200
     data = r.json()
 
-    # top-level fields
     assert data["id"] == oid
     assert data["name"] == "Television Washington"
     assert data["acronym"] == "TVW"
@@ -232,7 +295,6 @@ async def test_get_org_by_id_full_record(client, api_key, org_fixture):
     assert data["parent_id"] is None
     assert data["archived_at"] is None
 
-    # names array — both rows, each with id
     assert len(data["names"]) == 2
     name_ids = {n["id"] for n in data["names"]}
     assert org_fixture["name_id"] in name_ids
@@ -241,14 +303,12 @@ async def test_get_org_by_id_full_record(client, api_key, org_fixture):
     assert canonical["name"] == "Television Washington"
     assert canonical["name_type"] == "legal"
 
-    # acronyms array
     assert len(data["acronyms"]) == 1
     acr = data["acronyms"][0]
     assert acr["id"] == org_fixture["acronym_id"]
     assert acr["acronym"] == "TVW"
     assert acr["is_canonical"] is True
 
-    # identifiers array
     assert len(data["identifiers"]) >= 1
     eid = next(i for i in data["identifiers"] if i["id"] == org_fixture["eid_id"])
     assert eid["type_id"] == org_fixture["eid_type_id"]
@@ -271,7 +331,6 @@ async def test_get_archived_org_still_returned(client, api_key, org_fixture, db)
     archived_at = r.json()["archived_at"]
     assert archived_at is not None
     assert archived_at.endswith("Z"), f"expected Z suffix, got {archived_at}"
-    # restore
     await db.execute(
         "UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"]
     )
