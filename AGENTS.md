@@ -18,8 +18,9 @@ Python ≥3.12, uv, pytest, ruff; Node ≥22, npm, vitest + ESLint + Prettier (J
 
 ```
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
+  deps.py       — Shared FastAPI deps (get_db); imported by both admin and public sub-packages
   admin/        — Jinja2 + HTMX admin dashboard (entities, people, orgs, roles, role_assignments, settings, imports)
-    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth, raises HTTPException 307), get_db, is_htmx, flash_trigger, resolve_query_flash, escape_like, org_header_extra, person_header_extra
+    deps.py     — AdminUser dataclass, get_admin_user (exe.dev auth, raises HTTPException 307), re-exports get_db, is_htmx, flash_trigger, resolve_query_flash, escape_like, org_header_extra, person_header_extra
     org_dups.py    — Org-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_org_duplicates, get_org_dup_count dep, invalidate_dup_count_cache
     people_dups.py — People-duplicate detection: CANDIDATE_WHERE SQL, TTL cache, count_person_duplicates, get_person_dup_count dep, invalidate_dup_count_cache
     dashboard.py        — Admin dashboard landing page (record counts, dup badge counts)

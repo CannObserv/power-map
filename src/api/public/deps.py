@@ -5,7 +5,7 @@ import hashlib
 from fastapi import Depends, HTTPException
 from fastapi.security import APIKeyHeader
 
-from src.api.admin.deps import get_db
+from src.api.deps import get_db
 
 # auto_error=False so we can distinguish missing header (403) from invalid key (401)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)

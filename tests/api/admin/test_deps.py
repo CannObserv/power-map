@@ -8,8 +8,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-import src.core.db as db_module
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, is_htmx
 from src.api.main import app
 from tests.api.admin.conftest import AUTH_HEADERS
 
@@ -151,18 +150,6 @@ def test_flash_trigger_extra_multiple_keys():
     payload = json.loads(headers["HX-Trigger"])
     assert payload["a"] == 1
     assert payload["b"] == 2
-
-
-def test_get_db_raises_runtime_error_when_pool_not_initialised():
-    """get_db must propagate RuntimeError from db.get_pool() when pool is None."""
-    original = db_module._pool
-    db_module._pool = None
-    try:
-        gen = get_db()
-        with pytest.raises(RuntimeError, match="not initialised"):
-            asyncio.run(gen.__anext__())
-    finally:
-        db_module._pool = original
 
 
 @pytest.mark.integration

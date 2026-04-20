@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 from fastapi import Depends, HTTPException, Request
 
-import src.core.db as db
+from src.api.deps import get_db as get_db  # noqa: F401 — re-export for admin importers
 
 
 @dataclass
@@ -88,7 +88,7 @@ def escape_like(s: str) -> str:
     Use with ``ILIKE $N ESCAPE '\\'`` in queries::
 
         escaped = escape_like(q.strip())
-        await db.fetch("... ILIKE $1 ESCAPE '\\\\'", f"%{escaped}%")
+        await conn.fetch("... ILIKE $1 ESCAPE '\\\\'", f"%{escaped}%")
     """
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
@@ -119,13 +119,6 @@ async def org_header_extra(org_id: str, db) -> dict:
     )
     display = row["display_name"] if row and row["display_name"] else org_id
     return {"updateOrgHeader": {"display": display}}
-
-
-async def get_db():
-    """Yield a connection from the global asyncpg pool."""
-    pool = db.get_pool()
-    async with pool.acquire() as conn:
-        yield conn
 
 
 async def provision_app_user(

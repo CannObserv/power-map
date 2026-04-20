@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from src.api.admin.deps import get_db
+from src.api.deps import get_db
 from src.api.public.deps import require_api_key
 from src.api.public.schemas import OrgDetail, OrgSearchResponse
 
