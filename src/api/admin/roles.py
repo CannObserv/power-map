@@ -227,9 +227,11 @@ async def role_archive(
     db=Depends(get_db),
 ):
     """Archive a role (soft delete)."""
-    role = await db.fetchrow("SELECT id FROM roles WHERE id = $1", role_id)
+    role = await db.fetchrow("SELECT id, archived_at FROM roles WHERE id = $1", role_id)
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
+    if role["archived_at"]:
+        raise HTTPException(status_code=409, detail="Role is already archived")
     await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
     return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
 

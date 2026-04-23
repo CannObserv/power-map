@@ -647,9 +647,11 @@ async def org_archive(
     db=Depends(get_db),
 ):
     """Archive an organization (soft delete)."""
-    org = await db.fetchrow("SELECT id FROM organizations WHERE id = $1", org_id)
+    org = await db.fetchrow("SELECT id, archived_at FROM organizations WHERE id = $1", org_id)
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
+    if org["archived_at"]:
+        raise HTTPException(status_code=409, detail="Organization is already archived")
     await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
     return RedirectResponse(f"/admin/orgs/{org_id}/?flash=archived", status_code=303)
 

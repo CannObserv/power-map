@@ -139,6 +139,18 @@ def test_archive_role(client, role_id):
     assert response.status_code in (302, 303)
 
 
+async def test_archive_already_archived_role_returns_409(client, db, role_id):
+    """Re-archiving an already-archived role is rejected with 409."""
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    response = client.post(
+        f"/admin/roles/{role_id}/archive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Role is already archived"
+
+
 def test_hard_delete_requires_archive(client, role_id):
     response = client.delete(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 409
