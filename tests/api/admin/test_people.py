@@ -136,6 +136,27 @@ def test_archive_person(client, person_id):
     assert response.status_code in (302, 303)
 
 
+def test_archive_person_redirects_with_flash_query(client, person_id):
+    """Archive redirects to detail with ?flash=archived."""
+    response = client.post(
+        f"/admin/people/{person_id}/archive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/people/{person_id}/?flash=archived"
+
+
+def test_archived_flash_renders_on_person_detail(client, person_id):
+    """Person detail with ?flash=archived renders the success flash."""
+    response = client.get(f"/admin/people/{person_id}/?flash=archived", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Person archived." in response.text
+    assert "flash--success" in response.text
+    assert "HX-Replace-Url" in response.headers
+    assert "flash" not in response.headers["HX-Replace-Url"]
+
+
 def test_hard_delete_requires_archive(client, person_id):
     response = client.delete(f"/admin/people/{person_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 409
@@ -170,6 +191,16 @@ def test_unarchived_flash_renders_on_person_detail(client, person_id):
     assert response.status_code == 200
     assert "Person unarchived." in response.text
     assert "flash--success" in response.text
+    assert "HX-Replace-Url" in response.headers
+    assert "flash" not in response.headers["HX-Replace-Url"]
+
+
+def test_person_detail_unknown_flash_key_ignored(client, person_id):
+    """GET person detail with ?flash=bogus returns 200 with no flash and no HX-Replace-Url."""
+    response = client.get(f"/admin/people/{person_id}/?flash=bogus", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "flash--success" not in response.text
+    assert "HX-Replace-Url" not in response.headers
 
 
 def test_people_list_htmx_boost_returns_full_page(client):

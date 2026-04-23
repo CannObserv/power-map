@@ -28,6 +28,7 @@ router = APIRouter(prefix="/orgs", tags=["admin-orgs"])
 
 
 _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
+    "archived": ("success", "Organization archived."),
     "unarchived": ("success", "Organization unarchived."),
     "deleted": ("success", "Organization deleted."),
 }
@@ -650,7 +651,7 @@ async def org_archive(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
-    return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    return RedirectResponse(f"/admin/orgs/{org_id}/?flash=archived", status_code=303)
 
 
 @router.post("/{org_id}/unarchive/")

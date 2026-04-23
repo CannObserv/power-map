@@ -249,6 +249,18 @@ def test_unarchived_flash_renders_on_detail(client, ra_id):
     assert response.status_code == 200
     assert "Assignment unarchived." in response.text
     assert "flash--success" in response.text
+    assert "HX-Replace-Url" in response.headers
+    assert "flash" not in response.headers["HX-Replace-Url"]
+
+
+def test_detail_unknown_flash_key_ignored(client, ra_id):
+    """GET detail with ?flash=bogus returns 200 with no flash and no HX-Replace-Url."""
+    response = client.get(
+        f"/admin/role-assignments/{ra_id}/?flash=bogus", headers=AUTH_HEADERS
+    )
+    assert response.status_code == 200
+    assert "flash--success" not in response.text
+    assert "HX-Replace-Url" not in response.headers
 
 
 async def test_detail_shows_unarchive_button_when_archived(client, db, ra_id):

@@ -23,6 +23,7 @@ templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/people", tags=["admin-people"])
 
 _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
+    "archived": ("success", "Person archived."),
     "unarchived": ("success", "Person unarchived."),
 }
 
@@ -280,7 +281,7 @@ async def person_archive(
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     await db.execute("UPDATE people SET archived_at = NOW() WHERE id = $1", person_id)
-    return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+    return RedirectResponse(f"/admin/people/{person_id}/?flash=archived", status_code=303)
 
 
 @router.post("/{person_id}/unarchive/")

@@ -188,6 +188,27 @@ def test_archive_org(client, org_id):
     assert response.status_code in (302, 303)
 
 
+def test_archive_org_redirects_with_flash_query(client, org_id):
+    """Archive redirects to detail with ?flash=archived."""
+    response = client.post(
+        f"/admin/orgs/{org_id}/archive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/orgs/{org_id}/?flash=archived"
+
+
+def test_archived_flash_renders_on_org_detail(client, org_id):
+    """Org detail with ?flash=archived renders the success flash."""
+    response = client.get(f"/admin/orgs/{org_id}/?flash=archived", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Organization archived." in response.text
+    assert "flash--success" in response.text
+    assert "HX-Replace-Url" in response.headers
+    assert "flash" not in response.headers["HX-Replace-Url"]
+
+
 def test_unarchive_org_clears_archived_at(client, org_id):
     dsn = _get_dsn()
 
@@ -252,6 +273,16 @@ def test_unarchived_flash_renders_on_org_detail(client, org_id):
     assert response.status_code == 200
     assert "Organization unarchived." in response.text
     assert "flash--success" in response.text
+    assert "HX-Replace-Url" in response.headers
+    assert "flash" not in response.headers["HX-Replace-Url"]
+
+
+def test_org_detail_unknown_flash_key_ignored(client, org_id):
+    """GET org detail with ?flash=bogus returns 200 with no flash and no HX-Replace-Url."""
+    response = client.get(f"/admin/orgs/{org_id}/?flash=bogus", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "flash--success" not in response.text
+    assert "HX-Replace-Url" not in response.headers
 
 
 def test_unarchive_org_rejects_non_archived(client, org_id):
