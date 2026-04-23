@@ -139,6 +139,27 @@ def test_archive_role(client, role_id):
     assert response.status_code in (302, 303)
 
 
+def test_archive_role_redirects_with_flash_query(client, role_id):
+    """Archive redirects to detail with ?flash=archived."""
+    response = client.post(
+        f"/admin/roles/{role_id}/archive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/roles/{role_id}/?flash=archived"
+
+
+def test_archived_flash_renders_on_role_detail(client, role_id):
+    """Role detail with ?flash=archived renders the success flash."""
+    response = client.get(f"/admin/roles/{role_id}/?flash=archived", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Role archived." in response.text
+    assert "flash--success" in response.text
+    assert "HX-Replace-Url" in response.headers
+    assert "flash" not in response.headers["HX-Replace-Url"]
+
+
 async def test_archive_already_archived_role_returns_409(client, db, role_id):
     """Re-archiving an already-archived role is rejected with 409."""
     await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)

@@ -5,7 +5,14 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, escape_like, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    escape_like,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    resolve_query_flash,
+)
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import get_person_dup_count
@@ -14,6 +21,10 @@ from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles", tags=["admin-roles"])
+
+_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
+    "archived": ("success", "Role archived."),
+}
 
 
 def _like(s: str) -> str:
@@ -187,6 +198,7 @@ async def role_detail(
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
+    flash: str | None = Query(None),
 ):
     """Role detail view."""
 
@@ -204,6 +216,7 @@ async def role_detail(
 
     assignments = await fetch_role_assignments(role_id, db)
 
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
         "admin/roles/detail.html",
@@ -215,14 +228,15 @@ async def role_detail(
             "assignments": assignments,
             "org_dup_count": org_dup_count,
             "person_dup_count": person_dup_count,
+            "flash_msg": flash_msg,
         },
+        headers=resp_headers,
     )
 
 
 @router.post("/{role_id}/archive/")
 async def role_archive(
     role_id: str,
-    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -233,7 +247,7 @@ async def role_archive(
     if role["archived_at"]:
         raise HTTPException(status_code=409, detail="Role is already archived")
     await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
-    return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+    return RedirectResponse(f"/admin/roles/{role_id}/?flash=archived", status_code=303)
 
 
 @router.delete("/{role_id}/")
