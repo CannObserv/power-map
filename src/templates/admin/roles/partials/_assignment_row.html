@@ -9,6 +9,7 @@
     {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
   </td>
   <td style="text-align:right; white-space:nowrap">
+    <a href="/admin/role-assignments/{{ ra.id }}/" class="btn btn--sm btn--ghost" aria-label="Open assignment detail">Open</a>
     {% if not ra.archived_at %}
     <button type="button" class="btn btn--sm btn--secondary"
             hx-get="/admin/roles/{{ role_id }}/assignments/{{ ra.id }}/edit-row/"

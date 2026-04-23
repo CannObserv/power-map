@@ -688,6 +688,10 @@ No large inline `<script>` blocks. Extract to `static/js/*.js`. Exceptions:
 
 Sizes: `.btn--sm` (compact, `padding: var(--space-1) var(--space-3)`, min-height 44px still applies).
 
+### Row action-cell button order
+
+In a table row's action cell, order buttons left → right by escalating effect: navigation / neutral (Open, View) → mutation (Edit) → destructive (Archive, Delete). This pairs with the destructive-last rule in §10.
+
 ### Pill toggle (`.toggle`)
 
 Used for auto-saving boolean fields. The checkbox is hidden; `.toggle__track` + `.toggle__thumb` render the pill.

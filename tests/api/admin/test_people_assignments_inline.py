@@ -319,6 +319,46 @@ async def test_read_row_archived_has_no_edit_button(client, person_id, archived_
     assert b"edit-row" not in r.content
 
 
+async def test_read_row_has_open_link_to_assignment_detail(
+    client, person_id, assignment_id
+):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert f'href="/admin/role-assignments/{assignment_id}/"'.encode() in r.content
+
+
+async def test_read_row_archived_has_open_link_to_assignment_detail(
+    client, person_id, archived_assignment_id
+):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{archived_assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert (
+        f'href="/admin/role-assignments/{archived_assignment_id}/"'.encode()
+        in r.content
+    )
+
+
+async def test_read_row_org_and_role_still_link_to_their_entities(
+    client, person_id, role_id, assignment_id, db
+):
+    org_id = await db.fetchval(
+        "SELECT organization_id FROM roles WHERE id=$1", role_id
+    )
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert f'href="/admin/orgs/{org_id}/"'.encode() in r.content
+    assert f'href="/admin/roles/{role_id}/"'.encode() in r.content
+
+
 async def test_read_row_unknown_returns_404(client, person_id):
     r = await client.get(
         f"/admin/people/{person_id}/assignments/{generate_id()}/read-row/",

@@ -308,6 +308,42 @@ async def test_read_row_archived_has_no_edit_button(client, role_id, archived_as
     assert b"edit-row" not in r.content
 
 
+async def test_read_row_has_open_link_to_assignment_detail(
+    client, role_id, assignment_id
+):
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert f'href="/admin/role-assignments/{assignment_id}/"'.encode() in r.content
+
+
+async def test_read_row_archived_has_open_link_to_assignment_detail(
+    client, role_id, archived_assignment_id
+):
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{archived_assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert (
+        f'href="/admin/role-assignments/{archived_assignment_id}/"'.encode()
+        in r.content
+    )
+
+
+async def test_read_row_person_name_still_links_to_person(
+    client, role_id, assignment_id, person_id
+):
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert f'href="/admin/people/{person_id}/"'.encode() in r.content
+
+
 async def test_read_row_unknown_returns_404(client, role_id):
     r = await client.get(
         f"/admin/roles/{role_id}/assignments/{generate_id()}/read-row/",
