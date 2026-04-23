@@ -16,11 +16,11 @@
             hx-get="/admin/people/{{ person_id }}/assignments/{{ ra.id }}/edit-row/"
             hx-target="#person-assignment-row-{{ ra.id }}"
             hx-swap="outerHTML">Edit</button>
-    {% endif %}
     <button type="button" class="btn btn--sm btn--danger"
-            hx-delete="/admin/people/{{ person_id }}/assignments/{{ ra.id }}/"
+            hx-post="/admin/people/{{ person_id }}/assignments/{{ ra.id }}/archive/"
             hx-target="#person-assignments-table tbody"
             hx-swap="innerHTML"
-            hx-confirm="Delete this assignment?">Delete</button>
+            hx-confirm="Archive this assignment?">Archive</button>
+    {% endif %}
   </td>
 </tr>

@@ -31,7 +31,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     people_addresses.py — Inline CRUD for addresses + entity_addresses (row-level HTMX swap); normalizer confirm flow; country-format endpoint
     people_links.py     — Inline CRUD for links + link_types (row-level HTMX swap); delegates to _links_shared factory
     people_identifiers.py — Inline CRUD for identifiers filtered to entity_type='person' (row-level HTMX swap); delegates to _identifiers_shared factory
-    people_assignments.py — Inline CRUD for person → role_assignments (row-level HTMX swap)
+    people_assignments.py — Inline CRUD for person → role_assignments (row-level HTMX swap); archive-only (no hard delete inline)
     role_assignments.py — Role assignment list, create, detail, archive, delete; inline editing for is_current/dates/notes (row-level HTMX swap)
     router.py   — Mounts all admin sub-routers under /admin/
     orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/unarchive/delete
@@ -45,7 +45,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     orgs_roles.py       — Inline role create and merge on org detail (new-row GET, create POST, merge POST)
     roles_shared.py     — Shared helpers: _get_role (fetch + 404), _parse_date, _check_assignment_within_bounds; imported by roles_detail and roles_assignments_inline to avoid circular deps
     roles_detail.py     — Inline editing for role detail fields: org, title, notes, boundary dates (established_on / abolished_on)
-    roles_assignments_inline.py — Inline assignment CRUD on role detail (create/read-row/edit-row); fetch_role_assignments helper
+    roles_assignments_inline.py — Inline assignment CRUD on role detail (create/read-row/edit-row/archive); archive-only (no hard delete inline); fetch_role_assignments helper
     entities.py         — Entities landing page (card-grid overview with record counts); templates in src/templates/admin/entities/
     settings.py         — Settings landing page; templates in src/templates/admin/settings/
     settings_link_types.py      — Inline CRUD for link_types (row-level HTMX swap)

@@ -694,92 +694,121 @@ async def test_new_row_js_disables_end_date_when_is_current_checked(client, role
 
 
 # ---------------------------------------------------------------------------
-# Delete assignment
+# Archive assignment
 # ---------------------------------------------------------------------------
 
 
-async def test_delete_removes_assignment(client, role_id, assignment_id, db):
-    r = await client.delete(
-        f"/admin/roles/{role_id}/assignments/{assignment_id}/",
+async def test_archive_soft_deletes_assignment(client, role_id, assignment_id, db):
+    r = await client.post(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/archive/",
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    row = await db.fetchrow("SELECT id FROM role_assignments WHERE id=$1", assignment_id)
-    assert row is None
+    row = await db.fetchrow(
+        "SELECT id, archived_at FROM role_assignments WHERE id=$1", assignment_id
+    )
+    assert row is not None
+    assert row["archived_at"] is not None
 
 
-async def test_delete_returns_sorted_tbody(client, role_id, person_id, db):
-    """After delete, full tbody is returned so remaining rows stay sorted."""
+async def test_archive_returns_sorted_tbody(client, role_id, person_id, db):
+    """After archive, full tbody is returned so rows stay sorted."""
     ra_keep = generate_id()
     await db.execute(
         """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)
            VALUES ($1, $2, $3, TRUE, '2024-01-01')""",
         ra_keep, person_id, role_id,
     )
-    ra_del = generate_id()
+    ra_arch = generate_id()
     await db.execute(
         """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
            VALUES ($1, $2, $3, FALSE, '2020-01-01', '2023-12-31')""",
-        ra_del, person_id, role_id,
+        ra_arch, person_id, role_id,
     )
-    r = await client.delete(
-        f"/admin/roles/{role_id}/assignments/{ra_del}/",
+    r = await client.post(
+        f"/admin/roles/{role_id}/assignments/{ra_arch}/archive/",
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
     assert b"2024-01-01" in r.content
-    assert b"2020-01-01" not in r.content
+    assert b"2020-01-01" in r.content
 
 
-async def test_delete_returns_info_flash(client, role_id, assignment_id):
-    r = await client.delete(
-        f"/admin/roles/{role_id}/assignments/{assignment_id}/",
+async def test_archive_returns_success_flash(client, role_id, assignment_id):
+    r = await client.post(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/archive/",
         headers=HTMX_HEADERS,
     )
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
+    assert "archived" in trigger["showFlash"]["body"].lower()
 
 
-async def test_delete_unknown_returns_404(client, role_id):
-    r = await client.delete(
-        f"/admin/roles/{role_id}/assignments/{generate_id()}/",
+async def test_archive_unknown_returns_404(client, role_id):
+    r = await client.post(
+        f"/admin/roles/{role_id}/assignments/{generate_id()}/archive/",
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 404
 
 
-async def test_delete_wrong_role_returns_404(client, role_id, assignment_id, db):
+async def test_archive_wrong_role_returns_404(client, role_id, assignment_id, db):
     oid = await _make_org(db, "Other Org")
     other_rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
         other_rid, oid, "Other Role",
     )
-    r = await client.delete(
-        f"/admin/roles/{other_rid}/assignments/{assignment_id}/",
+    r = await client.post(
+        f"/admin/roles/{other_rid}/assignments/{assignment_id}/archive/",
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 404
 
 
-async def test_delete_non_htmx_redirects(client, role_id, assignment_id):
-    r = await client.delete(
-        f"/admin/roles/{role_id}/assignments/{assignment_id}/",
+async def test_archive_non_htmx_redirects(client, role_id, assignment_id):
+    r = await client.post(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/archive/",
         headers=AUTH_HEADERS,
         follow_redirects=False,
     )
     assert r.status_code == 303
 
 
-async def test_read_row_has_delete_button(client, role_id, assignment_id):
+async def test_read_row_has_archive_button(client, role_id, assignment_id):
     r = await client.get(
         f"/admin/roles/{role_id}/assignments/{assignment_id}/read-row/",
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    assert b"hx-delete" in r.content
+    assert b"hx-post" in r.content
+    assert b"/archive/" in r.content
     assert b"hx-confirm" in r.content
-    assert b"Delete" in r.content
+    assert b"Archive" in r.content
+    assert b"hx-delete" not in r.content
+
+
+async def test_read_row_archived_has_no_archive_button(
+    client, role_id, archived_assignment_id
+):
+    """Archived rows show no archive or delete button; only Open."""
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{archived_assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"hx-post" not in r.content
+    assert b"hx-delete" not in r.content
+    assert b"/archive/" not in r.content
+
+
+async def test_inline_hard_delete_route_removed(client, role_id, assignment_id):
+    """Inline DELETE route is gone; permanent delete only from RA detail page."""
+    r = await client.delete(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code in (404, 405)
 
 
 # ---------------------------------------------------------------------------
