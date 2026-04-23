@@ -741,7 +741,18 @@ async def test_archive_returns_success_flash(client, role_id, assignment_id):
     )
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
-    assert "archived" in trigger["showFlash"]["body"].lower()
+    assert trigger["showFlash"]["body"] == "Assignment archived."
+
+
+async def test_archive_already_archived_returns_409(
+    client, role_id, archived_assignment_id
+):
+    """Archiving an already-archived row is rejected with 409 (idempotency guard)."""
+    r = await client.post(
+        f"/admin/roles/{role_id}/assignments/{archived_assignment_id}/archive/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 409
 
 
 async def test_archive_unknown_returns_404(client, role_id):
@@ -808,7 +819,7 @@ async def test_inline_hard_delete_route_removed(client, role_id, assignment_id):
         f"/admin/roles/{role_id}/assignments/{assignment_id}/",
         headers=HTMX_HEADERS,
     )
-    assert r.status_code in (404, 405)
+    assert r.status_code == 404
 
 
 # ---------------------------------------------------------------------------

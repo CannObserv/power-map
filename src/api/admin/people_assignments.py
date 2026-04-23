@@ -294,7 +294,11 @@ async def assignment_archive(
     db=Depends(get_db),
 ):
     """Archive a role assignment (soft delete) from person detail."""
-    await _get_assignment(assignment_id, person_id, db)
+    ra = await _get_assignment(assignment_id, person_id, db)
+    if ra["archived_at"]:
+        raise HTTPException(
+            status_code=409, detail="Assignment is already archived"
+        )
     await db.execute(
         "UPDATE role_assignments SET archived_at = NOW() WHERE id=$1", assignment_id
     )

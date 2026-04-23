@@ -16,7 +16,7 @@
             hx-get="/admin/people/{{ person_id }}/assignments/{{ ra.id }}/edit-row/"
             hx-target="#person-assignment-row-{{ ra.id }}"
             hx-swap="outerHTML">Edit</button>
-    <button type="button" class="btn btn--sm btn--danger"
+    <button type="button" class="btn btn--sm btn--secondary"
             hx-post="/admin/people/{{ person_id }}/assignments/{{ ra.id }}/archive/"
             hx-target="#person-assignments-table tbody"
             hx-swap="innerHTML"

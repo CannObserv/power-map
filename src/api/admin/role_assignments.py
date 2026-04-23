@@ -503,12 +503,18 @@ async def ra_archive(
 ):
     """Archive a role assignment (soft delete)."""
 
-    updated = await db.fetchval(
-        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1 RETURNING id",
-        ra_id,
+    ra = await db.fetchrow(
+        "SELECT id, archived_at FROM role_assignments WHERE id = $1", ra_id
     )
-    if not updated:
+    if not ra:
         raise HTTPException(status_code=404, detail="Role assignment not found")
+    if ra["archived_at"]:
+        raise HTTPException(
+            status_code=409, detail="Role assignment is already archived"
+        )
+    await db.execute(
+        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
+    )
     return RedirectResponse(
         f"/admin/role-assignments/{ra_id}/?flash=archived", status_code=303
     )

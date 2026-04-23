@@ -192,6 +192,19 @@ def test_deleted_flash_renders_on_list(client):
     assert "flash--success" in response.text
 
 
+async def test_archive_already_archived_returns_409(client, db, ra_id):
+    """Re-archiving an already-archived row is rejected with 409 (idempotency guard)."""
+    await db.execute(
+        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
+    )
+    response = client.post(
+        f"/admin/role-assignments/{ra_id}/archive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 409
+
+
 def test_hard_delete_requires_archive(client, ra_id):
     response = client.delete(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 409

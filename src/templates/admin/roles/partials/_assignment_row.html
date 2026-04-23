@@ -15,7 +15,7 @@
             hx-get="/admin/roles/{{ role_id }}/assignments/{{ ra.id }}/edit-row/"
             hx-target="#assignment-row-{{ ra.id }}"
             hx-swap="outerHTML">Edit</button>
-    <button type="button" class="btn btn--sm btn--danger"
+    <button type="button" class="btn btn--sm btn--secondary"
             hx-post="/admin/roles/{{ role_id }}/assignments/{{ ra.id }}/archive/"
             hx-target="#assignments-table tbody"
             hx-swap="innerHTML"
