@@ -26,6 +26,7 @@ router = APIRouter(prefix="/role-assignments", tags=["admin-role-assignments"])
 
 _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "archived": ("success", "Assignment archived."),
+    "unarchived": ("success", "Assignment unarchived."),
     "deleted": ("success", "Assignment deleted."),
 }
 
@@ -517,6 +518,28 @@ async def ra_archive(
         raise HTTPException(status_code=404, detail="Role assignment not found")
     raise HTTPException(
         status_code=409, detail="Role assignment is already archived"
+    )
+
+
+@router.post("/{ra_id}/unarchive/")
+async def ra_unarchive(
+    ra_id: str,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Restore an archived role assignment. Returns 409 if not archived."""
+    ra = await db.fetchrow(
+        "SELECT id, archived_at FROM role_assignments WHERE id = $1", ra_id
+    )
+    if not ra:
+        raise HTTPException(status_code=404, detail="Role assignment not found")
+    if not ra["archived_at"]:
+        raise HTTPException(status_code=409, detail="Role assignment is not archived")
+    await db.execute(
+        "UPDATE role_assignments SET archived_at = NULL WHERE id = $1", ra_id
+    )
+    return RedirectResponse(
+        f"/admin/role-assignments/{ra_id}/?flash=unarchived", status_code=303
     )
 
 

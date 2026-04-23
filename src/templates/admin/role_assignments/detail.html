@@ -71,6 +71,15 @@
 {% else %}
 <div class="danger-zone">
   <div>
+    <p class="danger-zone__label">Unarchive assignment</p>
+    <p class="danger-zone__desc">Restores this assignment to active views.</p>
+  </div>
+  <form method="POST" action="/admin/role-assignments/{{ ra.id }}/unarchive/">
+    <button type="submit" class="btn btn--secondary">Unarchive</button>
+  </form>
+</div>
+<div class="danger-zone">
+  <div>
     <p class="danger-zone__label">Delete permanently</p>
     <p class="danger-zone__desc">This assignment is archived. Permanently deleting cannot be undone.</p>
   </div>

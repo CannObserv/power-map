@@ -206,6 +206,50 @@ async def test_archive_already_archived_returns_409(client, db, ra_id):
     assert response.json()["detail"] == "Role assignment is already archived"
 
 
+async def test_unarchive_ra(client, db, ra_id):
+    """Unarchiving a role assignment clears archived_at and redirects to detail."""
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
+    response = client.post(
+        f"/admin/role-assignments/{ra_id}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/role-assignments/{ra_id}/?flash=unarchived"
+    row = await db.fetchrow("SELECT archived_at FROM role_assignments WHERE id = $1", ra_id)
+    assert row["archived_at"] is None
+
+
+async def test_unarchive_ra_not_archived_returns_409(client, db, ra_id):
+    """Unarchiving an active (non-archived) RA returns 409."""
+    response = client.post(
+        f"/admin/role-assignments/{ra_id}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Role assignment is not archived"
+
+
+def test_unarchived_flash_renders_on_detail(client, ra_id):
+    """Detail page with ?flash=unarchived renders the unarchived success flash."""
+    response = client.get(
+        f"/admin/role-assignments/{ra_id}/?flash=unarchived", headers=AUTH_HEADERS
+    )
+    assert response.status_code == 200
+    assert "Assignment unarchived." in response.text
+    assert "flash--success" in response.text
+
+
+async def test_detail_shows_unarchive_button_when_archived(client, db, ra_id):
+    """Detail page for an archived RA shows an Unarchive button."""
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
+    response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert f"/admin/role-assignments/{ra_id}/unarchive/" in response.text
+    assert "Unarchive" in response.text
+
+
 def test_hard_delete_requires_archive(client, ra_id):
     response = client.delete(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 409
