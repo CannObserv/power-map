@@ -681,6 +681,7 @@ async def test_archive_already_archived_returns_409(
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 409
+    assert r.json()["detail"] == "Role assignment is already archived"
 
 
 async def test_archive_unknown_returns_404(client, person_id):

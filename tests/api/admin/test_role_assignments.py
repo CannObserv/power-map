@@ -203,6 +203,7 @@ async def test_archive_already_archived_returns_409(client, db, ra_id):
         follow_redirects=False,
     )
     assert response.status_code == 409
+    assert response.json()["detail"] == "Role assignment is already archived"
 
 
 def test_hard_delete_requires_archive(client, ra_id):
