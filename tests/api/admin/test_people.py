@@ -148,6 +148,30 @@ def test_hard_delete_archived_person(client, person_id):
     assert response.status_code == 200
 
 
+def test_unarchive_person_redirects_with_flash_query(client, person_id):
+    """Unarchive redirects to detail with ?flash=unarchived."""
+    client.post(
+        f"/admin/people/{person_id}/archive/", headers=AUTH_HEADERS, follow_redirects=False
+    )
+    response = client.post(
+        f"/admin/people/{person_id}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/people/{person_id}/?flash=unarchived"
+
+
+def test_unarchived_flash_renders_on_person_detail(client, person_id):
+    """Person detail with ?flash=unarchived renders the success flash."""
+    response = client.get(
+        f"/admin/people/{person_id}/?flash=unarchived", headers=AUTH_HEADERS
+    )
+    assert response.status_code == 200
+    assert "Person unarchived." in response.text
+    assert "flash--success" in response.text
+
+
 def test_people_list_htmx_boost_returns_full_page(client):
     """Boosted navigation must return the full page layout, not a bare rows partial."""
     response = client.get(

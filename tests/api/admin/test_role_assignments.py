@@ -220,6 +220,16 @@ async def test_unarchive_ra(client, db, ra_id):
     assert row["archived_at"] is None
 
 
+def test_unarchive_ra_not_found_returns_404(client):
+    """Unarchiving a non-existent RA returns 404."""
+    response = client.post(
+        "/admin/role-assignments/nonexistent/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 404
+
+
 async def test_unarchive_ra_not_archived_returns_409(client, db, ra_id):
     """Unarchiving an active (non-archived) RA returns 409."""
     response = client.post(

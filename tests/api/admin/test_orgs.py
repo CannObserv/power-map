@@ -223,6 +223,37 @@ def test_unarchive_org_clears_archived_at(client, org_id):
     assert row["active"] is False  # prior active state preserved
 
 
+def test_unarchive_org_redirects_with_flash_query(client, org_id):
+    """Unarchive redirects to detail with ?flash=unarchived."""
+    dsn = _get_dsn()
+
+    async def archive():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute(
+                "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(archive())
+    response = client.post(
+        f"/admin/orgs/{org_id}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/orgs/{org_id}/?flash=unarchived"
+
+
+def test_unarchived_flash_renders_on_org_detail(client, org_id):
+    """Org detail with ?flash=unarchived renders the success flash."""
+    response = client.get(f"/admin/orgs/{org_id}/?flash=unarchived", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Organization unarchived." in response.text
+    assert "flash--success" in response.text
+
+
 def test_unarchive_org_rejects_non_archived(client, org_id):
     response = client.post(
         f"/admin/orgs/{org_id}/unarchive/",

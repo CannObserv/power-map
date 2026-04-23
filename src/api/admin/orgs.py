@@ -28,6 +28,7 @@ router = APIRouter(prefix="/orgs", tags=["admin-orgs"])
 
 
 _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
+    "unarchived": ("success", "Organization unarchived."),
     "deleted": ("success", "Organization deleted."),
 }
 
@@ -422,6 +423,7 @@ async def org_detail(
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
+    flash: str | None = Query(None),
 ):
     """Organization detail view."""
 
@@ -506,6 +508,7 @@ async def org_detail(
     )
     display_name = display_name_row["display_name"] if display_name_row else None
 
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
         "admin/orgs/detail.html",
@@ -529,7 +532,9 @@ async def org_detail(
             "parent": parent,
             "org_dup_count": org_dup_count,
             "person_dup_count": person_dup_count,
+            "flash_msg": flash_msg,
         },
+        headers=resp_headers,
     )
 
 
@@ -661,7 +666,7 @@ async def org_unarchive(
     if not org["archived_at"]:
         raise HTTPException(status_code=409, detail="Organization is not archived")
     await db.execute("UPDATE organizations SET archived_at = NULL WHERE id = $1", org_id)
-    return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    return RedirectResponse(f"/admin/orgs/{org_id}/?flash=unarchived", status_code=303)
 
 
 @router.delete("/{org_id}/")

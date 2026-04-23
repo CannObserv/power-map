@@ -12,6 +12,7 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    resolve_query_flash,
 )
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
@@ -20,6 +21,10 @@ from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/people", tags=["admin-people"])
+
+_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
+    "unarchived": ("success", "Person unarchived."),
+}
 
 
 @router.get("/")
@@ -178,6 +183,7 @@ async def person_detail(
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
+    flash: str | None = Query(None),
 ):
     """Person detail view."""
 
@@ -238,6 +244,7 @@ async def person_detail(
         person_id,
     )
 
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
         "admin/people/detail.html",
@@ -255,7 +262,9 @@ async def person_detail(
             "role_assignments": role_assignments,
             "org_dup_count": org_dup_count,
             "person_dup_count": person_dup_count,
+            "flash_msg": flash_msg,
         },
+        headers=resp_headers,
     )
 
 
@@ -288,7 +297,7 @@ async def person_unarchive(
     if not person["archived_at"]:
         raise HTTPException(status_code=409, detail="Person is not archived")
     await db.execute("UPDATE people SET archived_at = NULL WHERE id = $1", person_id)
-    return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+    return RedirectResponse(f"/admin/people/{person_id}/?flash=unarchived", status_code=303)
 
 
 @router.delete("/{person_id}/")
