@@ -272,7 +272,6 @@ async def person_detail(
 @router.post("/{person_id}/archive/")
 async def person_archive(
     person_id: str,
-    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -287,7 +286,6 @@ async def person_archive(
 @router.post("/{person_id}/unarchive/")
 async def person_unarchive(
     person_id: str,
-    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
