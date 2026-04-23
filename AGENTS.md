@@ -31,7 +31,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     people_addresses.py — Inline CRUD for addresses + entity_addresses (row-level HTMX swap); normalizer confirm flow; country-format endpoint
     people_links.py     — Inline CRUD for links + link_types (row-level HTMX swap); delegates to _links_shared factory
     people_identifiers.py — Inline CRUD for identifiers filtered to entity_type='person' (row-level HTMX swap); delegates to _identifiers_shared factory
-    people_assignments.py — Inline CRUD for person → role_assignments (row-level HTMX swap)
+    people_assignments.py — Inline CRUD for person → role_assignments (row-level HTMX swap); archive-only (no hard delete inline)
     role_assignments.py — Role assignment list, create, detail, archive, delete; inline editing for is_current/dates/notes (row-level HTMX swap)
     router.py   — Mounts all admin sub-routers under /admin/
     orgs.py     — Org list, detail, search typeahead, inline active/notes/parent editing, children CRUD, archive/unarchive/delete
@@ -45,7 +45,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
     orgs_roles.py       — Inline role create and merge on org detail (new-row GET, create POST, merge POST)
     roles_shared.py     — Shared helpers: _get_role (fetch + 404), _parse_date, _check_assignment_within_bounds; imported by roles_detail and roles_assignments_inline to avoid circular deps
     roles_detail.py     — Inline editing for role detail fields: org, title, notes, boundary dates (established_on / abolished_on)
-    roles_assignments_inline.py — Inline assignment CRUD on role detail (create/read-row/edit-row); fetch_role_assignments helper
+    roles_assignments_inline.py — Inline assignment CRUD on role detail (create/read-row/edit-row/archive); archive-only (no hard delete inline); fetch_role_assignments helper
     entities.py         — Entities landing page (card-grid overview with record counts); templates in src/templates/admin/entities/
     settings.py         — Settings landing page; templates in src/templates/admin/settings/
     settings_link_types.py      — Inline CRUD for link_types (row-level HTMX swap)
@@ -74,7 +74,10 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 
 ### Admin dashboard conventions
 - Auth: exe.dev proxy injects `X-ExeDev-UserID` + `X-ExeDev-Email` headers; missing headers → redirect to `/__exe.dev/login?redirect=<url-encoded path+query>`
-- Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived); unarchive via `POST /{id}/unarchive/` sets `archived_at = NULL` and preserves prior `active` state (returns 409 if not archived)
+- Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived.
+  - Hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived).
+  - Unarchive via `POST /{id}/unarchive/` sets `archived_at = NULL` and preserves prior `active` state (returns 409 if not archived).
+  - Archive on orgs/people/roles is idempotent (silent re-archive updates `archived_at = NOW()`); archive on role-assignments is strictly guarded and returns 409 if already archived (both inline routes on role/person detail and the RA detail page). See #113 for the consistency debate.
 - Auth dependency: `user: AdminUser = Depends(get_admin_user)` on every route handler — `get_admin_user` raises `HTTPException(307)` with `Location: /__exe.dev/login?redirect=<url>` when headers are absent; FastAPI propagates the redirect automatically.
 - HTMX partial responses: use `is_htmx(request)` from `src.api.admin.deps` to select partial templates — checks `HX-Request and not HX-Boosted` (boost sends both; omitting the guard causes boosted sidebar nav to receive bare fragments instead of full page layouts).
 - hx-boost re-execution: HTMX re-runs all `<script src>` tags found in `<body>` on every boosted navigation (via its `executeScripts` mechanism). Scripts with persistent `document.addEventListener` calls must live in `<head>` (`admin-modal.js`, `flash.js`, `dark-mode.js`). For unavoidable inline body scripts, use the remove/re-assign/add guard pattern: `document.removeEventListener(evt, document.__pmKey); document.__pmKey = fn; document.addEventListener(evt, document.__pmKey)` — see `base.html` aria-busy and `__pmNavKeydown` as examples.

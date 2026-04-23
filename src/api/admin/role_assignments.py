@@ -501,16 +501,22 @@ async def ra_archive(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Archive a role assignment (soft delete)."""
+    """Archive a role assignment (soft delete). Returns 409 if already archived."""
 
     updated = await db.fetchval(
-        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1 RETURNING id",
+        "UPDATE role_assignments SET archived_at = NOW() "
+        "WHERE id = $1 AND archived_at IS NULL RETURNING id",
         ra_id,
     )
-    if not updated:
+    if updated:
+        return RedirectResponse(
+            f"/admin/role-assignments/{ra_id}/?flash=archived", status_code=303
+        )
+    exists = await db.fetchval("SELECT 1 FROM role_assignments WHERE id = $1", ra_id)
+    if not exists:
         raise HTTPException(status_code=404, detail="Role assignment not found")
-    return RedirectResponse(
-        f"/admin/role-assignments/{ra_id}/?flash=archived", status_code=303
+    raise HTTPException(
+        status_code=409, detail="Role assignment is already archived"
     )
 
 

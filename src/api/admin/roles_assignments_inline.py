@@ -379,17 +379,23 @@ async def assignment_edit_row_post(
     )
 
 
-@router.delete("/assignments/{assignment_id}/")
-async def assignment_delete(
+@router.post("/assignments/{assignment_id}/archive/")
+async def assignment_archive(
     role_id: str,
     assignment_id: str,
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Delete a role assignment from role detail."""
-    await _get_assignment(assignment_id, role_id, db)
-    await db.execute("DELETE FROM role_assignments WHERE id=$1", assignment_id)
+    """Archive a role assignment from role detail. Returns 409 if already archived."""
+    ra = await _get_assignment(assignment_id, role_id, db)
+    if ra["archived_at"]:
+        raise HTTPException(
+            status_code=409, detail="Role assignment is already archived"
+        )
+    await db.execute(
+        "UPDATE role_assignments SET archived_at = NOW() WHERE id=$1", assignment_id
+    )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
     assignments = await fetch_role_assignments(role_id, db)
@@ -397,5 +403,5 @@ async def assignment_delete(
         request,
         "admin/roles/partials/_assignment_rows.html",
         {"assignments": assignments, "role_id": role_id},
-        headers=flash_trigger("info", "Assignment removed."),
+        headers=flash_trigger("success", "Assignment archived."),
     )
