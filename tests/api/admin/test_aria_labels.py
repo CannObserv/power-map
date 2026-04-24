@@ -11,12 +11,14 @@ from pathlib import Path
 
 _TEMPLATE_BASE = Path("src/templates/admin")
 
-# Auto-discover all read-row partials. Excludes form/edit rows (Save/Cancel
-# buttons are exempt — only one row is editable at a time) and confirm modals.
+# Auto-discover all read-row partials (singular *_row.html and plural *_rows.html).
+# Excludes form/edit rows (Save/Cancel buttons are exempt — only one row is editable
+# at a time) and confirm modals.
 _READ_ROW_TEMPLATES = sorted(
     p.relative_to(_TEMPLATE_BASE)
-    for p in _TEMPLATE_BASE.rglob("*_row.html")
-    if "_form_row" not in p.name
+    for p in _TEMPLATE_BASE.rglob("*.html")
+    if re.search(r"_rows?\.html$", p.name)
+    and "_form_row" not in p.name
     and "_edit_row" not in p.name
     and "_confirm_modal" not in p.name
 )
