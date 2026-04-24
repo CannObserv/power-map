@@ -160,6 +160,14 @@ def test_archived_flash_renders_on_role_detail(client, role_id):
     assert "flash" not in response.headers["HX-Replace-Url"]
 
 
+def test_role_detail_unknown_flash_key_ignored(client, role_id):
+    """GET role detail with ?flash=bogus returns 200 with no flash and no HX-Replace-Url."""
+    response = client.get(f"/admin/roles/{role_id}/?flash=bogus", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "flash--success" not in response.text
+    assert "HX-Replace-Url" not in response.headers
+
+
 async def test_archive_already_archived_role_returns_409(client, db, role_id):
     """Re-archiving an already-archived role is rejected with 409."""
     await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
