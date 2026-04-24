@@ -549,6 +549,7 @@ Pattern: `aria-label="[Action] [entity-specific descriptor]"`
 
 - **[Action]**: imperative matching visible text (`Edit`, `Delete`, `Archive`, `Unarchive`, `View`, `Open`, `Unlink`, `Copy`)
 - **[entity-specific descriptor]**: the row's most natural identifier — name, value, address type, etc.
+  Address rows use `a.address_type` (e.g. `"Edit mailing address"`) since the full formatted address is unwieldy. If an entity has two addresses of the same type, labels will collide — acceptable given the rarity of this case.
 
 ```html
 <button aria-label="Edit name {{ n.name }}">Edit</button>

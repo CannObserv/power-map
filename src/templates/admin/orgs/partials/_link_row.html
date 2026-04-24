@@ -8,7 +8,7 @@
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Copy URL {{ l.url }}"
             data-url="{{ l.url }}"
-            onclick="navigator.clipboard.writeText(this.dataset.url).then(function(){htmx.trigger(document.body,'showFlash',{level:'success',body:'URL copied to clipboard'})},function(){htmx.trigger(document.body,'showFlash',{level:'error',body:'Copy failed — clipboard access denied'})})">Copy</button>
+            onclick="navigator.clipboard.writeText(this.dataset.url).then(function(){htmx.trigger(document.body,'showFlash',{level:'success',body:'URL copied to clipboard'})},function(){htmx.trigger(document.body,'showFlash',{level:'error',body:'Copy failed \u2014 clipboard access denied'})})">Copy</button>
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit link {{ l.url }}"
             hx-get="/admin/orgs/{{ org_id }}/links/{{ l.id }}/edit-row/"

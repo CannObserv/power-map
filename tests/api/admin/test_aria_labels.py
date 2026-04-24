@@ -11,40 +11,22 @@ from pathlib import Path
 
 _TEMPLATE_BASE = Path("src/templates/admin")
 
-# Read-row templates: every btn--sm must carry aria-label.
-# Does NOT include *_form_row.html or *_edit_row.html (Save/Cancel excluded).
-_READ_ROW_TEMPLATES = [
-    # org detail subsections
-    "orgs/partials/_acronym_row.html",
-    "orgs/partials/_address_row.html",
-    "orgs/partials/_child_row.html",
-    "orgs/partials/_contact_row.html",
-    "orgs/partials/_identifier_row.html",
-    "orgs/partials/_link_row.html",
-    "orgs/partials/_name_row.html",
-    # person detail subsections
-    "people/partials/_address_row.html",
-    "people/partials/_assignment_row.html",
-    "people/partials/_contact_row.html",
-    "people/partials/_identifier_row.html",
-    "people/partials/_link_row.html",
-    "people/partials/_name_row.html",
-    # role detail subsections
-    "roles/partials/_assignment_row.html",
-    # settings
-    "settings/partials/_api_key_row.html",
-    "settings/partials/_identifier_type_row.html",
-    "settings/partials/_link_type_row.html",
-    # list tables
-    "orgs/_rows.html",
-    "people/_rows.html",
-    "roles/_rows.html",
-    "role_assignments/_rows.html",
-]
+# Auto-discover all read-row partials. Excludes form/edit rows (Save/Cancel
+# buttons are exempt — only one row is editable at a time) and confirm modals.
+_READ_ROW_TEMPLATES = sorted(
+    p.relative_to(_TEMPLATE_BASE)
+    for p in _TEMPLATE_BASE.rglob("*_row.html")
+    if "_form_row" not in p.name
+    and "_edit_row" not in p.name
+    and "_confirm_modal" not in p.name
+)
 
-# Matches opening tags of <button> or <a>; stops at first bare > (safe for our
-# templates — hx-confirm values never contain unquoted >).
-_TAG_RE = re.compile(r"<(?:button|a)\b[^>]*>", re.DOTALL)
+# Quoted-string-aware tag match: handles attribute values that contain >.
+# Stops at the first > that is not inside a single- or double-quoted attribute.
+_TAG_RE = re.compile(
+    r'<(?:button|a)\b(?:[^>"\']*|"[^"]*"|\'[^\']*\')*>',
+    re.DOTALL,
+)
 
 
 def _buttons_missing_aria(text: str) -> list[str]:
