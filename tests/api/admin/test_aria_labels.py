@@ -20,7 +20,6 @@ _READ_ROW_TEMPLATES = sorted(
     if re.search(r"_rows?\.html$", p.name)
     and "_form_row" not in p.name
     and "_edit_row" not in p.name
-    and "_confirm_modal" not in p.name
 )
 
 # Quoted-string-aware tag match: handles attribute values that contain >.
