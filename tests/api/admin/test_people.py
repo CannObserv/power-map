@@ -136,6 +136,29 @@ def test_archive_person(client, person_id):
     assert response.status_code in (302, 303)
 
 
+def test_archive_already_archived_person_returns_409(client, person_id):
+    """Re-archiving an already-archived person is rejected with 409."""
+    dsn = _get_dsn()
+
+    async def archive():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute(
+                "UPDATE people SET archived_at = NOW() WHERE id = $1", person_id
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(archive())
+    response = client.post(
+        f"/admin/people/{person_id}/archive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Person is already archived"
+
+
 def test_archive_person_redirects_with_flash_query(client, person_id):
     """Archive redirects to detail with ?flash=archived."""
     response = client.post(

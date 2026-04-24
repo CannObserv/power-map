@@ -77,7 +77,7 @@ scripts/        — One-off operational scripts (import_cannabis_observer.py, de
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived.
   - Hard delete gated on `archived_at IS NOT NULL` (returns 409 if not archived).
   - Unarchive via `POST /{id}/unarchive/` sets `archived_at = NULL` and preserves prior `active` state (returns 409 if not archived). Redirects to detail page with `?flash=unarchived` for all entity types (orgs, people, role-assignments).
-  - Archive on orgs/people/roles is idempotent (silent re-archive updates `archived_at = NOW()`); archive on role-assignments is strictly guarded and returns 409 if already archived (both inline routes on role/person detail and the RA detail page). See #113 for the consistency debate.
+  - Archive is strictly guarded across all entity types — returns 409 if already archived (orgs, people, roles, role-assignments including both inline routes on role/person detail and the RA detail page).
   - Flash on detail pages: `org_detail`, `person_detail`, and `ra_detail` all accept a `?flash=` query param and render via `resolve_query_flash`. Add new flash keys to the module-level `_FLASH_MESSAGES` dict in each module.
 - Auth dependency: `user: AdminUser = Depends(get_admin_user)` on every route handler — `get_admin_user` raises `HTTPException(307)` with `Location: /__exe.dev/login?redirect=<url>` when headers are absent; FastAPI propagates the redirect automatically.
 - HTMX partial responses: use `is_htmx(request)` from `src.api.admin.deps` to select partial templates — checks `HX-Request and not HX-Boosted` (boost sends both; omitting the guard causes boosted sidebar nav to receive bare fragments instead of full page layouts).

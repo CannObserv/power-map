@@ -276,9 +276,11 @@ async def person_archive(
     db=Depends(get_db),
 ):
     """Archive a person (soft delete)."""
-    person = await db.fetchrow("SELECT id FROM people WHERE id = $1", person_id)
+    person = await db.fetchrow("SELECT id, archived_at FROM people WHERE id = $1", person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
+    if person["archived_at"]:
+        raise HTTPException(status_code=409, detail="Person is already archived")
     await db.execute("UPDATE people SET archived_at = NOW() WHERE id = $1", person_id)
     return RedirectResponse(f"/admin/people/{person_id}/?flash=archived", status_code=303)
 

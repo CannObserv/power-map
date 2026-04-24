@@ -188,6 +188,29 @@ def test_archive_org(client, org_id):
     assert response.status_code in (302, 303)
 
 
+def test_archive_already_archived_org_returns_409(client, org_id):
+    """Re-archiving an already-archived org is rejected with 409."""
+    dsn = _get_dsn()
+
+    async def archive():
+        conn = await _aconnect(dsn)
+        try:
+            await conn.execute(
+                "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(archive())
+    response = client.post(
+        f"/admin/orgs/{org_id}/archive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Organization is already archived"
+
+
 def test_archive_org_redirects_with_flash_query(client, org_id):
     """Archive redirects to detail with ?flash=archived."""
     response = client.post(
