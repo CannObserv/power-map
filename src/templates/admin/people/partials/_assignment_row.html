@@ -13,10 +13,12 @@
     <a href="/admin/role-assignments/{{ ra.id }}/" class="btn btn--sm btn--ghost" aria-label="Open assignment detail">Open</a>
     {% if not ra.archived_at %}
     <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Edit assignment at {{ ra.org_name or '(unnamed)' }}"
             hx-get="/admin/people/{{ person_id }}/assignments/{{ ra.id }}/edit-row/"
             hx-target="#person-assignment-row-{{ ra.id }}"
             hx-swap="outerHTML">Edit</button>
     <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Archive assignment at {{ ra.org_name or '(unnamed)' }}"
             hx-post="/admin/people/{{ person_id }}/assignments/{{ ra.id }}/archive/"
             hx-target="#person-assignments-table tbody"
             hx-swap="innerHTML"

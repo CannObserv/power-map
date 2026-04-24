@@ -540,6 +540,27 @@ Always include `aria-label`:
 <button aria-label="Toggle navigation">&#9776;</button>
 ```
 
+### Row-action buttons
+
+Every `btn--sm` in a read-row partial must have `aria-label`. Multiple identical labels
+("Edit", "Delete") across rows on the same page fail WCAG 2.1 AA SC 2.4.6 / 4.1.2.
+
+Pattern: `aria-label="[Action] [entity-specific descriptor]"`
+
+- **[Action]**: imperative matching visible text (`Edit`, `Delete`, `Archive`, `Unarchive`, `View`, `Open`, `Unlink`, `Copy`)
+- **[entity-specific descriptor]**: the row's most natural identifier — name, value, address type, etc.
+
+```html
+<button aria-label="Edit name {{ n.name }}">Edit</button>
+<button aria-label="Delete contact {{ c.value }}">Delete</button>
+<button aria-label="Archive assignment at {{ ra.org_name or '(unnamed)' }}">Archive</button>
+<a aria-label="Edit {{ org.canonical_name or '(unnamed)' }}">Edit</a>
+```
+
+**Excluded**: Save/Cancel in form rows (`*_form_row.html`, `*_edit_row.html`) — only one row is
+editable at a time, so disambiguation is not needed. Static linting enforced by
+`tests/api/admin/test_aria_labels.py`.
+
 ### HTMX live regions
 
 All swap targets: `aria-live="polite" aria-atomic="false"`.

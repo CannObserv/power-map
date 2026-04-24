@@ -5,10 +5,12 @@
   <td>{{ lt.usage_count if lt.usage_count else '—' }}</td>
   <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Edit link type {{ lt.display_name }}"
             hx-get="/admin/settings/link-types/{{ scope }}/{{ lt.id }}/edit-row/"
             hx-target="#link-type-row-{{ lt.id }}"
             hx-swap="outerHTML">Edit</button>
     <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Delete link type {{ lt.display_name }}"
             hx-delete="/admin/settings/link-types/{{ scope }}/{{ lt.id }}/"
             hx-target="#link-type-row-{{ lt.id }}"
             hx-swap="outerHTML"

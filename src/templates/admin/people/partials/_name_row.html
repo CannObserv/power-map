@@ -5,10 +5,12 @@
   <td style="text-align:right">{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
   <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Edit name {{ n.name }}"
             hx-get="/admin/people/{{ person_id }}/names/{{ n.id }}/edit-row/"
             hx-target="#name-row-{{ n.id }}"
             hx-swap="outerHTML">Edit</button>
     <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Delete name {{ n.name }}"
             hx-delete="/admin/people/{{ person_id }}/names/{{ n.id }}/"
             hx-target="#names-table tbody"
             hx-swap="innerHTML"

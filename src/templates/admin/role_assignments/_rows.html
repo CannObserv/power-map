@@ -13,7 +13,7 @@
   <td>{{ ra.start_date or '—' }}</td>
   <td>{{ ra.end_date or '—' }}</td>
   <td>{{ ra.created_at.strftime('%Y-%m-%d') }}</td>
-  <td><a href="/admin/role-assignments/{{ ra.id }}/edit/" class="btn btn--ghost btn--sm">Edit</a></td>
+  <td><a href="/admin/role-assignments/{{ ra.id }}/edit/" class="btn btn--ghost btn--sm" aria-label="Edit {{ ra.person_name or '(unnamed)' }} at {{ ra.org_name or '(unnamed)' }}">Edit</a></td>
 </tr>
 {% else %}
 <tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>

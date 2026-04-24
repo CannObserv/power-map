@@ -6,10 +6,12 @@
   <td style="color:var(--color-text-muted)">{{ key.last_used_at.strftime('%Y-%m-%d') if key.last_used_at else 'Never' }}</td>
   <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Edit API key {{ key.label }}"
             hx-get="/admin/settings/api-keys/{{ key.id }}/edit-row/"
             hx-target="#api-key-row-{{ key.id }}"
             hx-swap="outerHTML">Edit</button>
     <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Delete API key {{ key.label }}"
             hx-delete="/admin/settings/api-keys/{{ key.id }}/"
             hx-target="#api-key-row-{{ key.id }}"
             hx-swap="outerHTML"

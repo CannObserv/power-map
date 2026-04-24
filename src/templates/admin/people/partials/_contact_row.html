@@ -4,10 +4,12 @@
   <td>{{ c.display_label or '—' }}</td>
   <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Edit contact {{ c.value }}"
             hx-get="/admin/people/{{ person_id }}/contacts/{{ c.id }}/edit-row/"
             hx-target="#contact-row-{{ c.id }}"
             hx-swap="outerHTML">Edit</button>
     <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Delete contact {{ c.value }}"
             hx-delete="/admin/people/{{ person_id }}/contacts/{{ c.id }}/"
             hx-target="#contact-row-{{ c.id }}"
             hx-swap="outerHTML"

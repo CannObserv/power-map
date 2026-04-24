@@ -7,10 +7,12 @@
   <td>{{ eit.usage_count if eit.usage_count else '—' }}</td>
   <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Edit identifier type {{ eit.display_name }}"
             hx-get="/admin/settings/identifier-types/{{ eit.id }}/edit-row/"
             hx-target="#identifier-type-row-{{ eit.id }}"
             hx-swap="outerHTML">Edit</button>
     <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Delete identifier type {{ eit.display_name }}"
             hx-delete="/admin/settings/identifier-types/{{ eit.id }}/"
             hx-target="#identifier-type-row-{{ eit.id }}"
             hx-swap="outerHTML"

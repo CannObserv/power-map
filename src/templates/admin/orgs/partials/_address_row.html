@@ -11,10 +11,12 @@
   {% if a.display_name %}<td>{{ a.display_name }}</td>{% else %}<td>—</td>{% endif %}
   <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Edit {{ a.address_type }} address"
             hx-get="/admin/orgs/{{ org_id }}/addresses/{{ a.id }}/edit-row/"
             hx-target="#address-row-{{ a.id }}"
             hx-swap="outerHTML">Edit</button>
     <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Delete {{ a.address_type }} address"
             hx-delete="/admin/orgs/{{ org_id }}/addresses/{{ a.id }}/"
             hx-target="#address-row-{{ a.id }}"
             hx-swap="outerHTML"

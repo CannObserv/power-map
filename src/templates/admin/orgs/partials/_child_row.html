@@ -8,6 +8,7 @@
   </td>
   <td>
     <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Unlink {{ child.canonical_name or '(unnamed)' }}"
             hx-delete="/admin/orgs/{{ org_id }}/children/{{ child.id }}/"
             hx-target="#child-row-{{ child.id }}"
             hx-swap="outerHTML"
