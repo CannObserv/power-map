@@ -210,6 +210,8 @@ Entry points only: call `configure_logging()` once.
 - All UTC
 - ISO 8601: `YYYY-MM-DDTHH:MM:SS.ffffffZ` (timestamps), `YYYY-MM-DD` (dates)
 
+**Version bumps:** update `pyproject.toml` and `package.json` together — the `check-version-sync` pre-commit hook enforces this.
+
 **General:**
 - No inline module imports; all at file top
 - Docstrings for public modules, classes, functions
