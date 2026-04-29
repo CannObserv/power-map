@@ -9,6 +9,10 @@ if [ -z "$py" ]; then
 fi
 
 js=$(jq -r .version package.json)
+if [ -z "$js" ] || [ "$js" = "null" ]; then
+  echo "check_version_sync: no version field found in package.json"
+  exit 1
+fi
 
 if [ "$py" != "$js" ]; then
   echo "Version mismatch: pyproject.toml=$py  package.json=$js"

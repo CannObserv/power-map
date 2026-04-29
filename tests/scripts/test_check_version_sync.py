@@ -46,3 +46,9 @@ def test_missing_pyproject_version_fails(tmp_path):
     result = _run(tmp_path, None, "1.0.0")
     assert result.returncode == 1
     assert "no version field found in pyproject.toml" in result.stdout
+
+
+def test_missing_package_json_version_fails(tmp_path):
+    result = _run(tmp_path, "1.0.0", None)
+    assert result.returncode == 1
+    assert "no version field found in package.json" in result.stdout
