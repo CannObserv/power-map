@@ -157,7 +157,7 @@ exe.dev proxy: dev server accessible at `https://power-map.exe.xyz:8001/`.
 | Worktree dev testing | kill+restart dev server on 8001 with `--reload` from worktree dir |
 | Env var change | restart service (env read at startup) |
 | Service debugging | `sudo journalctl -u power-map -f` |
-| New deployment | install `deploy/power-map.service` → see `docs/COMMANDS.md` |
+| New deployment | install `infra/power-map.service` → see `docs/COMMANDS.md` |
 
 ### Environment Variables
 
@@ -179,7 +179,7 @@ export $(cat .env | xargs) 2>/dev/null
 |---|---|---|
 | API | FastAPI | 8000 (prod) / 8001 (dev) |
 
-Production runs under systemd (`deploy/power-map.service`). After any code change: `sudo systemctl restart power-map`.
+Production runs under systemd (`infra/power-map.service`). After any code change: `sudo systemctl restart power-map`.
 
 ## Common Commands
 

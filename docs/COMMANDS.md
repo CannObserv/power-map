@@ -46,8 +46,8 @@ sudo systemctl restart power-map
 # Tail logs
 sudo journalctl -u power-map -f
 
-# Install (first time or after updating deploy/power-map.service)
-sudo cp deploy/power-map.service /etc/systemd/system/power-map.service
+# Install (first time or after updating infra/power-map.service)
+sudo cp infra/power-map.service /etc/systemd/system/power-map.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now power-map
 ```
