@@ -35,3 +35,10 @@ repos:
         entry: npm run test:js
         pass_filenames: false
         always_run: true
+
+      - id: check-version-sync
+        name: version sync (pyproject.toml == package.json)
+        language: system
+        entry: scripts/check_version_sync.sh
+        pass_filenames: false
+        files: ^(pyproject\.toml|package\.json)$
