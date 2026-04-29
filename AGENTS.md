@@ -70,6 +70,7 @@ tests/          — Mirrors src/ structure
   js/           — Vitest behavioral tests for admin JS (role-merge.js, …)
 docs/           — Reference docs (API, COMMANDS, SKILLS)
 scripts/        — One-off operational scripts (import_cannabis_observer.py, deduplicate_roles.py)
+infra/          — systemd unit file (power-map.service)
 ```
 
 ### Admin dashboard conventions
