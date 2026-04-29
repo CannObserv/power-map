@@ -147,7 +147,7 @@ Single VM running both production service and development. Port split prevents c
 
 exe.dev proxy: dev server accessible at `https://power-map.exe.xyz:8001/`.
 
-**All development work must be done in a git worktree** — never edit the main checkout directly. `brainstorming` is the entry point that triggers worktree setup via `using-git-worktrees`.
+**All development work must be done in a git worktree** — never edit the main checkout directly. `brainstorming` is the entry point that triggers worktree setup via `using-git-worktrees`. After teardown, run `git worktree prune` to remove stale entries.
 
 ### Server Lifecycle
 
