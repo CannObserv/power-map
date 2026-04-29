@@ -199,5 +199,5 @@ Run before re-applying schema on a dirty DB (see bootstrap sequence in AGENTS.md
 git submodule update --init --recursive
 
 # Force-refresh vendor skills
-git submodule update --remote --merge vendor/gregoryfoster-skills vendor/obra-superpowers
+git submodule update --remote --merge skills-vendor/gregoryfoster-skills skills-vendor/obra-superpowers
 ```
