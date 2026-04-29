@@ -1,4 +1,4 @@
-"""Integration tests for GET /api/v1/orgs/search and GET /api/v1/orgs/{id}."""
+"""Tests for GET /api/v1/orgs/search and GET /api/v1/orgs/{id}."""
 
 import hashlib
 import os
@@ -6,8 +6,6 @@ import os
 import pytest
 
 from src.core.db import generate_id
-
-pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
@@ -117,21 +115,23 @@ def _search(client, api_key, q, **params):
 # ---------------------------------------------------------------------------
 
 
-def test_search_missing_key_returns_403(client):
-    r = client.get("/api/v1/orgs/search?q=test")
+def test_search_missing_key_returns_403(unit_client):
+    r = unit_client.get("/api/v1/orgs/search?q=test")
     assert r.status_code == 403
 
 
+@pytest.mark.integration
 def test_search_invalid_key_returns_401(client):
     r = client.get("/api/v1/orgs/search?q=test", headers={"X-API-Key": "pm_bad"})
     assert r.status_code == 401
 
 
-def test_get_org_missing_key_returns_403(client):
-    r = client.get("/api/v1/orgs/someid")
+def test_get_org_missing_key_returns_403(unit_client):
+    r = unit_client.get("/api/v1/orgs/someid")
     assert r.status_code == 403
 
 
+@pytest.mark.integration
 def test_get_org_invalid_key_returns_401(client):
     r = client.get("/api/v1/orgs/someid", headers={"X-API-Key": "pm_bad"})
     assert r.status_code == 401
@@ -142,6 +142,7 @@ def test_get_org_invalid_key_returns_401(client):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.integration
 async def test_search_response_envelope(client, api_key, org_fixture):
     r = _search(client, api_key, "Television")
     assert r.status_code == 200
@@ -155,6 +156,7 @@ async def test_search_response_envelope(client, api_key, org_fixture):
     assert "has_more" in meta
 
 
+@pytest.mark.integration
 async def test_search_meta_reflects_params(client, api_key, org_fixture):
     r = _search(client, api_key, "Television", limit=5, offset=0)
     meta = r.json()["meta"]
@@ -162,17 +164,20 @@ async def test_search_meta_reflects_params(client, api_key, org_fixture):
     assert meta["offset"] == 0
 
 
+@pytest.mark.integration
 async def test_search_meta_count_matches_data(client, api_key, org_fixture):
     r = _search(client, api_key, "Television")
     body = r.json()
     assert body["meta"]["count"] == len(body["data"])
 
 
+@pytest.mark.integration
 async def test_search_has_more_false_when_under_limit(client, api_key, org_fixture):
     r = _search(client, api_key, "Television", limit=50)
     assert r.json()["meta"]["has_more"] is False
 
 
+@pytest.mark.integration
 async def test_search_has_more_true_when_exactly_limit_plus_one(client, api_key, org_fixture):
     # limit=1 with at least 1 result; has_more depends on total matching rows
     r = _search(client, api_key, "Television", limit=1)
@@ -187,6 +192,7 @@ async def test_search_has_more_true_when_exactly_limit_plus_one(client, api_key,
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.integration
 async def test_search_by_canonical_name(client, api_key, org_fixture):
     r = _search(client, api_key, "Television")
     assert r.status_code == 200
@@ -200,6 +206,7 @@ async def test_search_by_canonical_name(client, api_key, org_fixture):
     assert "parent_id" in hit
 
 
+@pytest.mark.integration
 async def test_search_by_acronym(client, api_key, org_fixture):
     r = _search(client, api_key, "TVW")
     assert r.status_code == 200
@@ -207,6 +214,7 @@ async def test_search_by_acronym(client, api_key, org_fixture):
     assert org_fixture["org_id"] in ids
 
 
+@pytest.mark.integration
 async def test_search_by_name_variant(client, api_key, org_fixture):
     r = _search(client, api_key, "TV Washington")
     assert r.status_code == 200
@@ -214,6 +222,7 @@ async def test_search_by_name_variant(client, api_key, org_fixture):
     assert org_fixture["org_id"] in ids
 
 
+@pytest.mark.integration
 async def test_search_excludes_archived(client, api_key, org_fixture, db):
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
@@ -225,6 +234,7 @@ async def test_search_excludes_archived(client, api_key, org_fixture, db):
     await db.execute("UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"])
 
 
+@pytest.mark.integration
 async def test_search_include_archived_flag(client, api_key, org_fixture, db):
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
@@ -236,6 +246,7 @@ async def test_search_include_archived_flag(client, api_key, org_fixture, db):
     await db.execute("UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"])
 
 
+@pytest.mark.integration
 async def test_search_archived_result_has_z_suffix_timestamp(client, api_key, org_fixture, db):
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
@@ -246,18 +257,21 @@ async def test_search_archived_result_has_z_suffix_timestamp(client, api_key, or
     await db.execute("UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"])
 
 
+@pytest.mark.integration
 async def test_search_limit(client, api_key, org_fixture):
     r = _search(client, api_key, "Television", limit=1)
     assert r.status_code == 200
     assert len(r.json()["data"]) <= 1
 
 
+@pytest.mark.integration
 async def test_search_limit_capped_at_50(client, api_key, org_fixture):
     r = _search(client, api_key, "a", limit=999)
     assert r.status_code == 200
     assert r.json()["meta"]["limit"] == 50
 
 
+@pytest.mark.integration
 async def test_search_empty_q_returns_empty_envelope(client, api_key):
     r = _search(client, api_key, "")
     assert r.status_code == 200
@@ -267,6 +281,7 @@ async def test_search_empty_q_returns_empty_envelope(client, api_key):
     assert body["meta"]["has_more"] is False
 
 
+@pytest.mark.integration
 async def test_search_limit_capped_at_50_for_empty_q(client, api_key):
     r = _search(client, api_key, "", limit=999)
     assert r.status_code == 200
@@ -278,6 +293,7 @@ async def test_search_limit_capped_at_50_for_empty_q(client, api_key):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.integration
 async def test_get_org_by_id_full_record(client, api_key, org_fixture):
     oid = org_fixture["org_id"]
     r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
@@ -312,11 +328,13 @@ async def test_get_org_by_id_full_record(client, api_key, org_fixture):
     assert eid["value"] == "12345"
 
 
+@pytest.mark.integration
 async def test_get_org_by_id_not_found(client, api_key):
     r = client.get("/api/v1/orgs/01DOESNOTEXIST00000000000000", headers={"X-API-Key": api_key})
     assert r.status_code == 404
 
 
+@pytest.mark.integration
 async def test_get_archived_org_still_returned(client, api_key, org_fixture, db):
     """GET by ID returns archived orgs — caller must check archived_at."""
     await db.execute(

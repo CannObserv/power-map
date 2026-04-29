@@ -39,6 +39,8 @@ def unit_client():
         yield AsyncMock()
 
     app.dependency_overrides[get_db] = _noop_db
-    with TestClient(app, raise_server_exceptions=False) as c:
-        yield c
-    app.dependency_overrides.clear()
+    try:
+        with TestClient(app, raise_server_exceptions=False) as c:
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_db, None)
