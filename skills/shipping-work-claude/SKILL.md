@@ -152,7 +152,21 @@ If nothing applies, omit this step entirely.
 
 ### Step 9 — Teardown worktree (if applicable)
 
-If work was done in a `.worktrees/` worktree, clean up after shipping:
+If work was done in a `.worktrees/` worktree, ask the user to confirm before destroying anything:
+
+```
+Ready to tear down worktree `.worktrees/<branch>` and delete branch `<branch>`.
+This will:
+  - Kill the dev server on port 8001
+  - Remove the worktree directory
+  - Delete the local branch
+
+Confirm teardown? (y/n)
+```
+
+**Wait for explicit confirmation before proceeding.** If the user says no, leave the worktree intact and skip to the summary.
+
+Once confirmed:
 
 ```bash
 # Kill the dev server on port 8001
@@ -163,6 +177,9 @@ git worktree remove --force .worktrees/<branch> 2>/dev/null || true
 
 # Delete the feature branch (now merged, safe to remove)
 git branch -d <branch> 2>/dev/null || true
+
+# Prune stale worktree refs
+git worktree prune
 ```
 
 Report: "Dev server stopped. Worktree and branch cleaned up."

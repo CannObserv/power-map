@@ -174,6 +174,38 @@ Ready to implement <feature-name>
 - **Problem:** Dev server still pointing at previous worktree
 - **Fix:** Always kill+restart on port 8001 after creating a new worktree
 
+## Teardown
+
+When a worktree is no longer needed (feature shipped, work abandoned), always ask the user to confirm before destroying anything:
+
+```
+Ready to tear down worktree `.worktrees/<branch>` and delete branch `<branch>`.
+This will:
+  - Kill the dev server on port 8001 (if running from this worktree)
+  - Remove the worktree directory
+  - Delete the local branch
+
+Confirm teardown? (y/n)
+```
+
+**Wait for explicit confirmation.** If the user says no, leave everything intact.
+
+Once confirmed:
+
+```bash
+# Kill dev server if running from this worktree
+fuser -k 8001/tcp 2>/dev/null || true
+
+# Remove worktree (run from main checkout)
+git worktree remove --force .worktrees/<branch> 2>/dev/null || true
+
+# Delete the branch
+git branch -d <branch> 2>/dev/null || true
+
+# Prune stale refs
+git worktree prune
+```
+
 ## Integration
 
 **Called by:**
