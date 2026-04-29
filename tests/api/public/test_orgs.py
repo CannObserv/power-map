@@ -3,33 +3,11 @@
 import hashlib
 import os
 
-import asyncpg
 import pytest
-from fastapi.testclient import TestClient
 
-from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
 pytestmark = pytest.mark.integration
-
-
-@pytest.fixture
-async def db():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
-        yield conn
-    finally:
-        await conn.close()
-
-
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
 
 
 @pytest.fixture
@@ -41,7 +19,11 @@ async def api_key(db):
     await db.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "orgtest@test.com")
     await db.execute(
         "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
-        kid, uid, "Org Test Key", raw_key[:8], key_hash,
+        kid,
+        uid,
+        "Org Test Key",
+        raw_key[:8],
+        key_hash,
     )
     yield raw_key
     await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
@@ -60,17 +42,23 @@ async def org_fixture(db):
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
         " VALUES ($1,$2,$3,'legal',TRUE)",
-        name_id, org_id, "Television Washington",
+        name_id,
+        org_id,
+        "Television Washington",
     )
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
         " VALUES ($1,$2,$3,'former',FALSE)",
-        former_id, org_id, "TV Washington",
+        former_id,
+        org_id,
+        "TV Washington",
     )
     await db.execute(
         "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
         " VALUES ($1,$2,$3,TRUE)",
-        acronym_id, org_id, "TVW",
+        acronym_id,
+        org_id,
+        "TVW",
     )
 
     type_row = await db.fetchrow(
@@ -90,7 +78,10 @@ async def org_fixture(db):
     await db.execute(
         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
         " VALUES ($1,$2,$3,$4)",
-        eid_id, org_id, eid_type_id, "12345",
+        eid_id,
+        org_id,
+        eid_type_id,
+        "12345",
     )
 
     yield {
@@ -231,9 +222,7 @@ async def test_search_excludes_archived(client, api_key, org_fixture, db):
     assert r.status_code == 200
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] not in ids
-    await db.execute(
-        "UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"]
-    )
+    await db.execute("UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"])
 
 
 async def test_search_include_archived_flag(client, api_key, org_fixture, db):
@@ -244,9 +233,7 @@ async def test_search_include_archived_flag(client, api_key, org_fixture, db):
     assert r.status_code == 200
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
-    await db.execute(
-        "UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"]
-    )
+    await db.execute("UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"])
 
 
 async def test_search_archived_result_has_z_suffix_timestamp(client, api_key, org_fixture, db):
@@ -256,9 +243,7 @@ async def test_search_archived_result_has_z_suffix_timestamp(client, api_key, or
     r = _search(client, api_key, "Television", include_archived="true")
     hit = next(o for o in r.json()["data"] if o["id"] == org_fixture["org_id"])
     assert hit["archived_at"].endswith("Z"), f"expected Z suffix, got {hit['archived_at']}"
-    await db.execute(
-        "UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"]
-    )
+    await db.execute("UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"])
 
 
 async def test_search_limit(client, api_key, org_fixture):
@@ -342,6 +327,4 @@ async def test_get_archived_org_still_returned(client, api_key, org_fixture, db)
     archived_at = r.json()["archived_at"]
     assert archived_at is not None
     assert archived_at.endswith("Z"), f"expected Z suffix, got {archived_at}"
-    await db.execute(
-        "UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"]
-    )
+    await db.execute("UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"])

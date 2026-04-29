@@ -47,6 +47,16 @@ def test_fmt_ts_formats_date_components_correctly():
     assert result == "2025-03-07T09:05:03Z"
 
 
+def test_fmt_ts_naive_datetime_returns_no_z_suffix():
+    # All DB timestamps are TIMESTAMPTZ (UTC-aware), so naive datetimes cannot
+    # reach _fmt_ts in practice. This test documents the edge-case behaviour:
+    # no timezone info → no +00:00 replacement → no Z suffix in output.
+    dt = datetime(2024, 1, 1)  # naive, no tzinfo
+    result = _fmt_ts(dt)
+    assert result is not None
+    assert not result.endswith("Z"), f"naive datetime should not produce Z suffix, got {result!r}"
+
+
 # ---------------------------------------------------------------------------
 # OrgSearchResult
 # ---------------------------------------------------------------------------
