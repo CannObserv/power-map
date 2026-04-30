@@ -1714,6 +1714,10 @@ Use `{% block extra_head %}{% endblock %}` (defined in `base.html`) to inject `<
 - Always `markupsafe.escape()` DB-derived values before interpolating into `body`
 - `extra` co-emits additional HX-Trigger events (merged into one JSON object): `flash_trigger("success", "Saved.", extra={"myEvent": {...}})`
 
+### Page header sync
+
+On any mutation route that may change an org's canonical name or acronym, pass `extra=await org_header_extra(org_id, db)` to `flash_trigger` (from `src.api.admin.deps`). Returns `{"updateOrgHeader": {"display": ...}}`; `org-detail.js` handles the event and updates `#page-heading`, `#breadcrumb-current`, and `document.title` in-place. Equivalent `person_header_extra` for person routes. → §30 for full client-side pattern.
+
 ### Dup count cache
 
 `count_org_duplicates(db)` in `src.api.admin.org_dups` and `count_person_duplicates(db)` in `src.api.admin.people_dups` are TTL-cached (5 min, process-local). Call `invalidate_dup_count_cache()` from the appropriate module after any merge or dismiss. All people and org routes inject both counts via deps; sidebar badges use these template vars directly (no HTMX XHR).

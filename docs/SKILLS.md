@@ -47,6 +47,17 @@ To add a new external skill repo: follow the `managing-skills-claude` skill.
 
 ¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
 
+## SocratiCode MCP Tools
+
+SocratiCode provides semantic search and dependency graph tools via MCP. Tool selection guide is in `AGENTS.md §Agent Skills & Tools`. Infrastructure details:
+
+- **Index status:** `codebase_status` — check before relying on search results
+- **Initial setup / reindex:** use the `socraticode:codebase-management` skill
+- **Exploration tasks:** use the `socraticode:codebase-explorer` subagent for multi-file tracing
+- **Index lives at:** `~/.socraticode/` (process-local, not committed)
+- **After large refactors:** run `codebase_update` or trigger a full reindex via `socraticode:codebase-management` to keep the graph accurate
+- **Duplicate MCP config warning:** if both `mcp__plugin_socraticode_socraticode__*` and `mcp__socraticode__*` tool prefixes appear, the standalone MCP is duplicated — remove it: `claude mcp remove socraticode`
+
 ## Local Overrides
 
 A committed directory in `skills/` completely supersedes the vendor version (no inheritance). Must be fully self-contained.

@@ -46,7 +46,7 @@ Equivalent for acronyms: `_maybe_promote_sole_acronym(org_id, db)` (from `src.ap
 
 ### Links schema
 
-`link_types` table (slug, display_name, is_social) replaces `url_types` + `platforms`. `links` table (entity_type, entity_id, url, link_type_id, is_active) replaces `urls` + `social_links`. Social links: `JOIN link_types WHERE is_social = TRUE`.
+`link_types` table holds (slug, display_name, is_social). `links` table holds (entity_type, entity_id, url, link_type_id, is_active). Social links: `JOIN link_types WHERE is_social = TRUE`.
 
 ---
 
