@@ -1668,3 +1668,54 @@ GET  /admin/{entities}/{id}/inline/dates/       → read partial
 GET  /admin/{entities}/{id}/inline/dates/edit/  → edit partial
 POST /admin/{entities}/{id}/inline/dates/       → save → read partial (or re-render form on error)
 ```
+
+---
+
+## 32. Admin Server Conventions
+
+### Auth
+
+exe.dev proxy injects `X-ExeDev-UserID` + `X-ExeDev-Email` headers. Missing headers → redirect to `/__exe.dev/login?redirect=<url-encoded path+query>`.
+
+Every route handler: `user: AdminUser = Depends(get_admin_user)` — `get_admin_user` (from `src.api.admin.deps`) raises `HTTPException(307)` with `Location` header; FastAPI propagates the redirect automatically.
+
+### Archive model
+
+`archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived.
+
+- Hard delete: gated on `archived_at IS NOT NULL` (returns 409 if not archived)
+- `POST /{id}/unarchive/`: sets `archived_at = NULL`, preserves prior `active` state (returns 409 if not archived); redirects to detail with `?flash=unarchived`
+- Archive: returns 409 if already archived — enforced across all entity types (orgs, people, roles, role-assignments)
+- Flash on detail pages: `org_detail`, `person_detail`, `ra_detail` accept `?flash=` param via `resolve_query_flash`; add new flash keys to the module-level `_FLASH_MESSAGES` dict
+
+### HTMX partial responses
+
+`is_htmx(request)` from `src.api.admin.deps` — checks `HX-Request and not HX-Boosted`. Boost sends both headers; omitting the `not HX-Boosted` guard causes boosted sidebar nav to receive bare fragments instead of full page layouts.
+
+Always include a `RedirectResponse` fallback on mutation routes for graceful degradation without JS.
+
+### hx-boost re-execution
+
+HTMX re-runs all `<script src>` tags found in `<body>` on every boosted navigation. Scripts with persistent `document.addEventListener` calls must live in `<head>` (`admin-modal.js`, `flash.js`, `dark-mode.js`).
+
+For unavoidable inline body scripts: `document.removeEventListener(evt, document.__pmKey); document.__pmKey = fn; document.addEventListener(evt, document.__pmKey)` — see `base.html` `aria-busy` and `__pmNavKeydown` as examples.
+
+### Page-specific head scripts
+
+Use `{% block extra_head %}{% endblock %}` (defined in `base.html`) to inject `<script src defer>` from a detail template. Scripts in `<head>` are never re-executed by hx-boost; `defer` ensures they run after DOM parse and HTMX is available. Extract inline scripts to files in `src/static/admin/` — no inline `<script>` blocks in this block.
+
+### Flash notifications
+
+`flash_trigger(level, body, extra=None)` from `src.api.admin.deps` — sets `HX-Trigger: {"showFlash": {...}}`; `flash.js` injects the flash into `#flash-region`.
+
+- Pass as `headers=flash_trigger(level, body)` to `TemplateResponse`
+- For non-HTMX inline flash: `message(level, body)` from `admin/macros/flash.html`
+- Levels: `success`, `info`, `warning`, `error`
+- Always `markupsafe.escape()` DB-derived values before interpolating into `body`
+- `extra` co-emits additional HX-Trigger events (merged into one JSON object): `flash_trigger("success", "Saved.", extra={"myEvent": {...}})`
+
+### Dup count cache
+
+`count_org_duplicates(db)` in `src.api.admin.org_dups` and `count_person_duplicates(db)` in `src.api.admin.people_dups` are TTL-cached (5 min, process-local). Call `invalidate_dup_count_cache()` from the appropriate module after any merge or dismiss. All people and org routes inject both counts via deps; sidebar badges use these template vars directly (no HTMX XHR).
+
+Caveat: cache is not shared across gunicorn workers — counts may lag by up to 5 min per worker.
