@@ -14,6 +14,28 @@ TDD required. Red → Green → Refactor. No production code without a failing t
 
 Python ≥3.12, uv, pytest, ruff; Node ≥22, npm, vitest + ESLint + Prettier (JS only); pre-commit (git hooks)
 
+## Code Exploration Policy
+
+SocratiCode tools are deferred — schemas aren't loaded at session start. Call `ToolSearch` with this prefetch query before using any `codebase_*` tool: `select:mcp__plugin_socraticode_socraticode__codebase_search,mcp__plugin_socraticode_socraticode__codebase_symbol,mcp__plugin_socraticode_socraticode__codebase_symbols,mcp__plugin_socraticode_socraticode__codebase_flow,mcp__plugin_socraticode_socraticode__codebase_impact,mcp__plugin_socraticode_socraticode__codebase_graph_query,mcp__plugin_socraticode_socraticode__codebase_graph_circular,mcp__plugin_socraticode_socraticode__codebase_graph_stats,mcp__plugin_socraticode_socraticode__codebase_graph_visualize,mcp__plugin_socraticode_socraticode__codebase_status,mcp__plugin_socraticode_socraticode__codebase_context,mcp__plugin_socraticode_socraticode__codebase_context_search`
+
+**Negative rule.** Broad semantic questions (feature location, architecture, what-uses-what) → SocratiCode. `grep`/`ripgrep` → exact string matches only. Explore subagent → path-pattern file walks only, not semantic search.
+
+| Goal | Tool |
+|------|------|
+| Understand feature location | `codebase_search` (broad query) |
+| Find specific function/type | `codebase_search` (exact name) |
+| See imports and dependents | `codebase_graph_query` |
+| What breaks if I change X? | `codebase_impact` |
+| What does entry point do? | `codebase_flow` |
+| Who calls function X? | `codebase_symbol` |
+| List symbols in a file | `codebase_symbols` |
+| Spot circular dependencies | `codebase_graph_circular` |
+| Quantify coupling / structural issues | `codebase_graph_stats` |
+| Visualize structure | `codebase_graph_visualize` |
+| Verify index status | `codebase_status` |
+| Surface available knowledge artifacts | `codebase_context` |
+| Find schemas, endpoint contracts, infra configs | `codebase_context_search` |
+
 ## Project Layout
 
 ```
@@ -90,22 +112,9 @@ Load both: `export $(cat /etc/power-map/.env | xargs) 2>/dev/null && export $(ca
 
 Skills in `skills/` (agentskills.io) and `.claude/skills/` (Claude Code). Reference: `docs/SKILLS.md`
 
-### SocratiCode — Search Before Reading
+### SocratiCode
 
-Search the index to map the codebase first, then target specific files. Reduces token consumption vs. grep-based exploration.
-
-| Goal | Tool |
-|------|------|
-| Understand feature location | `codebase_search` (broad query) |
-| Find specific function/type | `codebase_search` (exact name) |
-| See imports and dependents | `codebase_graph_query` |
-| What breaks if I change X? | `codebase_impact` |
-| What does entry point do? | `codebase_flow` |
-| Who calls function X? | `codebase_symbol` |
-| List symbols in a file | `codebase_symbols` |
-| Spot circular dependencies | `codebase_graph_circular` |
-| Visualize structure | `codebase_graph_visualize` |
-| Verify index status | `codebase_status` |
+See **Code Exploration Policy** above.
 
 ## Conventions
 
