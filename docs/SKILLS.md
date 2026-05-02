@@ -49,7 +49,7 @@ To add a new external skill repo: follow the `managing-skills-claude` skill.
 
 ## SocratiCode MCP Tools
 
-SocratiCode provides semantic search and dependency graph tools via MCP. Tool selection guide is in `AGENTS.md §Agent Skills & Tools`. Infrastructure details:
+SocratiCode provides semantic search and dependency graph tools via MCP. Tool selection guide is in `AGENTS.md §Code Exploration Policy`. Infrastructure details:
 
 - **Index status:** `codebase_status` — check before relying on search results
 - **Initial setup / reindex:** use the `socraticode:codebase-management` skill
