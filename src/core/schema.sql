@@ -137,7 +137,12 @@ CREATE TABLE IF NOT EXISTS person_names (
     person_id    TEXT        NOT NULL REFERENCES people(id),
     name         TEXT        NOT NULL,
     name_type    TEXT        NOT NULL DEFAULT 'legal'
-                             CHECK (name_type IN ('legal', 'former', 'preferred', 'alias', 'initials')),
+                             CHECK (name_type IN (
+                                 'legal','preferred','alias','former','initials',
+                                 'maiden','religious','stage',
+                                 'deadname',
+                                 'reading','romanization','mrz'
+                             )),
     is_canonical BOOLEAN     NOT NULL DEFAULT FALSE,
 
     -- i18n / cultural-awareness metadata (issue #121, Phase 1)
@@ -420,6 +425,25 @@ DO $$ BEGIN
                    WHERE table_name='person_names' AND column_name='honorific_suffix') THEN
         ALTER TABLE person_names ADD COLUMN honorific_suffix TEXT;
     END IF;
+END $$;
+
+-- Expand person_names.name_type to include i18n / cultural-awareness values.
+-- Drop + add: PostgreSQL's auto-generated inline CHECK is named
+-- 'person_names_name_type_check'. Existing rows are pre-validated to be in the
+-- new set (see issue #121 pre-flight).
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.check_constraints
+               WHERE constraint_name='person_names_name_type_check') THEN
+        ALTER TABLE person_names DROP CONSTRAINT person_names_name_type_check;
+    END IF;
+    ALTER TABLE person_names ADD CONSTRAINT person_names_name_type_check CHECK (
+        name_type IN (
+            'legal','preferred','alias','former','initials',
+            'maiden','religious','stage',
+            'deadname',
+            'reading','romanization','mrz'
+        )
+    );
 END $$;
 
 -- =============================================================================

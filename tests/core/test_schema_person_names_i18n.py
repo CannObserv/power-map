@@ -134,3 +134,31 @@ async def test_structured_parts_arrays(db):
     assert row["given_names"] == ["María", "José"]
     assert row["family_names"] == ["García", "López"]
     assert row["primary_identifier"] == "family"
+
+
+# --- Task 2: name_type expansion ---
+
+NEW_NAME_TYPES = [
+    "deadname", "mrz", "reading", "romanization",
+    "maiden", "religious", "stage",
+]
+
+
+@pytest.mark.parametrize("name_type", NEW_NAME_TYPES)
+async def test_person_names_accepts_new_name_type(db, name_type):
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(), pid, "Test", name_type,
+    )
+
+
+async def test_person_names_rejects_unknown_name_type(db):
+    pid = await _person(db)
+    with pytest.raises(asyncpg.CheckViolationError):
+        await db.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type)"
+            " VALUES ($1, $2, $3, $4)",
+            generate_id(), pid, "Test", "totally_invalid",
+        )
