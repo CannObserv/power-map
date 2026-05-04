@@ -125,6 +125,22 @@ A `person_names` row with no corresponding `person_name_parts` row is fully vali
 
 `uq_person_canonical_name` is keyed on `(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))`. A person can hold a canonical Hant `legal` and a canonical Latn `legal` (romanization) simultaneously.
 
+#### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
+
+`person_names.locale` and `person_names.script` are FK-constrained to `bcp47_locales(code)` and `iso15924_scripts(code)` respectively. The lookup tables are seeded by `scripts/seed_locales_scripts.py` from the `langcodes` and `pycountry` libraries, which live in the `seed` dependency group only — request-path code never imports them.
+
+Validation layering:
+
+| Layer | What it does | Source of truth |
+|---|---|---|
+| Admin form (Pydantic) | Strips whitespace, rejects empty strings | UI ergonomics |
+| Database FK | Rejects unregistered codes (`'xx-XX'`, `'Xxxx'`) | Authoritative |
+| Seed script (`langcodes` + `pycountry`) | Populates the lookup tables; runs once per env | Registry mirror |
+
+No curated default-set is maintained — the typeahead's empty state shows a placeholder and narrows the full table by user keystrokes (`code ILIKE '%q%' OR display_name ILIKE '%q%'`). pg_trgm GIN indexes on `code` and the human-readable column make full-table substring search fast (Postgres' planner may still pick Seq Scan on these small tables; the index is load-bearing as the data grows). Re-seed at any time to pick up registry updates: `uv run --group seed scripts/seed_locales_scripts.py`.
+
+ON UPDATE CASCADE is set on both FKs, so a registry-driven `code` rename propagates to existing person_names rows. ON DELETE NO ACTION (default) blocks lookup-row deletion when referenced — the registry doesn't shrink, so this is correct.
+
 ---
 
 ## Unique Indexes (PostgreSQL 15+)
