@@ -49,18 +49,28 @@ CREATE TABLE bcp47_locales (
     language     TEXT NOT NULL,           -- ISO 639-1/-3 primary subtag, e.g. 'en'
     script       TEXT,                    -- ISO 15924 subtag (nullable; not all locales pin script)
     region       TEXT,                    -- ISO 3166-1 region (nullable)
-    display_name TEXT NOT NULL,           -- 'English (United States)'
-    is_common    BOOLEAN NOT NULL DEFAULT FALSE  -- typeahead default-set marker
+    display_name TEXT NOT NULL            -- 'English (United States)'
 );
-CREATE INDEX idx_bcp47_locales_is_common ON bcp47_locales(is_common) WHERE is_common = TRUE;
+
+-- pg_trgm GIN indexes power the typeahead's `code ILIKE '%q%' OR
+-- display_name ILIKE '%q%'` queries. The PK already covers exact-code
+-- lookups; the trigram indexes make substring/prefix search sub-millisecond
+-- on the full ~7000-row table.
+CREATE INDEX idx_bcp47_locales_code_trgm
+    ON bcp47_locales USING GIN (code gin_trgm_ops);
+CREATE INDEX idx_bcp47_locales_display_name_trgm
+    ON bcp47_locales USING GIN (display_name gin_trgm_ops);
 
 CREATE TABLE iso15924_scripts (
     code         TEXT PRIMARY KEY,        -- 4-letter code, e.g. 'Latn', 'Hant', 'Kana'
     numeric_code SMALLINT UNIQUE NOT NULL, -- e.g. 215 for Latin
-    name         TEXT NOT NULL,           -- 'Latin', 'Han (Traditional variant)'
-    is_common    BOOLEAN NOT NULL DEFAULT FALSE
+    name         TEXT NOT NULL            -- 'Latin', 'Han (Traditional variant)'
 );
-CREATE INDEX idx_iso15924_scripts_is_common ON iso15924_scripts(is_common) WHERE is_common = TRUE;
+
+CREATE INDEX idx_iso15924_scripts_code_trgm
+    ON iso15924_scripts USING GIN (code gin_trgm_ops);
+CREATE INDEX idx_iso15924_scripts_name_trgm
+    ON iso15924_scripts USING GIN (name gin_trgm_ops);
 
 ALTER TABLE person_names
   ADD CONSTRAINT person_names_locale_fkey
@@ -76,7 +86,7 @@ Seeding strategy:
 - One-shot Python script: `scripts/seed_locales_scripts.py`. Idempotent (`INSERT … ON CONFLICT DO UPDATE SET …`). Runs once at deploy time per environment; can be re-run when registries refresh.
 - `langcodes` library iterates every CLDR locale. For each, populate `code`, `language`, `script`, `region`, and the human-readable `display_name`. Extracts language and region subtags via `langcodes.Language.get(...)`.
 - `pycountry.scripts` enumerates all ISO 15924 entries. For each: `code` (alpha_4), `numeric_code` (numeric), `name`.
-- `is_common` flag: hand-curated initial set of ~60 locales and ~25 scripts, defined as constants in the seed script. Editable later via SQL or admin UI; the typeahead's default candidates query `WHERE is_common = TRUE`.
+- No curated default-set. The typeahead narrows the full table by user keystrokes (`code` and `display_name` / `name` substring match). With pg_trgm GIN indexes the full-table search is fast enough that pre-computed defaults add no value.
 
 **Library dependencies live in a `seed` dep group, NOT runtime deps.** Configured in `pyproject.toml`:
 
@@ -103,13 +113,14 @@ Files touched:
 - Modify: `pyproject.toml` — add `[dependency-groups.seed]`.
 - Create: `scripts/seed_locales_scripts.py` — generates and upserts rows.
 - Create: `tests/scripts/test_seed_locales_scripts.py` — unit tests against `langcodes` / `pycountry` (no DB).
-- Create: `tests/core/test_schema_locale_script_lookups.py` — integration tests for FK enforcement, idempotent re-seed, `is_common` flag.
+- Create: `tests/core/test_schema_locale_script_lookups.py` — integration tests for FK enforcement, idempotent re-seed, trigram-search behaviour.
 
 Done criteria:
 
 - [ ] Seed script populates ~7000 locales and ~200 scripts on a fresh DB.
 - [ ] FK constraints reject unregistered codes; well-formed-but-unknown codes return `ForeignKeyViolationError`.
-- [ ] `is_common = TRUE` for the curated initial set (locales: en-US, en-GB, es-ES, es-MX, zh-Hant-TW, zh-Hans-CN, ja-JP, is-IS, …; scripts: Latn, Hans, Hant, Kana, Hira, Cyrl, Arab, Hang, …).
+- [ ] `bcp47_locales` and `iso15924_scripts` each carry pg_trgm GIN indexes on `code` and on the human-readable column (`display_name` / `name`).
+- [ ] Typeahead `ILIKE '%foo%'` queries on either table return in <5 ms (sub-millisecond expected on this size).
 - [ ] Re-running the seed script is a no-op for unchanged rows (`ON CONFLICT DO UPDATE` only fires when registry data changes).
 - [ ] `langcodes` and `pycountry` are not in the runtime dependency list (verified by `uv run python -c 'import langcodes'` failing in the default env).
 
@@ -155,16 +166,18 @@ Schema fields exposed: `locale`, `script`, `sort_as` (FKs from 2-prep are now in
 UI changes:
 
 - Edit drawer adds three inputs:
-  - `locale` — typeahead backed by `bcp47_locales`. Default candidate list: `WHERE is_common = TRUE` (≈60 rows). Searches `code`, `language`, `region`, and `display_name` ILIKE for any user input. Free input is rejected by the FK at submit time; UI surfaces the resulting `ForeignKeyViolationError` as a form error ("Locale 'xx-XX' is not a registered BCP 47 code").
-  - `script` — typeahead backed by `iso15924_scripts`. Default set `WHERE is_common = TRUE` (≈25 rows). Searches `code` and `name`. Same FK rejection behavior.
+  - `locale` — typeahead backed by `bcp47_locales`. Empty input shows a placeholder ("Type to search locales…"); each keystroke narrows via `code ILIKE '%q%' OR display_name ILIKE '%q%'`. Submit-time FK enforcement rejects free input that doesn't resolve to a registered code; UI surfaces the resulting `ForeignKeyViolationError` as a form error ("Locale 'xx-XX' is not a registered BCP 47 code").
+  - `script` — typeahead backed by `iso15924_scripts`. Same shape: empty placeholder, narrows by `code ILIKE '%q%' OR name ILIKE '%q%'`. Same FK rejection behaviour.
   - `sort_as` — plain text input. No DB validation (free string).
 - Read row gains a small subtitle under the name when any are set: e.g. "Latn · en-US" or "sort_as: van der Meer".
 - Person list, search, typeahead all change `ORDER BY name` → `ORDER BY COALESCE(sort_as, name) COLLATE "und-x-icu"`.
 
 New endpoints (server-side typeahead candidates):
 
-- `GET /admin/people/_locale_search?q=<term>&limit=20` — returns up to 20 matches sorted by `is_common DESC, code ASC`. JSON shape: `[{"code": "en-US", "display_name": "English (United States)"}, …]`.
-- `GET /admin/people/_script_search?q=<term>&limit=20` — same shape for scripts.
+- `GET /admin/people/_locale_search?q=<term>&limit=20` — returns up to 20 matches whose `code` or `display_name` contains `q` (ILIKE). Empty `q` returns no rows (placeholder shown by UI). Sort: `code ASC` after the substring filter. JSON shape: `[{"code": "en-US", "display_name": "English (United States)"}, …]`.
+- `GET /admin/people/_script_search?q=<term>&limit=20` — same shape for scripts (matches `code` or `name`).
+
+Both endpoints lean on the pg_trgm GIN indexes added in Phase 2-prep; query plans should show `Bitmap Index Scan` on the trigram index, not seq scan.
 
 Both endpoints reuse the existing `typeahead-combobox` JS component documented at [tests/js/typeahead-combobox.test.js](tests/js/typeahead-combobox.test.js); no new client-side library.
 
@@ -173,7 +186,7 @@ Backend tests:
 - POST a name with valid `locale='en-US'`, `script='Latn'`, `sort_as='Foo Bar'` → DB row reflects all three.
 - POST a name with `locale='xx-XX'` (well-formed but unregistered) → form re-renders with error; no row created.
 - POST a name with `script='Xxxx'` (not in registry) → same.
-- Locale search endpoint: empty query returns `is_common=TRUE` rows; query='Spanish' returns es-ES, es-MX, etc.; query returns at most `limit` rows.
+- Locale search endpoint: empty query returns no rows (UI shows placeholder); query='Spanish' returns es-ES, es-MX, etc.; query returns at most `limit` rows.
 - Person list with two names ('Åberg', 'Aaron') in `und-x-icu` collation: 'Åberg' sorts after 'Aaron' (vs. ASCII-sort which inverts depending on case).
 
 ### Phase 2c — Linked names (`reading_of_id`)
@@ -243,9 +256,9 @@ Backend tests:
 
 - Modify: `src/core/schema.sql` — add `bcp47_locales`, `iso15924_scripts` tables; FK migrations on `person_names.locale` and `person_names.script` (idempotent `DO $$ ... END $$` blocks).
 - Modify: `pyproject.toml` — `[dependency-groups.seed]` with `langcodes>=3.5`, `pycountry>=24.0`.
-- Create: `scripts/seed_locales_scripts.py` — populates both lookup tables from `langcodes` + `pycountry`. Idempotent (`ON CONFLICT DO UPDATE`). Curated `IS_COMMON_LOCALES` and `IS_COMMON_SCRIPTS` constants drive the `is_common` flag.
+- Create: `scripts/seed_locales_scripts.py` — populates both lookup tables from `langcodes` + `pycountry`. Idempotent (`ON CONFLICT DO UPDATE`). No curated constants — full registry only.
 - Create: `tests/scripts/test_seed_locales_scripts.py` — unit tests over `langcodes` / `pycountry` enumeration (no DB; mocks the connection).
-- Create: `tests/core/test_schema_locale_script_lookups.py` — integration tests for FK enforcement, idempotent re-seed, `is_common` index, well-formed-but-unregistered rejection.
+- Create: `tests/core/test_schema_locale_script_lookups.py` — integration tests for FK enforcement, idempotent re-seed, pg_trgm GIN index presence, well-formed-but-unregistered rejection.
 - Modify: `docs/CONVENTIONS.md` — append a "BCP 47 / ISO 15924 lookup tables" subsection under "Person names — i18n & cultural awareness" describing the validation layering (UI → FK → seed-script-only registry libs).
 
 ### Phase 2a
@@ -265,7 +278,7 @@ Backend tests:
 - Modify: `_names_shared.py` — `locale` / `script` / `sort_as` form fields gated by `supports_metadata`.
 - Modify: name form template — typeahead inputs wired to the new search endpoints.
 - Modify: `src/api/admin/people.py` — switch list sort to `ORDER BY COALESCE(sort_as, name) COLLATE "und-x-icu"`.
-- Create: `src/api/admin/people_locale_script_search.py` — `GET /admin/people/_locale_search`, `GET /admin/people/_script_search`. Both query the lookup tables, filter by `q` ILIKE, sort `is_common DESC, code ASC`, cap at `limit`.
+- Create: `src/api/admin/people_locale_script_search.py` — `GET /admin/people/_locale_search`, `GET /admin/people/_script_search`. Both query the lookup tables, filter by `q` ILIKE on `code` and the human-readable column (using the trigram GIN indexes), sort `code ASC`, cap at `limit`. Empty `q` returns no rows.
 - Modify: `src/api/admin/router.py` — mount the new search router.
 - Tests: typeahead endpoint contract, FK-rejection-as-form-error path, sort-order integration test on names containing diacritics.
 

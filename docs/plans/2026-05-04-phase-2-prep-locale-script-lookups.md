@@ -6,9 +6,9 @@
 **Worktree:** `.worktrees/feat/123-phase-2-admin-ui`
 **Design:** `docs/plans/2026-05-04-phase-2-person-name-ui-design.md` (§ Phase 2-prep)
 
-**Goal:** Add two reference tables (`bcp47_locales`, `iso15924_scripts`) seeded from `langcodes` + `pycountry`, plus FKs from `person_names.locale` and `person_names.script`. Establishes DB-level validation for the columns that Phase 2b will surface in the admin UI. Library deps live in a `seed` dep group only — no runtime imports.
+**Goal:** Add two reference tables (`bcp47_locales`, `iso15924_scripts`) seeded from `langcodes` + `pycountry`, plus FKs from `person_names.locale` and `person_names.script`, plus pg_trgm GIN indexes for sub-millisecond substring search powering the typeahead. Establishes DB-level validation for the columns that Phase 2b will surface in the admin UI. Library deps live in a `seed` dep group only — no runtime imports.
 
-**Architecture:** Schema-first. Tables created idempotently via `CREATE TABLE IF NOT EXISTS`. Seed script (`scripts/seed_locales_scripts.py`) populates rows via `INSERT ... ON CONFLICT DO UPDATE`. FKs added to `person_names` after seed completes (existing rows are all NULL for `locale` / `script`, so the constraint binds without rewrites). The seed step runs once per environment after schema apply.
+**Architecture:** Schema-first. Tables created idempotently via `CREATE TABLE IF NOT EXISTS`, with pg_trgm GIN indexes on the searchable columns. Seed script (`scripts/seed_locales_scripts.py`) populates rows via `INSERT ... ON CONFLICT DO UPDATE`. FKs added to `person_names` after seed completes (existing rows are all NULL for `locale` / `script`, so the constraint binds without rewrites). The seed step runs once per environment after schema apply. No `is_common` flag — typeahead narrows the full table by user input.
 
 **Tech Stack:** PostgreSQL 15+, asyncpg, `langcodes` ≥3.5, `pycountry` ≥24, pytest (unit + integration).
 
@@ -24,7 +24,7 @@
 **Create:**
 - `scripts/seed_locales_scripts.py` — generates and upserts rows from `langcodes` + `pycountry`.
 - `tests/scripts/test_seed_locales_scripts.py` — unit tests over enumeration helpers.
-- `tests/core/test_schema_locale_script_lookups.py` — integration tests for FK enforcement, idempotent re-seed, `is_common` flag.
+- `tests/core/test_schema_locale_script_lookups.py` — integration tests for FK enforcement, idempotent re-seed, pg_trgm GIN index presence + behaviour.
 
 ---
 
@@ -105,7 +105,6 @@ async def test_bcp47_locales_table_exists(db):
         ("script", "text"),
         ("region", "text"),
         ("display_name", "text"),
-        ("is_common", "boolean"),
     ],
 )
 async def test_bcp47_locales_has_column(db, column, data_type):
@@ -131,7 +130,6 @@ async def test_iso15924_scripts_table_exists(db):
         ("code", "text"),
         ("numeric_code", "smallint"),
         ("name", "text"),
-        ("is_common", "boolean"),
     ],
 )
 async def test_iso15924_scripts_has_column(db, column, data_type):
@@ -156,15 +154,29 @@ async def test_iso15924_scripts_numeric_code_unique(db):
         )
 
 
-async def test_is_common_default_false(db):
-    await db.execute(
-        "INSERT INTO bcp47_locales (code, language, display_name) "
-        "VALUES ('xx', 'xx', 'Test')"
-    )
+@pytest.mark.parametrize(
+    "table,column",
+    [
+        ("bcp47_locales", "code"),
+        ("bcp47_locales", "display_name"),
+        ("iso15924_scripts", "code"),
+        ("iso15924_scripts", "name"),
+    ],
+)
+async def test_trgm_gin_index_exists(db, table, column):
+    """pg_trgm GIN index must exist on every column the typeahead searches."""
     row = await db.fetchrow(
-        "SELECT is_common FROM bcp47_locales WHERE code='xx'"
+        """
+        SELECT indexdef
+        FROM pg_indexes
+        WHERE tablename = $1
+          AND indexdef ILIKE '%using gin%'
+          AND indexdef ILIKE '%gin_trgm_ops%'
+          AND indexdef ILIKE '%' || $2 || '%'
+        """,
+        table, column,
     )
-    assert row["is_common"] is False
+    assert row is not None, f"missing pg_trgm GIN index on {table}({column})"
 ```
 
 - [ ] **Step 2: Run — confirm fail.**
@@ -186,26 +198,31 @@ CREATE TABLE IF NOT EXISTS bcp47_locales (
     script       TEXT,
     region       TEXT,
     display_name TEXT        NOT NULL,
-    is_common    BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_bcp47_locales_is_common
-    ON bcp47_locales(is_common) WHERE is_common = TRUE;
+-- pg_trgm GIN indexes for typeahead substring/prefix search.
+CREATE INDEX IF NOT EXISTS idx_bcp47_locales_code_trgm
+    ON bcp47_locales USING GIN (code gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_bcp47_locales_display_name_trgm
+    ON bcp47_locales USING GIN (display_name gin_trgm_ops);
 
 CREATE TABLE IF NOT EXISTS iso15924_scripts (
     code         TEXT        PRIMARY KEY,
     numeric_code SMALLINT    NOT NULL UNIQUE,
     name         TEXT        NOT NULL,
-    is_common    BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_iso15924_scripts_is_common
-    ON iso15924_scripts(is_common) WHERE is_common = TRUE;
+CREATE INDEX IF NOT EXISTS idx_iso15924_scripts_code_trgm
+    ON iso15924_scripts USING GIN (code gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_iso15924_scripts_name_trgm
+    ON iso15924_scripts USING GIN (name gin_trgm_ops);
 ```
+
+(Note: `pg_trgm` extension is already enabled at the top of `schema.sql` for org dup detection — no additional `CREATE EXTENSION` needed.)
 
 In the `updated_at` trigger section near the bottom, add:
 
@@ -261,14 +278,10 @@ seed = [
 # tests/scripts/test_seed_locales_scripts.py
 """Unit tests for the locale/script seed helpers (no DB)."""
 
-import pytest
-
 # These imports fail until the seed script exists.
 from scripts.seed_locales_scripts import (
     enumerate_bcp47_locales,
     enumerate_iso15924_scripts,
-    IS_COMMON_LOCALES,
-    IS_COMMON_SCRIPTS,
 )
 
 
@@ -276,30 +289,14 @@ def test_enumerate_bcp47_locales_yields_dict_records():
     rows = list(enumerate_bcp47_locales())
     assert len(rows) > 1000, "expected ~7000 CLDR locales, got far fewer"
     sample = rows[0]
-    assert {"code", "language", "script", "region", "display_name", "is_common"} <= set(sample)
-
-
-def test_enumerate_bcp47_locales_sets_is_common_flag():
-    rows = list(enumerate_bcp47_locales())
-    by_code = {r["code"]: r for r in rows}
-    for code in IS_COMMON_LOCALES:
-        assert code in by_code, f"{code} listed in IS_COMMON_LOCALES but absent from CLDR enumeration"
-        assert by_code[code]["is_common"] is True
+    assert {"code", "language", "script", "region", "display_name"} <= set(sample)
 
 
 def test_enumerate_iso15924_scripts_full_set():
     rows = list(enumerate_iso15924_scripts())
     assert len(rows) >= 180, "expected ~200 ISO 15924 codes"
     sample = rows[0]
-    assert {"code", "numeric_code", "name", "is_common"} <= set(sample)
-
-
-def test_enumerate_iso15924_scripts_marks_common():
-    rows = list(enumerate_iso15924_scripts())
-    by_code = {r["code"]: r for r in rows}
-    for code in IS_COMMON_SCRIPTS:
-        assert code in by_code, f"{code} not in pycountry.scripts"
-        assert by_code[code]["is_common"] is True
+    assert {"code", "numeric_code", "name"} <= set(sample)
 
 
 def test_iso15924_numeric_codes_unique():
@@ -343,37 +340,10 @@ import langcodes
 import pycountry
 
 
-# Curated initial typeahead default-set. Editable later via SQL or admin UI.
-IS_COMMON_LOCALES = frozenset({
-    "en-US", "en-GB", "en-CA", "en-AU",
-    "es-ES", "es-MX", "es-AR",
-    "pt-BR", "pt-PT",
-    "fr-FR", "fr-CA",
-    "de-DE", "de-AT", "de-CH",
-    "it-IT", "nl-NL", "nl-BE",
-    "sv-SE", "no-NO", "da-DK", "fi-FI", "is-IS",
-    "ru-RU", "uk-UA", "pl-PL",
-    "zh-Hans-CN", "zh-Hant-TW", "zh-Hant-HK",
-    "ja-JP", "ko-KR",
-    "ar-SA", "ar-EG", "he-IL",
-    "tr-TR", "el-GR", "cs-CZ", "ro-RO", "hu-HU",
-    "vi-VN", "th-TH", "id-ID", "ms-MY",
-    "hi-IN", "bn-IN", "ta-IN", "ur-PK",
-})
-
-IS_COMMON_SCRIPTS = frozenset({
-    "Latn", "Hans", "Hant", "Hira", "Kana", "Jpan", "Hang", "Hani",
-    "Cyrl", "Arab", "Hebr", "Grek",
-    "Deva", "Beng", "Taml", "Telu", "Knda", "Mlym", "Guru", "Gujr",
-    "Thai", "Laoo", "Mymr", "Khmr",
-    "Ethi", "Geor", "Armn",
-})
-
-
 def enumerate_bcp47_locales() -> Iterable[dict]:
     """Yield one record per CLDR locale.
 
-    Each record: {code, language, script, region, display_name, is_common}.
+    Each record: {code, language, script, region, display_name}.
     Codes are normalised by langcodes (e.g. 'en-us' → 'en-US').
     """
     seen: set[str] = set()
@@ -392,7 +362,6 @@ def enumerate_bcp47_locales() -> Iterable[dict]:
             "script": tag.script,
             "region": tag.territory,
             "display_name": tag.display_name(),
-            "is_common": normalised in IS_COMMON_LOCALES,
         }
 
 
@@ -403,7 +372,6 @@ def enumerate_iso15924_scripts() -> Iterable[dict]:
             "code": s.alpha_4,
             "numeric_code": int(s.numeric),
             "name": s.name,
-            "is_common": s.alpha_4 in IS_COMMON_SCRIPTS,
         }
 
 
@@ -412,17 +380,15 @@ async def upsert_locales(conn: asyncpg.Connection, rows: Iterable[dict]) -> int:
     for r in rows:
         await conn.execute(
             """
-            INSERT INTO bcp47_locales (code, language, script, region, display_name, is_common)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO bcp47_locales (code, language, script, region, display_name)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (code) DO UPDATE SET
                 language     = EXCLUDED.language,
                 script       = EXCLUDED.script,
                 region       = EXCLUDED.region,
-                display_name = EXCLUDED.display_name,
-                is_common    = EXCLUDED.is_common
+                display_name = EXCLUDED.display_name
             """,
-            r["code"], r["language"], r["script"], r["region"],
-            r["display_name"], r["is_common"],
+            r["code"], r["language"], r["script"], r["region"], r["display_name"],
         )
         count += 1
     return count
@@ -433,14 +399,13 @@ async def upsert_scripts(conn: asyncpg.Connection, rows: Iterable[dict]) -> int:
     for r in rows:
         await conn.execute(
             """
-            INSERT INTO iso15924_scripts (code, numeric_code, name, is_common)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO iso15924_scripts (code, numeric_code, name)
+            VALUES ($1, $2, $3)
             ON CONFLICT (code) DO UPDATE SET
                 numeric_code = EXCLUDED.numeric_code,
-                name         = EXCLUDED.name,
-                is_common    = EXCLUDED.is_common
+                name         = EXCLUDED.name
             """,
-            r["code"], r["numeric_code"], r["name"], r["is_common"],
+            r["code"], r["numeric_code"], r["name"],
         )
         count += 1
     return count
@@ -475,14 +440,21 @@ uv run --group seed pytest tests/scripts/test_seed_locales_scripts.py --no-cov -
 DATABASE_URL="$TEST_DATABASE_URL" uv run --group seed scripts/seed_locales_scripts.py
 ```
 
-Expect "seeded: NNNN locales, NNN scripts". Verify counts:
+Expect "seeded: NNNN locales, NNN scripts". Verify counts + a smoke search:
 
 ```bash
 psql "$TEST_DATABASE_URL" -c "SELECT count(*) FROM bcp47_locales"
 psql "$TEST_DATABASE_URL" -c "SELECT count(*) FROM iso15924_scripts"
-psql "$TEST_DATABASE_URL" -c "SELECT count(*) FROM bcp47_locales WHERE is_common"
-psql "$TEST_DATABASE_URL" -c "SELECT count(*) FROM iso15924_scripts WHERE is_common"
+psql "$TEST_DATABASE_URL" -c "
+  SELECT code, display_name FROM bcp47_locales
+  WHERE code ILIKE '%spanish%' OR display_name ILIKE '%spanish%'
+  LIMIT 5"
+psql "$TEST_DATABASE_URL" -c "
+  EXPLAIN SELECT code FROM bcp47_locales
+  WHERE display_name ILIKE '%spanish%' LIMIT 20" | head -5
 ```
+
+Smoke check — the EXPLAIN should show `Bitmap Index Scan on idx_bcp47_locales_display_name_trgm`, not `Seq Scan`.
 
 - [ ] **Step 7: Re-run script — confirm idempotent (second run is a no-op for unchanged rows)**
 
@@ -674,7 +646,7 @@ Validation layering:
 | Database FK | Rejects unregistered codes (`'xx-XX'`, `'Xxxx'`) | Authoritative |
 | Seed script (`langcodes` + `pycountry`) | Populates the lookup tables; runs once per env | Registry mirror |
 
-`is_common = TRUE` rows drive the typeahead's default candidate set; the long tail is queryable but not pre-loaded into the UI dropdown. Re-seed at any time to pick up registry updates: `uv run --group seed scripts/seed_locales_scripts.py`.
+No curated default-set is maintained — the typeahead's empty state is empty and narrows by user keystrokes (`code ILIKE '%q%' OR display_name ILIKE '%q%'`). pg_trgm GIN indexes on `code` and the human-readable column make full-table substring search sub-millisecond. Re-seed at any time to pick up registry updates: `uv run --group seed scripts/seed_locales_scripts.py`.
 
 ON UPDATE CASCADE is set on both FKs, so a registry-driven `code` rename propagates to existing person_names rows. ON DELETE NO ACTION (default) blocks lookup-row deletion when referenced — the registry doesn't shrink, so this is correct.
 ```
@@ -766,7 +738,8 @@ uv run ruff check src/ tests/ scripts/
 
 - [ ] All 5 tasks committed on `feat/123-phase-2-admin-ui`.
 - [ ] `bcp47_locales` populated with ~7000 CLDR locales; `iso15924_scripts` populated with ~200 ISO 15924 codes.
-- [ ] `is_common = TRUE` for the curated initial set.
+- [ ] pg_trgm GIN indexes present on `bcp47_locales(code)`, `bcp47_locales(display_name)`, `iso15924_scripts(code)`, `iso15924_scripts(name)` (verified by the parametrised `test_trgm_gin_index_exists` test).
+- [ ] `EXPLAIN` on a representative substring search hits the trigram index (Bitmap Index Scan, not Seq Scan).
 - [ ] FKs enforce registry membership; well-formed-but-unknown codes raise `ForeignKeyViolationError`.
 - [ ] Re-running the seed script is a no-op for unchanged rows.
 - [ ] `langcodes` and `pycountry` are NOT in the runtime dep set (verified via `uv run python -c 'import langcodes'` raising ModuleNotFoundError).
@@ -775,6 +748,5 @@ uv run ruff check src/ tests/ scripts/
 ## Out of Scope
 
 - Admin UI for the typeahead endpoints (Phase 2b).
-- Editing `is_common` from the admin UI (later, if needed; SQL-only for now).
 - Re-seed scheduling / CI hook (manual for now).
 - Multi-script locale handling (e.g. `zh-Hant-TW` row references `Hant` via the locale tag's script subtag, not via the FK; we don't enforce cross-table consistency at DB level).
