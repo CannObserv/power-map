@@ -156,8 +156,13 @@ CREATE TABLE IF NOT EXISTS person_names (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Bootstrap form of the canonical-name index. The migration section drops
+-- this and recreates it with the (locale, script) shape after the per-column
+-- ADD COLUMN blocks run. Kept here so fresh DBs and pre-#121 DBs both parse
+-- this file successfully (the new form references columns that only exist
+-- after the per-column migration blocks have executed).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
-    ON person_names(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))
+    ON person_names(person_id, name_type)
     WHERE is_canonical = TRUE;
 
 -- Structured name parts, sidecar to person_names (issue #121).
@@ -182,6 +187,10 @@ CREATE TABLE IF NOT EXISTS person_name_parts (
 
 -- Display name view: canonical name for a person.
 -- Used by all admin queries that show a person name for display (not editing).
+-- Bootstrap form (no visibility filter). The migration section CREATE OR
+-- REPLACEs this with the visibility-aware form after the per-column ADD
+-- COLUMN blocks add `visibility`, so this file parses cleanly on a pre-#121
+-- DB where `person_names.visibility` does not yet exist.
 CREATE OR REPLACE VIEW v_person_display_names AS
 SELECT p.id AS person_id,
        n.name AS display_name
@@ -189,7 +198,6 @@ FROM people p
 LEFT JOIN person_names n
     ON n.person_id = p.id
    AND n.is_canonical = TRUE
-   AND n.visibility = 'public'
 ;
 
 -- Role = position definition at an organization (independent of who holds it or when)
@@ -524,6 +532,18 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
     ON person_names(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))
     WHERE is_canonical = TRUE;
+
+-- Recreate v_person_display_names with the visibility-aware filter, now that
+-- the per-column DO blocks above have added `visibility` to person_names.
+CREATE OR REPLACE VIEW v_person_display_names AS
+SELECT p.id AS person_id,
+       n.name AS display_name
+FROM people p
+LEFT JOIN person_names n
+    ON n.person_id = p.id
+   AND n.is_canonical = TRUE
+   AND n.visibility = 'public'
+;
 
 -- =============================================================================
 -- Organization names/acronyms schema migration
