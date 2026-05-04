@@ -271,3 +271,82 @@ async def test_non_deadname_public_unchanged(db):
     )
     row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
     assert row["visibility"] == "public"
+
+
+# --- Task 5: visibility-aware v_person_display_names ---
+
+async def test_view_excludes_legal_only(db):
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, is_canonical, visibility)"
+        " VALUES ($1, $2, $3, 'legal', TRUE, 'legal_only')",
+        generate_id(), pid, "Legal-Only Name",
+    )
+    row = await db.fetchrow(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
+    )
+    assert row["display_name"] is None
+
+
+async def test_view_excludes_hidden(db):
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, is_canonical, visibility)"
+        " VALUES ($1, $2, $3, 'legal', TRUE, 'hidden')",
+        generate_id(), pid, "Hidden",
+    )
+    row = await db.fetchrow(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
+    )
+    assert row["display_name"] is None
+
+
+async def test_view_excludes_internal(db):
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, is_canonical, visibility)"
+        " VALUES ($1, $2, $3, 'legal', TRUE, 'internal')",
+        generate_id(), pid, "Internal Only",
+    )
+    row = await db.fetchrow(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
+    )
+    assert row["display_name"] is None
+
+
+async def test_view_returns_public_canonical(db):
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, is_canonical, visibility)"
+        " VALUES ($1, $2, $3, 'legal', TRUE, 'public')",
+        generate_id(), pid, "Public Name",
+    )
+    row = await db.fetchrow(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
+    )
+    assert row["display_name"] == "Public Name"
+
+
+async def test_view_prefers_public_over_legal_only(db):
+    """Person with both public and legal_only canonical: public wins."""
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, is_canonical, visibility, script)"
+        " VALUES ($1, $2, $3, 'legal', TRUE, 'public', 'Latn')",
+        generate_id(), pid, "Public",
+    )
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, is_canonical, visibility, script)"
+        " VALUES ($1, $2, $3, 'former', TRUE, 'legal_only', 'Latn')",
+        generate_id(), pid, "OldName",
+    )
+    row = await db.fetchrow(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
+    )
+    assert row["display_name"] == "Public"

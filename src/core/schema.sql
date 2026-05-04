@@ -177,7 +177,9 @@ SELECT p.id AS person_id,
        n.name AS display_name
 FROM people p
 LEFT JOIN person_names n
-    ON n.person_id = p.id AND n.is_canonical = TRUE
+    ON n.person_id = p.id
+   AND n.is_canonical = TRUE
+   AND n.visibility = 'public'
 ;
 
 -- Role = position definition at an organization (independent of who holds it or when)
