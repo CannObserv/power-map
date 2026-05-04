@@ -42,11 +42,13 @@ Gaps:
 
 ## Approved Approach
 
-**Hybrid model** (per the research's "Architectural Synthesis"): keep `name` as the canonical UTF-8 display string; layer optional semantic metadata + optional structured parts on the same `person_names` row. Never auto-parse; structured parts only populated when an upstream source provides them.
+**Hybrid model** (per the research's "Architectural Synthesis"): keep `name` as the canonical UTF-8 display string; layer per-name-row metadata onto `person_names`; move structured parts to a `person_name_parts` sidecar (1:0..1, keyed on `person_names.id`). Never auto-parse; parts populated only when an upstream source provides them.
 
-Single-table augmentation — no sidecar. All new columns are nullable additive changes. No existing rows are rewritten except the constant default on `visibility`.
+The sidecar is intentional: a person who has both a Hant `legal` row and a Latn `romanization` row holds *distinct* decompositions (`['毛']` vs. `['Mao']`). A 1:1 person-keyed parts table would force a single decomposition and lose that information.
 
-### Schema changes (additive)
+All new columns on `person_names` are nullable additive changes. No existing rows are rewritten except the constant default on `visibility`.
+
+### Schema changes — `person_names` (additive)
 
 ```sql
 ALTER TABLE person_names
@@ -54,25 +56,38 @@ ALTER TABLE person_names
   ADD COLUMN locale       TEXT,        -- BCP 47 (e.g. 'en-US','zh-Hant-TW','is-IS')
   ADD COLUMN script       TEXT,        -- ISO 15924 (e.g. 'Latn','Hans','Hant','Kana','Cyrl')
 
-  -- Sorting & identifier hint
-  ADD COLUMN sort_as            TEXT,
-  ADD COLUMN primary_identifier TEXT
-       CHECK (primary_identifier IN ('family','given','patronymic','mononym')),
+  -- Sorting key (NULL → use `name`)
+  ADD COLUMN sort_as      TEXT,
 
   -- Visibility
   ADD COLUMN visibility   TEXT NOT NULL DEFAULT 'public'
-       CHECK (visibility IN ('public','internal','legal_only','hidden')),
+       CHECK (visibility IN ('public','legal_only','hidden')),
 
-  -- Derived-form linkage (phonetic, romanization, MRZ all use this)
-  ADD COLUMN reading_of_id TEXT REFERENCES person_names(id),
-
-  -- Structured parts (populate only when source provides)
-  ADD COLUMN given_names      TEXT[],
-  ADD COLUMN family_names     TEXT[],
-  ADD COLUMN additional_names TEXT[],
-  ADD COLUMN honorific_prefix TEXT,
-  ADD COLUMN honorific_suffix TEXT;
+  -- Derived-form linkage (phonetic, romanization, MRZ all use this).
+  -- ON DELETE CASCADE so deleting a visual name removes its readings/MRZ.
+  ADD COLUMN reading_of_id TEXT REFERENCES person_names(id) ON DELETE CASCADE;
 ```
+
+### Schema changes — `person_name_parts` (new sidecar table)
+
+```sql
+CREATE TABLE person_name_parts (
+    person_name_id      TEXT PRIMARY KEY
+                             REFERENCES person_names(id) ON DELETE CASCADE,
+    given_names         TEXT[],
+    family_names        TEXT[],
+    additional_names    TEXT[],
+    honorific_prefix    TEXT,
+    honorific_suffix    TEXT,
+    primary_identifier  TEXT
+        CHECK (primary_identifier IS NULL
+               OR primary_identifier IN ('family','given','patronymic','mononym')),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Single PK on `person_name_id` enforces 1:0..1. Cascade ensures parts vanish when their parent name is deleted.
 
 ### `name_type` expansion
 
@@ -208,11 +223,14 @@ Production data lives on this VM. Constraints:
 
 ## Files Touched (anticipated)
 
-- `src/core/schema.sql` — column adds, CHECK swap, index swap, trigger, view rewrite (+ idempotent migration blocks).
-- `tests/core/test_schema.py` — new tests for each schema change (TDD).
-- `src/core/db.py` (or `src/core/queries.py`) — `visible_names_filter()` helper.
-- `tests/core/test_visible_names_filter.py` — lint test for direct `person_names` access.
-- `docs/CONVENTIONS.md` — visibility rule, MRZ derivation rules, ICU collation guidance, no-auto-parse rule.
+- `src/core/schema.sql` — column adds, CHECK swap, index swap, trigger, view rewrite, new `person_name_parts` table (+ idempotent migration blocks, one DO per column matching the `archived_at` pattern).
+- `tests/core/test_schema_person_names_i18n.py` — new tests for each schema change (TDD), including parts-table coverage.
+- `src/core/db.py` — `visible_names_filter()` helper.
+- `src/core/ingestion/pipeline.py` — add `visibility='public'` filter to person auto-match.
+- `src/api/admin/people.py`, `people_names.py`, `people_merge.py` — comment-only allow-list documentation.
+- `tests/core/test_visible_names_filter.py` — unit + lint test for direct `person_names` access.
+- `AGENTS.md` — pointer to the visibility rule.
+- `docs/CONVENTIONS.md` — visibility rule, MRZ derivation, ICU collation, no-auto-parse, parts-table semantics.
 
 ## Out of Scope (explicit)
 

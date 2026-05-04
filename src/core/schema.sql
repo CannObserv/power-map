@@ -149,19 +149,9 @@ CREATE TABLE IF NOT EXISTS person_names (
     locale              TEXT,                       -- BCP 47, e.g. 'en-US','zh-Hant-TW'
     script              TEXT,                       -- ISO 15924, e.g. 'Latn','Hant','Hans','Kana'
     sort_as             TEXT,                       -- explicit collation key; NULL → use `name`
-    primary_identifier  TEXT
-                        CHECK (primary_identifier IS NULL
-                               OR primary_identifier IN ('family','given','patronymic','mononym')),
     visibility          TEXT NOT NULL DEFAULT 'public'
-                        CHECK (visibility IN ('public','internal','legal_only','hidden')),
-    reading_of_id       TEXT REFERENCES person_names(id),
-
-    -- Structured parts (populated only when source provides; never auto-parsed)
-    given_names         TEXT[],
-    family_names        TEXT[],
-    additional_names    TEXT[],
-    honorific_prefix    TEXT,
-    honorific_suffix    TEXT,
+                        CHECK (visibility IN ('public','legal_only','hidden')),
+    reading_of_id       TEXT REFERENCES person_names(id) ON DELETE CASCADE,
 
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -169,6 +159,26 @@ CREATE TABLE IF NOT EXISTS person_names (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
     ON person_names(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))
     WHERE is_canonical = TRUE;
+
+-- Structured name parts, sidecar to person_names (issue #121).
+-- 1:0..1 with person_names — each name row optionally has its own decomposition.
+-- Multiple decompositions per person are intentional: a Hant `legal` row and a
+-- Latn `romanization` row each carry their own parts, not a shared set.
+-- Never auto-parsed; populated only when an upstream source provides structure.
+CREATE TABLE IF NOT EXISTS person_name_parts (
+    person_name_id      TEXT        PRIMARY KEY
+                                    REFERENCES person_names(id) ON DELETE CASCADE,
+    given_names         TEXT[],
+    family_names        TEXT[],
+    additional_names    TEXT[],
+    honorific_prefix    TEXT,
+    honorific_suffix    TEXT,
+    primary_identifier  TEXT
+                        CHECK (primary_identifier IS NULL
+                               OR primary_identifier IN ('family','given','patronymic','mononym')),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- Display name view: canonical name for a person.
 -- Used by all admin queries that show a person name for display (not editing).
@@ -376,6 +386,7 @@ END $$;
 
 -- =============================================================================
 -- Schema evolution: person_names i18n columns (issue #121, Phase 1)
+-- One DO block per column, matching the archived_at migration pattern.
 -- All columns nullable except `visibility` (constant default 'public').
 -- =============================================================================
 
@@ -384,48 +395,128 @@ DO $$ BEGIN
                    WHERE table_name='person_names' AND column_name='locale') THEN
         ALTER TABLE person_names ADD COLUMN locale TEXT;
     END IF;
+END $$;
+
+DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                    WHERE table_name='person_names' AND column_name='script') THEN
         ALTER TABLE person_names ADD COLUMN script TEXT;
     END IF;
+END $$;
+
+DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                    WHERE table_name='person_names' AND column_name='sort_as') THEN
         ALTER TABLE person_names ADD COLUMN sort_as TEXT;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name='person_names' AND column_name='primary_identifier') THEN
-        ALTER TABLE person_names ADD COLUMN primary_identifier TEXT
-            CHECK (primary_identifier IS NULL
-                   OR primary_identifier IN ('family','given','patronymic','mononym'));
-    END IF;
+END $$;
+
+DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                    WHERE table_name='person_names' AND column_name='visibility') THEN
         ALTER TABLE person_names ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'
-            CHECK (visibility IN ('public','internal','legal_only','hidden'));
+            CHECK (visibility IN ('public','legal_only','hidden'));
     END IF;
+END $$;
+
+DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                    WHERE table_name='person_names' AND column_name='reading_of_id') THEN
-        ALTER TABLE person_names ADD COLUMN reading_of_id TEXT REFERENCES person_names(id);
+        ALTER TABLE person_names ADD COLUMN reading_of_id TEXT
+            REFERENCES person_names(id) ON DELETE CASCADE;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name='person_names' AND column_name='given_names') THEN
-        ALTER TABLE person_names ADD COLUMN given_names TEXT[];
+END $$;
+
+-- Drop legacy structured-part columns from an earlier draft of #121 that
+-- lived directly on person_names. The parts now live in person_name_parts
+-- (1:0..1, keyed on person_name_id). Idempotent: runs only when columns exist
+-- and only on a fresh DB that briefly held those columns from a prior apply.
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='person_names' AND column_name='given_names') THEN
+        ALTER TABLE person_names DROP COLUMN given_names;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name='person_names' AND column_name='family_names') THEN
-        ALTER TABLE person_names ADD COLUMN family_names TEXT[];
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='person_names' AND column_name='family_names') THEN
+        ALTER TABLE person_names DROP COLUMN family_names;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name='person_names' AND column_name='additional_names') THEN
-        ALTER TABLE person_names ADD COLUMN additional_names TEXT[];
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='person_names' AND column_name='additional_names') THEN
+        ALTER TABLE person_names DROP COLUMN additional_names;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name='person_names' AND column_name='honorific_prefix') THEN
-        ALTER TABLE person_names ADD COLUMN honorific_prefix TEXT;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='person_names' AND column_name='honorific_prefix') THEN
+        ALTER TABLE person_names DROP COLUMN honorific_prefix;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name='person_names' AND column_name='honorific_suffix') THEN
-        ALTER TABLE person_names ADD COLUMN honorific_suffix TEXT;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='person_names' AND column_name='honorific_suffix') THEN
+        ALTER TABLE person_names DROP COLUMN honorific_suffix;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='person_names' AND column_name='primary_identifier') THEN
+        ALTER TABLE person_names DROP COLUMN primary_identifier;
+    END IF;
+END $$;
+
+-- Tighten visibility CHECK: drop the legacy 'internal' value if a prior draft
+-- of #121 ever applied it. Existing rows are pre-flight verified to be 'public'
+-- only on prod; on a dev DB with 'internal' rows, the migration will fail loudly
+-- (and that's the right behaviour — caller decides reclassification).
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.check_constraints
+               WHERE constraint_name='person_names_visibility_check') THEN
+        ALTER TABLE person_names DROP CONSTRAINT person_names_visibility_check;
+    END IF;
+    -- Some inline CHECKs auto-name as person_names_check, person_names_check1,
+    -- etc. — re-add the constraint with an explicit name so future migrations
+    -- can find it deterministically.
+    BEGIN
+        ALTER TABLE person_names ADD CONSTRAINT person_names_visibility_check
+            CHECK (visibility IN ('public','legal_only','hidden'));
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
+END $$;
+
+-- Tighten reading_of_id FK to ON DELETE CASCADE if the constraint was created
+-- with the default NO ACTION semantics by a prior draft.
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t   ON t.oid  = c.conrelid
+        WHERE t.relname  = 'person_names'
+          AND c.contype  = 'f'
+          AND c.confdeltype = 'a'  -- 'a' = NO ACTION
+          AND c.conname  LIKE '%reading_of_id%'
+    ) THEN
+        EXECUTE (
+            SELECT 'ALTER TABLE person_names DROP CONSTRAINT '
+                || quote_ident(c.conname)
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            WHERE t.relname='person_names'
+              AND c.contype='f'
+              AND c.conname LIKE '%reading_of_id%'
+            LIMIT 1
+        );
+        ALTER TABLE person_names
+            ADD CONSTRAINT person_names_reading_of_id_fkey
+            FOREIGN KEY (reading_of_id) REFERENCES person_names(id) ON DELETE CASCADE;
     END IF;
 END $$;
 
@@ -450,8 +541,9 @@ END $$;
 
 -- Re-key uq_person_canonical_name on (person_id, name_type, locale, script).
 -- Drop the old index only if it lacks COALESCE (i.e. is the pre-#121 form),
--- then recreate with COALESCE so multiple canonical rows can coexist across
--- different (locale, script) pairs.
+-- then create the new shape (CR#1 fix: CREATE inside the block, after the DROP,
+-- so a single apply_schema run completes the swap; the table-definition-site
+-- CREATE is a no-op on existing DBs because the old index occupies the name).
 DO $$ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_indexes
@@ -461,6 +553,26 @@ DO $$ BEGIN
         DROP INDEX uq_person_canonical_name;
     END IF;
 END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
+    ON person_names(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))
+    WHERE is_canonical = TRUE;
+
+-- Create person_name_parts table on existing DBs if absent.
+CREATE TABLE IF NOT EXISTS person_name_parts (
+    person_name_id      TEXT        PRIMARY KEY
+                                    REFERENCES person_names(id) ON DELETE CASCADE,
+    given_names         TEXT[],
+    family_names        TEXT[],
+    additional_names    TEXT[],
+    honorific_prefix    TEXT,
+    honorific_suffix    TEXT,
+    primary_identifier  TEXT
+                        CHECK (primary_identifier IS NULL
+                               OR primary_identifier IN ('family','given','patronymic','mononym')),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- =============================================================================
 -- Organization names/acronyms schema migration
@@ -569,8 +681,9 @@ BEGIN
 END;
 $$;
 
+-- Surgical: only fires when name_type or visibility actually changes (or on INSERT).
 CREATE OR REPLACE TRIGGER trg_deadname_visibility
-    BEFORE INSERT OR UPDATE ON person_names
+    BEFORE INSERT OR UPDATE OF name_type, visibility ON person_names
     FOR EACH ROW EXECUTE FUNCTION enforce_deadname_visibility();
 
 -- =============================================================================
@@ -606,6 +719,10 @@ CREATE OR REPLACE TRIGGER trg_updated_at_roles
 
 CREATE OR REPLACE TRIGGER trg_updated_at_role_assignments
     BEFORE UPDATE ON role_assignments
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_updated_at_person_name_parts
+    BEFORE UPDATE ON person_name_parts
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =============================================================================

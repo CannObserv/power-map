@@ -32,19 +32,14 @@ async def _person(conn) -> str:
     return pid
 
 
-# Each tuple: (column, expected information_schema.data_type)
+# Columns that live directly on person_names (per-name-row metadata).
+# Structured parts moved to the person_name_parts sidecar table.
 NEW_COLUMNS = [
     ("locale", "text"),
     ("script", "text"),
     ("sort_as", "text"),
-    ("primary_identifier", "text"),
     ("visibility", "text"),
     ("reading_of_id", "text"),
-    ("given_names", "ARRAY"),
-    ("family_names", "ARRAY"),
-    ("additional_names", "ARRAY"),
-    ("honorific_prefix", "text"),
-    ("honorific_suffix", "text"),
 ]
 
 
@@ -72,16 +67,6 @@ async def test_visibility_default_public(db):
     assert row["visibility"] == "public"
 
 
-async def test_primary_identifier_check_constraint(db):
-    pid = await _person(db)
-    with pytest.raises(asyncpg.CheckViolationError):
-        await db.execute(
-            "INSERT INTO person_names (id, person_id, name, primary_identifier)"
-            " VALUES ($1, $2, $3, 'invalid_value')",
-            generate_id(), pid, "Test",
-        )
-
-
 async def test_visibility_check_constraint(db):
     pid = await _person(db)
     with pytest.raises(asyncpg.CheckViolationError):
@@ -90,6 +75,40 @@ async def test_visibility_check_constraint(db):
             " VALUES ($1, $2, $3, 'bogus')",
             generate_id(), pid, "Test",
         )
+
+
+async def test_visibility_internal_no_longer_accepted(db):
+    """CR#7: 'internal' was dropped from the visibility CHECK."""
+    pid = await _person(db)
+    with pytest.raises(asyncpg.CheckViolationError):
+        await db.execute(
+            "INSERT INTO person_names (id, person_id, name, visibility)"
+            " VALUES ($1, $2, $3, 'internal')",
+            generate_id(), pid, "Test",
+        )
+
+
+async def test_reading_of_id_cascade_on_delete(db):
+    """CR#2: deleting a visual row cascades to its reading/MRZ children."""
+    pid = await _person(db)
+    visual_id = generate_id()
+    reading_id = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, script)"
+        " VALUES ($1, $2, $3, 'legal', 'Hant')",
+        visual_id, pid, "毛澤東",
+    )
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, script, reading_of_id)"
+        " VALUES ($1, $2, $3, 'alias', 'Latn', $4)",
+        reading_id, pid, "Máo Zédōng", visual_id,
+    )
+    await db.execute("DELETE FROM person_names WHERE id=$1", visual_id)
+    survivor = await db.fetchrow(
+        "SELECT id FROM person_names WHERE id=$1", reading_id
+    )
+    assert survivor is None, "reading row should have cascaded with parent visual delete"
 
 
 async def test_reading_of_id_self_reference(db):
@@ -116,24 +135,154 @@ async def test_reading_of_id_self_reference(db):
     assert row["reading_of_id"] == visual_id
 
 
-async def test_structured_parts_arrays(db):
+# --- person_name_parts sidecar (1:0..1 with person_names) ---
+
+
+async def test_person_name_parts_table_exists(db):
+    row = await db.fetchrow(
+        "SELECT 1 FROM information_schema.tables WHERE table_name='person_name_parts'"
+    )
+    assert row is not None
+
+
+@pytest.mark.parametrize(
+    "column,data_type",
+    [
+        ("person_name_id", "text"),
+        ("given_names", "ARRAY"),
+        ("family_names", "ARRAY"),
+        ("additional_names", "ARRAY"),
+        ("honorific_prefix", "text"),
+        ("honorific_suffix", "text"),
+        ("primary_identifier", "text"),
+        ("created_at", "timestamp with time zone"),
+        ("updated_at", "timestamp with time zone"),
+    ],
+)
+async def test_person_name_parts_has_column(db, column, data_type):
+    row = await db.fetchrow(
+        "SELECT data_type FROM information_schema.columns "
+        "WHERE table_name='person_name_parts' AND column_name=$1",
+        column,
+    )
+    assert row is not None, f"person_name_parts.{column} missing"
+    assert row["data_type"] == data_type or row["data_type"].lower().startswith(
+        data_type.lower()
+    )
+
+
+async def test_person_name_parts_inserts_and_reads(db):
     pid = await _person(db)
-    nid = generate_id()
+    name_id = generate_id()
     await db.execute(
-        "INSERT INTO person_names ("
-        "id, person_id, name, given_names, family_names, primary_identifier"
-        ") VALUES ($1, $2, $3, $4, $5, $6)",
-        nid, pid, "María José García López",
-        ["María", "José"], ["García", "López"], "family",
+        "INSERT INTO person_names (id, person_id, name, name_type)"
+        " VALUES ($1, $2, $3, 'legal')",
+        name_id, pid, "María José García López",
+    )
+    await db.execute(
+        "INSERT INTO person_name_parts ("
+        "person_name_id, given_names, family_names, primary_identifier"
+        ") VALUES ($1, $2, $3, $4)",
+        name_id, ["María", "José"], ["García", "López"], "family",
     )
     row = await db.fetchrow(
         "SELECT given_names, family_names, primary_identifier "
-        "FROM person_names WHERE id=$1",
-        nid,
+        "FROM person_name_parts WHERE person_name_id=$1",
+        name_id,
     )
     assert row["given_names"] == ["María", "José"]
     assert row["family_names"] == ["García", "López"]
     assert row["primary_identifier"] == "family"
+
+
+async def test_person_name_parts_primary_identifier_check(db):
+    pid = await _person(db)
+    name_id = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
+        name_id, pid, "Test",
+    )
+    with pytest.raises(asyncpg.CheckViolationError):
+        await db.execute(
+            "INSERT INTO person_name_parts (person_name_id, primary_identifier)"
+            " VALUES ($1, 'invalid_value')",
+            name_id,
+        )
+
+
+async def test_person_name_parts_one_per_person_name(db):
+    """PRIMARY KEY enforces 1:0..1 — only one parts row per person_names row."""
+    pid = await _person(db)
+    name_id = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
+        name_id, pid, "Test",
+    )
+    await db.execute(
+        "INSERT INTO person_name_parts (person_name_id, given_names) VALUES ($1, $2)",
+        name_id, ["First"],
+    )
+    with pytest.raises(asyncpg.UniqueViolationError):
+        await db.execute(
+            "INSERT INTO person_name_parts (person_name_id, given_names) VALUES ($1, $2)",
+            name_id, ["Other"],
+        )
+
+
+async def test_person_name_parts_cascade_on_person_name_delete(db):
+    """Parts row goes away when its parent person_names row is deleted."""
+    pid = await _person(db)
+    name_id = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
+        name_id, pid, "Test",
+    )
+    await db.execute(
+        "INSERT INTO person_name_parts (person_name_id, given_names) VALUES ($1, $2)",
+        name_id, ["Test"],
+    )
+    await db.execute("DELETE FROM person_names WHERE id=$1", name_id)
+    survivor = await db.fetchrow(
+        "SELECT 1 FROM person_name_parts WHERE person_name_id=$1", name_id
+    )
+    assert survivor is None
+
+
+async def test_person_name_parts_distinct_per_script(db):
+    """A person can hold separate parts for Hant `legal` and Latn `romanization`."""
+    pid = await _person(db)
+    hant_id, latn_id = generate_id(), generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, script)"
+        " VALUES ($1, $2, $3, 'legal', 'Hant')",
+        hant_id, pid, "毛澤東",
+    )
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, script, reading_of_id)"
+        " VALUES ($1, $2, $3, 'romanization', 'Latn', $4)",
+        latn_id, pid, "Mao Zedong", hant_id,
+    )
+    await db.execute(
+        "INSERT INTO person_name_parts "
+        "(person_name_id, given_names, family_names, primary_identifier)"
+        " VALUES ($1, $2, $3, $4)",
+        hant_id, ["澤東"], ["毛"], "family",
+    )
+    await db.execute(
+        "INSERT INTO person_name_parts "
+        "(person_name_id, given_names, family_names, primary_identifier)"
+        " VALUES ($1, $2, $3, $4)",
+        latn_id, ["Zedong"], ["Mao"], "family",
+    )
+    rows = await db.fetch(
+        "SELECT family_names FROM person_name_parts "
+        "WHERE person_name_id IN ($1, $2) ORDER BY person_name_id",
+        hant_id, latn_id,
+    )
+    families = [r["family_names"] for r in rows]
+    assert ["毛"] in families
+    assert ["Mao"] in families
 
 
 # --- Task 2: name_type expansion ---
@@ -296,20 +445,6 @@ async def test_view_excludes_hidden(db):
         "(id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'hidden')",
         generate_id(), pid, "Hidden",
-    )
-    row = await db.fetchrow(
-        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
-    )
-    assert row["display_name"] is None
-
-
-async def test_view_excludes_internal(db):
-    pid = await _person(db)
-    await db.execute(
-        "INSERT INTO person_names "
-        "(id, person_id, name, name_type, is_canonical, visibility)"
-        " VALUES ($1, $2, $3, 'legal', TRUE, 'internal')",
-        generate_id(), pid, "Internal Only",
     )
     row = await db.fetchrow(
         "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid

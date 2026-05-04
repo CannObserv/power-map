@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Augment `person_names` with locale, script, sort_as, primary_identifier, visibility, reading_of_id, and structured-part columns; expand `name_type`; relax canonical uniqueness to `(person_id, name_type, locale, script)`; add deadname→visibility trigger; make `v_person_display_names` visibility-aware; add `visible_names_filter()` helper + lint test; document operational rules.
+> **Revision note (post-CR, 2026-05-04):** Tasks 1–7 below were implemented and reviewed; the CR surfaced two structural changes — (a) structured parts moved out of `person_names` into a new `person_name_parts` sidecar (1:0..1, keyed on `person_names.id`); (b) `'internal'` dropped from the `visibility` CHECK and `primary_identifier` moved to the parts table. The design doc reflects the final shape; the commit history is the source of truth. This plan retains the original TDD checklist for archival reference, with task-level deltas noted inline. Task 8 (production apply + service restart) is unchanged in concept and is the next step.
 
-**Architecture:** Single-table additive change to `person_names` (no sidecar). Schema changes wrapped in idempotent `DO $$ ... IF NOT EXISTS ... END $$` blocks following the existing pattern. View + trigger created with `CREATE OR REPLACE`. Helper lives in `src/core/db.py`. No UI, no API model changes — Phase 1 only.
+**Goal:** Augment `person_names` with locale/script/sort_as/visibility/reading_of_id; introduce a `person_name_parts` sidecar table for structured parts; expand `name_type`; relax canonical uniqueness to `(person_id, name_type, locale, script)`; add deadname→visibility trigger (scoped to `UPDATE OF name_type, visibility`); make `v_person_display_names` visibility-aware; add `visible_names_filter()` helper + lint test; document operational rules.
+
+**Architecture:** Per-name-row metadata on `person_names`; structured parts in `person_name_parts` (1:0..1, ON DELETE CASCADE). Schema changes wrapped in idempotent per-column `DO $$ ... IF NOT EXISTS ... END $$` blocks following the existing `archived_at` pattern. View + trigger created with `CREATE OR REPLACE`. Helper lives in `src/core/db.py`. No UI, no API model changes — Phase 1 only.
 
 **Tech Stack:** PostgreSQL 15+, asyncpg, pytest (integration), ruff lint.
 
@@ -164,6 +166,7 @@ async def test_visibility_check_constraint(db):
 
 
 async def test_reading_of_id_self_reference(db):
+    """FK from person_names to itself (used later for phonetic / romanization / MRZ)."""
     pid = await _person(db)
     visual_id = generate_id()
     reading_id = generate_id()
@@ -172,10 +175,12 @@ async def test_reading_of_id_self_reference(db):
         " VALUES ($1, $2, $3, $4, $5)",
         visual_id, pid, "毛澤東", "legal", "Hant",
     )
+    # Use a name_type already permitted by the Task-1 CHECK; Task 2 will add
+    # 'romanization' / 'reading' / 'mrz' as semantic-specific values.
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, script, reading_of_id)"
         " VALUES ($1, $2, $3, $4, $5, $6)",
-        reading_id, pid, "Máo Zédōng", "romanization", "Latn", visual_id,
+        reading_id, pid, "Máo Zédōng", "alias", "Latn", visual_id,
     )
     row = await db.fetchrow(
         "SELECT reading_of_id FROM person_names WHERE id=$1", reading_id
@@ -183,24 +188,10 @@ async def test_reading_of_id_self_reference(db):
     assert row["reading_of_id"] == visual_id
 
 
-async def test_structured_parts_arrays(db):
-    pid = await _person(db)
-    nid = generate_id()
-    await db.execute(
-        "INSERT INTO person_names ("
-        "id, person_id, name, given_names, family_names, primary_identifier"
-        ") VALUES ($1, $2, $3, $4, $5, $6)",
-        nid, pid, "María José García López",
-        ["María", "José"], ["García", "López"], "family",
-    )
-    row = await db.fetchrow(
-        "SELECT given_names, family_names, primary_identifier "
-        "FROM person_names WHERE id=$1",
-        nid,
-    )
-    assert row["given_names"] == ["María", "José"]
-    assert row["family_names"] == ["García", "López"]
-    assert row["primary_identifier"] == "family"
+# NOTE (post-CR revision): Structured parts moved to person_name_parts sidecar.
+# Tests against parts now query the sidecar table; see the
+# `--- person_name_parts sidecar (1:0..1 with person_names) ---` block in
+# tests/core/test_schema_person_names_i18n.py.
 ```
 
 - [ ] **Step 2: Run tests — verify they fail**

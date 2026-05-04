@@ -28,7 +28,7 @@ Reference for public API, database, and ingestion patterns. For admin dashboard 
 ### Display names
 
 - Org: use `v_org_display_names` for all queries displaying an org name — formats as "Name (Acronym)" when a canonical acronym exists, otherwise just "Name". Never join `organization_names` or `organization_acronyms` directly for display
-- Person: use `v_person_display_names` — returns the canonical `person_names` row. Never join `person_names` directly for display
+- Person: use `v_person_display_names` — returns the canonical `person_names` row filtered to `visibility='public'` (see "Person names — i18n & cultural awareness" below). Never join `person_names` directly for display.
 - Acronyms in `organization_acronyms` (separate table); `organization_names` holds legal/dba/former names only. Each table has exactly one canonical row per org via a partial unique index
 
 ### Auto-promote invariant
@@ -50,18 +50,18 @@ Equivalent for acronyms: `_maybe_promote_sole_acronym(org_id, db)` (from `src.ap
 
 ### Person names — i18n & cultural awareness
 
-Hybrid model (issue #121): `person_names.name` is the canonical UTF-8 display string; structured parts (`given_names[]`, `family_names[]`, `additional_names[]`, `honorific_prefix`, `honorific_suffix`) and metadata (`locale`, `script`, `sort_as`, `primary_identifier`, `visibility`, `reading_of_id`) are layered on the same row.
+Hybrid model (issue #121): `person_names.name` is the canonical UTF-8 display string; per-name-row metadata (`locale`, `script`, `sort_as`, `visibility`, `reading_of_id`) lives on `person_names`; structured parts live in the `person_name_parts` sidecar (1:0..1, keyed on `person_names.id`).
 
 #### Storage rules
 
 - Store user input verbatim. **Never** lowercase, title-case, ASCII-fold, or strip diacritics on input — names like "McNamara", "van der Waals", or "ffrench" rely on specific casing; Vietnamese names rely on diacritics.
-- `name` is the authoritative free string. Structured parts are populated **only** when an upstream source provides them. **Never auto-parse** a free string into parts — the "David Lloyd George" ambiguity is unresolvable without cultural context.
+- `name` is the authoritative free string. Structured parts in `person_name_parts` are populated **only** when an upstream source provides them. **Never auto-parse** a free string into parts — the "David Lloyd George" ambiguity is unresolvable without cultural context.
 - Sort with Postgres ICU collations (e.g. `ORDER BY name COLLATE "und-x-icu"`), or by `sort_as` when present. Do not use `LOWER(name)` for sorting.
 - New rows default to `visibility='public'`. The `trg_deadname_visibility` trigger downgrades any `name_type='deadname'` row from `'public'` to `'legal_only'` automatically; an explicit `'hidden'` is preserved.
 
 #### Visibility rule (single, project-wide)
 
-A `person_names` row with `visibility ∈ {'legal_only', 'hidden', 'internal'}` is excluded from:
+A `person_names` row with `visibility ∈ {'legal_only', 'hidden'}` is excluded from:
 
 - `v_person_display_names`
 - All public API responses
@@ -108,16 +108,18 @@ When generating an MRZ row from a Latin-script visual `legal` row:
 
 No automatic generation pipeline exists in Phase 1 — populate manually or via a future ingestion integration.
 
-#### Structured parts
+#### Structured parts (`person_name_parts` sidecar)
 
-`given_names`, `family_names`, `additional_names` are PostgreSQL `TEXT[]` and ordered. `primary_identifier` indicates which array drives formal address and primary sort:
+Parts live in `person_name_parts`, keyed on `person_name_id` (1:0..1 with `person_names`). Each `person_names` row optionally has its *own* parts row — the Hant `legal` and Latn `romanization` of one person each carry distinct decompositions, not a shared set. ON DELETE CASCADE — when a `person_names` row is deleted its parts row is removed too.
+
+Columns: `given_names TEXT[]`, `family_names TEXT[]`, `additional_names TEXT[]`, `honorific_prefix`, `honorific_suffix`, `primary_identifier`. Arrays are ordered. `primary_identifier` indicates which array drives formal address and primary sort:
 
 - `'family'` — Western, Sinitic, Hungarian (last-name address); sort by `family_names[1]`
 - `'given'` — Icelandic, mononymous fallback; sort by `given_names[1]`
 - `'patronymic'` — Arabic chain, Russian; address by `given_names[1]`
 - `'mononym'` — single-name people (Cher, Prince); the single token is in `name`
 
-A row with NULL parts but a populated `name` is fully valid — the free string remains authoritative.
+A `person_names` row with no corresponding `person_name_parts` row is fully valid — the free `name` string remains authoritative.
 
 #### Canonical-uniqueness key
 

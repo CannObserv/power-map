@@ -23,38 +23,58 @@ def test_visible_names_filter_uses_alias():
 # --- Lint test: forbid raw `FROM person_names` / `JOIN person_names` outside the allow-list ---
 
 ALLOWED_DIRECT_ACCESS = {
-    # Files explicitly permitted to query person_names without the helper.
-    # Each file documents its visibility-handling stance in a comment.
+    # Files explicitly permitted to query person_names without inline visibility
+    # filtering. Each file documents its handling stance in a comment.
     "src/core/db.py",                       # defines the helper
     "src/api/admin/people.py",              # admin detail / hard-delete — surfaces all
     "src/api/admin/people_names.py",        # name-management page — edits all
     "src/api/admin/people_merge.py",        # merge logic — touches all rows on both sides
+    # _names_shared.py uses dynamic {names_table} f-strings; the regex below
+    # never matches verbatim "person_names" there. Listed for reviewer clarity.
+    "src/api/admin/_names_shared.py",       # shared admin CRUD via {names_table}
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Patterns that *count* as a visibility filter on a person_names access.
+# Tighter than substring match — must look like an actual SQL predicate or a
+# call to the helper.
+_FILTER_PATTERNS = [
+    re.compile(r"\bvisibility\s*=\s*'public'", re.IGNORECASE),
+    re.compile(r"\.\s*visibility\s*=\s*'public'", re.IGNORECASE),
+    re.compile(r"visible_names_filter\s*\("),
+]
+
+
+def _has_visibility_guard(window_text: str) -> bool:
+    return any(p.search(window_text) for p in _FILTER_PATTERNS)
+
 
 def test_no_unguarded_person_names_queries():
     """No raw `FROM person_names` / `JOIN person_names` outside the allow-list."""
-    pattern = re.compile(r"\b(?:FROM|JOIN)\s+person_names\b", re.IGNORECASE)
+    sql_pattern = re.compile(r"\b(?:FROM|JOIN)\s+person_names\b", re.IGNORECASE)
     offenders: list[str] = []
     for path in (REPO_ROOT / "src").rglob("*.py"):
         rel = path.relative_to(REPO_ROOT).as_posix()
         if rel in ALLOWED_DIRECT_ACCESS:
             continue
         text = path.read_text()
-        # Skip lines that already include visibility filtering.
-        for line_no, line in enumerate(text.splitlines(), start=1):
-            if pattern.search(line):
-                # Look at this line and a small window of nearby lines for the filter.
-                window_start = max(0, line_no - 3)
-                window_end = min(len(text.splitlines()), line_no + 5)
-                window = "\n".join(text.splitlines()[window_start:window_end])
-                if "visibility" not in window:
-                    offenders.append(f"{rel}:{line_no}")
+        lines = text.splitlines()
+        for line_no, line in enumerate(lines, start=1):
+            if not sql_pattern.search(line):
+                continue
+            # Inspect a tight window: 2 lines back through 8 lines forward.
+            # The window must contain a real visibility predicate or a call
+            # to visible_names_filter() — not just the word "visibility".
+            start = max(0, line_no - 3)
+            end = min(len(lines), line_no + 8)
+            window = "\n".join(lines[start:end])
+            if not _has_visibility_guard(window):
+                offenders.append(f"{rel}:{line_no}")
     assert not offenders, (
-        f"Direct `FROM/JOIN person_names` access without visibility filter in: "
-        f"{offenders}. Either go through v_person_display_names, AND-append "
-        f"visible_names_filter() or 'visibility = ...' inline, or add the file to "
-        f"ALLOWED_DIRECT_ACCESS with a justification."
+        f"Direct `FROM/JOIN person_names` access without a visibility predicate "
+        f"or visible_names_filter() call in: {offenders}. Either go through "
+        f"v_person_display_names, AND-append `visibility = 'public'`, call "
+        f"visible_names_filter(), or add the file to ALLOWED_DIRECT_ACCESS "
+        f"with a justification."
     )
