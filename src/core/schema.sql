@@ -427,21 +427,35 @@ DO $$ BEGIN
     END IF;
 END $$;
 
--- Tighten visibility CHECK: drop ALL CHECK constraints that reference the
--- visibility column (handles auto-named, explicitly-named, and any vestigial
--- duplicates), then add a single canonical one. Idempotent — drops/re-adds
--- on every apply_schema() but the table is small and the cost is microseconds.
+-- Tighten visibility CHECK: drop ALL CHECK constraints whose conkey list
+-- includes the visibility column (handles auto-named, explicitly-named, and
+-- any vestigial duplicates), then add a single canonical one. Filters via
+-- conkey @> ARRAY[<attnum>] — strict referential check, not text matching.
+-- Idempotent — drops/re-adds on every apply_schema().
 DO $$
 DECLARE
-    constraint_rec RECORD;
+    visibility_attnum SMALLINT;
+    constraint_rec    RECORD;
 BEGIN
+    SELECT attnum INTO visibility_attnum
+    FROM pg_attribute
+    WHERE attrelid = 'person_names'::regclass
+      AND attname = 'visibility'
+      AND NOT attisdropped;
+
+    IF visibility_attnum IS NULL THEN
+        -- visibility column not yet added (per-column DO block runs earlier;
+        -- this should never happen on a complete apply_schema run).
+        RETURN;
+    END IF;
+
     FOR constraint_rec IN
         SELECT c.conname
         FROM pg_constraint c
         JOIN pg_class t ON t.oid = c.conrelid
         WHERE t.relname = 'person_names'
           AND c.contype = 'c'
-          AND pg_get_constraintdef(c.oid) ILIKE '%visibility%'
+          AND c.conkey @> ARRAY[visibility_attnum]
     LOOP
         EXECUTE format('ALTER TABLE person_names DROP CONSTRAINT %I',
                        constraint_rec.conname);

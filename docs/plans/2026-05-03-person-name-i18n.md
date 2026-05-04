@@ -3,6 +3,8 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **Revision note (post-CR, 2026-05-04):** Tasks 1–7 below were implemented and reviewed; the CR surfaced two structural changes — (a) structured parts moved out of `person_names` into a new `person_name_parts` sidecar (1:0..1, keyed on `person_names.id`); (b) `'internal'` dropped from the `visibility` CHECK and `primary_identifier` moved to the parts table. The design doc reflects the final shape; the commit history is the source of truth. This plan retains the original TDD checklist for archival reference, with task-level deltas noted inline. Task 8 (production apply + service restart) is unchanged in concept and is the next step.
+>
+> **Asymmetry note:** Only Task 1's body was trimmed to a pointer block — its original RED-state snippets reflected the pre-CR draft (structured-parts columns directly on `person_names`) and would mislead a reader. Tasks 2–7 retain their original snippets because they accurately describe what was implemented.
 
 **Goal:** Augment `person_names` with locale/script/sort_as/visibility/reading_of_id; introduce a `person_name_parts` sidecar table for structured parts; expand `name_type`; relax canonical uniqueness to `(person_id, name_type, locale, script)`; add deadname→visibility trigger (scoped to `UPDATE OF name_type, visibility`); make `v_person_display_names` visibility-aware; add `visible_names_filter()` helper + lint test; document operational rules.
 

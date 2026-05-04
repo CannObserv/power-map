@@ -88,6 +88,53 @@ async def test_visibility_internal_no_longer_accepted(db):
         )
 
 
+async def test_apply_schema_drops_vestigial_visibility_checks():
+    """CR3-#22: the visibility-CHECK migration loop drops vestigial duplicates.
+
+    Adds a second, conflicting CHECK on the visibility column, then re-runs
+    apply_schema() and asserts only the canonical CHECK remains. Uses its own
+    connection (not the rollback fixture) because we need apply_schema() to
+    commit DDL between phases.
+    """
+    dsn = os.environ.get("TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("TEST_DATABASE_URL not set")
+    conn = await asyncpg.connect(dsn)
+    try:
+        await apply_schema(conn)
+        # Inject a vestigial CHECK on the visibility column.
+        await conn.execute(
+            "ALTER TABLE person_names ADD CONSTRAINT vestigial_visibility_check "
+            "CHECK (visibility != 'nonsense')"
+        )
+        # Re-run apply_schema; the migration loop should drop the vestigial
+        # CHECK and leave only the canonical one.
+        await apply_schema(conn)
+
+        rows = await conn.fetch(
+            """
+            SELECT c.conname
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_attribute a
+              ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+            WHERE t.relname = 'person_names'
+              AND c.contype = 'c'
+              AND a.attname = 'visibility'
+            """
+        )
+        names = sorted(r["conname"] for r in rows)
+        assert names == ["person_names_visibility_check"], (
+            f"Expected exactly one visibility CHECK; got {names}"
+        )
+    finally:
+        # Defensive cleanup in case the test failed before re-apply_schema.
+        await conn.execute(
+            "ALTER TABLE person_names DROP CONSTRAINT IF EXISTS vestigial_visibility_check"
+        )
+        await conn.close()
+
+
 async def test_reading_of_id_cascade_on_delete(db):
     """CR#2: deleting a visual row cascades to its reading/MRZ children."""
     pid = await _person(db)
