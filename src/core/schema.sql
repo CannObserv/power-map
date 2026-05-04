@@ -139,6 +139,25 @@ CREATE TABLE IF NOT EXISTS person_names (
     name_type    TEXT        NOT NULL DEFAULT 'legal'
                              CHECK (name_type IN ('legal', 'former', 'preferred', 'alias', 'initials')),
     is_canonical BOOLEAN     NOT NULL DEFAULT FALSE,
+
+    -- i18n / cultural-awareness metadata (issue #121, Phase 1)
+    locale              TEXT,                       -- BCP 47, e.g. 'en-US','zh-Hant-TW'
+    script              TEXT,                       -- ISO 15924, e.g. 'Latn','Hant','Hans','Kana'
+    sort_as             TEXT,                       -- explicit collation key; NULL → use `name`
+    primary_identifier  TEXT
+                        CHECK (primary_identifier IS NULL
+                               OR primary_identifier IN ('family','given','patronymic','mononym')),
+    visibility          TEXT NOT NULL DEFAULT 'public'
+                        CHECK (visibility IN ('public','internal','legal_only','hidden')),
+    reading_of_id       TEXT REFERENCES person_names(id),
+
+    -- Structured parts (populated only when source provides; never auto-parsed)
+    given_names         TEXT[],
+    family_names        TEXT[],
+    additional_names    TEXT[],
+    honorific_prefix    TEXT,
+    honorific_suffix    TEXT,
+
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -345,6 +364,61 @@ DO $$ BEGIN
         ALTER TABLE roles ADD CONSTRAINT chk_role_date_order
             CHECK (established_on IS NULL OR abolished_on IS NULL
                    OR established_on <= abolished_on);
+    END IF;
+END $$;
+
+-- =============================================================================
+-- Schema evolution: person_names i18n columns (issue #121, Phase 1)
+-- All columns nullable except `visibility` (constant default 'public').
+-- =============================================================================
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='locale') THEN
+        ALTER TABLE person_names ADD COLUMN locale TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='script') THEN
+        ALTER TABLE person_names ADD COLUMN script TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='sort_as') THEN
+        ALTER TABLE person_names ADD COLUMN sort_as TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='primary_identifier') THEN
+        ALTER TABLE person_names ADD COLUMN primary_identifier TEXT
+            CHECK (primary_identifier IS NULL
+                   OR primary_identifier IN ('family','given','patronymic','mononym'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='visibility') THEN
+        ALTER TABLE person_names ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'
+            CHECK (visibility IN ('public','internal','legal_only','hidden'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='reading_of_id') THEN
+        ALTER TABLE person_names ADD COLUMN reading_of_id TEXT REFERENCES person_names(id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='given_names') THEN
+        ALTER TABLE person_names ADD COLUMN given_names TEXT[];
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='family_names') THEN
+        ALTER TABLE person_names ADD COLUMN family_names TEXT[];
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='additional_names') THEN
+        ALTER TABLE person_names ADD COLUMN additional_names TEXT[];
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='honorific_prefix') THEN
+        ALTER TABLE person_names ADD COLUMN honorific_prefix TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='person_names' AND column_name='honorific_suffix') THEN
+        ALTER TABLE person_names ADD COLUMN honorific_suffix TEXT;
     END IF;
 END $$;
 
