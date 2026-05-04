@@ -580,6 +580,36 @@ LEFT JOIN person_names n
    AND n.visibility = 'public'
 ;
 
+-- Phase 2-prep (#123): bind person_names.locale → bcp47_locales(code)
+-- and person_names.script → iso15924_scripts(code). Idempotent — only
+-- adds the constraint when absent. ON UPDATE CASCADE so registry-driven
+-- code renames propagate to existing person_names rows.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'person_names'
+          AND c.conname = 'person_names_locale_fkey'
+    ) THEN
+        ALTER TABLE person_names
+            ADD CONSTRAINT person_names_locale_fkey
+            FOREIGN KEY (locale) REFERENCES bcp47_locales(code) ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'person_names'
+          AND c.conname = 'person_names_script_fkey'
+    ) THEN
+        ALTER TABLE person_names
+            ADD CONSTRAINT person_names_script_fkey
+            FOREIGN KEY (script) REFERENCES iso15924_scripts(code) ON UPDATE CASCADE;
+    END IF;
+END $$;
+
 -- =============================================================================
 -- Organization names/acronyms schema migration
 -- Moves acronym rows from organization_names to organization_acronyms,

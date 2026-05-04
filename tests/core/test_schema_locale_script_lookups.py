@@ -5,7 +5,7 @@ import os
 import asyncpg
 import pytest
 
-from src.core.db import apply_schema
+from src.core.db import apply_schema, generate_id
 
 pytestmark = pytest.mark.integration
 
@@ -81,14 +81,16 @@ async def test_iso15924_scripts_has_column(db, column, data_type):
 
 
 async def test_iso15924_scripts_numeric_code_unique(db):
+    # ISO 15924 numeric codes are in the range 100..999; use 30000 to
+    # guarantee no collision with seeded registry data.
     await db.execute(
         "INSERT INTO iso15924_scripts (code, numeric_code, name) "
-        "VALUES ('Aaaa', 999, 'Test')"
+        "VALUES ('Aaaa', 30000, 'Test')"
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
             "INSERT INTO iso15924_scripts (code, numeric_code, name) "
-            "VALUES ('Bbbb', 999, 'Other')"
+            "VALUES ('Bbbb', 30000, 'Other')"
         )
 
 
@@ -117,3 +119,75 @@ async def test_trgm_gin_index_exists(db, table, column):
         table, column,
     )
     assert row is not None, f"missing pg_trgm GIN index on {table}({column})"
+
+
+# --- FK enforcement: person_names.locale / .script ---
+
+async def _person(conn) -> str:
+    pid = generate_id()
+    await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    return pid
+
+
+async def test_person_names_locale_fk_rejects_unregistered(db):
+    pid = await _person(db)
+    # Seed at least one row so the FK actually has somewhere to point.
+    await db.execute(
+        "INSERT INTO bcp47_locales (code, language, display_name) "
+        "VALUES ('en-US', 'en', 'English (United States)') ON CONFLICT DO NOTHING"
+    )
+    with pytest.raises(asyncpg.ForeignKeyViolationError):
+        await db.execute(
+            "INSERT INTO person_names (id, person_id, name, locale) "
+            "VALUES ($1, $2, $3, 'xx-XX')",
+            generate_id(), pid, "Test",
+        )
+
+
+async def test_person_names_locale_fk_accepts_registered(db):
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO bcp47_locales (code, language, display_name) "
+        "VALUES ('en-US', 'en', 'English (United States)') ON CONFLICT DO NOTHING"
+    )
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, locale) "
+        "VALUES ($1, $2, $3, 'en-US')",
+        generate_id(), pid, "Test",
+    )
+
+
+async def test_person_names_script_fk_rejects_unregistered(db):
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO iso15924_scripts (code, numeric_code, name) "
+        "VALUES ('Latn', 215, 'Latin') ON CONFLICT DO NOTHING"
+    )
+    with pytest.raises(asyncpg.ForeignKeyViolationError):
+        await db.execute(
+            "INSERT INTO person_names (id, person_id, name, script) "
+            "VALUES ($1, $2, $3, 'Xxxx')",
+            generate_id(), pid, "Test",
+        )
+
+
+async def test_person_names_script_fk_accepts_registered(db):
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO iso15924_scripts (code, numeric_code, name) "
+        "VALUES ('Latn', 215, 'Latin') ON CONFLICT DO NOTHING"
+    )
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, script) "
+        "VALUES ($1, $2, $3, 'Latn')",
+        generate_id(), pid, "Test",
+    )
+
+
+async def test_person_names_locale_null_still_allowed(db):
+    """FK must permit NULL — not all names need a locale tag."""
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
+        generate_id(), pid, "Test",
+    )
