@@ -197,6 +197,10 @@ async def person_detail(
     )
     display_name = display_name_row["display_name"] if display_name_row else None
 
+    # visibility-allowlist (issue #121): admin detail page is the disclosure
+    # point — surfaces all names (incl. legal_only / hidden / deadname) so the
+    # editor can manage them. Future UI gates these behind a "Show legal/
+    # historical names" toggle; the SQL must return everything.
     names = await db.fetch(
         "SELECT * FROM person_names WHERE person_id = $1"
         " ORDER BY is_canonical DESC, name_type, name",
@@ -315,6 +319,8 @@ async def person_delete(
     if not person["archived_at"]:
         raise HTTPException(status_code=409, detail="Person must be archived before deletion")
     try:
+        # visibility-allowlist (issue #121): hard-delete must remove ALL name
+        # rows regardless of visibility.
         await db.execute("DELETE FROM person_names WHERE person_id = $1", person_id)
         await db.execute("DELETE FROM people WHERE id = $1", person_id)
     except asyncpg.ForeignKeyViolationError:

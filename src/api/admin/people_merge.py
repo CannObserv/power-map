@@ -111,6 +111,9 @@ async def person_merge(
             "UPDATE person_names SET is_canonical=FALSE WHERE person_id=$1 AND is_canonical=TRUE",
             loser_id,
         )
+        # visibility-allowlist (issue #121): merge deduplicates and
+        # reassigns ALL name rows regardless of visibility — the merged
+        # winner must inherit the loser's deadnames, hidden names, etc.
         await db.execute(
             "DELETE FROM person_names"
             " WHERE person_id=$1"

@@ -341,10 +341,15 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         t = result.transformed
         name_lower = next(n["name"] for n in t["names"] if n["name_type"] == "legal").lower()
 
+        # Visibility filter: do not auto-match against deadnames or
+        # legal_only/hidden/internal rows (issue #121).
         existing_person = await conn.fetchrow(
             """SELECT p.id FROM people p
                JOIN person_names n ON n.person_id = p.id
-               WHERE lower(n.name) = $1 AND n.name_type = 'legal' AND n.is_canonical = true""",
+               WHERE lower(n.name) = $1
+                 AND n.name_type = 'legal'
+                 AND n.is_canonical = true
+                 AND n.visibility = 'public'""",
             name_lower,
         )
         if existing_person:

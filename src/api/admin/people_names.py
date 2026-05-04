@@ -1,4 +1,9 @@
-"""Admin CRUD for person names."""
+"""Admin CRUD for person names.
+
+visibility-allowlist (issue #121): the admin name-management page must
+edit / count ALL name rows regardless of visibility (incl. legal_only
+and deadname); these helpers intentionally bypass the visibility filter.
+"""
 
 from src.api.admin._names_shared import make_names_router
 from src.api.admin.deps import person_header_extra

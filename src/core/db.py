@@ -94,3 +94,17 @@ def generate_id() -> str:
     """Return a new ULID as a 26-character Crockford base32 string."""
     return str(ULID())
 
+
+def visible_names_filter(alias: str | None = None) -> str:
+    """SQL fragment to AND-append when querying person_names directly.
+
+    Excludes deadnames and any row marked legal_only / hidden / internal,
+    matching the visibility rule documented in docs/CONVENTIONS.md.
+
+    Args:
+        alias: Optional table alias used in the query (e.g. 'pn' for
+            ``FROM person_names pn``). When ``None``, the column is
+            unqualified.
+    """
+    col = f"{alias}.visibility" if alias else "visibility"
+    return f"{col} = 'public'"
