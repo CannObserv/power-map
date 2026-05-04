@@ -162,3 +162,58 @@ async def test_person_names_rejects_unknown_name_type(db):
             " VALUES ($1, $2, $3, $4)",
             generate_id(), pid, "Test", "totally_invalid",
         )
+
+
+# --- Task 3: canonical-uniqueness keyed on (locale, script) ---
+
+async def test_canonical_unique_per_locale_script(db):
+    """Two canonical legal names with different scripts coexist."""
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, is_canonical, script)"
+        " VALUES ($1, $2, $3, 'legal', TRUE, 'Hant')",
+        generate_id(), pid, "毛澤東",
+    )
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, is_canonical, script)"
+        " VALUES ($1, $2, $3, 'legal', TRUE, 'Latn')",
+        generate_id(), pid, "Mao Zedong",
+    )
+
+
+async def test_canonical_unique_collision(db):
+    """Two canonical legal names with same (locale, script) collide."""
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, is_canonical, locale, script)"
+        " VALUES ($1, $2, $3, 'legal', TRUE, 'en-US', 'Latn')",
+        generate_id(), pid, "John Smith",
+    )
+    with pytest.raises(asyncpg.UniqueViolationError):
+        await db.execute(
+            "INSERT INTO person_names "
+            "(id, person_id, name, name_type, is_canonical, locale, script)"
+            " VALUES ($1, $2, $3, 'legal', TRUE, 'en-US', 'Latn')",
+            generate_id(), pid, "Johnny Smith",
+        )
+
+
+async def test_canonical_unique_null_locale_collision(db):
+    """COALESCE makes two canonical legal rows with NULL locale+script collide."""
+    pid = await _person(db)
+    await db.execute(
+        "INSERT INTO person_names "
+        "(id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, $3, 'legal', TRUE)",
+        generate_id(), pid, "Cher",
+    )
+    with pytest.raises(asyncpg.UniqueViolationError):
+        await db.execute(
+            "INSERT INTO person_names "
+            "(id, person_id, name, name_type, is_canonical)"
+            " VALUES ($1, $2, $3, 'legal', TRUE)",
+            generate_id(), pid, "Cher Bono",
+        )

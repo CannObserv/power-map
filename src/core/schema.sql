@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS person_names (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
-    ON person_names(person_id, name_type)
+    ON person_names(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))
     WHERE is_canonical = TRUE;
 
 -- Display name view: canonical name for a person.
@@ -444,6 +444,20 @@ DO $$ BEGIN
             'reading','romanization','mrz'
         )
     );
+END $$;
+
+-- Re-key uq_person_canonical_name on (person_id, name_type, locale, script).
+-- Drop the old index only if it lacks COALESCE (i.e. is the pre-#121 form),
+-- then recreate with COALESCE so multiple canonical rows can coexist across
+-- different (locale, script) pairs.
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE indexname='uq_person_canonical_name'
+          AND indexdef NOT LIKE '%COALESCE%'
+    ) THEN
+        DROP INDEX uq_person_canonical_name;
+    END IF;
 END $$;
 
 -- =============================================================================
