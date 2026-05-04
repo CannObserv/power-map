@@ -76,7 +76,8 @@ Full conventions → `docs/CONVENTIONS.md`
 - PKs: ULIDs via `generate_id()` from `src.core.db`
 - `updated_at`: maintained by DB triggers — never set manually
 - Display names: always use `v_org_display_names` / `v_person_display_names` views; never join name tables directly for display
-- Person-name visibility rule (deadnames, hidden, legal-only): see `docs/CONVENTIONS.md` §"Person names — i18n & cultural awareness". Raw `FROM`/`JOIN person_names` access requires inline `visibility='public'` or a call to `visible_names_filter()` from `src.core.db`; lint test enforces.
+- Person-name visibility rule (deadnames, hidden, legal-only): see `docs/CONVENTIONS.md` §"Person names".
+- Raw `person_names` access: AND-append `visibility='public'` or call `visible_names_filter()` from `src.core.db`. Lint enforces.
 - Integration tests: require `TEST_DATABASE_URL`; never run against the production DB
 
 ## Infrastructure

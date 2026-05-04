@@ -248,6 +248,31 @@ async def test_person_name_parts_cascade_on_person_name_delete(db):
     assert survivor is None
 
 
+async def test_person_name_parts_updated_at_trigger_overrides_explicit_value(db):
+    """trg_updated_at_person_name_parts must overwrite an explicit updated_at on UPDATE."""
+    pid = await _person(db)
+    name_id = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
+        name_id, pid, "Test",
+    )
+    await db.execute(
+        "INSERT INTO person_name_parts (person_name_id, given_names) VALUES ($1, $2)",
+        name_id, ["First"],
+    )
+    await db.execute(
+        "UPDATE person_name_parts SET given_names = $1, updated_at = '2000-01-01' "
+        "WHERE person_name_id = $2",
+        ["First", "Middle"], name_id,
+    )
+    row = await db.fetchrow(
+        "SELECT updated_at FROM person_name_parts WHERE person_name_id=$1", name_id
+    )
+    assert row["updated_at"].year > 2000, (
+        "Trigger did not override the explicit updated_at value"
+    )
+
+
 async def test_person_name_parts_distinct_per_script(db):
     """A person can hold separate parts for Hant `legal` and Latn `romanization`."""
     pid = await _person(db)

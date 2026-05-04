@@ -427,93 +427,46 @@ DO $$ BEGIN
     END IF;
 END $$;
 
--- Drop legacy structured-part columns from an earlier draft of #121 that
--- lived directly on person_names. The parts now live in person_name_parts
--- (1:0..1, keyed on person_name_id). Idempotent: runs only when columns exist
--- and only on a fresh DB that briefly held those columns from a prior apply.
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-               WHERE table_name='person_names' AND column_name='given_names') THEN
-        ALTER TABLE person_names DROP COLUMN given_names;
-    END IF;
-END $$;
-
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-               WHERE table_name='person_names' AND column_name='family_names') THEN
-        ALTER TABLE person_names DROP COLUMN family_names;
-    END IF;
-END $$;
-
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-               WHERE table_name='person_names' AND column_name='additional_names') THEN
-        ALTER TABLE person_names DROP COLUMN additional_names;
-    END IF;
-END $$;
-
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-               WHERE table_name='person_names' AND column_name='honorific_prefix') THEN
-        ALTER TABLE person_names DROP COLUMN honorific_prefix;
-    END IF;
-END $$;
-
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-               WHERE table_name='person_names' AND column_name='honorific_suffix') THEN
-        ALTER TABLE person_names DROP COLUMN honorific_suffix;
-    END IF;
-END $$;
-
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-               WHERE table_name='person_names' AND column_name='primary_identifier') THEN
-        ALTER TABLE person_names DROP COLUMN primary_identifier;
-    END IF;
-END $$;
-
--- Tighten visibility CHECK: drop the legacy 'internal' value if a prior draft
--- of #121 ever applied it. Existing rows are pre-flight verified to be 'public'
--- only on prod; on a dev DB with 'internal' rows, the migration will fail loudly
--- (and that's the right behaviour — caller decides reclassification).
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.check_constraints
-               WHERE constraint_name='person_names_visibility_check') THEN
-        ALTER TABLE person_names DROP CONSTRAINT person_names_visibility_check;
-    END IF;
-    -- Some inline CHECKs auto-name as person_names_check, person_names_check1,
-    -- etc. — re-add the constraint with an explicit name so future migrations
-    -- can find it deterministically.
-    BEGIN
-        ALTER TABLE person_names ADD CONSTRAINT person_names_visibility_check
-            CHECK (visibility IN ('public','legal_only','hidden'));
-    EXCEPTION WHEN duplicate_object THEN NULL;
-    END;
+-- Tighten visibility CHECK: drop ALL CHECK constraints that reference the
+-- visibility column (handles auto-named, explicitly-named, and any vestigial
+-- duplicates), then add a single canonical one. Idempotent — drops/re-adds
+-- on every apply_schema() but the table is small and the cost is microseconds.
+DO $$
+DECLARE
+    constraint_rec RECORD;
+BEGIN
+    FOR constraint_rec IN
+        SELECT c.conname
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'person_names'
+          AND c.contype = 'c'
+          AND pg_get_constraintdef(c.oid) ILIKE '%visibility%'
+    LOOP
+        EXECUTE format('ALTER TABLE person_names DROP CONSTRAINT %I',
+                       constraint_rec.conname);
+    END LOOP;
+    ALTER TABLE person_names ADD CONSTRAINT person_names_visibility_check
+        CHECK (visibility IN ('public','legal_only','hidden'));
 END $$;
 
 -- Tighten reading_of_id FK to ON DELETE CASCADE if the constraint was created
 -- with the default NO ACTION semantics by a prior draft.
-DO $$ BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM pg_constraint c
-        JOIN pg_class t   ON t.oid  = c.conrelid
-        WHERE t.relname  = 'person_names'
-          AND c.contype  = 'f'
-          AND c.confdeltype = 'a'  -- 'a' = NO ACTION
-          AND c.conname  LIKE '%reading_of_id%'
-    ) THEN
-        EXECUTE (
-            SELECT 'ALTER TABLE person_names DROP CONSTRAINT '
-                || quote_ident(c.conname)
-            FROM pg_constraint c
-            JOIN pg_class t ON t.oid = c.conrelid
-            WHERE t.relname='person_names'
-              AND c.contype='f'
-              AND c.conname LIKE '%reading_of_id%'
-            LIMIT 1
-        );
+DO $$
+DECLARE
+    fk_name TEXT;
+BEGIN
+    SELECT c.conname INTO fk_name
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    WHERE t.relname  = 'person_names'
+      AND c.contype  = 'f'
+      AND c.confdeltype = 'a'  -- 'a' = NO ACTION
+      AND c.conname  LIKE '%reading_of_id%'
+    LIMIT 1;
+
+    IF fk_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE person_names DROP CONSTRAINT %I', fk_name);
         ALTER TABLE person_names
             ADD CONSTRAINT person_names_reading_of_id_fkey
             FOREIGN KEY (reading_of_id) REFERENCES person_names(id) ON DELETE CASCADE;
@@ -557,22 +510,6 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
     ON person_names(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))
     WHERE is_canonical = TRUE;
-
--- Create person_name_parts table on existing DBs if absent.
-CREATE TABLE IF NOT EXISTS person_name_parts (
-    person_name_id      TEXT        PRIMARY KEY
-                                    REFERENCES person_names(id) ON DELETE CASCADE,
-    given_names         TEXT[],
-    family_names        TEXT[],
-    additional_names    TEXT[],
-    honorific_prefix    TEXT,
-    honorific_suffix    TEXT,
-    primary_identifier  TEXT
-                        CHECK (primary_identifier IS NULL
-                               OR primary_identifier IN ('family','given','patronymic','mononym')),
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
 -- =============================================================================
 -- Organization names/acronyms schema migration

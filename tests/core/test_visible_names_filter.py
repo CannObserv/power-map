@@ -38,10 +38,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Patterns that *count* as a visibility filter on a person_names access.
 # Tighter than substring match — must look like an actual SQL predicate or a
-# call to the helper.
+# call to the helper. The first pattern matches both unqualified
+# (`visibility = 'public'`) and qualified (`pn.visibility = 'public'`) forms
+# because `\b` is a zero-width boundary between `.` and `v`.
 _FILTER_PATTERNS = [
     re.compile(r"\bvisibility\s*=\s*'public'", re.IGNORECASE),
-    re.compile(r"\.\s*visibility\s*=\s*'public'", re.IGNORECASE),
     re.compile(r"visible_names_filter\s*\("),
 ]
 
