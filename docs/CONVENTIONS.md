@@ -48,6 +48,81 @@ Equivalent for acronyms: `_maybe_promote_sole_acronym(org_id, db)` (from `src.ap
 
 `link_types` table holds (slug, display_name, is_social). `links` table holds (entity_type, entity_id, url, link_type_id, is_active). Social links: `JOIN link_types WHERE is_social = TRUE`.
 
+### Person names — i18n & cultural awareness
+
+Hybrid model (issue #121): `person_names.name` is the canonical UTF-8 display string; structured parts (`given_names[]`, `family_names[]`, `additional_names[]`, `honorific_prefix`, `honorific_suffix`) and metadata (`locale`, `script`, `sort_as`, `primary_identifier`, `visibility`, `reading_of_id`) are layered on the same row.
+
+#### Storage rules
+
+- Store user input verbatim. **Never** lowercase, title-case, ASCII-fold, or strip diacritics on input — names like "McNamara", "van der Waals", or "ffrench" rely on specific casing; Vietnamese names rely on diacritics.
+- `name` is the authoritative free string. Structured parts are populated **only** when an upstream source provides them. **Never auto-parse** a free string into parts — the "David Lloyd George" ambiguity is unresolvable without cultural context.
+- Sort with Postgres ICU collations (e.g. `ORDER BY name COLLATE "und-x-icu"`), or by `sort_as` when present. Do not use `LOWER(name)` for sorting.
+- New rows default to `visibility='public'`. The `trg_deadname_visibility` trigger downgrades any `name_type='deadname'` row from `'public'` to `'legal_only'` automatically; an explicit `'hidden'` is preserved.
+
+#### Visibility rule (single, project-wide)
+
+A `person_names` row with `visibility ∈ {'legal_only', 'hidden', 'internal'}` is excluded from:
+
+- `v_person_display_names`
+- All public API responses
+- All admin search results, list pages, autocomplete, typeahead
+- All duplicate-detection candidate sets and ingestion auto-match queries
+- All flash messages and activity logs
+
+It surfaces **only** on the person-detail admin page, behind an explicit "Show legal/historical names" disclosure toggle (default collapsed).
+
+Enforcement layers:
+
+- `v_person_display_names` filters by `visibility='public'` — use the view for all display.
+- For raw `FROM person_names` / `JOIN person_names` queries, AND-append `visible_names_filter()` from `src.core.db` (or the literal `visibility = 'public'`).
+- `tests/core/test_visible_names_filter.py::test_no_unguarded_person_names_queries` greps for direct access outside `ALLOWED_DIRECT_ACCESS`. New direct-access call sites must either filter visibility inline or be added to the allow-list with a `# visibility-allowlist (issue #121): <reason>` comment.
+
+#### `name_type` values
+
+| Value | Meaning |
+|---|---|
+| `legal` | Government-recognized legal name |
+| `preferred` | What the person asks to be called publicly |
+| `alias` | Alternate identifier (pen name, handle) |
+| `former` | Previous name (marriage change, divorce, voluntary change) |
+| `initials` | Initialism (`JFK`, `MLK`) |
+| `maiden` | Birth surname |
+| `religious` | Religious / monastic name |
+| `stage` | Performer / artist name |
+| `deadname` | Pre-transition or pre-disclosure name; auto-`legal_only` |
+| `reading` | Phonetic reading of another row (e.g. furigana) — link via `reading_of_id` |
+| `romanization` | Latin-script rendering of another row (pinyin, romaji) — link via `reading_of_id` |
+| `mrz` | ICAO 9303 Machine-Readable Zone form — link via `reading_of_id` |
+
+#### MRZ derivation
+
+When generating an MRZ row from a Latin-script visual `legal` row:
+
+| Transformation | Example |
+|---|---|
+| Uppercase all letters | `José` → `JOSE` |
+| Strip diacritics (NFKD + ASCII-only) | `García` → `GARCIA` |
+| Replace hyphens with single space | `García-López` → `GARCIA LOPEZ` |
+| Drop apostrophes | `O'Brien` → `OBRIEN` |
+| Use `<` as filler / separator | `GARCIA<LOPEZ<<JOSE` |
+
+No automatic generation pipeline exists in Phase 1 — populate manually or via a future ingestion integration.
+
+#### Structured parts
+
+`given_names`, `family_names`, `additional_names` are PostgreSQL `TEXT[]` and ordered. `primary_identifier` indicates which array drives formal address and primary sort:
+
+- `'family'` — Western, Sinitic, Hungarian (last-name address); sort by `family_names[1]`
+- `'given'` — Icelandic, mononymous fallback; sort by `given_names[1]`
+- `'patronymic'` — Arabic chain, Russian; address by `given_names[1]`
+- `'mononym'` — single-name people (Cher, Prince); the single token is in `name`
+
+A row with NULL parts but a populated `name` is fully valid — the free string remains authoritative.
+
+#### Canonical-uniqueness key
+
+`uq_person_canonical_name` is keyed on `(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))`. A person can hold a canonical Hant `legal` and a canonical Latn `legal` (romanization) simultaneously.
+
 ---
 
 ## Unique Indexes (PostgreSQL 15+)
