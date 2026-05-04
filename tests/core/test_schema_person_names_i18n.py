@@ -217,3 +217,57 @@ async def test_canonical_unique_null_locale_collision(db):
             " VALUES ($1, $2, $3, 'legal', TRUE)",
             generate_id(), pid, "Cher Bono",
         )
+
+
+# --- Task 4: deadname → visibility consistency trigger ---
+
+async def test_deadname_coerced_to_legal_only_on_insert(db):
+    pid = await _person(db)
+    nid = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
+        " VALUES ($1, $2, $3, 'deadname', 'public')",
+        nid, pid, "Old Name",
+    )
+    row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
+    assert row["visibility"] == "legal_only"
+
+
+async def test_deadname_coerced_to_legal_only_on_update(db):
+    pid = await _person(db)
+    nid = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
+        " VALUES ($1, $2, $3, 'former', 'public')",
+        nid, pid, "Old Name",
+    )
+    await db.execute(
+        "UPDATE person_names SET name_type='deadname' WHERE id=$1", nid
+    )
+    row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
+    assert row["visibility"] == "legal_only"
+
+
+async def test_deadname_hidden_visibility_preserved(db):
+    """Explicit 'hidden' is more restrictive than 'legal_only' — must not downgrade."""
+    pid = await _person(db)
+    nid = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
+        " VALUES ($1, $2, $3, 'deadname', 'hidden')",
+        nid, pid, "Old Name",
+    )
+    row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
+    assert row["visibility"] == "hidden"
+
+
+async def test_non_deadname_public_unchanged(db):
+    pid = await _person(db)
+    nid = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
+        " VALUES ($1, $2, $3, 'former', 'public')",
+        nid, pid, "Old Name",
+    )
+    row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
+    assert row["visibility"] == "public"

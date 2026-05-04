@@ -551,6 +551,27 @@ CREATE OR REPLACE TRIGGER trg_no_org_cycle
     FOR EACH ROW EXECUTE FUNCTION chk_no_org_cycle();
 
 -- =============================================================================
+-- Deadname → visibility consistency (issue #121)
+-- A 'deadname' row can never be 'public'; coerce to 'legal_only' if so.
+-- Explicit 'hidden' is preserved (more restrictive, intentional).
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION enforce_deadname_visibility()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.name_type = 'deadname' AND NEW.visibility = 'public' THEN
+        NEW.visibility := 'legal_only';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_deadname_visibility
+    BEFORE INSERT OR UPDATE ON person_names
+    FOR EACH ROW EXECUTE FUNCTION enforce_deadname_visibility();
+
+-- =============================================================================
 -- updated_at Trigger
 -- Automatically sets updated_at = NOW() on every UPDATE, for all tables
 -- that carry an updated_at column.
