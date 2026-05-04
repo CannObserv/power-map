@@ -32,6 +32,41 @@ CREATE TABLE IF NOT EXISTS entity_identifier_types (
 );
 
 -- =============================================================================
+-- BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
+-- Seeded by scripts/seed_locales_scripts.py from langcodes + pycountry.
+-- Validation source for person_names.locale and person_names.script.
+-- pg_trgm GIN indexes power the typeahead's substring search.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS bcp47_locales (
+    code         TEXT        PRIMARY KEY,
+    language     TEXT        NOT NULL,
+    script       TEXT,
+    region       TEXT,
+    display_name TEXT        NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bcp47_locales_code_trgm
+    ON bcp47_locales USING GIN (code gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_bcp47_locales_display_name_trgm
+    ON bcp47_locales USING GIN (display_name gin_trgm_ops);
+
+CREATE TABLE IF NOT EXISTS iso15924_scripts (
+    code         TEXT        PRIMARY KEY,
+    numeric_code SMALLINT    NOT NULL UNIQUE,
+    name         TEXT        NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_iso15924_scripts_code_trgm
+    ON iso15924_scripts USING GIN (code gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_iso15924_scripts_name_trgm
+    ON iso15924_scripts USING GIN (name gin_trgm_ops);
+
+-- =============================================================================
 -- Addresses
 -- =============================================================================
 
@@ -694,6 +729,14 @@ CREATE OR REPLACE TRIGGER trg_updated_at_role_assignments
 
 CREATE OR REPLACE TRIGGER trg_updated_at_person_name_parts
     BEFORE UPDATE ON person_name_parts
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_updated_at_bcp47_locales
+    BEFORE UPDATE ON bcp47_locales
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_updated_at_iso15924_scripts
+    BEFORE UPDATE ON iso15924_scripts
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =============================================================================
