@@ -3,6 +3,7 @@ from pathlib import Path
 
 FORM_ROW = Path("src/templates/admin/people/partials/_name_form_row.html").read_text()
 READ_ROW = Path("src/templates/admin/people/partials/_name_row.html").read_text()
+DETAIL = Path("src/templates/admin/people/detail.html").read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +72,23 @@ def test_read_row_renders_visibility_badge_for_non_public():
     # The template should branch on n.visibility != 'public' and render a badge.
     assert "visibility" in READ_ROW
     assert "n.visibility" in READ_ROW or "visibility !=" in READ_ROW
+
+
+# ---------------------------------------------------------------------------
+# Detail page — deadname-confirm script wired
+# ---------------------------------------------------------------------------
+
+
+def test_detail_loads_deadname_confirm_script():
+    """Phase 2a Task 4: deadname-confirm JS must be served on person detail."""
+    assert "person-name-deadname-confirm.js" in DETAIL
+
+
+def test_detail_deadname_confirm_script_is_deferred():
+    """Defer ensures the script runs after DOM parse — required for safe scan."""
+    # Allow versioned src; the defer attr should appear on the same script tag.
+    block = DETAIL.split("person-name-deadname-confirm.js")[1].split(">")[0]
+    assert "defer" in block
 
 
 def test_read_row_badge_uses_badge_class():
