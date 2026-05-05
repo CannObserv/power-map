@@ -75,7 +75,7 @@ async def people_list(
             FROM people p
             LEFT JOIN v_person_display_names n ON n.person_id = p.id
             {where}
-            ORDER BY n.display_name NULLS LAST
+            ORDER BY n.sort_key COLLATE "und-x-icu" NULLS LAST
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
         *list_params,
     )
@@ -165,7 +165,7 @@ async def people_search(
                LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
                WHERE p.archived_at IS NULL
                  AND pn.display_name ILIKE $1 ESCAPE '\\'
-               ORDER BY pn.display_name NULLS LAST
+               ORDER BY pn.sort_key COLLATE "und-x-icu" NULLS LAST
                LIMIT 20""",
             f"%{escape_like(q.strip())}%",
         )

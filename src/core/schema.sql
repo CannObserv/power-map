@@ -222,13 +222,15 @@ CREATE TABLE IF NOT EXISTS person_name_parts (
 
 -- Display name view: canonical name for a person.
 -- Used by all admin queries that show a person name for display (not editing).
--- Bootstrap form (no visibility filter). The migration section CREATE OR
--- REPLACEs this with the visibility-aware form after the per-column ADD
--- COLUMN blocks add `visibility`, so this file parses cleanly on a pre-#121
--- DB where `person_names.visibility` does not yet exist.
+-- Bootstrap form (no visibility filter, sort_key = name). The migration
+-- section CREATE OR REPLACEs this with the visibility-aware + sort_as-aware
+-- form after the per-column ADD COLUMN blocks add `visibility` and
+-- `sort_as`. Column count + types must match the post-migration form so
+-- CREATE OR REPLACE VIEW succeeds on already-migrated DBs.
 CREATE OR REPLACE VIEW v_person_display_names AS
 SELECT p.id AS person_id,
-       n.name AS display_name
+       n.name AS display_name,
+       n.name AS sort_key
 FROM people p
 LEFT JOIN person_names n
     ON n.person_id = p.id
@@ -570,9 +572,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
 
 -- Recreate v_person_display_names with the visibility-aware filter, now that
 -- the per-column DO blocks above have added `visibility` to person_names.
+-- sort_key (Phase 2b, #123) is the value to ORDER BY when sorting people:
+-- COALESCE(sort_as, name). Combine with `COLLATE "und-x-icu"` at query
+-- time so locale-aware diacritic ordering applies (ICU "und" puts Å near A,
+-- not after Z as ASCII does).
 CREATE OR REPLACE VIEW v_person_display_names AS
 SELECT p.id AS person_id,
-       n.name AS display_name
+       n.name AS display_name,
+       COALESCE(n.sort_as, n.name) AS sort_key
 FROM people p
 LEFT JOIN person_names n
     ON n.person_id = p.id
