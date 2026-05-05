@@ -16,7 +16,7 @@ may pick a Seq Scan, which is correct.
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.api.admin.deps import AdminUser, escape_like, get_admin_user, get_db
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/people", tags=["admin-people-typeahead"])
@@ -38,10 +38,10 @@ async def locale_search(
     needle = q.strip()
     results: list[dict] = []
     if needle:
-        pattern = f"%{needle}%"
+        pattern = f"%{escape_like(needle)}%"
         rows = await db.fetch(
             "SELECT code, display_name FROM bcp47_locales"
-            " WHERE code ILIKE $1 OR display_name ILIKE $1"
+            " WHERE code ILIKE $1 ESCAPE '\\' OR display_name ILIKE $1 ESCAPE '\\'"
             " ORDER BY code ASC"
             " LIMIT $2",
             pattern, limit,
@@ -66,10 +66,10 @@ async def script_search(
     needle = q.strip()
     results: list[dict] = []
     if needle:
-        pattern = f"%{needle}%"
+        pattern = f"%{escape_like(needle)}%"
         rows = await db.fetch(
             "SELECT code, name FROM iso15924_scripts"
-            " WHERE code ILIKE $1 OR name ILIKE $1"
+            " WHERE code ILIKE $1 ESCAPE '\\' OR name ILIKE $1 ESCAPE '\\'"
             " ORDER BY code ASC"
             " LIMIT $2",
             pattern, limit,

@@ -7,7 +7,7 @@
           aria-label="Visibility: {{ n.visibility }}">{{ n.visibility }}</span>
     {% endif %}
     {% if n.locale or n.script or n.sort_as %}
-    <div class="meta-subtitle" style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.125rem">
+    <div style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.125rem">
       {%- set parts = [] -%}
       {%- if n.script and n.locale -%}
         {%- set _ = parts.append(n.script ~ ' · ' ~ n.locale) -%}

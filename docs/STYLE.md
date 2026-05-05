@@ -1718,20 +1718,31 @@ Use `{% block extra_head %}{% endblock %}` (defined in `base.html`) to inject `<
 
 On any mutation route that may change an org's canonical name or acronym, pass `extra=await org_header_extra(org_id, db)` to `flash_trigger` (from `src.api.admin.deps`). Returns `{"updateOrgHeader": {"display": ...}}`; `org-detail.js` handles the event and updates `#page-heading`, `#breadcrumb-current`, and `document.title` in-place. Equivalent `person_header_extra` for person routes. → §30 for full client-side pattern.
 
-### Person-name metadata controls (Phase 2a, #123)
+### Person-name metadata controls (Phase 2a + 2b, #123)
 
 Person-name CRUD shares its router factory with org-name CRUD via `make_names_router` in `src.api.admin._names_shared`. The factory accepts `supports_metadata: bool = False`:
 
-- `org_names`: leaves the default (`False`) — `organization_names` has no `visibility` column.
-- `people_names`: passes `supports_metadata=True` — accepts a `visibility` Form field on create/edit (`PersonNameVisibility = Literal["public","legal_only","hidden"]` from `src.core.types`); persists it via INSERT/UPDATE.
+- `org_names`: leaves the default (`False`) — `organization_names` has no metadata columns.
+- `people_names`: passes `supports_metadata=True` — accepts `visibility`, `locale`, `script`, `sort_as` Form fields on create/edit and persists them.
 
 Validation layering:
 
-- Pydantic / FastAPI validates the Literal at request parse — invalid values return 422 (handler never runs).
-- The org-vs-person divergence is enforced inside the handler by `_gate_visibility(value)`: returns the value unchanged when `supports_metadata=True`, drops to `None` when `False`. A `visibility` payload sent to org_names is silently ignored.
-- `_insert_name` / `_update_name` build column lists dynamically — `visibility` is included only when non-`None`. The DB default (`'public'`) and the `trg_deadname_visibility` trigger remain authoritative for omitted/coerced values.
+- Pydantic / FastAPI validates `visibility` against the `PersonNameVisibility = Literal["public","legal_only","hidden"]` from `src.core.types` at request parse — invalid values return 422.
+- `_normalise_optional_str` strips whitespace and converts empty strings to None for `locale`/`script`/`sort_as` so blank inputs become NULL columns rather than ''.
+- The org-vs-person divergence is the inline `vis = visibility if supports_metadata else None` gate at the top of each handler (matched lines for locale/script/sort_as). Payloads sent to org_names are silently dropped.
+- `_metadata_pairs(...)` returns the canonical (column, value) tuple ordering used by both builder helpers:
+  - `_insert_name`: includes a column only when its value is non-None — DB defaults (`visibility='public'`, others NULL) handle the rest.
+  - `_update_name(write_metadata=True)`: SETs every metadata column to the supplied value (form is the source of truth) — except visibility, which is skipped when None so the DB default + `trg_deadname_visibility` trigger keep authority.
+- FK violations on `locale` / `script` are caught in both create and edit handlers; HTMX → 200 + flash trigger with column-specific message via `_fk_violation_message`; non-HTMX → 422. Never a bare 500.
 
-Adding new optional metadata fields (e.g. `locale`, `script` in Phase 2b) follows the same pattern: extend the Form signature, add to the `cols`/`vals` lists in the helper, and let the DB default/trigger drive any omitted column.
+Locale + script typeahead (Phase 2b):
+
+- HTML option-list endpoints `GET /admin/people/_locale_search` and `/_script_search` (in `src.api.admin.people_locale_script_search`) return `<li role="option" data-id data-label>` partials shaped for the existing `typeahead-combobox.js` factory. Substring filter on code OR human-readable column with `escape_like` + `ESCAPE '\\'`; sorted code ASC; capped at `limit` (default 20, max 100); empty `q` returns no rows.
+- The form-row template's display input mirrors its trimmed value to the hidden code field on `blur`, so typed-but-not-selected input still submits — invalid codes then trip the FK-violation flash rather than being silently discarded.
+
+Sort + collation (Phase 2b):
+
+- `v_person_display_names.sort_key = COALESCE(sort_as, name)`. Every person ORDER BY uses `sort_key COLLATE "und-x-icu" NULLS LAST` for diacritic-aware ordering (Å near A) with `sort_as` overrides honored.
 
 ### Dup count cache
 

@@ -109,6 +109,21 @@
         listboxId: 'script-search-results',
         hiddenId: 'script-hidden',
       });
+      // Phase 2b CR40: when the admin types in the typeahead but doesn't pick
+      // a suggestion, mirror the display value to the hidden field on blur so
+      // submission carries their input. Invalid codes then fail the FK check
+      // and surface as a flash error rather than being silently discarded.
+      (function () {
+        ['locale', 'script'].forEach(function (kind) {
+          var disp = document.getElementById(kind + '-search-display');
+          var hidden = document.getElementById(kind + '-hidden');
+          if (!disp || !hidden) return;
+          disp.addEventListener('blur', function () {
+            var v = (disp.value || '').trim();
+            if (v !== hidden.value) hidden.value = v;
+          });
+        });
+      })();
     </script>
   </td>
 </tr>

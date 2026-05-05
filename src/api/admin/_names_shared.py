@@ -109,25 +109,21 @@ def make_names_router(
     """
     router = APIRouter(prefix=prefix, tags=tags)
 
-    # Optional metadata columns appended in `cols`/`vals` order. Each tuple is
-    # (column_name, value); only included when value is not None. The DB
-    # default / triggers handle the omitted-column case.
-    def _metadata_cols(
+    # Single source of truth for the optional metadata column ordering
+    # used by both _insert_name and _update_name. Order matters: it
+    # determines the column / placeholder order in the generated SQL.
+    def _metadata_pairs(
         vis: PersonNameVisibility | None,
         locale: str | None,
         script: str | None,
         sort_as: str | None,
-    ) -> list[tuple[str, object]]:
-        return [
-            (col, val)
-            for col, val in (
-                ("visibility", vis),
-                ("locale", locale),
-                ("script", script),
-                ("sort_as", sort_as),
-            )
-            if val is not None
-        ]
+    ) -> tuple[tuple[str, object | None], ...]:
+        return (
+            ("visibility", vis),
+            ("locale", locale),
+            ("script", script),
+            ("sort_as", sort_as),
+        )
 
     async def _insert_name(
         db, *, nid: str, entity_id: str, name: str, name_type: str,
@@ -135,9 +131,14 @@ def make_names_router(
         locale: str | None = None, script: str | None = None,
         sort_as: str | None = None,
     ) -> None:
+        """Insert a name row. Optional metadata columns are included only
+        when non-None so the DB default / triggers handle the omitted case.
+        """
         cols = ["id", entity_fk, "name", "name_type", "is_canonical"]
         vals: list[object] = [nid, entity_id, name, name_type, is_canonical]
-        for col, val in _metadata_cols(vis, locale, script, sort_as):
+        for col, val in _metadata_pairs(vis, locale, script, sort_as):
+            if val is None:
+                continue
             cols.append(col)
             vals.append(val)
         placeholders = ", ".join(f"${i + 1}" for i in range(len(vals)))
@@ -155,24 +156,19 @@ def make_names_router(
     ) -> None:
         """Update a name row.
 
-        When ``write_metadata`` is True, all metadata columns
-        (``visibility``, ``locale``, ``script``, ``sort_as``) are SET to
+        When ``write_metadata`` is True, all metadata columns are SET to
         the supplied values — including NULL — so the form is treated as
-        the source of truth. Org-side calls (write_metadata=False) leave
-        those columns untouched, which preserves the legacy schema where
-        they don't exist anyway.
+        the source of truth. Visibility is the one exception: a None
+        value is skipped so the DB default ('public') + deadname trigger
+        keep authority over visibility.
+
+        Org-side calls (write_metadata=False) leave the metadata columns
+        untouched, preserving the legacy schema where they don't exist.
         """
         sets = ["name=$1", "name_type=$2", "is_canonical=$3"]
         vals: list[object] = [name, name_type, is_canonical]
         if write_metadata:
-            for col, val in (
-                ("visibility", vis),
-                ("locale", locale),
-                ("script", script),
-                ("sort_as", sort_as),
-            ):
-                # Special-case visibility: keep the DB default ('public') +
-                # deadname trigger flow when the form omitted the field.
+            for col, val in _metadata_pairs(vis, locale, script, sort_as):
                 if col == "visibility" and val is None:
                     continue
                 vals.append(val)
@@ -334,9 +330,9 @@ def make_names_router(
         db=Depends(get_db),
     ):
         """Update a name."""
-        # Pydantic Literal validates visibility range; gate drops all
-        # metadata for org_names. The `clear_sort_as` flag captures
-        # "user explicitly emptied this field" so the UPDATE NULLs it.
+        # Pydantic Literal validates visibility range; gate drops all metadata
+        # for org_names. With write_metadata=True (person path) the form is
+        # treated as the source of truth — empty inputs become NULL columns.
         vis = visibility if supports_metadata else None
         loc = _normalise_optional_str(locale) if supports_metadata else None
         scr = _normalise_optional_str(script) if supports_metadata else None

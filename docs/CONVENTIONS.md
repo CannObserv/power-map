@@ -28,7 +28,7 @@ Reference for public API, database, and ingestion patterns. For admin dashboard 
 ### Display names
 
 - Org: use `v_org_display_names` for all queries displaying an org name — formats as "Name (Acronym)" when a canonical acronym exists, otherwise just "Name". Never join `organization_names` or `organization_acronyms` directly for display
-- Person: use `v_person_display_names` — returns the canonical `person_names` row filtered to `visibility='public'` (see "Person names — i18n & cultural awareness" below). Never join `person_names` directly for display.
+- Person: use `v_person_display_names` — returns the canonical `person_names` row filtered to `visibility='public'`. The view exposes `display_name` (visible string) and `sort_key` (`COALESCE(sort_as, name)`, Phase 2b #123). For person ORDER BY, use `sort_key COLLATE "und-x-icu" NULLS LAST` so diacritics order locale-aware (Å near A) and any `sort_as` override is honored. See "Person names — i18n & cultural awareness" below. Never join `person_names` directly for display.
 - Acronyms in `organization_acronyms` (separate table); `organization_names` holds legal/dba/former names only. Each table has exactly one canonical row per org via a partial unique index
 
 ### Auto-promote invariant
