@@ -26,19 +26,25 @@ def _normalise_optional_str(value: str | None) -> str | None:
 
 
 def _fk_violation_message(exc: asyncpg.ForeignKeyViolationError) -> str:
-    """Human-friendly form error for FK violations on locale/script."""
+    """Human-friendly form error for FK violations on locale/script/reading_of_id."""
     detail = (exc.detail or "").lower()
-    if "bcp47_locales" in detail or "_locale_fkey" in (exc.constraint_name or ""):
+    cname = exc.constraint_name or ""
+    if "bcp47_locales" in detail or "_locale_fkey" in cname:
         return (
             "Locale is not a registered BCP 47 code. "
             "Pick from the typeahead suggestions."
         )
-    if "iso15924_scripts" in detail or "_script_fkey" in (exc.constraint_name or ""):
+    if "iso15924_scripts" in detail or "_script_fkey" in cname:
         return (
             "Script is not a registered ISO 15924 code. "
             "Pick from the typeahead suggestions."
         )
-    return "Foreign key constraint violation. Check locale/script values."
+    if "reading_of_id" in detail or "reading_of_id" in cname:
+        return (
+            "Reading-of target is not a valid name row. "
+            "Pick from the typeahead suggestions."
+        )
+    return "Foreign key constraint violation. Check locale/script/reading_of values."
 
 templates = Jinja2Templates(directory="src/templates")
 
@@ -117,26 +123,28 @@ def make_names_router(
         locale: str | None,
         script: str | None,
         sort_as: str | None,
+        reading_of_id: str | None,
     ) -> tuple[tuple[str, object | None], ...]:
         return (
             ("visibility", vis),
             ("locale", locale),
             ("script", script),
             ("sort_as", sort_as),
+            ("reading_of_id", reading_of_id),
         )
 
     async def _insert_name(
         db, *, nid: str, entity_id: str, name: str, name_type: str,
         is_canonical: bool, vis: PersonNameVisibility | None,
         locale: str | None = None, script: str | None = None,
-        sort_as: str | None = None,
+        sort_as: str | None = None, reading_of_id: str | None = None,
     ) -> None:
         """Insert a name row. Optional metadata columns are included only
         when non-None so the DB default / triggers handle the omitted case.
         """
         cols = ["id", entity_fk, "name", "name_type", "is_canonical"]
         vals: list[object] = [nid, entity_id, name, name_type, is_canonical]
-        for col, val in _metadata_pairs(vis, locale, script, sort_as):
+        for col, val in _metadata_pairs(vis, locale, script, sort_as, reading_of_id):
             if val is None:
                 continue
             cols.append(col)
@@ -151,7 +159,7 @@ def make_names_router(
         db, *, name_id: str, name: str, name_type: str,
         is_canonical: bool, vis: PersonNameVisibility | None,
         locale: str | None = None, script: str | None = None,
-        sort_as: str | None = None,
+        sort_as: str | None = None, reading_of_id: str | None = None,
         write_metadata: bool = False,
     ) -> None:
         """Update a name row.
@@ -168,7 +176,9 @@ def make_names_router(
         sets = ["name=$1", "name_type=$2", "is_canonical=$3"]
         vals: list[object] = [name, name_type, is_canonical]
         if write_metadata:
-            for col, val in _metadata_pairs(vis, locale, script, sort_as):
+            for col, val in _metadata_pairs(
+                vis, locale, script, sort_as, reading_of_id,
+            ):
                 if col == "visibility" and val is None:
                     continue
                 vals.append(val)
@@ -178,6 +188,36 @@ def make_names_router(
             f"UPDATE {names_table} SET {', '.join(sets)} WHERE id=${len(vals)}",
             *vals,
         )
+
+    async def _validate_reading_of_target(
+        db, *, entity_id: str, reading_of_id: str | None,
+    ) -> str | None:
+        """Return the reason this `reading_of_id` is invalid, or None.
+
+        Visual-target enforcement (reading_of_id must point to a row on
+        the SAME person) is checked here in Python rather than via a DB
+        trigger so we can surface a friendly form error. The DB FK
+        catches the "row doesn't exist at all" case.
+        """
+        if reading_of_id is None:
+            return None
+        target = await db.fetchrow(
+            f"SELECT {entity_fk} FROM {names_table} WHERE id = $1",
+            reading_of_id,
+        )
+        if target is None:
+            # The DB FK would catch this, but checking up-front gives a
+            # clearer error than a generic FK violation.
+            return (
+                "Reading-of target row does not exist. "
+                "Pick from the typeahead suggestions."
+            )
+        if target[entity_fk] != entity_id:
+            return (
+                "Reading-of target must be on the same person. "
+                "Pick from the typeahead suggestions."
+            )
+        return None
 
     # ---- helpers ----------------------------------------------------------------
 
@@ -219,18 +259,32 @@ def make_names_router(
         locale: str | None = Form(None),
         script: str | None = Form(None),
         sort_as: str | None = Form(None),
+        reading_of_id: str | None = Form(None),
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
         """Create a new name."""
         # Pydantic Literal validates visibility value range; gate drops all
         # metadata fields for org_names (supports_metadata=False) which has
-        # no locale/script/sort_as/visibility columns.
+        # no locale/script/sort_as/visibility/reading_of_id columns.
         vis = visibility if supports_metadata else None
         loc = _normalise_optional_str(locale) if supports_metadata else None
         scr = _normalise_optional_str(script) if supports_metadata else None
         sa = _normalise_optional_str(sort_as) if supports_metadata else None
+        rof = _normalise_optional_str(reading_of_id) if supports_metadata else None
         await _get_entity_or_404(entity_id, db)
+        if rof is not None:
+            err = await _validate_reading_of_target(
+                db, entity_id=entity_id, reading_of_id=rof,
+            )
+            if err is not None:
+                if not is_htmx(request):
+                    raise HTTPException(status_code=422, detail=err)
+                return HTMLResponse(
+                    content="",
+                    status_code=200,
+                    headers=flash_trigger("error", escape(err)),
+                )
         nid = generate_id()
         try:
             async with db.transaction():
@@ -243,7 +297,7 @@ def make_names_router(
                 await _insert_name(
                     db, nid=nid, entity_id=entity_id, name=name.strip(),
                     name_type=name_type, is_canonical=(is_canonical == "true"),
-                    vis=vis, locale=loc, script=scr, sort_as=sa,
+                    vis=vis, locale=loc, script=scr, sort_as=sa, reading_of_id=rof,
                 )
         except asyncpg.ForeignKeyViolationError as exc:
             msg = _fk_violation_message(exc)
@@ -326,6 +380,7 @@ def make_names_router(
         locale: str | None = Form(None),
         script: str | None = Form(None),
         sort_as: str | None = Form(None),
+        reading_of_id: str | None = Form(None),
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
@@ -337,6 +392,7 @@ def make_names_router(
         loc = _normalise_optional_str(locale) if supports_metadata else None
         scr = _normalise_optional_str(script) if supports_metadata else None
         sa = _normalise_optional_str(sort_as) if supports_metadata else None
+        rof = _normalise_optional_str(reading_of_id) if supports_metadata else None
         existing = await db.fetchrow(
             f"SELECT * FROM {names_table} WHERE id=$1 AND {entity_fk}=$2",
             name_id,
@@ -344,6 +400,18 @@ def make_names_router(
         )
         if not existing:
             raise HTTPException(status_code=404)
+        if rof is not None:
+            err = await _validate_reading_of_target(
+                db, entity_id=entity_id, reading_of_id=rof,
+            )
+            if err is not None:
+                if not is_htmx(request):
+                    raise HTTPException(status_code=422, detail=err)
+                return HTMLResponse(
+                    content="",
+                    status_code=200,
+                    headers=flash_trigger("error", escape(err)),
+                )
         if is_canonical != "true" and existing["is_canonical"]:
             # Guard runs outside the transaction intentionally: a concurrent promotion
             # (another request canonicalizing a different name) would make this check
@@ -377,7 +445,7 @@ def make_names_router(
                 await _update_name(
                     db, name_id=name_id, name=name.strip(), name_type=name_type,
                     is_canonical=(is_canonical == "true"),
-                    vis=vis, locale=loc, script=scr, sort_as=sa,
+                    vis=vis, locale=loc, script=scr, sort_as=sa, reading_of_id=rof,
                     write_metadata=supports_metadata,
                 )
         except asyncpg.ForeignKeyViolationError as exc:

@@ -25,6 +25,7 @@ from src.api.admin import people_links as people_links_module
 from src.api.admin import people_locale_script_search as people_locale_script_search_module
 from src.api.admin import people_merge as people_merge_module
 from src.api.admin import people_names as people_names_module
+from src.api.admin import people_reading_target_search as people_reading_target_search_module
 from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import roles as roles_module
 from src.api.admin import roles_assignments_inline as roles_assignments_inline_module
@@ -63,6 +64,10 @@ admin_router.include_router(people_merge_module.router)
 # `/_locale_search` and `/_script_search` paths beat the `/{person_id}/`
 # catch-all defined in people_module.
 admin_router.include_router(people_locale_script_search_module.router)
+# Reading-target typeahead is person-scoped (`/{person_id}/_reading_target_search`)
+# so it can mount in any order, but pairing it with the locale/script
+# typeahead module keeps the typeahead routes adjacent.
+admin_router.include_router(people_reading_target_search_module.router)
 admin_router.include_router(people_module.router)
 admin_router.include_router(people_names_module.router)
 admin_router.include_router(people_contacts_module.router)

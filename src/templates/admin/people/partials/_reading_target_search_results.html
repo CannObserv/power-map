@@ -1,0 +1,6 @@
+{# admin/people/partials/_reading_target_search_results.html #}
+{% for r in results %}
+<li id="opt-{{ r.id }}" role="option"
+    data-id="{{ r.id }}"
+    data-label="{{ r.name }} ({{ r.name_type }}{% if r.is_canonical %}, canonical{% endif %})">{{ r.name }} <span style="color:var(--color-text-muted)">({{ r.name_type }}{% if r.is_canonical %}, canonical{% endif %})</span></li>
+{% endfor %}
