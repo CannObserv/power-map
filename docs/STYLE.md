@@ -1729,7 +1729,7 @@ Validation layering:
 
 - Pydantic / FastAPI validates `visibility` against the `PersonNameVisibility = Literal["public","legal_only","hidden"]` from `src.core.types` at request parse — invalid values return 422.
 - `_normalise_optional_str` strips whitespace and converts empty strings to None for `locale`/`script`/`sort_as` so blank inputs become NULL columns rather than ''.
-- The org-vs-person divergence is the inline `vis = visibility if supports_metadata else None` gate at the top of each handler (matched lines for locale/script/sort_as). Payloads sent to org_names are silently dropped.
+- The org-vs-person divergence is the inline `vis = visibility if supports_metadata else None` gate at the top of each handler. The same `... if supports_metadata else None` shape is used for `loc`, `scr`, `sa` immediately below. Payloads sent to org_names are silently dropped.
 - `_metadata_pairs(...)` returns the canonical (column, value) tuple ordering used by both builder helpers:
   - `_insert_name`: includes a column only when its value is non-None — DB defaults (`visibility='public'`, others NULL) handle the rest.
   - `_update_name(write_metadata=True)`: SETs every metadata column to the supplied value (form is the source of truth) — except visibility, which is skipped when None so the DB default + `trg_deadname_visibility` trigger keep authority.

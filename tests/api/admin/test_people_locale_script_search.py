@@ -130,6 +130,19 @@ def test_locale_search_requires_auth(client):
     assert r.status_code in (302, 307)
 
 
+def test_locale_search_treats_percent_as_literal(client, seeded_lookup_tables):
+    """`%` in user input must be ESCAPE'd, not interpreted as ILIKE wildcard.
+
+    Real BCP 47 codes never contain `%`, so a query of `100%` should
+    return zero rows. Without ESCAPE, the trailing `%` becomes a wildcard
+    and the query matches every code starting with '100' (or, depending
+    on quoting, far more rows).
+    """
+    r = client.get("/admin/people/_locale_search?q=100%25", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert _option_codes(r.text) == [], _option_codes(r.text)
+
+
 # ---- Script search ------------------------------------------------------
 
 
@@ -173,3 +186,15 @@ def test_script_search_sorted_by_code_asc(client, seeded_lookup_tables):
 def test_script_search_requires_auth(client):
     r = client.get("/admin/people/_script_search?q=Latn", follow_redirects=False)
     assert r.status_code in (302, 307)
+
+
+def test_script_search_treats_underscore_as_literal(client, seeded_lookup_tables):
+    """`_` in user input must be ESCAPE'd, not interpreted as ILIKE single-char wildcard.
+
+    ISO 15924 codes are 4 letters, no underscores. A 4-char query like `L_tn`
+    without escape would match `Latn`/`Lstn`/etc. via the `_` wildcard;
+    with escape, only literal `L_tn` (no real code) is matched.
+    """
+    r = client.get("/admin/people/_script_search?q=L_tn", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert _option_codes(r.text) == [], _option_codes(r.text)
