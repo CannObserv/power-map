@@ -199,6 +199,121 @@ def test_read_row_subtitle_renders_sort_as():
     assert "sort_as" in out.lower()
 
 
+# ---------------------------------------------------------------------------
+# Form row — reading_of_id typeahead (Phase 2c)
+# ---------------------------------------------------------------------------
+
+
+def test_form_row_has_reading_of_id_typeahead():
+    assert 'name="reading_of_id"' in FORM_ROW
+    assert "_reading_target_search" in FORM_ROW
+    assert 'aria-controls="reading-of-results"' in FORM_ROW
+    assert 'aria-haspopup="listbox"' in FORM_ROW
+
+
+def test_form_row_reading_of_results_listbox_present():
+    assert 'id="reading-of-results"' in FORM_ROW
+
+
+def test_form_row_calls_init_typeahead_for_reading_of():
+    """Three combobox factories now: locale + script + reading_of."""
+    assert FORM_ROW.count("initTypeaheadCombobox") >= 3
+
+
+def test_form_row_reading_of_block_is_conditional():
+    """Block must be wrapped so JS can show/hide based on name_type."""
+    # Either a wrapping element with id, or a class hook that the JS toggles.
+    assert 'id="reading-of-block"' in FORM_ROW or "data-reading-of-block" in FORM_ROW
+
+
+def test_form_row_has_reading_type_toggle_script():
+    """JS must show the block when name_type ∈ {reading, romanization, mrz}."""
+    # Token-level check; no need to parse the JS.
+    assert "reading" in FORM_ROW and "romanization" in FORM_ROW and "mrz" in FORM_ROW
+
+
+# ---------------------------------------------------------------------------
+# Read row — linked-name subtitle (Phase 2c)
+# ---------------------------------------------------------------------------
+
+
+def test_read_row_references_reading_of_id():
+    assert "n.reading_of_id" in READ_ROW or "reading_of_name" in READ_ROW
+
+
+def test_read_row_renders_reading_of_subtitle_when_set():
+    """Linked rows render '↳ {name_type} of: <parent name>' under the name."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    row = {
+        "id": "n_reading", "name": "ada lovelace", "name_type": "romanization",
+        "is_canonical": False, "visibility": "public",
+        "locale": None, "script": None, "sort_as": None,
+        "reading_of_id": "n_legal", "reading_of_name": "Ada Lovelace",
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_row.html"
+    ).render(n=row, person_id="p1")
+    assert "↳" in out
+    assert "Ada Lovelace" in out
+    assert "romanization" in out
+
+
+def test_read_row_skips_reading_of_subtitle_when_unlinked():
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    row = {
+        "id": "n1", "name": "Plain", "name_type": "legal",
+        "is_canonical": True, "visibility": "public",
+        "locale": None, "script": None, "sort_as": None,
+        "reading_of_id": None, "reading_of_name": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_row.html"
+    ).render(n=row, person_id="p1")
+    assert "↳" not in out
+
+
+# ---------------------------------------------------------------------------
+# Delete confirm — cascade hint when child rows exist (Phase 2c)
+# ---------------------------------------------------------------------------
+
+
+def test_read_row_delete_confirm_mentions_cascade_when_children():
+    """When the row has reading_of children, the delete confirm should warn."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    row = {
+        "id": "n_legal", "name": "Ada Lovelace", "name_type": "legal",
+        "is_canonical": True, "visibility": "public",
+        "locale": None, "script": None, "sort_as": None,
+        "reading_of_id": None, "reading_of_name": None,
+        "reading_child_count": 2,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_row.html"
+    ).render(n=row, person_id="p1")
+    # Expect the hx-confirm to mention the cascade impact (count + word).
+    assert "2" in out and ("linked" in out.lower() or "cascade" in out.lower())
+
+
+def test_read_row_delete_confirm_default_when_no_children():
+    """No children → standard confirm text, no cascade noise."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    row = {
+        "id": "n_legal", "name": "Plain", "name_type": "legal",
+        "is_canonical": True, "visibility": "public",
+        "locale": None, "script": None, "sort_as": None,
+        "reading_of_id": None, "reading_of_name": None,
+        "reading_child_count": 0,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_row.html"
+    ).render(n=row, person_id="p1")
+    assert "Delete this name?" in out
+
+
 def test_read_row_badge_uses_badge_class():
     """Visibility badge should use the existing badge component for visual consistency."""
     # Find the visibility-conditional block and confirm 'badge' appears within it.

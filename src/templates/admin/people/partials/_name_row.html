@@ -1,6 +1,10 @@
-{# admin/people/partials/_name_row.html — inline name read row #}
-<tr id="name-row-{{ n.id }}">
-  <td>
+{# admin/people/partials/_name_row.html — inline name read row.
+   `n` carries the row plus two derived fields populated by the handler:
+     reading_of_name      — display name of the linked parent row (or None)
+     reading_child_count  — how many reading/romanization/mrz children
+                            this row would cascade-delete (or 0). #}
+<tr id="name-row-{{ n.id }}"{% if n.reading_of_id %} class="name-row--child"{% endif %}>
+  <td{% if n.reading_of_id %} style="padding-left:1.5rem"{% endif %}>
     {{ n.name }}
     {% if n.visibility and n.visibility != 'public' %}
     <span class="badge badge--inactive" title="Visibility: {{ n.visibility }}"
@@ -22,6 +26,11 @@
       {{ parts | join(' · ') }}
     </div>
     {% endif %}
+    {% if n.reading_of_id %}
+    <div style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.125rem">
+      ↳ {{ n.name_type }} of: <em>{{ n.reading_of_name or '(linked row)' }}</em>
+    </div>
+    {% endif %}
   </td>
   <td style="text-align:right">{{ n.name_type }}</td>
   <td style="text-align:right">{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
@@ -36,6 +45,6 @@
             hx-delete="/admin/people/{{ person_id }}/names/{{ n.id }}/"
             hx-target="#names-table tbody"
             hx-swap="innerHTML"
-            hx-confirm="Delete this name?">Delete</button>
+            hx-confirm="{% if n.reading_child_count and n.reading_child_count > 0 %}Delete this name and its {{ n.reading_child_count }} linked reading row(s)? (cascade){% else %}Delete this name?{% endif %}">Delete</button>
   </td>
 </tr>

@@ -81,6 +81,30 @@
                aria-label="Sort as"
                value="{{ n.sort_as if n and n.sort_as else '' }}">
       </div>
+      {# Reading-of typeahead — only relevant for reading/romanization/mrz rows.
+         Shown by inline JS (below) when name_type matches; hidden otherwise. #}
+      {% set _is_reading_type = n and n.name_type in ('reading','romanization','mrz') %}
+      <div id="reading-of-block" class="form-group"
+           style="margin-bottom:0;position:relative;min-width:11rem;{% if not _is_reading_type %}display:none;{% endif %}">
+        <input id="reading-of-display" type="text" autocomplete="off"
+               placeholder="Reading of (visual row)"
+               value="{{ n.reading_of_name if n and n.reading_of_name else '' }}"
+               hx-get="/admin/people/{{ person_id }}/_reading_target_search"
+               hx-trigger="input changed delay:200ms"
+               hx-target="#reading-of-results"
+               hx-swap="innerHTML"
+               hx-params="q"
+               name="q_reading_of"
+               aria-label="Reading of"
+               role="combobox"
+               aria-expanded="false"
+               aria-haspopup="listbox"
+               aria-controls="reading-of-results"
+               aria-autocomplete="list">
+        <input type="hidden" name="reading_of_id" id="reading-of-hidden"
+               value="{{ n.reading_of_id if n and n.reading_of_id else '' }}">
+        <ul id="reading-of-results" class="typeahead-results" role="listbox"></ul>
+      </div>
       <label class="toggle" style="flex-shrink:0">
         <input type="checkbox" name="is_canonical" value="true" aria-label="Canonical"
                {% if n and n.is_canonical %} checked{% endif %}>
@@ -109,6 +133,25 @@
         listboxId: 'script-search-results',
         hiddenId: 'script-hidden',
       });
+      window.initTypeaheadCombobox({
+        inputId: 'reading-of-display',
+        listboxId: 'reading-of-results',
+        hiddenId: 'reading-of-hidden',
+      });
+      // Phase 2c: show/hide the reading-of block based on name_type.
+      // The set {reading, romanization, mrz} matches person_names.name_type
+      // CHECK + the typeahead endpoint's NOT IN filter.
+      (function () {
+        var sel = document.querySelector('select[name="name_type"]');
+        var block = document.getElementById('reading-of-block');
+        if (!sel || !block) return;
+        var READING_TYPES = ['reading', 'romanization', 'mrz'];
+        function sync() {
+          block.style.display = READING_TYPES.indexOf(sel.value) === -1 ? 'none' : '';
+        }
+        sel.addEventListener('change', sync);
+        sync();
+      })();
     </script>
   </td>
 </tr>
