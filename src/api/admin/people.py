@@ -27,6 +27,43 @@ _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "unarchived": ("success", "Person unarchived."),
 }
 
+_READING_TYPES = ("reading", "romanization", "mrz")
+
+
+def _interleave_visuals_with_readings(rows: list) -> list:
+    """Reorder person_names rows: visual row, then its reading children, repeat.
+
+    Input is expected to already be sorted by `is_canonical DESC, name_type,
+    name` (the SQL ORDER BY supplies this). The interleave reads as:
+      - Walk the sorted list once, separating visual rows from children
+        (children = rows with non-NULL reading_of_id).
+      - Emit each visual row, then any children whose reading_of_id matches
+        — sorted by (name_type, name) for stable per-group ordering.
+      - Orphaned children (parent absent from the visible set, e.g.
+        filtered out by visibility) trail at the end so they're never lost.
+    """
+    visuals: list = []
+    children_by_parent: dict[str, list] = {}
+    for r in rows:
+        if r["reading_of_id"]:
+            children_by_parent.setdefault(r["reading_of_id"], []).append(r)
+        else:
+            visuals.append(r)
+
+    def _child_sort_key(r):
+        return (r["name_type"], r["name"])
+
+    ordered: list = []
+    for v in visuals:
+        ordered.append(v)
+        for c in sorted(children_by_parent.get(v["id"], []), key=_child_sort_key):
+            ordered.append(c)
+    visible_visual_ids = {v["id"] for v in visuals}
+    for parent_id, kids in children_by_parent.items():
+        if parent_id not in visible_visual_ids:
+            ordered.extend(sorted(kids, key=_child_sort_key))
+    return ordered
+
 
 @router.get("/")
 async def people_list(
@@ -206,12 +243,25 @@ async def person_detail(
     # disclosure point — when show_historical=True, surface all rows so the
     # editor can manage legal_only / hidden / deadname names. Default hides
     # them behind a toggle that displays the historical count.
-    visibility_filter = "" if show_historical else " AND visibility = 'public'"
-    names = await db.fetch(
-        f"SELECT * FROM person_names WHERE person_id = $1{visibility_filter}"
-        " ORDER BY is_canonical DESC, name_type, name",
+    # Phase 2c enrichment: also surface each row's `reading_of_name` (parent
+    # row's `name`) and `reading_child_count` (cascade-impact for delete
+    # confirm). Visual rows are then interleaved with their reading
+    # children in Python so the table groups them.
+    visibility_filter = "" if show_historical else " AND pn.visibility = 'public'"
+    raw_names = await db.fetch(
+        "SELECT pn.*, parent.name AS reading_of_name,"
+        "       COALESCE(c.cnt, 0) AS reading_child_count"
+        " FROM person_names pn"
+        " LEFT JOIN person_names parent ON parent.id = pn.reading_of_id"
+        " LEFT JOIN LATERAL ("
+        "   SELECT COUNT(*) AS cnt FROM person_names ch"
+        "   WHERE ch.reading_of_id = pn.id"
+        " ) c ON TRUE"
+        f" WHERE pn.person_id = $1{visibility_filter}"
+        " ORDER BY pn.is_canonical DESC, pn.name_type, pn.name",
         person_id,
     )
+    names = _interleave_visuals_with_readings(raw_names)
     if show_historical:
         # All rows already in `names`; derive the count without a second query.
         historical_count = sum(1 for n in names if n["visibility"] != "public")
