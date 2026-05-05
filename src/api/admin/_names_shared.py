@@ -25,6 +25,21 @@ def _normalise_optional_str(value: str | None) -> str | None:
     return stripped or None
 
 
+def _build_parts_summary(family, given, additional) -> str | None:
+    """Return a one-line summary string from the three parts arrays.
+
+    Mirrors the helper in people.py for the detail page; replicated here
+    so the names router can enrich its post-mutation row fetches without
+    a cross-module import. None when nothing structural is set so the
+    template's `{% if n.parts_summary %}` guard hides the row's subtitle.
+    """
+    family_s = " ".join(family or [])
+    given_s = " ".join(given or [])
+    additional_s = " ".join(additional or [])
+    parts = [p for p in (family_s, given_s, additional_s) if p]
+    return " · ".join(parts) if parts else None
+
+
 def _fk_violation_message(exc: asyncpg.ForeignKeyViolationError) -> str:
     """Human-friendly form error for FK violations on locale/script/reading_of_id."""
     detail = (exc.detail or "").lower()
@@ -221,6 +236,42 @@ def make_names_router(
 
     # ---- helpers ----------------------------------------------------------------
 
+    async def _fetch_names_for_rows(db, entity_id: str) -> list:
+        """Fetch all names for `entity_id` and (for person_names) attach
+        `parts_summary` so the read-row template can render the subtitle.
+
+        Org-side calls fall through to a plain SELECT so they don't blow up
+        on a missing person_name_parts join.
+        """
+        if not supports_metadata:
+            return await db.fetch(
+                f"SELECT * FROM {names_table} WHERE {entity_fk}=$1"
+                " ORDER BY is_canonical DESC, name_type, name",
+                entity_id,
+            )
+        rows = await db.fetch(
+            f"SELECT pn.*,"
+            "  pnp.given_names      AS pnp_given_names,"
+            "  pnp.family_names     AS pnp_family_names,"
+            "  pnp.additional_names AS pnp_additional_names"
+            f" FROM {names_table} pn"
+            " LEFT JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
+            f" WHERE pn.{entity_fk}=$1"
+            " ORDER BY pn.is_canonical DESC, pn.name_type, pn.name",
+            entity_id,
+        )
+        return [
+            {
+                **dict(r),
+                "parts_summary": _build_parts_summary(
+                    r["pnp_family_names"],
+                    r["pnp_given_names"],
+                    r["pnp_additional_names"],
+                ),
+            }
+            for r in rows
+        ]
+
     async def _get_entity_or_404(entity_id: str, db):
         row = await db.fetchrow(f"SELECT id FROM {entity_table} WHERE id=$1", entity_id)
         if not row:
@@ -310,11 +361,7 @@ def make_names_router(
             )
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
-        names = await db.fetch(
-            f"SELECT * FROM {names_table} WHERE {entity_fk}=$1"
-            " ORDER BY is_canonical DESC, name_type, name",
-            entity_id,
-        )
+        names = await _fetch_names_for_rows(db, entity_id)
         return templates.TemplateResponse(
             request,
             tmpl_rows,
@@ -342,8 +389,25 @@ def make_names_router(
         )
         if not name_row:
             raise HTTPException(status_code=404)
+        # Attach parts_summary so the cancel-from-edit transition keeps
+        # the subtitle (parity with the post-mutation tbody re-render).
+        n_ctx: object = name_row
+        if supports_metadata:
+            parts_row = await db.fetchrow(
+                "SELECT given_names, family_names, additional_names"
+                " FROM person_name_parts WHERE person_name_id=$1",
+                name_id,
+            )
+            n_ctx = {
+                **dict(name_row),
+                "parts_summary": _build_parts_summary(
+                    parts_row["family_names"] if parts_row else None,
+                    parts_row["given_names"] if parts_row else None,
+                    parts_row["additional_names"] if parts_row else None,
+                ),
+            }
         return templates.TemplateResponse(
-            request, tmpl_read_row, _ctx(entity_id, n=name_row)
+            request, tmpl_read_row, _ctx(entity_id, n=n_ctx)
         )
 
     @router.get("/{name_id}/edit-row/")
@@ -362,10 +426,22 @@ def make_names_router(
         )
         if not name_row:
             raise HTTPException(status_code=404)
+        # Phase 2d: pre-populate the structured-parts editor when an
+        # existing parts row is present. Only person_names has a parts
+        # sidecar — guarded by supports_metadata so org_names paths
+        # never run the extra query.
+        parts = None
+        if supports_metadata:
+            parts = await db.fetchrow(
+                "SELECT given_names, family_names, additional_names,"
+                " honorific_prefix, honorific_suffix, primary_identifier"
+                " FROM person_name_parts WHERE person_name_id=$1",
+                name_id,
+            )
         return templates.TemplateResponse(
             request,
             tmpl_form_row,
-            _ctx(entity_id, n=name_row),
+            _ctx(entity_id, n=name_row, parts=parts),
         )
 
     @router.post("/{name_id}/edit-row/")
@@ -459,11 +535,7 @@ def make_names_router(
             )
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
-        names = await db.fetch(
-            f"SELECT * FROM {names_table} WHERE {entity_fk}=$1"
-            " ORDER BY is_canonical DESC, name_type, name",
-            entity_id,
-        )
+        names = await _fetch_names_for_rows(db, entity_id)
         return templates.TemplateResponse(
             request,
             tmpl_rows,
@@ -507,11 +579,7 @@ def make_names_router(
             await maybe_promote_sole_name(entity_id, db)
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
-        names = await db.fetch(
-            f"SELECT * FROM {names_table} WHERE {entity_fk}=$1"
-            " ORDER BY is_canonical DESC, name_type, name",
-            entity_id,
-        )
+        names = await _fetch_names_for_rows(db, entity_id)
         return templates.TemplateResponse(
             request,
             tmpl_rows,

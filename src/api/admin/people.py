@@ -30,6 +30,20 @@ _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
 _READING_TYPES = ("reading", "romanization", "mrz")
 
 
+def _build_parts_summary(row) -> str | None:
+    """One-line summary of structured parts for the read-row subtitle.
+
+    Format: "<family> · <given>" (each space-joined). Skips empty arrays;
+    returns None when nothing structural is set so the template's
+    `{% if n.parts_summary %}` guard keeps the row clean.
+    """
+    family = " ".join(row["pnp_family_names"] or [])
+    given = " ".join(row["pnp_given_names"] or [])
+    additional = " ".join(row["pnp_additional_names"] or [])
+    parts = [p for p in (family, given, additional) if p]
+    return " · ".join(parts) if parts else None
+
+
 def _interleave_visuals_with_readings(rows: list) -> list:
     """Reorder person_names rows: visual row, then its reading children, repeat.
 
@@ -41,10 +55,16 @@ def _interleave_visuals_with_readings(rows: list) -> list:
         — sorted by (name_type, name) for stable per-group ordering.
       - Orphaned children (parent absent from the visible set, e.g.
         filtered out by visibility) trail at the end so they're never lost.
+
+    Each output row is a dict (not a Record) so we can attach the derived
+    `parts_summary` field without losing the SQL columns.
     """
+    enriched: list[dict] = [
+        {**dict(r), "parts_summary": _build_parts_summary(r)} for r in rows
+    ]
     visuals: list = []
     children_by_parent: dict[str, list] = {}
-    for r in rows:
+    for r in enriched:
         if r["reading_of_id"]:
             children_by_parent.setdefault(r["reading_of_id"], []).append(r)
         else:
@@ -250,9 +270,13 @@ async def person_detail(
     visibility_filter = "" if show_historical else " AND pn.visibility = 'public'"
     raw_names = await db.fetch(
         "SELECT pn.*, parent.name AS reading_of_name,"
-        "       COALESCE(c.cnt, 0) AS reading_child_count"
+        "       COALESCE(c.cnt, 0) AS reading_child_count,"
+        "       pnp.given_names      AS pnp_given_names,"
+        "       pnp.family_names     AS pnp_family_names,"
+        "       pnp.additional_names AS pnp_additional_names"
         " FROM person_names pn"
         " LEFT JOIN person_names parent ON parent.id = pn.reading_of_id"
+        " LEFT JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
         " LEFT JOIN LATERAL ("
         "   SELECT COUNT(*) AS cnt FROM person_names ch"
         "   WHERE ch.reading_of_id = pn.id"

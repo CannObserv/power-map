@@ -352,6 +352,52 @@ def test_upsert_requires_admin_auth(client, person_with_legal_name):
 # ---- cascade ----------------------------------------------------------------
 
 
+def test_detail_page_shows_parts_summary_after_save(
+    client, person_with_legal_name,
+):
+    """Round-trip: POST parts → reload detail → subtitle present."""
+    f = person_with_legal_name
+    client.post(
+        f"/admin/people/{f['pid']}/names/{f['nid']}/parts/",
+        data={
+            "given_names": ["María", "José"],
+            "family_names": ["García", "López"],
+            "primary_identifier": "family",
+        },
+        headers=HTMX_HEADERS,
+    )
+    r = client.get(
+        f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS,
+    )
+    assert r.status_code == 200, r.text
+    assert "parts:" in r.text
+    assert "García López" in r.text
+    assert "María José" in r.text
+
+
+def test_edit_form_pre_populates_parts(client, person_with_legal_name):
+    """Opening the edit row for a name with parts pre-fills the editor."""
+    f = person_with_legal_name
+    client.post(
+        f"/admin/people/{f['pid']}/names/{f['nid']}/parts/",
+        data={
+            "given_names": ["Ada"],
+            "family_names": ["Lovelace"],
+            "primary_identifier": "family",
+        },
+        headers=HTMX_HEADERS,
+    )
+    r = client.get(
+        f"/admin/people/{f['pid']}/names/{f['nid']}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200, r.text
+    assert 'value="Ada"' in r.text
+    assert 'value="Lovelace"' in r.text
+    # primary_identifier=family selected
+    assert ('value="family" selected' in r.text) or ('selected>family' in r.text)
+
+
 def test_parts_cascade_when_parent_name_deleted(client, person_with_legal_name):
     """Deleting the parent person_names row cascades to person_name_parts."""
     f = person_with_legal_name
