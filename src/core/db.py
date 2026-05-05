@@ -79,10 +79,40 @@ async def apply_schema(conn: asyncpg.Connection) -> None:
     Wrapping in a transaction ensures the schema is applied atomically:
     either all tables, indexes, triggers, and seed rows are created, or
     none are (on error the whole transaction rolls back).
+
+    The BCP 47 / ISO 15924 lookup tables (``bcp47_locales``,
+    ``iso15924_scripts``) are created but left empty here — seeding them
+    requires the optional ``seed`` dep group (langcodes + pycountry) and
+    runs once per environment via:
+
+        uv run --group seed scripts/seed_locales_scripts.py
+
+    A WARNING is logged when either lookup table is empty after apply,
+    since the live FK on ``person_names.locale`` / ``.script`` will
+    reject any non-NULL write until the tables are populated.
     """
     sql = SCHEMA_PATH.read_text()
     async with conn.transaction():
         await conn.execute(sql)
+    await _warn_if_lookup_tables_unseeded(conn)
+
+
+async def _warn_if_lookup_tables_unseeded(conn: asyncpg.Connection) -> None:
+    """Log a WARNING for each BCP 47 / ISO 15924 lookup table that's empty.
+
+    Empty lookup tables block any non-NULL write to ``person_names.locale``
+    or ``.script`` via the FK. Seed with::
+
+        uv run --group seed scripts/seed_locales_scripts.py
+    """
+    for table in ("bcp47_locales", "iso15924_scripts"):
+        n = await conn.fetchval(f"SELECT COUNT(*) FROM {table}")
+        if n == 0:
+            logger.warning(
+                "%s is empty — run `uv run --group seed scripts/seed_locales_scripts.py` "
+                "before any non-NULL person_names.locale/.script writes",
+                table,
+            )
 
 
 # ---------------------------------------------------------------------------

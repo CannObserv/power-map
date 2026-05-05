@@ -20,8 +20,10 @@ async def db():
         await apply_schema(conn)
         tr = conn.transaction()
         await tr.start()
-        yield conn
-        await tr.rollback()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
     finally:
         await conn.close()
 

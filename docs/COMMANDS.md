@@ -192,6 +192,23 @@ uv run python -m scripts.deduplicate_roles --execute
 
 Run before re-applying schema on a dirty DB (see bootstrap sequence in AGENTS.md).
 
+## Seed BCP 47 / ISO 15924 lookup tables (one-time per env, after schema apply)
+
+```bash
+# Load env vars first
+export $(cat /etc/power-map/.env | xargs) 2>/dev/null
+export $(cat .env | xargs) 2>/dev/null
+
+# Populate bcp47_locales + iso15924_scripts from langcodes + pycountry.
+# Idempotent — safe to re-run to pick up registry updates.
+uv run --group seed scripts/seed_locales_scripts.py
+```
+
+Required after a fresh `apply_schema` on a brand-new DB. The FK on
+`person_names.locale` / `.script` is active immediately, so any non-NULL
+write fails until this script populates the lookup tables. `apply_schema`
+logs a WARNING when either lookup table is empty.
+
 ## Git Submodules
 
 ```bash

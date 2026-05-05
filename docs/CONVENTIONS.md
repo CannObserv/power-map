@@ -137,7 +137,12 @@ Validation layering:
 | Database FK | Rejects unregistered codes (`'xx-XX'`, `'Xxxx'`) | Authoritative |
 | Seed script (`langcodes` + `pycountry`) | Populates the lookup tables; runs once per env | Registry mirror |
 
-No curated default-set is maintained — the typeahead's empty state shows a placeholder and narrows the full table by user keystrokes (`code ILIKE '%q%' OR display_name ILIKE '%q%'`). pg_trgm GIN indexes on `code` and the human-readable column make full-table substring search fast (Postgres' planner may still pick Seq Scan on these small tables; the index is load-bearing as the data grows). Re-seed at any time to pick up registry updates: `uv run --group seed scripts/seed_locales_scripts.py`.
+No curated default-set is maintained — the typeahead's empty state shows a placeholder and narrows the full table by user keystrokes. The human-readable column differs by table: locales use `display_name`, scripts use `name`. So:
+
+- locales: `code ILIKE '%q%' OR display_name ILIKE '%q%'`
+- scripts: `code ILIKE '%q%' OR name ILIKE '%q%'`
+
+pg_trgm GIN indexes are present on both columns of both tables (Postgres' planner may still pick Seq Scan at current row counts; the index is load-bearing as the data grows). Re-seed at any time to pick up registry updates: `uv run --group seed scripts/seed_locales_scripts.py`.
 
 ON UPDATE CASCADE is set on both FKs, so a registry-driven `code` rename propagates to existing person_names rows. ON DELETE NO ACTION (default) blocks lookup-row deletion when referenced — the registry doesn't shrink, so this is correct.
 
