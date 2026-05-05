@@ -204,27 +204,23 @@ async def person_detail(
 
     # visibility-allowlist (issue #121): the admin detail page is the
     # disclosure point — when show_historical=True, surface all rows so the
-    # editor can manage legal_only / hidden / deadname names. Default
-    # (show_historical=False) hides those behind a toggle; the historical
-    # count is fetched separately so the toggle can render its label.
-    if show_historical:
-        names = await db.fetch(
-            "SELECT * FROM person_names WHERE person_id = $1"
-            " ORDER BY is_canonical DESC, name_type, name",
-            person_id,
-        )
-    else:
-        names = await db.fetch(
-            "SELECT * FROM person_names WHERE person_id = $1"
-            " AND visibility = 'public'"
-            " ORDER BY is_canonical DESC, name_type, name",
-            person_id,
-        )
-    historical_count = await db.fetchval(
-        "SELECT COUNT(*) FROM person_names"
-        " WHERE person_id = $1 AND visibility != 'public'",
+    # editor can manage legal_only / hidden / deadname names. Default hides
+    # them behind a toggle that displays the historical count.
+    visibility_filter = "" if show_historical else " AND visibility = 'public'"
+    names = await db.fetch(
+        f"SELECT * FROM person_names WHERE person_id = $1{visibility_filter}"
+        " ORDER BY is_canonical DESC, name_type, name",
         person_id,
     )
+    if show_historical:
+        # All rows already in `names`; derive the count without a second query.
+        historical_count = sum(1 for n in names if n["visibility"] != "public")
+    else:
+        historical_count = await db.fetchval(
+            "SELECT COUNT(*) FROM person_names"
+            " WHERE person_id = $1 AND visibility != 'public'",
+            person_id,
+        )
     contacts = await db.fetch(
         "SELECT * FROM contact_methods WHERE entity_type = 'person' AND entity_id = $1"
         " ORDER BY contact_type, value",

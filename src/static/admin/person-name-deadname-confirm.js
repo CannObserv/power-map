@@ -14,8 +14,9 @@
  */
 (function () {
   var CONFIRM_MSG =
-    'Saving as deadname will hide this row from public views ' +
-    '(visibility coerced to legal_only). Continue?';
+    'Marking this row as deadname will hide it from public views. ' +
+    'If visibility is set to "public", it will be coerced to "legal_only" ' +
+    'on save. Continue?';
   var CONFIRM_TITLE = 'Save as deadname?';
   var CONFIRM_VARIANT = 'danger';
   var CONFIRM_LABEL = 'Save deadname';

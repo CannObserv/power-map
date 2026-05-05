@@ -55,11 +55,23 @@ def test_form_row_visibility_select_has_label():
 
 
 def test_form_row_visibility_defaults_to_public_when_no_existing_row():
-    """For new rows, public must be the pre-selected option."""
-    # Locate the visibility select block; selected attr should land on public.
-    block = FORM_ROW.split('name="visibility"')[1].split("</select>")[0]
-    # Either Jinja conditional or explicit selected on public — accept either.
-    assert "public" in block
+    """For new rows (n is None), the public <option> must end up selected.
+
+    The template uses `(not n and v == 'public')` in the option's selected
+    expression — verify both the structural pattern and the runtime result.
+    """
+    # Structural check: the Jinja guard must reference (not n) and 'public'.
+    assert "not n and v == 'public'" in FORM_ROW or "v == 'public'" in FORM_ROW
+
+    # Runtime check: render with n=None and confirm <option value="public" selected>.
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    rendered = env.get_template(
+        "admin/people/partials/_name_form_row.html"
+    ).render(n=None, person_id="p-test")
+    assert '<option value="public" selected>' in rendered, (
+        "public should be the pre-selected visibility for new rows"
+    )
 
 
 # ---------------------------------------------------------------------------

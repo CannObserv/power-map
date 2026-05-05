@@ -94,6 +94,25 @@ describe('person-name-deadname-confirm', () => {
     expect(form.getAttribute('hx-confirm')).toMatch(/legal_only|visibility/i);
   });
 
+  it('ignores non-person-name forms (org-name path)', () => {
+    document.body.innerHTML = `
+      <form id="org-form" hx-post="/admin/orgs/o1/names/">
+        <select name="name_type">
+          <option value="legal">legal</option>
+          <option value="deadname">deadname</option>
+        </select>
+      </form>
+    `;
+    document.querySelector('select[name="name_type"]').value = 'deadname';
+    eval(scriptCode);
+    const form = document.getElementById('org-form');
+    expect(form.hasAttribute('hx-confirm')).toBe(false);
+    // Even on subsequent change events, the org form must stay untouched.
+    const select = form.querySelector('select[name="name_type"]');
+    changeSelect(select, 'deadname');
+    expect(form.hasAttribute('hx-confirm')).toBe(false);
+  });
+
   it('handles forms inserted via HTMX afterSwap', () => {
     document.body.innerHTML = '<div id="container"></div>';
     eval(scriptCode);
