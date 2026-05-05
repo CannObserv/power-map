@@ -160,6 +160,40 @@ def test_edit_persists_visibility(client, person_and_name):
     assert asyncio.run(_fetch_visibility(pid, nid)) == "legal_only"
 
 
+# ---- invalid visibility rejected with 422 --------------------------------
+
+
+def test_create_rejects_invalid_visibility(client, person_and_name):
+    """Out-of-range visibility values return 422 (Pydantic Literal validation)."""
+    pid, _ = person_and_name
+    r = client.post(
+        f"/admin/people/{pid}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Bad Visibility",
+            "name_type": "alias",
+            "is_canonical": "",
+            "visibility": "banana",
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_edit_rejects_invalid_visibility(client, person_and_name):
+    pid, nid = person_and_name
+    r = client.post(
+        f"/admin/people/{pid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Original Name",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "visibility": "banana",
+        },
+    )
+    assert r.status_code == 422
+
+
 # ---- expanded name_type values -------------------------------------------
 
 

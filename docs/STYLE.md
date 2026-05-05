@@ -1718,6 +1718,21 @@ Use `{% block extra_head %}{% endblock %}` (defined in `base.html`) to inject `<
 
 On any mutation route that may change an org's canonical name or acronym, pass `extra=await org_header_extra(org_id, db)` to `flash_trigger` (from `src.api.admin.deps`). Returns `{"updateOrgHeader": {"display": ...}}`; `org-detail.js` handles the event and updates `#page-heading`, `#breadcrumb-current`, and `document.title` in-place. Equivalent `person_header_extra` for person routes. → §30 for full client-side pattern.
 
+### Person-name metadata controls (Phase 2a, #123)
+
+Person-name CRUD shares its router factory with org-name CRUD via `make_names_router` in `src.api.admin._names_shared`. The factory accepts `supports_metadata: bool = False`:
+
+- `org_names`: leaves the default (`False`) — `organization_names` has no `visibility` column.
+- `people_names`: passes `supports_metadata=True` — accepts a `visibility` Form field on create/edit (`PersonNameVisibility = Literal["public","legal_only","hidden"]` from `src.core.types`); persists it via INSERT/UPDATE.
+
+Validation layering:
+
+- Pydantic / FastAPI validates the Literal at request parse — invalid values return 422 (handler never runs).
+- The org-vs-person divergence is enforced inside the handler by `_gate_visibility(value)`: returns the value unchanged when `supports_metadata=True`, drops to `None` when `False`. A `visibility` payload sent to org_names is silently ignored.
+- `_insert_name` / `_update_name` build column lists dynamically — `visibility` is included only when non-`None`. The DB default (`'public'`) and the `trg_deadname_visibility` trigger remain authoritative for omitted/coerced values.
+
+Adding new optional metadata fields (e.g. `locale`, `script` in Phase 2b) follows the same pattern: extend the Form signature, add to the `cols`/`vals` lists in the helper, and let the DB default/trigger drive any omitted column.
+
 ### Dup count cache
 
 `count_org_duplicates(db)` in `src.api.admin.org_dups` and `count_person_duplicates(db)` in `src.api.admin.people_dups` are TTL-cached (5 min, process-local). Call `invalidate_dup_count_cache()` from the appropriate module after any merge or dismiss. All people and org routes inject both counts via deps; sidebar badges use these template vars directly (no HTMX XHR).
