@@ -2,6 +2,7 @@
 
 from collections.abc import Awaitable, Callable
 
+import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -10,6 +11,34 @@ from markupsafe import escape
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 from src.core.types import PersonNameVisibility
+
+
+def _normalise_optional_str(value: str | None) -> str | None:
+    """Strip whitespace and return None for empty/whitespace-only values.
+
+    Used for ``sort_as``, ``locale``, ``script`` Form inputs so that an
+    empty submission becomes a NULL column rather than ''.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _fk_violation_message(exc: asyncpg.ForeignKeyViolationError) -> str:
+    """Human-friendly form error for FK violations on locale/script."""
+    detail = (exc.detail or "").lower()
+    if "bcp47_locales" in detail or "_locale_fkey" in (exc.constraint_name or ""):
+        return (
+            "Locale is not a registered BCP 47 code. "
+            "Pick from the typeahead suggestions."
+        )
+    if "iso15924_scripts" in detail or "_script_fkey" in (exc.constraint_name or ""):
+        return (
+            "Script is not a registered ISO 15924 code. "
+            "Pick from the typeahead suggestions."
+        )
+    return "Foreign key constraint violation. Check locale/script values."
 
 templates = Jinja2Templates(directory="src/templates")
 
@@ -80,15 +109,37 @@ def make_names_router(
     """
     router = APIRouter(prefix=prefix, tags=tags)
 
+    # Optional metadata columns appended in `cols`/`vals` order. Each tuple is
+    # (column_name, value); only included when value is not None. The DB
+    # default / triggers handle the omitted-column case.
+    def _metadata_cols(
+        vis: PersonNameVisibility | None,
+        locale: str | None,
+        script: str | None,
+        sort_as: str | None,
+    ) -> list[tuple[str, object]]:
+        return [
+            (col, val)
+            for col, val in (
+                ("visibility", vis),
+                ("locale", locale),
+                ("script", script),
+                ("sort_as", sort_as),
+            )
+            if val is not None
+        ]
+
     async def _insert_name(
         db, *, nid: str, entity_id: str, name: str, name_type: str,
         is_canonical: bool, vis: PersonNameVisibility | None,
+        locale: str | None = None, script: str | None = None,
+        sort_as: str | None = None,
     ) -> None:
         cols = ["id", entity_fk, "name", "name_type", "is_canonical"]
         vals: list[object] = [nid, entity_id, name, name_type, is_canonical]
-        if vis is not None:
-            cols.append("visibility")
-            vals.append(vis)
+        for col, val in _metadata_cols(vis, locale, script, sort_as):
+            cols.append(col)
+            vals.append(val)
         placeholders = ", ".join(f"${i + 1}" for i in range(len(vals)))
         await db.execute(
             f"INSERT INTO {names_table} ({', '.join(cols)}) VALUES ({placeholders})",
@@ -98,12 +149,34 @@ def make_names_router(
     async def _update_name(
         db, *, name_id: str, name: str, name_type: str,
         is_canonical: bool, vis: PersonNameVisibility | None,
+        locale: str | None = None, script: str | None = None,
+        sort_as: str | None = None,
+        write_metadata: bool = False,
     ) -> None:
+        """Update a name row.
+
+        When ``write_metadata`` is True, all metadata columns
+        (``visibility``, ``locale``, ``script``, ``sort_as``) are SET to
+        the supplied values — including NULL — so the form is treated as
+        the source of truth. Org-side calls (write_metadata=False) leave
+        those columns untouched, which preserves the legacy schema where
+        they don't exist anyway.
+        """
         sets = ["name=$1", "name_type=$2", "is_canonical=$3"]
         vals: list[object] = [name, name_type, is_canonical]
-        if vis is not None:
-            vals.append(vis)
-            sets.append(f"visibility=${len(vals)}")
+        if write_metadata:
+            for col, val in (
+                ("visibility", vis),
+                ("locale", locale),
+                ("script", script),
+                ("sort_as", sort_as),
+            ):
+                # Special-case visibility: keep the DB default ('public') +
+                # deadname trigger flow when the form omitted the field.
+                if col == "visibility" and val is None:
+                    continue
+                vals.append(val)
+                sets.append(f"{col}=${len(vals)}")
         vals.append(name_id)
         await db.execute(
             f"UPDATE {names_table} SET {', '.join(sets)} WHERE id=${len(vals)}",
@@ -147,25 +220,43 @@ def make_names_router(
         name_type: str = Form("legal"),
         is_canonical: str = Form(""),
         visibility: PersonNameVisibility | None = Form(None),
+        locale: str | None = Form(None),
+        script: str | None = Form(None),
+        sort_as: str | None = Form(None),
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
         """Create a new name."""
-        # Pydantic Literal validates value range; gate drops it for org_names
-        # (supports_metadata=False) which has no visibility column.
+        # Pydantic Literal validates visibility value range; gate drops all
+        # metadata fields for org_names (supports_metadata=False) which has
+        # no locale/script/sort_as/visibility columns.
         vis = visibility if supports_metadata else None
+        loc = _normalise_optional_str(locale) if supports_metadata else None
+        scr = _normalise_optional_str(script) if supports_metadata else None
+        sa = _normalise_optional_str(sort_as) if supports_metadata else None
         await _get_entity_or_404(entity_id, db)
         nid = generate_id()
-        async with db.transaction():
-            if is_canonical == "true":
-                await db.execute(
-                    f"UPDATE {names_table} SET is_canonical=FALSE"
-                    f" WHERE {entity_fk}=$1 AND is_canonical=TRUE",
-                    entity_id,
+        try:
+            async with db.transaction():
+                if is_canonical == "true":
+                    await db.execute(
+                        f"UPDATE {names_table} SET is_canonical=FALSE"
+                        f" WHERE {entity_fk}=$1 AND is_canonical=TRUE",
+                        entity_id,
+                    )
+                await _insert_name(
+                    db, nid=nid, entity_id=entity_id, name=name.strip(),
+                    name_type=name_type, is_canonical=(is_canonical == "true"),
+                    vis=vis, locale=loc, script=scr, sort_as=sa,
                 )
-            await _insert_name(
-                db, nid=nid, entity_id=entity_id, name=name.strip(),
-                name_type=name_type, is_canonical=(is_canonical == "true"), vis=vis,
+        except asyncpg.ForeignKeyViolationError as exc:
+            msg = _fk_violation_message(exc)
+            if not is_htmx(request):
+                raise HTTPException(status_code=422, detail=msg) from exc
+            return HTMLResponse(
+                content="",
+                status_code=200,
+                headers=flash_trigger("error", escape(msg)),
             )
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
@@ -236,13 +327,20 @@ def make_names_router(
         name_type: str = Form("legal"),
         is_canonical: str = Form(""),
         visibility: PersonNameVisibility | None = Form(None),
+        locale: str | None = Form(None),
+        script: str | None = Form(None),
+        sort_as: str | None = Form(None),
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
         """Update a name."""
-        # Pydantic Literal validates value range; gate drops it for org_names
-        # (supports_metadata=False) which has no visibility column.
+        # Pydantic Literal validates visibility range; gate drops all
+        # metadata for org_names. The `clear_sort_as` flag captures
+        # "user explicitly emptied this field" so the UPDATE NULLs it.
         vis = visibility if supports_metadata else None
+        loc = _normalise_optional_str(locale) if supports_metadata else None
+        scr = _normalise_optional_str(script) if supports_metadata else None
+        sa = _normalise_optional_str(sort_as) if supports_metadata else None
         existing = await db.fetchrow(
             f"SELECT * FROM {names_table} WHERE id=$1 AND {entity_fk}=$2",
             name_id,
@@ -271,17 +369,29 @@ def make_names_router(
                         "Cannot remove canonical. Promote another name first.",
                     ),
                 )
-        async with db.transaction():
-            if is_canonical == "true":
-                await db.execute(
-                    f"UPDATE {names_table} SET is_canonical=FALSE"
-                    f" WHERE {entity_fk}=$1 AND is_canonical=TRUE AND id != $2",
-                    entity_id,
-                    name_id,
+        try:
+            async with db.transaction():
+                if is_canonical == "true":
+                    await db.execute(
+                        f"UPDATE {names_table} SET is_canonical=FALSE"
+                        f" WHERE {entity_fk}=$1 AND is_canonical=TRUE AND id != $2",
+                        entity_id,
+                        name_id,
+                    )
+                await _update_name(
+                    db, name_id=name_id, name=name.strip(), name_type=name_type,
+                    is_canonical=(is_canonical == "true"),
+                    vis=vis, locale=loc, script=scr, sort_as=sa,
+                    write_metadata=supports_metadata,
                 )
-            await _update_name(
-                db, name_id=name_id, name=name.strip(), name_type=name_type,
-                is_canonical=(is_canonical == "true"), vis=vis,
+        except asyncpg.ForeignKeyViolationError as exc:
+            msg = _fk_violation_message(exc)
+            if not is_htmx(request):
+                raise HTTPException(status_code=422, detail=msg) from exc
+            return HTMLResponse(
+                content="",
+                status_code=200,
+                headers=flash_trigger("error", escape(msg)),
             )
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
