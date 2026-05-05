@@ -1,9 +1,13 @@
 """Tests for src.core.db — schema helpers and ULID generation."""
 
+import logging
+import os
+
+import asyncpg
 import pytest
 
 import src.core.db as db_module
-from src.core.db import generate_id
+from src.core.db import _warn_if_lookup_tables_unseeded, apply_schema, generate_id
 
 # ---------------------------------------------------------------------------
 # generate_id
@@ -51,4 +55,72 @@ def test_generate_id_timestamp_nondecreasing():
     ids = [generate_id() for _ in range(10)]
     timestamps = [uid[:10] for uid in ids]
     assert timestamps == sorted(timestamps)
+
+
+# ---------------------------------------------------------------------------
+# _warn_if_lookup_tables_unseeded — empty/seeded behaviour
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def db_conn():
+    dsn = os.environ.get("TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("TEST_DATABASE_URL not set")
+    conn = await asyncpg.connect(dsn)
+    try:
+        await apply_schema(conn)
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
+    finally:
+        await conn.close()
+
+
+@pytest.mark.integration
+async def test_warn_fires_when_bcp47_locales_empty(db_conn, caplog):
+    await db_conn.execute("DELETE FROM bcp47_locales")
+    with caplog.at_level(logging.WARNING, logger="src.core.db"):
+        await _warn_if_lookup_tables_unseeded(db_conn)
+    matched = [
+        r for r in caplog.records
+        if r.levelno == logging.WARNING and "bcp47_locales" in r.getMessage()
+    ]
+    assert matched, "expected WARNING for empty bcp47_locales"
+
+
+@pytest.mark.integration
+async def test_warn_fires_when_iso15924_scripts_empty(db_conn, caplog):
+    # bcp47_locales.script FK references iso15924_scripts, so clear locales first
+    # to avoid blocking the scripts DELETE.
+    await db_conn.execute("DELETE FROM person_names")
+    await db_conn.execute("DELETE FROM bcp47_locales")
+    await db_conn.execute("DELETE FROM iso15924_scripts")
+    with caplog.at_level(logging.WARNING, logger="src.core.db"):
+        await _warn_if_lookup_tables_unseeded(db_conn)
+    matched = [
+        r for r in caplog.records
+        if r.levelno == logging.WARNING and "iso15924_scripts" in r.getMessage()
+    ]
+    assert matched, "expected WARNING for empty iso15924_scripts"
+
+
+@pytest.mark.integration
+async def test_warn_silent_when_both_lookup_tables_seeded(db_conn, caplog):
+    """Pre-seeded prod state: no warning."""
+    bcp_n = await db_conn.fetchval("SELECT COUNT(*) FROM bcp47_locales")
+    iso_n = await db_conn.fetchval("SELECT COUNT(*) FROM iso15924_scripts")
+    if bcp_n == 0 or iso_n == 0:
+        pytest.skip("lookup tables not seeded — run scripts/seed_locales_scripts.py")
+    with caplog.at_level(logging.WARNING, logger="src.core.db"):
+        await _warn_if_lookup_tables_unseeded(db_conn)
+    lookup_warnings = [
+        r for r in caplog.records
+        if r.levelno == logging.WARNING
+        and ("bcp47_locales" in r.getMessage() or "iso15924_scripts" in r.getMessage())
+    ]
+    assert not lookup_warnings, f"unexpected warning(s): {lookup_warnings}"
 

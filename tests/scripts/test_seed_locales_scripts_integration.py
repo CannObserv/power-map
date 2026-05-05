@@ -42,8 +42,8 @@ async def db():
         await conn.close()
 
 
-# Use codes outside the ISO 15924 range (100..999) so they can't collide with
-# real seeded data. The four-letter form follows registry shape.
+# `test-` prefix avoids any real BCP 47 tag emitted by langcodes; safe in
+# fixtures since `bcp47_locales.code` is plain TEXT (no shape constraint).
 _LOC_ROWS = [
     {
         "code": "test-AA",
@@ -61,6 +61,8 @@ _LOC_ROWS = [
     },
 ]
 
+# Numeric codes outside the ISO 15924 range (100..999) so they can't collide
+# with real seeded data. The four-letter alpha form follows registry shape.
 _SCR_ROWS = [
     {"code": "Tst1", "numeric_code": 30001, "name": "Test One"},
     {"code": "Tst2", "numeric_code": 30002, "name": "Test Two"},

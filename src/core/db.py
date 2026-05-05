@@ -106,8 +106,10 @@ async def _warn_if_lookup_tables_unseeded(conn: asyncpg.Connection) -> None:
         uv run --group seed scripts/seed_locales_scripts.py
     """
     for table in ("bcp47_locales", "iso15924_scripts"):
-        n = await conn.fetchval(f"SELECT COUNT(*) FROM {table}")
-        if n == 0:
+        empty = await conn.fetchval(
+            f"SELECT NOT EXISTS (SELECT 1 FROM {table} LIMIT 1)"
+        )
+        if empty:
             logger.warning(
                 "%s is empty — run `uv run --group seed scripts/seed_locales_scripts.py` "
                 "before any non-NULL person_names.locale/.script writes",

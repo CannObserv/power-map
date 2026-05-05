@@ -113,8 +113,9 @@ async def main() -> None:
     conn = await asyncpg.connect(dsn)
     try:
         async with conn.transaction():
-            n_loc = await upsert_locales(conn, enumerate_bcp47_locales())
+            # Scripts first: bcp47_locales.script FK references iso15924_scripts.
             n_scr = await upsert_scripts(conn, enumerate_iso15924_scripts())
+            n_loc = await upsert_locales(conn, enumerate_bcp47_locales())
         print(f"seeded: {n_loc} locales, {n_scr} scripts")
     finally:
         await conn.close()

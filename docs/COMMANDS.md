@@ -192,7 +192,7 @@ uv run python -m scripts.deduplicate_roles --execute
 
 Run before re-applying schema on a dirty DB (see bootstrap sequence in AGENTS.md).
 
-## Seed BCP 47 / ISO 15924 lookup tables (one-time per env, after schema apply)
+## Seed BCP 47 / ISO 15924 lookup tables (after schema apply, idempotent)
 
 ```bash
 # Load env vars first

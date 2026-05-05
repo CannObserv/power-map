@@ -610,6 +610,23 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+-- Symmetric FK: bcp47_locales.script → iso15924_scripts(code). Without
+-- this, langcodes-driven seeding could store a script tag absent from
+-- pycountry's ISO 15924 list (registry skew), breaking any future join
+-- that enriches locale rows with their script's display name.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'bcp47_locales'
+          AND c.conname = 'bcp47_locales_script_fkey'
+    ) THEN
+        ALTER TABLE bcp47_locales
+            ADD CONSTRAINT bcp47_locales_script_fkey
+            FOREIGN KEY (script) REFERENCES iso15924_scripts(code) ON UPDATE CASCADE;
+    END IF;
+END $$;
+
 -- =============================================================================
 -- Organization names/acronyms schema migration
 -- Moves acronym rows from organization_names to organization_acronyms,
