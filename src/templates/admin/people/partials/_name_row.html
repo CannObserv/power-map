@@ -1,6 +1,12 @@
 {# admin/people/partials/_name_row.html — inline name read row #}
 <tr id="name-row-{{ n.id }}">
-  <td>{{ n.name }}</td>
+  <td>
+    {{ n.name }}
+    {% if n.visibility and n.visibility != 'public' %}
+    <span class="badge badge--inactive" title="Visibility: {{ n.visibility }}"
+          aria-label="Visibility: {{ n.visibility }}">{{ n.visibility }}</span>
+    {% endif %}
+  </td>
   <td style="text-align:right">{{ n.name_type }}</td>
   <td style="text-align:right">{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
   <td style="text-align:right;white-space:nowrap">
