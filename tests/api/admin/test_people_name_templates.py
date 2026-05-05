@@ -103,6 +103,102 @@ def test_detail_deadname_confirm_script_is_deferred():
     assert "defer" in block
 
 
+# ---------------------------------------------------------------------------
+# Form row — locale / script typeahead inputs + sort_as plain input (Phase 2b)
+# ---------------------------------------------------------------------------
+
+
+def test_form_row_has_locale_typeahead_combobox():
+    """Locale input wired to /admin/people/_locale_search with combobox a11y."""
+    assert 'name="locale"' in FORM_ROW
+    assert "/admin/people/_locale_search" in FORM_ROW
+    assert 'role="combobox"' in FORM_ROW
+    assert 'aria-controls="locale-search-results"' in FORM_ROW
+    assert 'aria-haspopup="listbox"' in FORM_ROW
+
+
+def test_form_row_locale_results_listbox_present():
+    assert 'id="locale-search-results"' in FORM_ROW
+    assert 'role="listbox"' in FORM_ROW
+
+
+def test_form_row_has_script_typeahead_combobox():
+    assert 'name="script"' in FORM_ROW
+    assert "/admin/people/_script_search" in FORM_ROW
+    assert 'aria-controls="script-search-results"' in FORM_ROW
+
+
+def test_form_row_script_results_listbox_present():
+    assert 'id="script-search-results"' in FORM_ROW
+
+
+def test_form_row_has_sort_as_plain_input():
+    """sort_as is a plain text input — not a combobox."""
+    assert 'name="sort_as"' in FORM_ROW
+
+
+def test_form_row_calls_init_typeahead_for_locale_and_script():
+    """Each combobox must be wired via window.initTypeaheadCombobox(...)."""
+    assert FORM_ROW.count("initTypeaheadCombobox") >= 2
+
+
+# ---------------------------------------------------------------------------
+# Read row — subtitle line surfaces locale / script / sort_as when set
+# ---------------------------------------------------------------------------
+
+
+def test_read_row_references_metadata_columns():
+    assert "n.locale" in READ_ROW
+    assert "n.script" in READ_ROW
+    assert "n.sort_as" in READ_ROW
+
+
+def test_read_row_subtitle_skips_when_all_metadata_null():
+    """No subtitle markers when all three fields are NULL."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    bare = {
+        "id": "n1", "name": "Plain", "name_type": "legal",
+        "is_canonical": True, "visibility": "public",
+        "locale": None, "script": None, "sort_as": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_row.html"
+    ).render(n=bare, person_id="p1")
+    assert "·" not in out
+    assert "sort_as:" not in out
+
+
+def test_read_row_subtitle_renders_locale_and_script():
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    row = {
+        "id": "n1", "name": "Test", "name_type": "legal",
+        "is_canonical": True, "visibility": "public",
+        "locale": "en-US", "script": "Latn", "sort_as": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_row.html"
+    ).render(n=row, person_id="p1")
+    assert "Latn" in out
+    assert "en-US" in out
+
+
+def test_read_row_subtitle_renders_sort_as():
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    row = {
+        "id": "n1", "name": "van der Meer", "name_type": "legal",
+        "is_canonical": True, "visibility": "public",
+        "locale": None, "script": None, "sort_as": "Meer, van der",
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_row.html"
+    ).render(n=row, person_id="p1")
+    assert "Meer, van der" in out
+    assert "sort_as" in out.lower()
+
+
 def test_read_row_badge_uses_badge_class():
     """Visibility badge should use the existing badge component for visual consistency."""
     # Find the visibility-conditional block and confirm 'badge' appears within it.

@@ -32,6 +32,55 @@
           {% endfor %}
         </select>
       </div>
+      {# Locale typeahead — display input + hidden code value + listbox #}
+      <div class="form-group" style="margin-bottom:0;position:relative;min-width:9rem">
+        <input id="locale-search-display" type="text" autocomplete="off"
+               placeholder="Locale (BCP 47)"
+               value="{{ n.locale if n and n.locale else '' }}"
+               hx-get="/admin/people/_locale_search"
+               hx-trigger="input changed delay:200ms"
+               hx-target="#locale-search-results"
+               hx-swap="innerHTML"
+               hx-params="q"
+               name="q_locale"
+               aria-label="Locale"
+               role="combobox"
+               aria-expanded="false"
+               aria-haspopup="listbox"
+               aria-controls="locale-search-results"
+               aria-autocomplete="list">
+        <input type="hidden" name="locale" id="locale-hidden"
+               value="{{ n.locale if n and n.locale else '' }}">
+        <ul id="locale-search-results" class="typeahead-results" role="listbox"></ul>
+      </div>
+      {# Script typeahead — same shape against iso15924_scripts #}
+      <div class="form-group" style="margin-bottom:0;position:relative;min-width:9rem">
+        <input id="script-search-display" type="text" autocomplete="off"
+               placeholder="Script (ISO 15924)"
+               value="{{ n.script if n and n.script else '' }}"
+               hx-get="/admin/people/_script_search"
+               hx-trigger="input changed delay:200ms"
+               hx-target="#script-search-results"
+               hx-swap="innerHTML"
+               hx-params="q"
+               name="q_script"
+               aria-label="Script"
+               role="combobox"
+               aria-expanded="false"
+               aria-haspopup="listbox"
+               aria-controls="script-search-results"
+               aria-autocomplete="list">
+        <input type="hidden" name="script" id="script-hidden"
+               value="{{ n.script if n and n.script else '' }}">
+        <ul id="script-search-results" class="typeahead-results" role="listbox"></ul>
+      </div>
+      {# sort_as — plain text, free string for collation key overrides #}
+      <div class="form-group" style="margin-bottom:0;min-width:9rem">
+        <input type="text" name="sort_as" autocomplete="off"
+               placeholder="Sort as (optional)"
+               aria-label="Sort as"
+               value="{{ n.sort_as if n and n.sort_as else '' }}">
+      </div>
       <label class="toggle" style="flex-shrink:0">
         <input type="checkbox" name="is_canonical" value="true" aria-label="Canonical"
                {% if n and n.is_canonical %} checked{% endif %}>
@@ -49,5 +98,17 @@
                 {% endif %}>Cancel</button>
       </div>
     </form>
+    <script>
+      window.initTypeaheadCombobox({
+        inputId: 'locale-search-display',
+        listboxId: 'locale-search-results',
+        hiddenId: 'locale-hidden',
+      });
+      window.initTypeaheadCombobox({
+        inputId: 'script-search-display',
+        listboxId: 'script-search-results',
+        hiddenId: 'script-hidden',
+      });
+    </script>
   </td>
 </tr>

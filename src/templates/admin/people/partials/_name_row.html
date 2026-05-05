@@ -6,6 +6,22 @@
     <span class="badge badge--inactive" title="Visibility: {{ n.visibility }}"
           aria-label="Visibility: {{ n.visibility }}">{{ n.visibility }}</span>
     {% endif %}
+    {% if n.locale or n.script or n.sort_as %}
+    <div class="meta-subtitle" style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.125rem">
+      {%- set parts = [] -%}
+      {%- if n.script and n.locale -%}
+        {%- set _ = parts.append(n.script ~ ' · ' ~ n.locale) -%}
+      {%- elif n.script -%}
+        {%- set _ = parts.append(n.script) -%}
+      {%- elif n.locale -%}
+        {%- set _ = parts.append(n.locale) -%}
+      {%- endif -%}
+      {%- if n.sort_as -%}
+        {%- set _ = parts.append('sort_as: ' ~ n.sort_as) -%}
+      {%- endif -%}
+      {{ parts | join(' · ') }}
+    </div>
+    {% endif %}
   </td>
   <td style="text-align:right">{{ n.name_type }}</td>
   <td style="text-align:right">{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>

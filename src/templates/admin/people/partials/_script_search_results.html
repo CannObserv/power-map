@@ -1,0 +1,6 @@
+{# admin/people/partials/_script_search_results.html #}
+{% for r in results %}
+<li id="opt-{{ r.code }}" role="option"
+    data-id="{{ r.code }}"
+    data-label="{{ r.code }} — {{ r.name }}">{{ r.code }} — {{ r.name }}</li>
+{% endfor %}
