@@ -31,6 +31,7 @@ def make_names_router(
     last_identity_error_msg: str,
     last_identity_409_msg: str,
     header_extra: Callable[[str, object], Awaitable[dict]],
+    supports_metadata: bool = False,
 ) -> APIRouter:
     """Return a configured names APIRouter for the given entity type.
 
@@ -71,7 +72,24 @@ def make_names_router(
     header_extra:
         Async callable ``(entity_id, db) -> dict`` returning the extra HX-Trigger
         payload for header-sync events (e.g. updateOrgHeader / updatePersonHeader).
+    supports_metadata:
+        When True, accept and persist a ``visibility`` Form field on create/edit
+        and pass it to row templates. Used by person_names (Phase 2a, #123);
+        org_names ignores it (no visibility column on organization_names).
     """
+    _VALID_VISIBILITIES = ("public", "legal_only", "hidden")
+
+    def _normalise_visibility(value: str | None) -> str | None:
+        """Validate the form-supplied visibility; return None when unsupported.
+
+        Returns None when ``supports_metadata`` is False, the field is absent,
+        or the value isn't in the allowed set — callers then fall back to the
+        DB default ('public'). The DB ``person_names_visibility_check`` CHECK
+        and the deadname trigger remain the source of truth.
+        """
+        if not supports_metadata or value is None:
+            return None
+        return value if value in _VALID_VISIBILITIES else None
     router = APIRouter(prefix=prefix, tags=tags)
 
     # ---- helpers ----------------------------------------------------------------
@@ -110,12 +128,14 @@ def make_names_router(
         name: str = Form(...),
         name_type: str = Form("legal"),
         is_canonical: str = Form(""),
+        visibility: str | None = Form(None),
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
         """Create a new name."""
         await _get_entity_or_404(entity_id, db)
         nid = generate_id()
+        vis = _normalise_visibility(visibility)
         async with db.transaction():
             if is_canonical == "true":
                 await db.execute(
@@ -123,15 +143,28 @@ def make_names_router(
                     f" WHERE {entity_fk}=$1 AND is_canonical=TRUE",
                     entity_id,
                 )
-            await db.execute(
-                f"INSERT INTO {names_table} (id, {entity_fk}, name, name_type, is_canonical)"
-                " VALUES ($1, $2, $3, $4, $5)",
-                nid,
-                entity_id,
-                name.strip(),
-                name_type,
-                is_canonical == "true",
-            )
+            if vis is None:
+                await db.execute(
+                    f"INSERT INTO {names_table} (id, {entity_fk}, name, name_type, is_canonical)"
+                    " VALUES ($1, $2, $3, $4, $5)",
+                    nid,
+                    entity_id,
+                    name.strip(),
+                    name_type,
+                    is_canonical == "true",
+                )
+            else:
+                await db.execute(
+                    f"INSERT INTO {names_table}"
+                    f" (id, {entity_fk}, name, name_type, is_canonical, visibility)"
+                    " VALUES ($1, $2, $3, $4, $5, $6)",
+                    nid,
+                    entity_id,
+                    name.strip(),
+                    name_type,
+                    is_canonical == "true",
+                    vis,
+                )
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
         names = await db.fetch(
@@ -200,6 +233,7 @@ def make_names_router(
         name: str = Form(...),
         name_type: str = Form("legal"),
         is_canonical: str = Form(""),
+        visibility: str | None = Form(None),
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
@@ -232,6 +266,7 @@ def make_names_router(
                         "Cannot remove canonical. Promote another name first.",
                     ),
                 )
+        vis = _normalise_visibility(visibility)
         async with db.transaction():
             if is_canonical == "true":
                 await db.execute(
@@ -240,13 +275,26 @@ def make_names_router(
                     entity_id,
                     name_id,
                 )
-            await db.execute(
-                f"UPDATE {names_table} SET name=$1, name_type=$2, is_canonical=$3 WHERE id=$4",
-                name.strip(),
-                name_type,
-                is_canonical == "true",
-                name_id,
-            )
+            if vis is None:
+                await db.execute(
+                    f"UPDATE {names_table} SET name=$1, name_type=$2, is_canonical=$3"
+                    " WHERE id=$4",
+                    name.strip(),
+                    name_type,
+                    is_canonical == "true",
+                    name_id,
+                )
+            else:
+                await db.execute(
+                    f"UPDATE {names_table}"
+                    " SET name=$1, name_type=$2, is_canonical=$3, visibility=$4"
+                    " WHERE id=$5",
+                    name.strip(),
+                    name_type,
+                    is_canonical == "true",
+                    vis,
+                    name_id,
+                )
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
         names = await db.fetch(
