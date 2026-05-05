@@ -82,6 +82,10 @@ async def db_conn():
 
 @pytest.mark.integration
 async def test_warn_fires_when_bcp47_locales_empty(db_conn, caplog):
+    # Clear person_names.locale FK references before truncating bcp47_locales,
+    # so the DELETE doesn't trip person_names_locale_fkey once Phase 2b starts
+    # populating locale values.
+    await db_conn.execute("UPDATE person_names SET locale = NULL")
     await db_conn.execute("DELETE FROM bcp47_locales")
     with caplog.at_level(logging.WARNING, logger="src.core.db"):
         await _warn_if_lookup_tables_unseeded(db_conn)

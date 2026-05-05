@@ -107,7 +107,7 @@ async def _warn_if_lookup_tables_unseeded(conn: asyncpg.Connection) -> None:
     """
     for table in ("bcp47_locales", "iso15924_scripts"):
         empty = await conn.fetchval(
-            f"SELECT NOT EXISTS (SELECT 1 FROM {table} LIMIT 1)"
+            f"SELECT NOT EXISTS (SELECT 1 FROM {table})"
         )
         if empty:
             logger.warning(
