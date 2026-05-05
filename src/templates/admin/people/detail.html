@@ -29,13 +29,26 @@
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 var(--space-3)">
       <h3 class="field-group-label">Names</h3>
-      {% if not person.archived_at %}
-      <button class="btn btn--sm btn--secondary"
-              hx-get="/admin/people/{{ person.id }}/names/new-row/"
-              hx-target="#names-table tbody"
-              hx-swap="afterbegin"
-              type="button">+ Add name</button>
-      {% endif %}
+      <div style="display:flex;gap:var(--space-2);align-items:center">
+        {% if historical_count and historical_count > 0 %}
+          {% if show_historical %}
+          <a class="btn btn--sm btn--secondary"
+             href="/admin/people/{{ person.id }}/">Hide legal/historical names</a>
+          {% else %}
+          <a class="btn btn--sm btn--secondary"
+             href="/admin/people/{{ person.id }}/?show_historical=1"
+             aria-label="Show {{ historical_count }} legal or historical name(s)"
+          >Show legal/historical names ({{ historical_count }})</a>
+          {% endif %}
+        {% endif %}
+        {% if not person.archived_at %}
+        <button class="btn btn--sm btn--secondary"
+                hx-get="/admin/people/{{ person.id }}/names/new-row/"
+                hx-target="#names-table tbody"
+                hx-swap="afterbegin"
+                type="button">+ Add name</button>
+        {% endif %}
+      </div>
     </div>
     <div class="table-wrapper">
       <table id="names-table" class="data-table" style="table-layout:fixed">

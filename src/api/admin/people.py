@@ -185,8 +185,13 @@ async def person_detail(
     org_dup_count: int = Depends(get_org_dup_count),
     person_dup_count: int = Depends(get_person_dup_count),
     flash: str | None = Query(None),
+    show_historical: bool = Query(False),
 ):
-    """Person detail view."""
+    """Person detail view.
+
+    `show_historical=1` reveals legal_only / hidden rows on the names table;
+    default keeps them collapsed behind the toggle (issue #123 Phase 2a Task 3).
+    """
 
     person = await db.fetchrow("SELECT * FROM people WHERE id = $1", person_id)
     if not person:
@@ -197,13 +202,27 @@ async def person_detail(
     )
     display_name = display_name_row["display_name"] if display_name_row else None
 
-    # visibility-allowlist (issue #121): admin detail page is the disclosure
-    # point — surfaces all names (incl. legal_only / hidden / deadname) so the
-    # editor can manage them. Future UI gates these behind a "Show legal/
-    # historical names" toggle; the SQL must return everything.
-    names = await db.fetch(
-        "SELECT * FROM person_names WHERE person_id = $1"
-        " ORDER BY is_canonical DESC, name_type, name",
+    # visibility-allowlist (issue #121): the admin detail page is the
+    # disclosure point — when show_historical=True, surface all rows so the
+    # editor can manage legal_only / hidden / deadname names. Default
+    # (show_historical=False) hides those behind a toggle; the historical
+    # count is fetched separately so the toggle can render its label.
+    if show_historical:
+        names = await db.fetch(
+            "SELECT * FROM person_names WHERE person_id = $1"
+            " ORDER BY is_canonical DESC, name_type, name",
+            person_id,
+        )
+    else:
+        names = await db.fetch(
+            "SELECT * FROM person_names WHERE person_id = $1"
+            " AND visibility = 'public'"
+            " ORDER BY is_canonical DESC, name_type, name",
+            person_id,
+        )
+    historical_count = await db.fetchval(
+        "SELECT COUNT(*) FROM person_names"
+        " WHERE person_id = $1 AND visibility != 'public'",
         person_id,
     )
     contacts = await db.fetch(
@@ -259,6 +278,8 @@ async def person_detail(
             "person": person,
             "display_name": display_name,
             "names": names,
+            "show_historical": show_historical,
+            "historical_count": historical_count,
             "email_contacts": email_contacts,
             "phone_contacts": phone_contacts,
             "addresses": addresses,
