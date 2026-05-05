@@ -8,7 +8,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    build_parts_summary,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+)
 from src.core.db import generate_id
 from src.core.types import PersonNameVisibility
 
@@ -23,21 +30,6 @@ def _normalise_optional_str(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
-
-
-def _build_parts_summary(family, given, additional) -> str | None:
-    """Return a one-line summary string from the three parts arrays.
-
-    Mirrors the helper in people.py for the detail page; replicated here
-    so the names router can enrich its post-mutation row fetches without
-    a cross-module import. None when nothing structural is set so the
-    template's `{% if n.parts_summary %}` guard hides the row's subtitle.
-    """
-    family_s = " ".join(family or [])
-    given_s = " ".join(given or [])
-    additional_s = " ".join(additional or [])
-    parts = [p for p in (family_s, given_s, additional_s) if p]
-    return " · ".join(parts) if parts else None
 
 
 def _fk_violation_message(exc: asyncpg.ForeignKeyViolationError) -> str:
@@ -206,23 +198,35 @@ def make_names_router(
 
     async def _validate_reading_of_target(
         db, *, entity_id: str, reading_of_id: str | None,
+        name_id: str | None = None,
     ) -> str | None:
         """Return the reason this `reading_of_id` is invalid, or None.
 
-        Visual-target enforcement (reading_of_id must point to a row on
-        the SAME person) is checked here in Python rather than via a DB
-        trigger so we can surface a friendly form error. The DB FK
-        catches the "row doesn't exist at all" case.
+        Validates four conditions the typeahead enforces but a raw POST
+        could bypass:
+          1. target row exists (DB FK catches absence too, but this
+             produces a friendlier message);
+          2. target is on the SAME person (`{entity_fk}` match);
+          3. target is NOT the editing row itself (self-reference) —
+             only checked when `name_id` is supplied (edit path);
+          4. target's `name_type` is OUTSIDE the reading set
+             (visual-target-only — rejects chains like A→B→C).
+
+        Surfaces as a form error string; the caller turns it into an
+        HTMX flash or non-HTMX 422.
         """
         if reading_of_id is None:
             return None
+        if name_id is not None and reading_of_id == name_id:
+            return (
+                "Reading-of cannot point at itself. "
+                "Pick a different visual row."
+            )
         target = await db.fetchrow(
-            f"SELECT {entity_fk} FROM {names_table} WHERE id = $1",
+            f"SELECT {entity_fk}, name_type FROM {names_table} WHERE id = $1",
             reading_of_id,
         )
         if target is None:
-            # The DB FK would catch this, but checking up-front gives a
-            # clearer error than a generic FK violation.
             return (
                 "Reading-of target row does not exist. "
                 "Pick from the typeahead suggestions."
@@ -232,30 +236,47 @@ def make_names_router(
                 "Reading-of target must be on the same person. "
                 "Pick from the typeahead suggestions."
             )
+        if target["name_type"] in ("reading", "romanization", "mrz"):
+            return (
+                "Reading-of target must be a visual row "
+                "(not another reading/romanization/mrz row)."
+            )
         return None
 
     # ---- helpers ----------------------------------------------------------------
 
-    async def _fetch_names_for_rows(db, entity_id: str) -> list:
+    async def _fetch_names_for_rows(db, entity_id: str) -> list[dict]:
         """Fetch all names for `entity_id` and (for person_names) attach
-        `parts_summary` so the read-row template can render the subtitle.
+        Phase 2c/2d enrichment so the read-row template can render the
+        linked-name subtitle, cascade-aware delete confirm, and parts
+        summary after a mutation re-renders the tbody.
 
-        Org-side calls fall through to a plain SELECT so they don't blow up
-        on a missing person_name_parts join.
+        Org-side calls fall through to a plain SELECT-as-dict so they
+        don't blow up on a missing person_name_parts join. Always
+        returns a list of dicts (never asyncpg Records) so callers and
+        templates see a uniform mapping shape.
         """
         if not supports_metadata:
-            return await db.fetch(
+            rows = await db.fetch(
                 f"SELECT * FROM {names_table} WHERE {entity_fk}=$1"
                 " ORDER BY is_canonical DESC, name_type, name",
                 entity_id,
             )
+            return [dict(r) for r in rows]
         rows = await db.fetch(
             f"SELECT pn.*,"
+            "  parent.name AS reading_of_name,"
+            "  COALESCE(c.cnt, 0) AS reading_child_count,"
             "  pnp.given_names      AS pnp_given_names,"
             "  pnp.family_names     AS pnp_family_names,"
             "  pnp.additional_names AS pnp_additional_names"
             f" FROM {names_table} pn"
+            f" LEFT JOIN {names_table} parent ON parent.id = pn.reading_of_id"
             " LEFT JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
+            " LEFT JOIN LATERAL ("
+            f"   SELECT COUNT(*) AS cnt FROM {names_table} ch"
+            "   WHERE ch.reading_of_id = pn.id"
+            " ) c ON TRUE"
             f" WHERE pn.{entity_fk}=$1"
             " ORDER BY pn.is_canonical DESC, pn.name_type, pn.name",
             entity_id,
@@ -263,7 +284,7 @@ def make_names_router(
         return [
             {
                 **dict(r),
-                "parts_summary": _build_parts_summary(
+                "parts_summary": build_parts_summary(
                     r["pnp_family_names"],
                     r["pnp_given_names"],
                     r["pnp_additional_names"],
@@ -400,7 +421,7 @@ def make_names_router(
             )
             n_ctx = {
                 **dict(name_row),
-                "parts_summary": _build_parts_summary(
+                "parts_summary": build_parts_summary(
                     parts_row["family_names"] if parts_row else None,
                     parts_row["given_names"] if parts_row else None,
                     parts_row["additional_names"] if parts_row else None,
@@ -478,7 +499,7 @@ def make_names_router(
             raise HTTPException(status_code=404)
         if rof is not None:
             err = await _validate_reading_of_target(
-                db, entity_id=entity_id, reading_of_id=rof,
+                db, entity_id=entity_id, reading_of_id=rof, name_id=name_id,
             )
             if err is not None:
                 if not is_htmx(request):

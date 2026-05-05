@@ -398,6 +398,46 @@ def test_edit_form_pre_populates_parts(client, person_with_legal_name):
     assert ('value="family" selected' in r.text) or ('selected>family' in r.text)
 
 
+def test_upsert_response_includes_oob_summary_with_set_badge(
+    client, person_with_legal_name,
+):
+    """CR #7: after save, the response must contain an OOB summary
+    fragment that updates the editor's badge to 'set' without
+    collapsing the user's open <details>."""
+    f = person_with_legal_name
+    r = client.post(
+        f"/admin/people/{f['pid']}/names/{f['nid']}/parts/",
+        data={"given_names": ["Ada"], "primary_identifier": "given"},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200, r.text
+    assert f'id="parts-summary-{f["nid"]}"' in r.text
+    assert 'hx-swap-oob="outerHTML"' in r.text
+    assert "Structured parts" in r.text
+    assert "badge--inactive" in r.text  # the "set" badge
+
+
+def test_delete_response_includes_oob_summary_without_set_badge(
+    client, person_with_legal_name,
+):
+    """CR #7: delete must remove the 'set' badge via the same OOB pattern."""
+    f = person_with_legal_name
+    client.post(
+        f"/admin/people/{f['pid']}/names/{f['nid']}/parts/",
+        data={"given_names": ["Ada"]},
+        headers=HTMX_HEADERS,
+    )
+    r = client.post(
+        f"/admin/people/{f['pid']}/names/{f['nid']}/parts/delete/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200, r.text
+    assert f'id="parts-summary-{f["nid"]}"' in r.text
+    assert 'hx-swap-oob="outerHTML"' in r.text
+    assert "Structured parts" in r.text
+    assert "badge--inactive" not in r.text  # badge gone
+
+
 def test_parts_cascade_when_parent_name_deleted(client, person_with_legal_name):
     """Deleting the parent person_names row cascades to person_name_parts."""
     f = person_with_legal_name

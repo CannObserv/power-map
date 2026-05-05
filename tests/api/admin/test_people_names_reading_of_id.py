@@ -303,6 +303,140 @@ def test_create_cross_person_non_htmx_returns_422(client, two_people_with_visual
     assert r.status_code == 422
 
 
+# ---- Visual-target enforcement (CR finding #1) -----------------------
+
+
+def test_create_reading_of_id_pointing_at_reading_row_rejected(
+    client, two_people_with_visuals,
+):
+    """A reading/romanization/mrz row is never a valid `reading_of_id` target.
+
+    Typeahead filters them out; the POST validator must too — otherwise a
+    user can construct chains (A→B→A) by bypassing the typeahead.
+    """
+    f = two_people_with_visuals
+    # First create a romanization row on person A pointing at the legal row.
+    r = client.post(
+        f"/admin/people/{f['pid_a']}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "intermediate",
+            "name_type": "romanization",
+            "is_canonical": "",
+            "reading_of_id": f["nid_a"],
+        },
+    )
+    assert r.status_code == 200
+    intermediate_nid = asyncio.run(
+        _fetch_new_name_id(f["pid_a"], "intermediate"),
+    )
+    # Now try to create another reading row pointing at the romanization row.
+    r2 = client.post(
+        f"/admin/people/{f['pid_a']}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "chained",
+            "name_type": "reading",
+            "is_canonical": "",
+            "reading_of_id": intermediate_nid,
+        },
+    )
+    assert r2.status_code == 200, r2.text
+    assert "HX-Trigger" in r2.headers
+    assert "visual" in r2.headers["HX-Trigger"].lower()
+    # No row written.
+    assert asyncio.run(_fetch_new_name_id(f["pid_a"], "chained")) is None
+
+
+def test_create_reading_of_id_points_at_reading_non_htmx_returns_422(
+    client, two_people_with_visuals,
+):
+    f = two_people_with_visuals
+    r = client.post(
+        f"/admin/people/{f['pid_a']}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "intermediate2",
+            "name_type": "romanization",
+            "is_canonical": "",
+            "reading_of_id": f["nid_a"],
+        },
+    )
+    assert r.status_code == 200
+    intermediate_nid = asyncio.run(
+        _fetch_new_name_id(f["pid_a"], "intermediate2"),
+    )
+    r2 = client.post(
+        f"/admin/people/{f['pid_a']}/names/",
+        headers=AUTH_HEADERS,
+        data={
+            "name": "chained2",
+            "name_type": "reading",
+            "is_canonical": "",
+            "reading_of_id": intermediate_nid,
+        },
+    )
+    assert r2.status_code == 422
+
+
+def test_edit_self_reference_rejected(client, two_people_with_visuals):
+    """Setting `reading_of_id` to the row's OWN id must be rejected."""
+    f = two_people_with_visuals
+    r = client.post(
+        f"/admin/people/{f['pid_a']}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "self-ref-target",
+            "name_type": "reading",
+            "is_canonical": "",
+        },
+    )
+    assert r.status_code == 200
+    nid = asyncio.run(_fetch_new_name_id(f["pid_a"], "self-ref-target"))
+    r2 = client.post(
+        f"/admin/people/{f['pid_a']}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "self-ref-target",
+            "name_type": "reading",
+            "is_canonical": "",
+            "reading_of_id": nid,
+        },
+    )
+    assert r2.status_code == 200
+    assert "HX-Trigger" in r2.headers
+    assert "itself" in r2.headers["HX-Trigger"].lower()
+    assert asyncio.run(_fetch_reading_of(f["pid_a"], nid)) is None
+
+
+def test_edit_self_reference_non_htmx_returns_422(
+    client, two_people_with_visuals,
+):
+    f = two_people_with_visuals
+    r = client.post(
+        f"/admin/people/{f['pid_a']}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "self-ref-target2",
+            "name_type": "reading",
+            "is_canonical": "",
+        },
+    )
+    assert r.status_code == 200
+    nid = asyncio.run(_fetch_new_name_id(f["pid_a"], "self-ref-target2"))
+    r2 = client.post(
+        f"/admin/people/{f['pid_a']}/names/{nid}/edit-row/",
+        headers=AUTH_HEADERS,
+        data={
+            "name": "self-ref-target2",
+            "name_type": "reading",
+            "is_canonical": "",
+            "reading_of_id": nid,
+        },
+    )
+    assert r2.status_code == 422
+
+
 # ---- Org-side ignores reading_of_id ---------------------------------
 
 

@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import (
     AdminUser,
+    build_parts_summary,
     escape_like,
     flash_trigger,
     get_admin_user,
@@ -30,20 +31,6 @@ _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
 _READING_TYPES = ("reading", "romanization", "mrz")
 
 
-def _build_parts_summary(row) -> str | None:
-    """One-line summary of structured parts for the read-row subtitle.
-
-    Format: "<family> · <given>" (each space-joined). Skips empty arrays;
-    returns None when nothing structural is set so the template's
-    `{% if n.parts_summary %}` guard keeps the row clean.
-    """
-    family = " ".join(row["pnp_family_names"] or [])
-    given = " ".join(row["pnp_given_names"] or [])
-    additional = " ".join(row["pnp_additional_names"] or [])
-    parts = [p for p in (family, given, additional) if p]
-    return " · ".join(parts) if parts else None
-
-
 def _interleave_visuals_with_readings(rows: list) -> list:
     """Reorder person_names rows: visual row, then its reading children, repeat.
 
@@ -60,7 +47,15 @@ def _interleave_visuals_with_readings(rows: list) -> list:
     `parts_summary` field without losing the SQL columns.
     """
     enriched: list[dict] = [
-        {**dict(r), "parts_summary": _build_parts_summary(r)} for r in rows
+        {
+            **dict(r),
+            "parts_summary": build_parts_summary(
+                r["pnp_family_names"],
+                r["pnp_given_names"],
+                r["pnp_additional_names"],
+            ),
+        }
+        for r in rows
     ]
     visuals: list = []
     children_by_parent: dict[str, list] = {}

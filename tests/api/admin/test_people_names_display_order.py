@@ -208,3 +208,54 @@ def test_child_delete_confirm_uses_default_copy(
     # The default "Delete this name?" should appear at least 3 times
     # (once per child row, since none of them have descendants).
     assert r.text.count('hx-confirm="Delete this name?"') >= 3
+
+
+# ---- Post-mutation tbody re-render keeps Phase 2c enrichment (CR #6) -
+
+
+def test_post_edit_tbody_includes_reading_of_subtitle(
+    client, person_with_two_visuals_and_readings,
+):
+    """After editing a name, the re-rendered tbody must still show the
+    '↳ romanization of: <parent>' subtitle on linked rows.
+
+    Regression guard: the post-mutation `_fetch_names_for_rows` used to
+    skip the parent-name LEFT JOIN, so HTMX re-renders dropped the
+    subtitle until the next full page reload."""
+    f = person_with_two_visuals_and_readings
+    # Edit the canonical visual A — the response is the full tbody partial.
+    r = client.post(
+        f"/admin/people/{f['pid']}/names/{f['a_visual']}/edit-row/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "name": "Visual A Smoketest",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200, r.text
+    # Reading A's subtitle should reference Visual A as parent.
+    assert "↳ romanization of:" in r.text
+    assert "Visual A Smoketest" in r.text
+
+
+def test_post_edit_tbody_includes_cascade_hint(
+    client, person_with_two_visuals_and_readings,
+):
+    """After editing a name, the cascade-aware delete confirm must
+    survive on parent rows (re-renders used to drop reading_child_count)."""
+    f = person_with_two_visuals_and_readings
+    r = client.post(
+        f"/admin/people/{f['pid']}/names/{f['b_visual']}/edit-row/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "name": "Visual B Smoketest",
+            "name_type": "preferred",
+            "is_canonical": "",
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200, r.text
+    # B has 2 children — the cascade copy should still appear.
+    assert "2 linked reading row" in r.text or "2 linked reading rows" in r.text

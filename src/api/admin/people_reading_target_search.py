@@ -46,15 +46,17 @@ async def reading_target_search(
         # default detail view, which hides legal_only/hidden behind the
         # `?show_historical=1` toggle (visibility-allowlist via the
         # `visibility = 'public'` predicate, satisfying the lint rule).
+        # name_type filter uses the `_READING_TYPES` tuple so the SQL
+        # tracks `_validate_reading_of_target`'s rejection set.
         rows = await db.fetch(
             "SELECT id, name, name_type, is_canonical FROM person_names"
             " WHERE person_id = $1"
             "   AND visibility = 'public'"
-            "   AND name_type NOT IN ('reading','romanization','mrz')"
-            "   AND name ILIKE $2 ESCAPE '\\'"
+            "   AND name_type <> ALL($2::text[])"
+            "   AND name ILIKE $3 ESCAPE '\\'"
             " ORDER BY is_canonical DESC, name_type, name"
-            " LIMIT $3",
-            person_id, pattern, limit,
+            " LIMIT $4",
+            person_id, list(_READING_TYPES), pattern, limit,
         )
         results = [
             {

@@ -1718,7 +1718,7 @@ Use `{% block extra_head %}{% endblock %}` (defined in `base.html`) to inject `<
 
 On any mutation route that may change an org's canonical name or acronym, pass `extra=await org_header_extra(org_id, db)` to `flash_trigger` (from `src.api.admin.deps`). Returns `{"updateOrgHeader": {"display": ...}}`; `org-detail.js` handles the event and updates `#page-heading`, `#breadcrumb-current`, and `document.title` in-place. Equivalent `person_header_extra` for person routes. → §30 for full client-side pattern.
 
-### Person-name metadata controls (Phase 2a + 2b, #123)
+### Person-name metadata controls (Phase 2a–2d, #123)
 
 Person-name CRUD shares its router factory with org-name CRUD via `make_names_router` in `src.api.admin._names_shared`. The factory accepts `supports_metadata: bool = False`:
 
@@ -1743,6 +1743,34 @@ Locale + script typeahead (Phase 2b):
 Sort + collation (Phase 2b):
 
 - `v_person_display_names.sort_key = COALESCE(sort_as, name)`. Every person ORDER BY uses `sort_key COLLATE "und-x-icu" NULLS LAST` for diacritic-aware ordering (Å near A) with `sort_as` overrides honored.
+
+Linked names — `reading_of_id` (Phase 2c, #123):
+
+- Name CRUD accepts a `reading_of_id` Form field gated by `supports_metadata`. The column is a self-FK on `person_names` (ON DELETE CASCADE) — a `reading` / `romanization` / `mrz` row may point at the visual row it transliterates.
+- Typeahead `GET /admin/people/{person_id}/_reading_target_search` returns same-person rows whose `name_type` is OUTSIDE `_READING_TYPES` (`reading`, `romanization`, `mrz`) — only visual rows are valid parents. Filters `visibility = 'public'` to mirror the default detail view; uses `escape_like` + `<> ALL($N::text[])` for the type filter.
+- `_validate_reading_of_target` (in `_names_shared.py`) runs before the INSERT/UPDATE and surfaces four bypass attempts as form errors (HTMX flash; non-HTMX 422):
+  1. Target row doesn't exist (DB FK catches it too — this gives a friendlier message).
+  2. Target is on a *different* person (cross-person link).
+  3. Target equals the editing row's own id (self-reference; `name_id` is threaded through on the edit path).
+  4. Target's `name_type` is itself in `_READING_TYPES` (chain — A→B→C is rejected even if each link is technically same-person).
+- The form template's reading-of block is hidden by default; inline JS shows it when `name_type ∈ _READING_TYPES`.
+- Read-row template indents linked rows (`class="name-row--child"`) and renders a "↳ {name_type} of: <em>{parent_name}</em>" subtitle. The handler enriches each row with `reading_of_name` (LEFT JOIN parent) and `reading_child_count` (LATERAL count) — both the detail-page and the post-mutation tbody re-render in `_fetch_names_for_rows` carry the enrichment so cancel-from-edit + post-save look identical.
+- Delete confirm text becomes "Delete this name and its N linked reading row(s)? (cascade)" when `reading_child_count > 0`.
+
+Structured parts — `person_name_parts` (Phase 2d, #123):
+
+- Sidecar table, 1:0..1 with `person_names`, ON DELETE CASCADE. Edited via two POST routes in `src.api.admin.people_name_parts`:
+  - `POST /admin/people/{pid}/names/{nid}/parts/` — upsert (`INSERT … ON CONFLICT (person_name_id) DO UPDATE`).
+  - `POST /admin/people/{pid}/names/{nid}/parts/delete/` — DELETE (idempotent).
+- Server-side validation:
+  - Cap: 5 entries per array (`given_names`, `family_names`, `additional_names`). Cap is checked BEFORE trimming so the message reflects what the user typed.
+  - Empty-string trim: blank entries are dropped before INSERT; `_trim_array` preserves user order.
+  - `primary_identifier` allowlist matches the DB CHECK (`family` / `given` / `patronymic` / `mononym`); a blank value becomes NULL.
+  - All-empty payload is a no-op (silent success) so the same form save acts as "leave alone" for rows that started empty.
+- `_ensure_name_belongs_to_person` cross-person guards the route (404 when `name_id` doesn't belong to `person_id`); the file is in the visibility-allowlist for the same reason as `people_names.py` — admins editing parts on a `legal_only` / `hidden` row need to reach those rows.
+- The editor template `_name_parts_editor.html` is included by `_name_form_row.html` only when an existing name is being edited (no `n.id` on the new-name form). It posts INDEPENDENTLY of the parent name form (separate `<form>` element, sibling not nested) with `hx-swap="none"` so saves don't disturb the name form's state.
+- Post-save / post-delete responses include an OOB summary fragment (`hx-swap-oob="outerHTML"` targeting `#parts-summary-{nid}`) that updates the editor's "set" badge without collapsing the user's open `<details>`. See `_summary_oob_fragment` helper.
+- Read-row subtitle: handlers attach a `parts_summary` field via `build_parts_summary(family, given, additional)` from `src.api.admin.deps` — a "<family> · <given> · <additional>" line; None when nothing structural is set so the template's `{% if n.parts_summary %}` guard hides the row.
 
 ### Dup count cache
 

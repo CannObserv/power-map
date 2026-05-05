@@ -82,6 +82,28 @@ def resolve_query_flash(
     return flash_msg, headers
 
 
+def build_parts_summary(
+    family: list[str] | None,
+    given: list[str] | None,
+    additional: list[str] | None,
+) -> str | None:
+    """One-line summary of structured-name parts for read-row subtitles.
+
+    Format: ``"<family> · <given> · <additional>"`` (each space-joined,
+    skipping empty arrays). Returns None when nothing structural is set
+    so the template's ``{% if n.parts_summary %}`` guard hides the row.
+
+    Single source of truth for both the person-detail handler
+    (``src.api.admin.people``) and the post-mutation tbody re-render in
+    ``src.api.admin._names_shared``.
+    """
+    family_s = " ".join(family or [])
+    given_s = " ".join(given or [])
+    additional_s = " ".join(additional or [])
+    parts = [p for p in (family_s, given_s, additional_s) if p]
+    return " · ".join(parts) if parts else None
+
+
 def escape_like(s: str) -> str:
     r"""Escape LIKE/ILIKE special characters so user input is a literal substring.
 

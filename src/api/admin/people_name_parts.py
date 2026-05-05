@@ -40,6 +40,22 @@ _PRIMARY_IDENTIFIERS: tuple[str, ...] = ("family", "given", "patronymic", "monon
 ARRAY_CAP = 5
 
 
+def _summary_oob_fragment(name_id: str, *, has_parts: bool) -> str:
+    """HTML fragment that swaps just the editor's <summary> via HTMX OOB.
+
+    Returned by the upsert/delete handlers so the "set" badge reflects
+    the new state without re-rendering (and collapsing) the entire
+    <details> the user is mid-edit in.
+    """
+    badge = ' <span class="badge badge--inactive">set</span>' if has_parts else ""
+    return (
+        f'<summary id="parts-summary-{name_id}" hx-swap-oob="outerHTML"'
+        ' style="cursor:pointer;font-size:0.85rem;color:var(--color-text-muted)">'
+        f"Structured parts{badge}"
+        "</summary>"
+    )
+
+
 def _trim_array(values: list[str] | None) -> list[str]:
     """Strip whitespace, drop empty entries, preserve order."""
     if not values:
@@ -152,7 +168,7 @@ async def name_parts_upsert(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
     return HTMLResponse(
-        content="",
+        content=_summary_oob_fragment(name_id, has_parts=True),
         status_code=200,
         headers=flash_trigger("success", "Structured parts saved."),
     )
@@ -174,7 +190,7 @@ async def name_parts_delete(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
     return HTMLResponse(
-        content="",
+        content=_summary_oob_fragment(name_id, has_parts=False),
         status_code=200,
         headers=flash_trigger("info", "Structured parts removed."),
     )
