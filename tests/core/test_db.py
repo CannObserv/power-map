@@ -2,12 +2,15 @@
 
 import logging
 import os
+import re
+from typing import get_args
 
 import asyncpg
 import pytest
 
 import src.core.db as db_module
 from src.core.db import _warn_if_lookup_tables_unseeded, apply_schema, generate_id
+from src.core.types import PersonNameVisibility
 
 # ---------------------------------------------------------------------------
 # generate_id
@@ -110,6 +113,29 @@ async def test_warn_fires_when_iso15924_scripts_empty(db_conn, caplog):
         if r.levelno == logging.WARNING and "iso15924_scripts" in r.getMessage()
     ]
     assert matched, "expected WARNING for empty iso15924_scripts"
+
+
+@pytest.mark.integration
+async def test_person_name_visibility_literal_matches_db_check(db_conn):
+    """`PersonNameVisibility` must enumerate every value the DB CHECK accepts.
+
+    Drift here means either the Literal silently rejects a tier the DB still
+    permits (admin form returns 422 on a valid value), or the DB rejects a
+    tier the form happily accepts (handler 500). Either way the contract is
+    broken — fail loudly here instead.
+    """
+    constraint_def = await db_conn.fetchval(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+        "WHERE conname = 'person_names_visibility_check'"
+    )
+    assert constraint_def, "person_names_visibility_check constraint missing"
+    db_values = set(re.findall(r"'([^']+)'", constraint_def))
+    literal_values = set(get_args(PersonNameVisibility))
+    assert db_values == literal_values, (
+        f"DB CHECK and PersonNameVisibility Literal disagree:\n"
+        f"  DB only:      {db_values - literal_values}\n"
+        f"  Literal only: {literal_values - db_values}"
+    )
 
 
 @pytest.mark.integration

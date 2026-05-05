@@ -80,17 +80,6 @@ def make_names_router(
     """
     router = APIRouter(prefix=prefix, tags=tags)
 
-    def _gate_visibility(value: PersonNameVisibility | None) -> PersonNameVisibility | None:
-        """Drop the value when this router doesn't support metadata.
-
-        Pydantic / FastAPI already rejects out-of-range values via the
-        ``PersonNameVisibility`` Literal (returns 422). This helper only
-        enforces the org-vs-person divergence: org_names wires
-        ``supports_metadata=False`` so any ``visibility`` Form payload is
-        silently ignored to keep the legacy schema unchanged.
-        """
-        return value if supports_metadata else None
-
     async def _insert_name(
         db, *, nid: str, entity_id: str, name: str, name_type: str,
         is_canonical: bool, vis: PersonNameVisibility | None,
@@ -162,7 +151,9 @@ def make_names_router(
         db=Depends(get_db),
     ):
         """Create a new name."""
-        vis = _gate_visibility(visibility)
+        # Pydantic Literal validates value range; gate drops it for org_names
+        # (supports_metadata=False) which has no visibility column.
+        vis = visibility if supports_metadata else None
         await _get_entity_or_404(entity_id, db)
         nid = generate_id()
         async with db.transaction():
@@ -249,7 +240,9 @@ def make_names_router(
         db=Depends(get_db),
     ):
         """Update a name."""
-        vis = _gate_visibility(visibility)
+        # Pydantic Literal validates value range; gate drops it for org_names
+        # (supports_metadata=False) which has no visibility column.
+        vis = visibility if supports_metadata else None
         existing = await db.fetchrow(
             f"SELECT * FROM {names_table} WHERE id=$1 AND {entity_fk}=$2",
             name_id,
