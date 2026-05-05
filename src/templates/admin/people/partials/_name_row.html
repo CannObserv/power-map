@@ -31,6 +31,11 @@
       ↳ {{ n.name_type }} of: <em>{{ n.reading_of_name or '(linked row)' }}</em>
     </div>
     {% endif %}
+    {% if n.parts_summary %}
+    <div style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.125rem">
+      parts: {{ n.parts_summary }}
+    </div>
+    {% endif %}
   </td>
   <td style="text-align:right">{{ n.name_type }}</td>
   <td style="text-align:right">{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>

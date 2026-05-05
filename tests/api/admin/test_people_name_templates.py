@@ -322,3 +322,140 @@ def test_read_row_badge_uses_badge_class():
         idx = READ_ROW.find("n.visibility")
         window = READ_ROW[idx:idx + 300]
         assert "badge" in window, "visibility branch should render a badge element"
+
+
+# ---------------------------------------------------------------------------
+# Form row — structured parts editor (Phase 2d)
+# ---------------------------------------------------------------------------
+
+
+PARTS_EDITOR = Path(
+    "src/templates/admin/people/partials/_name_parts_editor.html"
+).read_text()
+
+
+def test_form_row_includes_parts_editor_partial():
+    """Form row template must include the parts editor partial."""
+    assert "_name_parts_editor.html" in FORM_ROW
+
+
+def test_parts_editor_renders_only_when_editing_existing_row():
+    """The editor block is gated on `n` being non-None (no name_id → no upsert)."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n=None, parts=None, person_id="p1")
+    assert out.strip() == "" or "<form" not in out
+
+
+def test_parts_editor_posts_to_upsert_url():
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    assert 'hx-post="/admin/people/pid_x/names/nid_x/parts/"' in out
+
+
+def test_parts_editor_offers_all_four_primary_identifiers():
+    """The dropdown must mirror the DB CHECK: family/given/patronymic/mononym."""
+    for v in ("family", "given", "patronymic", "mononym"):
+        assert f"'{v}'" in PARTS_EDITOR or f'"{v}"' in PARTS_EDITOR, v
+
+
+def test_parts_editor_renders_five_inputs_per_array():
+    """Five repeating inputs per array field, server-side cap aligned."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    assert out.count('name="given_names"') == 5
+    assert out.count('name="family_names"') == 5
+    assert out.count('name="additional_names"') == 5
+
+
+def test_parts_editor_pre_populates_arrays():
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    parts = {
+        "given_names": ["María", "José"],
+        "family_names": ["García", "López"],
+        "additional_names": None,
+        "honorific_prefix": "Dra.",
+        "honorific_suffix": None,
+        "primary_identifier": "family",
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    assert 'value="María"' in out
+    assert 'value="José"' in out
+    assert 'value="García"' in out
+    assert 'value="López"' in out
+    assert 'value="Dra."' in out
+    # primary_identifier=family should be marked selected
+    assert ('value="family" selected' in out) or ('selected>family' in out)
+
+
+def test_parts_editor_shows_remove_button_only_when_parts_exist():
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    no_parts = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    with_parts = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(
+        n={"id": "nid_x"},
+        parts={
+            "given_names": ["Ada"],
+            "family_names": None,
+            "additional_names": None,
+            "honorific_prefix": None,
+            "honorific_suffix": None,
+            "primary_identifier": "given",
+        },
+        person_id="pid_x",
+    )
+    assert "Remove structured parts" not in no_parts
+    assert "Remove structured parts" in with_parts
+
+
+# ---------------------------------------------------------------------------
+# Read row — parts subtitle (Phase 2d)
+# ---------------------------------------------------------------------------
+
+
+def test_read_row_renders_parts_subtitle_when_present():
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    row = {
+        "id": "n1", "name": "María José García López", "name_type": "legal",
+        "is_canonical": True, "visibility": "public",
+        "locale": None, "script": None, "sort_as": None,
+        "reading_of_id": None, "reading_of_name": None,
+        "parts_summary": "García López · María José",
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_row.html"
+    ).render(n=row, person_id="p1")
+    assert "parts:" in out
+    assert "García López" in out
+
+
+def test_read_row_skips_parts_subtitle_when_absent():
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    row = {
+        "id": "n1", "name": "Plain", "name_type": "legal",
+        "is_canonical": True, "visibility": "public",
+        "locale": None, "script": None, "sort_as": None,
+        "reading_of_id": None, "reading_of_name": None,
+        "parts_summary": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_row.html"
+    ).render(n=row, person_id="p1")
+    assert "parts:" not in out

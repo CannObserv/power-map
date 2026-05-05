@@ -1,0 +1,94 @@
+{# admin/people/partials/_name_parts_editor.html — structured-parts sub-form.
+
+   Rendered inside the per-name edit drawer (only when editing an
+   existing row — `n` non-None). Posts INDEPENDENTLY of the parent
+   name form: separate <form> targeting the parts upsert URL. The
+   names form does not include parts fields, so saving the name
+   doesn't disturb the parts row, and saving parts doesn't reload the
+   name row either — flash-only response.
+
+   Context:
+     person_id  — required.
+     n          — the name row being edited (must be set; the parts
+                  editor is not shown on the "new name" form because
+                  there's no name_id to attach to yet).
+     parts      — dict-like with given_names / family_names /
+                  additional_names / honorific_prefix /
+                  honorific_suffix / primary_identifier; or None when
+                  the row has no parts yet. #}
+{% if n %}
+{%- set _given = (parts.given_names if parts and parts.given_names else []) -%}
+{%- set _family = (parts.family_names if parts and parts.family_names else []) -%}
+{%- set _additional = (parts.additional_names if parts and parts.additional_names else []) -%}
+<details class="name-parts-editor" style="margin-top:var(--space-2)">
+  <summary style="cursor:pointer;font-size:0.85rem;color:var(--color-text-muted)">
+    Structured parts{% if parts %} <span class="badge badge--inactive">set</span>{% endif %}
+  </summary>
+  <form
+    hx-post="/admin/people/{{ person_id }}/names/{{ n.id }}/parts/"
+    hx-swap="none"
+    style="margin-top:var(--space-2);display:flex;flex-direction:column;gap:var(--space-2)">
+    <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;min-width:9rem">
+        <label style="font-size:0.75rem">primary_identifier
+          <select name="primary_identifier" aria-label="Primary identifier">
+            <option value=""{% if not parts or not parts.primary_identifier %} selected{% endif %}>—</option>
+            {% for v in ('family', 'given', 'patronymic', 'mononym') %}
+            <option value="{{ v }}"{% if parts and parts.primary_identifier == v %} selected{% endif %}>{{ v }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+    </div>
+    {# Three array sections — given / family / additional. Five inputs each;
+       empty inputs are filtered server-side. #}
+    {% for label, field, vals in [
+         ('Given names',      'given_names',      _given),
+         ('Family names',     'family_names',     _family),
+         ('Additional names', 'additional_names', _additional),
+       ] %}
+    <fieldset style="border:1px solid var(--color-border);padding:var(--space-2);margin:0">
+      <legend style="font-size:0.75rem;padding:0 var(--space-1)">{{ label }} (max 5)</legend>
+      <div style="display:flex;gap:var(--space-1);flex-wrap:wrap">
+        {% for i in range(5) %}
+        <input type="text" name="{{ field }}"
+               value="{{ vals[i] if vals|length > i else '' }}"
+               aria-label="{{ label }} {{ i + 1 }}"
+               style="flex:1;min-width:7rem">
+        {% endfor %}
+      </div>
+    </fieldset>
+    {% endfor %}
+    <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;flex:1;min-width:7rem">
+        <label style="font-size:0.75rem">honorific_prefix
+          <input type="text" name="honorific_prefix"
+                 value="{{ parts.honorific_prefix if parts and parts.honorific_prefix else '' }}"
+                 aria-label="Honorific prefix">
+        </label>
+      </div>
+      <div class="form-group" style="margin-bottom:0;flex:1;min-width:7rem">
+        <label style="font-size:0.75rem">honorific_suffix
+          <input type="text" name="honorific_suffix"
+                 value="{{ parts.honorific_suffix if parts and parts.honorific_suffix else '' }}"
+                 aria-label="Honorific suffix">
+        </label>
+      </div>
+    </div>
+    <div style="display:flex;gap:var(--space-2);justify-content:flex-end">
+      <button type="submit" class="btn btn--sm btn--primary">Save parts</button>
+    </div>
+  </form>
+  {# Independent delete form — same target, /delete/ suffix. Confirmation
+     guards against accidental wipes; HTMX flash signals success. #}
+  {% if parts %}
+  <form
+    hx-post="/admin/people/{{ person_id }}/names/{{ n.id }}/parts/delete/"
+    hx-swap="none"
+    hx-confirm="Remove the structured parts for this name?"
+    style="margin-top:var(--space-1);display:flex;justify-content:flex-end">
+    <button type="submit" class="btn btn--sm btn--danger">Remove structured parts</button>
+  </form>
+  {% endif %}
+</details>
+{% endif %}

@@ -122,6 +122,10 @@
                 {% endif %}>Cancel</button>
       </div>
     </form>
+    {# Phase 2d structured parts editor — only shown when editing an
+       existing row (the upsert needs n.id). Wrapped in a <details>
+       inside the partial itself so it doesn't crowd the inline form. #}
+    {% include "admin/people/partials/_name_parts_editor.html" %}
     <script>
       window.initTypeaheadCombobox({
         inputId: 'locale-search-display',
