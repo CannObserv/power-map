@@ -117,23 +117,16 @@ def make_names_router(
         payload for header-sync events (e.g. updateOrgHeader / updatePersonHeader).
     supports_person_metadata:
         Person-specific behavior gate (#123 Phase 2a–2d). When True the
-        router:
-          - accepts ``visibility`` / ``locale`` / ``script`` / ``sort_as``
-            / ``reading_of_id`` Form fields on create/edit;
-          - threads them through ``_insert_name`` / ``_update_name``
-            (with ``write_metadata=True`` on update);
-          - validates ``reading_of_id`` against same-person + visual-target
-            + no-self-reference rules;
-          - LEFT-JOINs ``person_names`` (parent) and ``person_name_parts``
-            in ``_fetch_names_for_rows`` so the post-mutation tbody
-            re-render carries the linked-row subtitle, cascade-aware
-            delete confirm, and parts-summary line;
-          - pre-populates the structured-parts editor on edit-row.
-        Set False (default) for org_names — ``organization_names`` lacks
-        every column and table referenced above. The flag is named
-        person-specifically rather than ``supports_metadata`` because
-        adding a third entity type with metadata would not transparently
-        re-use this fork.
+        router accepts the visibility / locale / script / sort_as /
+        reading_of_id Form fields, runs the reading-of validator, joins
+        ``person_name_parts`` in the post-mutation re-render, and
+        pre-populates the structured-parts editor. False (default) for
+        ``organization_names``, which has none of the referenced
+        columns or sidecar table. See ``docs/STYLE.md`` §"Person-name
+        metadata controls" for the full enumeration. Named
+        person-specifically (not ``supports_metadata``) because the
+        True branch hard-codes person schema; a third entity type with
+        metadata would need a richer abstraction, not a second caller.
     """
     router = APIRouter(prefix=prefix, tags=tags)
 

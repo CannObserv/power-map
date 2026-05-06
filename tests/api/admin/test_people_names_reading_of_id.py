@@ -303,7 +303,7 @@ def test_create_cross_person_non_htmx_returns_422(client, two_people_with_visual
     assert r.status_code == 422
 
 
-# ---- Visual-target enforcement (CR finding #1) -----------------------
+# ---- Visual-target + no-self-reference enforcement -------------------
 
 
 def test_create_reading_of_id_pointing_at_reading_row_rejected(

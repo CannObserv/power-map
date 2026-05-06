@@ -1,6 +1,10 @@
 """Static assertions for person-name partial templates (Phase 2a Task 2)."""
 from pathlib import Path
 
+import pytest
+
+from src.api.admin.people_name_parts import _summary_oob_fragment
+
 FORM_ROW = Path("src/templates/admin/people/partials/_name_form_row.html").read_text()
 READ_ROW = Path("src/templates/admin/people/partials/_name_row.html").read_text()
 DETAIL = Path("src/templates/admin/people/detail.html").read_text()
@@ -400,8 +404,8 @@ def test_parts_editor_pre_populates_arrays():
 
 
 def test_parts_editor_details_has_stable_id_for_future_swaps():
-    """CR #11: forward-compat anchor — a future feature wanting to
-    refresh the editor body after save needs a stable target."""
+    """The <details> element exposes a stable id so a future feature
+    that refreshes the entire editor body after save has an anchor."""
     from jinja2 import Environment, FileSystemLoader
     env = Environment(loader=FileSystemLoader("src/templates"))
     out = env.get_template(
@@ -411,9 +415,9 @@ def test_parts_editor_details_has_stable_id_for_future_swaps():
 
 
 def test_parts_editor_summary_has_stable_id_for_oob_swap():
-    """CR #7: the <summary> needs a stable id so the upsert/delete
-    handlers can swap just the badge via hx-swap-oob without
-    collapsing the open <details>."""
+    """The <summary> exposes a stable id so the upsert/delete handlers
+    can swap just the badge via hx-swap-oob without collapsing the
+    user's open <details>."""
     from jinja2 import Environment, FileSystemLoader
     env = Environment(loader=FileSystemLoader("src/templates"))
     out = env.get_template(
@@ -482,3 +486,29 @@ def test_read_row_skips_parts_subtitle_when_absent():
         "admin/people/partials/_name_row.html"
     ).render(n=row, person_id="p1")
     assert "parts:" not in out
+
+
+# ---------------------------------------------------------------------------
+# OOB summary fragment — escapes name_id before HTML interpolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "evil_id,forbidden,must_appear",
+    [
+        ('a"<script>alert(1)</script>', "<script>", "&lt;script&gt;"),
+        ("a' onclick='x", "onclick='x", "&#39;"),
+        ('"><img src=x>', "<img src=x>", "&gt;"),
+    ],
+)
+def test_summary_oob_fragment_escapes_name_id(evil_id, forbidden, must_appear):
+    """OOB fragment must escape name_id before HTML interpolation.
+
+    Defense in depth: production callers always pass a server-generated
+    ULID that survived `_ensure_name_belongs_to_person`, but the
+    boundary check protects future callers that bypass that guard."""
+    out = _summary_oob_fragment(evil_id, has_parts=True)
+    assert forbidden not in out, f"unescaped {forbidden!r} leaked into {out!r}"
+    assert must_appear in out, f"expected escaped {must_appear!r} in {out!r}"
+    assert 'hx-swap-oob="outerHTML"' in out
+    assert "Structured parts" in out

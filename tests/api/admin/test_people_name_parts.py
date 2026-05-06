@@ -401,9 +401,9 @@ def test_edit_form_pre_populates_parts(client, person_with_legal_name):
 def test_upsert_response_includes_oob_summary_with_set_badge(
     client, person_with_legal_name,
 ):
-    """CR #7: after save, the response must contain an OOB summary
-    fragment that updates the editor's badge to 'set' without
-    collapsing the user's open <details>."""
+    """After save, the response must contain an OOB summary fragment
+    that updates the editor's badge to 'set' without collapsing the
+    user's open <details>."""
     f = person_with_legal_name
     r = client.post(
         f"/admin/people/{f['pid']}/names/{f['nid']}/parts/",
@@ -420,7 +420,7 @@ def test_upsert_response_includes_oob_summary_with_set_badge(
 def test_delete_response_includes_oob_summary_without_set_badge(
     client, person_with_legal_name,
 ):
-    """CR #7: delete must remove the 'set' badge via the same OOB pattern."""
+    """Delete must remove the 'set' badge via the same OOB pattern."""
     f = person_with_legal_name
     client.post(
         f"/admin/people/{f['pid']}/names/{f['nid']}/parts/",
@@ -436,6 +436,9 @@ def test_delete_response_includes_oob_summary_without_set_badge(
     assert 'hx-swap-oob="outerHTML"' in r.text
     assert "Structured parts" in r.text
     assert "badge--inactive" not in r.text  # badge gone
+
+
+# ---- cascade ----------------------------------------------------------------
 
 
 def test_parts_cascade_when_parent_name_deleted(client, person_with_legal_name):

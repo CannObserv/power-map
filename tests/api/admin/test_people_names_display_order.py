@@ -210,7 +210,7 @@ def test_child_delete_confirm_uses_default_copy(
     assert r.text.count('hx-confirm="Delete this name?"') >= 3
 
 
-# ---- Post-mutation tbody re-render keeps Phase 2c enrichment (CR #6) -
+# ---- Post-mutation tbody re-render keeps linked-row enrichment ------
 
 
 def test_post_edit_tbody_includes_reading_of_subtitle(
@@ -219,9 +219,8 @@ def test_post_edit_tbody_includes_reading_of_subtitle(
     """After editing a name, the re-rendered tbody must still show the
     '↳ romanization of: <parent>' subtitle on linked rows.
 
-    Regression guard: the post-mutation `_fetch_names_for_rows` used to
-    skip the parent-name LEFT JOIN, so HTMX re-renders dropped the
-    subtitle until the next full page reload."""
+    Without the parent-name LEFT JOIN in `_fetch_names_for_rows`, HTMX
+    re-renders would drop the subtitle until the next full page reload."""
     f = person_with_two_visuals_and_readings
     # Edit the canonical visual A — the response is the full tbody partial.
     r = client.post(
@@ -264,9 +263,9 @@ def test_post_edit_tbody_includes_cascade_hint(
 def test_post_create_tbody_includes_reading_of_subtitle(
     client, person_with_two_visuals_and_readings,
 ):
-    """CR #13: creating a NEW reading row pointing at an existing
-    parent must also surface the linked-row subtitle in the
-    post-mutation tbody re-render (same enrichment path as edit)."""
+    """Creating a new reading row pointing at an existing parent must
+    also surface the linked-row subtitle in the post-mutation tbody
+    re-render (same enrichment path as edit)."""
     f = person_with_two_visuals_and_readings
     r = client.post(
         f"/admin/people/{f['pid']}/names/",
@@ -288,8 +287,8 @@ def test_post_create_tbody_includes_reading_of_subtitle(
 def test_post_delete_tbody_includes_reading_of_subtitle(
     client, person_with_two_visuals_and_readings,
 ):
-    """CR #13: deleting a row triggers a tbody re-render that must
-    keep the linked-row subtitle on surviving rows."""
+    """Deleting a row triggers a tbody re-render that must keep the
+    linked-row subtitle on surviving rows."""
     f = person_with_two_visuals_and_readings
     # Delete one of the reading children of B; A→Reading A linkage stays.
     r = client.delete(
@@ -304,8 +303,8 @@ def test_post_delete_tbody_includes_reading_of_subtitle(
 def test_post_delete_tbody_includes_cascade_hint(
     client, person_with_two_visuals_and_readings,
 ):
-    """CR #13: cascade hint on parent rows must survive a delete
-    re-render (B still has 1 child after deleting MRZ-B)."""
+    """Cascade hint on parent rows must survive a delete re-render
+    (B still has 1 child after deleting MRZ-B)."""
     f = person_with_two_visuals_and_readings
     r = client.delete(
         f"/admin/people/{f['pid']}/names/{f['b_mrz']}/",

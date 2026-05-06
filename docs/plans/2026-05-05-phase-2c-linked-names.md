@@ -7,7 +7,7 @@
 **Goal:** Surface the Phase-1 `reading_of_id` column in the admin UI so admins can link a `reading` / `romanization` / `mrz` row to its parent visual row. Visual rows render first; child rows render indented underneath with a "↳ romanization of <parent>" subtitle. Cross-person links are rejected. ON DELETE CASCADE is already enforced at the DB level (Phase 1) — UI just needs to mention the cascade in the delete confirm.
 
 **Architecture:**
-- Backend: `_names_shared.py` accepts `reading_of_id` Form field gated by `supports_metadata`. Validation: when `name_type ∈ {'reading','romanization','mrz'}`, the field is optional but must reference a row on the *same person* whose `name_type` is NOT in that set. FK violations + cross-person + circular-link errors surface as form errors (HTMX flash + non-HTMX 422), never 500.
+- Backend: `_names_shared.py` accepts `reading_of_id` Form field gated by `supports_person_metadata`. Validation: when `name_type ∈ {'reading','romanization','mrz'}`, the field is optional but must reference a row on the *same person* whose `name_type` is NOT in that set. FK violations + cross-person + circular-link errors surface as form errors (HTMX flash + non-HTMX 422), never 500.
 - New typeahead endpoint `GET /admin/people/{person_id}/_reading_target_search`: returns same-person rows whose `name_type` is in the visual set (everything except reading/romanization/mrz).
 - Form template: conditional typeahead block shown by JS when `name_type` is in the reading set.
 - Read row: indent + subtitle when `n.reading_of_id` is set.
@@ -15,7 +15,7 @@
 
 **Pre-conditions (already in place):**
 - `person_names.reading_of_id TEXT REFERENCES person_names(id) ON DELETE CASCADE` — Phase 1.
-- `make_names_router(supports_metadata=True)` builder pattern — Phase 2a/2b.
+- `make_names_router(supports_person_metadata=True)` builder pattern — Phase 2a/2b.
 
 ---
 
