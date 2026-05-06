@@ -259,3 +259,58 @@ def test_post_edit_tbody_includes_cascade_hint(
     assert r.status_code == 200, r.text
     # B has 2 children — the cascade copy should still appear.
     assert "2 linked reading row" in r.text or "2 linked reading rows" in r.text
+
+
+def test_post_create_tbody_includes_reading_of_subtitle(
+    client, person_with_two_visuals_and_readings,
+):
+    """CR #13: creating a NEW reading row pointing at an existing
+    parent must also surface the linked-row subtitle in the
+    post-mutation tbody re-render (same enrichment path as edit)."""
+    f = person_with_two_visuals_and_readings
+    r = client.post(
+        f"/admin/people/{f['pid']}/names/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "name": "newly-added-reading",
+            "name_type": "romanization",
+            "is_canonical": "",
+            "reading_of_id": f["a_visual"],
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200, r.text
+    # Subtitle for the existing reading row references its parent.
+    assert "↳ romanization of:" in r.text
+    assert "Visual A Smoketest" in r.text
+
+
+def test_post_delete_tbody_includes_reading_of_subtitle(
+    client, person_with_two_visuals_and_readings,
+):
+    """CR #13: deleting a row triggers a tbody re-render that must
+    keep the linked-row subtitle on surviving rows."""
+    f = person_with_two_visuals_and_readings
+    # Delete one of the reading children of B; A→Reading A linkage stays.
+    r = client.delete(
+        f"/admin/people/{f['pid']}/names/{f['b_mrz']}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200, r.text
+    assert "↳ romanization of:" in r.text  # Reading A → Visual A
+    assert "Visual A Smoketest" in r.text
+
+
+def test_post_delete_tbody_includes_cascade_hint(
+    client, person_with_two_visuals_and_readings,
+):
+    """CR #13: cascade hint on parent rows must survive a delete
+    re-render (B still has 1 child after deleting MRZ-B)."""
+    f = person_with_two_visuals_and_readings
+    r = client.delete(
+        f"/admin/people/{f['pid']}/names/{f['b_mrz']}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200, r.text
+    # B now has 1 remaining child (reading-b); confirm copy should mention it.
+    assert "1 linked reading row" in r.text or "1 linked reading rows" in r.text

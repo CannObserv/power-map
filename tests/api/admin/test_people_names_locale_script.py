@@ -1,7 +1,7 @@
 """Phase 2b Task 2 — locale / script / sort_as round-trip on person-name CRUD.
 
 Mirrors the visibility round-trip pattern from Phase 2a Task 1. The
-backend accepts the three new Form fields when supports_metadata=True
+backend accepts the three new Form fields when supports_person_metadata=True
 (person_names) and ignores them otherwise (org_names path).
 
 FK violations on locale / script must surface as form errors (HTMX 200
@@ -344,7 +344,7 @@ def test_create_unregistered_locale_non_htmx_returns_422(client, person_and_name
     assert r.status_code == 422
 
 
-# ---- supports_metadata=False (org_names) ignores the new fields ----------
+# ---- supports_person_metadata=False (org_names) ignores the new fields ----------
 
 
 def test_org_names_ignores_locale_script_sort_as(client):

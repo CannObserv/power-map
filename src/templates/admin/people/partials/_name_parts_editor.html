@@ -20,7 +20,7 @@
 {%- set _given = (parts.given_names if parts and parts.given_names else []) -%}
 {%- set _family = (parts.family_names if parts and parts.family_names else []) -%}
 {%- set _additional = (parts.additional_names if parts and parts.additional_names else []) -%}
-<details class="name-parts-editor" style="margin-top:var(--space-2)">
+<details id="parts-editor-{{ n.id }}" class="name-parts-editor" style="margin-top:var(--space-2)">
   {# Stable id on the summary so the upsert/delete handlers can swap
      just the "set" badge via hx-swap-oob without disturbing the
      <details open> state or the form values the user just typed. #}

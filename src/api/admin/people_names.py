@@ -48,5 +48,5 @@ router = make_names_router(
     last_identity_error_msg="Cannot remove the only name.",
     last_identity_409_msg="Cannot remove the only name.",
     header_extra=person_header_extra,
-    supports_metadata=True,
+    supports_person_metadata=True,
 )

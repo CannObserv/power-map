@@ -74,7 +74,7 @@ def make_names_router(
     last_identity_error_msg: str,
     last_identity_409_msg: str,
     header_extra: Callable[[str, object], Awaitable[dict]],
-    supports_metadata: bool = False,
+    supports_person_metadata: bool = False,
 ) -> APIRouter:
     """Return a configured names APIRouter for the given entity type.
 
@@ -115,10 +115,25 @@ def make_names_router(
     header_extra:
         Async callable ``(entity_id, db) -> dict`` returning the extra HX-Trigger
         payload for header-sync events (e.g. updateOrgHeader / updatePersonHeader).
-    supports_metadata:
-        When True, accept and persist a ``visibility`` Form field on create/edit
-        and pass it to row templates. Used by person_names (Phase 2a, #123);
-        org_names ignores it (no visibility column on organization_names).
+    supports_person_metadata:
+        Person-specific behavior gate (#123 Phase 2a–2d). When True the
+        router:
+          - accepts ``visibility`` / ``locale`` / ``script`` / ``sort_as``
+            / ``reading_of_id`` Form fields on create/edit;
+          - threads them through ``_insert_name`` / ``_update_name``
+            (with ``write_metadata=True`` on update);
+          - validates ``reading_of_id`` against same-person + visual-target
+            + no-self-reference rules;
+          - LEFT-JOINs ``person_names`` (parent) and ``person_name_parts``
+            in ``_fetch_names_for_rows`` so the post-mutation tbody
+            re-render carries the linked-row subtitle, cascade-aware
+            delete confirm, and parts-summary line;
+          - pre-populates the structured-parts editor on edit-row.
+        Set False (default) for org_names — ``organization_names`` lacks
+        every column and table referenced above. The flag is named
+        person-specifically rather than ``supports_metadata`` because
+        adding a third entity type with metadata would not transparently
+        re-use this fork.
     """
     router = APIRouter(prefix=prefix, tags=tags)
 
@@ -256,7 +271,7 @@ def make_names_router(
         returns a list of dicts (never asyncpg Records) so callers and
         templates see a uniform mapping shape.
         """
-        if not supports_metadata:
+        if not supports_person_metadata:
             rows = await db.fetch(
                 f"SELECT * FROM {names_table} WHERE {entity_fk}=$1"
                 " ORDER BY is_canonical DESC, name_type, name",
@@ -337,13 +352,13 @@ def make_names_router(
     ):
         """Create a new name."""
         # Pydantic Literal validates visibility value range; gate drops all
-        # metadata fields for org_names (supports_metadata=False) which has
+        # metadata fields for org_names (supports_person_metadata=False) which has
         # no locale/script/sort_as/visibility/reading_of_id columns.
-        vis = visibility if supports_metadata else None
-        loc = _normalise_optional_str(locale) if supports_metadata else None
-        scr = _normalise_optional_str(script) if supports_metadata else None
-        sa = _normalise_optional_str(sort_as) if supports_metadata else None
-        rof = _normalise_optional_str(reading_of_id) if supports_metadata else None
+        vis = visibility if supports_person_metadata else None
+        loc = _normalise_optional_str(locale) if supports_person_metadata else None
+        scr = _normalise_optional_str(script) if supports_person_metadata else None
+        sa = _normalise_optional_str(sort_as) if supports_person_metadata else None
+        rof = _normalise_optional_str(reading_of_id) if supports_person_metadata else None
         await _get_entity_or_404(entity_id, db)
         if rof is not None:
             err = await _validate_reading_of_target(
@@ -413,7 +428,7 @@ def make_names_router(
         # Attach parts_summary so the cancel-from-edit transition keeps
         # the subtitle (parity with the post-mutation tbody re-render).
         n_ctx: object = name_row
-        if supports_metadata:
+        if supports_person_metadata:
             parts_row = await db.fetchrow(
                 "SELECT given_names, family_names, additional_names"
                 " FROM person_name_parts WHERE person_name_id=$1",
@@ -449,10 +464,10 @@ def make_names_router(
             raise HTTPException(status_code=404)
         # Phase 2d: pre-populate the structured-parts editor when an
         # existing parts row is present. Only person_names has a parts
-        # sidecar — guarded by supports_metadata so org_names paths
+        # sidecar — guarded by supports_person_metadata so org_names paths
         # never run the extra query.
         parts = None
-        if supports_metadata:
+        if supports_person_metadata:
             parts = await db.fetchrow(
                 "SELECT given_names, family_names, additional_names,"
                 " honorific_prefix, honorific_suffix, primary_identifier"
@@ -485,11 +500,11 @@ def make_names_router(
         # Pydantic Literal validates visibility range; gate drops all metadata
         # for org_names. With write_metadata=True (person path) the form is
         # treated as the source of truth — empty inputs become NULL columns.
-        vis = visibility if supports_metadata else None
-        loc = _normalise_optional_str(locale) if supports_metadata else None
-        scr = _normalise_optional_str(script) if supports_metadata else None
-        sa = _normalise_optional_str(sort_as) if supports_metadata else None
-        rof = _normalise_optional_str(reading_of_id) if supports_metadata else None
+        vis = visibility if supports_person_metadata else None
+        loc = _normalise_optional_str(locale) if supports_person_metadata else None
+        scr = _normalise_optional_str(script) if supports_person_metadata else None
+        sa = _normalise_optional_str(sort_as) if supports_person_metadata else None
+        rof = _normalise_optional_str(reading_of_id) if supports_person_metadata else None
         existing = await db.fetchrow(
             f"SELECT * FROM {names_table} WHERE id=$1 AND {entity_fk}=$2",
             name_id,
@@ -543,7 +558,7 @@ def make_names_router(
                     db, name_id=name_id, name=name.strip(), name_type=name_type,
                     is_canonical=(is_canonical == "true"),
                     vis=vis, locale=loc, script=scr, sort_as=sa, reading_of_id=rof,
-                    write_metadata=supports_metadata,
+                    write_metadata=supports_person_metadata,
                 )
         except asyncpg.ForeignKeyViolationError as exc:
             msg = _fk_violation_message(exc)

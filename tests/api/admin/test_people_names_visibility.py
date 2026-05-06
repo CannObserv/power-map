@@ -1,6 +1,6 @@
 """Phase 2a backend tests — person-name visibility metadata.
 
-Covers the `supports_metadata=True` flag on `make_names_router`:
+Covers the `supports_person_metadata=True` flag on `make_names_router`:
 - visibility round-trip (create + edit accept the Form field, persist to DB)
 - expanded `name_type` values accepted (all 12 from CONVENTIONS.md)
 - deadname coercion via DB trigger (public → legal_only on insert/update)

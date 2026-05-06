@@ -399,6 +399,17 @@ def test_parts_editor_pre_populates_arrays():
     assert ('value="family" selected' in out) or ('selected>family' in out)
 
 
+def test_parts_editor_details_has_stable_id_for_future_swaps():
+    """CR #11: forward-compat anchor — a future feature wanting to
+    refresh the editor body after save needs a stable target."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    assert 'id="parts-editor-nid_x"' in out
+
+
 def test_parts_editor_summary_has_stable_id_for_oob_swap():
     """CR #7: the <summary> needs a stable id so the upsert/delete
     handlers can swap just the badge via hx-swap-oob without

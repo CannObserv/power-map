@@ -1720,16 +1720,16 @@ On any mutation route that may change an org's canonical name or acronym, pass `
 
 ### Person-name metadata controls (Phase 2a–2d, #123)
 
-Person-name CRUD shares its router factory with org-name CRUD via `make_names_router` in `src.api.admin._names_shared`. The factory accepts `supports_metadata: bool = False`:
+Person-name CRUD shares its router factory with org-name CRUD via `make_names_router` in `src.api.admin._names_shared`. The factory accepts `supports_person_metadata: bool = False`:
 
 - `org_names`: leaves the default (`False`) — `organization_names` has no metadata columns.
-- `people_names`: passes `supports_metadata=True` — accepts `visibility`, `locale`, `script`, `sort_as` Form fields on create/edit and persists them.
+- `people_names`: passes `supports_person_metadata=True` — accepts `visibility`, `locale`, `script`, `sort_as` Form fields on create/edit and persists them.
 
 Validation layering:
 
 - Pydantic / FastAPI validates `visibility` against the `PersonNameVisibility = Literal["public","legal_only","hidden"]` from `src.core.types` at request parse — invalid values return 422.
 - `_normalise_optional_str` strips whitespace and converts empty strings to None for `locale`/`script`/`sort_as` so blank inputs become NULL columns rather than ''.
-- The org-vs-person divergence is the inline `vis = visibility if supports_metadata else None` gate at the top of each handler. The same `... if supports_metadata else None` shape is used for `loc`, `scr`, `sa` immediately below. Payloads sent to org_names are silently dropped.
+- The org-vs-person divergence is the inline `vis = visibility if supports_person_metadata else None` gate at the top of each handler. The same `... if supports_person_metadata else None` shape is used for `loc`, `scr`, `sa` immediately below. Payloads sent to org_names are silently dropped.
 - `_metadata_pairs(...)` returns the canonical (column, value) tuple ordering used by both builder helpers:
   - `_insert_name`: includes a column only when its value is non-None — DB defaults (`visibility='public'`, others NULL) handle the rest.
   - `_update_name(write_metadata=True)`: SETs every metadata column to the supplied value (form is the source of truth) — except visibility, which is skipped when None so the DB default + `trg_deadname_visibility` trigger keep authority.
@@ -1746,7 +1746,7 @@ Sort + collation (Phase 2b):
 
 Linked names — `reading_of_id` (Phase 2c, #123):
 
-- Name CRUD accepts a `reading_of_id` Form field gated by `supports_metadata`. The column is a self-FK on `person_names` (ON DELETE CASCADE) — a `reading` / `romanization` / `mrz` row may point at the visual row it transliterates.
+- Name CRUD accepts a `reading_of_id` Form field gated by `supports_person_metadata`. The column is a self-FK on `person_names` (ON DELETE CASCADE) — a `reading` / `romanization` / `mrz` row may point at the visual row it transliterates.
 - Typeahead `GET /admin/people/{person_id}/_reading_target_search` returns same-person rows whose `name_type` is OUTSIDE `_READING_TYPES` (`reading`, `romanization`, `mrz`) — only visual rows are valid parents. Filters `visibility = 'public'` to mirror the default detail view; uses `escape_like` + `<> ALL($N::text[])` for the type filter.
 - `_validate_reading_of_target` (in `_names_shared.py`) runs before the INSERT/UPDATE and surfaces four bypass attempts as form errors (HTMX flash; non-HTMX 422):
   1. Target row doesn't exist (DB FK catches it too — this gives a friendlier message).

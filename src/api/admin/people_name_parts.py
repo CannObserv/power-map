@@ -46,10 +46,16 @@ def _summary_oob_fragment(name_id: str, *, has_parts: bool) -> str:
     Returned by the upsert/delete handlers so the "set" badge reflects
     the new state without re-rendering (and collapsing) the entire
     <details> the user is mid-edit in.
+
+    `name_id` is escaped before interpolation: in practice it's always
+    a server-generated ULID that has already passed through the
+    `_ensure_name_belongs_to_person` SELECT, but escaping defends
+    against a future caller that bypasses that guard.
     """
+    nid = escape(name_id)
     badge = ' <span class="badge badge--inactive">set</span>' if has_parts else ""
     return (
-        f'<summary id="parts-summary-{name_id}" hx-swap-oob="outerHTML"'
+        f'<summary id="parts-summary-{nid}" hx-swap-oob="outerHTML"'
         ' style="cursor:pointer;font-size:0.85rem;color:var(--color-text-muted)">'
         f"Structured parts{badge}"
         "</summary>"
