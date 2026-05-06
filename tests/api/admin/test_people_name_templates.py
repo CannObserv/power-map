@@ -426,6 +426,17 @@ def test_parts_editor_summary_has_stable_id_for_oob_swap():
     assert 'id="parts-summary-nid_x"' in out
 
 
+def test_parts_editor_summary_label_says_details():
+    """Issue #127: rename 'Structured parts' to 'Details' (UI label only)."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    assert "Details" in out
+    assert "Structured parts" not in out
+
+
 def test_parts_editor_shows_remove_button_only_when_parts_exist():
     from jinja2 import Environment, FileSystemLoader
     env = Environment(loader=FileSystemLoader("src/templates"))
@@ -468,8 +479,8 @@ def test_read_row_renders_parts_subtitle_when_present():
     out = env.get_template(
         "admin/people/partials/_name_row.html"
     ).render(n=row, person_id="p1")
-    assert "parts:" in out
     assert "García López" in out
+    assert "parts:" not in out  # prefix dropped by #127
 
 
 def test_read_row_skips_parts_subtitle_when_absent():
@@ -511,4 +522,4 @@ def test_summary_oob_fragment_escapes_name_id(evil_id, forbidden, must_appear):
     assert forbidden not in out, f"unescaped {forbidden!r} leaked into {out!r}"
     assert must_appear in out, f"expected escaped {must_appear!r} in {out!r}"
     assert 'hx-swap-oob="outerHTML"' in out
-    assert "Structured parts" in out
+    assert "Details" in out

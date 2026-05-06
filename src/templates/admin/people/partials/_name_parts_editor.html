@@ -26,7 +26,7 @@
      <details open> state or the form values the user just typed. #}
   <summary id="parts-summary-{{ n.id }}"
            style="cursor:pointer;font-size:0.85rem;color:var(--color-text-muted)">
-    Structured parts{% if parts %} <span class="badge badge--inactive">set</span>{% endif %}
+    Details{% if parts %} <span class="badge badge--inactive">set</span>{% endif %}
   </summary>
   <form
     hx-post="/admin/people/{{ person_id }}/names/{{ n.id }}/parts/"

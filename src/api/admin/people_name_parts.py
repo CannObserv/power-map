@@ -57,7 +57,7 @@ def _summary_oob_fragment(name_id: str, *, has_parts: bool) -> str:
     return (
         f'<summary id="parts-summary-{nid}" hx-swap-oob="outerHTML"'
         ' style="cursor:pointer;font-size:0.85rem;color:var(--color-text-muted)">'
-        f"Structured parts{badge}"
+        f"Details{badge}"
         "</summary>"
     )
 
