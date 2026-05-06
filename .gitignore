@@ -35,3 +35,6 @@ node_modules/
 
 # CSV import data
 data/cannabis_observer/
+
+# Claude Code runtime artifacts
+.claude/scheduled_tasks.lock
