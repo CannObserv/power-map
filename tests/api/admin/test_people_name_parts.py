@@ -427,10 +427,13 @@ def test_create_name_with_parts_payload_inserts_both(client, person_only):
     assert parts["primary_identifier"] == "family"
 
 
-def test_create_name_without_parts_payload_skips_parts_insert(
+def test_create_name_without_parts_payload_skips_parts_helper(
     client, person_only,
 ):
-    """Issue #127: create without parts fields → no parts row."""
+    """Issue #127: create without parts fields short-circuits before the
+    parts helper. The just-inserted name has no parts row to upsert or
+    delete, so `name_create` skips `upsert_or_delete_parts` entirely
+    (avoiding a zero-row DELETE round-trip)."""
     pid = person_only["pid"]
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -462,6 +465,25 @@ def test_create_name_parts_cap_violation_rolls_back_name_insert(
     assert r.status_code == 200, r.text
     assert "HX-Trigger" in r.headers
     # No canonical name written — transaction rolled back.
+    assert asyncio.run(_fetch_canonical_name(pid)) is None
+
+
+def test_create_name_non_htmx_cap_returns_422(client, person_only):
+    """Issue #127: parts cap-violation on the create path surfaces as 422
+    for non-HTMX clients (mirrors `test_edit_row_post_non_htmx_cap_returns_422`)."""
+    pid = person_only["pid"]
+    r = client.post(
+        f"/admin/people/{pid}/names/",
+        data={
+            "name": "Should Not Persist",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "given_names": [f"name{i}" for i in range(6)],
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert r.status_code == 422, r.text
+    # Transaction still rolled back even on the non-HTMX 422 path.
     assert asyncio.run(_fetch_canonical_name(pid)) is None
 
 

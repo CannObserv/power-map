@@ -402,7 +402,15 @@ def make_names_router(
                     name_type=name_type, is_canonical=(is_canonical == "true"),
                     vis=vis, locale=loc, script=scr, sort_as=sa, reading_of_id=rof,
                 )
-                if supports_person_metadata:
+                # Skip the parts helper entirely on create when no parts
+                # fields were submitted: the just-inserted name has no
+                # parts row, so the helper's all-empty DELETE branch
+                # would issue a guaranteed-zero-row write. Cap validation
+                # still runs when any parts field IS submitted.
+                if supports_person_metadata and (
+                    given_names or family_names or additional_names
+                    or honorific_prefix or honorific_suffix or primary_identifier
+                ):
                     parts_err = await upsert_or_delete_parts(
                         db,
                         name_id=nid,
