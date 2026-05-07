@@ -44,23 +44,33 @@
         </label>
       </div>
     </div>
-    {# Three array sections — given / family / additional. Five inputs each;
-       empty inputs are filtered server-side. #}
+    {# Three array sections — given / family / additional. CardStack UI:
+       one card per existing value, Add button appends up to the 5-cap. #}
     {% for label, field, vals in [
          ('Given names',      'given_names',      _given),
          ('Family names',     'family_names',     _family),
          ('Additional names', 'additional_names', _additional),
        ] %}
     <fieldset style="border:1px solid var(--color-border);padding:var(--space-2);margin:0">
-      <legend style="font-size:0.75rem;padding:0 var(--space-1)">{{ label }} (max 5)</legend>
-      <div style="display:flex;gap:var(--space-1);flex-wrap:wrap">
-        {% for i in range(5) %}
-        <input type="text" name="{{ field }}"
-               value="{{ vals[i] if vals|length > i else '' }}"
-               aria-label="{{ label }} {{ i + 1 }}"
-               style="flex:1;min-width:7rem">
+      <legend style="font-size:0.75rem;padding:0 var(--space-1)">{{ label }}</legend>
+      <div data-cardstack="{{ field }}" data-cardstack-cap="5"
+           style="display:flex;flex-direction:column;gap:var(--space-1)">
+        {% for v in vals %}
+        <div data-cardstack-card="{{ field }}"
+             style="display:flex;gap:var(--space-1);align-items:center">
+          <input type="text" name="{{ field }}" value="{{ v }}"
+                 aria-label="{{ label }} {{ loop.index }}"
+                 style="flex:1">
+          <button type="button" class="btn btn--sm btn--secondary"
+                  data-cardstack-remove="{{ field }}"
+                  aria-label="Remove this {{ label|lower|replace(' names', '') }} entry">×</button>
+        </div>
         {% endfor %}
       </div>
+      <button type="button" class="btn btn--sm btn--secondary"
+              data-cardstack-add="{{ field }}"
+              aria-label="Add another {{ label|lower|replace(' names', '') }} entry"
+              style="margin-top:var(--space-1)">+ Add</button>
     </fieldset>
     {% endfor %}
     <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">

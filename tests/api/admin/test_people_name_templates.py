@@ -368,16 +368,47 @@ def test_parts_editor_offers_all_four_primary_identifiers():
         assert f"'{v}'" in PARTS_EDITOR or f'"{v}"' in PARTS_EDITOR, v
 
 
-def test_parts_editor_renders_five_inputs_per_array():
-    """Five repeating inputs per array field, server-side cap aligned."""
+def test_parts_editor_renders_cardstack_for_each_array_field():
+    """Issue #127: arrays render as a vertical card stack.
+    Each existing value gets one card (one input + remove button); a single
+    Add button per field appends new cards up to the 5-cap. Empty arrays
+    render zero cards (Add button only).
+    """
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    parts = {
+        "given_names": ["María", "José"],
+        "family_names": ["García"],
+        "additional_names": [],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    # Each card carries a data-cardstack-card="<field>" hook for the JS.
+    assert out.count('data-cardstack-card="given_names"') == 2
+    assert out.count('data-cardstack-card="family_names"') == 1
+    assert out.count('data-cardstack-card="additional_names"') == 0
+    # One Add button per field (always present, even when array empty).
+    assert out.count('data-cardstack-add="given_names"') == 1
+    assert out.count('data-cardstack-add="family_names"') == 1
+    assert out.count('data-cardstack-add="additional_names"') == 1
+    # Stack hook for the JS to find the cards container.
+    assert 'data-cardstack="given_names"' in out
+    assert 'data-cardstack="family_names"' in out
+    assert 'data-cardstack="additional_names"' in out
+
+
+def test_parts_editor_drops_max_5_hint():
+    """Issue #127: '(max 5)' hint removed; cap surfaced via disabled Add button."""
     from jinja2 import Environment, FileSystemLoader
     env = Environment(loader=FileSystemLoader("src/templates"))
     out = env.get_template(
         "admin/people/partials/_name_parts_editor.html"
     ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
-    assert out.count('name="given_names"') == 5
-    assert out.count('name="family_names"') == 5
-    assert out.count('name="additional_names"') == 5
+    assert "max 5" not in out
 
 
 def test_parts_editor_pre_populates_arrays():
@@ -523,3 +554,25 @@ def test_summary_oob_fragment_escapes_name_id(evil_id, forbidden, must_appear):
     assert must_appear in out, f"expected escaped {must_appear!r} in {out!r}"
     assert 'hx-swap-oob="outerHTML"' in out
     assert "Details" in out
+
+
+# ---------------------------------------------------------------------------
+# Detail page — CardStack JS wiring (Issue #127 Task B)
+# ---------------------------------------------------------------------------
+
+
+def test_detail_loads_parts_cardstack_script():
+    """Issue #127: detail page loads the CardStack JS."""
+    from pathlib import Path
+    DETAIL = Path("src/templates/admin/people/detail.html").read_text()
+    assert "person-name-parts-cardstack.js" in DETAIL
+
+
+def test_detail_parts_cardstack_script_is_deferred():
+    """Cache-bust suffix `?v=1` matches the deadname-confirm convention."""
+    from pathlib import Path
+    DETAIL = Path("src/templates/admin/people/detail.html").read_text()
+    assert (
+        'src="/static/admin/person-name-parts-cardstack.js?v=1" defer'
+        in DETAIL
+    )
