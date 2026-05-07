@@ -1757,20 +1757,36 @@ Linked names — `reading_of_id` (Phase 2c, #123):
 - Read-row template indents linked rows (`class="name-row--child"`) and renders a "↳ {name_type} of: <em>{parent_name}</em>" subtitle. The handler enriches each row with `reading_of_name` (LEFT JOIN parent) and `reading_child_count` (LATERAL count) — both the detail-page and the post-mutation tbody re-render in `_fetch_names_for_rows` carry the enrichment so cancel-from-edit + post-save look identical.
 - Delete confirm text becomes "Delete this name and its N linked reading row(s)? (cascade)" when `reading_child_count > 0`.
 
-Structured parts — `person_name_parts` (Phase 2d, #123):
+Structured parts — `person_name_parts` (Phase 2d, #123 / Issue #127):
 
-- Sidecar table, 1:0..1 with `person_names`, ON DELETE CASCADE. Edited via two POST routes in `src.api.admin.people_name_parts`:
-  - `POST /admin/people/{pid}/names/{nid}/parts/` — upsert (`INSERT … ON CONFLICT (person_name_id) DO UPDATE`).
-  - `POST /admin/people/{pid}/names/{nid}/parts/delete/` — DELETE (idempotent).
-- Server-side validation:
+- Sidecar table, 1:0..1 with `person_names`, ON DELETE CASCADE.
+- Server-side validation (in `upsert_or_delete_parts` helper, `src.api.admin.people_name_parts`):
   - Cap: 5 entries per array (`given_names`, `family_names`, `additional_names`). Cap is checked BEFORE trimming so the message reflects what the user typed.
   - Empty-string trim: blank entries are dropped before INSERT; `_trim_array` preserves user order.
   - `primary_identifier` allowlist matches the DB CHECK (`family` / `given` / `patronymic` / `mononym`); a blank value becomes NULL.
-  - All-empty payload is a no-op (silent success) so the same form save acts as "leave alone" for rows that started empty.
-- `_ensure_name_belongs_to_person` cross-person guards the route (404 when `name_id` doesn't belong to `person_id`); the file is in the visibility-allowlist for the same reason as `people_names.py` — admins editing parts on a `legal_only` / `hidden` row need to reach those rows.
-- The editor template `_name_parts_editor.html` is included by `_name_form_row.html` only when an existing name is being edited (no `n.id` on the new-name form). It posts INDEPENDENTLY of the parent name form (separate `<form>` element, sibling not nested) with `hx-swap="none"` so saves don't disturb the name form's state.
-- Post-save / post-delete responses include an OOB summary fragment (`hx-swap-oob="outerHTML"` targeting `#parts-summary-{nid}`) that updates the editor's "set" badge without collapsing the user's open `<details>`. See `_summary_oob_fragment` helper.
+  - All-empty payload semantics (Issue #127): if the row already had a parts row, Save **deletes** it; if it never had one, no-op. There is no separate Remove button — clearing every parts field and clicking Save is the delete path.
 - Read-row subtitle: handlers attach a `parts_summary` field via `build_parts_summary(family, given, additional)` from `src.api.admin.deps` — a "<family> · <given> · <additional>" line; None when nothing structural is set so the template's `{% if n.parts_summary %}` guard hides the row.
+
+Person-name editor — single form / single Details disclosure / single Save (Issue #127):
+
+- One `<form>` per name row in `_name_form_row.html` posts to `/edit-row/` (existing rows) or `/` (new rows). The earlier two-form split (outer name form + inner parts form) is gone; one Save commits both halves in one transactional upsert via `name_create` / `name_edit_row_post` calling `upsert_or_delete_parts` inside the existing `async with db.transaction():` block.
+- Inline portion of the row (visible without expanding anything): name input, name_type select, is_canonical toggle, Save, Cancel.
+- A single `<details>` "Details" disclosure (rendered by `_name_parts_editor.html`) holds, in order:
+  1. **Metadata**: visibility / locale / script / sort_as / reading_of_id (from `_name_metadata_fields.html`).
+  2. `<hr>` separator.
+  3. **Name parts**: primary_identifier, the given/family/additional CardStack inputs (`person-name-parts-cardstack.js`), and honorific prefix/suffix.
+- Auto-open predicate (in `_name_parts_editor.html`): the disclosure renders with `open` when any non-default metadata or parts value is present on the editing row:
+  ```jinja
+  {%- set _meta_set = n and (
+      (n.visibility and n.visibility != 'public') or
+      n.locale or n.script or n.sort_as or n.reading_of_id
+  ) -%}
+  {%- set _parts_set = parts is not none -%}
+  ```
+  The `n and (...)` guard is defensive — `_name_form_row.html` only includes the parts editor when `n` is set, but the predicate stays safe if that gate ever changes.
+- New-name form (`n is None`) does not render the Details disclosure (no `name_id` to attach parts to). To keep metadata fields reachable when creating a row, `_name_form_row.html` includes `_name_metadata_fields.html` directly inline in that branch — same markup, different host.
+- Typeahead init `<script>` (locale / script / reading_of_id) lives in `_name_form_row.html` AFTER the include so it runs once the inputs (which may be inside the disclosure) are in the DOM. Browsers query elements inside `<details>` regardless of open state.
+- The standalone `POST /parts/` and `POST /parts/delete/` routes are deleted — `_summary_oob_fragment` and `_ensure_name_belongs_to_person` are gone with them. The unified Save flow re-renders the whole tbody so the OOB-swap pattern is no longer used.
 
 ### Dup count cache
 

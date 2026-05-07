@@ -1,0 +1,106 @@
+{# admin/people/partials/_name_metadata_fields.html — visibility +
+   locale/script/sort_as + reading_of_id metadata block.
+
+   Issue #127: extracted from `_name_form_row.html` so both the
+   existing-row Details disclosure (rendered inside
+   `_name_parts_editor.html`) and the new-name inline form can share
+   the same markup. Element ids and the typeahead init scripts in
+   `_name_form_row.html` assume one instance per page (the inline
+   form has either one new-row OR a set of edit-row drawers; the
+   row-edit clicks render into the names-table tbody and the typeahead
+   init runs once per swap), so this partial is rendered at most once
+   per `_name_form_row.html` instance.
+
+   Context (inherited from the parent `{% include %}`):
+     n          — name row dict OR None for the new-name form.
+     person_id  — required for the reading_of typeahead URL. #}
+<div class="form-group" style="margin-bottom:0">
+  <label style="font-size:0.75rem;display:block">Visibility
+    <select name="visibility" aria-label="Visibility">
+      {% for v in ('public', 'legal_only', 'hidden') %}
+      <option value="{{ v }}"{% if (n and n.visibility == v) or (not n and v == 'public') %} selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </label>
+</div>
+{# Locale typeahead — display input + hidden code value + listbox #}
+<div class="form-group" style="margin-bottom:0;position:relative;min-width:9rem">
+  <label style="font-size:0.75rem;display:block">Locale (BCP 47)
+    <input id="locale-search-display" type="text" autocomplete="off"
+           placeholder="Locale (BCP 47)"
+           value="{{ n.locale if n and n.locale else '' }}"
+           hx-get="/admin/people/_locale_search"
+           hx-trigger="input changed delay:200ms"
+           hx-target="#locale-search-results"
+           hx-swap="innerHTML"
+           hx-params="q"
+           name="q_locale"
+           aria-label="Locale"
+           role="combobox"
+           aria-expanded="false"
+           aria-haspopup="listbox"
+           aria-controls="locale-search-results"
+           aria-autocomplete="list">
+  </label>
+  <input type="hidden" name="locale" id="locale-hidden"
+         value="{{ n.locale if n and n.locale else '' }}">
+  <ul id="locale-search-results" class="typeahead-results" role="listbox"></ul>
+</div>
+{# Script typeahead — same shape against iso15924_scripts #}
+<div class="form-group" style="margin-bottom:0;position:relative;min-width:9rem">
+  <label style="font-size:0.75rem;display:block">Script (ISO 15924)
+    <input id="script-search-display" type="text" autocomplete="off"
+           placeholder="Script (ISO 15924)"
+           value="{{ n.script if n and n.script else '' }}"
+           hx-get="/admin/people/_script_search"
+           hx-trigger="input changed delay:200ms"
+           hx-target="#script-search-results"
+           hx-swap="innerHTML"
+           hx-params="q"
+           name="q_script"
+           aria-label="Script"
+           role="combobox"
+           aria-expanded="false"
+           aria-haspopup="listbox"
+           aria-controls="script-search-results"
+           aria-autocomplete="list">
+  </label>
+  <input type="hidden" name="script" id="script-hidden"
+         value="{{ n.script if n and n.script else '' }}">
+  <ul id="script-search-results" class="typeahead-results" role="listbox"></ul>
+</div>
+{# sort_as — plain text, free string for collation key overrides #}
+<div class="form-group" style="margin-bottom:0;min-width:9rem">
+  <label style="font-size:0.75rem;display:block">Sort as
+    <input type="text" name="sort_as" autocomplete="off"
+           placeholder="Sort as (optional)"
+           aria-label="Sort as"
+           value="{{ n.sort_as if n and n.sort_as else '' }}">
+  </label>
+</div>
+{# Reading-of typeahead — only relevant for reading/romanization/mrz rows.
+   Shown by inline JS in _name_form_row.html when name_type matches. #}
+{% set _is_reading_type = n and n.name_type in ('reading','romanization','mrz') %}
+<div id="reading-of-block" class="form-group"
+     style="margin-bottom:0;position:relative;min-width:11rem;{% if not _is_reading_type %}display:none;{% endif %}">
+  <label style="font-size:0.75rem;display:block">Reading of
+    <input id="reading-of-display" type="text" autocomplete="off"
+           placeholder="Reading of (visual row)"
+           value="{{ n.reading_of_name if n and n.reading_of_name else '' }}"
+           hx-get="/admin/people/{{ person_id }}/_reading_target_search"
+           hx-trigger="input changed delay:200ms"
+           hx-target="#reading-of-results"
+           hx-swap="innerHTML"
+           hx-params="q"
+           name="q_reading_of"
+           aria-label="Reading of"
+           role="combobox"
+           aria-expanded="false"
+           aria-haspopup="listbox"
+           aria-controls="reading-of-results"
+           aria-autocomplete="list">
+  </label>
+  <input type="hidden" name="reading_of_id" id="reading-of-hidden"
+         value="{{ n.reading_of_id if n and n.reading_of_id else '' }}">
+  <ul id="reading-of-results" class="typeahead-results" role="listbox"></ul>
+</div>

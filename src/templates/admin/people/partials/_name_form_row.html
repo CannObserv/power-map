@@ -1,4 +1,16 @@
-{# admin/people/partials/_name_form_row.html — inline name edit/new form row #}
+{# admin/people/partials/_name_form_row.html — inline name edit/new form row.
+
+   Issue #127: the inline form row is the user-visible "header" of each
+   name editor; it carries only the core fields (name, name_type,
+   is_canonical) plus Save / Cancel. Metadata fields (visibility,
+   locale, script, sort_as, reading_of_id) and structured parts live
+   inside the Details disclosure that the included parts editor renders
+   for existing rows.
+
+   For the new-name form (`n is None`) the disclosure is not rendered
+   (`_name_parts_editor.html` gates on `{% if n %}`). To keep metadata
+   fields reachable when creating a new row, we include
+   `_name_metadata_fields.html` directly inline in that case. #}
 <tr id="{% if n %}name-row-{{ n.id }}{% else %}name-row-new{% endif %}">
   <td colspan="4" style="padding:var(--space-2) var(--space-4)">
     <form {% if n %}
@@ -25,86 +37,6 @@
           {% endfor %}
         </select>
       </div>
-      <div class="form-group" style="margin-bottom:0">
-        <select name="visibility" aria-label="Visibility">
-          {% for v in ('public', 'legal_only', 'hidden') %}
-          <option value="{{ v }}"{% if (n and n.visibility == v) or (not n and v == 'public') %} selected{% endif %}>{{ v }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      {# Locale typeahead — display input + hidden code value + listbox #}
-      <div class="form-group" style="margin-bottom:0;position:relative;min-width:9rem">
-        <input id="locale-search-display" type="text" autocomplete="off"
-               placeholder="Locale (BCP 47)"
-               value="{{ n.locale if n and n.locale else '' }}"
-               hx-get="/admin/people/_locale_search"
-               hx-trigger="input changed delay:200ms"
-               hx-target="#locale-search-results"
-               hx-swap="innerHTML"
-               hx-params="q"
-               name="q_locale"
-               aria-label="Locale"
-               role="combobox"
-               aria-expanded="false"
-               aria-haspopup="listbox"
-               aria-controls="locale-search-results"
-               aria-autocomplete="list">
-        <input type="hidden" name="locale" id="locale-hidden"
-               value="{{ n.locale if n and n.locale else '' }}">
-        <ul id="locale-search-results" class="typeahead-results" role="listbox"></ul>
-      </div>
-      {# Script typeahead — same shape against iso15924_scripts #}
-      <div class="form-group" style="margin-bottom:0;position:relative;min-width:9rem">
-        <input id="script-search-display" type="text" autocomplete="off"
-               placeholder="Script (ISO 15924)"
-               value="{{ n.script if n and n.script else '' }}"
-               hx-get="/admin/people/_script_search"
-               hx-trigger="input changed delay:200ms"
-               hx-target="#script-search-results"
-               hx-swap="innerHTML"
-               hx-params="q"
-               name="q_script"
-               aria-label="Script"
-               role="combobox"
-               aria-expanded="false"
-               aria-haspopup="listbox"
-               aria-controls="script-search-results"
-               aria-autocomplete="list">
-        <input type="hidden" name="script" id="script-hidden"
-               value="{{ n.script if n and n.script else '' }}">
-        <ul id="script-search-results" class="typeahead-results" role="listbox"></ul>
-      </div>
-      {# sort_as — plain text, free string for collation key overrides #}
-      <div class="form-group" style="margin-bottom:0;min-width:9rem">
-        <input type="text" name="sort_as" autocomplete="off"
-               placeholder="Sort as (optional)"
-               aria-label="Sort as"
-               value="{{ n.sort_as if n and n.sort_as else '' }}">
-      </div>
-      {# Reading-of typeahead — only relevant for reading/romanization/mrz rows.
-         Shown by inline JS (below) when name_type matches; hidden otherwise. #}
-      {% set _is_reading_type = n and n.name_type in ('reading','romanization','mrz') %}
-      <div id="reading-of-block" class="form-group"
-           style="margin-bottom:0;position:relative;min-width:11rem;{% if not _is_reading_type %}display:none;{% endif %}">
-        <input id="reading-of-display" type="text" autocomplete="off"
-               placeholder="Reading of (visual row)"
-               value="{{ n.reading_of_name if n and n.reading_of_name else '' }}"
-               hx-get="/admin/people/{{ person_id }}/_reading_target_search"
-               hx-trigger="input changed delay:200ms"
-               hx-target="#reading-of-results"
-               hx-swap="innerHTML"
-               hx-params="q"
-               name="q_reading_of"
-               aria-label="Reading of"
-               role="combobox"
-               aria-expanded="false"
-               aria-haspopup="listbox"
-               aria-controls="reading-of-results"
-               aria-autocomplete="list">
-        <input type="hidden" name="reading_of_id" id="reading-of-hidden"
-               value="{{ n.reading_of_id if n and n.reading_of_id else '' }}">
-        <ul id="reading-of-results" class="typeahead-results" role="listbox"></ul>
-      </div>
       <label class="toggle" style="flex-shrink:0">
         <input type="checkbox" name="is_canonical" value="true" aria-label="Canonical"
                {% if n and n.is_canonical %} checked{% endif %}>
@@ -121,12 +53,22 @@
                 onclick="this.closest('tr').remove()"
                 {% endif %}>Cancel</button>
       </div>
+      {# Issue #127: existing-row drawer carries metadata + structured parts
+         inside one Details disclosure (rendered by `_name_parts_editor.html`
+         when `n` is set). The new-name form has no disclosure (no name_id
+         yet for the parts upsert), so metadata fields render directly. #}
+      {% if n %}
+      {% include "admin/people/partials/_name_parts_editor.html" %}
+      {% else %}
+      <div style="flex-basis:100%;display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
+        {% include "admin/people/partials/_name_metadata_fields.html" %}
+      </div>
+      {% endif %}
     </form>
-    {# Phase 2d structured parts editor — only shown when editing an
-       existing row (the upsert needs n.id). Wrapped in a <details>
-       inside the partial itself so it doesn't crowd the inline form. #}
-    {% include "admin/people/partials/_name_parts_editor.html" %}
     <script>
+      // Typeahead init runs after the include so the inputs (which may be
+      // inside the Details disclosure for existing rows) are in the DOM.
+      // Browsers query elements inside <details> regardless of open state.
       window.initTypeaheadCombobox({
         inputId: 'locale-search-display',
         listboxId: 'locale-search-results',

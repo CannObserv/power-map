@@ -121,6 +121,8 @@ Columns: `given_names TEXT[]`, `family_names TEXT[]`, `additional_names TEXT[]`,
 
 A `person_names` row with no corresponding `person_name_parts` row is fully valid — the free `name` string remains authoritative.
 
+The admin UI surfaces this section as **Details** (issue #127); the DB / route names retain `parts` / `person_name_parts`.
+
 #### Canonical-uniqueness key
 
 `uq_person_canonical_name` is keyed on `(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))`. A person can hold a canonical Hant `legal` and a canonical Latn `legal` (romanization) simultaneously.

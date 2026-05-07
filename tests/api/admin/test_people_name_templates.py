@@ -1,13 +1,19 @@
 """Static assertions for person-name partial templates (Phase 2a Task 2)."""
 from pathlib import Path
 
-import pytest
-
-from src.api.admin.people_name_parts import _summary_oob_fragment
-
 FORM_ROW = Path("src/templates/admin/people/partials/_name_form_row.html").read_text()
 READ_ROW = Path("src/templates/admin/people/partials/_name_row.html").read_text()
 DETAIL = Path("src/templates/admin/people/detail.html").read_text()
+# Issue #127: metadata fields (visibility / locale / script / sort_as /
+# reading_of_id) now live in their own partial, included into both the
+# new-name inline form (`_name_form_row.html`) and the existing-row
+# Details disclosure (`_name_parts_editor.html`). Static structural
+# assertions read the union so the metadata-presence tests work
+# regardless of which partial physically owns the markup.
+METADATA_FIELDS = Path(
+    "src/templates/admin/people/partials/_name_metadata_fields.html"
+).read_text()
+FORM_ROW_FULL = FORM_ROW + "\n" + METADATA_FIELDS
 
 
 # ---------------------------------------------------------------------------
@@ -40,20 +46,20 @@ VISIBILITY_VALUES = ("public", "legal_only", "hidden")
 
 
 def test_form_row_has_visibility_select():
-    assert 'name="visibility"' in FORM_ROW
+    assert 'name="visibility"' in FORM_ROW_FULL
 
 
 def test_form_row_offers_all_three_visibility_values():
     for v in VISIBILITY_VALUES:
-        assert f"'{v}'" in FORM_ROW, f"visibility option {v!r} missing"
+        assert f"'{v}'" in FORM_ROW_FULL, f"visibility option {v!r} missing"
 
 
 def test_form_row_visibility_select_has_label():
     """A11y: the visibility control must be labelled."""
     # Either a <label> element, an aria-label, or aria-labelledby reference.
     has_label = (
-        'aria-label="Visibility"' in FORM_ROW
-        or "<label" in FORM_ROW.split('name="visibility"')[0][-200:]
+        'aria-label="Visibility"' in FORM_ROW_FULL
+        or "<label" in FORM_ROW_FULL.split('name="visibility"')[0][-200:]
     )
     assert has_label, "visibility select needs a label or aria-label"
 
@@ -65,7 +71,10 @@ def test_form_row_visibility_defaults_to_public_when_no_existing_row():
     expression — verify both the structural pattern and the runtime result.
     """
     # Structural check: the Jinja guard must reference (not n) and 'public'.
-    assert "not n and v == 'public'" in FORM_ROW or "v == 'public'" in FORM_ROW
+    assert (
+        "not n and v == 'public'" in FORM_ROW_FULL
+        or "v == 'public'" in FORM_ROW_FULL
+    )
 
     # Runtime check: render with n=None and confirm <option value="public" selected>.
     from jinja2 import Environment, FileSystemLoader
@@ -114,31 +123,31 @@ def test_detail_deadname_confirm_script_is_deferred():
 
 def test_form_row_has_locale_typeahead_combobox():
     """Locale input wired to /admin/people/_locale_search with combobox a11y."""
-    assert 'name="locale"' in FORM_ROW
-    assert "/admin/people/_locale_search" in FORM_ROW
-    assert 'role="combobox"' in FORM_ROW
-    assert 'aria-controls="locale-search-results"' in FORM_ROW
-    assert 'aria-haspopup="listbox"' in FORM_ROW
+    assert 'name="locale"' in FORM_ROW_FULL
+    assert "/admin/people/_locale_search" in FORM_ROW_FULL
+    assert 'role="combobox"' in FORM_ROW_FULL
+    assert 'aria-controls="locale-search-results"' in FORM_ROW_FULL
+    assert 'aria-haspopup="listbox"' in FORM_ROW_FULL
 
 
 def test_form_row_locale_results_listbox_present():
-    assert 'id="locale-search-results"' in FORM_ROW
-    assert 'role="listbox"' in FORM_ROW
+    assert 'id="locale-search-results"' in FORM_ROW_FULL
+    assert 'role="listbox"' in FORM_ROW_FULL
 
 
 def test_form_row_has_script_typeahead_combobox():
-    assert 'name="script"' in FORM_ROW
-    assert "/admin/people/_script_search" in FORM_ROW
-    assert 'aria-controls="script-search-results"' in FORM_ROW
+    assert 'name="script"' in FORM_ROW_FULL
+    assert "/admin/people/_script_search" in FORM_ROW_FULL
+    assert 'aria-controls="script-search-results"' in FORM_ROW_FULL
 
 
 def test_form_row_script_results_listbox_present():
-    assert 'id="script-search-results"' in FORM_ROW
+    assert 'id="script-search-results"' in FORM_ROW_FULL
 
 
 def test_form_row_has_sort_as_plain_input():
     """sort_as is a plain text input — not a combobox."""
-    assert 'name="sort_as"' in FORM_ROW
+    assert 'name="sort_as"' in FORM_ROW_FULL
 
 
 def test_form_row_calls_init_typeahead_for_locale_and_script():
@@ -209,14 +218,14 @@ def test_read_row_subtitle_renders_sort_as():
 
 
 def test_form_row_has_reading_of_id_typeahead():
-    assert 'name="reading_of_id"' in FORM_ROW
-    assert "_reading_target_search" in FORM_ROW
-    assert 'aria-controls="reading-of-results"' in FORM_ROW
-    assert 'aria-haspopup="listbox"' in FORM_ROW
+    assert 'name="reading_of_id"' in FORM_ROW_FULL
+    assert "_reading_target_search" in FORM_ROW_FULL
+    assert 'aria-controls="reading-of-results"' in FORM_ROW_FULL
+    assert 'aria-haspopup="listbox"' in FORM_ROW_FULL
 
 
 def test_form_row_reading_of_results_listbox_present():
-    assert 'id="reading-of-results"' in FORM_ROW
+    assert 'id="reading-of-results"' in FORM_ROW_FULL
 
 
 def test_form_row_calls_init_typeahead_for_reading_of():
@@ -227,7 +236,10 @@ def test_form_row_calls_init_typeahead_for_reading_of():
 def test_form_row_reading_of_block_is_conditional():
     """Block must be wrapped so JS can show/hide based on name_type."""
     # Either a wrapping element with id, or a class hook that the JS toggles.
-    assert 'id="reading-of-block"' in FORM_ROW or "data-reading-of-block" in FORM_ROW
+    assert (
+        'id="reading-of-block"' in FORM_ROW_FULL
+        or "data-reading-of-block" in FORM_ROW_FULL
+    )
 
 
 def test_form_row_has_reading_type_toggle_script():
@@ -353,13 +365,45 @@ def test_parts_editor_renders_only_when_editing_existing_row():
     assert out.strip() == "" or "<form" not in out
 
 
-def test_parts_editor_posts_to_upsert_url():
+def test_parts_editor_has_no_inner_form():
+    """Issue #127: the Details body is markup nested in the parent name form;
+    no inner <form> element."""
     from jinja2 import Environment, FileSystemLoader
     env = Environment(loader=FileSystemLoader("src/templates"))
     out = env.get_template(
         "admin/people/partials/_name_parts_editor.html"
     ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
-    assert 'hx-post="/admin/people/pid_x/names/nid_x/parts/"' in out
+    assert "<form" not in out
+
+
+def test_parts_editor_has_no_save_parts_button():
+    """Issue #127: the parent form's single Save covers parts too."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    assert "Save parts" not in out
+
+
+def test_parts_editor_has_no_remove_button_even_when_parts_exist():
+    """Issue #127: clearing all fields + Save deletes the row; explicit
+    Remove button is removed."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(
+        n={"id": "nid_x"},
+        parts={
+            "given_names": ["Ada"], "family_names": None,
+            "additional_names": None, "honorific_prefix": None,
+            "honorific_suffix": None, "primary_identifier": "given",
+        },
+        person_id="pid_x",
+    )
+    assert "Remove structured parts" not in out
+    assert "Remove Details" not in out
 
 
 def test_parts_editor_offers_all_four_primary_identifiers():
@@ -368,16 +412,47 @@ def test_parts_editor_offers_all_four_primary_identifiers():
         assert f"'{v}'" in PARTS_EDITOR or f'"{v}"' in PARTS_EDITOR, v
 
 
-def test_parts_editor_renders_five_inputs_per_array():
-    """Five repeating inputs per array field, server-side cap aligned."""
+def test_parts_editor_renders_cardstack_for_each_array_field():
+    """Issue #127: arrays render as a vertical card stack.
+    Each existing value gets one card (one input + remove button); a single
+    Add button per field appends new cards up to the 5-cap. Empty arrays
+    render zero cards (Add button only).
+    """
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    parts = {
+        "given_names": ["María", "José"],
+        "family_names": ["García"],
+        "additional_names": [],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    # Each card carries a data-cardstack-card="<field>" hook for the JS.
+    assert out.count('data-cardstack-card="given_names"') == 2
+    assert out.count('data-cardstack-card="family_names"') == 1
+    assert out.count('data-cardstack-card="additional_names"') == 0
+    # One Add button per field (always present, even when array empty).
+    assert out.count('data-cardstack-add="given_names"') == 1
+    assert out.count('data-cardstack-add="family_names"') == 1
+    assert out.count('data-cardstack-add="additional_names"') == 1
+    # Stack hook for the JS to find the cards container.
+    assert 'data-cardstack="given_names"' in out
+    assert 'data-cardstack="family_names"' in out
+    assert 'data-cardstack="additional_names"' in out
+
+
+def test_parts_editor_drops_max_5_hint():
+    """Issue #127: '(max 5)' hint removed; cap surfaced via disabled Add button."""
     from jinja2 import Environment, FileSystemLoader
     env = Environment(loader=FileSystemLoader("src/templates"))
     out = env.get_template(
         "admin/people/partials/_name_parts_editor.html"
     ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
-    assert out.count('name="given_names"') == 5
-    assert out.count('name="family_names"') == 5
-    assert out.count('name="additional_names"') == 5
+    assert "max 5" not in out
 
 
 def test_parts_editor_pre_populates_arrays():
@@ -426,28 +501,15 @@ def test_parts_editor_summary_has_stable_id_for_oob_swap():
     assert 'id="parts-summary-nid_x"' in out
 
 
-def test_parts_editor_shows_remove_button_only_when_parts_exist():
+def test_parts_editor_summary_label_says_details():
+    """Issue #127: rename 'Structured parts' to 'Details' (UI label only)."""
     from jinja2 import Environment, FileSystemLoader
     env = Environment(loader=FileSystemLoader("src/templates"))
-    no_parts = env.get_template(
+    out = env.get_template(
         "admin/people/partials/_name_parts_editor.html"
     ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
-    with_parts = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(
-        n={"id": "nid_x"},
-        parts={
-            "given_names": ["Ada"],
-            "family_names": None,
-            "additional_names": None,
-            "honorific_prefix": None,
-            "honorific_suffix": None,
-            "primary_identifier": "given",
-        },
-        person_id="pid_x",
-    )
-    assert "Remove structured parts" not in no_parts
-    assert "Remove structured parts" in with_parts
+    assert "Details" in out
+    assert "Structured parts" not in out
 
 
 # ---------------------------------------------------------------------------
@@ -468,8 +530,8 @@ def test_read_row_renders_parts_subtitle_when_present():
     out = env.get_template(
         "admin/people/partials/_name_row.html"
     ).render(n=row, person_id="p1")
-    assert "parts:" in out
     assert "García López" in out
+    assert "parts:" not in out  # prefix dropped by #127
 
 
 def test_read_row_skips_parts_subtitle_when_absent():
@@ -489,26 +551,113 @@ def test_read_row_skips_parts_subtitle_when_absent():
 
 
 # ---------------------------------------------------------------------------
-# OOB summary fragment — escapes name_id before HTML interpolation
+# Detail page — CardStack JS wiring (Issue #127 Task B)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "evil_id,forbidden,must_appear",
-    [
-        ('a"<script>alert(1)</script>', "<script>", "&lt;script&gt;"),
-        ("a' onclick='x", "onclick='x", "&#39;"),
-        ('"><img src=x>', "<img src=x>", "&gt;"),
-    ],
-)
-def test_summary_oob_fragment_escapes_name_id(evil_id, forbidden, must_appear):
-    """OOB fragment must escape name_id before HTML interpolation.
+def test_detail_loads_parts_cardstack_script():
+    """Issue #127: detail page loads the CardStack JS."""
+    from pathlib import Path
+    DETAIL = Path("src/templates/admin/people/detail.html").read_text()
+    assert "person-name-parts-cardstack.js" in DETAIL
 
-    Defense in depth: production callers always pass a server-generated
-    ULID that survived `_ensure_name_belongs_to_person`, but the
-    boundary check protects future callers that bypass that guard."""
-    out = _summary_oob_fragment(evil_id, has_parts=True)
-    assert forbidden not in out, f"unescaped {forbidden!r} leaked into {out!r}"
-    assert must_appear in out, f"expected escaped {must_appear!r} in {out!r}"
-    assert 'hx-swap-oob="outerHTML"' in out
-    assert "Structured parts" in out
+
+def test_detail_parts_cardstack_script_is_deferred():
+    """Cache-bust suffix `?v=1` matches the deadname-confirm convention."""
+    from pathlib import Path
+    DETAIL = Path("src/templates/admin/people/detail.html").read_text()
+    assert (
+        'src="/static/admin/person-name-parts-cardstack.js?v=1" defer'
+        in DETAIL
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parts editor — labels + help text (Issue #127 Task C)
+# ---------------------------------------------------------------------------
+
+
+def test_parts_editor_renders_labels_and_help_text():
+    """Issue #127: every Details field has a clear label and one-line help."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    expected_labels = [
+        "Primary identifier", "Given names", "Family names",
+        "Additional names", "Honorific prefix", "Honorific suffix",
+    ]
+    for label in expected_labels:
+        assert label in out, f"missing label: {label!r}"
+    # Help text fragments — one distinctive substring per field.
+    for help_substring in (
+        "primary surname-equivalent",
+        "Order matters",
+        "Surnames or clan",
+        "Middle names",
+        "Title that precedes",
+        "Suffix that follows",
+    ):
+        assert help_substring in out, f"missing help: {help_substring!r}"
+
+
+# ---------------------------------------------------------------------------
+# Form row — unified Details disclosure (Issue #127 Task E)
+# ---------------------------------------------------------------------------
+
+
+def test_inline_row_excludes_metadata_fields():
+    """Issue #127 bullet 1: name/type/canonical/Save/Cancel inline only.
+
+    For an existing-row edit, the metadata fields (visibility, locale, script,
+    sort_as, reading_of_id) must live inside the Details disclosure, not on
+    the inline row.
+    """
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_form_row.html"
+    ).render(n={"id": "nid_x", "name": "X", "name_type": "legal",
+                "is_canonical": True, "visibility": "public",
+                "locale": None, "script": None, "sort_as": None,
+                "reading_of_id": None, "reading_of_name": None},
+             parts=None, person_id="pid_x")
+    inline_section = out.split("<details", 1)[0]
+    for needle in ('name="visibility"', 'name="locale"', 'name="script"',
+                   'name="sort_as"', 'name="reading_of_id"'):
+        assert needle not in inline_section, f"inline row leaks {needle!r}"
+    details_section = out[out.index("<details"):]
+    for needle in ('name="visibility"', 'name="locale"', 'name="script"',
+                   'name="sort_as"', 'name="reading_of_id"'):
+        assert needle in details_section, f"Details missing {needle!r}"
+
+
+def test_disclosure_auto_opens_when_metadata_set():
+    """Issue #127: auto-open Details when any non-default metadata present."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    n_with_locale = {"id": "nid_x", "name": "X", "name_type": "legal",
+                     "is_canonical": True, "visibility": "public",
+                     "locale": "ja-JP", "script": None, "sort_as": None,
+                     "reading_of_id": None, "reading_of_name": None}
+    out = env.get_template(
+        "admin/people/partials/_name_form_row.html"
+    ).render(n=n_with_locale, parts=None, person_id="pid_x")
+    import re
+    assert re.search(r"<details[^>]*\bopen\b", out)
+
+
+def test_disclosure_closed_for_pristine_row():
+    """No metadata set, no parts → Details closed by default."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    n = {"id": "nid_x", "name": "X", "name_type": "legal",
+         "is_canonical": True, "visibility": "public",
+         "locale": None, "script": None, "sort_as": None,
+         "reading_of_id": None, "reading_of_name": None}
+    out = env.get_template(
+        "admin/people/partials/_name_form_row.html"
+    ).render(n=n, parts=None, person_id="pid_x")
+    import re
+    assert not re.search(r"<details[^>]*\bopen\b", out)

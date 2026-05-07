@@ -1,0 +1,149 @@
+/**
+ * Tests for src/static/admin/person-name-parts-cardstack.js
+ *
+ * Issue #127: vertical card stack for given_names / family_names /
+ * additional_names in the parts editor. Add appends empty cards, Remove
+ * drops them, and the Add button disables when the cap is reached.
+ */
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SRC = readFileSync(
+  resolve(__dirname, '../../src/static/admin/person-name-parts-cardstack.js'),
+  'utf-8',
+);
+
+let _addSpy;
+
+beforeEach(() => {
+  _addSpy = vi.spyOn(document, 'addEventListener');
+});
+
+afterEach(() => {
+  _addSpy.mock.calls.forEach(([type, handler]) => document.removeEventListener(type, handler));
+  vi.restoreAllMocks();
+  document.body.innerHTML = '';
+});
+
+/** Build the HTML for `n` pre-populated cards for `field`. */
+function cardHTML(field, n) {
+  return Array.from(
+    { length: n },
+    (_, i) => `
+    <div data-cardstack-card="${field}" style="display:flex;gap:var(--space-1);align-items:center">
+      <input type="text" name="${field}" value="v${i}" style="flex:1">
+      <button type="button" data-cardstack-remove="${field}">×</button>
+    </div>`,
+  ).join('');
+}
+
+/**
+ * Set up a single-stack DOM for given_names, wrapped in a <form> so that
+ * `closest('form')` works for scope resolution.
+ */
+function setupDOM(initialCards = 0) {
+  document.body.innerHTML = `
+    <form>
+      <fieldset>
+        <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', initialCards)}</div>
+        <button type="button" data-cardstack-add="given_names">+ Add</button>
+      </fieldset>
+    </form>`;
+  eval(SRC);
+}
+
+describe('person-name-parts-cardstack', () => {
+  it('Add appends a new empty card', () => {
+    setupDOM(1);
+    const addBtn = document.querySelector('[data-cardstack-add="given_names"]');
+    addBtn.click();
+    const cards = document.querySelectorAll('[data-cardstack-card="given_names"]');
+    expect(cards.length).toBe(2);
+    expect(cards[1].querySelector('input').value).toBe('');
+  });
+
+  it('Remove drops the clicked card', () => {
+    setupDOM(2);
+    const firstRemove = document.querySelector('[data-cardstack-remove="given_names"]');
+    firstRemove.click();
+    const cards = document.querySelectorAll('[data-cardstack-card="given_names"]');
+    expect(cards.length).toBe(1);
+    expect(cards[0].querySelector('input').value).toBe('v1');
+  });
+
+  it('Add button disables when cap reached', () => {
+    setupDOM(4);
+    const addBtn = document.querySelector('[data-cardstack-add="given_names"]');
+    addBtn.click();
+    expect(addBtn.disabled).toBe(true);
+    const cards = document.querySelectorAll('[data-cardstack-card="given_names"]');
+    expect(cards.length).toBe(5);
+  });
+
+  it('Remove re-enables a disabled Add button', () => {
+    setupDOM(5);
+    const addBtn = document.querySelector('[data-cardstack-add="given_names"]');
+    expect(addBtn.disabled).toBe(true);
+    const firstRemove = document.querySelector('[data-cardstack-remove="given_names"]');
+    firstRemove.click();
+    expect(addBtn.disabled).toBe(false);
+  });
+
+  describe('multi-stack isolation (two rows open simultaneously)', () => {
+    beforeEach(() => {
+      // Two independent name-row editors, each in its own <form>.
+      // Row 1: 1 given_names card. Row 2: 2 given_names cards.
+      document.body.innerHTML = `
+        <form id="form1">
+          <fieldset>
+            <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', 1)}</div>
+            <button type="button" data-cardstack-add="given_names">+ Add</button>
+          </fieldset>
+        </form>
+        <form id="form2">
+          <fieldset>
+            <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', 2)}</div>
+            <button type="button" data-cardstack-add="given_names">+ Add</button>
+          </fieldset>
+        </form>`;
+      eval(SRC);
+    });
+
+    it('Add on second stack appends only to second stack', () => {
+      const form2 = document.getElementById('form2');
+      const addBtn2 = form2.querySelector('[data-cardstack-add="given_names"]');
+      addBtn2.click();
+
+      const form1 = document.getElementById('form1');
+      expect(form1.querySelectorAll('[data-cardstack-card="given_names"]').length).toBe(1);
+      expect(form2.querySelectorAll('[data-cardstack-card="given_names"]').length).toBe(3);
+    });
+
+    it('Remove on second stack removes only from second stack', () => {
+      const form2 = document.getElementById('form2');
+      const firstRemove2 = form2.querySelector('[data-cardstack-remove="given_names"]');
+      firstRemove2.click();
+
+      const form1 = document.getElementById('form1');
+      expect(form1.querySelectorAll('[data-cardstack-card="given_names"]').length).toBe(1);
+      expect(form2.querySelectorAll('[data-cardstack-card="given_names"]').length).toBe(1);
+    });
+
+    it('Add button on stack 1 is unaffected by stack 2 cap state', () => {
+      // Fill stack 2 to cap so its Add button is disabled.
+      const form2 = document.getElementById('form2');
+      const addBtn2 = form2.querySelector('[data-cardstack-add="given_names"]');
+      for (let i = 0; i < 3; i++) addBtn2.click(); // 2 + 3 = 5 → disabled
+
+      expect(addBtn2.disabled).toBe(true);
+
+      // Stack 1 has 1 card — its Add button must still be enabled.
+      const form1 = document.getElementById('form1');
+      const addBtn1 = form1.querySelector('[data-cardstack-add="given_names"]');
+      expect(addBtn1.disabled).toBe(false);
+    });
+  });
+});
