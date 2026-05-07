@@ -883,43 +883,70 @@ def test_metadata_field_order_visibility_then_sort_as_then_locale_then_script():
 # ---------------------------------------------------------------------------
 
 
-def test_locale_placeholder_carries_example_codes():
-    """Locale placeholder shows representative BCP 47 codes."""
-    # Example codes the issue called out: en, en-US, ja-JP.
+def test_locale_label_carries_bcp47_parenthetical():
+    """Locale label is `Locale (BCP-47)` — the standard moves from
+    placeholder into the label so the placeholder reads as an example
+    rather than dual-purpose."""
+    assert ">Locale (BCP-47)" in METADATA_FIELDS, (
+        "locale label must read 'Locale (BCP-47)'"
+    )
+
+
+def test_locale_placeholder_carries_example_codes_only():
+    """Locale placeholder shows example codes only — no `BCP 47` text
+    (that moved to the label)."""
     locale_block = METADATA_FIELDS.split('id="locale-search-display')[1]
     locale_block = locale_block.split("</label>")[0]
     assert "placeholder=" in locale_block
     placeholder = locale_block.split('placeholder="')[1].split('"')[0]
-    # At least one concrete example code in the placeholder.
     assert any(code in placeholder for code in ("en-US", "ja-JP", "en, ")), (
         f"locale placeholder lacks example codes: {placeholder!r}"
     )
+    # The standard label is now in the field's `<label>`, not the placeholder.
+    assert "BCP" not in placeholder, (
+        f"locale placeholder should not duplicate the BCP-47 label: {placeholder!r}"
+    )
 
 
-def test_script_placeholder_carries_example_codes():
-    """Script placeholder shows representative ISO 15924 codes."""
+def test_script_label_carries_iso15924_parenthetical():
+    """Script label is `Script (ISO 15924)`."""
+    assert ">Script (ISO 15924)" in METADATA_FIELDS, (
+        "script label must read 'Script (ISO 15924)'"
+    )
+
+
+def test_script_placeholder_carries_example_codes_only():
+    """Script placeholder shows example codes only — no `ISO 15924` text."""
     script_block = METADATA_FIELDS.split('id="script-search-display')[1]
     script_block = script_block.split("</label>")[0]
     placeholder = script_block.split('placeholder="')[1].split('"')[0]
     assert any(code in placeholder for code in ("Latn", "Jpan", "Cyrl", "Hans")), (
         f"script placeholder lacks example codes: {placeholder!r}"
     )
+    assert "ISO" not in placeholder, (
+        f"script placeholder should not duplicate the ISO 15924 label: {placeholder!r}"
+    )
+
+
+def test_sort_as_label_carries_comma_separated_parenthetical():
+    """Sort As label is `Sort as (comma separated)` — guidance for
+    multi-token collation keys."""
+    assert ">Sort as (comma separated)" in METADATA_FIELDS, (
+        "sort_as label must read 'Sort as (comma separated)'"
+    )
 
 
 def test_sort_as_placeholder_describes_purpose():
-    """Sort As placeholder describes what to put there, not just
-    '(optional)'."""
+    """Sort As placeholder still describes what to put there."""
     sort_as_block = METADATA_FIELDS.split('name="sort_as"')[1]
     sort_as_block = sort_as_block.split(">")[0]
     placeholder = sort_as_block.split('placeholder="')[1].split('"')[0]
-    # Should mention surname/last/family or have a comma-separated example.
     assert (
         "Smith" in placeholder
         or "surname" in placeholder.lower()
         or "last name" in placeholder.lower()
         or "," in placeholder
     ), f"sort_as placeholder is uninformative: {placeholder!r}"
-    # And should NOT just be the old "(optional)" stub.
     assert placeholder != "Sort as (optional)"
 
 

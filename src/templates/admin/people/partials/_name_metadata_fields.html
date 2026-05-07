@@ -30,7 +30,7 @@
 </div>
 {# sort_as — plain text, free string for collation key overrides #}
 <div class="form-group" style="margin-bottom:0;min-width:9rem">
-  <label style="font-size:0.75rem;display:block">Sort as
+  <label style="font-size:0.75rem;display:block">Sort as (comma separated)
     <input type="text" name="sort_as" autocomplete="off"
            placeholder="Surname-first key, e.g. Smith, John"
            aria-label="Sort as"
@@ -39,9 +39,9 @@
 </div>
 {# Locale typeahead — display input + hidden code value + listbox #}
 <div class="form-group" style="margin-bottom:0;position:relative;min-width:9rem">
-  <label style="font-size:0.75rem;display:block">Locale
+  <label style="font-size:0.75rem;display:block">Locale (BCP-47)
     <input id="locale-search-display-{{ _uid }}" type="text" autocomplete="off"
-           placeholder="BCP 47 — e.g. en, en-US, ja-JP"
+           placeholder="e.g. en, en-US, ja-JP"
            value="{{ n.locale if n and n.locale else '' }}"
            hx-get="/admin/people/_locale_search"
            hx-trigger="input changed delay:200ms"
@@ -61,9 +61,9 @@
 </div>
 {# Script typeahead — same shape against iso15924_scripts #}
 <div class="form-group" style="margin-bottom:0;position:relative;min-width:9rem">
-  <label style="font-size:0.75rem;display:block">Script
+  <label style="font-size:0.75rem;display:block">Script (ISO 15924)
     <input id="script-search-display-{{ _uid }}" type="text" autocomplete="off"
-           placeholder="ISO 15924 — e.g. Latn, Jpan, Cyrl"
+           placeholder="e.g. Latn, Jpan, Cyrl"
            value="{{ n.script if n and n.script else '' }}"
            hx-get="/admin/people/_script_search"
            hx-trigger="input changed delay:200ms"
