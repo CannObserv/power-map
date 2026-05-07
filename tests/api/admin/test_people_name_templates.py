@@ -576,3 +576,33 @@ def test_detail_parts_cardstack_script_is_deferred():
         'src="/static/admin/person-name-parts-cardstack.js?v=1" defer'
         in DETAIL
     )
+
+
+# ---------------------------------------------------------------------------
+# Parts editor — labels + help text (Issue #127 Task C)
+# ---------------------------------------------------------------------------
+
+
+def test_parts_editor_renders_labels_and_help_text():
+    """Issue #127: every Details field has a clear label and one-line help."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    expected_labels = [
+        "Primary identifier", "Given names", "Family names",
+        "Additional names", "Honorific prefix", "Honorific suffix",
+    ]
+    for label in expected_labels:
+        assert label in out, f"missing label: {label!r}"
+    # Help text fragments — one distinctive substring per field.
+    for help_substring in (
+        "primary surname-equivalent",
+        "Order matters",
+        "Surnames or clan",
+        "Middle names",
+        "Title that precedes",
+        "Suffix that follows",
+    ):
+        assert help_substring in out, f"missing help: {help_substring!r}"
