@@ -57,18 +57,20 @@
     {# ---- Name parts section ---- #}
     <div style="font-size:0.8rem;color:var(--color-text-muted);font-weight:600">Name parts</div>
     <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
+      {# Issue #131: help text sits between the label and the control, not below it. #}
       <div class="form-group" style="margin-bottom:0;min-width:9rem">
-        <label style="font-size:0.75rem;display:block">Primary identifier
-          <select name="primary_identifier" aria-label="Primary identifier">
-            <option value=""{% if not parts or not parts.primary_identifier %} selected{% endif %}>—</option>
-            {% for v in ('family', 'given', 'patronymic', 'mononym') %}
-            <option value="{{ v }}"{% if parts and parts.primary_identifier == v %} selected{% endif %}>{{ v }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <small style="color:var(--color-text-muted);font-size:0.7rem;display:block;margin-top:0.125rem">
+        <label for="primary-identifier-{{ n.id }}"
+               style="font-size:0.75rem;display:block;margin-bottom:0.125rem">Primary identifier</label>
+        <small style="color:var(--color-text-muted);font-size:0.7rem;display:block;margin-bottom:0.25rem">
           Which name part is the primary surname-equivalent (e.g. <em>family</em> in Japan; <em>patronymic</em> in Iceland; <em>mononym</em> for single-name traditions).
         </small>
+        <select id="primary-identifier-{{ n.id }}" name="primary_identifier"
+                aria-label="Primary identifier">
+          <option value=""{% if not parts or not parts.primary_identifier %} selected{% endif %}>—</option>
+          {% for v in ('family', 'given', 'patronymic', 'mononym') %}
+          <option value="{{ v }}"{% if parts and parts.primary_identifier == v %} selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
       </div>
     </div>
     {# Three array sections — given / family / additional. CardStack UI:
@@ -88,12 +90,16 @@
       </small>
       <div data-cardstack="{{ field }}" data-cardstack-cap="5"
            style="display:flex;flex-direction:column;gap:var(--space-1)">
+        {# Issue #131: input wrapped in .form-group so it inherits baseline
+           sizing (font-size, padding, min-height: 44px) instead of falling
+           back to browser-default text input styling. #}
         {% for v in vals %}
         <div data-cardstack-card="{{ field }}"
              style="display:flex;gap:var(--space-1);align-items:center">
-          <input type="text" name="{{ field }}" value="{{ v }}"
-                 aria-label="{{ label }} {{ loop.index }}"
-                 style="flex:1">
+          <div class="form-group" style="margin-bottom:0;flex:1">
+            <input type="text" name="{{ field }}" value="{{ v }}"
+                   aria-label="{{ label }} {{ loop.index }}">
+          </div>
           <button type="button" class="btn btn--sm btn--secondary"
                   data-cardstack-remove="{{ field }}"
                   aria-label="Remove this {{ label|lower|replace(' names', '') }} entry">×</button>
@@ -106,26 +112,24 @@
               style="margin-top:var(--space-1)">+ Add</button>
     </fieldset>
     {% endfor %}
+    {# Issue #131: examples folded into the placeholder; below-control help
+       removed to keep the disclosure visually compact. #}
     <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:7rem">
         <label style="font-size:0.75rem;display:block">Honorific prefix
           <input type="text" name="honorific_prefix"
+                 placeholder="Title that precedes — e.g. Dr., Hon., Sir"
                  value="{{ parts.honorific_prefix if parts and parts.honorific_prefix else '' }}"
                  aria-label="Honorific prefix">
         </label>
-        <small style="color:var(--color-text-muted);font-size:0.7rem;display:block;margin-top:0.125rem">
-          Title that precedes (e.g. Dr., Hon., Sir).
-        </small>
       </div>
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:7rem">
         <label style="font-size:0.75rem;display:block">Honorific suffix
           <input type="text" name="honorific_suffix"
+                 placeholder="Suffix that follows — e.g. Jr., PhD, II"
                  value="{{ parts.honorific_suffix if parts and parts.honorific_suffix else '' }}"
                  aria-label="Honorific suffix">
         </label>
-        <small style="color:var(--color-text-muted);font-size:0.7rem;display:block;margin-top:0.125rem">
-          Suffix that follows (e.g. Jr., PhD, II).
-        </small>
       </div>
     </div>
   </div>

@@ -126,23 +126,24 @@ def test_form_row_has_locale_typeahead_combobox():
     assert 'name="locale"' in FORM_ROW_FULL
     assert "/admin/people/_locale_search" in FORM_ROW_FULL
     assert 'role="combobox"' in FORM_ROW_FULL
-    assert 'aria-controls="locale-search-results"' in FORM_ROW_FULL
+    # Issue #131: aria-controls now namespaced; allow any suffix.
+    assert 'aria-controls="locale-search-results-' in FORM_ROW_FULL
     assert 'aria-haspopup="listbox"' in FORM_ROW_FULL
 
 
 def test_form_row_locale_results_listbox_present():
-    assert 'id="locale-search-results"' in FORM_ROW_FULL
+    assert 'id="locale-search-results-' in FORM_ROW_FULL
     assert 'role="listbox"' in FORM_ROW_FULL
 
 
 def test_form_row_has_script_typeahead_combobox():
     assert 'name="script"' in FORM_ROW_FULL
     assert "/admin/people/_script_search" in FORM_ROW_FULL
-    assert 'aria-controls="script-search-results"' in FORM_ROW_FULL
+    assert 'aria-controls="script-search-results-' in FORM_ROW_FULL
 
 
 def test_form_row_script_results_listbox_present():
-    assert 'id="script-search-results"' in FORM_ROW_FULL
+    assert 'id="script-search-results-' in FORM_ROW_FULL
 
 
 def test_form_row_has_sort_as_plain_input():
@@ -220,12 +221,12 @@ def test_read_row_subtitle_renders_sort_as():
 def test_form_row_has_reading_of_id_typeahead():
     assert 'name="reading_of_id"' in FORM_ROW_FULL
     assert "_reading_target_search" in FORM_ROW_FULL
-    assert 'aria-controls="reading-of-results"' in FORM_ROW_FULL
+    assert 'aria-controls="reading-of-results-' in FORM_ROW_FULL
     assert 'aria-haspopup="listbox"' in FORM_ROW_FULL
 
 
 def test_form_row_reading_of_results_listbox_present():
-    assert 'id="reading-of-results"' in FORM_ROW_FULL
+    assert 'id="reading-of-results-' in FORM_ROW_FULL
 
 
 def test_form_row_calls_init_typeahead_for_reading_of():
@@ -235,9 +236,10 @@ def test_form_row_calls_init_typeahead_for_reading_of():
 
 def test_form_row_reading_of_block_is_conditional():
     """Block must be wrapped so JS can show/hide based on name_type."""
-    # Either a wrapping element with id, or a class hook that the JS toggles.
+    # Either a wrapping element with id (now namespaced — any suffix), or
+    # a class hook that the JS toggles.
     assert (
-        'id="reading-of-block"' in FORM_ROW_FULL
+        'id="reading-of-block-' in FORM_ROW_FULL
         or "data-reading-of-block" in FORM_ROW_FULL
     )
 
@@ -661,3 +663,339 @@ def test_disclosure_closed_for_pristine_row():
     ).render(n=n, parts=None, person_id="pid_x")
     import re
     assert not re.search(r"<details[^>]*\bopen\b", out)
+
+
+# ---------------------------------------------------------------------------
+# Typeahead inputs — must send `q` to the search endpoints (Issue #131)
+# ---------------------------------------------------------------------------
+#
+# Bug: search inputs were named `q_locale` / `q_script` / `q_reading_of`,
+# so HTMX form-serialised the trio and `hx-params="q"` filtered everything
+# out (no input was named `q`). Endpoints received an empty `q` and
+# returned zero rows. The lookups appeared broken.
+#
+# Fix shape: the search-only inputs must NOT be form-named (they should
+# stay out of the parent Save POST), and the typeahead request must send
+# `q={value}`. We assert via `hx-vals` carrying a `q:` JS expression and
+# the absence of the old `name="q_..."` attributes.
+
+
+def test_locale_input_sends_q_to_search_endpoint():
+    """Locale typeahead must send the input value as `q`."""
+    # The old buggy form had name="q_locale". The fix uses hx-vals to map
+    # the input value to `q`.
+    assert 'name="q_locale"' not in METADATA_FIELDS, (
+        "locale input must not carry name='q_locale' — it pollutes Save POST"
+        " and the server endpoint expects param `q`"
+    )
+    # hx-vals must populate q from the input element value.
+    assert "hx-vals=" in METADATA_FIELDS
+    locale_block = METADATA_FIELDS.split("/admin/people/_locale_search")[1]
+    locale_block = locale_block.split("</div>")[0]
+    assert "hx-vals" in locale_block, "locale typeahead missing hx-vals"
+    assert "q:" in locale_block or "'q'" in locale_block or '"q"' in locale_block, (
+        "locale typeahead hx-vals must declare a `q` key"
+    )
+
+
+def test_script_input_sends_q_to_search_endpoint():
+    assert 'name="q_script"' not in METADATA_FIELDS, (
+        "script input must not carry name='q_script'"
+    )
+    script_block = METADATA_FIELDS.split("/admin/people/_script_search")[1]
+    script_block = script_block.split("</div>")[0]
+    assert "hx-vals" in script_block, "script typeahead missing hx-vals"
+    assert "q:" in script_block or "'q'" in script_block or '"q"' in script_block
+
+
+def test_reading_of_input_sends_q_to_search_endpoint():
+    assert 'name="q_reading_of"' not in METADATA_FIELDS, (
+        "reading-of input must not carry name='q_reading_of'"
+    )
+    reading_block = METADATA_FIELDS.split("_reading_target_search")[1]
+    reading_block = reading_block.split("</div>")[0]
+    assert "hx-vals" in reading_block, "reading-of typeahead missing hx-vals"
+    assert (
+        "q:" in reading_block or "'q'" in reading_block or '"q"' in reading_block
+    )
+
+
+def test_typeahead_inputs_drop_hx_params_filter():
+    """`hx-params="q"` was dropping everything because no input was named
+    `q`. With hx-vals carrying `q`, the filter is no longer needed."""
+    assert 'hx-params="q"' not in METADATA_FIELDS, (
+        "remove hx-params='q' once hx-vals supplies q directly"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Typeahead element IDs — must be unique per name row (Issue #131)
+# ---------------------------------------------------------------------------
+#
+# Latent bug exposed by the q-param fix: when a user has an Edit drawer
+# open AND clicks "+ Add name" (afterbegin swap), two sets of inputs
+# share the same hard-coded IDs (`locale-search-display`, etc.).
+# `getElementById` returns the first match, leaving one of the two
+# typeaheads unwired and HTMX `hx-target="#locale-search-results"`
+# pointing at the wrong listbox.
+#
+# Fix: namespace element IDs by the name row's id (`n.id`) for existing
+# rows, or `new` for the inline new-name form.
+
+
+def _render_metadata(n_id):
+    """Helper: render the metadata partial for either an existing row or
+    the new-name form (n=None) and return the HTML."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    if n_id is None:
+        n = None
+    else:
+        n = {
+            "id": n_id, "name": "X", "name_type": "legal",
+            "is_canonical": True, "visibility": "public",
+            "locale": None, "script": None, "sort_as": None,
+            "reading_of_id": None, "reading_of_name": None,
+        }
+    return env.get_template(
+        "admin/people/partials/_name_form_row.html"
+    ).render(n=n, parts=None, person_id="pid_x")
+
+
+def test_typeahead_ids_namespaced_per_existing_row():
+    """Existing-row drawer must use IDs suffixed with the row's id."""
+    out = _render_metadata("nid_abc")
+    # The display input, listbox, and hidden field all carry the suffix.
+    for stem in (
+        "locale-search-display", "locale-search-results", "locale-hidden",
+        "script-search-display", "script-search-results", "script-hidden",
+        "reading-of-display", "reading-of-results", "reading-of-hidden",
+        "reading-of-block",
+    ):
+        assert f'id="{stem}-nid_abc"' in out, (
+            f"expected {stem!r} id namespaced to row id, got plain stem"
+        )
+
+
+def test_typeahead_ids_use_new_suffix_for_new_name_form():
+    """The new-name form (n is None) must use a deterministic non-row
+    suffix so it doesn't collide with any existing-row drawer."""
+    out = _render_metadata(None)
+    for stem in (
+        "locale-search-display", "locale-search-results", "locale-hidden",
+        "script-search-display", "script-search-results", "script-hidden",
+    ):
+        assert f'id="{stem}-new"' in out, (
+            f"expected {stem!r} id suffixed with -new for the new-name form"
+        )
+
+
+def test_aria_controls_match_namespaced_listbox_ids():
+    """Inputs reference the namespaced listbox via aria-controls."""
+    out = _render_metadata("nid_abc")
+    assert 'aria-controls="locale-search-results-nid_abc"' in out
+    assert 'aria-controls="script-search-results-nid_abc"' in out
+    assert 'aria-controls="reading-of-results-nid_abc"' in out
+
+
+def test_hx_target_uses_namespaced_listbox_ids():
+    """HTMX must point at the row's own listbox, not a global ID."""
+    out = _render_metadata("nid_abc")
+    assert 'hx-target="#locale-search-results-nid_abc"' in out
+    assert 'hx-target="#script-search-results-nid_abc"' in out
+    assert 'hx-target="#reading-of-results-nid_abc"' in out
+
+
+def test_init_typeahead_uses_namespaced_ids():
+    """The init script must pass the namespaced IDs into initTypeaheadCombobox."""
+    out = _render_metadata("nid_abc")
+    # All three typeaheads wired with row-specific IDs.
+    assert "'locale-search-display-nid_abc'" in out or '"locale-search-display-nid_abc"' in out
+    assert "'script-search-display-nid_abc'" in out or '"script-search-display-nid_abc"' in out
+    assert "'reading-of-display-nid_abc'" in out or '"reading-of-display-nid_abc"' in out
+
+
+def test_reading_of_block_toggle_uses_namespaced_id():
+    """The visibility-toggle JS in the form row must reference the
+    namespaced reading-of block id, not the legacy plain id."""
+    out = _render_metadata("nid_abc")
+    assert "'reading-of-block-nid_abc'" in out or '"reading-of-block-nid_abc"' in out
+
+
+# ---------------------------------------------------------------------------
+# Metadata field order — Visibility, Sort As / Locale, Script (Issue #131)
+# ---------------------------------------------------------------------------
+#
+# The issue asks for two visual rows: (Visibility, Sort As) above
+# (Locale, Script). Markup-wise that means the four `<div class=
+# "form-group">` blocks render in this order:
+#   1. visibility
+#   2. sort_as
+#   3. locale
+#   4. script
+
+
+def test_metadata_field_order_visibility_then_sort_as_then_locale_then_script():
+    """Pluck the input-name occurrences and assert ordering."""
+    fields = ("visibility", "sort_as", "locale", "script")
+    positions = {}
+    for f in fields:
+        # `name="<f>"` for both <input> and <select> — first occurrence is
+        # the field's primary form control. For locale/script the first
+        # occurrence is the hidden input; for sort_as / visibility it's
+        # the visible control. All occur in source order, so the relative
+        # ordering is what matters.
+        positions[f] = METADATA_FIELDS.index(f'name="{f}"')
+    assert (
+        positions["visibility"]
+        < positions["sort_as"]
+        < positions["locale"]
+        < positions["script"]
+    ), f"metadata field order wrong: {positions}"
+
+
+# ---------------------------------------------------------------------------
+# Placeholders carry usage hints (Issue #131)
+# ---------------------------------------------------------------------------
+
+
+def test_locale_placeholder_carries_example_codes():
+    """Locale placeholder shows representative BCP 47 codes."""
+    # Example codes the issue called out: en, en-US, ja-JP.
+    locale_block = METADATA_FIELDS.split('id="locale-search-display')[1]
+    locale_block = locale_block.split("</label>")[0]
+    assert "placeholder=" in locale_block
+    placeholder = locale_block.split('placeholder="')[1].split('"')[0]
+    # At least one concrete example code in the placeholder.
+    assert any(code in placeholder for code in ("en-US", "ja-JP", "en, ")), (
+        f"locale placeholder lacks example codes: {placeholder!r}"
+    )
+
+
+def test_script_placeholder_carries_example_codes():
+    """Script placeholder shows representative ISO 15924 codes."""
+    script_block = METADATA_FIELDS.split('id="script-search-display')[1]
+    script_block = script_block.split("</label>")[0]
+    placeholder = script_block.split('placeholder="')[1].split('"')[0]
+    assert any(code in placeholder for code in ("Latn", "Jpan", "Cyrl", "Hans")), (
+        f"script placeholder lacks example codes: {placeholder!r}"
+    )
+
+
+def test_sort_as_placeholder_describes_purpose():
+    """Sort As placeholder describes what to put there, not just
+    '(optional)'."""
+    sort_as_block = METADATA_FIELDS.split('name="sort_as"')[1]
+    sort_as_block = sort_as_block.split(">")[0]
+    placeholder = sort_as_block.split('placeholder="')[1].split('"')[0]
+    # Should mention surname/last/family or have a comma-separated example.
+    assert (
+        "Smith" in placeholder
+        or "surname" in placeholder.lower()
+        or "last name" in placeholder.lower()
+        or "," in placeholder
+    ), f"sort_as placeholder is uninformative: {placeholder!r}"
+    # And should NOT just be the old "(optional)" stub.
+    assert placeholder != "Sort as (optional)"
+
+
+def _honorific_block(field):
+    """Slice the parts-editor template down to the form-group containing
+    the named honorific input, so we can inspect just that block."""
+    PARTS = Path(
+        "src/templates/admin/people/partials/_name_parts_editor.html"
+    ).read_text()
+    # Walk back from the input's name attr to the enclosing form-group div.
+    input_idx = PARTS.index(f'name="{field}"')
+    group_open = PARTS.rfind('<div class="form-group"', 0, input_idx)
+    # Find the matching </div>: form-group is structurally simple (label
+    # + input only after the redesign), so the next </div> closes it.
+    group_close = PARTS.index("</div>", input_idx)
+    return PARTS[group_open:group_close + len("</div>")]
+
+
+def test_honorific_prefix_placeholder_carries_examples_and_drops_small_help():
+    """Honorific prefix: examples in placeholder; <small> below removed."""
+    block = _honorific_block("honorific_prefix")
+    placeholder = block.split('placeholder="')[1].split('"')[0]
+    assert any(ex in placeholder for ex in ("Dr.", "Hon.", "Sir")), (
+        f"honorific_prefix placeholder lacks examples: {placeholder!r}"
+    )
+    # The below-control <small> helper is gone (placeholder absorbs the hint).
+    assert "<small" not in block, (
+        "honorific_prefix block still has a <small> helper element"
+    )
+
+
+def test_honorific_suffix_placeholder_carries_examples_and_drops_small_help():
+    block = _honorific_block("honorific_suffix")
+    placeholder = block.split('placeholder="')[1].split('"')[0]
+    assert any(ex in placeholder for ex in ("Jr.", "PhD", "II")), (
+        f"honorific_suffix placeholder lacks examples: {placeholder!r}"
+    )
+    assert "<small" not in block, (
+        "honorific_suffix block still has a <small> helper element"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Primary Identifier — help text above the control (Issue #131)
+# ---------------------------------------------------------------------------
+
+
+def test_primary_identifier_help_text_above_control():
+    """Help text appears between the label and the <select>, not below it."""
+    PARTS = Path(
+        "src/templates/admin/people/partials/_name_parts_editor.html"
+    ).read_text()
+    # Find the primary_identifier select and check the help text precedes it.
+    sel_idx = PARTS.index('name="primary_identifier"')
+    # Grab a window before the select.
+    before = PARTS[max(0, sel_idx - 800):sel_idx]
+    after = PARTS[sel_idx:sel_idx + 800]
+    # The distinctive help substring must appear BEFORE the select, not after.
+    needle = "primary surname-equivalent"
+    assert needle in before, (
+        "primary_identifier help text should appear above the control"
+    )
+    assert needle not in after, (
+        "primary_identifier help text should NOT appear after the control too"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Given / Family / Additional inputs — full-size styling (Issue #131)
+# ---------------------------------------------------------------------------
+
+
+def test_cardstack_inputs_wrapped_in_form_group():
+    """Each cardstack card's <input> sits inside a `.form-group` so it
+    inherits the baseline input styling (font-size, padding, min-height)
+    instead of falling back to the browser default."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    parts = {
+        "given_names": ["Ada"],
+        "family_names": ["Lovelace"],
+        "additional_names": ["Augusta"],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    # Each card is a div with data-cardstack-card; inside, the <input>
+    # should be inside a .form-group wrapper.
+    for field in ("given_names", "family_names", "additional_names"):
+        card_segments = out.split(f'data-cardstack-card="{field}"')
+        # First segment is before the first card; subsequent segments
+        # start inside the cards.
+        for seg in card_segments[1:]:
+            # Bound the segment to the next card or end-of-stack.
+            seg_bounded = seg.split('data-cardstack-card="')[0]
+            seg_bounded = seg_bounded.split('data-cardstack-add=')[0]
+            assert "form-group" in seg_bounded, (
+                f"cardstack input for {field} not wrapped in .form-group "
+                f"— styling will fall back to browser default"
+            )
