@@ -968,6 +968,64 @@ def test_primary_identifier_help_text_above_control():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# + Add name button — disable while an unsaved new-name row is present (#131)
+# ---------------------------------------------------------------------------
+#
+# CR follow-up: clicking + Add name twice without saving prepends a second
+# `<tr id="name-row-new">`, reintroducing the same id-collision class the
+# per-row namespacing was meant to prevent (both rows would share the
+# `_uid="new"` suffix). Disable the button while a new-row exists; re-enable
+# on Save (htmx:afterSwap fires on tbody re-render) or Cancel (the new-name
+# form's inline onclick dispatches a custom event).
+
+
+def test_detail_add_name_button_has_id():
+    """Stable id needed so the inline guard script can find the button."""
+    assert 'id="add-name-btn"' in DETAIL
+
+
+def test_detail_add_name_guard_script_present():
+    """Inline script syncs the button's disabled state against
+    `#name-row-new`; listens for htmx:afterSwap (Save) and the custom
+    powerMap:newNameRowClosed event (Cancel)."""
+    assert "name-row-new" in DETAIL
+    assert "htmx:afterSwap" in DETAIL
+    assert "powerMap:newNameRowClosed" in DETAIL
+
+
+def test_new_name_form_cancel_dispatches_close_event():
+    """The inline-Cancel for new-name forms must dispatch the custom
+    event so the + Add name button can re-enable itself."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_form_row.html"
+    ).render(n=None, parts=None, person_id="pid_x")
+    # Cancel for the new-name branch removes the row and signals the page.
+    assert "powerMap:newNameRowClosed" in out
+    # The existing-row Cancel uses hx-get, not onclick; not affected.
+
+
+def test_existing_row_cancel_unchanged():
+    """Existing-row Cancel still issues an HTMX read-row swap, not the
+    inline remove + dispatch."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    n = {"id": "nid_x", "name": "X", "name_type": "legal",
+         "is_canonical": True, "visibility": "public",
+         "locale": None, "script": None, "sort_as": None,
+         "reading_of_id": None, "reading_of_name": None}
+    out = env.get_template(
+        "admin/people/partials/_name_form_row.html"
+    ).render(n=n, parts=None, person_id="pid_x")
+    # Existing-row Cancel is HTMX-driven: hx-get to read-row, hx-target the row.
+    assert "/names/nid_x/read-row/" in out
+    # And its branch should not carry the new-row dispatch.
+    cancel_segment = out.split("Cancel</button>")[0].split("Save</button>")[1]
+    assert "powerMap:newNameRowClosed" not in cancel_segment
+
+
 def test_cardstack_inputs_wrapped_in_form_group():
     """Each cardstack card's <input> sits inside a `.form-group` so it
     inherits the baseline input styling (font-size, padding, min-height)

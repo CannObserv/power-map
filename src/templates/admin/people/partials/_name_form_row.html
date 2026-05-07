@@ -44,13 +44,15 @@
       </label>
       <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
         <button type="submit" class="btn btn--sm btn--primary">Save</button>
+        {# Issue #131: new-name Cancel removes the row + signals the page so
+           the "+ Add name" button (in detail.html) can re-enable itself. #}
         <button type="button" class="btn btn--sm btn--secondary"
                 {% if n %}
                 hx-get="/admin/people/{{ person_id }}/names/{{ n.id }}/read-row/"
                 hx-target="#name-row-{{ n.id }}"
                 hx-swap="outerHTML"
                 {% else %}
-                onclick="this.closest('tr').remove()"
+                onclick="this.closest('tr').remove(); document.body.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));"
                 {% endif %}>Cancel</button>
       </div>
       {# Issue #127: existing-row drawer carries metadata + structured parts

@@ -47,7 +47,7 @@
            hx-trigger="input changed delay:200ms"
            hx-target="#locale-search-results-{{ _uid }}"
            hx-swap="innerHTML"
-           hx-vals='js:{q: event.target.value}'
+           hx-vals='js:{q: (event && event.target ? event.target.value : "")}'
            aria-label="Locale"
            role="combobox"
            aria-expanded="false"
@@ -69,7 +69,7 @@
            hx-trigger="input changed delay:200ms"
            hx-target="#script-search-results-{{ _uid }}"
            hx-swap="innerHTML"
-           hx-vals='js:{q: event.target.value}'
+           hx-vals='js:{q: (event && event.target ? event.target.value : "")}'
            aria-label="Script"
            role="combobox"
            aria-expanded="false"
@@ -94,7 +94,7 @@
            hx-trigger="input changed delay:200ms"
            hx-target="#reading-of-results-{{ _uid }}"
            hx-swap="innerHTML"
-           hx-vals='js:{q: event.target.value}'
+           hx-vals='js:{q: (event && event.target ? event.target.value : "")}'
            aria-label="Reading of"
            role="combobox"
            aria-expanded="false"

@@ -29,6 +29,11 @@
                   honorific_suffix / primary_identifier; or None when
                   the row has no parts yet. #}
 {% if n %}
+{# Issue #131: align with `_name_metadata_fields.html` — the same `_uid`
+   discriminator namespaces any element ids the parts editor introduces.
+   `n.id` is always set inside this `{% if n %}` block, but going through
+   `_uid` keeps the namespacing convention consistent. #}
+{%- set _uid = n.id -%}
 {%- set _given = (parts.given_names if parts and parts.given_names else []) -%}
 {%- set _family = (parts.family_names if parts and parts.family_names else []) -%}
 {%- set _additional = (parts.additional_names if parts and parts.additional_names else []) -%}
@@ -59,12 +64,12 @@
     <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
       {# Issue #131: help text sits between the label and the control, not below it. #}
       <div class="form-group" style="margin-bottom:0;min-width:9rem">
-        <label for="primary-identifier-{{ n.id }}"
+        <label for="primary-identifier-{{ _uid }}"
                style="font-size:0.75rem;display:block;margin-bottom:0.125rem">Primary identifier</label>
         <small style="color:var(--color-text-muted);font-size:0.7rem;display:block;margin-bottom:0.25rem">
           Which name part is the primary surname-equivalent (e.g. <em>family</em> in Japan; <em>patronymic</em> in Iceland; <em>mononym</em> for single-name traditions).
         </small>
-        <select id="primary-identifier-{{ n.id }}" name="primary_identifier"
+        <select id="primary-identifier-{{ _uid }}" name="primary_identifier"
                 aria-label="Primary identifier">
           <option value=""{% if not parts or not parts.primary_identifier %} selected{% endif %}>—</option>
           {% for v in ('family', 'given', 'patronymic', 'mononym') %}
