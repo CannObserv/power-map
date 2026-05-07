@@ -28,20 +28,30 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-function setupDOM(initialCards = 0) {
-  const cards = Array.from(
-    { length: initialCards },
+/** Build the HTML for `n` pre-populated cards for `field`. */
+function cardHTML(field, n) {
+  return Array.from(
+    { length: n },
     (_, i) => `
-    <div data-cardstack-card="given_names" style="display:flex;gap:var(--space-1);align-items:center">
-      <input type="text" name="given_names" value="v${i}" style="flex:1">
-      <button type="button" data-cardstack-remove="given_names">×</button>
+    <div data-cardstack-card="${field}" style="display:flex;gap:var(--space-1);align-items:center">
+      <input type="text" name="${field}" value="v${i}" style="flex:1">
+      <button type="button" data-cardstack-remove="${field}">×</button>
     </div>`,
   ).join('');
+}
+
+/**
+ * Set up a single-stack DOM for given_names, wrapped in a <form> so that
+ * `closest('form')` works for scope resolution.
+ */
+function setupDOM(initialCards = 0) {
   document.body.innerHTML = `
-    <fieldset>
-      <div data-cardstack="given_names" data-cardstack-cap="5">${cards}</div>
-      <button type="button" data-cardstack-add="given_names">+ Add</button>
-    </fieldset>`;
+    <form>
+      <fieldset>
+        <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', initialCards)}</div>
+        <button type="button" data-cardstack-add="given_names">+ Add</button>
+      </fieldset>
+    </form>`;
   eval(SRC);
 }
 
@@ -80,5 +90,60 @@ describe('person-name-parts-cardstack', () => {
     const firstRemove = document.querySelector('[data-cardstack-remove="given_names"]');
     firstRemove.click();
     expect(addBtn.disabled).toBe(false);
+  });
+
+  describe('multi-stack isolation (two rows open simultaneously)', () => {
+    beforeEach(() => {
+      // Two independent name-row editors, each in its own <form>.
+      // Row 1: 1 given_names card. Row 2: 2 given_names cards.
+      document.body.innerHTML = `
+        <form id="form1">
+          <fieldset>
+            <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', 1)}</div>
+            <button type="button" data-cardstack-add="given_names">+ Add</button>
+          </fieldset>
+        </form>
+        <form id="form2">
+          <fieldset>
+            <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', 2)}</div>
+            <button type="button" data-cardstack-add="given_names">+ Add</button>
+          </fieldset>
+        </form>`;
+      eval(SRC);
+    });
+
+    it('Add on second stack appends only to second stack', () => {
+      const form2 = document.getElementById('form2');
+      const addBtn2 = form2.querySelector('[data-cardstack-add="given_names"]');
+      addBtn2.click();
+
+      const form1 = document.getElementById('form1');
+      expect(form1.querySelectorAll('[data-cardstack-card="given_names"]').length).toBe(1);
+      expect(form2.querySelectorAll('[data-cardstack-card="given_names"]').length).toBe(3);
+    });
+
+    it('Remove on second stack removes only from second stack', () => {
+      const form2 = document.getElementById('form2');
+      const firstRemove2 = form2.querySelector('[data-cardstack-remove="given_names"]');
+      firstRemove2.click();
+
+      const form1 = document.getElementById('form1');
+      expect(form1.querySelectorAll('[data-cardstack-card="given_names"]').length).toBe(1);
+      expect(form2.querySelectorAll('[data-cardstack-card="given_names"]').length).toBe(1);
+    });
+
+    it('Add button on stack 1 is unaffected by stack 2 cap state', () => {
+      // Fill stack 2 to cap so its Add button is disabled.
+      const form2 = document.getElementById('form2');
+      const addBtn2 = form2.querySelector('[data-cardstack-add="given_names"]');
+      for (let i = 0; i < 3; i++) addBtn2.click(); // 2 + 3 = 5 → disabled
+
+      expect(addBtn2.disabled).toBe(true);
+
+      // Stack 1 has 1 card — its Add button must still be enabled.
+      const form1 = document.getElementById('form1');
+      const addBtn1 = form1.querySelector('[data-cardstack-add="given_names"]');
+      expect(addBtn1.disabled).toBe(false);
+    });
   });
 });
