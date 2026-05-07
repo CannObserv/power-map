@@ -19,12 +19,15 @@
     var uid = row.dataset.uid;
     if (!uid) return;
     // Idempotency: re-running initTypeaheadCombobox on the same input
-    // would register duplicate listeners. Tag the row after first init
-    // so a re-discovery (DOMContentLoaded + htmx:afterSwap, or a future
-    // hx-swap-oob path that preserves the <tr>) is a no-op.
+    // would register duplicate listeners. Tag the row AFTER the
+    // dependency check so a missed factory (combobox script not yet
+    // loaded) doesn't flag the row as inited and prevent a later retry
+    // from succeeding. Re-discovery on a tagged row is a no-op
+    // (DOMContentLoaded + htmx:afterSwap, or a future hx-swap-oob path
+    // that preserves the <tr>).
     if (row.dataset.typeaheadInited) return;
-    row.dataset.typeaheadInited = '1';
     if (typeof window.initTypeaheadCombobox !== 'function') return;
+    row.dataset.typeaheadInited = '1';
     window.initTypeaheadCombobox({
       inputId: 'locale-search-display-' + uid,
       listboxId: 'locale-search-results-' + uid,

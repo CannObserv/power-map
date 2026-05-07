@@ -61,13 +61,27 @@ function buildRow(uid, nameType) {
 }
 
 let initStub;
+let addSpy;
 
 beforeEach(() => {
   initStub = vi.fn();
   window.initTypeaheadCombobox = initStub;
+  // The script's IIFE attaches `DOMContentLoaded` and `htmx:afterSwap`
+  // listeners to `document`. Without cleanup these accumulate across
+  // tests — a single dispatch in test N triggers N listener firings,
+  // which would only be papered over by the in-row idempotency guard.
+  // Spy on addEventListener to record what we attach, then unwire each
+  // listener in afterEach.
+  addSpy = vi.spyOn(document, 'addEventListener');
 });
 
 afterEach(() => {
+  // Remove every (type, fn) the spy recorded during this test before
+  // restoring the spy, so subsequent tests start with a clean document.
+  for (const [type, fn] of addSpy.mock.calls) {
+    document.removeEventListener(type, fn);
+  }
+  addSpy.mockRestore();
   document.body.innerHTML = '';
   delete window.initTypeaheadCombobox;
 });
@@ -123,6 +137,26 @@ describe('person-name-row-typeahead', () => {
     // Second event for the same row in the DOM: should not re-init.
     document.dispatchEvent(new Event('htmx:afterSwap'));
     expect(initStub).toHaveBeenCalledTimes(3);
+  });
+
+  it('does NOT mark the row inited if initTypeaheadCombobox is unavailable', () => {
+    // Round-3 CR follow-up: tag-after-success, not tag-before-attempt.
+    // If the combobox factory hasn't loaded yet, the row should NOT be
+    // flagged as inited — a later retry (e.g. when the deferred script
+    // finally loads) should be able to wire it.
+    delete window.initTypeaheadCombobox;
+    buildRow('nid_retry', 'legal');
+    eval(scriptCode);
+    document.dispatchEvent(new Event('htmx:afterSwap'));
+    // The row must not carry the inited flag, so a retry can proceed.
+    var row = document.querySelector('[data-uid="nid_retry"]');
+    expect(row.dataset.typeaheadInited).toBeUndefined();
+    // Restore the factory and re-dispatch: the wiring must now succeed.
+    var lateStub = vi.fn();
+    window.initTypeaheadCombobox = lateStub;
+    document.dispatchEvent(new Event('htmx:afterSwap'));
+    expect(lateStub).toHaveBeenCalledTimes(3);
+    expect(row.dataset.typeaheadInited).toBe('1');
   });
 
   it('reading-of block is hidden when name_type is non-reading', () => {
