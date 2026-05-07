@@ -1,10 +1,6 @@
 """Static assertions for person-name partial templates (Phase 2a Task 2)."""
 from pathlib import Path
 
-import pytest
-
-from src.api.admin.people_name_parts import _summary_oob_fragment
-
 FORM_ROW = Path("src/templates/admin/people/partials/_name_form_row.html").read_text()
 READ_ROW = Path("src/templates/admin/people/partials/_name_row.html").read_text()
 DETAIL = Path("src/templates/admin/people/detail.html").read_text()
@@ -353,13 +349,45 @@ def test_parts_editor_renders_only_when_editing_existing_row():
     assert out.strip() == "" or "<form" not in out
 
 
-def test_parts_editor_posts_to_upsert_url():
+def test_parts_editor_has_no_inner_form():
+    """Issue #127: the Details body is markup nested in the parent name form;
+    no inner <form> element."""
     from jinja2 import Environment, FileSystemLoader
     env = Environment(loader=FileSystemLoader("src/templates"))
     out = env.get_template(
         "admin/people/partials/_name_parts_editor.html"
     ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
-    assert 'hx-post="/admin/people/pid_x/names/nid_x/parts/"' in out
+    assert "<form" not in out
+
+
+def test_parts_editor_has_no_save_parts_button():
+    """Issue #127: the parent form's single Save covers parts too."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    assert "Save parts" not in out
+
+
+def test_parts_editor_has_no_remove_button_even_when_parts_exist():
+    """Issue #127: clearing all fields + Save deletes the row; explicit
+    Remove button is removed."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(
+        n={"id": "nid_x"},
+        parts={
+            "given_names": ["Ada"], "family_names": None,
+            "additional_names": None, "honorific_prefix": None,
+            "honorific_suffix": None, "primary_identifier": "given",
+        },
+        person_id="pid_x",
+    )
+    assert "Remove structured parts" not in out
+    assert "Remove Details" not in out
 
 
 def test_parts_editor_offers_all_four_primary_identifiers():
@@ -468,30 +496,6 @@ def test_parts_editor_summary_label_says_details():
     assert "Structured parts" not in out
 
 
-def test_parts_editor_shows_remove_button_only_when_parts_exist():
-    from jinja2 import Environment, FileSystemLoader
-    env = Environment(loader=FileSystemLoader("src/templates"))
-    no_parts = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
-    with_parts = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(
-        n={"id": "nid_x"},
-        parts={
-            "given_names": ["Ada"],
-            "family_names": None,
-            "additional_names": None,
-            "honorific_prefix": None,
-            "honorific_suffix": None,
-            "primary_identifier": "given",
-        },
-        person_id="pid_x",
-    )
-    assert "Remove structured parts" not in no_parts
-    assert "Remove structured parts" in with_parts
-
-
 # ---------------------------------------------------------------------------
 # Read row — parts subtitle (Phase 2d)
 # ---------------------------------------------------------------------------
@@ -528,32 +532,6 @@ def test_read_row_skips_parts_subtitle_when_absent():
         "admin/people/partials/_name_row.html"
     ).render(n=row, person_id="p1")
     assert "parts:" not in out
-
-
-# ---------------------------------------------------------------------------
-# OOB summary fragment — escapes name_id before HTML interpolation
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "evil_id,forbidden,must_appear",
-    [
-        ('a"<script>alert(1)</script>', "<script>", "&lt;script&gt;"),
-        ("a' onclick='x", "onclick='x", "&#39;"),
-        ('"><img src=x>', "<img src=x>", "&gt;"),
-    ],
-)
-def test_summary_oob_fragment_escapes_name_id(evil_id, forbidden, must_appear):
-    """OOB fragment must escape name_id before HTML interpolation.
-
-    Defense in depth: production callers always pass a server-generated
-    ULID that survived `_ensure_name_belongs_to_person`, but the
-    boundary check protects future callers that bypass that guard."""
-    out = _summary_oob_fragment(evil_id, has_parts=True)
-    assert forbidden not in out, f"unescaped {forbidden!r} leaked into {out!r}"
-    assert must_appear in out, f"expected escaped {must_appear!r} in {out!r}"
-    assert 'hx-swap-oob="outerHTML"' in out
-    assert "Details" in out
 
 
 # ---------------------------------------------------------------------------

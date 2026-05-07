@@ -1,14 +1,17 @@
-{# admin/people/partials/_name_parts_editor.html — structured-parts sub-form.
+{# admin/people/partials/_name_parts_editor.html — structured-parts fields.
 
    Rendered inside the per-name edit drawer (only when editing an
-   existing row — `n` non-None). Posts INDEPENDENTLY of the parent
-   name form: separate <form> targeting the parts upsert URL. The
-   names form does not include parts fields, so saving the name
-   doesn't disturb the parts row, and saving parts doesn't reload the
-   name row either — flash-only response.
+   existing row — `n` non-None) as a fragment of inputs nested
+   directly inside the parent `<form>` in `_name_form_row.html`.
+
+   No inner `<form>` of its own (issue #127): saving the parent name
+   form also upserts (or deletes) the parts row in the same handler /
+   transaction. Clearing every parts field and submitting Save deletes
+   the parts row — there is no separate Remove button.
 
    Context:
-     person_id  — required.
+     person_id  — required (passed through for parity with other includes;
+                  the inputs themselves don't reference it).
      n          — the name row being edited (must be set; the parts
                   editor is not shown on the "new name" form because
                   there's no name_id to attach to yet).
@@ -21,17 +24,14 @@
 {%- set _family = (parts.family_names if parts and parts.family_names else []) -%}
 {%- set _additional = (parts.additional_names if parts and parts.additional_names else []) -%}
 <details id="parts-editor-{{ n.id }}" class="name-parts-editor" style="margin-top:var(--space-2)">
-  {# Stable id on the summary so the upsert/delete handlers can swap
-     just the "set" badge via hx-swap-oob without disturbing the
-     <details open> state or the form values the user just typed. #}
+  {# Stable id on the summary kept for selector parity with earlier
+     phases; the unified Save flow re-renders the whole tbody, so the
+     OOB-swap pattern is no longer used. #}
   <summary id="parts-summary-{{ n.id }}"
            style="cursor:pointer;font-size:0.85rem;color:var(--color-text-muted)">
     Details{% if parts %} <span class="badge badge--inactive">set</span>{% endif %}
   </summary>
-  <form
-    hx-post="/admin/people/{{ person_id }}/names/{{ n.id }}/parts/"
-    hx-swap="none"
-    style="margin-top:var(--space-2);display:flex;flex-direction:column;gap:var(--space-2)">
+  <div style="margin-top:var(--space-2);display:flex;flex-direction:column;gap:var(--space-2)">
     <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
       <div class="form-group" style="margin-bottom:0;min-width:9rem">
         <label style="font-size:0.75rem;display:block">Primary identifier
@@ -104,20 +104,6 @@
         </small>
       </div>
     </div>
-    <div style="display:flex;gap:var(--space-2);justify-content:flex-end">
-      <button type="submit" class="btn btn--sm btn--primary">Save parts</button>
-    </div>
-  </form>
-  {# Independent delete form — same target, /delete/ suffix. Confirmation
-     guards against accidental wipes; HTMX flash signals success. #}
-  {% if parts %}
-  <form
-    hx-post="/admin/people/{{ person_id }}/names/{{ n.id }}/parts/delete/"
-    hx-swap="none"
-    hx-confirm="Remove the structured parts for this name?"
-    style="margin-top:var(--space-1);display:flex;justify-content:flex-end">
-    <button type="submit" class="btn btn--sm btn--danger">Remove structured parts</button>
-  </form>
-  {% endif %}
+  </div>
 </details>
 {% endif %}

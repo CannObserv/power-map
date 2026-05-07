@@ -24,7 +24,6 @@ from src.api.admin import people_identifiers as people_identifiers_module
 from src.api.admin import people_links as people_links_module
 from src.api.admin import people_locale_script_search as people_locale_script_search_module
 from src.api.admin import people_merge as people_merge_module
-from src.api.admin import people_name_parts as people_name_parts_module
 from src.api.admin import people_names as people_names_module
 from src.api.admin import people_reading_target_search as people_reading_target_search_module
 from src.api.admin import role_assignments as role_assignments_module
@@ -71,12 +70,6 @@ admin_router.include_router(people_locale_script_search_module.router)
 admin_router.include_router(people_reading_target_search_module.router)
 admin_router.include_router(people_module.router)
 admin_router.include_router(people_names_module.router)
-# Parts router mounts AFTER people_names so the more-specific
-# /{person_id}/names/{name_id}/parts/ paths register cleanly without
-# being shadowed by the names router's wildcards (registration order
-# wouldn't matter here — paths don't collide — but adjacency keeps the
-# name-management endpoints grouped together).
-admin_router.include_router(people_name_parts_module.router)
 admin_router.include_router(people_contacts_module.router)
 admin_router.include_router(people_addresses_module.router)
 admin_router.include_router(people_links_module.router)

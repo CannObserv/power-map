@@ -402,3 +402,83 @@ def test_names_delete_returns_update_person_header(client, person_and_name):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert "updatePersonHeader" in trigger
+
+
+# ---------------------------------------------------------------------------
+# Combined name + parts payload (Issue #127 Task D)
+# ---------------------------------------------------------------------------
+
+
+def test_names_create_accepts_combined_parts_payload(client, person_and_name):
+    """Issue #127: POST / accepts parts fields and seeds person_name_parts."""
+    dsn = _dsn()
+    pid, _ = person_and_name
+    r = client.post(
+        f"/admin/people/{pid}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Ada Lovelace",
+            "name_type": "preferred",
+            "is_canonical": "",
+            "given_names": ["Ada"],
+            "family_names": ["Lovelace"],
+            "primary_identifier": "family",
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    async def fetch():
+        conn = await asyncpg.connect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT pn.id AS nid, pnp.given_names, pnp.family_names,"
+                " pnp.primary_identifier"
+                " FROM person_names pn"
+                " LEFT JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
+                " WHERE pn.person_id=$1 AND pn.name='Ada Lovelace'",
+                pid,
+            )
+        finally:
+            await conn.close()
+
+    row = asyncio.run(fetch())
+    assert row is not None
+    assert row["given_names"] == ["Ada"]
+    assert row["family_names"] == ["Lovelace"]
+    assert row["primary_identifier"] == "family"
+
+
+def test_names_update_accepts_combined_parts_payload(client, person_and_name):
+    """Issue #127: POST /edit-row/ updates name AND upserts parts in one transaction."""
+    dsn = _dsn()
+    pid, nid = person_and_name
+    r = client.post(
+        f"/admin/people/{pid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Renamed",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "given_names": ["Re"],
+            "family_names": ["Named"],
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    async def fetch():
+        conn = await asyncpg.connect(dsn)
+        try:
+            return await conn.fetchrow(
+                "SELECT pn.name, pnp.given_names, pnp.family_names"
+                " FROM person_names pn"
+                " LEFT JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
+                " WHERE pn.id=$1",
+                nid,
+            )
+        finally:
+            await conn.close()
+
+    row = asyncio.run(fetch())
+    assert row["name"] == "Renamed"
+    assert row["given_names"] == ["Re"]
+    assert row["family_names"] == ["Named"]

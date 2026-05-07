@@ -121,11 +121,12 @@
                 onclick="this.closest('tr').remove()"
                 {% endif %}>Cancel</button>
       </div>
+      {# Issue #127: structured-parts editor is now a fragment of inputs
+         nested inside the outer name `<form>` so the unified Save covers
+         both name fields and parts in one POST. The partial renders only
+         when `n` is non-None (editing an existing row). #}
+      {% include "admin/people/partials/_name_parts_editor.html" %}
     </form>
-    {# Phase 2d structured parts editor — only shown when editing an
-       existing row (the upsert needs n.id). Wrapped in a <details>
-       inside the partial itself so it doesn't crowd the inline form. #}
-    {% include "admin/people/partials/_name_parts_editor.html" %}
     <script>
       window.initTypeaheadCombobox({
         inputId: 'locale-search-display',

@@ -16,8 +16,20 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
 )
+from src.api.admin.people_name_parts import upsert_or_delete_parts
 from src.core.db import generate_id
 from src.core.types import PersonNameVisibility
+
+
+class _PartsValidationError(Exception):
+    """Internal signal that parts validation failed; transaction rolls back.
+
+    Raised inside the `async with db.transaction():` block of the name
+    create / edit handlers when ``upsert_or_delete_parts`` returns an
+    error message. Asyncpg's transaction context manager rolls back on
+    raise, so both the name write and any partial parts write are
+    undone before the catch block runs (issue #127).
+    """
 
 
 def _normalise_optional_str(value: str | None) -> str | None:
@@ -340,6 +352,13 @@ def make_names_router(
         script: str | None = Form(None),
         sort_as: str | None = Form(None),
         reading_of_id: str | None = Form(None),
+        # Parts fields — only consumed when supports_person_metadata=True (#127).
+        given_names: list[str] = Form([]),
+        family_names: list[str] = Form([]),
+        additional_names: list[str] = Form([]),
+        honorific_prefix: str | None = Form(None),
+        honorific_suffix: str | None = Form(None),
+        primary_identifier: str | None = Form(None),
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
@@ -379,8 +398,33 @@ def make_names_router(
                     name_type=name_type, is_canonical=(is_canonical == "true"),
                     vis=vis, locale=loc, script=scr, sort_as=sa, reading_of_id=rof,
                 )
+                if supports_person_metadata:
+                    _, parts_err = await upsert_or_delete_parts(
+                        db,
+                        name_id=nid,
+                        given_names=given_names,
+                        family_names=family_names,
+                        additional_names=additional_names,
+                        honorific_prefix=honorific_prefix,
+                        honorific_suffix=honorific_suffix,
+                        primary_identifier=primary_identifier,
+                    )
+                    if parts_err is not None:
+                        # Transaction context manager rolls back on raise.
+                        raise _PartsValidationError(parts_err)
         except asyncpg.ForeignKeyViolationError as exc:
             msg = _fk_violation_message(exc)
+            if not is_htmx(request):
+                raise HTTPException(status_code=422, detail=msg) from exc
+            return HTMLResponse(
+                content="",
+                status_code=200,
+                headers=flash_trigger("error", escape(msg)),
+            )
+        except _PartsValidationError as exc:
+            # Transaction already rolled back by the `async with` exit on raise —
+            # both the name insert and any partial parts write are undone.
+            msg = str(exc)
             if not is_htmx(request):
                 raise HTTPException(status_code=422, detail=msg) from exc
             return HTMLResponse(
@@ -486,6 +530,13 @@ def make_names_router(
         script: str | None = Form(None),
         sort_as: str | None = Form(None),
         reading_of_id: str | None = Form(None),
+        # Parts fields — only consumed when supports_person_metadata=True (#127).
+        given_names: list[str] = Form([]),
+        family_names: list[str] = Form([]),
+        additional_names: list[str] = Form([]),
+        honorific_prefix: str | None = Form(None),
+        honorific_suffix: str | None = Form(None),
+        primary_identifier: str | None = Form(None),
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
@@ -553,8 +604,33 @@ def make_names_router(
                     vis=vis, locale=loc, script=scr, sort_as=sa, reading_of_id=rof,
                     write_metadata=supports_person_metadata,
                 )
+                if supports_person_metadata:
+                    _, parts_err = await upsert_or_delete_parts(
+                        db,
+                        name_id=name_id,
+                        given_names=given_names,
+                        family_names=family_names,
+                        additional_names=additional_names,
+                        honorific_prefix=honorific_prefix,
+                        honorific_suffix=honorific_suffix,
+                        primary_identifier=primary_identifier,
+                    )
+                    if parts_err is not None:
+                        # Transaction context manager rolls back on raise.
+                        raise _PartsValidationError(parts_err)
         except asyncpg.ForeignKeyViolationError as exc:
             msg = _fk_violation_message(exc)
+            if not is_htmx(request):
+                raise HTTPException(status_code=422, detail=msg) from exc
+            return HTMLResponse(
+                content="",
+                status_code=200,
+                headers=flash_trigger("error", escape(msg)),
+            )
+        except _PartsValidationError as exc:
+            # Transaction already rolled back by the `async with` exit on raise —
+            # both the name update and any partial parts write are undone.
+            msg = str(exc)
             if not is_htmx(request):
                 raise HTTPException(status_code=422, detail=msg) from exc
             return HTMLResponse(
