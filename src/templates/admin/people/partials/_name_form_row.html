@@ -10,8 +10,16 @@
    For the new-name form (`n is None`) the disclosure is not rendered
    (`_name_parts_editor.html` gates on `{% if n %}`). To keep metadata
    fields reachable when creating a new row, we include
-   `_name_metadata_fields.html` directly inline in that case. #}
-<tr id="{% if n %}name-row-{{ n.id }}{% else %}name-row-new{% endif %}">
+   `_name_metadata_fields.html` directly inline in that case.
+
+   Issue #131: the per-row typeahead init + reading-of toggle was
+   extracted from an inline `<script>` here into
+   `person-name-row-typeahead.js`. The `data-name-row-typeahead` +
+   `data-uid` attributes on the `<tr>` are the discovery hooks the
+   external module uses on DOMContentLoaded and `htmx:afterSwap`. #}
+{%- set _uid = n.id if n else 'new' -%}
+<tr id="{% if n %}name-row-{{ n.id }}{% else %}name-row-new{% endif %}"
+    data-name-row-typeahead data-uid="{{ _uid }}">
   <td colspan="4" style="padding:var(--space-2) var(--space-4)">
     <form {% if n %}
           hx-post="/admin/people/{{ person_id }}/names/{{ n.id }}/edit-row/"
@@ -67,45 +75,5 @@
       </div>
       {% endif %}
     </form>
-    {# Issue #131: typeahead element ids are namespaced per row so an
-       open Edit drawer + a new-name form can coexist without
-       getElementById collisions. The suffix matches
-       _name_metadata_fields.html. #}
-    {%- set _uid = n.id if n else 'new' -%}
-    <script>
-      // Typeahead init runs after the include so the inputs (which may be
-      // inside the Details disclosure for existing rows) are in the DOM.
-      // Browsers query elements inside <details> regardless of open state.
-      window.initTypeaheadCombobox({
-        inputId: 'locale-search-display-{{ _uid }}',
-        listboxId: 'locale-search-results-{{ _uid }}',
-        hiddenId: 'locale-hidden-{{ _uid }}',
-      });
-      window.initTypeaheadCombobox({
-        inputId: 'script-search-display-{{ _uid }}',
-        listboxId: 'script-search-results-{{ _uid }}',
-        hiddenId: 'script-hidden-{{ _uid }}',
-      });
-      window.initTypeaheadCombobox({
-        inputId: 'reading-of-display-{{ _uid }}',
-        listboxId: 'reading-of-results-{{ _uid }}',
-        hiddenId: 'reading-of-hidden-{{ _uid }}',
-      });
-      // Phase 2c: show/hide the reading-of block based on name_type.
-      // The set {reading, romanization, mrz} matches person_names.name_type
-      // CHECK + the typeahead endpoint's NOT IN filter.
-      (function () {
-        var row = document.getElementById('{% if n %}name-row-{{ n.id }}{% else %}name-row-new{% endif %}');
-        var sel = row && row.querySelector('select[name="name_type"]');
-        var block = document.getElementById('reading-of-block-{{ _uid }}');
-        if (!sel || !block) return;
-        var READING_TYPES = ['reading', 'romanization', 'mrz'];
-        function sync() {
-          block.style.display = READING_TYPES.indexOf(sel.value) === -1 ? 'none' : '';
-        }
-        sel.addEventListener('change', sync);
-        sync();
-      })();
-    </script>
   </td>
 </tr>

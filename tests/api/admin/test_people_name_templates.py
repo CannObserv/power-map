@@ -151,9 +151,20 @@ def test_form_row_has_sort_as_plain_input():
     assert 'name="sort_as"' in FORM_ROW_FULL
 
 
+ROW_TYPEAHEAD_JS = Path(
+    "src/static/admin/person-name-row-typeahead.js"
+).read_text()
+
+
 def test_form_row_calls_init_typeahead_for_locale_and_script():
-    """Each combobox must be wired via window.initTypeaheadCombobox(...)."""
-    assert FORM_ROW.count("initTypeaheadCombobox") >= 2
+    """Issue #131: typeahead init was extracted to
+    `person-name-row-typeahead.js`. The form row marks itself for
+    discovery via `data-name-row-typeahead` + `data-uid`; the external
+    module wires locale + script via window.initTypeaheadCombobox(...)."""
+    assert "data-name-row-typeahead" in FORM_ROW
+    assert ROW_TYPEAHEAD_JS.count("initTypeaheadCombobox") >= 2
+    assert "locale-search-display-" in ROW_TYPEAHEAD_JS
+    assert "script-search-display-" in ROW_TYPEAHEAD_JS
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +241,10 @@ def test_form_row_reading_of_results_listbox_present():
 
 
 def test_form_row_calls_init_typeahead_for_reading_of():
-    """Three combobox factories now: locale + script + reading_of."""
-    assert FORM_ROW.count("initTypeaheadCombobox") >= 3
+    """Three combobox factories now: locale + script + reading_of.
+    Wiring lives in `person-name-row-typeahead.js` (#131 extraction)."""
+    assert ROW_TYPEAHEAD_JS.count("initTypeaheadCombobox") >= 3
+    assert "reading-of-display-" in ROW_TYPEAHEAD_JS
 
 
 def test_form_row_reading_of_block_is_conditional():
@@ -806,20 +819,31 @@ def test_hx_target_uses_namespaced_listbox_ids():
     assert 'hx-target="#reading-of-results-nid_abc"' in out
 
 
-def test_init_typeahead_uses_namespaced_ids():
-    """The init script must pass the namespaced IDs into initTypeaheadCombobox."""
+def test_form_row_carries_uid_for_external_typeahead_init():
+    """Issue #131: typeahead init was extracted to a static .js file. The
+    form row carries `data-name-row-typeahead` + `data-uid="<uid>"` so
+    the external module can discover the row and wire its three
+    typeaheads with the row-specific IDs."""
     out = _render_metadata("nid_abc")
-    # All three typeaheads wired with row-specific IDs.
-    assert "'locale-search-display-nid_abc'" in out or '"locale-search-display-nid_abc"' in out
-    assert "'script-search-display-nid_abc'" in out or '"script-search-display-nid_abc"' in out
-    assert "'reading-of-display-nid_abc'" in out or '"reading-of-display-nid_abc"' in out
+    assert "data-name-row-typeahead" in out
+    assert 'data-uid="nid_abc"' in out
+
+
+def test_external_typeahead_module_uses_namespaced_ids():
+    """The extracted module composes element ids by concatenating the
+    stem (e.g. `locale-search-display-`) with the row's uid."""
+    # All three typeaheads wired by id-stem prefix.
+    for stem in (
+        "locale-search-display-",
+        "script-search-display-",
+        "reading-of-display-",
+    ):
+        assert stem in ROW_TYPEAHEAD_JS, f"stem {stem!r} missing from external module"
 
 
 def test_reading_of_block_toggle_uses_namespaced_id():
-    """The visibility-toggle JS in the form row must reference the
-    namespaced reading-of block id, not the legacy plain id."""
-    out = _render_metadata("nid_abc")
-    assert "'reading-of-block-nid_abc'" in out or '"reading-of-block-nid_abc"' in out
+    """The visibility-toggle reads the namespaced reading-of block id."""
+    assert "'reading-of-block-' + uid" in ROW_TYPEAHEAD_JS
 
 
 # ---------------------------------------------------------------------------
@@ -976,22 +1000,42 @@ def test_primary_identifier_help_text_above_control():
 # `<tr id="name-row-new">`, reintroducing the same id-collision class the
 # per-row namespacing was meant to prevent (both rows would share the
 # `_uid="new"` suffix). Disable the button while a new-row exists; re-enable
-# on Save (htmx:afterSwap fires on tbody re-render) or Cancel (the new-name
-# form's inline onclick dispatches a custom event).
+# on Save (htmx:afterSwap on the table) or Cancel (the new-name form's
+# inline onclick dispatches the powerMap:newNameRowClosed event).
+#
+# Round-2 CR: extracted from inline `<script>` into
+# `src/static/admin/person-detail-add-name-guard.js` so the listener can
+# scope to `#names-table` (avoiding unrelated body-level swaps) and so a
+# CSP-tightening pass doesn't have to special-case the inline script.
+
+
+ADD_NAME_GUARD_JS = Path(
+    "src/static/admin/person-detail-add-name-guard.js"
+).read_text()
 
 
 def test_detail_add_name_button_has_id():
-    """Stable id needed so the inline guard script can find the button."""
+    """Stable id needed so the guard script can find the button."""
     assert 'id="add-name-btn"' in DETAIL
 
 
-def test_detail_add_name_guard_script_present():
-    """Inline script syncs the button's disabled state against
-    `#name-row-new`; listens for htmx:afterSwap (Save) and the custom
-    powerMap:newNameRowClosed event (Cancel)."""
-    assert "name-row-new" in DETAIL
-    assert "htmx:afterSwap" in DETAIL
-    assert "powerMap:newNameRowClosed" in DETAIL
+def test_detail_loads_add_name_guard_script():
+    """Detail page must load the extracted +Add guard script."""
+    assert "person-detail-add-name-guard.js" in DETAIL
+
+
+def test_add_name_guard_script_uses_names_table_listener():
+    """Listener must be scoped to #names-table, not document body — keeps
+    sync() from running on every unrelated swap on the page."""
+    assert "getElementById('names-table')" in ADD_NAME_GUARD_JS
+    # No body-level htmx:afterSwap listener — only the names-table one.
+    assert "document.body.addEventListener('htmx:afterSwap'" not in ADD_NAME_GUARD_JS
+
+
+def test_add_name_guard_script_handles_new_row_close_event():
+    """The custom event from the new-name Cancel re-enables the button."""
+    assert "powerMap:newNameRowClosed" in ADD_NAME_GUARD_JS
+    assert "name-row-new" in ADD_NAME_GUARD_JS
 
 
 def test_new_name_form_cancel_dispatches_close_event():

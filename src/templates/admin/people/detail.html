@@ -11,6 +11,8 @@
   <script src="/static/admin/person-detail.js?v=1" defer></script>
   <script src="/static/admin/person-name-deadname-confirm.js?v=1" defer></script>
   <script src="/static/admin/person-name-parts-cardstack.js?v=1" defer></script>
+  <script src="/static/admin/person-name-row-typeahead.js?v=1" defer></script>
+  <script src="/static/admin/person-detail-add-name-guard.js?v=1" defer></script>
 {% endblock %}
 {% block content %}
 <div class="page-header">
@@ -45,33 +47,15 @@
           {% endif %}
         {% endif %}
         {% if not person.archived_at %}
-        {# Issue #131: disable while an unsaved `#name-row-new` is on the
-           page so a second click can't prepend another row with the same
-           id (which would reintroduce the typeahead-id-collision class
-           the per-row namespacing fix prevents). #}
+        {# Issue #131: disable-while-unsaved-new-row guard wired by
+           `person-detail-add-name-guard.js`. The button needs the stable
+           `add-name-btn` id; the script handles the sync. #}
         <button id="add-name-btn"
                 class="btn btn--sm btn--secondary"
                 hx-get="/admin/people/{{ person.id }}/names/new-row/"
                 hx-target="#names-table tbody"
                 hx-swap="afterbegin"
                 type="button">+ Add name</button>
-        <script>
-          (function () {
-            var btn = document.getElementById('add-name-btn');
-            if (!btn) return;
-            function sync() {
-              btn.disabled = !!document.getElementById('name-row-new');
-            }
-            // Save replaces the tbody (innerHTML swap from /edit-row/ POST or
-            // /names/ POST); afterSwap fires on the tbody and bubbles to body.
-            document.body.addEventListener('htmx:afterSwap', sync);
-            // Cancel on the new-name form removes the row directly via inline
-            // onclick (no HTMX round-trip), so it dispatches this custom
-            // event for us to re-enable.
-            document.body.addEventListener('powerMap:newNameRowClosed', sync);
-            sync();
-          })();
-        </script>
         {% endif %}
       </div>
     </div>

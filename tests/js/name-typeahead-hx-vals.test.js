@@ -30,23 +30,23 @@ const PARTIAL = readFileSync(
 );
 
 /**
- * Extract the JS expression from an `hx-vals='js:{...}'` attribute that
- * sits within the same input as the given anchor (an attribute or URL
- * unique to that typeahead). Returns the inner expression string,
- * stripped of the `js:` prefix and the wrapping quotes.
+ * Extract the JS expression from the next `hx-vals=...` attribute that
+ * follows the given anchor (a URL or attribute unique to one typeahead).
+ * Handles both `'…'` and `"…"` quoting and strips the `js:` prefix.
+ *
+ * Implementation: from the anchor, find the next `hx-vals=`, capture the
+ * value between the opening quote char (whichever is used) and the next
+ * matching close. Single-character HTML attribute quotes don't allow
+ * embedded quotes of the same kind without escaping, so a plain
+ * search-for-the-matching-close is sufficient and robust.
  */
 function extractHxVals(anchor) {
   const anchorIdx = PARTIAL.indexOf(anchor);
   if (anchorIdx < 0) throw new Error(`anchor not found: ${anchor}`);
-  // Walk forward to the next hx-vals after the anchor.
-  const valsIdx = PARTIAL.indexOf('hx-vals=', anchorIdx);
-  if (valsIdx < 0) throw new Error(`no hx-vals after anchor: ${anchor}`);
-  // The value is wrapped in single quotes (Jinja outputs raw `'...'`).
-  const open = PARTIAL.indexOf("'", valsIdx);
-  const close = PARTIAL.indexOf("'", open + 1);
-  const raw = PARTIAL.slice(open + 1, close);
-  // Strip the `js:` prefix (htmx's own logic does the same).
-  return raw.replace(/^js:/, '');
+  const tail = PARTIAL.slice(anchorIdx);
+  const m = /hx-vals=(["'])((?:(?!\1).)*)\1/.exec(tail);
+  if (!m) throw new Error(`no hx-vals attribute after anchor: ${anchor}`);
+  return m[2].replace(/^js:/, '');
 }
 
 /** Evaluate exactly the way htmx 2.0 does. */
