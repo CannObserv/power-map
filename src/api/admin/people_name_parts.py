@@ -13,9 +13,9 @@ Public surface:
 - `ARRAY_CAP` — per-array element cap (mirrors prior route validation).
 - `upsert_or_delete_parts(db, *, name_id, …)` — runs cap + allowlist
   validation, then either INSERT … ON CONFLICT DO UPDATE or
-  DELETE-when-all-empty against `person_name_parts`. Returns
-  `(had_parts_after, error_message)`. Caller is responsible for
-  raising / rolling back when `error_message` is non-None.
+  DELETE-when-all-empty against `person_name_parts`. Returns the
+  validation error message (or None on success). Caller is responsible
+  for raising / rolling back when the return value is non-None.
 """
 
 
@@ -42,14 +42,12 @@ async def upsert_or_delete_parts(
     honorific_prefix: str | None,
     honorific_suffix: str | None,
     primary_identifier: str | None,
-) -> tuple[bool, str | None]:
+) -> str | None:
     """Upsert (or delete-if-all-empty) the parts row for `name_id`.
 
-    Returns ``(had_parts_after, error_message)``. When ``error_message``
-    is non-None the caller should surface it as a form error and roll
-    back the surrounding transaction. ``had_parts_after`` is True iff a
-    parts row exists for ``name_id`` after this call (used by callers
-    that want to refresh a "set" badge).
+    Returns the validation error message, or ``None`` on success. When
+    non-None the caller should surface it as a form error and roll back
+    the surrounding transaction.
 
     Cap check runs against the raw input arrays — empty entries
     contribute to the cap so the user-facing message reflects what they
@@ -61,10 +59,7 @@ async def upsert_or_delete_parts(
         ("additional_names", additional_names or []),
     ):
         if len(vals) > ARRAY_CAP:
-            return (
-                False,
-                f"{label}: no more than {ARRAY_CAP} entries (got {len(vals)}).",
-            )
+            return f"{label}: no more than {ARRAY_CAP} entries (got {len(vals)})."
 
     given = _trim_array(given_names)
     family = _trim_array(family_names)
@@ -74,10 +69,7 @@ async def upsert_or_delete_parts(
     pi_raw = (primary_identifier or "").strip()
     if pi_raw and pi_raw not in _PRIMARY_IDENTIFIERS:
         allowed = ", ".join(_PRIMARY_IDENTIFIERS)
-        return (
-            False,
-            f"primary_identifier must be one of: {allowed} (got {pi_raw!r}).",
-        )
+        return f"primary_identifier must be one of: {allowed} (got {pi_raw!r})."
     pi: str | None = pi_raw or None
 
     has_any = bool(given or family or additional or pre or suf or pi)
@@ -87,7 +79,7 @@ async def upsert_or_delete_parts(
         await db.execute(
             "DELETE FROM person_name_parts WHERE person_name_id=$1", name_id,
         )
-        return (False, None)
+        return None
 
     await db.execute(
         "INSERT INTO person_name_parts ("
@@ -109,4 +101,4 @@ async def upsert_or_delete_parts(
         suf,
         pi,
     )
-    return (True, None)
+    return None

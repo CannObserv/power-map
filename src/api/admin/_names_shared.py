@@ -353,6 +353,10 @@ def make_names_router(
         sort_as: str | None = Form(None),
         reading_of_id: str | None = Form(None),
         # Parts fields — only consumed when supports_person_metadata=True (#127).
+        # Accepted on create for handler symmetry with edit-row; the current
+        # admin UI only renders the parts editor for existing rows (parts
+        # editor template gates on `{% if n %}`), so this path is exercised
+        # by tests and reserved for programmatic / future-UI callers.
         given_names: list[str] = Form([]),
         family_names: list[str] = Form([]),
         additional_names: list[str] = Form([]),
@@ -399,7 +403,7 @@ def make_names_router(
                     vis=vis, locale=loc, script=scr, sort_as=sa, reading_of_id=rof,
                 )
                 if supports_person_metadata:
-                    _, parts_err = await upsert_or_delete_parts(
+                    parts_err = await upsert_or_delete_parts(
                         db,
                         name_id=nid,
                         given_names=given_names,
@@ -605,7 +609,7 @@ def make_names_router(
                     write_metadata=supports_person_metadata,
                 )
                 if supports_person_metadata:
-                    _, parts_err = await upsert_or_delete_parts(
+                    parts_err = await upsert_or_delete_parts(
                         db,
                         name_id=name_id,
                         given_names=given_names,
