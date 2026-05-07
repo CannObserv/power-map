@@ -57,18 +57,30 @@
   }
 
   function buildCard(field) {
+    // Mirror the server-rendered card shape from
+    // `_name_parts_editor.html`: each card is a flex row holding a
+    // `.form-group`-wrapped <input> and the Remove button. The wrapper
+    // is what lets the input inherit the baseline `.form-group input`
+    // rule (font-size, padding, min-height: 44px); a bare <input>
+    // falls back to browser-default sizing and renders smaller than
+    // the rest of the form.
     var card = document.createElement('div');
     card.setAttribute('data-cardstack-card', field);
     card.style.display = 'flex';
     card.style.gap = 'var(--space-1)';
     card.style.alignItems = 'center';
 
+    var wrapper = document.createElement('div');
+    wrapper.className = 'form-group';
+    wrapper.style.marginBottom = '0';
+    wrapper.style.flex = '1';
+
     var input = document.createElement('input');
     input.type = 'text';
     input.name = field;
     input.value = '';
-    input.style.flex = '1';
-    card.appendChild(input);
+    wrapper.appendChild(input);
+    card.appendChild(wrapper);
 
     var rm = document.createElement('button');
     rm.type = 'button';

@@ -65,6 +65,26 @@ describe('person-name-parts-cardstack', () => {
     expect(cards[1].querySelector('input').value).toBe('');
   });
 
+  it('Added card wraps the <input> in a .form-group so it inherits site styling', () => {
+    // Round-2 of #131 (4ad31b2) wrapped server-rendered cardstack inputs
+    // in `<div class="form-group">` so they pick up the baseline
+    // `.form-group input` rule (font-size, padding, min-height: 44px).
+    // `buildCard()` in the JS was missed: bare <input> appended directly
+    // to the card div fell back to browser-default styling. Pin the
+    // contract: every card — server-rendered OR JS-built — must have a
+    // .form-group wrapper around its <input>.
+    setupDOM(0);
+    const addBtn = document.querySelector('[data-cardstack-add="given_names"]');
+    addBtn.click();
+    const card = document.querySelector('[data-cardstack-card="given_names"]');
+    expect(card).not.toBeNull();
+    const wrapper = card.querySelector('.form-group');
+    expect(wrapper).not.toBeNull();
+    const input = wrapper.querySelector('input[type="text"]');
+    expect(input).not.toBeNull();
+    expect(input.getAttribute('name')).toBe('given_names');
+  });
+
   it('Remove drops the clicked card', () => {
     setupDOM(2);
     const firstRemove = document.querySelector('[data-cardstack-remove="given_names"]');
