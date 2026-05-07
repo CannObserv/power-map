@@ -68,7 +68,7 @@ describe('person-detail-add-name-guard', () => {
 
     // Cancel: row is removed and the custom event fires.
     document.getElementById('name-row-new').remove();
-    document.body.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));
+    document.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));
     expect(btn().disabled).toBe(false);
   });
 
@@ -84,33 +84,38 @@ describe('person-detail-add-name-guard', () => {
     expect(btn().disabled).toBe(false);
   });
 
-  it('does NOT re-sync on htmx:afterSwap fired outside #names-table', () => {
-    // A rogue swap somewhere else on the page that adds a name-row-new
-    // *outside* the names table — the listener is scoped to the table, so
-    // the button stays in its prior state. (Defensive: the rogue id
-    // shouldn't exist, but the test pins down the scoping intent.)
+  it('does NOT re-sync on htmx:afterSwap fired in a sibling region', () => {
+    // The listener is scoped to #names-table. A bubbling swap event in
+    // a sibling region (here: #other-region, alongside #names-table
+    // under <body>) bubbles up via body → document — never through the
+    // table. This pins down the scoping intent: only swaps that pass
+    // through #names-table trigger sync().
     expect(btn().disabled).toBe(false);
-    // Append a rogue row outside the names table and fire afterSwap on body.
-    var rogue = document.createElement('div');
-    rogue.id = 'rogue-region';
-    rogue.innerHTML = '<span id="name-row-new"></span>';
-    document.body.appendChild(rogue);
-    document.body.dispatchEvent(new Event('htmx:afterSwap', { bubbles: false }));
-    // Button is still enabled because the listener is on #names-table.
+    // Build a sibling region (not nested under #names-table) and add a
+    // stray name-row-new inside it.
+    var sibling = document.createElement('div');
+    sibling.id = 'other-region';
+    sibling.innerHTML = '<span id="name-row-new"></span>';
+    document.body.appendChild(sibling);
+    // Fire htmx:afterSwap from the sibling — the event bubbles upward
+    // through body and document, not laterally into #names-table.
+    sibling.dispatchEvent(new Event('htmx:afterSwap', { bubbles: true }));
+    // Button is still enabled because the table-scoped listener never
+    // saw the event.
     expect(btn().disabled).toBe(false);
   });
 
   it('powerMap:newNameRowClosed sync is idempotent', () => {
     // No row, fire close event — disabled stays false.
-    document.body.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));
+    document.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));
     expect(btn().disabled).toBe(false);
     // Disable, then fire close TWICE — second is a no-op.
     tbody().innerHTML = '<tr id="name-row-new"></tr>';
     table().dispatchEvent(new Event('htmx:afterSwap', { bubbles: true }));
     expect(btn().disabled).toBe(true);
     document.getElementById('name-row-new').remove();
-    document.body.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));
-    document.body.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));
+    document.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));
+    document.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));
     expect(btn().disabled).toBe(false);
   });
 });

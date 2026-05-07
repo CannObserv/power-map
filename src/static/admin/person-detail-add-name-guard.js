@@ -12,9 +12,11 @@
  *     and Edit→Cancel (read-row outerHTML swap). Listening on the table
  *     itself, not document body, avoids handling unrelated swaps from
  *     other regions of the page.
- *   - powerMap:newNameRowClosed on document.body — fired by the new-name
+ *   - powerMap:newNameRowClosed on document — fired by the new-name
  *     form's inline Cancel handler in `_name_form_row.html`, which
- *     removes the row directly without an HTMX round-trip.
+ *     removes the row directly without an HTMX round-trip. Page-wide
+ *     custom events follow the same `document`-targeted convention as
+ *     page-wide htmx:afterSwap listeners elsewhere in this module.
  */
 (function () {
   function init() {
@@ -25,7 +27,7 @@
       btn.disabled = !!document.getElementById('name-row-new');
     }
     table.addEventListener('htmx:afterSwap', sync);
-    document.body.addEventListener('powerMap:newNameRowClosed', sync);
+    document.addEventListener('powerMap:newNameRowClosed', sync);
     sync();
   }
   if (document.readyState === 'loading') {

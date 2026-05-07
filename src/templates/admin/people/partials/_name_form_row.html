@@ -60,7 +60,7 @@
                 hx-target="#name-row-{{ n.id }}"
                 hx-swap="outerHTML"
                 {% else %}
-                onclick="this.closest('tr').remove(); document.body.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));"
+                onclick="this.closest('tr').remove(); document.dispatchEvent(new CustomEvent('powerMap:newNameRowClosed'));"
                 {% endif %}>Cancel</button>
       </div>
       {# Issue #127: existing-row drawer carries metadata + structured parts

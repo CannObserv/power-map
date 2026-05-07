@@ -18,6 +18,12 @@
   function initRow(row) {
     var uid = row.dataset.uid;
     if (!uid) return;
+    // Idempotency: re-running initTypeaheadCombobox on the same input
+    // would register duplicate listeners. Tag the row after first init
+    // so a re-discovery (DOMContentLoaded + htmx:afterSwap, or a future
+    // hx-swap-oob path that preserves the <tr>) is a no-op.
+    if (row.dataset.typeaheadInited) return;
+    row.dataset.typeaheadInited = '1';
     if (typeof window.initTypeaheadCombobox !== 'function') return;
     window.initTypeaheadCombobox({
       inputId: 'locale-search-display-' + uid,
@@ -59,6 +65,10 @@
     }
   }
 
+  // Page-wide DOMContentLoaded + htmx:afterSwap listeners on `document`
+  // match the existing convention (see `person-name-deadname-confirm.js`
+  // and `person-name-parts-cardstack.js`); `scan()` filters per-row via
+  // the `[data-name-row-typeahead]` selector.
   document.addEventListener('DOMContentLoaded', function () {
     scan(document);
   });
