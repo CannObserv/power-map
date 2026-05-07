@@ -1,17 +1,26 @@
-{# admin/people/partials/_name_parts_editor.html — structured-parts fields.
+{# admin/people/partials/_name_parts_editor.html — unified Details
+   disclosure body for an existing name row (Issue #127).
 
-   Rendered inside the per-name edit drawer (only when editing an
-   existing row — `n` non-None) as a fragment of inputs nested
-   directly inside the parent `<form>` in `_name_form_row.html`.
+   Holds, in order:
+     1. Metadata subheading + visibility / locale / script / sort_as /
+        reading_of_id fields (rendered via `_name_metadata_fields.html`).
+     2. <hr> separator.
+     3. Name parts subheading + primary_identifier / given+family+
+        additional CardStacks / honorific prefix+suffix.
 
-   No inner `<form>` of its own (issue #127): saving the parent name
-   form also upserts (or deletes) the parts row in the same handler /
-   transaction. Clearing every parts field and submitting Save deletes
-   the parts row — there is no separate Remove button.
+   No inner `<form>`: the inputs are nested directly inside the parent
+   name `<form>` in `_name_form_row.html` so a single Save covers both
+   halves in one transactional upsert.
+
+   Auto-open rule: <details> is rendered with the `open` attribute when
+   any non-default metadata or parts value is present on `n`. The
+   `n and (...)` guard is required because `n` can be None on the
+   "new name" form (although `_name_form_row.html` only includes this
+   partial for existing rows, the predicate stays defensive).
 
    Context:
-     person_id  — required (passed through for parity with other includes;
-                  the inputs themselves don't reference it).
+     person_id  — required (passed through to the metadata partial for
+                  the reading_of typeahead URL).
      n          — the name row being edited (must be set; the parts
                   editor is not shown on the "new name" form because
                   there's no name_id to attach to yet).
@@ -23,7 +32,14 @@
 {%- set _given = (parts.given_names if parts and parts.given_names else []) -%}
 {%- set _family = (parts.family_names if parts and parts.family_names else []) -%}
 {%- set _additional = (parts.additional_names if parts and parts.additional_names else []) -%}
-<details id="parts-editor-{{ n.id }}" class="name-parts-editor" style="margin-top:var(--space-2)">
+{%- set _meta_set = n and (
+    (n.visibility and n.visibility != 'public') or
+    n.locale or n.script or n.sort_as or n.reading_of_id
+) -%}
+{%- set _parts_set = parts is not none -%}
+{%- set _disclosure_open = _meta_set or _parts_set -%}
+<details id="parts-editor-{{ n.id }}" class="name-parts-editor" style="margin-top:var(--space-2);flex-basis:100%"
+         {% if _disclosure_open %}open{% endif %}>
   {# Stable id on the summary kept for selector parity with earlier
      phases; the unified Save flow re-renders the whole tbody, so the
      OOB-swap pattern is no longer used. #}
@@ -32,6 +48,14 @@
     Details{% if parts %} <span class="badge badge--inactive">set</span>{% endif %}
   </summary>
   <div style="margin-top:var(--space-2);display:flex;flex-direction:column;gap:var(--space-2)">
+    {# ---- Metadata section ---- #}
+    <div style="font-size:0.8rem;color:var(--color-text-muted);font-weight:600">Metadata</div>
+    <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
+      {% include "admin/people/partials/_name_metadata_fields.html" %}
+    </div>
+    <hr style="border:none;border-top:1px solid var(--color-border);margin:var(--space-1) 0">
+    {# ---- Name parts section ---- #}
+    <div style="font-size:0.8rem;color:var(--color-text-muted);font-weight:600">Name parts</div>
     <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
       <div class="form-group" style="margin-bottom:0;min-width:9rem">
         <label style="font-size:0.75rem;display:block">Primary identifier
