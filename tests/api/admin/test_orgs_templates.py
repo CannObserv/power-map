@@ -7,9 +7,12 @@ Tests cover:
 - ARIA combobox pattern on both search inputs
 - Confirmation modal attributes on destructive buttons
 - Active toggle: restore button present when org is archived
+- Name-row dropdown driven by ORG_NAME_TYPES (single source of truth)
 """
 import re
 from pathlib import Path
+
+from src.core.types import ORG_NAME_TYPES
 
 PARENT_FORM = Path("src/templates/admin/orgs/partials/_parent_form.html").read_text()
 CHILD_FORM = Path("src/templates/admin/orgs/partials/_child_form_row.html").read_text()
@@ -21,6 +24,9 @@ ACTIVE_TOGGLE = Path("src/templates/admin/orgs/partials/_active_toggle.html").re
 NOTES_FORM = Path("src/templates/admin/orgs/partials/_notes_form.html").read_text()
 LIST_HTML = Path("src/templates/admin/orgs/list.html").read_text()
 REGION_HTML = Path("src/templates/admin/orgs/_region.html").read_text()
+NAME_FORM_ROW = Path(
+    "src/templates/admin/orgs/partials/_name_form_row.html"
+).read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -342,3 +348,46 @@ def test_child_search_input_has_explicit_innerhtml_swap():
     assert inputs, "No input with hx-target='#child-search-results' found"
     for inp in inputs:
         assert 'hx-swap="innerHTML"' in inp, "Search input must have hx-swap=\"innerHTML\""
+
+
+# ---------------------------------------------------------------------------
+# Name form row — name_type dropdown driven by src.core.types.ORG_NAME_TYPES
+# ---------------------------------------------------------------------------
+
+
+def test_name_form_row_renders_an_option_for_every_org_name_type():
+    """Rendered dropdown must expose every value the schema CHECK allows.
+
+    The template iterates ``name_types`` from the route context; this
+    test drives the actual Jinja render with ``ORG_NAME_TYPES`` so a
+    future schema expansion (caught by ``tests/core/test_types.py``)
+    propagates here automatically.
+    """
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    rendered = env.get_template(
+        "admin/orgs/partials/_name_form_row.html"
+    ).render(n=None, org_id="o-test", name_types=ORG_NAME_TYPES)
+    for t in ORG_NAME_TYPES:
+        assert f'<option value="{t}"' in rendered, (
+            f"name_type option {t!r} missing from rendered org name form row"
+        )
+
+
+def test_name_form_row_does_not_hardcode_org_name_type_list():
+    """Guard against re-introducing a hardcoded literal list.
+
+    Mirrors the people-side guard: dropdown block must iterate
+    ``name_types`` and contain no quoted-literal name_type tokens.
+    """
+    assert "{% for t in name_types %}" in NAME_FORM_ROW
+    select_open = NAME_FORM_ROW.index('<select name="name_type"')
+    select_close = NAME_FORM_ROW.index("</select>", select_open)
+    block = NAME_FORM_ROW[select_open:select_close]
+    for t in ORG_NAME_TYPES:
+        assert f"'{t}'" not in block, (
+            f"name_type dropdown contains hardcoded literal {t!r}"
+        )
+        assert f'"{t}"' not in block, (
+            f"name_type dropdown contains hardcoded literal {t!r}"
+        )

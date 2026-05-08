@@ -18,7 +18,13 @@ from src.api.admin.deps import (
 )
 from src.api.admin.people_name_parts import upsert_or_delete_parts
 from src.core.db import generate_id
-from src.core.types import PersonNameVisibility
+from src.core.types import OrgNameType, PersonNameType, PersonNameVisibility
+
+# Either-side `name_type` value. The factory is shared between people
+# (PersonNameType) and orgs (OrgNameType); this union is the strongest
+# static type the helpers can carry. Runtime narrowing happens against
+# the per-router ``name_types`` tuple at handler entry.
+NameType = PersonNameType | OrgNameType
 
 
 class _PartsValidationError(Exception):
@@ -80,6 +86,7 @@ def make_names_router(
     tmpl_form_row: str,
     tmpl_read_row: str,
     tmpl_rows: str,
+    name_types: tuple[str, ...],
     detail_url: Callable[[str], str],
     maybe_promote_sole_name: Callable[[str, object], Awaitable[None]],
     last_identity_blocked: Callable[[str, object], Awaitable[bool]],
@@ -112,6 +119,13 @@ def make_names_router(
         Template path for the name read row partial.
     tmpl_rows:
         Template path for the full rows partial (tbody replacement).
+    name_types:
+        Tuple of valid ``name_type`` values for this entity (from
+        ``src.core.types``). People-side passes ``PERSON_NAME_TYPES``;
+        orgs-side passes ``ORG_NAME_TYPES``. Threaded through ``_ctx``
+        so the form-row template iterates a single source of truth, and
+        validated at handler entry by ``_validate_name_type`` (returns
+        422 / flash on unknown values, ahead of the DB CHECK).
     detail_url:
         Callable accepting the entity id and returning the detail redirect URL.
     maybe_promote_sole_name:
@@ -160,8 +174,21 @@ def make_names_router(
             ("reading_of_id", reading_of_id),
         )
 
+    def _validate_name_type(value: str) -> str | None:
+        """Return an error message if *value* is not in the configured
+        ``name_types`` tuple, else None.
+
+        Defense in depth above the DB CHECK constraint: a typo in the
+        client (or a stale cached HTML form) returns a friendly 422 /
+        flash instead of bubbling a raw ``CheckViolationError``.
+        """
+        if value not in name_types:
+            allowed = ", ".join(name_types)
+            return f"Invalid name_type {value!r}. Allowed: {allowed}."
+        return None
+
     async def _insert_name(
-        db, *, nid: str, entity_id: str, name: str, name_type: str,
+        db, *, nid: str, entity_id: str, name: str, name_type: NameType,
         is_canonical: bool, vis: PersonNameVisibility | None,
         locale: str | None = None, script: str | None = None,
         sort_as: str | None = None, reading_of_id: str | None = None,
@@ -183,7 +210,7 @@ def make_names_router(
         )
 
     async def _update_name(
-        db, *, name_id: str, name: str, name_type: str,
+        db, *, name_id: str, name: str, name_type: NameType,
         is_canonical: bool, vis: PersonNameVisibility | None,
         locale: str | None = None, script: str | None = None,
         sort_as: str | None = None, reading_of_id: str | None = None,
@@ -321,7 +348,7 @@ def make_names_router(
 
     def _ctx(entity_id: str, **extra) -> dict:
         """Build template context with the correct entity-id key."""
-        return {entity_id_key: entity_id, **extra}
+        return {entity_id_key: entity_id, "name_types": name_types, **extra}
 
     # ---- routes -----------------------------------------------------------------
 
@@ -370,6 +397,15 @@ def make_names_router(
         # Pydantic Literal validates visibility value range; gate drops all
         # metadata fields for org_names (supports_person_metadata=False) which has
         # no locale/script/sort_as/visibility/reading_of_id columns.
+        nt_err = _validate_name_type(name_type)
+        if nt_err is not None:
+            if not is_htmx(request):
+                raise HTTPException(status_code=422, detail=nt_err)
+            return HTMLResponse(
+                content="",
+                status_code=200,
+                headers=flash_trigger("error", escape(nt_err)),
+            )
         vis = visibility if supports_person_metadata else None
         loc = _normalise_optional_str(locale) if supports_person_metadata else None
         scr = _normalise_optional_str(script) if supports_person_metadata else None
@@ -556,6 +592,15 @@ def make_names_router(
         # Pydantic Literal validates visibility range; gate drops all metadata
         # for org_names. With write_metadata=True (person path) the form is
         # treated as the source of truth — empty inputs become NULL columns.
+        nt_err = _validate_name_type(name_type)
+        if nt_err is not None:
+            if not is_htmx(request):
+                raise HTTPException(status_code=422, detail=nt_err)
+            return HTMLResponse(
+                content="",
+                status_code=200,
+                headers=flash_trigger("error", escape(nt_err)),
+            )
         vis = visibility if supports_person_metadata else None
         loc = _normalise_optional_str(locale) if supports_person_metadata else None
         scr = _normalise_optional_str(script) if supports_person_metadata else None

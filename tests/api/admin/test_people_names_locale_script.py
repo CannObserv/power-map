@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.core.db import apply_schema, generate_id
+from src.core.types import PERSON_NAME_TYPES
 
 pytestmark = pytest.mark.integration
 
@@ -393,14 +394,7 @@ def test_org_names_ignores_locale_script_sort_as(client):
 # ---- All 12 name_types still accepted (Task 1 Phase 2a regression) -------
 
 
-@pytest.mark.parametrize(
-    "name_type",
-    [
-        "legal", "preferred", "alias", "former", "initials",
-        "maiden", "religious", "stage", "deadname",
-        "reading", "romanization", "mrz",
-    ],
-)
+@pytest.mark.parametrize("name_type", PERSON_NAME_TYPES)
 def test_create_accepts_all_name_types_with_metadata(client, person_and_name, name_type):
     pid, _ = person_and_name
     r = client.post(

@@ -2,7 +2,7 @@
 
 Covers the `supports_person_metadata=True` flag on `make_names_router`:
 - visibility round-trip (create + edit accept the Form field, persist to DB)
-- expanded `name_type` values accepted (all 12 from CONVENTIONS.md)
+- every `name_type` in `src.core.types.PERSON_NAME_TYPES` is accepted
 - deadname coercion via DB trigger (public → legal_only on insert/update)
 """
 
@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.core.db import apply_schema, generate_id
+from src.core.types import PERSON_NAME_TYPES
 
 pytestmark = pytest.mark.integration
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
@@ -194,17 +195,68 @@ def test_edit_rejects_invalid_visibility(client, person_and_name):
     assert r.status_code == 422
 
 
+# ---- invalid name_type rejected by _validate_name_type -------------------
+#
+# Defense in depth above the DB CHECK constraint: handler-level
+# validation against the configured ``name_types`` tuple returns a
+# friendly 422 (non-HTMX) or 200 + flash (HTMX) instead of bubbling a
+# raw asyncpg.CheckViolationError.
+
+
+def test_create_rejects_invalid_name_type_non_htmx(client, person_and_name):
+    pid, _ = person_and_name
+    r = client.post(
+        f"/admin/people/{pid}/names/",
+        headers=AUTH_HEADERS,  # no HX-Request — non-HTMX path
+        data={
+            "name": "Bad Type",
+            "name_type": "nickname",  # not in PERSON_NAME_TYPES
+            "is_canonical": "",
+        },
+    )
+    assert r.status_code == 422
+    assert "Invalid name_type" in r.text
+    assert "nickname" in r.text
+
+
+def test_create_rejects_invalid_name_type_htmx(client, person_and_name):
+    """HTMX path returns 200 with HX-Trigger flash, not 422 — admin
+    convention for form errors so the page can render the flash."""
+    pid, _ = person_and_name
+    r = client.post(
+        f"/admin/people/{pid}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Bad Type",
+            "name_type": "nickname",
+            "is_canonical": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "HX-Trigger" in r.headers
+    assert "Invalid name_type" in r.headers["HX-Trigger"]
+
+
+def test_edit_rejects_invalid_name_type_htmx(client, person_and_name):
+    pid, nid = person_and_name
+    r = client.post(
+        f"/admin/people/{pid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Original Name",
+            "name_type": "totally_made_up",
+            "is_canonical": "true",
+        },
+    )
+    assert r.status_code == 200
+    assert "HX-Trigger" in r.headers
+    assert "Invalid name_type" in r.headers["HX-Trigger"]
+
+
 # ---- expanded name_type values -------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "name_type",
-    [
-        "legal", "preferred", "alias", "former", "initials",
-        "maiden", "religious", "stage", "deadname",
-        "reading", "romanization", "mrz",
-    ],
-)
+@pytest.mark.parametrize("name_type", PERSON_NAME_TYPES)
 def test_create_accepts_all_name_types(client, person_and_name, name_type):
     pid, _ = person_and_name
     r = client.post(

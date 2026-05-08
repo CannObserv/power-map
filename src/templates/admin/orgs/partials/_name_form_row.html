@@ -16,7 +16,9 @@
       </div>
       <div class="form-group" style="margin-bottom:0">
         <select name="name_type">
-          {% for t in ('legal', 'dba', 'former') %}
+          {# `name_types` injected by `make_names_router` — driven by
+             `src.core.types.ORG_NAME_TYPES`. #}
+          {% for t in name_types %}
           <option value="{{ t }}"{% if n and n.name_type == t %} selected{% endif %}>{{ t }}</option>
           {% endfor %}
         </select>

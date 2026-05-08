@@ -1,6 +1,7 @@
 """Integration tests for admin settings views."""
 
 import os
+import re
 
 import asyncpg
 import pytest
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.core.db import apply_schema, generate_id
+from src.core.types import ORG_NAME_TYPES, PERSON_NAME_TYPES
 
 pytestmark = pytest.mark.integration
 
@@ -56,6 +58,45 @@ def test_settings_landing_redirects_unauthenticated(client):
     response = client.get("/admin/settings/", follow_redirects=False)
     assert response.status_code in (302, 307)
     assert "/__exe.dev/login" in response.headers["location"]
+
+
+def _name_types_section(response_text: str, heading: str) -> str:
+    """Return the HTML between the named card's <h2> and its next </div>
+    so the assertion only sees that card's badges (not unrelated 'legal'
+    occurrences in other cards or elsewhere on the page).
+    """
+    # Locate the card by its <h2> text, then walk to the closing </div>
+    # of the badges flex row that immediately follows the heading.
+    h2 = re.search(rf">{re.escape(heading)}</h2>", response_text)
+    assert h2 is not None, f"settings card {heading!r} not found"
+    after = response_text[h2.end():]
+    # Take a generous window — enough to span the badges row without
+    # leaking into the next card.
+    return after[:1000]
+
+
+def test_settings_landing_renders_every_person_name_type_as_badge(client):
+    """Every value in PERSON_NAME_TYPES must surface as a badge in the
+    Person Name Types card. Guards against the pre-#135 rot where the
+    settings page hardcoded only 5 of the 12 (then current) types and
+    drifted silently as new types were added."""
+    response = client.get("/admin/settings/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    block = _name_types_section(response.text, "Person Name Types")
+    for t in PERSON_NAME_TYPES:
+        assert f'class="badge badge--inactive">{t}</span>' in block, (
+            f"person_names type {t!r} missing from settings badge list"
+        )
+
+
+def test_settings_landing_renders_every_org_name_type_as_badge(client):
+    response = client.get("/admin/settings/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    block = _name_types_section(response.text, "Organization Name Types")
+    for t in ORG_NAME_TYPES:
+        assert f'class="badge badge--inactive">{t}</span>' in block, (
+            f"organization_names type {t!r} missing from settings badge list"
+        )
 
 
 # --- Link Types page ---

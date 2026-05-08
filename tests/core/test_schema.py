@@ -20,6 +20,7 @@ import asyncpg
 import pytest
 
 from src.core.db import apply_schema, generate_id
+from src.core.types import PERSON_NAME_TYPES
 
 pytestmark = pytest.mark.integration
 
@@ -470,15 +471,20 @@ async def test_person_name_invalid_name_type_rejected(db):
                 generate_id(),
                 person_id,
                 "Bad Name",
-                "nickname",  # not in ('legal', 'former', 'preferred', 'alias', 'initials')
+                "nickname",  # not in src.core.types.PERSON_NAME_TYPES
             )
 
 
 async def test_person_name_valid_name_types_accepted(db):
-    """All five valid name_type values must be accepted."""
+    """Every value in PERSON_NAME_TYPES must be accepted by the CHECK.
+
+    Drives off the constant so future schema additions surface here
+    automatically (parity with the schema is enforced separately by
+    ``tests/core/test_types.py``).
+    """
     person_id = await _person(db)
 
-    for name_type in ("legal", "former", "preferred", "alias", "initials"):
+    for name_type in PERSON_NAME_TYPES:
         await db.execute(
             "INSERT INTO person_names (id, person_id, name, name_type)"
             " VALUES ($1, $2, $3, $4)",

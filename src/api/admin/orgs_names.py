@@ -2,6 +2,7 @@
 
 from src.api.admin._names_shared import make_names_router
 from src.api.admin.deps import org_header_extra
+from src.core.types import ORG_NAME_TYPES
 
 
 async def _maybe_promote_sole_name(org_id: str, db) -> None:
@@ -42,6 +43,7 @@ router = make_names_router(
     tmpl_form_row="admin/orgs/partials/_name_form_row.html",
     tmpl_read_row="admin/orgs/partials/_name_row.html",
     tmpl_rows="admin/orgs/partials/_name_rows.html",
+    name_types=ORG_NAME_TYPES,
     detail_url=lambda eid: f"/admin/orgs/{eid}/",
     maybe_promote_sole_name=_maybe_promote_sole_name,
     last_identity_blocked=_last_identity_blocked,

@@ -1,6 +1,8 @@
 """Static assertions for person-name partial templates (Phase 2a Task 2)."""
 from pathlib import Path
 
+from src.core.types import PERSON_NAME_TYPES
+
 FORM_ROW = Path("src/templates/admin/people/partials/_name_form_row.html").read_text()
 READ_ROW = Path("src/templates/admin/people/partials/_name_row.html").read_text()
 DETAIL = Path("src/templates/admin/people/detail.html").read_text()
@@ -17,21 +19,58 @@ FORM_ROW_FULL = FORM_ROW + "\n" + METADATA_FIELDS
 
 
 # ---------------------------------------------------------------------------
-# Form row — expanded name_type options
+# Form row — name_type dropdown driven by src.core.types.PERSON_NAME_TYPES
 # ---------------------------------------------------------------------------
 
-ALL_NAME_TYPES = (
-    "legal", "preferred", "alias", "former", "initials",
-    "maiden", "religious", "stage", "deadname",
-    "reading", "romanization", "mrz",
-)
+
+def test_form_row_renders_an_option_for_every_person_name_type():
+    """Rendered dropdown must expose every value the schema CHECK allows.
+
+    The template iterates `name_types` from the route context; this test
+    drives the actual Jinja render with PERSON_NAME_TYPES so a future
+    schema expansion (caught by tests/core/test_types.py) propagates
+    here automatically.
+    """
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    rendered = env.get_template(
+        "admin/people/partials/_name_form_row.html"
+    ).render(n=None, person_id="p-test", name_types=PERSON_NAME_TYPES)
+    for t in PERSON_NAME_TYPES:
+        assert f'<option value="{t}"' in rendered, (
+            f"name_type option {t!r} missing from rendered form row"
+        )
 
 
-def test_form_row_offers_all_twelve_name_types():
-    """Form must expose every name_type from CONVENTIONS.md, not just the legacy 5."""
-    # Templates use a Jinja for-loop over a tuple literal; match the string form.
-    for t in ALL_NAME_TYPES:
-        assert f"'{t}'" in FORM_ROW, f"name_type option {t!r} missing from form row"
+def test_form_row_does_not_hardcode_name_type_list():
+    """Guard against re-introducing a hardcoded literal list.
+
+    Two structural assertions, tighter than a loose word-match:
+
+    1. The template must iterate the route-provided ``name_types``
+       context var (``{% for t in name_types %}``).
+    2. The ``<select name="name_type">`` block must contain no
+       quoted-literal ``name_type`` value — that would mean someone
+       reintroduced the hardcoded tuple alongside (or instead of) the
+       loop.
+    """
+    assert "{% for t in name_types %}" in FORM_ROW, (
+        "form row template must iterate `name_types` from context, "
+        "not a hardcoded literal"
+    )
+    # Slice the dropdown block: from `<select name="name_type"` to its
+    # closing `</select>`. Any quoted literal `name_type` token inside
+    # (e.g. `'legal'`, `"alias"`) is the regression we're guarding.
+    select_open = FORM_ROW.index('<select name="name_type"')
+    select_close = FORM_ROW.index("</select>", select_open)
+    block = FORM_ROW[select_open:select_close]
+    for t in PERSON_NAME_TYPES:
+        assert f"'{t}'" not in block, (
+            f"name_type dropdown block contains hardcoded literal {t!r}"
+        )
+        assert f'"{t}"' not in block, (
+            f"name_type dropdown block contains hardcoded literal {t!r}"
+        )
 
 
 def test_form_row_name_type_select_is_named_correctly():
@@ -258,9 +297,17 @@ def test_form_row_reading_of_block_is_conditional():
 
 
 def test_form_row_has_reading_type_toggle_script():
-    """JS must show the block when name_type ∈ {reading, romanization, mrz}."""
-    # Token-level check; no need to parse the JS.
-    assert "reading" in FORM_ROW and "romanization" in FORM_ROW and "mrz" in FORM_ROW
+    """JS must show the block when name_type ∈ {reading, romanization, mrz}.
+
+    Issue #131: the toggle JS was extracted from inline `<script>` to
+    `person-name-row-typeahead.js`. Issue #135: the form row dropdown
+    no longer carries literal name_type strings (driven by
+    `PERSON_NAME_TYPES`), so this assertion now lives where the actual
+    matching is performed — the external JS module.
+    """
+    assert "'reading'" in ROW_TYPEAHEAD_JS
+    assert "'romanization'" in ROW_TYPEAHEAD_JS
+    assert "'mrz'" in ROW_TYPEAHEAD_JS
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.people_dups import get_person_dup_count
+from src.core.types import ORG_NAME_TYPES, PERSON_NAME_TYPES
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/settings", tags=["admin-settings"])
@@ -45,5 +46,10 @@ async def settings_index(
     return templates.TemplateResponse(
         request,
         "admin/settings/index.html",
-        {**_base_ctx(user, org_dup_count, person_dup_count), "counts": counts},
+        {
+            **_base_ctx(user, org_dup_count, person_dup_count),
+            "counts": counts,
+            "person_name_types": PERSON_NAME_TYPES,
+            "org_name_types": ORG_NAME_TYPES,
+        },
     )

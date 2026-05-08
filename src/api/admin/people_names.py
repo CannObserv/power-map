@@ -7,6 +7,7 @@ and deadname); these helpers intentionally bypass the visibility filter.
 
 from src.api.admin._names_shared import make_names_router
 from src.api.admin.deps import person_header_extra
+from src.core.types import PERSON_NAME_TYPES
 
 
 async def _maybe_promote_sole_name(person_id: str, db) -> None:
@@ -42,6 +43,7 @@ router = make_names_router(
     tmpl_form_row="admin/people/partials/_name_form_row.html",
     tmpl_read_row="admin/people/partials/_name_row.html",
     tmpl_rows="admin/people/partials/_name_rows.html",
+    name_types=PERSON_NAME_TYPES,
     detail_url=lambda eid: f"/admin/people/{eid}/",
     maybe_promote_sole_name=_maybe_promote_sole_name,
     last_identity_blocked=_last_identity_blocked,

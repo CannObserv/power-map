@@ -36,11 +36,12 @@
       </div>
       <div class="form-group" style="margin-bottom:0">
         <select name="name_type" aria-label="Name type">
-          {% for t in (
-              'legal', 'preferred', 'alias', 'former', 'initials',
-              'maiden', 'religious', 'stage', 'deadname',
-              'reading', 'romanization', 'mrz'
-          ) %}
+          {# `name_types` injected by `make_names_router` in
+             src/api/admin/_names_shared.py — driven by
+             `src.core.types.PERSON_NAME_TYPES` so schema CHECK changes
+             surface here automatically (parity test:
+             tests/core/test_types.py). #}
+          {% for t in name_types %}
           <option value="{{ t }}"{% if n and n.name_type == t %} selected{% endif %}>{{ t }}</option>
           {% endfor %}
         </select>
