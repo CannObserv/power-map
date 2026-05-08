@@ -362,6 +362,8 @@ async def test_person_name_parts_distinct_per_script(db):
 NEW_NAME_TYPES = [
     "deadname", "mrz", "reading", "romanization",
     "maiden", "religious", "stage",
+    # Issue #135: alt-spelling / nickname variant of an existing name.
+    "variant",
 ]
 
 
@@ -373,6 +375,31 @@ async def test_person_names_accepts_new_name_type(db, name_type):
         " VALUES ($1, $2, $3, $4)",
         generate_id(), pid, "Test", name_type,
     )
+
+
+async def test_person_names_variant_can_coexist_with_legal_for_same_person(db):
+    """A `variant` row sits next to a `legal` row on the same person. Both
+    can be `is_canonical=FALSE` (no canonical-uniqueness collision)."""
+    pid = await _person(db)
+    legal_id = generate_id()
+    variant_id = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, 'Jodi', 'legal', TRUE)", legal_id, pid,
+    )
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, 'Jody', 'variant', FALSE)", variant_id, pid,
+    )
+    rows = await db.fetch(
+        "SELECT name, name_type FROM person_names WHERE person_id=$1 "
+        "ORDER BY name_type",
+        pid,
+    )
+    assert [(r["name"], r["name_type"]) for r in rows] == [
+        ("Jodi", "legal"),
+        ("Jody", "variant"),
+    ]
 
 
 async def test_person_names_rejects_unknown_name_type(db):

@@ -176,7 +176,10 @@ CREATE TABLE IF NOT EXISTS person_names (
                                  'legal','preferred','alias','former','initials',
                                  'maiden','religious','stage',
                                  'deadname',
-                                 'reading','romanization','mrz'
+                                 'reading','romanization','mrz',
+                                 -- Issue #135: alt-spelling / nickname variant
+                                 -- of an existing name on the same person.
+                                 'variant'
                              )),
     is_canonical BOOLEAN     NOT NULL DEFAULT FALSE,
 
@@ -546,7 +549,10 @@ DO $$ BEGIN
             'legal','preferred','alias','former','initials',
             'maiden','religious','stage',
             'deadname',
-            'reading','romanization','mrz'
+            'reading','romanization','mrz',
+            -- Issue #135: alt-spelling / nickname variant of an existing
+            -- name on the same person. Sits next to its legal row.
+            'variant'
         )
     );
 END $$;
