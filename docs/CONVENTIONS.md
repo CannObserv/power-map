@@ -55,7 +55,7 @@ Hybrid model (issue #121): `person_names.name` is the canonical UTF-8 display st
 #### Storage rules
 
 - Store user input verbatim. **Never** lowercase, title-case, ASCII-fold, or strip diacritics on input — names like "McNamara", "van der Waals", or "ffrench" rely on specific casing; Vietnamese names rely on diacritics.
-- `name` is the authoritative free string. Structured parts in `person_name_parts` are populated **only** when an upstream source provides them. **Never auto-parse** a free string into parts — the "David Lloyd George" ambiguity is unresolvable without cultural context.
+- `name` is the authoritative free string. Structured parts in `person_name_parts` are populated **only** when an upstream source provides them or when a human confirms a suggestion — the "David Lloyd George" ambiguity is unresolvable without cultural context. **Never auto-write parts to the database** without human confirmation. Assisted *suggestion* of parts is allowed via `src.core.normalizers.person_name.suggest_parts(...)` — used by triage/backfill scripts (CSV-mediated review) and, optionally, the admin name editor (pre-fill the form for review). The decomposer never persists; only the existing `upsert_or_delete_parts` path does.
 - Sort with Postgres ICU collations (e.g. `ORDER BY name COLLATE "und-x-icu"`), or by `sort_as` when present. Do not use `LOWER(name)` for sorting.
 - New rows default to `visibility='public'`. The `trg_deadname_visibility` trigger downgrades any `name_type='deadname'` row from `'public'` to `'legal_only'` automatically; an explicit `'hidden'` is preserved.
 
@@ -93,6 +93,17 @@ Enforcement layers:
 | `reading` | Phonetic reading of another row (e.g. furigana) — link via `reading_of_id` |
 | `romanization` | Latin-script rendering of another row (pinyin, romaji) — link via `reading_of_id` |
 | `mrz` | ICAO 9303 Machine-Readable Zone form — link via `reading_of_id` |
+| `variant` | Alt-spelling / nickname of an existing name on the same person (e.g. `Jodi`/`Jody`, `Kip`/`Kristopher`) — see below |
+
+#### `variant` vs neighbouring types
+
+| | `variant` | `alias` | `preferred` | `reading`/`romanization`/`mrz` |
+|---|---|---|---|---|
+| Same identity? | yes | usually no (pen name, handle) | yes | yes |
+| Linked via `reading_of_id`? | no | no | no | yes |
+| Typical case | `Jody`/`Jodi` (uncertain spelling), `Kip`/`Kristopher` (short form) | "Mark Twain" for Samuel Clemens | What they go by | Phonetic / latin-script / passport form |
+
+A `variant` row sits next to its `legal` row on the same person; both share `person_id`. `is_canonical=FALSE` on the variant; the legal row stays canonical. Use `variant` (not `alias`) when collation against the canonical name matters — e.g. to surface `Jody`-typed search input alongside `Jodi`-keyed records without conflating with truly separate identities.
 
 #### MRZ derivation
 

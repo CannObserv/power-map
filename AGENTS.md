@@ -78,7 +78,7 @@ Full conventions → `docs/CONVENTIONS.md`
 - Display names: always use `v_org_display_names` / `v_person_display_names` views; never join name tables directly for display
 - Person-name visibility rule (deadnames, hidden, legal-only): see `docs/CONVENTIONS.md` §"Person names — i18n & cultural awareness".
 - Raw `person_names` access: AND-append `visibility='public'` or call `visible_names_filter()` from `src.core.db`. Lint enforces.
-- Structured name parts: `person_name_parts` is a 1:0..1 sidecar to `person_names` (ON DELETE CASCADE). Never auto-parsed — populated only when an upstream source supplies structure. Edited inside the unified name-row form (`POST /admin/people/{pid}/names/{nid}/edit-row/`); a single Save covers both name fields and parts. See `docs/CONVENTIONS.md` §"Structured parts (`person_name_parts` sidecar)".
+- Structured name parts: `person_name_parts` is a 1:0..1 sidecar to `person_names` (ON DELETE CASCADE). Never auto-*written* — only populated when an upstream source supplies structure or a human confirms a suggestion. Assisted decomposition via `src.core.normalizers.person_name.suggest_parts(...)` is allowed (CSV triage / UI pre-fill); persistence still goes through the unified name-row form (`POST /admin/people/{pid}/names/{nid}/edit-row/`). See `docs/CONVENTIONS.md` §"Structured parts (`person_name_parts` sidecar)".
 - BCP 47 / ISO 15924 lookup tables (`bcp47_locales`, `iso15924_scripts`) are FK-validated on `person_names.locale` / `.script`. After `apply_schema` on a fresh DB, seed via `uv run --group seed scripts/seed_locales_scripts.py` (see `docs/COMMANDS.md`); `apply_schema` logs a WARNING when either table is empty.
 - Integration tests: require `TEST_DATABASE_URL`; never run against the production DB
 
