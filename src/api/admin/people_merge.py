@@ -74,6 +74,171 @@ async def people_duplicates(
     )
 
 
+class PersonNotFoundError(LookupError):
+    """Raised by merge_person_into when winner or loser id is not in `people`."""
+
+
+async def merge_person_into(
+    db,
+    *,
+    winner_id: str,
+    loser_id: str,
+    actor_email: str,
+    loser_display_name: str | None = None,
+) -> None:
+    """Merge `loser_id` into `winner_id` — reassign references + hard-delete loser.
+
+    Caller MUST own the surrounding transaction; this function executes
+    flat SQL inside it (acquires `FOR UPDATE` locks first). Caller is also
+    responsible for `invalidate_person_dup_count_cache()` after commit.
+
+    Args:
+        db: an asyncpg Connection or pool acquire — must support
+            ``fetchrow`` / ``execute``.
+        winner_id, loser_id: ULIDs of the two ``people`` rows.
+        actor_email: shown in the merge audit prepended to ``people.notes``.
+            Use the admin user's email from the route, or a tag like
+            ``"data-quality-cleanup-#135"`` from a script.
+        loser_display_name: optional pre-fetched display name for the
+            audit-line. If ``None`` the helper looks it up via
+            ``v_person_display_names``.
+
+    Raises:
+        PersonNotFoundError: when either ``winner_id`` or ``loser_id``
+            is missing from ``people``.
+    """
+    winner = await db.fetchrow(
+        "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", winner_id,
+    )
+    loser = await db.fetchrow(
+        "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", loser_id,
+    )
+    if not winner or not loser:
+        raise PersonNotFoundError(
+            f"merge_person_into: missing person row "
+            f"(winner_id={winner_id!r} found={bool(winner)}, "
+            f"loser_id={loser_id!r} found={bool(loser)})"
+        )
+
+    if loser_display_name is None:
+        loser_display_name = await db.fetchval(
+            "SELECT display_name FROM v_person_display_names WHERE person_id=$1",
+            loser_id,
+        ) or loser_id
+
+    # notes: prefix loser's notes with merge metadata and append to winner
+    if loser["notes"]:
+        merge_date = datetime.now(UTC).strftime("%Y-%m-%d")
+        prefix = f"Merged from {loser_display_name} on {merge_date} by {actor_email}"
+        appended = f"{prefix}\n{loser['notes']}"
+        new_notes = f"{winner['notes']}\n\n{appended}" if winner["notes"] else appended
+        await db.execute(
+            "UPDATE people SET notes=$1 WHERE id=$2", new_notes, winner_id,
+        )
+
+    # person_names: demote loser's canonical, drop exact-name duplicates,
+    # then reassign remaining loser names to winner.
+    # visibility-allowlist (issue #121): merge deduplicates and reassigns
+    # ALL name rows regardless of visibility — the merged winner must
+    # inherit the loser's deadnames, hidden names, etc.
+    await db.execute(
+        "UPDATE person_names SET is_canonical=FALSE WHERE person_id=$1 AND is_canonical=TRUE",
+        loser_id,
+    )
+    await db.execute(
+        "DELETE FROM person_names"
+        " WHERE person_id=$1"
+        "   AND name IN (SELECT name FROM person_names WHERE person_id=$2)",
+        loser_id, winner_id,
+    )
+    await db.execute(
+        "UPDATE person_names SET person_id=$1 WHERE person_id=$2",
+        winner_id, loser_id,
+    )
+
+    # role_assignments: delete conflicts (same role+start_date), then reassign.
+    await db.execute(
+        """DELETE FROM role_assignments
+           WHERE person_id=$1 AND archived_at IS NULL
+             AND (role_id, COALESCE(start_date, '0001-01-01')) IN (
+                 SELECT role_id, COALESCE(start_date, '0001-01-01')
+                 FROM role_assignments
+                 WHERE person_id=$2 AND archived_at IS NULL
+             )""",
+        loser_id, winner_id,
+    )
+    await db.execute(
+        "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",
+        winner_id, loser_id,
+    )
+
+    # Polymorphic entity tables.
+    for table in (
+        "contact_methods", "links", "entity_addresses",
+        "import_provenance", "field_confidence",
+    ):
+        await db.execute(
+            f"UPDATE {table} SET entity_id=$1 "  # noqa: S608
+            f"WHERE entity_type='person' AND entity_id=$2",
+            winner_id, loser_id,
+        )
+
+    # identifiers (no entity_type column).
+    await db.execute(
+        "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
+        winner_id, loser_id,
+    )
+
+    # duplicate_dismissals: delete the merged pair, reassign others.
+    await db.execute(
+        "DELETE FROM duplicate_dismissals"
+        " WHERE entity_type='person'"
+        "   AND ((entity_a_id=$1 AND entity_b_id=$2)"
+        "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
+        winner_id, loser_id,
+    )
+    await db.execute(
+        """DELETE FROM duplicate_dismissals dd
+           USING duplicate_dismissals dw
+           WHERE dd.entity_type = 'person'
+             AND dw.entity_type = 'person'
+             AND dw.entity_a_id = $2
+             AND (
+               (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_b_id)
+               OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_b_id)
+             )""",
+        loser_id, winner_id,
+    )
+    await db.execute(
+        """DELETE FROM duplicate_dismissals dd
+           USING duplicate_dismissals dw
+           WHERE dd.entity_type = 'person'
+             AND dw.entity_type = 'person'
+             AND dw.entity_b_id = $2
+             AND (
+               (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_a_id)
+               OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_a_id)
+             )""",
+        loser_id, winner_id,
+    )
+    await db.execute(
+        """UPDATE duplicate_dismissals
+           SET entity_a_id = LEAST($1, entity_b_id),
+               entity_b_id = GREATEST($1, entity_b_id)
+           WHERE entity_type='person' AND entity_a_id=$2""",
+        winner_id, loser_id,
+    )
+    await db.execute(
+        """UPDATE duplicate_dismissals
+           SET entity_a_id = LEAST(entity_a_id, $1),
+               entity_b_id = GREATEST(entity_a_id, $1)
+           WHERE entity_type='person' AND entity_b_id=$2""",
+        winner_id, loser_id,
+    )
+
+    await db.execute("DELETE FROM people WHERE id=$1", loser_id)
+
+
 @router.post("/{winner_id}/merge/{loser_id}/")
 async def person_merge(
     winner_id: str,
@@ -92,133 +257,16 @@ async def person_merge(
     )
 
     async with db.transaction():
-        winner = await db.fetchrow("SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", winner_id)
-        loser = await db.fetchrow("SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", loser_id)
-        if not winner or not loser:
-            raise HTTPException(status_code=404, detail="Person not found")
-
-        # notes: prefix loser's notes with merge metadata and append to winner
-        if loser["notes"]:
-            merge_date = datetime.now(UTC).strftime("%Y-%m-%d")
-            prefix = f"Merged from {loser_name} on {merge_date} by {user.email}"
-            appended = f"{prefix}\n{loser['notes']}"
-            new_notes = f"{winner['notes']}\n\n{appended}" if winner["notes"] else appended
-            await db.execute("UPDATE people SET notes=$1 WHERE id=$2", new_notes, winner_id)
-
-        # person_names: demote loser's canonical to alias, drop exact name duplicates,
-        # then reassign remaining loser names to winner
-        await db.execute(
-            "UPDATE person_names SET is_canonical=FALSE WHERE person_id=$1 AND is_canonical=TRUE",
-            loser_id,
-        )
-        # visibility-allowlist (issue #121): merge deduplicates and
-        # reassigns ALL name rows regardless of visibility — the merged
-        # winner must inherit the loser's deadnames, hidden names, etc.
-        await db.execute(
-            "DELETE FROM person_names"
-            " WHERE person_id=$1"
-            "   AND name IN (SELECT name FROM person_names WHERE person_id=$2)",
-            loser_id,
-            winner_id,
-        )
-        await db.execute(
-            "UPDATE person_names SET person_id=$1 WHERE person_id=$2",
-            winner_id,
-            loser_id,
-        )
-
-        # role_assignments: delete conflicts (same role+start_date on both), then reassign
-        await db.execute(
-            """DELETE FROM role_assignments
-               WHERE person_id=$1 AND archived_at IS NULL
-                 AND (role_id, COALESCE(start_date, '0001-01-01')) IN (
-                     SELECT role_id, COALESCE(start_date, '0001-01-01')
-                     FROM role_assignments
-                     WHERE person_id=$2 AND archived_at IS NULL
-                 )""",
-            loser_id,
-            winner_id,
-        )
-        await db.execute(
-            "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",
-            winner_id,
-            loser_id,
-        )
-
-        # Polymorphic entity tables
-        for table in (
-            "contact_methods",
-            "links",
-            "entity_addresses",
-            "import_provenance",
-            "field_confidence",
-        ):
-            await db.execute(
-                f"UPDATE {table} SET entity_id=$1 WHERE entity_type='person' AND entity_id=$2",
-                winner_id,
-                loser_id,
+        try:
+            await merge_person_into(
+                db,
+                winner_id=winner_id,
+                loser_id=loser_id,
+                actor_email=user.email,
+                loser_display_name=loser_name,
             )
-
-        # identifiers (no entity_type column)
-        await db.execute(
-            "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
-            winner_id,
-            loser_id,
-        )
-
-        # duplicate_dismissals: delete the merged pair, reassign any others referencing loser
-        await db.execute(
-            "DELETE FROM duplicate_dismissals"
-            " WHERE entity_type='person'"
-            "   AND ((entity_a_id=$1 AND entity_b_id=$2)"
-            "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
-            winner_id,
-            loser_id,
-        )
-        await db.execute(
-            """DELETE FROM duplicate_dismissals dd
-               USING duplicate_dismissals dw
-               WHERE dd.entity_type = 'person'
-                 AND dw.entity_type = 'person'
-                 AND dw.entity_a_id = $2
-                 AND (
-                   (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_b_id)
-                   OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_b_id)
-                 )""",
-            loser_id,
-            winner_id,
-        )
-        await db.execute(
-            """DELETE FROM duplicate_dismissals dd
-               USING duplicate_dismissals dw
-               WHERE dd.entity_type = 'person'
-                 AND dw.entity_type = 'person'
-                 AND dw.entity_b_id = $2
-                 AND (
-                   (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_a_id)
-                   OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_a_id)
-                 )""",
-            loser_id,
-            winner_id,
-        )
-        await db.execute(
-            """UPDATE duplicate_dismissals
-               SET entity_a_id = LEAST($1, entity_b_id),
-                   entity_b_id = GREATEST($1, entity_b_id)
-               WHERE entity_type='person' AND entity_a_id=$2""",
-            winner_id,
-            loser_id,
-        )
-        await db.execute(
-            """UPDATE duplicate_dismissals
-               SET entity_a_id = LEAST(entity_a_id, $1),
-                   entity_b_id = GREATEST(entity_a_id, $1)
-               WHERE entity_type='person' AND entity_b_id=$2""",
-            winner_id,
-            loser_id,
-        )
-
-        await db.execute("DELETE FROM people WHERE id=$1", loser_id)
+        except PersonNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Person not found") from exc
 
     invalidate_person_dup_count_cache()
 
