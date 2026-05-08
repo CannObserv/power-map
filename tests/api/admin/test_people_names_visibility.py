@@ -253,6 +253,41 @@ def test_edit_rejects_invalid_name_type_htmx(client, person_and_name):
     assert "Invalid name_type" in r.headers["HX-Trigger"]
 
 
+def test_create_path_404_wins_over_body_422_for_invalid_name_type(client):
+    """Path-level errors (entity not found → 404) must win over
+    body-level errors (invalid name_type → 422) when both apply.
+
+    Regression guard for the round-2 ordering fix: ``_validate_name_type``
+    runs after ``_get_entity_or_404`` so a typoed name_type on a
+    non-existent person surfaces the more informative 404, not the 422.
+    """
+    r = client.post(
+        "/admin/people/p_does_not_exist/names/",
+        headers=AUTH_HEADERS,  # non-HTMX → real status code, not flash
+        data={
+            "name": "x",
+            "name_type": "not_a_real_type",  # also invalid (would be 422)
+            "is_canonical": "",
+        },
+    )
+    assert r.status_code == 404
+
+
+def test_edit_path_404_wins_over_body_422_for_invalid_name_type(client):
+    """Same precedence on the edit-row handler: a missing name_id
+    surfaces 404 even when the body's name_type would otherwise 422."""
+    r = client.post(
+        "/admin/people/p_does_not_exist/names/n_does_not_exist/edit-row/",
+        headers=AUTH_HEADERS,
+        data={
+            "name": "x",
+            "name_type": "not_a_real_type",
+            "is_canonical": "",
+        },
+    )
+    assert r.status_code == 404
+
+
 # ---- expanded name_type values -------------------------------------------
 
 

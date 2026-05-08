@@ -50,15 +50,30 @@ def _normalise_optional_str(value: str | None) -> str | None:
     return stripped or None
 
 
-def _form_error_response(error: str, request: Request) -> HTMLResponse:
+def _form_error_response(
+    error: str,
+    request: Request,
+    *,
+    from_exc: BaseException | None = None,
+) -> HTMLResponse:
     """Render a form-validation error.
 
     HTMX clients get 200 + HX-Trigger flash (page stays put, surfaces
-    the message). Non-HTMX clients get JSON 422. Caller must ``return``
-    the result; the non-HTMX branch raises ``HTTPException`` and does
-    not return.
+    the message). Non-HTMX clients get JSON 422.
+
+    Use as ``return _form_error_response(...)`` at every call site: in
+    the HTMX branch the function returns an HTMLResponse with the flash
+    trigger; in the non-HTMX branch it raises ``HTTPException(422)`` so
+    control never reaches the caller's ``return``. The static ``return``
+    keeps the type-checker happy and documents intent.
+
+    ``from_exc`` is forwarded to ``raise … from`` for traceback chaining
+    when the error originated from a caught exception (e.g. asyncpg
+    constraint violation). Defaults to ``None`` for plain validation.
     """
     if not is_htmx(request):
+        if from_exc is not None:
+            raise HTTPException(status_code=422, detail=error) from from_exc
         raise HTTPException(status_code=422, detail=error)
     return HTMLResponse(
         content="",
@@ -205,7 +220,7 @@ def make_names_router(
         if value not in name_types:
             return (
                 f"Invalid name_type {value!r}. "
-                "Reload the form to refresh allowed values."
+                "Choose a value from the dropdown."
             )
         return None
 
@@ -474,25 +489,13 @@ def make_names_router(
                         # Transaction context manager rolls back on raise.
                         raise _PartsValidationError(parts_err)
         except asyncpg.ForeignKeyViolationError as exc:
-            msg = _fk_violation_message(exc)
-            if not is_htmx(request):
-                raise HTTPException(status_code=422, detail=msg) from exc
-            return HTMLResponse(
-                content="",
-                status_code=200,
-                headers=flash_trigger("error", escape(msg)),
+            return _form_error_response(
+                _fk_violation_message(exc), request, from_exc=exc,
             )
         except _PartsValidationError as exc:
             # Transaction already rolled back by the `async with` exit on raise —
             # both the name insert and any partial parts write are undone.
-            msg = str(exc)
-            if not is_htmx(request):
-                raise HTTPException(status_code=422, detail=msg) from exc
-            return HTMLResponse(
-                content="",
-                status_code=200,
-                headers=flash_trigger("error", escape(msg)),
-            )
+            return _form_error_response(str(exc), request, from_exc=exc)
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
         names = await _fetch_names_for_rows(db, entity_id)
@@ -680,25 +683,13 @@ def make_names_router(
                         # Transaction context manager rolls back on raise.
                         raise _PartsValidationError(parts_err)
         except asyncpg.ForeignKeyViolationError as exc:
-            msg = _fk_violation_message(exc)
-            if not is_htmx(request):
-                raise HTTPException(status_code=422, detail=msg) from exc
-            return HTMLResponse(
-                content="",
-                status_code=200,
-                headers=flash_trigger("error", escape(msg)),
+            return _form_error_response(
+                _fk_violation_message(exc), request, from_exc=exc,
             )
         except _PartsValidationError as exc:
             # Transaction already rolled back by the `async with` exit on raise —
             # both the name update and any partial parts write are undone.
-            msg = str(exc)
-            if not is_htmx(request):
-                raise HTTPException(status_code=422, detail=msg) from exc
-            return HTMLResponse(
-                content="",
-                status_code=200,
-                headers=flash_trigger("error", escape(msg)),
-            )
+            return _form_error_response(str(exc), request, from_exc=exc)
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
         names = await _fetch_names_for_rows(db, entity_id)
