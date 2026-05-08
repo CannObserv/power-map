@@ -50,6 +50,23 @@ def _normalise_optional_str(value: str | None) -> str | None:
     return stripped or None
 
 
+def _form_error_response(error: str, request: Request) -> HTMLResponse:
+    """Render a form-validation error.
+
+    HTMX clients get 200 + HX-Trigger flash (page stays put, surfaces
+    the message). Non-HTMX clients get JSON 422. Caller must ``return``
+    the result; the non-HTMX branch raises ``HTTPException`` and does
+    not return.
+    """
+    if not is_htmx(request):
+        raise HTTPException(status_code=422, detail=error)
+    return HTMLResponse(
+        content="",
+        status_code=200,
+        headers=flash_trigger("error", escape(error)),
+    )
+
+
 def _fk_violation_message(exc: asyncpg.ForeignKeyViolationError) -> str:
     """Human-friendly form error for FK violations on locale/script/reading_of_id."""
     detail = (exc.detail or "").lower()
@@ -86,7 +103,7 @@ def make_names_router(
     tmpl_form_row: str,
     tmpl_read_row: str,
     tmpl_rows: str,
-    name_types: tuple[str, ...],
+    name_types: tuple[NameType, ...],
     detail_url: Callable[[str], str],
     maybe_promote_sole_name: Callable[[str, object], Awaitable[None]],
     last_identity_blocked: Callable[[str, object], Awaitable[bool]],
@@ -180,11 +197,16 @@ def make_names_router(
 
         Defense in depth above the DB CHECK constraint: a typo in the
         client (or a stale cached HTML form) returns a friendly 422 /
-        flash instead of bubbling a raw ``CheckViolationError``.
+        flash instead of bubbling a raw ``CheckViolationError``. The
+        error message intentionally does NOT enumerate allowed values
+        — that list lives in the dropdown the user just submitted, and
+        embedding it here would drift as the schema evolves.
         """
         if value not in name_types:
-            allowed = ", ".join(name_types)
-            return f"Invalid name_type {value!r}. Allowed: {allowed}."
+            return (
+                f"Invalid name_type {value!r}. "
+                "Reload the form to refresh allowed values."
+            )
         return None
 
     async def _insert_name(
@@ -397,33 +419,24 @@ def make_names_router(
         # Pydantic Literal validates visibility value range; gate drops all
         # metadata fields for org_names (supports_person_metadata=False) which has
         # no locale/script/sort_as/visibility/reading_of_id columns.
-        nt_err = _validate_name_type(name_type)
-        if nt_err is not None:
-            if not is_htmx(request):
-                raise HTTPException(status_code=422, detail=nt_err)
-            return HTMLResponse(
-                content="",
-                status_code=200,
-                headers=flash_trigger("error", escape(nt_err)),
-            )
         vis = visibility if supports_person_metadata else None
         loc = _normalise_optional_str(locale) if supports_person_metadata else None
         scr = _normalise_optional_str(script) if supports_person_metadata else None
         sa = _normalise_optional_str(sort_as) if supports_person_metadata else None
         rof = _normalise_optional_str(reading_of_id) if supports_person_metadata else None
         await _get_entity_or_404(entity_id, db)
+        # Body-level validations run after path-level (entity) checks so a
+        # 404 wins over a 422 when both apply — matches the convention set
+        # by `_validate_reading_of_target` below.
+        nt_err = _validate_name_type(name_type)
+        if nt_err is not None:
+            return _form_error_response(nt_err, request)
         if rof is not None:
             err = await _validate_reading_of_target(
                 db, entity_id=entity_id, reading_of_id=rof,
             )
             if err is not None:
-                if not is_htmx(request):
-                    raise HTTPException(status_code=422, detail=err)
-                return HTMLResponse(
-                    content="",
-                    status_code=200,
-                    headers=flash_trigger("error", escape(err)),
-                )
+                return _form_error_response(err, request)
         nid = generate_id()
         try:
             async with db.transaction():
@@ -592,15 +605,6 @@ def make_names_router(
         # Pydantic Literal validates visibility range; gate drops all metadata
         # for org_names. With write_metadata=True (person path) the form is
         # treated as the source of truth — empty inputs become NULL columns.
-        nt_err = _validate_name_type(name_type)
-        if nt_err is not None:
-            if not is_htmx(request):
-                raise HTTPException(status_code=422, detail=nt_err)
-            return HTMLResponse(
-                content="",
-                status_code=200,
-                headers=flash_trigger("error", escape(nt_err)),
-            )
         vis = visibility if supports_person_metadata else None
         loc = _normalise_optional_str(locale) if supports_person_metadata else None
         scr = _normalise_optional_str(script) if supports_person_metadata else None
@@ -613,18 +617,18 @@ def make_names_router(
         )
         if not existing:
             raise HTTPException(status_code=404)
+        # Body-level validations run after path-level (existence) checks so
+        # a 404 wins over a 422 when both apply — matches the convention
+        # set by `_validate_reading_of_target` below.
+        nt_err = _validate_name_type(name_type)
+        if nt_err is not None:
+            return _form_error_response(nt_err, request)
         if rof is not None:
             err = await _validate_reading_of_target(
                 db, entity_id=entity_id, reading_of_id=rof, name_id=name_id,
             )
             if err is not None:
-                if not is_htmx(request):
-                    raise HTTPException(status_code=422, detail=err)
-                return HTMLResponse(
-                    content="",
-                    status_code=200,
-                    headers=flash_trigger("error", escape(err)),
-                )
+                return _form_error_response(err, request)
         if is_canonical != "true" and existing["is_canonical"]:
             # Guard runs outside the transaction intentionally: a concurrent promotion
             # (another request canonicalizing a different name) would make this check
