@@ -176,7 +176,7 @@ def transform_role(
         try:
             r = _url.normalize(validated.org_profile_url)
             if not r.skipped:
-                links.append({"url": r.value, "link_type_slug": "profile", "is_canonical": True})
+                links.append({"url": r.value, "link_type_slug": "profile"})
                 _add_confidence("url:profile", r.value, r.confidence_hint)
         except ValueError as exc:
             warnings.append(f"url skipped (profile): {exc}")
@@ -191,7 +191,7 @@ def transform_role(
                 r = _url.normalize(raw_url)
                 if not r.skipped:
                     links.append({
-                        "url": r.value, "link_type_slug": link_type_slug, "is_canonical": False,
+                        "url": r.value, "link_type_slug": link_type_slug,
                     })
                     _add_confidence(f"social:{link_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:

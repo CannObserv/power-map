@@ -345,7 +345,11 @@ def test_merge_preview_winner_param_flips_direction(client, org_pair):
     )
     assert response.status_code == 200
     assert "Execute merge" in response.text
-    assert f"winner={id_b}" in response.text
+    # The merge form encodes the winner in the action path, not the query string.
+    # Form action shape: /admin/orgs/{winner_id}/merge-with/{loser_id}/
+    assert f"/admin/orgs/{id_b}/merge-with/{id_a}/" in response.text
+    # Sanity: swap button still points back to id_a as winner.
+    assert f"?winner={id_a}" in response.text
 
 
 def test_merge_preview_shows_conflict_warning(client):

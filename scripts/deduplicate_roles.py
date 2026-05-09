@@ -113,21 +113,22 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
             canonical_id, dup_ids,
         )
 
-        # Migrate role links that won't conflict; delete any remaining
+        # Migrate role links that won't conflict on URL uniqueness; delete any
+        # remaining (rows whose (url, link_type_id) already exists on canonical).
+        # The retired is_canonical concept is replaced by URL identity:
+        # (entity_type, entity_id, url, link_type_id) is the natural uniqueness key.
         await conn.execute(
             """
             UPDATE links
             SET entity_id = $1
             WHERE entity_type = 'role'
               AND entity_id = ANY($2::text[])
-              AND NOT (
-                  is_canonical = TRUE
-                  AND EXISTS (
-                      SELECT 1 FROM links l2
-                      WHERE l2.entity_type = 'role'
-                        AND l2.entity_id = $1
-                        AND l2.is_canonical = TRUE
-                  )
+              AND NOT EXISTS (
+                  SELECT 1 FROM links l2
+                  WHERE l2.entity_type = 'role'
+                    AND l2.entity_id = $1
+                    AND l2.url = links.url
+                    AND l2.link_type_id = links.link_type_id
               )
             """,
             canonical_id, dup_ids,
@@ -181,21 +182,20 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
                 canonical_id, dup_ids,
             )
 
-        # Links: migrate non-conflicting canonical links; delete any remaining
+        # Links: migrate non-conflicting links by URL identity; delete the rest
+        # (rows whose (url, link_type_id) already exists on canonical assignment).
         await conn.execute(
             """
             UPDATE links
             SET entity_id = $1
             WHERE entity_type = 'role_assignment'
               AND entity_id = ANY($2::text[])
-              AND NOT (
-                  is_canonical = TRUE
-                  AND EXISTS (
-                      SELECT 1 FROM links l2
-                      WHERE l2.entity_type = 'role_assignment'
-                        AND l2.entity_id = $1
-                        AND l2.is_canonical = TRUE
-                  )
+              AND NOT EXISTS (
+                  SELECT 1 FROM links l2
+                  WHERE l2.entity_type = 'role_assignment'
+                    AND l2.entity_id = $1
+                    AND l2.url = links.url
+                    AND l2.link_type_id = links.link_type_id
               )
             """,
             canonical_id, dup_ids,

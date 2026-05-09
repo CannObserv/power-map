@@ -275,11 +275,11 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                 if link_type_id:
                     await conn.execute(
                         "INSERT INTO links"
-                        " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6)"
+                        " (id, entity_type, entity_id, url, link_type_id)"
+                        " VALUES ($1, $2, $3, $4, $5)"
                         " ON CONFLICT DO NOTHING",
                         generate_id(), "organization", t["org_id"],
-                        lnk["url"], link_type_id, lnk.get("is_canonical", False),
+                        lnk["url"], link_type_id,
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
@@ -384,11 +384,11 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                 if link_type_id:
                     await conn.execute(
                         "INSERT INTO links"
-                        " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6)"
+                        " (id, entity_type, entity_id, url, link_type_id)"
+                        " VALUES ($1, $2, $3, $4, $5)"
                         " ON CONFLICT DO NOTHING",
                         generate_id(), "person", t["person_id"],
-                        lnk["url"], link_type_id, lnk.get("is_canonical", False),
+                        lnk["url"], link_type_id,
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
@@ -514,11 +514,11 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                 if link_type_id:
                     await conn.execute(
                         "INSERT INTO links"
-                        " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6)"
+                        " (id, entity_type, entity_id, url, link_type_id)"
+                        " VALUES ($1, $2, $3, $4, $5)"
                         " ON CONFLICT DO NOTHING",
                         generate_id(), "role_assignment", t["assignment_id"],
-                        lnk["url"], link_type_id, lnk.get("is_canonical", False),
+                        lnk["url"], link_type_id,
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
