@@ -1804,3 +1804,49 @@ Issue #131 follow-ups (lookup bug fix + redesign II):
 `count_org_duplicates(db)` in `src.api.admin.org_dups` and `count_person_duplicates(db)` in `src.api.admin.people_dups` are TTL-cached (5 min, process-local). Call `invalidate_dup_count_cache()` from the appropriate module after any merge or dismiss. All people and org routes inject both counts via deps; sidebar badges use these template vars directly (no HTMX XHR).
 
 Caveat: cache is not shared across gunicorn workers — counts may lag by up to 5 min per worker.
+
+---
+
+## 33. Vitest test conventions
+
+JS test files in `tests/js/` mount admin scripts via `eval(scriptCode)` against a happy-dom DOM. The scripts are IIFEs that auto-attach listeners on load — there is no exported teardown hook. The conventions below normalize how stubs are built and how listener leaks are prevented across tests.
+
+### `vi.fn()` vs `vi.spyOn()`
+
+- **`vi.fn()`** — a fresh function with no original behavior. Use for stubs that *replace* a function (no call-through). Example: stubbing `window.initTypeaheadCombobox` so the script-under-test reaches it without us caring what the real combobox factory does.
+- **`vi.spyOn(obj, 'method')`** — wraps the existing method, calls through, and records every invocation in `.mock.calls`. Use when you need the real behavior plus call inspection.
+
+Both surface `.mock.calls` (array of `[arg0, arg1, ...]` per call) and `.mock.results`. Prefer Vitest helpers over hand-rolled `const calls = []; fn = (x) => calls.push(x)` accumulators — the helpers also restore cleanly via `mockRestore()` / `vi.restoreAllMocks()`.
+
+### Listener cleanup is mandatory for `eval()`-mounted scripts
+
+The `eval(scriptCode)` mount pattern re-runs the IIFE on every test. Every `document.addEventListener(...)` call inside the IIFE attaches a *new* handler — and there is no teardown hook to remove it. Without explicit cleanup the handlers accumulate across tests: a single `document.dispatchEvent(...)` in test N triggers N listener firings, which silently inflates call counts (or papers over real bugs by way of duplicate idempotent handlers).
+
+Spy on `document.addEventListener` in `beforeEach`, then in `afterEach` walk the spy's `.mock.calls` and `removeEventListener` each `(type, fn)` pair before restoring the spy.
+
+### Cleanup template
+
+Add to every test file whose script-under-test attaches `document` listeners:
+
+```js
+let addSpy;
+
+beforeEach(() => {
+  addSpy = vi.spyOn(document, 'addEventListener');
+});
+
+afterEach(() => {
+  for (const [type, fn] of addSpy.mock.calls) {
+    document.removeEventListener(type, fn);
+  }
+  addSpy.mockRestore();
+  document.body.innerHTML = '';
+});
+```
+
+Reference implementation: `tests/js/person-name-row-typeahead.test.js:63-87`.
+
+Files that do NOT need this block:
+
+- Pure expression-extractor tests that never `eval` script source or attach DOM listeners (e.g. `tests/js/name-typeahead-hx-vals.test.js`).
+- Factory-style scripts where the test cleans up via the script's own teardown path (e.g. dispatching Escape to invoke the factory's `closeDropdown` removes the document-level listeners it registered) — but the spy-based block is still preferred for symmetry and to catch listeners the factory itself doesn't track.
