@@ -2,7 +2,7 @@
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import (
@@ -26,6 +26,7 @@ router = APIRouter(prefix="/people", tags=["admin-people"])
 _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "archived": ("success", "Person archived."),
     "unarchived": ("success", "Person unarchived."),
+    "deleted": ("success", "Person deleted."),
 }
 
 _READING_TYPES = ("reading", "romanization", "mrz")
@@ -87,6 +88,7 @@ async def people_list(
     status: str = "active",
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=10, le=500),
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
     org_dup_count: int = Depends(get_org_dup_count),
@@ -132,6 +134,8 @@ async def people_list(
         *list_params,
     )
 
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
+
     ctx = {
         "user": user,
         "active_section": "people",
@@ -142,6 +146,7 @@ async def people_list(
         "total": count,
         "org_dup_count": org_dup_count,
         "person_dup_count": person_dup_count,
+        "flash_msg": flash_msg,
         **pctx,
     }
     template = (
@@ -149,7 +154,7 @@ async def people_list(
         if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
         else "admin/people/list.html"
     )
-    return templates.TemplateResponse(request, template, ctx)
+    return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
 @router.get("/new/")
@@ -414,7 +419,12 @@ async def person_delete(
             status_code=409,
             detail="Cannot delete: person has related records (role assignments, etc.)",
         )
-    return HTMLResponse(content="", status_code=200)
+    if is_htmx(request):
+        return Response(
+            status_code=204,
+            headers={"HX-Location": "/admin/people/?flash=deleted"},
+        )
+    return RedirectResponse("/admin/people/?flash=deleted", status_code=303)
 
 
 @router.get("/{person_id}/inline/notes/")

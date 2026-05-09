@@ -186,10 +186,53 @@ def test_hard_delete_requires_archive(client, person_id):
 
 
 def test_hard_delete_archived_person(client, person_id):
-    # Archive first via the route
+    """HTMX delete returns 204 + HX-Location pointing at the people list with flash."""
     client.post(f"/admin/people/{person_id}/archive/", headers=AUTH_HEADERS, follow_redirects=False)
-    response = client.delete(f"/admin/people/{person_id}/", headers=AUTH_HEADERS)
+    response = client.delete(
+        f"/admin/people/{person_id}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert "HX-Location" in response.headers
+    assert "/admin/people/" in response.headers["HX-Location"]
+    assert "flash=deleted" in response.headers["HX-Location"]
+
+
+def test_hard_delete_archived_person_non_htmx_redirects(client, person_id):
+    """Non-HTMX delete must redirect to people list with flash."""
+    client.post(f"/admin/people/{person_id}/archive/", headers=AUTH_HEADERS, follow_redirects=False)
+    response = client.delete(
+        f"/admin/people/{person_id}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert "/admin/people/" in response.headers["location"]
+    assert "flash=deleted" in response.headers["location"]
+
+
+def test_people_list_flash_deleted_renders_message(client):
+    """GET /admin/people/?flash=deleted must render a flash notification."""
+    response = client.get("/admin/people/?flash=deleted", headers=AUTH_HEADERS)
     assert response.status_code == 200
+    assert "Person deleted" in response.text
+    assert "flash" in response.text.lower()
+
+
+def test_people_list_flash_deleted_strips_param_via_hx_replace_url(client):
+    """Full-page response with ?flash=deleted must include HX-Replace-Url without flash param."""
+    response = client.get("/admin/people/?flash=deleted", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "HX-Replace-Url" in response.headers
+    assert "flash" not in response.headers["HX-Replace-Url"]
+
+
+def test_people_list_unknown_flash_key_ignored(client):
+    """GET /admin/people/?flash=bogus must return 200 with no flash rendered."""
+    response = client.get("/admin/people/?flash=bogus", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Person deleted" not in response.text
+    assert "HX-Replace-Url" not in response.headers
 
 
 def test_unarchive_person_redirects_with_flash_query(client, person_id):
