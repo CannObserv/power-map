@@ -22,21 +22,23 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const scriptCode = readFileSync(resolve(__dirname, '../../src/static/admin/dark-mode.js'), 'utf-8');
 
 // ---------------------------------------------------------------------------
-// Global listener cleanup
+// Global listener cleanup — see docs/STYLE.md §33
 // ---------------------------------------------------------------------------
 
-let _addSpy;
+let addSpy;
 
 beforeEach(() => {
-  _addSpy = vi.spyOn(document, 'addEventListener');
+  addSpy = vi.spyOn(document, 'addEventListener');
   // Reset html classes and localStorage
   document.documentElement.classList.remove('dark', 'light');
   localStorage.clear();
 });
 
 afterEach(() => {
-  _addSpy.mock.calls.forEach(([type, handler]) => document.removeEventListener(type, handler));
-  vi.restoreAllMocks();
+  for (const [type, fn] of addSpy.mock.calls) {
+    document.removeEventListener(type, fn);
+  }
+  addSpy.mockRestore();
   document.body.innerHTML = '';
   document.documentElement.classList.remove('dark', 'light');
   localStorage.clear();

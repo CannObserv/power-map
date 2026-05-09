@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const scriptCode = readFileSync(
@@ -29,18 +29,33 @@ const LIST_ID = 'test-results';
 const HIDDEN_ID = 'test-hidden';
 
 // ---------------------------------------------------------------------------
-// Global listener cleanup
+// Global listener cleanup — see docs/STYLE.md §33.
+//
+// The factory registers document-level click + scroll listeners on every
+// openDropdown() call (and removes them on closeDropdown()). Tests that exit
+// with the dropdown still open would leave those listeners attached, so we
+// also dispatch Escape to close any live dropdown — that path lets the
+// factory's own removeEventListener fire. The vi.spyOn block then catches
+// any *other* listeners attached during the test (defense-in-depth).
 // ---------------------------------------------------------------------------
 
+let addSpy;
+
+beforeEach(() => {
+  addSpy = vi.spyOn(document, 'addEventListener');
+});
+
 afterEach(() => {
-  // Close any open dropdown via Escape so closeDropdown() removes the
-  // document-level click/scroll listeners it registered in openDropdown().
-  // This is more precise than spying on addEventListener — it cleans up via
-  // the same removeEventListener calls the factory itself uses.
+  // First, give the factory a chance to clean up via its own teardown path.
   const input = document.getElementById(INPUT_ID);
   if (input) {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   }
+  // Then drop anything the spy still recorded so cross-test state is clean.
+  for (const [type, fn] of addSpy.mock.calls) {
+    document.removeEventListener(type, fn);
+  }
+  addSpy.mockRestore();
   document.body.innerHTML = '';
 });
 
@@ -257,17 +272,18 @@ describe('onSelect callback', () => {
       <ul id="${LIST_ID}" class="typeahead-results" role="listbox" style="display:none"></ul>
     `;
     eval(scriptCode);
-    const calls = [];
+    const onSelect = vi.fn();
     window.initTypeaheadCombobox({
       inputId: INPUT_ID,
       listboxId: LIST_ID,
       hiddenId: HIDDEN_ID,
-      onSelect: (id) => calls.push(id),
+      onSelect,
     });
     populateResults([{ id: 'org-1', label: 'Acme' }]);
     const li = getItems()[0];
     li.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    expect(calls).toEqual(['org-1']);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith('org-1');
   });
 
   it('calls onSelect with the selected item id on keyboard Enter', () => {
@@ -279,17 +295,18 @@ describe('onSelect callback', () => {
       <ul id="${LIST_ID}" class="typeahead-results" role="listbox" style="display:none"></ul>
     `;
     eval(scriptCode);
-    const calls = [];
+    const onSelect = vi.fn();
     window.initTypeaheadCombobox({
       inputId: INPUT_ID,
       listboxId: LIST_ID,
       hiddenId: HIDDEN_ID,
-      onSelect: (id) => calls.push(id),
+      onSelect,
     });
     populateResults([{ id: 'org-2', label: 'Beta' }]);
     inp().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
     inp().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(calls).toEqual(['org-2']);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith('org-2');
   });
 
   it('does not throw when onSelect is not provided', () => {

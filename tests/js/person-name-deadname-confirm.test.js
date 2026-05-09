@@ -17,15 +17,18 @@ const scriptCode = readFileSync(
   'utf-8',
 );
 
-let _addSpy;
+// Global listener cleanup — see docs/STYLE.md §33.
+let addSpy;
 
 beforeEach(() => {
-  _addSpy = vi.spyOn(document, 'addEventListener');
+  addSpy = vi.spyOn(document, 'addEventListener');
 });
 
 afterEach(() => {
-  _addSpy.mock.calls.forEach(([type, handler]) => document.removeEventListener(type, handler));
-  vi.restoreAllMocks();
+  for (const [type, fn] of addSpy.mock.calls) {
+    document.removeEventListener(type, fn);
+  }
+  addSpy.mockRestore();
   document.body.innerHTML = '';
 });
 
