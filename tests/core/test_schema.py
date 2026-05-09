@@ -364,6 +364,86 @@ async def test_updated_at_trigger_overrides_explicit_value(db):
     )
 
 
+# Per-binding coverage for trg_updated_at_<table>. Each insert helper inserts
+# one row and returns its id; the test then UPDATEs that row with an explicit
+# updated_at far in the past and asserts the trigger overrode it. A regression
+# in any single table's binding (e.g. the trigger getting dropped) makes that
+# table's parametrized case fail in isolation.
+
+
+async def _insert_address(conn: asyncpg.Connection) -> str:
+    aid = generate_id()
+    # Pass country explicitly: older test DBs may lack the schema default.
+    await conn.execute(
+        "INSERT INTO addresses (id, raw_input, country) VALUES ($1, $2, $3)",
+        aid, "123 Test St", "US",
+    )
+    return aid
+
+
+async def _insert_people(conn: asyncpg.Connection) -> str:
+    pid = generate_id()
+    await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    return pid
+
+
+async def _insert_role(conn: asyncpg.Connection) -> str:
+    org_id = await _org(conn)
+    return await _role(conn, org_id)
+
+
+async def _insert_role_assignment(conn: asyncpg.Connection) -> str:
+    org_id = await _org(conn)
+    person_id = await _person(conn)
+    role_id = await _role(conn, org_id)
+    ra_id = generate_id()
+    await conn.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
+        ra_id, person_id, role_id,
+    )
+    return ra_id
+
+
+async def _insert_app_user(conn: asyncpg.Connection) -> str:
+    uid = generate_id()
+    await conn.execute(
+        "INSERT INTO app_users (id, email) VALUES ($1, $2)",
+        uid, "test@example.com",
+    )
+    return uid
+
+
+@pytest.mark.parametrize(
+    ("table", "insert_helper"),
+    [
+        ("addresses", _insert_address),
+        ("people", _insert_people),
+        ("roles", _insert_role),
+        ("role_assignments", _insert_role_assignment),
+        ("app_users", _insert_app_user),
+    ],
+)
+async def test_updated_at_trigger_binding_per_table(db, table, insert_helper):
+    """Every trg_updated_at_<table> binding must override an explicit updated_at.
+
+    Mirrors test_updated_at_trigger_overrides_explicit_value (organizations) and
+    test_person_name_parts_updated_at_trigger_overrides_explicit_value
+    (person_name_parts). Adding a new table with an updated_at trigger should
+    drop in as a new (table, insert_helper) tuple here.
+    """
+    row_id = await insert_helper(db)
+    await db.execute(
+        f"UPDATE {table} SET updated_at = '2000-01-01' WHERE id = $1",
+        row_id,
+    )
+    row = await db.fetchrow(
+        f"SELECT updated_at FROM {table} WHERE id = $1", row_id
+    )
+    assert row["updated_at"].year > 2000, (
+        f"trg_updated_at_{table} did not override the explicit updated_at value"
+    )
+
+
 # ---------------------------------------------------------------------------
 # organizations: chk_no_self_parent
 # ---------------------------------------------------------------------------
