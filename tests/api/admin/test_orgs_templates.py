@@ -12,6 +12,8 @@ Tests cover:
 import re
 from pathlib import Path
 
+from jinja2 import Environment, FileSystemLoader
+
 from src.core.types import ORG_NAME_TYPES
 
 PARENT_FORM = Path("src/templates/admin/orgs/partials/_parent_form.html").read_text()
@@ -27,6 +29,19 @@ REGION_HTML = Path("src/templates/admin/orgs/_region.html").read_text()
 NAME_FORM_ROW = Path(
     "src/templates/admin/orgs/partials/_name_form_row.html"
 ).read_text()
+
+
+def _render_child_form(org_id: str = "org_x") -> str:
+    """Render `_child_form_row.html` so `{{ row_key }}` is materialised.
+
+    Issue #125: tests that grep for the suffixed ids (e.g.
+    `child-search-results-new`) must operate on rendered output, not the
+    raw template source which still contains the literal Jinja `{{ row_key }}`.
+    """
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    return env.get_template(
+        "admin/orgs/partials/_child_form_row.html"
+    ).render(org_id=org_id)
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +129,9 @@ def test_child_form_search_has_combobox_role():
 
 
 def test_child_form_search_has_aria_controls():
-    assert 'aria-controls="child-search-results"' in CHILD_FORM
+    # Issue #125: per-row id suffix; new-row form uses the literal `new` row-key,
+    # so we render the template to materialise `{{ row_key }}` before asserting.
+    assert 'aria-controls="child-search-results-new"' in _render_child_form()
 
 
 def test_child_form_search_has_aria_haspopup():
@@ -294,9 +311,13 @@ def test_child_form_targets_own_row_on_submit():
 
     Targeting tbody with afterbegin inserts the new child row but leaves the
     form row in the DOM — the row never clears after submit.
+
+    Issue #125: hx-target is now `#child-row-{{ row_key }}`, so render the
+    template to materialise the suffix before asserting.
     """
-    assert 'hx-target="#child-row-new"' in CHILD_FORM
-    assert 'hx-swap="outerHTML"' in CHILD_FORM
+    rendered = _render_child_form()
+    assert 'hx-target="#child-row-new"' in rendered
+    assert 'hx-swap="outerHTML"' in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -340,12 +361,16 @@ def test_child_search_input_has_explicit_innerhtml_swap():
     """Search input must declare hx-swap="innerHTML" to override the form's outerHTML swap.
 
     Without it, HTMX inherits outerHTML from the parent <form>, replacing the
-    entire <ul#child-search-results> with bare <li> elements on each keystroke —
+    entire <ul#child-search-results-new> with bare <li> elements on each keystroke —
     the ul disappears from the DOM and the typeahead breaks.
+
+    Issue #125: hx-target now points at the row-key-suffixed listbox id, so we
+    render the template before pattern-matching.
     """
-    pattern = r'<input\b[^>]*hx-target="#child-search-results"[^>]*/?\s*>'
-    inputs = re.findall(pattern, CHILD_FORM, re.DOTALL)
-    assert inputs, "No input with hx-target='#child-search-results' found"
+    rendered = _render_child_form()
+    pattern = r'<input\b[^>]*hx-target="#child-search-results-new"[^>]*/?\s*>'
+    inputs = re.findall(pattern, rendered, re.DOTALL)
+    assert inputs, "No input with hx-target='#child-search-results-new' found"
     for inp in inputs:
         assert 'hx-swap="innerHTML"' in inp, "Search input must have hx-swap=\"innerHTML\""
 

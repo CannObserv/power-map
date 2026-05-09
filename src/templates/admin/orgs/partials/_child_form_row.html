@@ -1,26 +1,32 @@
-{# admin/orgs/partials/_child_form_row.html #}
-<tr id="child-row-new">
+{# admin/orgs/partials/_child_form_row.html
+
+   Issue #125: element ids carry a `-new` row-key suffix so the inline
+   "+ Add child" form does not collide with any other typeahead instance
+   on the page (e.g. a future child-edit row, or a sibling form). `name=`
+   attributes are unchanged so form submission still posts the right field. #}
+{%- set row_key = 'new' -%}
+<tr id="child-row-{{ row_key }}">
   <td colspan="3" style="padding:var(--space-2) var(--space-4)">
     <form hx-post="/admin/orgs/{{ org_id }}/children/"
-          hx-target="#child-row-new"
+          hx-target="#child-row-{{ row_key }}"
           hx-swap="outerHTML"
           style="display:flex;gap:var(--space-2);align-items:center">
       <div class="form-group" style="margin-bottom:0;flex:1;position:relative">
         <input type="text" autocomplete="off" placeholder="Search for an organization…"
-               id="child-search-display"
+               id="child-search-display-{{ row_key }}"
                hx-get="/admin/orgs/{{ org_id }}/children/search/"
                hx-trigger="input changed delay:200ms"
-               hx-target="#child-search-results"
+               hx-target="#child-search-results-{{ row_key }}"
                hx-swap="innerHTML"
                hx-params="q"
                name="q"
                role="combobox"
                aria-expanded="false"
                aria-haspopup="listbox"
-               aria-controls="child-search-results"
+               aria-controls="child-search-results-{{ row_key }}"
                aria-autocomplete="list">
-        <input type="hidden" name="child_id" id="child-id-hidden">
-        <ul id="child-search-results" class="typeahead-results" role="listbox"></ul>
+        <input type="hidden" name="child_id" id="child-id-hidden-{{ row_key }}">
+        <ul id="child-search-results-{{ row_key }}" class="typeahead-results" role="listbox"></ul>
       </div>
       <div style="display:flex;gap:var(--space-2);white-space:nowrap">
         <button type="submit" class="btn btn--sm btn--primary">Add</button>
@@ -30,9 +36,9 @@
     </form>
     <script>
     window.initTypeaheadCombobox({
-      inputId: 'child-search-display',
-      listboxId: 'child-search-results',
-      hiddenId: 'child-id-hidden',
+      inputId: 'child-search-display-{{ row_key }}',
+      listboxId: 'child-search-results-{{ row_key }}',
+      hiddenId: 'child-id-hidden-{{ row_key }}',
     });
     </script>
   </td>
