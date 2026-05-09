@@ -13,7 +13,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const scriptCode = readFileSync(
@@ -41,11 +41,22 @@ function table() {
   return document.getElementById('names-table');
 }
 
+// Global listener cleanup — see docs/STYLE.md §33.
+// The script's IIFE attaches a 'powerMap:newNameRowClosed' listener to
+// document on every eval. Without removeEventListener in afterEach those
+// handlers accumulate and a single dispatch in test N triggers N firings.
+let addSpy;
+
 beforeEach(() => {
+  addSpy = vi.spyOn(document, 'addEventListener');
   setup();
 });
 
 afterEach(() => {
+  for (const [type, fn] of addSpy.mock.calls) {
+    document.removeEventListener(type, fn);
+  }
+  addSpy.mockRestore();
   document.body.innerHTML = '';
 });
 
