@@ -150,10 +150,10 @@ async def transform_person(
     # Links (unified: URLs + social)
     links: list[dict] = []
     _url_fields = [
-        (validated.personal_url, "website", True),
-        (validated.wikipedia_url, "wikipedia", False),
+        (validated.personal_url, "website"),
+        (validated.wikipedia_url, "wikipedia"),
     ]
-    for raw_url, link_type_slug, is_canonical in _url_fields:
+    for raw_url, link_type_slug in _url_fields:
         if raw_url:
             try:
                 r = _url.normalize(raw_url)
@@ -161,7 +161,6 @@ async def transform_person(
                     links.append({
                         "url": r.value,
                         "link_type_slug": link_type_slug,
-                        "is_canonical": is_canonical,
                     })
                     _add_confidence(f"url:{link_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:
@@ -179,7 +178,7 @@ async def transform_person(
                 r = _url.normalize(raw_url)
                 if not r.skipped:
                     links.append({
-                        "url": r.value, "link_type_slug": link_type_slug, "is_canonical": False,
+                        "url": r.value, "link_type_slug": link_type_slug,
                     })
                     _add_confidence(f"social:{link_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:

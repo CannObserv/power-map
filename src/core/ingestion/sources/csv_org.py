@@ -184,12 +184,12 @@ async def transform_org(
     # Links (unified: URLs + social)
     links: list[dict] = []
     _url_fields = [
-        (validated.primary_url, "website", True),
-        (validated.org_url, "website", False),
-        (validated.sec_form_d, "sec_form_d", False),
-        (validated.google_drive, "google_drive", False),
+        (validated.primary_url, "website"),
+        (validated.org_url, "website"),
+        (validated.sec_form_d, "sec_form_d"),
+        (validated.google_drive, "google_drive"),
     ]
-    for raw_url, link_type_slug, is_canonical in _url_fields:
+    for raw_url, link_type_slug in _url_fields:
         if raw_url:
             try:
                 r = _url.normalize(raw_url)
@@ -197,7 +197,6 @@ async def transform_org(
                     links.append({
                         "url": r.value,
                         "link_type_slug": link_type_slug,
-                        "is_canonical": is_canonical,
                     })
                     _add_confidence(f"url:{link_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:
@@ -219,7 +218,7 @@ async def transform_org(
                 r = _url.normalize(raw_url)
                 if not r.skipped:
                     links.append({
-                        "url": r.value, "link_type_slug": link_type_slug, "is_canonical": False,
+                        "url": r.value, "link_type_slug": link_type_slug,
                     })
                     _add_confidence(f"social:{link_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:
