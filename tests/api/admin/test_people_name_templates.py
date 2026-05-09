@@ -625,11 +625,16 @@ def test_detail_loads_parts_cardstack_script():
 
 
 def test_detail_parts_cardstack_script_is_deferred():
-    """Cache-bust suffix `?v=1` matches the deadname-confirm convention."""
+    """CardStack JS is loaded with cache-bust suffix and ``defer`` attribute.
+
+    Issue #133 replaced the hardcoded ``?v=N`` suffix with a Jinja-injected
+    ``?v={{ asset_version }}`` populated at app startup. The assertion now
+    matches the new template form rather than the literal ``?v=1``.
+    """
     from pathlib import Path
     DETAIL = Path("src/templates/admin/people/detail.html").read_text()
     assert (
-        'src="/static/admin/person-name-parts-cardstack.js?v=1" defer'
+        'src="/static/admin/person-name-parts-cardstack.js?v={{ asset_version }}" defer'
         in DETAIL
     )
 

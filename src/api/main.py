@@ -1,17 +1,39 @@
 """FastAPI application entry point."""
 
+import importlib
 import os
+import pkgutil
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
+import src.api.admin as admin_pkg
 import src.core.db as db
+from src.api.admin.assets import ASSET_VERSION, register_asset_version_global
 from src.api.admin.router import admin_router
 from src.api.public.router import router as public_router
 from src.core.logging import configure_logging
 
 configure_logging()
+
+
+def _inject_asset_version_into_admin_templates() -> None:
+    """Set ``asset_version`` on every Jinja2Templates instance in src.api.admin.
+
+    Each admin sub-module owns its own ``templates = Jinja2Templates(...)``.
+    Walking the package once at startup is cheaper and less invasive than
+    refactoring all 28 modules to share a single instance.
+    """
+    for mod_info in pkgutil.iter_modules(admin_pkg.__path__):
+        module = importlib.import_module(f"{admin_pkg.__name__}.{mod_info.name}")
+        templates = getattr(module, "templates", None)
+        if isinstance(templates, Jinja2Templates):
+            register_asset_version_global(templates, version=ASSET_VERSION)
+
+
+_inject_asset_version_into_admin_templates()
 
 
 @asynccontextmanager

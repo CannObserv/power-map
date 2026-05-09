@@ -8,8 +8,8 @@
   <span id="breadcrumb-current">{{ display_name or org.id }}</span>
 {% endblock %}
 {% block extra_head %}
-  <script src="/static/admin/org-detail.js?v=1" defer></script>
-  <script src="/static/admin/role-merge.js?v=6" defer></script>
+  <script src="/static/admin/org-detail.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/role-merge.js?v={{ asset_version }}" defer></script>
 {% endblock %}
 {% block content %}
 <div class="page-header">

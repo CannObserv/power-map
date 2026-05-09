@@ -14,12 +14,12 @@
       else if(s==='light'){html.classList.add('light');}
     })();
   </script>
-  <link rel="stylesheet" href="/static/admin/admin.css">
+  <link rel="stylesheet" href="/static/admin/admin.css?v={{ asset_version }}">
   <script src="/static/admin/vendor/htmx-2.0.8.min.js" defer></script>
-  <script src="/static/admin/dark-mode.js?v=2" defer></script>
-  <script src="/static/admin/admin-modal.js?v=1" defer></script>
-  <script src="/static/admin/flash.js?v=1" defer></script>
-  <script src="/static/admin/typeahead-combobox.js?v=1" defer></script>
+  <script src="/static/admin/dark-mode.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/admin-modal.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/flash.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/typeahead-combobox.js?v={{ asset_version }}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
