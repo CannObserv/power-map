@@ -200,3 +200,63 @@ def test_links_delete_returns_info_flash(client, org_and_link):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "info"
+
+
+def test_links_create_duplicate_returns_409_not_500(client, org_and_link):
+    """Issue #142: with the new UNIQUE constraint, posting an existing
+    (entity_type, entity_id, url, link_type_id) must return 409 with a flash,
+    not bubble up as a 500.
+    """
+    oid, _ = org_and_link  # fixture already inserted https://example.com (website)
+    lt_id = _get_link_type_id()
+    r = client.post(
+        f"/admin/orgs/{oid}/links/",
+        headers=HTMX_HEADERS,
+        data={"url": "https://example.com", "link_type_id": lt_id, "is_active": "true"},
+    )
+    assert r.status_code == 409, (
+        f"expected 409 on duplicate URL, got {r.status_code}: {r.text[:200]}"
+    )
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "warning"
+    assert "already" in trigger["showFlash"]["body"].lower()
+
+
+def test_links_update_to_existing_returns_409_not_500(client, org_and_link):
+    """Editing a link to a URL/type pair that already exists for the entity
+    must return 409 with a flash, not 500.
+    """
+    oid, _ = org_and_link  # fixture has https://example.com (website)
+    lt_id = _get_link_type_id()
+    # Create a second distinct link.
+    r = client.post(
+        f"/admin/orgs/{oid}/links/",
+        headers=HTMX_HEADERS,
+        data={"url": "https://other.example.com", "link_type_id": lt_id, "is_active": "true"},
+    )
+    assert r.status_code == 200
+    # Find the new link's id.
+    dsn = os.environ.get("DATABASE_URL")
+
+    async def fetch_other_id():
+        conn = await asyncpg.connect(dsn)
+        try:
+            return await conn.fetchval(
+                "SELECT id FROM links WHERE entity_id=$1 AND url='https://other.example.com'",
+                oid,
+            )
+        finally:
+            await conn.close()
+
+    other_lid = asyncio.run(fetch_other_id())
+    # Try to edit it to the URL the first link already has.
+    r = client.post(
+        f"/admin/orgs/{oid}/links/{other_lid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"url": "https://example.com", "link_type_id": lt_id, "is_active": "true"},
+    )
+    assert r.status_code == 409, (
+        f"expected 409 on duplicate UPDATE, got {r.status_code}: {r.text[:200]}"
+    )
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "warning"

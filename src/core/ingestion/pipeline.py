@@ -277,7 +277,8 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         "INSERT INTO links"
                         " (id, entity_type, entity_id, url, link_type_id)"
                         " VALUES ($1, $2, $3, $4, $5)"
-                        " ON CONFLICT DO NOTHING",
+                        " ON CONFLICT (entity_type, entity_id, url, link_type_id)"
+                        " DO NOTHING",
                         generate_id(), "organization", t["org_id"],
                         lnk["url"], link_type_id,
                     )
@@ -386,7 +387,8 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         "INSERT INTO links"
                         " (id, entity_type, entity_id, url, link_type_id)"
                         " VALUES ($1, $2, $3, $4, $5)"
-                        " ON CONFLICT DO NOTHING",
+                        " ON CONFLICT (entity_type, entity_id, url, link_type_id)"
+                        " DO NOTHING",
                         generate_id(), "person", t["person_id"],
                         lnk["url"], link_type_id,
                     )
@@ -516,7 +518,8 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         "INSERT INTO links"
                         " (id, entity_type, entity_id, url, link_type_id)"
                         " VALUES ($1, $2, $3, $4, $5)"
-                        " ON CONFLICT DO NOTHING",
+                        " ON CONFLICT (entity_type, entity_id, url, link_type_id)"
+                        " DO NOTHING",
                         generate_id(), "role_assignment", t["assignment_id"],
                         lnk["url"], link_type_id,
                     )

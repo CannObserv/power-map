@@ -337,6 +337,32 @@ CREATE TABLE IF NOT EXISTS links (
 CREATE INDEX IF NOT EXISTS idx_links_entity
     ON links(entity_type, entity_id);
 
+-- Natural-key uniqueness (issue #142): an entity must not carry the same URL
+-- twice for the same link_type. Without this, the ON CONFLICT DO NOTHING
+-- clauses in src/core/ingestion/pipeline.py are silent no-ops, and the
+-- conflict key relied on by scripts/deduplicate_roles.py is unenforced.
+-- is_active is intentionally excluded — keeping both an active and an
+-- archived copy of the same URL is not a supported state.
+--
+-- Self-healing migration: collapse any pre-existing duplicate rows (oldest
+-- by created_at/id wins) so CREATE UNIQUE INDEX does not abort. This runs
+-- every apply_schema invocation; it is a no-op once duplicates are gone.
+-- A standalone dry-run / audit entry point lives at scripts/dedup_links.py.
+DELETE FROM links
+WHERE id IN (
+    SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY entity_type, entity_id, url, link_type_id
+            ORDER BY created_at, id
+        ) AS rn
+        FROM links
+    ) ranked
+    WHERE ranked.rn > 1
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_links_entity_url
+    ON links(entity_type, entity_id, url, link_type_id);
+
 -- Remove is_canonical column and index (no display query uses them; concept retired).
 -- Application-level callers removed in c71270a (orgs_merge.py pre-demote block).
 DROP INDEX IF EXISTS uq_link_canonical;

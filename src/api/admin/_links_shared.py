@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -108,17 +109,28 @@ def make_links_router(
         """Create a new link."""
         await _get_entity_or_404(entity_id, db)
         lid = generate_id()
-        await db.execute(
-            "INSERT INTO links"
-            " (id, entity_type, entity_id, url, link_type_id, is_active)"
-            " VALUES ($1, $2, $3, $4, $5, $6)",
-            lid,
-            entity_type,
-            entity_id,
-            url.strip(),
-            link_type_id,
-            is_active == "true",
-        )
+        clean_url = url.strip()
+        try:
+            await db.execute(
+                "INSERT INTO links"
+                " (id, entity_type, entity_id, url, link_type_id, is_active)"
+                " VALUES ($1, $2, $3, $4, $5, $6)",
+                lid,
+                entity_type,
+                entity_id,
+                clean_url,
+                link_type_id,
+                is_active == "true",
+            )
+        except asyncpg.UniqueViolationError:
+            return HTMLResponse(
+                content="",
+                status_code=409,
+                headers=flash_trigger(
+                    "warning",
+                    f"Link <strong>{escape(clean_url)}</strong> already exists for this entity.",
+                ),
+            )
         row = await _get_link_or_404(lid, entity_id, db)
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
@@ -177,13 +189,24 @@ def make_links_router(
     ):
         """Update a link."""
         await _get_link_or_404(link_id, entity_id, db)
-        await db.execute(
-            "UPDATE links SET url=$1, link_type_id=$2, is_active=$3 WHERE id=$4",
-            url.strip(),
-            link_type_id,
-            is_active == "true",
-            link_id,
-        )
+        clean_url = url.strip()
+        try:
+            await db.execute(
+                "UPDATE links SET url=$1, link_type_id=$2, is_active=$3 WHERE id=$4",
+                clean_url,
+                link_type_id,
+                is_active == "true",
+                link_id,
+            )
+        except asyncpg.UniqueViolationError:
+            return HTMLResponse(
+                content="",
+                status_code=409,
+                headers=flash_trigger(
+                    "warning",
+                    f"Link <strong>{escape(clean_url)}</strong> already exists for this entity.",
+                ),
+            )
         row = await _get_link_or_404(link_id, entity_id, db)
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
