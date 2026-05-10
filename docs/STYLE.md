@@ -1850,3 +1850,50 @@ Files that do NOT need this block:
 
 - Pure expression-extractor tests that never `eval` script source or attach DOM listeners (e.g. `tests/js/name-typeahead-hx-vals.test.js`).
 - Factory-style scripts where the test cleans up via the script's own teardown path (e.g. dispatching Escape to invoke the factory's `closeDropdown` removes the document-level listeners it registered) — but the spy-based block is still preferred for symmetry and to catch listeners the factory itself doesn't track.
+
+---
+
+## 34. Multi-instance form-row partials: row-key contract
+
+Inline form-row partials under `src/templates/admin/**/partials/_*_form_row.html` may render multiple times in the same DOM (e.g. an inline "+ Add" row alongside an open edit drawer for the same entity type). Without a per-row id suffix, the second `initTypeaheadCombobox(...)` call resolves every `getElementById` lookup to the first form's elements — typing in form #2 silently mutates form #1's hidden field and form #2's listbox never renders. (Issue #125 surfaced this on the person-name typeahead row.)
+
+### Convention
+
+Every multi-instance form-row partial accepts an optional `row_key` template variable, defaulting to `'new'` for the standard "+ Add" inline row:
+
+```jinja
+{# Module-level header — point at this STYLE.md section, not a paragraph per file #}
+{%- set row_key = row_key | default('new') -%}
+<tr id="entity-row-{{ row_key }}">
+  <input id="entity-search-display-{{ row_key }}"
+         aria-controls="entity-search-results-{{ row_key }}" ...>
+  <input type="hidden" id="entity-id-hidden-{{ row_key }}" name="entity_id">
+  <ul id="entity-search-results-{{ row_key }}" ...></ul>
+  <script>
+    window.initTypeaheadCombobox({
+      inputId: 'entity-search-display-{{ row_key }}',
+      listboxId: 'entity-search-results-{{ row_key }}',
+      hiddenId: 'entity-id-hidden-{{ row_key }}',
+    });
+  </script>
+</tr>
+```
+
+Rules:
+
+- Every `id="..."` gets the `-{{ row_key }}` suffix.
+- Matching `aria-controls` and `initTypeaheadCombobox` arguments get the same suffix.
+- `name=` attributes stay unchanged so form submission posts the right field.
+- Callers can omit `row_key` for the standard inline-add row; pass `row_key=<entity.id>` (or any unique-on-the-page string) for edit drawers and other multi-row contexts.
+
+### Singleton-only partials
+
+Some partials are guaranteed singletons (one parent per org, one org field per role, one open merge modal at a time). They DO NOT need the row-key dance — but the audit conclusion belongs in the partial's top-of-file comment so future contributors don't copy the singleton pattern into a multi-instance flow:
+
+- `_parent_form.html` — singleton (swap target `#parent-row`)
+- `_org_form.html` — singleton (swap target `#org-field`)
+- `_merge_search_modal.html` — modal portal pattern (one open at a time)
+
+### Test coverage
+
+`tests/js/typeahead-row-key-collision.test.js` is the regression guard. It builds two forms in the same DOM with distinct row-keys, evals the real `typeahead-combobox.js` factory, and asserts a selection in form B never mutates form A's hidden field — and that `aria-controls` on each input points at its own listbox. Add cases there when introducing a new multi-instance partial.

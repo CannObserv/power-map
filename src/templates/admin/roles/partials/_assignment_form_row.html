@@ -1,16 +1,6 @@
-{# admin/roles/partials/_assignment_form_row.html — new assignment inline form.
-
-   Issue #125: element ids carry a `-{{ row_key }}` suffix so this inline
-   "new assignment" form does not collide with any open `_assignment_edit_row`
-   (whose ids are namespaced with `{{ ra.id }}`). Without the suffix,
-   `is-current-cb` and `end-date-input` would clash with edit-row siblings
-   and `document.getElementById` would resolve to the first match. `name=`
-   attributes are unchanged so form submission still posts the right field.
-
-   Callers can omit `row_key` (defaults to `'new'`) for the standard
-   "+ Add assignment" inline row. Reuses for an edit drawer or any
-   multi-row context should pass `row_key=<entity.id>` so each instance's
-   ids stay unique. #}
+{# admin/roles/partials/_assignment_form_row.html — multi-instance new-assignment form.
+   row_key contract: docs/STYLE.md §34.
+   Coexists with `_assignment_edit_row` (which namespaces ids with `{{ ra.id }}`). #}
 {%- set row_key = row_key | default('new') -%}
 <tr id="assignment-row-{{ row_key }}">
   <td colspan="5" style="padding:var(--space-2) var(--space-4)">

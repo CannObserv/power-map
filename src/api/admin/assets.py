@@ -18,8 +18,15 @@ the git tree could diverge (e.g. a release artifact bind-mounted alongside an
 unrelated checkout, or the process kept alive across ``git pull`` without a
 restart), the SHA would no longer match what's actually being served — switch
 to hashing the asset files directly if that model becomes relevant.
+
+The fallback timestamp is the **process-start** epoch, not an asset content
+hash either: it cache-busts on every restart even when asset bytes are
+unchanged. That's intentional — restart-time freshness in dev contexts where
+git is unavailable beats stale-cache surprises.
 """
 
+import importlib
+import pkgutil
 import subprocess
 import time
 
@@ -54,3 +61,26 @@ def register_asset_version_global(
 ) -> None:
     """Inject ``asset_version`` into a Jinja2Templates instance's globals."""
     templates.env.globals["asset_version"] = version
+
+
+def inject_asset_version_into_admin_templates() -> None:
+    """Set ``asset_version`` on every Jinja2Templates instance under src.api.admin.
+
+    Walks the immediate ``src.api.admin`` namespace (one level — does NOT
+    recurse into subpackages) and registers the version on every module-level
+    ``Jinja2Templates`` it finds. Called once at app startup from
+    ``src/api/main.py``.
+
+    Iterates ``module.__dict__.values()`` directly rather than via
+    ``dir()`` + ``getattr()``: faster and avoids triggering attribute
+    descriptors. The src.api.admin import is lazy so this module can be
+    imported cheaply (e.g. by tests) without dragging the whole admin
+    package into memory at import time.
+    """
+    import src.api.admin as admin_pkg  # lazy: avoid circular import at module load
+
+    for mod_info in pkgutil.iter_modules(admin_pkg.__path__):
+        module = importlib.import_module(f"{admin_pkg.__name__}.{mod_info.name}")
+        for attr in module.__dict__.values():
+            if isinstance(attr, Jinja2Templates):
+                register_asset_version_global(attr)

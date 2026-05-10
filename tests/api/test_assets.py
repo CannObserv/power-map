@@ -5,11 +5,23 @@ import pkgutil
 import subprocess
 from unittest.mock import patch
 
+import pytest
 from fastapi.templating import Jinja2Templates
 
 import src.api.admin as admin_pkg
-import src.api.main  # noqa: F401  -- triggers _inject_asset_version_into_admin_templates()
 from src.api.admin import assets
+
+
+@pytest.fixture(autouse=True)
+def _inject_for_test():
+    """Run the production injector once per test, decoupled from src.api.main.
+
+    Calling the injector directly avoids the side-effecting import chain that
+    `src.api.main` triggers (configure_logging(), DB module load, every admin
+    submodule), keeping the test's failure modes tied to what we're actually
+    asserting.
+    """
+    assets.inject_asset_version_into_admin_templates()
 
 
 def test_compute_asset_version_uses_git_short_hash_when_available():
@@ -62,17 +74,20 @@ def _walk_admin_jinja_templates() -> list[tuple[str, Jinja2Templates]]:
 
     Uses ``walk_packages`` to recurse into subpackages so future
     ``src.api.admin.<subpkg>.<mod>`` layouts are covered too — the production
-    injector at ``src/api/main.py`` only walks the top level, so this test
-    surfaces injection gaps before they ship.
+    injector in ``assets.inject_asset_version_into_admin_templates`` only
+    walks the top level, so this test surfaces injection gaps before they
+    ship.
+
+    Iterates ``module.__dict__.items()`` directly (faster than ``dir()`` +
+    ``getattr()``, and avoids triggering attribute descriptors). Lets
+    ``ImportError`` propagate: a module that fails to import is the worst
+    case — its templates would receive zero injection — and silently
+    skipping it would mask the very gap this test exists to detect.
     """
     found: list[tuple[str, Jinja2Templates]] = []
     for mod_info in pkgutil.walk_packages(admin_pkg.__path__, prefix=f"{admin_pkg.__name__}."):
-        try:
-            module = importlib.import_module(mod_info.name)
-        except ImportError:
-            continue
-        for attr_name in dir(module):
-            attr = getattr(module, attr_name, None)
+        module = importlib.import_module(mod_info.name)
+        for attr_name, attr in module.__dict__.items():
             if isinstance(attr, Jinja2Templates):
                 found.append((f"{mod_info.name}.{attr_name}", attr))
     return found
