@@ -12,14 +12,16 @@ import src.api.admin as admin_pkg
 from src.api.admin import assets
 
 
-@pytest.fixture(autouse=True)
-def _inject_for_test():
-    """Run the production injector once per test, decoupled from src.api.main.
+@pytest.fixture
+def admin_templates_injected():
+    """Run the production injector once, decoupled from src.api.main.
 
     Calling the injector directly avoids the side-effecting import chain that
     `src.api.main` triggers (configure_logging(), DB module load, every admin
     submodule), keeping the test's failure modes tied to what we're actually
-    asserting.
+    asserting. Scoped (not autouse) so the unit tests above don't pay the
+    walk cost or inherit the failure mode of an unrelated import error in
+    the admin package.
     """
     assets.inject_asset_version_into_admin_templates()
 
@@ -93,27 +95,27 @@ def _walk_admin_jinja_templates() -> list[tuple[str, Jinja2Templates]]:
     return found
 
 
-def test_every_admin_jinja_env_has_asset_version_global():
+def test_every_admin_jinja_env_has_asset_version_global(admin_templates_injected):
     """Every Jinja2Templates instance in src.api.admin must have asset_version injected.
 
-    Guards against the failure mode the production injector (`pkgutil.iter_modules`,
+    Guards against the failure mode the production injector
+    (`assets.inject_asset_version_into_admin_templates` — `pkgutil.iter_modules`,
     one level only) would silently introduce: a new `src.api.admin.<subpkg>.<mod>`
     that defines templates would render `?v=` (empty) instead of the cache-bust
-    value. If this test fails, the injector at `src/api/main.py:22-32` needs to
-    recurse (e.g. switch to `walk_packages`) or the templates need to be moved
-    to a top-level admin module.
+    value. If this test fails, widen the injector (e.g. switch to `walk_packages`)
+    or move the templates to a top-level admin module.
     """
     instances = _walk_admin_jinja_templates()
     assert instances, "expected at least one Jinja2Templates in src.api.admin"
     missing = [name for name, t in instances if "asset_version" not in t.env.globals]
     assert not missing, (
         f"asset_version global missing on {len(missing)} Jinja2Templates instance(s): "
-        f"{missing}. The injector in src/api/main.py probably skipped them — "
+        f"{missing}. The injector in src.api.admin.assets probably skipped them — "
         "check whether they live in a subpackage."
     )
 
 
-def test_admin_jinja_envs_render_asset_version_to_real_string():
+def test_admin_jinja_envs_render_asset_version_to_real_string(admin_templates_injected):
     """End-to-end: a real admin Jinja env must render `{{ asset_version }}` to ASSET_VERSION."""
     instances = _walk_admin_jinja_templates()
     assert instances

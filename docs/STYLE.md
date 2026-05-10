@@ -1890,9 +1890,9 @@ Rules:
 
 Some partials are guaranteed singletons (one parent per org, one org field per role, one open merge modal at a time). They DO NOT need the row-key dance — but the audit conclusion belongs in the partial's top-of-file comment so future contributors don't copy the singleton pattern into a multi-instance flow:
 
-- `_parent_form.html` — singleton (swap target `#parent-row`)
-- `_org_form.html` — singleton (swap target `#org-field`)
-- `_merge_search_modal.html` — modal portal pattern (one open at a time)
+- `src/templates/admin/orgs/partials/_parent_form.html` — singleton (swap target `#parent-row`)
+- `src/templates/admin/roles/partials/_org_form.html` — singleton (swap target `#org-field`)
+- `src/templates/admin/orgs/_merge_search_modal.html` — modal portal pattern (one open at a time)
 
 ### Test coverage
 
