@@ -10,6 +10,14 @@ Resolution order:
    lack git or a working tree.
 
 The value is computed once at import time and cached in ``ASSET_VERSION``.
+
+Caveat: the SHA reflects the **git checkout**, not a hash of the static-asset
+bytes themselves. For the current single-VM, in-place checkout-and-restart
+deploy model this is equivalent. In a deploy where the running process and
+the git tree could diverge (e.g. a release artifact bind-mounted alongside an
+unrelated checkout, or the process kept alive across ``git pull`` without a
+restart), the SHA would no longer match what's actually being served — switch
+to hashing the asset files directly if that model becomes relevant.
 """
 
 import subprocess

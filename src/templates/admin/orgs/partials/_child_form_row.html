@@ -1,10 +1,15 @@
 {# admin/orgs/partials/_child_form_row.html
 
-   Issue #125: element ids carry a `-new` row-key suffix so the inline
+   Issue #125: element ids carry a `-{{ row_key }}` suffix so the inline
    "+ Add child" form does not collide with any other typeahead instance
    on the page (e.g. a future child-edit row, or a sibling form). `name=`
-   attributes are unchanged so form submission still posts the right field. #}
-{%- set row_key = 'new' -%}
+   attributes are unchanged so form submission still posts the right field.
+
+   Callers that render a single inline-add row can omit `row_key`; it
+   defaults to `'new'`. Callers reusing this partial for an edit drawer
+   (or for multi-row contexts) should pass `row_key=<entity.id>` to keep
+   each instance's ids unique. #}
+{%- set row_key = row_key | default('new') -%}
 <tr id="child-row-{{ row_key }}">
   <td colspan="3" style="padding:var(--space-2) var(--space-4)">
     <form hx-post="/admin/orgs/{{ org_id }}/children/"

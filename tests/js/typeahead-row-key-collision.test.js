@@ -74,6 +74,22 @@ afterEach(() => {
 });
 
 describe('typeahead row-key collision (#125)', () => {
+  it('aria-controls on each input points at its own listbox (suffix sanity check)', () => {
+    // Defends against the failure mode where a partial template forgets to
+    // suffix `aria-controls` while suffixing the other ids — the typeahead
+    // would still work but the accessibility binding would silently point at
+    // the wrong listbox (or, with two forms in the DOM, at form A's listbox
+    // from form B's input). Pinning the rendered fixture matches the contract
+    // every modified _form_row.html partial declares.
+    document.body.innerHTML = buildRow('A') + buildRow('new');
+    expect(document.getElementById('search-display-A').getAttribute('aria-controls')).toBe(
+      'search-results-A',
+    );
+    expect(document.getElementById('search-display-new').getAttribute('aria-controls')).toBe(
+      'search-results-new',
+    );
+  });
+
   it('two forms with distinct row-keys bind independently', () => {
     document.body.innerHTML = buildRow('A') + buildRow('new');
     eval(factoryCode);

@@ -8,6 +8,27 @@ Usage:
     uv run python -m scripts.deduplicate_roles --execute  # commit changes
 
 Requires DATABASE_URL environment variable.
+
+Behaviour change (2026-05-09, issue #136 / #124)
+------------------------------------------------
+The ``links`` table no longer carries an ``is_canonical`` column (deliberately
+retired upstream — see ``src/core/schema.sql:340``). Link migration during
+deduplication now uses URL identity as the conflict key:
+
+    (entity_type, entity_id, url, link_type_id)
+
+Concretely: when collapsing duplicate role / role_assignment ids onto the
+canonical id, this script migrates a duplicate's ``links`` row only if no row
+on the canonical already has the same ``(url, link_type_id)`` pair; rows that
+would conflict are deleted (along with the rest of the duplicate's data).
+
+This is broader than the retired ``is_canonical=TRUE`` rule, which only
+detected canonical-vs-canonical conflicts. The new rule treats *any* URL+type
+match as a conflict, which is the safer behaviour given that the ``links``
+table has no UNIQUE constraint to enforce URL uniqueness on its own (see also
+follow-up issue tracking that gap). Operators running this script after the
+schema change should expect duplicate-URL rows on the loser to be dropped
+rather than re-created on the winner.
 """
 
 import argparse
@@ -36,6 +57,12 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
 
     Performs raw DML with no transaction management of its own; the caller
     (run_deduplication) wraps this in a savepoint for dry-run support.
+
+    Link-migration semantics (post-2026-05-09): see module docstring. The
+    ``UPDATE links SET entity_id = canonical … WHERE NOT EXISTS (SELECT 1
+    FROM links l2 WHERE l2.url = links.url AND l2.link_type_id =
+    links.link_type_id …)`` blocks below treat URL+link_type identity as
+    the conflict key, replacing the retired ``is_canonical`` semantics.
     """
     roles_removed = 0
     assignments_removed = 0

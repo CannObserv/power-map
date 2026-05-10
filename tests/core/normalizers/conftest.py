@@ -14,4 +14,6 @@ def _strip_address_validator_env(monkeypatch):
     use ``patch.dict(os.environ, {...}, clear=False)``.
     """
     for key in [k for k in os.environ if k.startswith("ADDRESS_VALIDATOR_")]:
+        # raising=False: tolerate already-absent (between collection and yield
+        # something else may have removed it).
         monkeypatch.delenv(key, raising=False)
