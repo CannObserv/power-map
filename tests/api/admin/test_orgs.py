@@ -438,9 +438,14 @@ def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
         response = client.get("/admin/orgs/?q=Cannabis+Alliance", headers=AUTH_HEADERS)
         assert response.status_code == 200
         assert "Cannabis Alliance (CA)" in response.text
-        # Each row has a detail link + edit link; count detail link only to detect duplicate rows.
-        detail_link_count = response.text.count(f'href="/admin/orgs/{oid}/"')
-        assert detail_link_count == 1, "org must appear exactly once"
+        # Each row in _rows.html renders exactly one Edit-button aria-label
+        # (`aria-label="Edit <display name>"`) — a stable per-row marker. We
+        # count that rather than counting raw href occurrences (which depend
+        # on how many links per row the template happens to render today).
+        edit_aria_marker = 'aria-label="Edit Cannabis Alliance (CA)"'
+        assert response.text.count(edit_aria_marker) == 1, (
+            "org must appear in exactly one row"
+        )
     finally:
         asyncio.run(teardown())
 

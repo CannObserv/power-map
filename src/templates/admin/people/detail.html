@@ -8,11 +8,11 @@
   <span id="breadcrumb-current">{{ display_name or person.id }}</span>
 {% endblock %}
 {% block extra_head %}
-  <script src="/static/admin/person-detail.js?v=1" defer></script>
-  <script src="/static/admin/person-name-deadname-confirm.js?v=1" defer></script>
-  <script src="/static/admin/person-name-parts-cardstack.js?v=1" defer></script>
-  <script src="/static/admin/person-name-row-typeahead.js?v=1" defer></script>
-  <script src="/static/admin/person-detail-add-name-guard.js?v=1" defer></script>
+  <script src="/static/admin/person-detail.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/person-name-deadname-confirm.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/person-name-parts-cardstack.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/person-name-row-typeahead.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/person-detail-add-name-guard.js?v={{ asset_version }}" defer></script>
 {% endblock %}
 {% block content %}
 <div class="page-header">

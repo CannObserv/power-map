@@ -22,21 +22,24 @@ const scriptCode = readFileSync(
 );
 
 // ---------------------------------------------------------------------------
-// Global listener cleanup
+// Global listener cleanup — see docs/STYLE.md §33.
 // Spy on document.addEventListener before every test so we can remove all
-// handlers the IIFE registers. The spy calls through; vi.restoreAllMocks()
-// restores the original after each test.
+// handlers the IIFE registers. The spy calls through; mockRestore() puts the
+// original back. Without this block, document-level listeners (e.g. the
+// 'showFlash' handler) accumulate across tests and inflate dispatch counts.
 // ---------------------------------------------------------------------------
 
-let _addSpy;
+let addSpy;
 
 beforeEach(() => {
-  _addSpy = vi.spyOn(document, 'addEventListener');
+  addSpy = vi.spyOn(document, 'addEventListener');
 });
 
 afterEach(() => {
-  _addSpy.mock.calls.forEach(([type, handler]) => document.removeEventListener(type, handler));
-  vi.restoreAllMocks();
+  for (const [type, fn] of addSpy.mock.calls) {
+    document.removeEventListener(type, fn);
+  }
+  addSpy.mockRestore();
   document.body.innerHTML = '';
 });
 

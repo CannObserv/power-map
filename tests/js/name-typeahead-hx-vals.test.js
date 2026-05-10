@@ -17,6 +17,11 @@
  * Wire format regression test: any future change that breaks the
  * locale/script/reading-of search wiring will fail here, not silently in
  * production.
+ *
+ * Note: this file does not eval any admin script and attaches no document
+ * listeners, so the canonical vi.spyOn(document,'addEventListener') cleanup
+ * block (docs/STYLE.md §33) is intentionally omitted — there is nothing to
+ * clean up.
  */
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

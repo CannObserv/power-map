@@ -1,5 +1,8 @@
-{# admin/roles/partials/_assignment_form_row.html — new assignment inline form #}
-<tr id="assignment-row-new">
+{# admin/roles/partials/_assignment_form_row.html — multi-instance new-assignment form.
+   row_key contract: docs/STYLE.md §34.
+   Coexists with `_assignment_edit_row` (which namespaces ids with `{{ ra.id }}`). #}
+{%- set row_key = row_key | default('new') -%}
+<tr id="assignment-row-{{ row_key }}">
   <td colspan="5" style="padding:var(--space-2) var(--space-4)">
     {% if role and (role.established_on or role.abolished_on) %}
     <p style="margin:0 0 var(--space-2);font-size:var(--font-size-xs);color:var(--color-text-muted)">
@@ -15,20 +18,20 @@
           style="display:flex;gap:var(--space-2);align-items:flex-start;flex-wrap:wrap">
       <div class="form-group" style="margin-bottom:0;flex:2;min-width:10rem;position:relative">
         <input type="text" autocomplete="off" placeholder="Search for a person…"
-               id="person-search-display"
+               id="person-search-display-{{ row_key }}"
                hx-get="/admin/people/search/"
                hx-trigger="input changed delay:200ms"
-               hx-target="#person-search-results"
+               hx-target="#person-search-results-{{ row_key }}"
                hx-swap="innerHTML"
                hx-params="q"
                name="q"
                role="combobox"
                aria-expanded="false"
                aria-haspopup="listbox"
-               aria-controls="person-search-results"
+               aria-controls="person-search-results-{{ row_key }}"
                aria-autocomplete="list">
-        <input type="hidden" name="person_id" id="person-id-hidden">
-        <ul id="person-search-results" class="typeahead-results" role="listbox"></ul>
+        <input type="hidden" name="person_id" id="person-id-hidden-{{ row_key }}">
+        <ul id="person-search-results-{{ row_key }}" class="typeahead-results" role="listbox"></ul>
       </div>
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:8rem">
         <input type="date" name="start_date" placeholder="Start date"
@@ -36,10 +39,10 @@
       </div>
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:8rem">
         <input type="date" name="end_date" placeholder="End date"
-               title="End date" id="end-date-input" value="{{ end_date_input or '' }}">
+               title="End date" id="end-date-input-{{ row_key }}" value="{{ end_date_input or '' }}">
       </div>
       <label class="toggle" style="align-self:center">
-        <input type="checkbox" name="is_current" value="true" id="is-current-cb"
+        <input type="checkbox" name="is_current" value="true" id="is-current-cb-{{ row_key }}"
                aria-label="Current"
                {% if is_current_input %}checked{% endif %}>
         <span class="toggle__track"><span class="toggle__thumb"></span></span>
@@ -52,13 +55,13 @@
     </form>
     <script>
     window.initTypeaheadCombobox({
-      inputId: 'person-search-display',
-      listboxId: 'person-search-results',
-      hiddenId: 'person-id-hidden',
+      inputId: 'person-search-display-{{ row_key }}',
+      listboxId: 'person-search-results-{{ row_key }}',
+      hiddenId: 'person-id-hidden-{{ row_key }}',
     });
     (function () {
-      var cb = document.getElementById('is-current-cb');
-      var endDt = document.getElementById('end-date-input');
+      var cb = document.getElementById('is-current-cb-{{ row_key }}');
+      var endDt = document.getElementById('end-date-input-{{ row_key }}');
       cb.addEventListener('change', function () {
         if (cb.checked) { endDt.value = ''; endDt.disabled = true; }
         else { endDt.disabled = false; }

@@ -50,6 +50,15 @@ async def org_id(db):
         generate_id(), oid,
     )
     yield oid
+    # Clean up children first to avoid FK violations: tests like
+    # test_create_role_post_redirects POST a new role tied to this org via the
+    # admin form, leaving an orphan row that the org delete would otherwise hit.
+    await db.execute(
+        "DELETE FROM role_assignments"
+        " WHERE role_id IN (SELECT id FROM roles WHERE organization_id = $1)",
+        oid,
+    )
+    await db.execute("DELETE FROM roles WHERE organization_id = $1", oid)
     await db.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
     await db.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
     await db.execute("DELETE FROM organizations WHERE id = $1", oid)
