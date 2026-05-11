@@ -41,6 +41,7 @@ from fastapi.templating import Jinja2Templates
 
 from src.api.admin.people_name_parts import ARRAY_CAP
 from src.core.logging import get_logger
+from src.core.normalizers.person_name import NON_DECOMPOSABLE_TYPES
 
 logger = get_logger(__name__)
 
@@ -76,6 +77,14 @@ def register_array_cap_global(
 ) -> None:
     """Inject ``ARRAY_CAP`` into a Jinja2Templates instance's globals."""
     templates.env.globals["ARRAY_CAP"] = cap
+
+
+def register_non_decomposable_types_global(
+    templates: Jinja2Templates,
+    types: frozenset[str] = NON_DECOMPOSABLE_TYPES,
+) -> None:
+    """Inject ``NON_DECOMPOSABLE_TYPES`` into a Jinja2Templates instance's globals."""
+    templates.env.globals["NON_DECOMPOSABLE_TYPES"] = types
 
 
 def _walk_admin_jinja_templates():
@@ -117,3 +126,16 @@ def inject_array_cap_into_admin_templates() -> None:
     """
     for templates in _walk_admin_jinja_templates():
         register_array_cap_global(templates)
+
+
+def inject_non_decomposable_types_into_admin_templates() -> None:
+    """Set ``NON_DECOMPOSABLE_TYPES`` on every admin Jinja2Templates instance.
+
+    Lets templates gate the "Suggest decomposition" button via
+    ``{% if n.name_type not in NON_DECOMPOSABLE_TYPES %}`` without
+    hardcoding the tuple — the canonical source is the Python frozenset
+    in ``src.core.normalizers.person_name``. Called once at app startup
+    from ``src/api/main.py``.
+    """
+    for templates in _walk_admin_jinja_templates():
+        register_non_decomposable_types_global(templates)

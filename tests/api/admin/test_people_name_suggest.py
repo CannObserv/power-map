@@ -13,6 +13,7 @@ confidence bucket (trivial, ambiguous, skip) plus the UX guards:
 
 import asyncio
 import os
+import re
 
 import asyncpg
 import pytest
@@ -25,6 +26,27 @@ pytestmark = pytest.mark.integration
 
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
+
+
+def _input_has_value(body: str, name: str, value: str) -> bool:
+    """Match an `<input>` with the given `name` and `value` attributes,
+    tolerant of attribute order and either single or double quotes."""
+    pattern = re.compile(
+        r"<input\b(?=[^>]*\bname=[\"']" + re.escape(name) + r"[\"'])"
+        r"(?=[^>]*\bvalue=[\"']" + re.escape(value) + r"[\"'])"
+        r"[^>]*>"
+    )
+    return bool(pattern.search(body))
+
+
+def _has_any_input_value(body: str, name: str) -> bool:
+    """Match any `<input name="..." value="...">` with a non-empty value."""
+    pattern = re.compile(
+        r"<input\b(?=[^>]*\bname=[\"']" + re.escape(name) + r"[\"'])"
+        r"(?=[^>]*\bvalue=[\"'](?!['\"]).+?[\"'])"
+        r"[^>]*>"
+    )
+    return bool(pattern.search(body))
 
 
 @pytest.fixture
@@ -162,11 +184,12 @@ def test_suggest_parts_trivial_two_token_prefills(client, seeded_person):
     body = r.text
     # Advisory line surfaces confidence.
     assert "trivial" in body.lower()
-    # Pre-filled values.
-    assert 'value="Ada"' in body
-    assert 'value="Lovelace"' in body
+    # Pre-filled values — match the <input> with both name and value,
+    # tolerant of attribute order and quote style.
+    assert _input_has_value(body, "given_names", "Ada")
+    assert _input_has_value(body, "family_names", "Lovelace")
     # Primary identifier selected to family.
-    assert ('value="family" selected' in body) or ('selected>family' in body)
+    assert re.search(r'<option\b[^>]*value=[\'"]family[\'"][^>]*selected', body)
 
 
 def test_suggest_parts_trivial_mononym_prefills_given_only(client, seeded_person):
@@ -177,7 +200,7 @@ def test_suggest_parts_trivial_mononym_prefills_given_only(client, seeded_person
     )
     assert r.status_code == 200, r.text
     body = r.text
-    assert 'value="Madonna"' in body
+    assert _input_has_value(body, "given_names", "Madonna")
     # mononym tag should appear in advisory reasons.
     assert "mononym" in body.lower()
 
@@ -191,9 +214,9 @@ def test_suggest_parts_trivial_particle_surname(client, seeded_person):
     )
     assert r.status_code == 200, r.text
     body = r.text
-    assert 'value="Vincent"' in body
+    assert _input_has_value(body, "given_names", "Vincent")
     # Particle is reflected in the family field.
-    assert "van der Berg" in body
+    assert _input_has_value(body, "family_names", "van der Berg")
     # Reasons surfaces the particle tag.
     assert "particle" in body.lower()
 
@@ -206,11 +229,11 @@ def test_suggest_parts_trivial_with_honorifics(client, seeded_person):
     )
     assert r.status_code == 200, r.text
     body = r.text
-    assert 'value="John"' in body
-    assert 'value="Smith"' in body
+    assert _input_has_value(body, "given_names", "John")
+    assert _input_has_value(body, "family_names", "Smith")
     # Honorifics pre-fill the prefix/suffix inputs.
-    assert 'value="Dr."' in body
-    assert 'value="Jr."' in body
+    assert _input_has_value(body, "honorific_prefix", "Dr.")
+    assert _input_has_value(body, "honorific_suffix", "Jr.")
 
 
 def test_suggest_parts_trivial_comma_form(client, seeded_person):
@@ -222,8 +245,8 @@ def test_suggest_parts_trivial_comma_form(client, seeded_person):
     )
     assert r.status_code == 200, r.text
     body = r.text
-    assert 'value="John"' in body
-    assert 'value="Smith"' in body
+    assert _input_has_value(body, "given_names", "John")
+    assert _input_has_value(body, "family_names", "Smith")
 
 
 # ---------------------------------------------------------------------------
@@ -245,10 +268,9 @@ def test_suggest_parts_ambiguous_multi_token_middle_skips_prefill(
     assert r.status_code == 200, r.text
     body = r.text
     assert "ambiguous" in body.lower()
-    # No pre-filled value attributes for given/family/additional inputs.
-    # (Honorific fields default to empty too.)
-    assert 'name="given_names" value=' not in body
-    assert 'name="family_names" value=' not in body
+    # No pre-filled inputs for given/family.
+    assert not _has_any_input_value(body, "given_names")
+    assert not _has_any_input_value(body, "family_names")
 
 
 # ---------------------------------------------------------------------------
@@ -270,8 +292,8 @@ def test_suggest_parts_empty_name_short_circuits(client, seeded_person):
     body = r.text
     # Advisory mentions setting the name first.
     assert "name" in body.lower()
-    # No pre-fill: no given/family value attributes.
-    assert 'name="given_names" value=' not in body
+    # No pre-fill: no given-names input has a value.
+    assert not _has_any_input_value(body, "given_names")
 
 
 def test_suggest_parts_null_script_falls_back_to_advisory(client, seeded_person):
@@ -288,7 +310,7 @@ def test_suggest_parts_null_script_falls_back_to_advisory(client, seeded_person)
     # Advisory present.
     assert "script" in body.lower()
     # No pre-fill arrays.
-    assert 'name="given_names" value=' not in body
+    assert not _has_any_input_value(body, "given_names")
 
 
 def test_suggest_parts_non_decomposable_name_type_advisory(client, seeded_person):
@@ -303,7 +325,7 @@ def test_suggest_parts_non_decomposable_name_type_advisory(client, seeded_person
     assert r.status_code == 200, r.text
     body = r.text
     assert "skip" in body.lower() or "initials" in body.lower()
-    assert 'name="given_names" value=' not in body
+    assert not _has_any_input_value(body, "given_names")
 
 
 # ---------------------------------------------------------------------------
@@ -326,10 +348,12 @@ def test_suggest_parts_with_existing_parts_returns_confirm_state(
     assert "replace" in body.lower()
     # Replace button hits the same endpoint with a confirm flag.
     assert "confirm=1" in body or "confirm=true" in body
-    # No pre-filled value attributes from the suggestion yet — the user
-    # has to click Replace first.
-    assert 'value="Ada"' not in body
-    assert 'value="Lovelace"' not in body
+    # No suggestion-derived values pre-filled — existing parts inputs
+    # render their current values (Augusta/King), but the suggestion's
+    # decomposition (Ada/Lovelace) must NOT appear until Replace is
+    # clicked.
+    assert not _input_has_value(body, "given_names", "Ada")
+    assert not _input_has_value(body, "family_names", "Lovelace")
 
 
 def test_suggest_parts_with_existing_parts_confirm_prefills(client, seeded_person):
@@ -343,7 +367,72 @@ def test_suggest_parts_with_existing_parts_confirm_prefills(client, seeded_perso
     assert r.status_code == 200, r.text
     body = r.text
     # Now the suggestion's values appear.
-    assert 'value="Ada"' in body
-    assert 'value="Lovelace"' in body
+    assert _input_has_value(body, "given_names", "Ada")
+    assert _input_has_value(body, "family_names", "Lovelace")
     # Confirmation copy no longer appears.
     assert "Replace existing decomposition" not in body
+
+
+@pytest.mark.parametrize("confirm_value", ["1", "true", "yes", "Y", "T", "On"])
+def test_suggest_parts_confirm_accepts_truthy_variants(
+    client, seeded_person, confirm_value,
+):
+    """`?confirm=` accepts every truthy-like variant via the central
+    `is_truthy_like` helper — case-insensitive, accepts single-letter
+    forms."""
+    nid = asyncio.run(_insert_name(seeded_person, name="Ada Lovelace"))
+    asyncio.run(_insert_parts(nid, given_names=["Augusta"], family_names=["King"]))
+    r = client.get(
+        f"/admin/people/{seeded_person}/names/{nid}/suggest-parts/?confirm={confirm_value}",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200, r.text
+    body = r.text
+    # Truthy confirm bypasses the gate → suggestion pre-fills.
+    assert _input_has_value(body, "given_names", "Ada")
+    assert "Replace existing decomposition" not in body
+
+
+# ---------------------------------------------------------------------------
+# Narrow parts-editor endpoint — Keep current button uses this to swap
+# only the parts editor `<details>` back, preserving in-flight edits
+# in the surrounding row inputs.
+# ---------------------------------------------------------------------------
+
+
+def test_parts_editor_endpoint_returns_original_editor(client, seeded_person):
+    """GET /parts-editor/ returns the un-suggested editor with existing parts."""
+    nid = asyncio.run(_insert_name(seeded_person, name="Ada Lovelace"))
+    asyncio.run(_insert_parts(nid, given_names=["Augusta"], family_names=["King"]))
+    r = client.get(
+        f"/admin/people/{seeded_person}/names/{nid}/parts-editor/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200, r.text
+    body = r.text
+    # Existing parts render.
+    assert _input_has_value(body, "given_names", "Augusta")
+    assert _input_has_value(body, "family_names", "King")
+    # No advisory / confirm copy — this is the plain editor.
+    assert "Suggested decomposition" not in body
+    assert "Replace existing decomposition" not in body
+    # Suggest button is back — this is the original editor render.
+    assert "Suggest decomposition" in body
+
+
+def test_parts_editor_endpoint_404_when_name_missing(client, seeded_person):
+    bogus = generate_id()
+    r = client.get(
+        f"/admin/people/{seeded_person}/names/{bogus}/parts-editor/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 404
+
+
+def test_parts_editor_endpoint_requires_admin_auth(client, seeded_person):
+    nid = asyncio.run(_insert_name(seeded_person, name="Ada Lovelace"))
+    r = client.get(
+        f"/admin/people/{seeded_person}/names/{nid}/parts-editor/",
+        follow_redirects=False,
+    )
+    assert r.status_code in (307, 401, 403), r.status_code

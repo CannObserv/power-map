@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from src.core.db import generate_id
 from src.core.ingestion.base import ConfidenceRecord, FieldError, RowResult
+from src.core.normalizers.base import is_truthy_like
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.identifier import IdentifierNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
@@ -227,4 +228,4 @@ def _parse_current(raw: str | None) -> bool:
     """Parse 'Current Role?' field to bool. Defaults True if absent."""
     if raw is None:
         return True
-    return raw.strip().lower() in ("yes", "true", "1", "y")
+    return is_truthy_like(raw)

@@ -3,25 +3,33 @@
 
    Renders the parts editor `<details>` with the same id as
    `_name_parts_editor.html` so an `outerHTML` swap replaces it cleanly.
-   On top of the parts subheading, surfaces one of three advisory
-   states:
+   The shared body partial `_name_parts_editor_body.html` carries every
+   actual input; this partial only differs from the original editor in
+   three ways: the Suggest button is hidden (its job is already done),
+   the advisory / confirm-state block is rendered above the parts
+   subheading, and the `<details>` is always `open` so the operator
+   sees the swap result without re-clicking the disclosure.
+
+   Body partial branches on context:
 
      1. `needs_confirm` — existing parts row present and the request
         did not pass ``?confirm=1``. Renders a small Replace / Keep
-        current form instead of pre-filling. Replace re-issues the
-        GET with confirm=1; Keep current restores the original editor
-        via the existing edit-row endpoint.
-     2. `prefilled` — `suggestion.confidence ∈ {trivial, ambiguous}`.
-        Inputs carry the suggestion's values; advisory shows
+        current form. Replace re-issues the GET with confirm=1; Keep
+        current restores the original editor via the narrow
+        `/parts-editor/` endpoint so unsaved edits to the surrounding
+        row inputs survive.
+     2. `prefilled` — `suggestion.confidence == 'trivial'`. Inputs
+        carry the suggestion's values; advisory shows
         "Suggested decomposition: <confidence> · <reasons>".
-     3. `advisory` only — script NULL / empty name / non-decomposable
-        name_type. Inputs render empty; advisory explains why.
+     3. `advisory` only — `ambiguous` confidence, NULL script,
+        empty name, or non-decomposable name_type. Inputs render
+        empty; advisory explains why.
 
    Context:
      person_id      — required.
      n              — the name row dict (must include `id`).
-     parts          — dict with given_names/family_names/etc. when
-                      pre-filling; None for advisory-only states.
+     parts          — dict with given_names / family_names / etc.
+                      when pre-filling; None for advisory-only states.
      suggestion     — PartsSuggestion dataclass (confidence + reasons);
                       may be None when needs_confirm.
      advisory       — explicit advisory string for skip states; None
@@ -32,140 +40,16 @@
 {%- set _given = (parts.given_names if parts and parts.given_names else []) -%}
 {%- set _family = (parts.family_names if parts and parts.family_names else []) -%}
 {%- set _additional = (parts.additional_names if parts and parts.additional_names else []) -%}
+{# Variables consumed by the shared body partial: suggestion render
+   hides the Suggest button (its job is already done) and lets the
+   advisory / confirm state flow through. #}
+{%- set show_suggest = false -%}
 <details id="parts-editor-{{ n.id }}" class="name-parts-editor" style="margin-top:var(--space-2);flex-basis:100%" open>
   <summary id="parts-summary-{{ n.id }}"
            style="cursor:pointer;font-size:0.85rem;color:var(--color-text-muted)">
     Details{% if parts %} <span class="badge badge--inactive">set</span>{% endif %}
   </summary>
   <div style="margin-top:var(--space-2);display:flex;flex-direction:column;gap:var(--space-2)">
-    {# ---- Metadata section ---- #}
-    <div style="font-size:0.8rem;color:var(--color-text-muted);font-weight:600">Metadata</div>
-    <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
-      {% include "admin/people/partials/_name_metadata_fields.html" %}
-    </div>
-    <hr style="border:none;border-top:1px solid var(--color-border);margin:var(--space-1) 0">
-    {# ---- Name parts section ---- #}
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);flex-wrap:wrap">
-      <div style="font-size:0.8rem;color:var(--color-text-muted);font-weight:600">Name parts</div>
-      {% if n.name_type not in ('initials', 'mrz', 'reading', 'romanization') %}
-      <button type="button" class="btn btn--sm btn--secondary"
-              hx-get="/admin/people/{{ person_id }}/names/{{ n.id }}/suggest-parts/"
-              hx-target="#parts-editor-{{ n.id }}"
-              hx-swap="outerHTML"
-              aria-label="Suggest decomposition for this name">
-        Suggest decomposition
-      </button>
-      {% endif %}
-    </div>
-    {# ---- Advisory line / confirm state ---- #}
-    {% if needs_confirm %}
-    <div role="status" aria-live="polite"
-         data-suggest-advisory="confirm"
-         style="padding:var(--space-2);border:1px solid var(--color-border);border-radius:4px;background:var(--color-surface-alt,#fff7e0);font-size:0.8rem">
-      <div style="margin-bottom:var(--space-1)">
-        Replace existing decomposition? Current values will be overwritten.
-      </div>
-      <div style="display:flex;gap:var(--space-1)">
-        <button type="button" class="btn btn--sm btn--primary"
-                hx-get="/admin/people/{{ person_id }}/names/{{ n.id }}/suggest-parts/?confirm=1"
-                hx-target="#parts-editor-{{ n.id }}"
-                hx-swap="outerHTML">Replace</button>
-        <button type="button" class="btn btn--sm btn--secondary"
-                hx-get="/admin/people/{{ person_id }}/names/{{ n.id }}/edit-row/"
-                hx-target="#name-row-{{ n.id }}"
-                hx-swap="outerHTML">Keep current</button>
-      </div>
-    </div>
-    {% elif suggestion or advisory %}
-    <div role="status" aria-live="polite"
-         data-suggest-advisory="{{ suggestion.confidence if suggestion else 'skip' }}"
-         style="padding:var(--space-1) var(--space-2);font-size:0.75rem;color:var(--color-text-muted);background:var(--color-surface-alt,#f5f7fb);border-radius:4px">
-      {% if suggestion %}
-        Suggested decomposition: <strong>{{ suggestion.confidence }}</strong>
-        {%- if suggestion.reasons %} · {{ suggestion.reasons|join(' · ') }}{%- endif %}
-      {% endif %}
-      {% if advisory %}
-        {%- if suggestion %} — {% endif -%}
-        {{ advisory }}
-      {% endif %}
-    </div>
-    {% endif %}
-    {# ---- Parts inputs (mirrors _name_parts_editor.html structure) ---- #}
-    <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
-      <div class="form-group" style="margin-bottom:0;min-width:9rem">
-        <label for="primary-identifier-{{ _uid }}"
-               style="font-size:0.75rem;display:block;margin-bottom:0.125rem">Primary identifier</label>
-        <small style="color:var(--color-text-muted);font-size:0.7rem;display:block;margin-bottom:0.25rem">
-          Which name part is the primary surname-equivalent (e.g. <em>family</em> in Japan; <em>patronymic</em> in Iceland; <em>mononym</em> for single-name traditions).
-        </small>
-        <select id="primary-identifier-{{ _uid }}" name="primary_identifier"
-                aria-label="Primary identifier">
-          <option value=""{% if not parts or not parts.primary_identifier %} selected{% endif %}>—</option>
-          {% for v in ('family', 'given', 'patronymic', 'mononym') %}
-          <option value="{{ v }}"{% if parts and parts.primary_identifier == v %} selected{% endif %}>{{ v }}</option>
-          {% endfor %}
-        </select>
-      </div>
-    </div>
-    {% for label, field, vals, help_text in [
-         ('Given names',      'given_names',      _given,
-          'Personal names. Order matters when multiple are listed.'),
-         ('Family names',     'family_names',     _family,
-          'Surnames or clan names.'),
-         ('Additional names', 'additional_names', _additional,
-          'Middle names, religious names, or culturally-specific extras.'),
-       ] %}
-    <fieldset style="border:1px solid var(--color-border);padding:var(--space-2);margin:0">
-      <legend style="font-size:0.75rem;padding:0 var(--space-1)">{{ label }}</legend>
-      <small style="color:var(--color-text-muted);font-size:0.7rem;display:block;margin-bottom:var(--space-1)">
-        {{ help_text }}
-      </small>
-      <div data-cardstack="{{ field }}" data-cardstack-cap="{{ ARRAY_CAP }}"
-           style="display:flex;flex-direction:column;gap:var(--space-1)">
-        {% for v in vals %}
-        <div data-cardstack-card="{{ field }}"
-             style="display:flex;gap:var(--space-1);align-items:center">
-          <div class="form-group" style="margin-bottom:0;flex:1">
-            <input type="text" name="{{ field }}" value="{{ v }}"
-                   aria-label="{{ label }} {{ loop.index }}">
-          </div>
-          <button type="button" class="btn btn--sm btn--secondary"
-                  data-cardstack-reorder="up" data-cardstack-field="{{ field }}"
-                  aria-label="Move this {{ label|lower|replace(' names', '') }} entry up"
-                  {% if loop.first %}disabled{% endif %}>↑</button>
-          <button type="button" class="btn btn--sm btn--secondary"
-                  data-cardstack-reorder="down" data-cardstack-field="{{ field }}"
-                  aria-label="Move this {{ label|lower|replace(' names', '') }} entry down"
-                  {% if loop.last %}disabled{% endif %}>↓</button>
-          <button type="button" class="btn btn--sm btn--secondary"
-                  data-cardstack-remove="{{ field }}"
-                  aria-label="Remove this {{ label|lower|replace(' names', '') }} entry">×</button>
-        </div>
-        {% endfor %}
-      </div>
-      <button type="button" class="btn btn--sm btn--secondary"
-              data-cardstack-add="{{ field }}"
-              aria-label="Add another {{ label|lower|replace(' names', '') }} entry"
-              style="margin-top:var(--space-1)">+ Add</button>
-    </fieldset>
-    {% endfor %}
-    <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
-      <div class="form-group" style="margin-bottom:0;flex:1;min-width:7rem">
-        <label style="font-size:0.75rem;display:block">Honorific prefix
-          <input type="text" name="honorific_prefix"
-                 placeholder="Title that precedes — e.g. Dr., Hon., Sir"
-                 value="{{ parts.honorific_prefix if parts and parts.honorific_prefix else '' }}"
-                 aria-label="Honorific prefix">
-        </label>
-      </div>
-      <div class="form-group" style="margin-bottom:0;flex:1;min-width:7rem">
-        <label style="font-size:0.75rem;display:block">Honorific suffix
-          <input type="text" name="honorific_suffix"
-                 placeholder="Suffix that follows — e.g. Jr., PhD, II"
-                 value="{{ parts.honorific_suffix if parts and parts.honorific_suffix else '' }}"
-                 aria-label="Honorific suffix">
-        </label>
-      </div>
-    </div>
+    {% include "admin/people/partials/_name_parts_editor_body.html" %}
   </div>
 </details>

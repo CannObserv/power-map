@@ -41,7 +41,7 @@ Confidence = Literal["trivial", "ambiguous", "skip"]
 # editor on these rows is meaningless (per docs/CONVENTIONS.md §"Storage
 # rules" — `initials` is e.g. "JFK", `mrz` is "GARCIA<LOPEZ<<JOSE",
 # `reading` / `romanization` are phonetic transcriptions of another row).
-_NON_DECOMPOSABLE_TYPES: frozenset[str] = frozenset(
+NON_DECOMPOSABLE_TYPES: frozenset[str] = frozenset(
     {"initials", "mrz", "reading", "romanization"}
 )
 
@@ -239,7 +239,7 @@ def suggest_parts(
             value is not a free human-name string (initials/mrz/reading/
             romanization) return ``confidence='skip'``.
     """
-    if name_type in _NON_DECOMPOSABLE_TYPES:
+    if name_type in NON_DECOMPOSABLE_TYPES:
         return PartsSuggestion.skip(f"name_type={name_type}")
 
     stripped = name.strip()

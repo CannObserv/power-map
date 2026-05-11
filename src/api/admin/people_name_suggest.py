@@ -1,44 +1,46 @@
-"""Suggest-only decomposition endpoint for the admin name editor (#139).
+"""Suggest-only decomposition endpoints for the admin name editor (#139).
 
-Adds a single read-only HTMX endpoint that wraps
-``src.core.normalizers.person_name.suggest_parts`` and returns the parts
-editor partial pre-populated with the suggestion. The suggester never
-persists — the Save button (which routes through
-``upsert_or_delete_parts``) remains the sole writer to
+Two read-only HTMX endpoints. Neither persists — the Save button (which
+routes through ``upsert_or_delete_parts``) remains the sole writer to
 ``person_name_parts``.
 
-Endpoint:
+Endpoints:
 
     GET /admin/people/{person_id}/names/{name_id}/suggest-parts/
 
-Optional query param ``confirm=1`` bypasses the confirm-before-overwrite
-gate when an existing parts row is already populated.
+        Returns the parts editor partial pre-populated from
+        ``suggest_parts``. Optional ``?confirm=1`` bypasses the
+        confirm-before-overwrite gate when an existing parts row is
+        present.
+
+    GET /admin/people/{person_id}/names/{name_id}/parts-editor/
+
+        Returns the original (un-suggested) parts editor partial for
+        the row, populated from any existing ``person_name_parts``
+        sidecar. Used by the "Keep current" button in the
+        confirm-before-overwrite state to swap the suggestion partial
+        back to the editor without disturbing the surrounding row.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.core.normalizers.base import is_truthy_like
 from src.core.normalizers.person_name import (
+    NON_DECOMPOSABLE_TYPES,
     PartsSuggestion,
     suggest_parts,
 )
 
 # Mirrors the existing ``Jinja2Templates(directory="src/templates")``
 # pattern used elsewhere under ``src.api.admin``. The
-# ``inject_array_cap_into_admin_templates`` walk picks this instance up
-# at startup so ``data-cardstack-cap="{{ ARRAY_CAP }}"`` interpolates
-# correctly when the suggestion partial renders the parts editor.
+# ``inject_array_cap_into_admin_templates`` /
+# ``inject_non_decomposable_types_into_admin_templates`` walks pick this
+# instance up at startup so ``data-cardstack-cap="{{ ARRAY_CAP }}"`` and
+# ``{% if n.name_type not in NON_DECOMPOSABLE_TYPES %}`` resolve from
+# the canonical Python sources when this module's templates render.
 templates = Jinja2Templates(directory="src/templates")
-
-# name_types whose `name` value is not a free human-name string. Mirrors
-# `_NON_DECOMPOSABLE_TYPES` in `src.core.normalizers.person_name` — kept
-# in sync via the `name_types_without_parts` exposure below so the
-# template's button-visibility gate cannot drift from the suggester's
-# skip set.
-_NON_DECOMPOSABLE_TYPES: frozenset[str] = frozenset(
-    {"initials", "mrz", "reading", "romanization"}
-)
 
 router = APIRouter(prefix="/people/{person_id}/names", tags=["admin-person-names"])
 
@@ -93,7 +95,7 @@ async def name_suggest_parts(
             "script is itself a data-quality signal worth resolving before "
             "decomposing."
         )
-    elif name_type in _NON_DECOMPOSABLE_TYPES:
+    elif name_type in NON_DECOMPOSABLE_TYPES:
         skip_advisory = (
             f"name_type={name_type!r} is a non-decomposable form. "
             "Structured parts are not meaningful here."
@@ -122,7 +124,7 @@ async def name_suggest_parts(
         name_id,
     )
 
-    confirm_flag = confirm in ("1", "true", "yes")
+    confirm_flag = is_truthy_like(confirm)
     if existing_parts and not confirm_flag:
         return templates.TemplateResponse(
             request,
@@ -176,5 +178,47 @@ async def name_suggest_parts(
             "advisory": None,
             "prefilled": prefill,
             "needs_confirm": False,
+        },
+    )
+
+
+@router.get("/{name_id}/parts-editor/")
+async def name_parts_editor(
+    person_id: str,
+    name_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return the un-suggested parts editor partial for one name row.
+
+    Used by the "Keep current" button in the suggestion partial's
+    confirm-before-overwrite state. Targeting `#parts-editor-{{ n.id }}`
+    (just the parts editor `<details>`) leaves any in-flight edits in
+    the surrounding row inputs (visibility / locale / script / sort_as /
+    name / canonical / name_type) untouched.
+    """
+    row = await db.fetchrow(
+        "SELECT id, name, name_type, locale, script, sort_as,"
+        " visibility, reading_of_id, is_canonical"
+        " FROM person_names WHERE id=$1 AND person_id=$2",
+        name_id,
+        person_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404)
+    existing_parts = await db.fetchrow(
+        "SELECT given_names, family_names, additional_names,"
+        " honorific_prefix, honorific_suffix, primary_identifier"
+        " FROM person_name_parts WHERE person_name_id=$1",
+        name_id,
+    )
+    return templates.TemplateResponse(
+        request,
+        "admin/people/partials/_name_parts_editor.html",
+        {
+            "person_id": person_id,
+            "n": dict(row),
+            "parts": dict(existing_parts) if existing_parts else None,
         },
     )

@@ -411,6 +411,14 @@ def test_read_row_badge_uses_badge_class():
 PARTS_EDITOR = Path(
     "src/templates/admin/people/partials/_name_parts_editor.html"
 ).read_text()
+# Issue #139 CR: the editor's body (metadata + parts inputs + advisory)
+# now lives in `_name_parts_editor_body.html` so both the editor and the
+# `_name_parts_suggestion.html` HTMX swap target can include it without
+# duplication. String-level assertions on the editor's content target
+# this constant instead of `PARTS_EDITOR`.
+PARTS_EDITOR_BODY = Path(
+    "src/templates/admin/people/partials/_name_parts_editor_body.html"
+).read_text()
 
 
 def test_form_row_includes_parts_editor_partial():
@@ -472,7 +480,7 @@ def test_parts_editor_has_no_remove_button_even_when_parts_exist():
 def test_parts_editor_offers_all_four_primary_identifiers():
     """The dropdown must mirror the DB CHECK: family/given/patronymic/mononym."""
     for v in ("family", "given", "patronymic", "mononym"):
-        assert f"'{v}'" in PARTS_EDITOR or f'"{v}"' in PARTS_EDITOR, v
+        assert f"'{v}'" in PARTS_EDITOR_BODY or f'"{v}"' in PARTS_EDITOR_BODY, v
 
 
 def test_parts_editor_renders_cardstack_for_each_array_field():
@@ -1004,18 +1012,16 @@ def test_sort_as_placeholder_describes_purpose():
 
 
 def _honorific_block(field):
-    """Slice the parts-editor template down to the form-group containing
-    the named honorific input, so we can inspect just that block."""
-    PARTS = Path(
-        "src/templates/admin/people/partials/_name_parts_editor.html"
-    ).read_text()
+    """Slice the parts-editor body template down to the form-group
+    containing the named honorific input, so we can inspect just that
+    block."""
     # Walk back from the input's name attr to the enclosing form-group div.
-    input_idx = PARTS.index(f'name="{field}"')
-    group_open = PARTS.rfind('<div class="form-group"', 0, input_idx)
+    input_idx = PARTS_EDITOR_BODY.index(f'name="{field}"')
+    group_open = PARTS_EDITOR_BODY.rfind('<div class="form-group"', 0, input_idx)
     # Find the matching </div>: form-group is structurally simple (label
     # + input only after the redesign), so the next </div> closes it.
-    group_close = PARTS.index("</div>", input_idx)
-    return PARTS[group_open:group_close + len("</div>")]
+    group_close = PARTS_EDITOR_BODY.index("</div>", input_idx)
+    return PARTS_EDITOR_BODY[group_open:group_close + len("</div>")]
 
 
 def test_honorific_prefix_placeholder_carries_examples_and_drops_small_help():
@@ -1049,14 +1055,11 @@ def test_honorific_suffix_placeholder_carries_examples_and_drops_small_help():
 
 def test_primary_identifier_help_text_above_control():
     """Help text appears between the label and the <select>, not below it."""
-    PARTS = Path(
-        "src/templates/admin/people/partials/_name_parts_editor.html"
-    ).read_text()
     # Find the primary_identifier select and check the help text precedes it.
-    sel_idx = PARTS.index('name="primary_identifier"')
+    sel_idx = PARTS_EDITOR_BODY.index('name="primary_identifier"')
     # Grab a window before the select.
-    before = PARTS[max(0, sel_idx - 800):sel_idx]
-    after = PARTS[sel_idx:sel_idx + 800]
+    before = PARTS_EDITOR_BODY[max(0, sel_idx - 800):sel_idx]
+    after = PARTS_EDITOR_BODY[sel_idx:sel_idx + 800]
     # The distinctive help substring must appear BEFORE the select, not after.
     needle = "primary surname-equivalent"
     assert needle in before, (
@@ -1284,15 +1287,14 @@ def test_detail_loads_reorder_script():
 def test_parts_editor_template_uses_jinja_array_cap_global():
     """Template references `ARRAY_CAP` via Jinja, not a hardcoded literal.
 
-    Guards against re-introducing the literal `5`: the template must
+    Guards against re-introducing the literal `5`: the body partial must
     interpolate the value from the env global so the Python constant
-    stays the single source of truth.
+    stays the single source of truth. (The `data-cardstack-cap`
+    attribute moved into `_name_parts_editor_body.html` during the
+    #139 CR refactor that deduplicated the editor + suggestion bodies.)
     """
-    src = Path(
-        "src/templates/admin/people/partials/_name_parts_editor.html"
-    ).read_text()
-    assert 'data-cardstack-cap="{{ ARRAY_CAP }}"' in src, (
-        "parts editor must interpolate ARRAY_CAP via Jinja global, "
+    assert 'data-cardstack-cap="{{ ARRAY_CAP }}"' in PARTS_EDITOR_BODY, (
+        "parts editor body must interpolate ARRAY_CAP via Jinja global, "
         "not hardcode the cap"
     )
 
@@ -1383,9 +1385,11 @@ def _render_parts_editor(name_type="legal", parts=None):
     from jinja2 import Environment, FileSystemLoader
 
     from src.api.admin.people_name_parts import ARRAY_CAP
+    from src.core.normalizers.person_name import NON_DECOMPOSABLE_TYPES
 
     env = Environment(loader=FileSystemLoader("src/templates"))
     env.globals["ARRAY_CAP"] = ARRAY_CAP
+    env.globals["NON_DECOMPOSABLE_TYPES"] = NON_DECOMPOSABLE_TYPES
     n = {
         "id": "nid_x", "name": "Ada Lovelace", "name_type": name_type,
         "is_canonical": True, "visibility": "public",
