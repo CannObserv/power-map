@@ -141,7 +141,14 @@
     var stacks = root.querySelectorAll('[data-cardstack]');
     stacks.forEach(function (s) {
       var stackRoot = s.closest('form') || root;
-      syncAddBtn(s.getAttribute('data-cardstack'), stackRoot);
+      try {
+        syncAddBtn(s.getAttribute('data-cardstack'), stackRoot);
+      } catch (err) {
+        // Match `cap()`'s fail-loud intent without taking down peer
+        // stacks on the same page: log this stack's failure and let
+        // siblings continue initialising.
+        console.error('cardstack init failed for', s, err);
+      }
     });
   }
 

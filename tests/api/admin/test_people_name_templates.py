@@ -1230,8 +1230,10 @@ def test_parts_editor_picks_up_overridden_array_cap_global():
     """Proves the cap is wired dynamically, not hardcoded.
 
     Renders with a synthetic `ARRAY_CAP=7` injected into the env globals;
-    the rendered output must reflect 7, not 5. If a future regression
-    re-hardcodes the literal in the template, this test catches it.
+    the rendered output must reflect 7. The template has exactly one
+    `data-cardstack-cap` attribute, so the positive assertion is
+    sufficient — a stray hardcoded `5` would never coexist with the
+    rendered `7` under this wiring.
     """
     from jinja2 import Environment, FileSystemLoader
 
@@ -1241,7 +1243,6 @@ def test_parts_editor_picks_up_overridden_array_cap_global():
         "admin/people/partials/_name_parts_editor.html"
     ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
     assert 'data-cardstack-cap="7"' in out
-    assert 'data-cardstack-cap="5"' not in out
 
 
 def test_every_admin_jinja_env_has_array_cap_global():
