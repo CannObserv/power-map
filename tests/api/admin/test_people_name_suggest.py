@@ -472,12 +472,10 @@ def test_suggest_parts_populates_reading_of_name_for_reading_rows(
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200, r.text
-    # Typeahead display input renders the target's visible name.
-    assert _input_has_value(r.text, "reading-of-display-display", "山田 太郎") or (
-        # The display input is keyed off `id`, not `name`; assert via the
-        # value-substring helper that the target name reaches the body.
-        "山田 太郎" in r.text
-    )
+    # Target's distinctive visible name reaches the swapped partial
+    # (substring is uniquely identifying — the reading row's own value
+    # is `やまだ たろう`, not `山田 太郎`).
+    assert "山田 太郎" in r.text
 
 
 def test_parts_editor_endpoint_populates_reading_of_name(
