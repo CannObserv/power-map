@@ -1370,3 +1370,191 @@ def test_every_admin_jinja_env_has_array_cap_global():
         f"ARRAY_CAP global missing on {len(missing)} Jinja2Templates instance(s): "
         f"{missing}. The injector in src.api.admin.assets probably skipped them."
     )
+
+
+# ---------------------------------------------------------------------------
+# Parts editor — "Suggest decomposition" button (Issue #139)
+# ---------------------------------------------------------------------------
+
+
+def _render_parts_editor(name_type="legal", parts=None):
+    """Helper: render the parts editor partial for an existing row of the
+    given ``name_type``. Returns the HTML."""
+    from jinja2 import Environment, FileSystemLoader
+
+    from src.api.admin.people_name_parts import ARRAY_CAP
+
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    env.globals["ARRAY_CAP"] = ARRAY_CAP
+    n = {
+        "id": "nid_x", "name": "Ada Lovelace", "name_type": name_type,
+        "is_canonical": True, "visibility": "public",
+        "locale": "en-US", "script": "Latn", "sort_as": None,
+        "reading_of_id": None, "reading_of_name": None,
+    }
+    return env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n=n, parts=parts, person_id="pid_x")
+
+
+def test_parts_editor_renders_suggest_button_for_legal_name_type():
+    """Issue #139: the suggest button is visible for free-text name_types."""
+    out = _render_parts_editor(name_type="legal")
+    assert "Suggest decomposition" in out
+    assert "/admin/people/pid_x/names/nid_x/suggest-parts/" in out
+
+
+def test_parts_editor_suggest_button_uses_outerhtml_swap_into_parts_editor():
+    """The button must replace the parts editor <details> via outerHTML
+    so the suggestion partial slots in cleanly."""
+    out = _render_parts_editor(name_type="legal")
+    # Find the Suggest button's opening tag.
+    idx = out.index("Suggest decomposition")
+    button_open = out.rfind("<button", 0, idx)
+    button_close = out.index("</button>", idx)
+    btn = out[button_open:button_close]
+    assert 'hx-target="#parts-editor-nid_x"' in btn
+    assert 'hx-swap="outerHTML"' in btn
+
+
+def test_parts_editor_hides_suggest_button_for_non_decomposable_types():
+    """Issue #139: hide the button entirely for initials/mrz/reading/
+    romanization — structured parts are meaningless for these."""
+    for nt in ("initials", "mrz", "reading", "romanization"):
+        out = _render_parts_editor(name_type=nt)
+        assert "Suggest decomposition" not in out, (
+            f"Suggest button should be hidden for name_type={nt!r}"
+        )
+
+
+def test_parts_editor_shows_suggest_button_for_other_human_name_types():
+    """Sanity: button visible for all the other human-readable name_types."""
+    for nt in (
+        "preferred", "alias", "former", "maiden", "religious",
+        "stage", "deadname", "variant",
+    ):
+        out = _render_parts_editor(name_type=nt)
+        assert "Suggest decomposition" in out, (
+            f"Suggest button should be visible for name_type={nt!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Suggestion partial — advisory + pre-fill + confirm state (Issue #139)
+# ---------------------------------------------------------------------------
+
+
+def _render_suggestion(*, n=None, parts=None, suggestion=None, advisory=None,
+                       prefilled=False, needs_confirm=False):
+    from jinja2 import Environment, FileSystemLoader
+
+    from src.api.admin.people_name_parts import ARRAY_CAP
+
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    env.globals["ARRAY_CAP"] = ARRAY_CAP
+    n = n or {
+        "id": "nid_x", "name": "Ada Lovelace", "name_type": "legal",
+        "is_canonical": True, "visibility": "public",
+        "locale": "en-US", "script": "Latn", "sort_as": None,
+        "reading_of_id": None, "reading_of_name": None,
+    }
+    return env.get_template(
+        "admin/people/partials/_name_parts_suggestion.html"
+    ).render(
+        person_id="pid_x", n=n, parts=parts, suggestion=suggestion,
+        advisory=advisory, prefilled=prefilled, needs_confirm=needs_confirm,
+    )
+
+
+def test_suggestion_partial_renders_advisory_with_confidence_and_reasons():
+    """Trivial suggestion renders an advisory line carrying confidence + reasons."""
+    from src.core.normalizers.person_name import PartsSuggestion
+    s = PartsSuggestion(
+        given_names=["Vincent"], family_names=["van der Berg"],
+        confidence="trivial", reasons=["particle:van der"],
+        primary_identifier="family",
+    )
+    parts = {
+        "given_names": ["Vincent"], "family_names": ["van der Berg"],
+        "additional_names": [], "honorific_prefix": None,
+        "honorific_suffix": None, "primary_identifier": "family",
+    }
+    out = _render_suggestion(parts=parts, suggestion=s, prefilled=True)
+    assert "trivial" in out
+    assert "particle:van der" in out
+    assert 'value="Vincent"' in out
+    assert 'value="van der Berg"' in out
+
+
+def test_suggestion_partial_renders_advisory_only_for_skip():
+    """Skip confidence — advisory present, no pre-filled values."""
+    from src.core.normalizers.person_name import PartsSuggestion
+    s = PartsSuggestion.skip("unsupported-script:Cyrl")
+    out = _render_suggestion(
+        parts=None, suggestion=s,
+        advisory="This row has no script set. Set the script first.",
+        prefilled=False,
+    )
+    assert "no script set" in out
+    # Empty given/family inputs — no value="..." pre-fill on the named field.
+    assert 'name="given_names" value=' not in out
+    assert 'name="family_names" value=' not in out
+
+
+def test_suggestion_partial_renders_confirm_state_when_needs_confirm():
+    """Existing parts — render the Replace / Keep current buttons."""
+    parts = {
+        "given_names": ["Augusta"], "family_names": ["King"],
+        "additional_names": [], "honorific_prefix": None,
+        "honorific_suffix": None, "primary_identifier": None,
+    }
+    out = _render_suggestion(parts=parts, needs_confirm=True)
+    assert "Replace" in out
+    assert "Keep current" in out
+    assert "?confirm=1" in out
+    # The confirm state surfaces the EXISTING parts (so the operator
+    # sees what would be overwritten) — that's the same `parts` shape
+    # passed in by the endpoint, not the suggestion.
+    assert 'value="Augusta"' in out
+    assert 'value="King"' in out
+
+
+def test_suggestion_partial_keeps_stable_parts_editor_id():
+    """Outer <details> id must match the existing parts editor so an
+    HTMX outerHTML swap drops in cleanly."""
+    out = _render_suggestion()
+    assert 'id="parts-editor-nid_x"' in out
+
+
+def test_suggestion_partial_pre_filled_renders_primary_identifier_selected():
+    """Trivial bucket sets primary_identifier; the <select> must reflect it."""
+    from src.core.normalizers.person_name import PartsSuggestion
+    s = PartsSuggestion(
+        given_names=["Ada"], family_names=["Lovelace"],
+        confidence="trivial", primary_identifier="family",
+    )
+    parts = {
+        "given_names": ["Ada"], "family_names": ["Lovelace"],
+        "additional_names": [], "honorific_prefix": None,
+        "honorific_suffix": None, "primary_identifier": "family",
+    }
+    out = _render_suggestion(parts=parts, suggestion=s, prefilled=True)
+    assert ('value="family" selected' in out) or ("selected>family" in out)
+
+
+def test_suggestion_partial_pre_fills_honorifics():
+    """Trivial bucket with honorifics — both prefix and suffix inputs carry values."""
+    from src.core.normalizers.person_name import PartsSuggestion
+    s = PartsSuggestion(
+        given_names=["John"], family_names=["Smith"],
+        honorific_prefix="Dr.", honorific_suffix="Jr.",
+        confidence="trivial", primary_identifier="family",
+    )
+    parts = {
+        "given_names": ["John"], "family_names": ["Smith"],
+        "additional_names": [], "honorific_prefix": "Dr.",
+        "honorific_suffix": "Jr.", "primary_identifier": "family",
+    }
+    out = _render_suggestion(parts=parts, suggestion=s, prefilled=True)
+    assert 'value="Dr."' in out
+    assert 'value="Jr."' in out

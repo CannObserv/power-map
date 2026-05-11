@@ -1,53 +1,38 @@
-{# admin/people/partials/_name_parts_editor.html — unified Details
-   disclosure body for an existing name row (Issue #127).
+{# admin/people/partials/_name_parts_suggestion.html — HTMX swap target
+   for the "Suggest decomposition" button (#139).
 
-   Holds, in order:
-     1. Metadata subheading + visibility / locale / script / sort_as /
-        reading_of_id fields (rendered via `_name_metadata_fields.html`).
-     2. <hr> separator.
-     3. Name parts subheading + primary_identifier / given+family+
-        additional CardStacks / honorific prefix+suffix.
+   Renders the parts editor `<details>` with the same id as
+   `_name_parts_editor.html` so an `outerHTML` swap replaces it cleanly.
+   On top of the parts subheading, surfaces one of three advisory
+   states:
 
-   No inner `<form>`: the inputs are nested directly inside the parent
-   name `<form>` in `_name_form_row.html` so a single Save covers both
-   halves in one transactional upsert.
-
-   Auto-open rule: <details> is rendered with the `open` attribute when
-   any non-default metadata or parts value is present on `n`. The
-   `n and (...)` guard is required because `n` can be None on the
-   "new name" form (although `_name_form_row.html` only includes this
-   partial for existing rows, the predicate stays defensive).
+     1. `needs_confirm` — existing parts row present and the request
+        did not pass ``?confirm=1``. Renders a small Replace / Keep
+        current form instead of pre-filling. Replace re-issues the
+        GET with confirm=1; Keep current restores the original editor
+        via the existing edit-row endpoint.
+     2. `prefilled` — `suggestion.confidence ∈ {trivial, ambiguous}`.
+        Inputs carry the suggestion's values; advisory shows
+        "Suggested decomposition: <confidence> · <reasons>".
+     3. `advisory` only — script NULL / empty name / non-decomposable
+        name_type. Inputs render empty; advisory explains why.
 
    Context:
-     person_id  — required (passed through to the metadata partial for
-                  the reading_of typeahead URL).
-     n          — the name row being edited (must be set; the parts
-                  editor is not shown on the "new name" form because
-                  there's no name_id to attach to yet).
-     parts      — dict-like with given_names / family_names /
-                  additional_names / honorific_prefix /
-                  honorific_suffix / primary_identifier; or None when
-                  the row has no parts yet. #}
-{% if n %}
-{# Issue #131: align with `_name_metadata_fields.html` — the same `_uid`
-   discriminator namespaces any element ids the parts editor introduces.
-   `n.id` is always set inside this `{% if n %}` block, but going through
-   `_uid` keeps the namespacing convention consistent. #}
+     person_id      — required.
+     n              — the name row dict (must include `id`).
+     parts          — dict with given_names/family_names/etc. when
+                      pre-filling; None for advisory-only states.
+     suggestion     — PartsSuggestion dataclass (confidence + reasons);
+                      may be None when needs_confirm.
+     advisory       — explicit advisory string for skip states; None
+                      when suggestion's confidence carries the message.
+     prefilled      — bool: True when `parts` carries the suggestion.
+     needs_confirm  — bool: True for the confirm-before-overwrite state. #}
 {%- set _uid = n.id -%}
 {%- set _given = (parts.given_names if parts and parts.given_names else []) -%}
 {%- set _family = (parts.family_names if parts and parts.family_names else []) -%}
 {%- set _additional = (parts.additional_names if parts and parts.additional_names else []) -%}
-{%- set _meta_set = n and (
-    (n.visibility and n.visibility != 'public') or
-    n.locale or n.script or n.sort_as or n.reading_of_id
-) -%}
-{%- set _parts_set = parts is not none -%}
-{%- set _disclosure_open = _meta_set or _parts_set -%}
-<details id="parts-editor-{{ n.id }}" class="name-parts-editor" style="margin-top:var(--space-2);flex-basis:100%"
-         {% if _disclosure_open %}open{% endif %}>
-  {# Stable id on the summary kept for selector parity with earlier
-     phases; the unified Save flow re-renders the whole tbody, so the
-     OOB-swap pattern is no longer used. #}
+<details id="parts-editor-{{ n.id }}" class="name-parts-editor" style="margin-top:var(--space-2);flex-basis:100%" open>
   <summary id="parts-summary-{{ n.id }}"
            style="cursor:pointer;font-size:0.85rem;color:var(--color-text-muted)">
     Details{% if parts %} <span class="badge badge--inactive">set</span>{% endif %}
@@ -60,12 +45,6 @@
     </div>
     <hr style="border:none;border-top:1px solid var(--color-border);margin:var(--space-1) 0">
     {# ---- Name parts section ---- #}
-    {# Issue #139: "Suggest decomposition" button surfaces the
-       `suggest_parts` decomposer in the editor. Hidden for name_types
-       whose `name` value is not a free human-name string — initials,
-       mrz, reading, romanization — because structured parts are not
-       semantically meaningful there (mirrors `_NON_DECOMPOSABLE_TYPES`
-       in src/core/normalizers/person_name.py). #}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-2);flex-wrap:wrap">
       <div style="font-size:0.8rem;color:var(--color-text-muted);font-weight:600">Name parts</div>
       {% if n.name_type not in ('initials', 'mrz', 'reading', 'romanization') %}
@@ -78,8 +57,41 @@
       </button>
       {% endif %}
     </div>
+    {# ---- Advisory line / confirm state ---- #}
+    {% if needs_confirm %}
+    <div role="status" aria-live="polite"
+         data-suggest-advisory="confirm"
+         style="padding:var(--space-2);border:1px solid var(--color-border);border-radius:4px;background:var(--color-surface-alt,#fff7e0);font-size:0.8rem">
+      <div style="margin-bottom:var(--space-1)">
+        Replace existing decomposition? Current values will be overwritten.
+      </div>
+      <div style="display:flex;gap:var(--space-1)">
+        <button type="button" class="btn btn--sm btn--primary"
+                hx-get="/admin/people/{{ person_id }}/names/{{ n.id }}/suggest-parts/?confirm=1"
+                hx-target="#parts-editor-{{ n.id }}"
+                hx-swap="outerHTML">Replace</button>
+        <button type="button" class="btn btn--sm btn--secondary"
+                hx-get="/admin/people/{{ person_id }}/names/{{ n.id }}/edit-row/"
+                hx-target="#name-row-{{ n.id }}"
+                hx-swap="outerHTML">Keep current</button>
+      </div>
+    </div>
+    {% elif suggestion or advisory %}
+    <div role="status" aria-live="polite"
+         data-suggest-advisory="{{ suggestion.confidence if suggestion else 'skip' }}"
+         style="padding:var(--space-1) var(--space-2);font-size:0.75rem;color:var(--color-text-muted);background:var(--color-surface-alt,#f5f7fb);border-radius:4px">
+      {% if suggestion %}
+        Suggested decomposition: <strong>{{ suggestion.confidence }}</strong>
+        {%- if suggestion.reasons %} · {{ suggestion.reasons|join(' · ') }}{%- endif %}
+      {% endif %}
+      {% if advisory %}
+        {%- if suggestion %} — {% endif -%}
+        {{ advisory }}
+      {% endif %}
+    </div>
+    {% endif %}
+    {# ---- Parts inputs (mirrors _name_parts_editor.html structure) ---- #}
     <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
-      {# Issue #131: help text sits between the label and the control, not below it. #}
       <div class="form-group" style="margin-bottom:0;min-width:9rem">
         <label for="primary-identifier-{{ _uid }}"
                style="font-size:0.75rem;display:block;margin-bottom:0.125rem">Primary identifier</label>
@@ -95,8 +107,6 @@
         </select>
       </div>
     </div>
-    {# Three array sections — given / family / additional. CardStack UI:
-       one card per existing value, Add button appends up to the 5-cap. #}
     {% for label, field, vals, help_text in [
          ('Given names',      'given_names',      _given,
           'Personal names. Order matters when multiple are listed.'),
@@ -112,9 +122,6 @@
       </small>
       <div data-cardstack="{{ field }}" data-cardstack-cap="{{ ARRAY_CAP }}"
            style="display:flex;flex-direction:column;gap:var(--space-1)">
-        {# Issue #131: input wrapped in .form-group so it inherits baseline
-           sizing (font-size, padding, min-height: 44px) instead of falling
-           back to browser-default text input styling. #}
         {% for v in vals %}
         <div data-cardstack-card="{{ field }}"
              style="display:flex;gap:var(--space-1);align-items:center">
@@ -142,8 +149,6 @@
               style="margin-top:var(--space-1)">+ Add</button>
     </fieldset>
     {% endfor %}
-    {# Issue #131: examples folded into the placeholder; below-control help
-       removed to keep the disclosure visually compact. #}
     <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:7rem">
         <label style="font-size:0.75rem;display:block">Honorific prefix
@@ -164,4 +169,3 @@
     </div>
   </div>
 </details>
-{% endif %}
