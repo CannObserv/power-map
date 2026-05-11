@@ -15,9 +15,7 @@
  * Mechanics: clicking ↑ swaps the input's `value` with the previous card's
  * input value; ↓ swaps with the next. Document order of inputs drives the
  * server's parsing (see `upsert_or_delete_parts`), so a value swap is
- * sufficient — no DOM reparenting required. The `cap()` decision to keep
- * this simple is documented in the #126 plan; focus preservation is a
- * future issue.
+ * sufficient — no DOM reparenting required.
  *
  * Disabled state: topmost ↑ and bottommost ↓ are disabled. The script
  * re-syncs after every reorder, exposes `window.__cardstackReorderSync(root)`
@@ -52,6 +50,7 @@
     });
   }
 
+  // Exposed for person-name-parts-cardstack.js to call after Add/Remove.
   window.__cardstackReorderSync = syncAll;
 
   document.addEventListener('click', function (e) {

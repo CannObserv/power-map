@@ -1,4 +1,5 @@
 """Static assertions for person-name partial templates (Phase 2a Task 2)."""
+import re
 from pathlib import Path
 
 from src.core.types import PERSON_NAME_TYPES
@@ -1227,9 +1228,13 @@ def test_parts_editor_disables_first_up_and_last_down():
     given_block = out.split('data-cardstack="given_names"', 1)[1]
     given_block = given_block.split('data-cardstack-add=', 1)[0]
     cards = given_block.split('data-cardstack-card="given_names"')[1:]
-    assert 'data-cardstack-reorder="up"' in cards[0]
-    assert "disabled" in cards[0].split('data-cardstack-reorder="up"', 1)[1].split(">", 1)[0]
-    assert "disabled" in cards[-1].split('data-cardstack-reorder="down"', 1)[1].split(">", 1)[0]
+    # Match each direction's button tag wholesale so the assertion is
+    # robust to attribute reordering: as long as `disabled` is somewhere
+    # in the button's opening tag, it passes.
+    first_up = re.search(r'<button\b[^>]*data-cardstack-reorder="up"[^>]*>', cards[0])
+    last_down = re.search(r'<button\b[^>]*data-cardstack-reorder="down"[^>]*>', cards[-1])
+    assert first_up and "disabled" in first_up.group()
+    assert last_down and "disabled" in last_down.group()
 
 
 def test_reorder_arrow_buttons_use_type_button():

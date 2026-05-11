@@ -1,1 +1,5 @@
 src/static/admin/vendor/
+
+# Jinja templates: prettier mangles `{% %}` and `{{ }}` block tags.
+*.html
+src/templates/
