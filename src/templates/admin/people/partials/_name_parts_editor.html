@@ -93,7 +93,7 @@
       <small style="color:var(--color-text-muted);font-size:0.7rem;display:block;margin-bottom:var(--space-1)">
         {{ help_text }}
       </small>
-      <div data-cardstack="{{ field }}" data-cardstack-cap="5"
+      <div data-cardstack="{{ field }}" data-cardstack-cap="{{ ARRAY_CAP }}"
            style="display:flex;flex-direction:column;gap:var(--space-1)">
         {# Issue #131: input wrapped in .form-group so it inherits baseline
            sizing (font-size, padding, min-height: 44px) instead of falling
