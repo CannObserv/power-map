@@ -24,6 +24,7 @@ from src.api.admin import people_identifiers as people_identifiers_module
 from src.api.admin import people_links as people_links_module
 from src.api.admin import people_locale_script_search as people_locale_script_search_module
 from src.api.admin import people_merge as people_merge_module
+from src.api.admin import people_name_suggest as people_name_suggest_module
 from src.api.admin import people_names as people_names_module
 from src.api.admin import people_reading_target_search as people_reading_target_search_module
 from src.api.admin import role_assignments as role_assignments_module
@@ -70,6 +71,10 @@ admin_router.include_router(people_locale_script_search_module.router)
 admin_router.include_router(people_reading_target_search_module.router)
 admin_router.include_router(people_module.router)
 admin_router.include_router(people_names_module.router)
+# Suggest-only decomposition endpoint (#139). Mounted after
+# people_names so the wildcard CRUD prefix already exists; the
+# `/suggest-parts/` suffix doesn't conflict with any route there.
+admin_router.include_router(people_name_suggest_module.router)
 admin_router.include_router(people_contacts_module.router)
 admin_router.include_router(people_addresses_module.router)
 admin_router.include_router(people_links_module.router)

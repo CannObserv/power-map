@@ -1,12 +1,10 @@
 {# admin/people/partials/_name_parts_editor.html — unified Details
    disclosure body for an existing name row (Issue #127).
 
-   Holds, in order:
-     1. Metadata subheading + visibility / locale / script / sort_as /
-        reading_of_id fields (rendered via `_name_metadata_fields.html`).
-     2. <hr> separator.
-     3. Name parts subheading + primary_identifier / given+family+
-        additional CardStacks / honorific prefix+suffix.
+   Renders the `<details>` wrapper + summary, then includes the shared
+   body partial `_name_parts_editor_body.html` (extracted Issue #139
+   CR follow-up to deduplicate the body between this editor and the
+   `_name_parts_suggestion.html` HTMX swap target).
 
    No inner `<form>`: the inputs are nested directly inside the parent
    name `<form>` in `_name_form_row.html` so a single Save covers both
@@ -43,6 +41,12 @@
 ) -%}
 {%- set _parts_set = parts is not none -%}
 {%- set _disclosure_open = _meta_set or _parts_set -%}
+{# Variables consumed by the shared body partial: editor renders with
+   the Suggest button and no advisory state. #}
+{%- set show_suggest = true -%}
+{%- set advisory = none -%}
+{%- set suggestion = none -%}
+{%- set needs_confirm = false -%}
 <details id="parts-editor-{{ n.id }}" class="name-parts-editor" style="margin-top:var(--space-2);flex-basis:100%"
          {% if _disclosure_open %}open{% endif %}>
   {# Stable id on the summary kept for selector parity with earlier
@@ -53,98 +57,7 @@
     Details{% if parts %} <span class="badge badge--inactive">set</span>{% endif %}
   </summary>
   <div style="margin-top:var(--space-2);display:flex;flex-direction:column;gap:var(--space-2)">
-    {# ---- Metadata section ---- #}
-    <div style="font-size:0.8rem;color:var(--color-text-muted);font-weight:600">Metadata</div>
-    <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
-      {% include "admin/people/partials/_name_metadata_fields.html" %}
-    </div>
-    <hr style="border:none;border-top:1px solid var(--color-border);margin:var(--space-1) 0">
-    {# ---- Name parts section ---- #}
-    <div style="font-size:0.8rem;color:var(--color-text-muted);font-weight:600">Name parts</div>
-    <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
-      {# Issue #131: help text sits between the label and the control, not below it. #}
-      <div class="form-group" style="margin-bottom:0;min-width:9rem">
-        <label for="primary-identifier-{{ _uid }}"
-               style="font-size:0.75rem;display:block;margin-bottom:0.125rem">Primary identifier</label>
-        <small style="color:var(--color-text-muted);font-size:0.7rem;display:block;margin-bottom:0.25rem">
-          Which name part is the primary surname-equivalent (e.g. <em>family</em> in Japan; <em>patronymic</em> in Iceland; <em>mononym</em> for single-name traditions).
-        </small>
-        <select id="primary-identifier-{{ _uid }}" name="primary_identifier"
-                aria-label="Primary identifier">
-          <option value=""{% if not parts or not parts.primary_identifier %} selected{% endif %}>—</option>
-          {% for v in ('family', 'given', 'patronymic', 'mononym') %}
-          <option value="{{ v }}"{% if parts and parts.primary_identifier == v %} selected{% endif %}>{{ v }}</option>
-          {% endfor %}
-        </select>
-      </div>
-    </div>
-    {# Three array sections — given / family / additional. CardStack UI:
-       one card per existing value, Add button appends up to the 5-cap. #}
-    {% for label, field, vals, help_text in [
-         ('Given names',      'given_names',      _given,
-          'Personal names. Order matters when multiple are listed.'),
-         ('Family names',     'family_names',     _family,
-          'Surnames or clan names.'),
-         ('Additional names', 'additional_names', _additional,
-          'Middle names, religious names, or culturally-specific extras.'),
-       ] %}
-    <fieldset style="border:1px solid var(--color-border);padding:var(--space-2);margin:0">
-      <legend style="font-size:0.75rem;padding:0 var(--space-1)">{{ label }}</legend>
-      <small style="color:var(--color-text-muted);font-size:0.7rem;display:block;margin-bottom:var(--space-1)">
-        {{ help_text }}
-      </small>
-      <div data-cardstack="{{ field }}" data-cardstack-cap="{{ ARRAY_CAP }}"
-           style="display:flex;flex-direction:column;gap:var(--space-1)">
-        {# Issue #131: input wrapped in .form-group so it inherits baseline
-           sizing (font-size, padding, min-height: 44px) instead of falling
-           back to browser-default text input styling. #}
-        {% for v in vals %}
-        <div data-cardstack-card="{{ field }}"
-             style="display:flex;gap:var(--space-1);align-items:center">
-          <div class="form-group" style="margin-bottom:0;flex:1">
-            <input type="text" name="{{ field }}" value="{{ v }}"
-                   aria-label="{{ label }} {{ loop.index }}">
-          </div>
-          <button type="button" class="btn btn--sm btn--secondary"
-                  data-cardstack-reorder="up" data-cardstack-field="{{ field }}"
-                  aria-label="Move this {{ label|lower|replace(' names', '') }} entry up"
-                  {% if loop.first %}disabled{% endif %}>↑</button>
-          <button type="button" class="btn btn--sm btn--secondary"
-                  data-cardstack-reorder="down" data-cardstack-field="{{ field }}"
-                  aria-label="Move this {{ label|lower|replace(' names', '') }} entry down"
-                  {% if loop.last %}disabled{% endif %}>↓</button>
-          <button type="button" class="btn btn--sm btn--secondary"
-                  data-cardstack-remove="{{ field }}"
-                  aria-label="Remove this {{ label|lower|replace(' names', '') }} entry">×</button>
-        </div>
-        {% endfor %}
-      </div>
-      <button type="button" class="btn btn--sm btn--secondary"
-              data-cardstack-add="{{ field }}"
-              aria-label="Add another {{ label|lower|replace(' names', '') }} entry"
-              style="margin-top:var(--space-1)">+ Add</button>
-    </fieldset>
-    {% endfor %}
-    {# Issue #131: examples folded into the placeholder; below-control help
-       removed to keep the disclosure visually compact. #}
-    <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
-      <div class="form-group" style="margin-bottom:0;flex:1;min-width:7rem">
-        <label style="font-size:0.75rem;display:block">Honorific prefix
-          <input type="text" name="honorific_prefix"
-                 placeholder="Title that precedes — e.g. Dr., Hon., Sir"
-                 value="{{ parts.honorific_prefix if parts and parts.honorific_prefix else '' }}"
-                 aria-label="Honorific prefix">
-        </label>
-      </div>
-      <div class="form-group" style="margin-bottom:0;flex:1;min-width:7rem">
-        <label style="font-size:0.75rem;display:block">Honorific suffix
-          <input type="text" name="honorific_suffix"
-                 placeholder="Suffix that follows — e.g. Jr., PhD, II"
-                 value="{{ parts.honorific_suffix if parts and parts.honorific_suffix else '' }}"
-                 aria-label="Honorific suffix">
-        </label>
-      </div>
-    </div>
+    {% include "admin/people/partials/_name_parts_editor_body.html" %}
   </div>
 </details>
 {% endif %}

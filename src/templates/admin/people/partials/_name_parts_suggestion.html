@@ -1,0 +1,55 @@
+{# admin/people/partials/_name_parts_suggestion.html — HTMX swap target
+   for the "Suggest decomposition" button (#139).
+
+   Renders the parts editor `<details>` with the same id as
+   `_name_parts_editor.html` so an `outerHTML` swap replaces it cleanly.
+   The shared body partial `_name_parts_editor_body.html` carries every
+   actual input; this partial only differs from the original editor in
+   three ways: the Suggest button is hidden (its job is already done),
+   the advisory / confirm-state block is rendered above the parts
+   subheading, and the `<details>` is always `open` so the operator
+   sees the swap result without re-clicking the disclosure.
+
+   Body partial branches on context:
+
+     1. `needs_confirm` — existing parts row present and the request
+        did not pass ``?confirm=1``. Renders a small Replace / Keep
+        current form. Replace re-issues the GET with confirm=1; Keep
+        current restores the original editor via the narrow
+        `/parts-editor/` endpoint so unsaved edits to the surrounding
+        row inputs survive.
+     2. `prefilled` — `suggestion.confidence == 'trivial'`. Inputs
+        carry the suggestion's values; advisory shows
+        "Suggested decomposition: <confidence> · <reasons>".
+     3. `advisory` only — `ambiguous` confidence, NULL script,
+        empty name, or non-decomposable name_type. Inputs render
+        empty; advisory explains why.
+
+   Context:
+     person_id      — required.
+     n              — the name row dict (must include `id`).
+     parts          — dict with given_names / family_names / etc.
+                      when pre-filling; None for advisory-only states.
+     suggestion     — PartsSuggestion dataclass (confidence + reasons);
+                      may be None when needs_confirm.
+     advisory       — explicit advisory string for skip states; None
+                      when suggestion's confidence carries the message.
+     prefilled      — bool: True when `parts` carries the suggestion.
+     needs_confirm  — bool: True for the confirm-before-overwrite state. #}
+{%- set _uid = n.id -%}
+{%- set _given = (parts.given_names if parts and parts.given_names else []) -%}
+{%- set _family = (parts.family_names if parts and parts.family_names else []) -%}
+{%- set _additional = (parts.additional_names if parts and parts.additional_names else []) -%}
+{# Variables consumed by the shared body partial: suggestion render
+   hides the Suggest button (its job is already done) and lets the
+   advisory / confirm state flow through. #}
+{%- set show_suggest = false -%}
+<details id="parts-editor-{{ n.id }}" class="name-parts-editor" style="margin-top:var(--space-2);flex-basis:100%" open>
+  <summary id="parts-summary-{{ n.id }}"
+           style="cursor:pointer;font-size:0.85rem;color:var(--color-text-muted)">
+    Details{% if parts %} <span class="badge badge--inactive">set</span>{% endif %}
+  </summary>
+  <div style="margin-top:var(--space-2);display:flex;flex-direction:column;gap:var(--space-2)">
+    {% include "admin/people/partials/_name_parts_editor_body.html" %}
+  </div>
+</details>
