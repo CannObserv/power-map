@@ -1180,3 +1180,103 @@ def test_cardstack_inputs_wrapped_in_form_group():
                 f"cardstack input for {field} not wrapped in .form-group "
                 f"— styling will fall back to browser default"
             )
+
+
+# ---------------------------------------------------------------------------
+# CardStack cap — wired from the Python ARRAY_CAP constant (Issue #128)
+# ---------------------------------------------------------------------------
+#
+# `ARRAY_CAP` is the source of truth (src/api/admin/people_name_parts.py).
+# It must thread through to the rendered template's
+# `data-cardstack-cap` attribute via a Jinja global so changing the Python
+# value automatically updates the UI cap surfaced to the CardStack JS.
+
+
+def test_parts_editor_template_uses_jinja_array_cap_global():
+    """Template references `ARRAY_CAP` via Jinja, not a hardcoded literal.
+
+    Guards against re-introducing the literal `5`: the template must
+    interpolate the value from the env global so the Python constant
+    stays the single source of truth.
+    """
+    src = Path(
+        "src/templates/admin/people/partials/_name_parts_editor.html"
+    ).read_text()
+    assert 'data-cardstack-cap="{{ ARRAY_CAP }}"' in src, (
+        "parts editor must interpolate ARRAY_CAP via Jinja global, "
+        "not hardcode the cap"
+    )
+
+
+def test_parts_editor_renders_current_array_cap_value():
+    """End-to-end render: `data-cardstack-cap` reflects the Python ARRAY_CAP.
+
+    Reads the constant dynamically so a future bump to `ARRAY_CAP`
+    propagates to the assertion without an edit here.
+    """
+    from jinja2 import Environment, FileSystemLoader
+
+    from src.api.admin.people_name_parts import ARRAY_CAP
+
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    env.globals["ARRAY_CAP"] = ARRAY_CAP
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    assert f'data-cardstack-cap="{ARRAY_CAP}"' in out
+
+
+def test_parts_editor_picks_up_overridden_array_cap_global():
+    """Proves the cap is wired dynamically, not hardcoded.
+
+    Renders with a synthetic `ARRAY_CAP=7` injected into the env globals;
+    the rendered output must reflect 7, not 5. If a future regression
+    re-hardcodes the literal in the template, this test catches it.
+    """
+    from jinja2 import Environment, FileSystemLoader
+
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    env.globals["ARRAY_CAP"] = 7
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    assert 'data-cardstack-cap="7"' in out
+    assert 'data-cardstack-cap="5"' not in out
+
+
+def test_every_admin_jinja_env_has_array_cap_global():
+    """Mirror of the asset_version walk: every admin Jinja2Templates
+    instance must receive `ARRAY_CAP` in its env globals after startup.
+
+    Without this, a router that renders the parts editor partial would
+    interpolate to empty (Jinja's default for undefined globals), the
+    CardStack JS would fail to parse the data attribute, and Add would
+    silently never disable.
+    """
+    import importlib
+    import pkgutil
+
+    from fastapi.templating import Jinja2Templates
+
+    import src.api.admin as admin_pkg
+    from src.api.admin import assets
+    from src.api.admin.people_name_parts import ARRAY_CAP
+
+    # Run the production injector so this test stays decoupled from
+    # whatever startup glue src.api.main wires.
+    assets.inject_array_cap_into_admin_templates()
+
+    found: list[tuple[str, Jinja2Templates]] = []
+    for mod_info in pkgutil.walk_packages(
+        admin_pkg.__path__, prefix=f"{admin_pkg.__name__}."
+    ):
+        module = importlib.import_module(mod_info.name)
+        for attr_name, attr in module.__dict__.items():
+            if isinstance(attr, Jinja2Templates):
+                found.append((f"{mod_info.name}.{attr_name}", attr))
+    assert found, "expected at least one Jinja2Templates in src.api.admin"
+    missing = [name for name, t in found if t.env.globals.get("ARRAY_CAP") != ARRAY_CAP]
+    assert not missing, (
+        f"ARRAY_CAP global missing on {len(missing)} Jinja2Templates instance(s): "
+        f"{missing}. The injector in src.api.admin.assets probably skipped them."
+    )
