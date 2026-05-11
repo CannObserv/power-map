@@ -102,6 +102,8 @@ async def _insert_name(
     name_type: str = "legal",
     locale: str | None = "en-US",
     script: str | None = "Latn",
+    is_canonical: bool = True,
+    reading_of_id: str | None = None,
 ) -> str:
     """Insert one person_names row and return its id."""
     conn = await asyncpg.connect(_dsn())
@@ -109,9 +111,11 @@ async def _insert_name(
         nid = generate_id()
         await conn.execute(
             "INSERT INTO person_names"
-            " (id, person_id, name, name_type, is_canonical, locale, script)"
-            " VALUES ($1, $2, $3, $4, TRUE, $5, $6)",
-            nid, pid, name, name_type, locale, script,
+            " (id, person_id, name, name_type, is_canonical, locale, script,"
+            " reading_of_id)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            nid, pid, name, name_type, is_canonical, locale, script,
+            reading_of_id,
         )
         return nid
     finally:
@@ -436,3 +440,71 @@ def test_parts_editor_endpoint_requires_admin_auth(client, seeded_person):
         follow_redirects=False,
     )
     assert r.status_code in (307, 401, 403), r.status_code
+
+
+# ---------------------------------------------------------------------------
+# reading_of_name populates the typeahead display input on both swap paths
+# (CR Round 2 #8) — without the LEFT JOIN, the visible typeahead input
+# would render blank even when the row has reading_of_id set.
+# ---------------------------------------------------------------------------
+
+
+def test_suggest_parts_populates_reading_of_name_for_reading_rows(
+    client, seeded_person,
+):
+    """A reading row's `reading_of_name` (typeahead display value) must
+    survive the Suggest swap so the operator sees what they pointed at."""
+    target = asyncio.run(
+        _insert_name(
+            seeded_person, name="山田 太郎", name_type="legal",
+            locale="ja-JP", script="Jpan", is_canonical=True,
+        )
+    )
+    reading = asyncio.run(
+        _insert_name(
+            seeded_person, name="やまだ たろう", name_type="reading",
+            locale="ja-JP", script="Hira", is_canonical=False,
+            reading_of_id=target,
+        )
+    )
+    r = client.get(
+        f"/admin/people/{seeded_person}/names/{reading}/suggest-parts/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200, r.text
+    # Typeahead display input renders the target's visible name.
+    assert _input_has_value(r.text, "reading-of-display-display", "山田 太郎") or (
+        # The display input is keyed off `id`, not `name`; assert via the
+        # value-substring helper that the target name reaches the body.
+        "山田 太郎" in r.text
+    )
+
+
+def test_parts_editor_endpoint_populates_reading_of_name(
+    client, seeded_person,
+):
+    """`/parts-editor/` must populate `reading_of_name` so Keep current
+    swaps don't blank out the typeahead display input."""
+    target = asyncio.run(
+        _insert_name(
+            seeded_person, name="山田 太郎", name_type="legal",
+            locale="ja-JP", script="Jpan", is_canonical=True,
+        )
+    )
+    reading = asyncio.run(
+        _insert_name(
+            seeded_person, name="やまだ たろう", name_type="reading",
+            locale="ja-JP", script="Hira", is_canonical=False,
+            reading_of_id=target,
+        )
+    )
+    r = client.get(
+        f"/admin/people/{seeded_person}/names/{reading}/parts-editor/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200, r.text
+    # The target's name must appear in the rendered partial (in the
+    # reading-of typeahead display input). Substring check is adequate
+    # — the partial's other inputs render `value="<reading.name>"` =
+    # `やまだ たろう`, distinct from `山田 太郎`.
+    assert "山田 太郎" in r.text

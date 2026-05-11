@@ -71,9 +71,17 @@ async def name_suggest_parts(
        populated from the suggestion; the advisory line surfaces
        confidence + reasons.
     """
+    # LEFT JOIN to populate `reading_of_name` (the typeahead's display
+    # value) so the metadata partial renders the reading-of input
+    # populated, not blank, when the row already has reading_of_id set.
+    # Mirrors the read pattern in `_names_shared.py`'s list query.
     row = await db.fetchrow(
-        "SELECT id, name, name_type, locale, script"
-        " FROM person_names WHERE id=$1 AND person_id=$2",
+        "SELECT pn.id, pn.name, pn.name_type, pn.locale, pn.script,"
+        " pn.visibility, pn.sort_as, pn.reading_of_id,"
+        " parent.name AS reading_of_name"
+        " FROM person_names pn"
+        " LEFT JOIN person_names parent ON parent.id = pn.reading_of_id"
+        " WHERE pn.id=$1 AND pn.person_id=$2",
         name_id,
         person_id,
     )
@@ -198,10 +206,19 @@ async def name_parts_editor(
     the surrounding row inputs (visibility / locale / script / sort_as /
     name / canonical / name_type) untouched.
     """
+    # Narrow SELECT: only columns the body partial actually reads
+    # (`id` for the wrapper, `name_type` for the Suggest-button gate,
+    # plus the metadata fields the included `_name_metadata_fields.html`
+    # consumes). LEFT JOIN populates `reading_of_name` so the
+    # typeahead display input renders pre-filled when reading_of_id
+    # is set.
     row = await db.fetchrow(
-        "SELECT id, name, name_type, locale, script, sort_as,"
-        " visibility, reading_of_id, is_canonical"
-        " FROM person_names WHERE id=$1 AND person_id=$2",
+        "SELECT pn.id, pn.name_type, pn.visibility, pn.locale, pn.script,"
+        " pn.sort_as, pn.reading_of_id,"
+        " parent.name AS reading_of_name"
+        " FROM person_names pn"
+        " LEFT JOIN person_names parent ON parent.id = pn.reading_of_id"
+        " WHERE pn.id=$1 AND pn.person_id=$2",
         name_id,
         person_id,
     )
