@@ -1183,6 +1183,90 @@ def test_cardstack_inputs_wrapped_in_form_group():
 
 
 # ---------------------------------------------------------------------------
+# CardStack reorder arrows — up/down per card (Issue #126)
+# ---------------------------------------------------------------------------
+
+
+def test_parts_editor_renders_reorder_arrows_per_card():
+    """Each rendered card carries an up arrow and a down arrow keyed by
+    `data-cardstack-reorder` so `person-name-parts-reorder.js` can wire
+    click handlers without selector ambiguity."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    parts = {
+        "given_names": ["Ada", "Augusta"],
+        "family_names": ["Lovelace"],
+        "additional_names": [],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    assert out.count('data-cardstack-reorder="up"') == 3
+    assert out.count('data-cardstack-reorder="down"') == 3
+
+
+def test_parts_editor_disables_first_up_and_last_down():
+    """Initial render: topmost card's ↑ disabled, bottommost card's ↓
+    disabled. The JS re-syncs after every reorder / Add / Remove."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    parts = {
+        "given_names": ["Ada", "Augusta", "Mary"],
+        "family_names": [],
+        "additional_names": [],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    given_block = out.split('data-cardstack="given_names"', 1)[1]
+    given_block = given_block.split('data-cardstack-add=', 1)[0]
+    cards = given_block.split('data-cardstack-card="given_names"')[1:]
+    assert 'data-cardstack-reorder="up"' in cards[0]
+    assert "disabled" in cards[0].split('data-cardstack-reorder="up"', 1)[1].split(">", 1)[0]
+    assert "disabled" in cards[-1].split('data-cardstack-reorder="down"', 1)[1].split(">", 1)[0]
+
+
+def test_reorder_arrow_buttons_use_type_button():
+    """Arrow buttons must declare `type="button"` so clicking them inside
+    the parent `<form>` does not submit the form."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    parts = {
+        "given_names": ["Ada"],
+        "family_names": [],
+        "additional_names": [],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    for direction in ("up", "down"):
+        snippet = out.split(f'data-cardstack-reorder="{direction}"', 1)[0]
+        button_open = snippet.rfind("<button")
+        assert button_open != -1
+        button_tag = out[button_open:out.index(">", button_open) + 1]
+        assert 'type="button"' in button_tag
+
+
+def test_detail_loads_reorder_script():
+    """Detail page loads the reorder JS alongside cardstack JS."""
+    from pathlib import Path
+    DETAIL = Path("src/templates/admin/people/detail.html").read_text()
+    assert (
+        'src="/static/admin/person-name-parts-reorder.js?v={{ asset_version }}" defer'
+        in DETAIL
+    )
+
+
+# ---------------------------------------------------------------------------
 # CardStack cap — wired from the Python ARRAY_CAP constant (Issue #128)
 # ---------------------------------------------------------------------------
 #

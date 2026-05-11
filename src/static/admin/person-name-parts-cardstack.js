@@ -81,11 +81,12 @@
   function buildCard(field) {
     // Mirror the server-rendered card shape from
     // `_name_parts_editor.html`: each card is a flex row holding a
-    // `.form-group`-wrapped <input> and the Remove button. The wrapper
-    // is what lets the input inherit the baseline `.form-group input`
-    // rule (font-size, padding, min-height: 44px); a bare <input>
-    // falls back to browser-default sizing and renders smaller than
-    // the rest of the form.
+    // `.form-group`-wrapped <input>, up/down reorder buttons (#126),
+    // and the Remove button. The wrapper is what lets the input
+    // inherit the baseline `.form-group input` rule (font-size,
+    // padding, min-height: 44px); a bare <input> falls back to
+    // browser-default sizing and renders smaller than the rest of the
+    // form.
     var card = document.createElement('div');
     card.setAttribute('data-cardstack-card', field);
     card.style.display = 'flex';
@@ -104,14 +105,43 @@
     wrapper.appendChild(input);
     card.appendChild(wrapper);
 
+    var fragment = labelFragment(field);
+    var up = document.createElement('button');
+    up.type = 'button';
+    up.className = 'btn btn--sm btn--secondary';
+    up.setAttribute('data-cardstack-reorder', 'up');
+    up.setAttribute('data-cardstack-field', field);
+    up.setAttribute('aria-label', 'Move this ' + fragment + ' entry up');
+    up.textContent = '↑';
+    card.appendChild(up);
+
+    var down = document.createElement('button');
+    down.type = 'button';
+    down.className = 'btn btn--sm btn--secondary';
+    down.setAttribute('data-cardstack-reorder', 'down');
+    down.setAttribute('data-cardstack-field', field);
+    down.setAttribute('aria-label', 'Move this ' + fragment + ' entry down');
+    down.textContent = '↓';
+    card.appendChild(down);
+
     var rm = document.createElement('button');
     rm.type = 'button';
     rm.className = 'btn btn--sm btn--secondary';
     rm.setAttribute('data-cardstack-remove', field);
-    rm.setAttribute('aria-label', 'Remove this ' + labelFragment(field) + ' entry');
+    rm.setAttribute('aria-label', 'Remove this ' + fragment + ' entry');
     rm.textContent = '×';
     card.appendChild(rm);
     return card;
+  }
+
+  function syncReorder(root) {
+    // Companion script (person-name-parts-reorder.js) owns up/down
+    // disabled-state. Call into it after Add/Remove so the new card's
+    // arrows (or the surviving cards' arrows) reflect the new
+    // first/last positions.
+    if (typeof window.__cardstackReorderSync === 'function') {
+      window.__cardstackReorderSync(root);
+    }
   }
 
   document.addEventListener('click', function (e) {
@@ -124,6 +154,7 @@
       if (!stack) return;
       stack.appendChild(buildCard(field));
       syncAddBtn(field, addRoot);
+      syncReorder(addRoot);
       return;
     }
     var rmEl = e.target.closest('[data-cardstack-remove]');
@@ -133,6 +164,7 @@
       var card = rmEl.closest('[data-cardstack-card="' + rmField + '"]');
       if (card) card.remove();
       syncAddBtn(rmField, rmRoot);
+      syncReorder(rmRoot);
     }
   });
 
