@@ -344,21 +344,31 @@ CREATE INDEX IF NOT EXISTS idx_links_entity
 -- is_active is intentionally excluded — keeping both an active and an
 -- archived copy of the same URL is not a supported state.
 --
--- Self-healing migration: collapse any pre-existing duplicate rows (oldest
--- by created_at/id wins) so CREATE UNIQUE INDEX does not abort. This runs
--- every apply_schema invocation; it is a no-op once duplicates are gone.
--- A standalone dry-run / audit entry point lives at scripts/dedup_links.py.
-DELETE FROM links
-WHERE id IN (
-    SELECT id FROM (
-        SELECT id, ROW_NUMBER() OVER (
-            PARTITION BY entity_type, entity_id, url, link_type_id
-            ORDER BY created_at, id
-        ) AS rn
-        FROM links
-    ) ranked
-    WHERE ranked.rn > 1
-);
+-- Self-healing migration: collapse any pre-existing duplicate rows (active
+-- wins ties, then oldest by created_at/id) before creating the index. The
+-- DELETE is gated on the index not yet existing so it only runs once per
+-- DB; matches the project's other migration-block style (see urls→links
+-- migration below). A standalone dry-run / audit entry point lives at
+-- scripts/dedup_links.py.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname = 'uq_links_entity_url'
+    ) THEN
+        DELETE FROM links
+        WHERE id IN (
+            SELECT id FROM (
+                SELECT id, ROW_NUMBER() OVER (
+                    PARTITION BY entity_type, entity_id, url, link_type_id
+                    ORDER BY is_active DESC, created_at, id
+                ) AS rn
+                FROM links
+            ) ranked
+            WHERE ranked.rn > 1
+        );
+    END IF;
+END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_links_entity_url
     ON links(entity_type, entity_id, url, link_type_id);

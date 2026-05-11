@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-import asyncpg
+from asyncpg.exceptions import UniqueViolationError
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -122,7 +122,9 @@ def make_links_router(
                 link_type_id,
                 is_active == "true",
             )
-        except asyncpg.UniqueViolationError:
+        except UniqueViolationError:
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
             return HTMLResponse(
                 content="",
                 status_code=409,
@@ -198,7 +200,9 @@ def make_links_router(
                 is_active == "true",
                 link_id,
             )
-        except asyncpg.UniqueViolationError:
+        except UniqueViolationError:
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
             return HTMLResponse(
                 content="",
                 status_code=409,

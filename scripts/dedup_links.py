@@ -42,7 +42,7 @@ WHERE id IN (
     SELECT id FROM (
         SELECT id, ROW_NUMBER() OVER (
             PARTITION BY entity_type, entity_id, url, link_type_id
-            ORDER BY created_at, id
+            ORDER BY is_active DESC, created_at, id
         ) AS rn
         FROM links
     ) ranked

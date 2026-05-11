@@ -129,6 +129,40 @@ async def test_dedup_links_dry_run_makes_no_changes(db):
     assert n == 3, "dry run must not delete any rows"
 
 
+async def test_dedup_links_keeps_active_over_older_inactive(db):
+    """Active rows win ties even when the inactive sibling is older.
+
+    F5: a duplicate group containing one ``is_active=TRUE`` and one
+    ``is_active=FALSE`` row must keep the active row regardless of insertion
+    order, so a one-time cleanup doesn't silently retire a still-in-use URL.
+    """
+    await _drop_unique_index(db)
+    oid = await _org(db)
+    lt_id = await _website_lt(db)
+    # Older row is inactive; newer row is active. Without is_active in the
+    # ORDER BY, the older row would win and the active link would be dropped.
+    older_inactive = generate_id()
+    await db.execute(
+        "INSERT INTO links (id, entity_type, entity_id, url, link_type_id, is_active)"
+        " VALUES ($1, 'organization', $2, 'https://t.example.com', $3, FALSE)",
+        older_inactive, oid, lt_id,
+    )
+    newer_active = generate_id()
+    await db.execute(
+        "INSERT INTO links (id, entity_type, entity_id, url, link_type_id, is_active)"
+        " VALUES ($1, 'organization', $2, 'https://t.example.com', $3, TRUE)",
+        newer_active, oid, lt_id,
+    )
+    result = await run_consolidation(db, dry_run=False)
+    assert result.rows_removed == 1
+    survivors = await db.fetch(
+        "SELECT id, is_active FROM links WHERE entity_id=$1", oid
+    )
+    assert len(survivors) == 1
+    assert survivors[0]["id"] == newer_active
+    assert survivors[0]["is_active"] is True
+
+
 async def test_dedup_links_isolates_per_natural_key(db):
     """Distinct (entity, url, type) tuples are independent groups."""
     await _drop_unique_index(db)

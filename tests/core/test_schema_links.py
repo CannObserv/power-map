@@ -6,7 +6,7 @@ import os
 import asyncpg
 import pytest
 
-from src.core.db import apply_schema
+from src.core.db import apply_schema, generate_id
 
 pytestmark = pytest.mark.integration
 
@@ -124,8 +124,6 @@ def test_links_duplicate_insert_blocked_by_unique_constraint():
     Verifies the UNIQUE index is enforced at the DB level. Uses a transaction
     so test data is rolled back.
     """
-    from src.core.db import generate_id
-
     async def run():
         conn = await _conn()
         tr = conn.transaction()
@@ -158,8 +156,6 @@ def test_links_on_conflict_do_nothing_is_idempotent():
 
     This is the property that makes ingestion-pipeline re-runs safe.
     """
-    from src.core.db import generate_id
-
     async def run():
         conn = await _conn()
         tr = conn.transaction()

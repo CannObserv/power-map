@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 
 import asyncpg
 import pytest
@@ -228,27 +229,16 @@ def test_links_update_to_existing_returns_409_not_500(client, org_and_link):
     """
     oid, _ = org_and_link  # fixture has https://example.com (website)
     lt_id = _get_link_type_id()
-    # Create a second distinct link.
+    # Create a second distinct link; parse its id from the response row.
     r = client.post(
         f"/admin/orgs/{oid}/links/",
         headers=HTMX_HEADERS,
         data={"url": "https://other.example.com", "link_type_id": lt_id, "is_active": "true"},
     )
     assert r.status_code == 200
-    # Find the new link's id.
-    dsn = os.environ.get("DATABASE_URL")
-
-    async def fetch_other_id():
-        conn = await asyncpg.connect(dsn)
-        try:
-            return await conn.fetchval(
-                "SELECT id FROM links WHERE entity_id=$1 AND url='https://other.example.com'",
-                oid,
-            )
-        finally:
-            await conn.close()
-
-    other_lid = asyncio.run(fetch_other_id())
+    m = re.search(r'id="link-row-([0-9A-Z]+)"', r.text)
+    assert m, f"could not parse link id from response: {r.text[:200]}"
+    other_lid = m.group(1)
     # Try to edit it to the URL the first link already has.
     r = client.post(
         f"/admin/orgs/{oid}/links/{other_lid}/edit-row/",
