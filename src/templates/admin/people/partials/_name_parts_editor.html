@@ -106,6 +106,14 @@
                    aria-label="{{ label }} {{ loop.index }}">
           </div>
           <button type="button" class="btn btn--sm btn--secondary"
+                  data-cardstack-reorder="up" data-cardstack-field="{{ field }}"
+                  aria-label="Move this {{ label|lower|replace(' names', '') }} entry up"
+                  {% if loop.first %}disabled{% endif %}>↑</button>
+          <button type="button" class="btn btn--sm btn--secondary"
+                  data-cardstack-reorder="down" data-cardstack-field="{{ field }}"
+                  aria-label="Move this {{ label|lower|replace(' names', '') }} entry down"
+                  {% if loop.last %}disabled{% endif %}>↓</button>
+          <button type="button" class="btn btn--sm btn--secondary"
                   data-cardstack-remove="{{ field }}"
                   aria-label="Remove this {{ label|lower|replace(' names', '') }} entry">×</button>
         </div>
