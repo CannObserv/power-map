@@ -64,6 +64,47 @@ def person_and_name():
     asyncio.run(teardown())
 
 
+@pytest.fixture
+def person_only():
+    """One person row, no names yet (for create-flow tests)."""
+    dsn = _dsn()
+    pid = generate_id()
+
+    async def setup():
+        conn = await asyncpg.connect(dsn)
+        await apply_schema(conn)
+        try:
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        finally:
+            await conn.close()
+
+    async def teardown():
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
+        finally:
+            await conn.close()
+
+    asyncio.run(setup())
+    yield {"pid": pid}
+    asyncio.run(teardown())
+
+
+async def _fetch_canonical_name(person_id: str) -> dict | None:
+    conn = await asyncpg.connect(_dsn())
+    try:
+        row = await conn.fetchrow(
+            "SELECT name, name_type, is_canonical, visibility,"
+            " locale, script, sort_as"
+            " FROM person_names WHERE person_id=$1 AND is_canonical=TRUE",
+            person_id,
+        )
+        return dict(row) if row else None
+    finally:
+        await conn.close()
+
+
 def test_names_create(client, person_and_name):
     pid, _ = person_and_name
     r = client.post(
@@ -482,3 +523,37 @@ def test_names_update_accepts_combined_parts_payload(client, person_and_name):
     assert row["name"] == "Renamed"
     assert row["given_names"] == ["Re"]
     assert row["family_names"] == ["Named"]
+
+
+# ---------------------------------------------------------------------------
+# New-name form metadata E2E (Issue #130)
+# ---------------------------------------------------------------------------
+
+
+def test_create_new_name_persists_metadata_fields(client, person_only):
+    """Issue #130: POSTing the new-name form with metadata fields must write
+    visibility/locale/script/sort_as to person_names. Regression coverage for
+    the inline metadata include in `_name_form_row.html` new-name branch
+    (#127 split metadata + parts behind a disclosure for existing rows only).
+    """
+    pid = person_only["pid"]
+    resp = client.post(
+        f"/admin/people/{pid}/names/",
+        data={
+            "name": "María García",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "visibility": "legal_only",
+            "locale": "es-MX",
+            "script": "Latn",
+            "sort_as": "García María",
+        },
+        headers=HTMX_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    row = asyncio.run(_fetch_canonical_name(pid))
+    assert row is not None
+    assert row["visibility"] == "legal_only"
+    assert row["locale"] == "es-MX"
+    assert row["script"] == "Latn"
+    assert row["sort_as"] == "García María"
