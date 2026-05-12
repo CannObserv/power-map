@@ -169,4 +169,97 @@ describe('person-name-parts-cardstack', () => {
       expect(addBtn1.disabled).toBe(false);
     });
   });
+
+  // Issue #146 — per-card buttons (and the input) embed a 1-based position
+  // in their aria-label so screen-reader users can disambiguate siblings.
+  // The server pre-renders these via Jinja's `loop.index`; the JS must keep
+  // them in sync after Add (new card) and Remove (surviving cards shift).
+  describe('per-card aria-label disambiguation (#146)', () => {
+    /** Server-shape card: input + up/down/remove, all with indexed aria-labels. */
+    function indexedCardHTML(field, n) {
+      return Array.from({ length: n }, (_, i) => {
+        const idx = i + 1;
+        return `
+        <div data-cardstack-card="${field}" style="display:flex;gap:var(--space-1);align-items:center">
+          <div class="form-group" style="margin-bottom:0;flex:1">
+            <input type="text" name="${field}" value="v${i}" aria-label="Given names ${idx}">
+          </div>
+          <button type="button" data-cardstack-reorder="up" data-cardstack-field="${field}"
+                  aria-label="Move given names entry ${idx} up">↑</button>
+          <button type="button" data-cardstack-reorder="down" data-cardstack-field="${field}"
+                  aria-label="Move given names entry ${idx} down">↓</button>
+          <button type="button" data-cardstack-remove="${field}"
+                  aria-label="Remove given names entry ${idx}">×</button>
+        </div>`;
+      }).join('');
+    }
+
+    function setupIndexedDOM(initialCards) {
+      document.body.innerHTML = `
+        <form>
+          <fieldset>
+            <div data-cardstack="given_names" data-cardstack-cap="5">${indexedCardHTML('given_names', initialCards)}</div>
+            <button type="button" data-cardstack-add="given_names">+ Add</button>
+          </fieldset>
+        </form>`;
+      eval(SRC);
+    }
+
+    function ariaLabelsByCard(field) {
+      const cards = Array.from(document.querySelectorAll(`[data-cardstack-card="${field}"]`));
+      return cards.map((card) => ({
+        input: card.querySelector(`input[name="${field}"]`).getAttribute('aria-label'),
+        up: card.querySelector('[data-cardstack-reorder="up"]').getAttribute('aria-label'),
+        down: card.querySelector('[data-cardstack-reorder="down"]').getAttribute('aria-label'),
+        remove: card.querySelector(`[data-cardstack-remove="${field}"]`).getAttribute('aria-label'),
+      }));
+    }
+
+    it('Added card embeds its 1-based position in every aria-label', () => {
+      setupIndexedDOM(2);
+      const addBtn = document.querySelector('[data-cardstack-add="given_names"]');
+      addBtn.click();
+      const labels = ariaLabelsByCard('given_names');
+      expect(labels).toHaveLength(3);
+      expect(labels[2].input).toBe('Given names 3');
+      expect(labels[2].up).toBe('Move given names entry 3 up');
+      expect(labels[2].down).toBe('Move given names entry 3 down');
+      expect(labels[2].remove).toBe('Remove given names entry 3');
+    });
+
+    it('Remove shifts surviving cards’ aria-labels down by one', () => {
+      // Start with 3 cards (entries 1, 2, 3); remove the middle one.
+      // Survivors used to be entries 1 and 3 — after refresh they must
+      // read as entries 1 and 2 so the labels track DOM position, not
+      // original render order.
+      setupIndexedDOM(3);
+      const middleRemove = document.querySelectorAll('[data-cardstack-remove="given_names"]')[1];
+      middleRemove.click();
+      const labels = ariaLabelsByCard('given_names');
+      expect(labels).toHaveLength(2);
+      expect(labels[0].input).toBe('Given names 1');
+      expect(labels[0].up).toBe('Move given names entry 1 up');
+      expect(labels[0].down).toBe('Move given names entry 1 down');
+      expect(labels[0].remove).toBe('Remove given names entry 1');
+      expect(labels[1].input).toBe('Given names 2');
+      expect(labels[1].up).toBe('Move given names entry 2 up');
+      expect(labels[1].down).toBe('Move given names entry 2 down');
+      expect(labels[1].remove).toBe('Remove given names entry 2');
+    });
+
+    it('Add then Remove leaves contiguous indices on survivors', () => {
+      setupIndexedDOM(1);
+      const addBtn = document.querySelector('[data-cardstack-add="given_names"]');
+      addBtn.click(); // now entries 1, 2
+      addBtn.click(); // now entries 1, 2, 3
+      const firstRemove = document.querySelector('[data-cardstack-remove="given_names"]');
+      firstRemove.click();
+      const labels = ariaLabelsByCard('given_names');
+      expect(labels.map((l) => l.input)).toEqual(['Given names 1', 'Given names 2']);
+      expect(labels.map((l) => l.remove)).toEqual([
+        'Remove given names entry 1',
+        'Remove given names entry 2',
+      ]);
+    });
+  });
 });

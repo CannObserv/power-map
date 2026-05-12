@@ -150,17 +150,20 @@
         <input type="text" name="{{ field }}" value="{{ v }}"
                aria-label="{{ label }} {{ loop.index }}">
       </div>
+      {# Issue #146: per-card buttons embed `loop.index` so screen readers
+         can disambiguate siblings in a 2+ stack. JS mirror in
+         `person-name-parts-cardstack.js` keeps them in sync after Add/Remove. #}
       <button type="button" class="btn btn--sm btn--secondary"
               data-cardstack-reorder="up" data-cardstack-field="{{ field }}"
-              aria-label="Move this {{ label|lower|replace(' names', '') }} entry up"
+              aria-label="Move {{ label|lower }} entry {{ loop.index }} up"
               {% if loop.first %}disabled{% endif %}>↑</button>
       <button type="button" class="btn btn--sm btn--secondary"
               data-cardstack-reorder="down" data-cardstack-field="{{ field }}"
-              aria-label="Move this {{ label|lower|replace(' names', '') }} entry down"
+              aria-label="Move {{ label|lower }} entry {{ loop.index }} down"
               {% if loop.last %}disabled{% endif %}>↓</button>
       <button type="button" class="btn btn--sm btn--secondary"
               data-cardstack-remove="{{ field }}"
-              aria-label="Remove this {{ label|lower|replace(' names', '') }} entry">×</button>
+              aria-label="Remove {{ label|lower }} entry {{ loop.index }}">×</button>
     </div>
     {% endfor %}
   </div>

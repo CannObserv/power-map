@@ -1275,6 +1275,100 @@ def test_detail_loads_reorder_script():
 
 
 # ---------------------------------------------------------------------------
+# Per-card button aria-label disambiguation (Issue #146)
+# ---------------------------------------------------------------------------
+#
+# With 2+ cards in a stack, every up/down/remove button previously read
+# identically to a screen reader ("Move this given entry up" × N). Each
+# button's aria-label must now include the card's 1-based position so
+# siblings are distinguishable.
+
+
+def _given_card_blocks(out: str) -> list[str]:
+    """Slice the rendered editor into per-card markup for `given_names`."""
+    given_block = out.split('data-cardstack="given_names"', 1)[1]
+    given_block = given_block.split("data-cardstack-add=", 1)[0]
+    return given_block.split('data-cardstack-card="given_names"')[1:]
+
+
+def test_per_card_button_aria_labels_carry_loop_index():
+    """Up / down / remove buttons embed the card's 1-based position so a
+    screen reader can tell siblings apart. Without the index, every
+    button in a stack reads identically."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    parts = {
+        "given_names": ["Ada", "Augusta", "Mary"],
+        "family_names": [],
+        "additional_names": [],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    cards = _given_card_blocks(out)
+    assert len(cards) == 3
+    for idx, card in enumerate(cards, start=1):
+        for direction in ("up", "down"):
+            btn = re.search(
+                rf'<button\b[^>]*data-cardstack-reorder="{direction}"[^>]*>',
+                card,
+            )
+            assert btn, f"missing {direction} button in card {idx}"
+            assert f"entry {idx}" in btn.group(), (
+                f"{direction} button on card {idx} missing 'entry {idx}' "
+                f"in aria-label: {btn.group()!r}"
+            )
+        rm = re.search(
+            r'<button\b[^>]*data-cardstack-remove="given_names"[^>]*>',
+            card,
+        )
+        assert rm, f"missing remove button in card {idx}"
+        assert f"entry {idx}" in rm.group(), (
+            f"remove button on card {idx} missing 'entry {idx}' "
+            f"in aria-label: {rm.group()!r}"
+        )
+
+
+def test_per_card_button_aria_labels_are_distinct_across_cards():
+    """Belt-and-braces: every aria-label in a given-name stack of 2+ cards
+    is unique. Catches a regression where indices stop being interpolated
+    (e.g. someone replaces `loop.index` with a constant)."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("src/templates"))
+    parts = {
+        "given_names": ["Ada", "Augusta"],
+        "family_names": [],
+        "additional_names": [],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": None,
+    }
+    out = env.get_template(
+        "admin/people/partials/_name_parts_editor.html"
+    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    cards = _given_card_blocks(out)
+    for selector in (
+        r'data-cardstack-reorder="up"',
+        r'data-cardstack-reorder="down"',
+        r'data-cardstack-remove="given_names"',
+    ):
+        labels = []
+        for card in cards:
+            m = re.search(
+                rf'<button\b[^>]*{selector}[^>]*aria-label="([^"]+)"',
+                card,
+            )
+            assert m, f"button {selector!r} missing aria-label"
+            labels.append(m.group(1))
+        assert len(labels) == len(set(labels)), (
+            f"aria-labels not distinct across cards for {selector}: {labels}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # CardStack cap — wired from the Python ARRAY_CAP constant (Issue #128)
 # ---------------------------------------------------------------------------
 #
