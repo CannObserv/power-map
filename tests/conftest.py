@@ -29,7 +29,10 @@ def pytest_collection_modifyitems(config, items):
     if os.environ.get("TEST_DATABASE_URL"):
         return
     skip = pytest.mark.skip(
-        reason="TEST_DATABASE_URL not set — refusing to run integration tests against production DB"
+        reason=(
+            "TEST_DATABASE_URL not set — set it in .env (see docs/COMMANDS.md); "
+            "skipping integration tests"
+        )
     )
     for item in items:
         if "integration" in item.keywords:

@@ -106,9 +106,24 @@ git worktree add "$path" -b "$BRANCH_NAME"
 ```bash
 # From the new worktree directory
 cd "$path"
+
+# Python deps
 uv sync
-# git rev-parse --git-common-dir points to the main .git regardless of worktree
-cp "$(git rev-parse --git-common-dir | xargs dirname)/.env" .env 2>/dev/null || true
+
+# JS deps — required for the vitest pre-commit hook
+npm install
+
+# .env carries GH_TOKEN + TEST_DATABASE_URL; without it integration tests
+# silently skip. Copy explicitly and warn loudly on miss.
+# git rev-parse --git-common-dir points to the main .git regardless of worktree.
+parent_env="$(git rev-parse --git-common-dir | xargs dirname)/.env"
+if [ -f "$parent_env" ]; then
+    cp "$parent_env" .env
+    echo ".env copied from $parent_env"
+else
+    echo "WARNING: $parent_env not found — integration tests will skip and gh CLI will fail."
+    echo "Create .env with TEST_DATABASE_URL and GH_TOKEN (see docs/COMMANDS.md)."
+fi
 ```
 
 ### 4. Reload Dev Server on Port 8001
@@ -130,10 +145,21 @@ Dev server accessible at `https://power-map.exe.xyz:8001/`.
 ```bash
 export $(cat /etc/power-map/.env | xargs) 2>/dev/null
 export $(cat .env | xargs) 2>/dev/null
+
+# Full suite (unit + integration). If TEST_DATABASE_URL is unset, all
+# integration tests will skip — the conftest skip reason names the misconfig.
 uv run pytest --no-cov -q
+
+# Surface integration-test status explicitly so a silent skip-everything
+# can't be mistaken for a clean pass.
+if [ -z "$TEST_DATABASE_URL" ]; then
+    echo "WARNING: TEST_DATABASE_URL not set — integration tests were skipped."
+fi
 ```
 
 **If tests fail:** Report failures, ask whether to proceed or investigate.
+
+**If integration tests skipped:** Report the warning before claiming ready.
 
 **If tests pass:** Report ready.
 
