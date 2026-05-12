@@ -1,4 +1,5 @@
 """Static assertions for person-name partial templates (Phase 2a Task 2)."""
+
 import re
 from pathlib import Path
 
@@ -13,9 +14,7 @@ DETAIL = Path("src/templates/admin/people/detail.html").read_text()
 # Details disclosure (`_name_parts_editor.html`). Static structural
 # assertions read the union so the metadata-presence tests work
 # regardless of which partial physically owns the markup.
-METADATA_FIELDS = Path(
-    "src/templates/admin/people/partials/_name_metadata_fields.html"
-).read_text()
+METADATA_FIELDS = Path("src/templates/admin/people/partials/_name_metadata_fields.html").read_text()
 FORM_ROW_FULL = FORM_ROW + "\n" + METADATA_FIELDS
 
 
@@ -33,10 +32,11 @@ def test_form_row_renders_an_option_for_every_person_name_type():
     here automatically.
     """
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    rendered = env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n=None, person_id="p-test", name_types=PERSON_NAME_TYPES)
+    rendered = env.get_template("admin/people/partials/_name_form_row.html").render(
+        n=None, person_id="p-test", name_types=PERSON_NAME_TYPES
+    )
     for t in PERSON_NAME_TYPES:
         assert f'<option value="{t}"' in rendered, (
             f"name_type option {t!r} missing from rendered form row"
@@ -56,8 +56,7 @@ def test_form_row_does_not_hardcode_name_type_list():
        loop.
     """
     assert "{% for t in name_types %}" in FORM_ROW, (
-        "form row template must iterate `name_types` from context, "
-        "not a hardcoded literal"
+        "form row template must iterate `name_types` from context, not a hardcoded literal"
     )
     # Slice the dropdown block: from `<select name="name_type"` to its
     # closing `</select>`. Any quoted literal `name_type` token inside
@@ -66,12 +65,8 @@ def test_form_row_does_not_hardcode_name_type_list():
     select_close = FORM_ROW.index("</select>", select_open)
     block = FORM_ROW[select_open:select_close]
     for t in PERSON_NAME_TYPES:
-        assert f"'{t}'" not in block, (
-            f"name_type dropdown block contains hardcoded literal {t!r}"
-        )
-        assert f'"{t}"' not in block, (
-            f"name_type dropdown block contains hardcoded literal {t!r}"
-        )
+        assert f"'{t}'" not in block, f"name_type dropdown block contains hardcoded literal {t!r}"
+        assert f'"{t}"' not in block, f"name_type dropdown block contains hardcoded literal {t!r}"
 
 
 def test_form_row_name_type_select_is_named_correctly():
@@ -111,17 +106,15 @@ def test_form_row_visibility_defaults_to_public_when_no_existing_row():
     expression — verify both the structural pattern and the runtime result.
     """
     # Structural check: the Jinja guard must reference (not n) and 'public'.
-    assert (
-        "not n and v == 'public'" in FORM_ROW_FULL
-        or "v == 'public'" in FORM_ROW_FULL
-    )
+    assert "not n and v == 'public'" in FORM_ROW_FULL or "v == 'public'" in FORM_ROW_FULL
 
     # Runtime check: render with n=None and confirm <option value="public" selected>.
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    rendered = env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n=None, person_id="p-test")
+    rendered = env.get_template("admin/people/partials/_name_form_row.html").render(
+        n=None, person_id="p-test"
+    )
     assert '<option value="public" selected>' in rendered, (
         "public should be the pre-selected visibility for new rows"
     )
@@ -191,9 +184,7 @@ def test_form_row_has_sort_as_plain_input():
     assert 'name="sort_as"' in FORM_ROW_FULL
 
 
-ROW_TYPEAHEAD_JS = Path(
-    "src/static/admin/person-name-row-typeahead.js"
-).read_text()
+ROW_TYPEAHEAD_JS = Path("src/static/admin/person-name-row-typeahead.js").read_text()
 
 
 def test_form_row_calls_init_typeahead_for_locale_and_script():
@@ -221,45 +212,57 @@ def test_read_row_references_metadata_columns():
 def test_read_row_subtitle_skips_when_all_metadata_null():
     """No subtitle markers when all three fields are NULL."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     bare = {
-        "id": "n1", "name": "Plain", "name_type": "legal",
-        "is_canonical": True, "visibility": "public",
-        "locale": None, "script": None, "sort_as": None,
+        "id": "n1",
+        "name": "Plain",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_row.html"
-    ).render(n=bare, person_id="p1")
+    out = env.get_template("admin/people/partials/_name_row.html").render(n=bare, person_id="p1")
     assert "·" not in out
     assert "sort_as:" not in out
 
 
 def test_read_row_subtitle_renders_locale_and_script():
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     row = {
-        "id": "n1", "name": "Test", "name_type": "legal",
-        "is_canonical": True, "visibility": "public",
-        "locale": "en-US", "script": "Latn", "sort_as": None,
+        "id": "n1",
+        "name": "Test",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": "en-US",
+        "script": "Latn",
+        "sort_as": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_row.html"
-    ).render(n=row, person_id="p1")
+    out = env.get_template("admin/people/partials/_name_row.html").render(n=row, person_id="p1")
     assert "Latn" in out
     assert "en-US" in out
 
 
 def test_read_row_subtitle_renders_sort_as():
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     row = {
-        "id": "n1", "name": "van der Meer", "name_type": "legal",
-        "is_canonical": True, "visibility": "public",
-        "locale": None, "script": None, "sort_as": "Meer, van der",
+        "id": "n1",
+        "name": "van der Meer",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": "Meer, van der",
     }
-    out = env.get_template(
-        "admin/people/partials/_name_row.html"
-    ).render(n=row, person_id="p1")
+    out = env.get_template("admin/people/partials/_name_row.html").render(n=row, person_id="p1")
     assert "Meer, van der" in out
     assert "sort_as" in out.lower()
 
@@ -291,10 +294,7 @@ def test_form_row_reading_of_block_is_conditional():
     """Block must be wrapped so JS can show/hide based on name_type."""
     # Either a wrapping element with id (now namespaced — any suffix), or
     # a class hook that the JS toggles.
-    assert (
-        'id="reading-of-block-' in FORM_ROW_FULL
-        or "data-reading-of-block" in FORM_ROW_FULL
-    )
+    assert 'id="reading-of-block-' in FORM_ROW_FULL or "data-reading-of-block" in FORM_ROW_FULL
 
 
 def test_form_row_has_reading_type_toggle_script():
@@ -323,16 +323,21 @@ def test_read_row_references_reading_of_id():
 def test_read_row_renders_reading_of_subtitle_when_set():
     """Linked rows render '↳ {name_type} of: <parent name>' under the name."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     row = {
-        "id": "n_reading", "name": "ada lovelace", "name_type": "romanization",
-        "is_canonical": False, "visibility": "public",
-        "locale": None, "script": None, "sort_as": None,
-        "reading_of_id": "n_legal", "reading_of_name": "Ada Lovelace",
+        "id": "n_reading",
+        "name": "ada lovelace",
+        "name_type": "romanization",
+        "is_canonical": False,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": "n_legal",
+        "reading_of_name": "Ada Lovelace",
     }
-    out = env.get_template(
-        "admin/people/partials/_name_row.html"
-    ).render(n=row, person_id="p1")
+    out = env.get_template("admin/people/partials/_name_row.html").render(n=row, person_id="p1")
     assert "↳" in out
     assert "Ada Lovelace" in out
     assert "romanization" in out
@@ -340,16 +345,21 @@ def test_read_row_renders_reading_of_subtitle_when_set():
 
 def test_read_row_skips_reading_of_subtitle_when_unlinked():
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     row = {
-        "id": "n1", "name": "Plain", "name_type": "legal",
-        "is_canonical": True, "visibility": "public",
-        "locale": None, "script": None, "sort_as": None,
-        "reading_of_id": None, "reading_of_name": None,
+        "id": "n1",
+        "name": "Plain",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_row.html"
-    ).render(n=row, person_id="p1")
+    out = env.get_template("admin/people/partials/_name_row.html").render(n=row, person_id="p1")
     assert "↳" not in out
 
 
@@ -361,17 +371,22 @@ def test_read_row_skips_reading_of_subtitle_when_unlinked():
 def test_read_row_delete_confirm_mentions_cascade_when_children():
     """When the row has reading_of children, the delete confirm should warn."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     row = {
-        "id": "n_legal", "name": "Ada Lovelace", "name_type": "legal",
-        "is_canonical": True, "visibility": "public",
-        "locale": None, "script": None, "sort_as": None,
-        "reading_of_id": None, "reading_of_name": None,
+        "id": "n_legal",
+        "name": "Ada Lovelace",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
         "reading_child_count": 2,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_row.html"
-    ).render(n=row, person_id="p1")
+    out = env.get_template("admin/people/partials/_name_row.html").render(n=row, person_id="p1")
     # Expect the hx-confirm to mention the cascade impact (count + word).
     assert "2" in out and ("linked" in out.lower() or "cascade" in out.lower())
 
@@ -379,17 +394,22 @@ def test_read_row_delete_confirm_mentions_cascade_when_children():
 def test_read_row_delete_confirm_default_when_no_children():
     """No children → standard confirm text, no cascade noise."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     row = {
-        "id": "n_legal", "name": "Plain", "name_type": "legal",
-        "is_canonical": True, "visibility": "public",
-        "locale": None, "script": None, "sort_as": None,
-        "reading_of_id": None, "reading_of_name": None,
+        "id": "n_legal",
+        "name": "Plain",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
         "reading_child_count": 0,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_row.html"
-    ).render(n=row, person_id="p1")
+    out = env.get_template("admin/people/partials/_name_row.html").render(n=row, person_id="p1")
     assert "Delete this name?" in out
 
 
@@ -399,7 +419,7 @@ def test_read_row_badge_uses_badge_class():
     if "n.visibility" in READ_ROW:
         # Take a window after the first n.visibility ref
         idx = READ_ROW.find("n.visibility")
-        window = READ_ROW[idx:idx + 300]
+        window = READ_ROW[idx : idx + 300]
         assert "badge" in window, "visibility branch should render a badge element"
 
 
@@ -408,9 +428,7 @@ def test_read_row_badge_uses_badge_class():
 # ---------------------------------------------------------------------------
 
 
-PARTS_EDITOR = Path(
-    "src/templates/admin/people/partials/_name_parts_editor.html"
-).read_text()
+PARTS_EDITOR = Path("src/templates/admin/people/partials/_name_parts_editor.html").read_text()
 # Issue #139 CR: the editor's body (metadata + parts inputs + advisory)
 # now lives in `_name_parts_editor_body.html` so both the editor and the
 # `_name_parts_suggestion.html` HTMX swap target can include it without
@@ -429,10 +447,11 @@ def test_form_row_includes_parts_editor_partial():
 def test_parts_editor_renders_only_when_editing_existing_row():
     """The editor block is gated on `n` being non-None (no name_id → no upsert)."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n=None, parts=None, person_id="p1")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n=None, parts=None, person_id="p1"
+    )
     assert out.strip() == "" or "<form" not in out
 
 
@@ -440,20 +459,22 @@ def test_parts_editor_has_no_inner_form():
     """Issue #127: the Details body is markup nested in the parent name form;
     no inner <form> element."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert "<form" not in out
 
 
 def test_parts_editor_has_no_save_parts_button():
     """Issue #127: the parent form's single Save covers parts too."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert "Save parts" not in out
 
 
@@ -461,15 +482,17 @@ def test_parts_editor_has_no_remove_button_even_when_parts_exist():
     """Issue #127: clearing all fields + Save deletes the row; explicit
     Remove button is removed."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
         n={"id": "nid_x"},
         parts={
-            "given_names": ["Ada"], "family_names": None,
-            "additional_names": None, "honorific_prefix": None,
-            "honorific_suffix": None, "primary_identifier": "given",
+            "given_names": ["Ada"],
+            "family_names": None,
+            "additional_names": None,
+            "honorific_prefix": None,
+            "honorific_suffix": None,
+            "primary_identifier": "given",
         },
         person_id="pid_x",
     )
@@ -490,6 +513,7 @@ def test_parts_editor_renders_cardstack_for_each_array_field():
     render zero cards (Add button only).
     """
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     parts = {
         "given_names": ["María", "José"],
@@ -499,9 +523,9 @@ def test_parts_editor_renders_cardstack_for_each_array_field():
         "honorific_suffix": None,
         "primary_identifier": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=parts, person_id="pid_x"
+    )
     # Each card carries a data-cardstack-card="<field>" hook for the JS.
     assert out.count('data-cardstack-card="given_names"') == 2
     assert out.count('data-cardstack-card="family_names"') == 1
@@ -519,15 +543,17 @@ def test_parts_editor_renders_cardstack_for_each_array_field():
 def test_parts_editor_drops_max_5_hint():
     """Issue #127: '(max 5)' hint removed; cap surfaced via disabled Add button."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert "max 5" not in out
 
 
 def test_parts_editor_pre_populates_arrays():
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     parts = {
         "given_names": ["María", "José"],
@@ -537,26 +563,27 @@ def test_parts_editor_pre_populates_arrays():
         "honorific_suffix": None,
         "primary_identifier": "family",
     }
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=parts, person_id="pid_x"
+    )
     assert 'value="María"' in out
     assert 'value="José"' in out
     assert 'value="García"' in out
     assert 'value="López"' in out
     assert 'value="Dra."' in out
     # primary_identifier=family should be marked selected
-    assert ('value="family" selected' in out) or ('selected>family' in out)
+    assert ('value="family" selected' in out) or ("selected>family" in out)
 
 
 def test_parts_editor_details_has_stable_id_for_future_swaps():
     """The <details> element exposes a stable id so a future feature
     that refreshes the entire editor body after save has an anchor."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert 'id="parts-editor-nid_x"' in out
 
 
@@ -565,20 +592,22 @@ def test_parts_editor_summary_has_stable_id_for_oob_swap():
     can swap just the badge via hx-swap-oob without collapsing the
     user's open <details>."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert 'id="parts-summary-nid_x"' in out
 
 
 def test_parts_editor_summary_label_says_details():
     """Issue #127: rename 'Structured parts' to 'Details' (UI label only)."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert "Details" in out
     assert "Structured parts" not in out
 
@@ -590,34 +619,44 @@ def test_parts_editor_summary_label_says_details():
 
 def test_read_row_renders_parts_subtitle_when_present():
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     row = {
-        "id": "n1", "name": "María José García López", "name_type": "legal",
-        "is_canonical": True, "visibility": "public",
-        "locale": None, "script": None, "sort_as": None,
-        "reading_of_id": None, "reading_of_name": None,
+        "id": "n1",
+        "name": "María José García López",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
         "parts_summary": "García López · María José",
     }
-    out = env.get_template(
-        "admin/people/partials/_name_row.html"
-    ).render(n=row, person_id="p1")
+    out = env.get_template("admin/people/partials/_name_row.html").render(n=row, person_id="p1")
     assert "García López" in out
     assert "parts:" not in out  # prefix dropped by #127
 
 
 def test_read_row_skips_parts_subtitle_when_absent():
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     row = {
-        "id": "n1", "name": "Plain", "name_type": "legal",
-        "is_canonical": True, "visibility": "public",
-        "locale": None, "script": None, "sort_as": None,
-        "reading_of_id": None, "reading_of_name": None,
+        "id": "n1",
+        "name": "Plain",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
         "parts_summary": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_row.html"
-    ).render(n=row, person_id="p1")
+    out = env.get_template("admin/people/partials/_name_row.html").render(n=row, person_id="p1")
     assert "parts:" not in out
 
 
@@ -629,6 +668,7 @@ def test_read_row_skips_parts_subtitle_when_absent():
 def test_detail_loads_parts_cardstack_script():
     """Issue #127: detail page loads the CardStack JS."""
     from pathlib import Path
+
     DETAIL = Path("src/templates/admin/people/detail.html").read_text()
     assert "person-name-parts-cardstack.js" in DETAIL
 
@@ -641,10 +681,10 @@ def test_detail_parts_cardstack_script_is_deferred():
     matches the new template form rather than the literal ``?v=1``.
     """
     from pathlib import Path
+
     DETAIL = Path("src/templates/admin/people/detail.html").read_text()
     assert (
-        'src="/static/admin/person-name-parts-cardstack.js?v={{ asset_version }}" defer'
-        in DETAIL
+        'src="/static/admin/person-name-parts-cardstack.js?v={{ asset_version }}" defer' in DETAIL
     )
 
 
@@ -656,13 +696,18 @@ def test_detail_parts_cardstack_script_is_deferred():
 def test_parts_editor_renders_labels_and_help_text():
     """Issue #127: every Details field has a clear label and one-line help."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     expected_labels = [
-        "Primary identifier", "Given names", "Family names",
-        "Additional names", "Honorific prefix", "Honorific suffix",
+        "Primary identifier",
+        "Given names",
+        "Family names",
+        "Additional names",
+        "Honorific prefix",
+        "Honorific suffix",
     ]
     for label in expected_labels:
         assert label in out, f"missing label: {label!r}"
@@ -691,51 +736,91 @@ def test_inline_row_excludes_metadata_fields():
     the inline row.
     """
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n={"id": "nid_x", "name": "X", "name_type": "legal",
-                "is_canonical": True, "visibility": "public",
-                "locale": None, "script": None, "sort_as": None,
-                "reading_of_id": None, "reading_of_name": None},
-             parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_form_row.html").render(
+        n={
+            "id": "nid_x",
+            "name": "X",
+            "name_type": "legal",
+            "is_canonical": True,
+            "visibility": "public",
+            "locale": None,
+            "script": None,
+            "sort_as": None,
+            "reading_of_id": None,
+            "reading_of_name": None,
+        },
+        parts=None,
+        person_id="pid_x",
+    )
     inline_section = out.split("<details", 1)[0]
-    for needle in ('name="visibility"', 'name="locale"', 'name="script"',
-                   'name="sort_as"', 'name="reading_of_id"'):
+    for needle in (
+        'name="visibility"',
+        'name="locale"',
+        'name="script"',
+        'name="sort_as"',
+        'name="reading_of_id"',
+    ):
         assert needle not in inline_section, f"inline row leaks {needle!r}"
-    details_section = out[out.index("<details"):]
-    for needle in ('name="visibility"', 'name="locale"', 'name="script"',
-                   'name="sort_as"', 'name="reading_of_id"'):
+    details_section = out[out.index("<details") :]
+    for needle in (
+        'name="visibility"',
+        'name="locale"',
+        'name="script"',
+        'name="sort_as"',
+        'name="reading_of_id"',
+    ):
         assert needle in details_section, f"Details missing {needle!r}"
 
 
 def test_disclosure_auto_opens_when_metadata_set():
     """Issue #127: auto-open Details when any non-default metadata present."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    n_with_locale = {"id": "nid_x", "name": "X", "name_type": "legal",
-                     "is_canonical": True, "visibility": "public",
-                     "locale": "ja-JP", "script": None, "sort_as": None,
-                     "reading_of_id": None, "reading_of_name": None}
-    out = env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n=n_with_locale, parts=None, person_id="pid_x")
+    n_with_locale = {
+        "id": "nid_x",
+        "name": "X",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": "ja-JP",
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
+    }
+    out = env.get_template("admin/people/partials/_name_form_row.html").render(
+        n=n_with_locale, parts=None, person_id="pid_x"
+    )
     import re
+
     assert re.search(r"<details[^>]*\bopen\b", out)
 
 
 def test_disclosure_closed_for_pristine_row():
     """No metadata set, no parts → Details closed by default."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    n = {"id": "nid_x", "name": "X", "name_type": "legal",
-         "is_canonical": True, "visibility": "public",
-         "locale": None, "script": None, "sort_as": None,
-         "reading_of_id": None, "reading_of_name": None}
-    out = env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n=n, parts=None, person_id="pid_x")
+    n = {
+        "id": "nid_x",
+        "name": "X",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
+    }
+    out = env.get_template("admin/people/partials/_name_form_row.html").render(
+        n=n, parts=None, person_id="pid_x"
+    )
     import re
+
     assert not re.search(r"<details[^>]*\bopen\b", out)
 
 
@@ -773,9 +858,7 @@ def test_locale_input_sends_q_to_search_endpoint():
 
 
 def test_script_input_sends_q_to_search_endpoint():
-    assert 'name="q_script"' not in METADATA_FIELDS, (
-        "script input must not carry name='q_script'"
-    )
+    assert 'name="q_script"' not in METADATA_FIELDS, "script input must not carry name='q_script'"
     script_block = METADATA_FIELDS.split("/admin/people/_script_search")[1]
     script_block = script_block.split("</div>")[0]
     assert "hx-vals" in script_block, "script typeahead missing hx-vals"
@@ -789,9 +872,7 @@ def test_reading_of_input_sends_q_to_search_endpoint():
     reading_block = METADATA_FIELDS.split("_reading_target_search")[1]
     reading_block = reading_block.split("</div>")[0]
     assert "hx-vals" in reading_block, "reading-of typeahead missing hx-vals"
-    assert (
-        "q:" in reading_block or "'q'" in reading_block or '"q"' in reading_block
-    )
+    assert "q:" in reading_block or "'q'" in reading_block or '"q"' in reading_block
 
 
 def test_typeahead_inputs_drop_hx_params_filter():
@@ -821,19 +902,26 @@ def _render_metadata(n_id):
     """Helper: render the metadata partial for either an existing row or
     the new-name form (n=None) and return the HTML."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     if n_id is None:
         n = None
     else:
         n = {
-            "id": n_id, "name": "X", "name_type": "legal",
-            "is_canonical": True, "visibility": "public",
-            "locale": None, "script": None, "sort_as": None,
-            "reading_of_id": None, "reading_of_name": None,
+            "id": n_id,
+            "name": "X",
+            "name_type": "legal",
+            "is_canonical": True,
+            "visibility": "public",
+            "locale": None,
+            "script": None,
+            "sort_as": None,
+            "reading_of_id": None,
+            "reading_of_name": None,
         }
-    return env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n=n, parts=None, person_id="pid_x")
+    return env.get_template("admin/people/partials/_name_form_row.html").render(
+        n=n, parts=None, person_id="pid_x"
+    )
 
 
 def test_typeahead_ids_namespaced_per_existing_row():
@@ -841,9 +929,15 @@ def test_typeahead_ids_namespaced_per_existing_row():
     out = _render_metadata("nid_abc")
     # The display input, listbox, and hidden field all carry the suffix.
     for stem in (
-        "locale-search-display", "locale-search-results", "locale-hidden",
-        "script-search-display", "script-search-results", "script-hidden",
-        "reading-of-display", "reading-of-results", "reading-of-hidden",
+        "locale-search-display",
+        "locale-search-results",
+        "locale-hidden",
+        "script-search-display",
+        "script-search-results",
+        "script-hidden",
+        "reading-of-display",
+        "reading-of-results",
+        "reading-of-hidden",
         "reading-of-block",
     ):
         assert f'id="{stem}-nid_abc"' in out, (
@@ -856,8 +950,12 @@ def test_typeahead_ids_use_new_suffix_for_new_name_form():
     suffix so it doesn't collide with any existing-row drawer."""
     out = _render_metadata(None)
     for stem in (
-        "locale-search-display", "locale-search-results", "locale-hidden",
-        "script-search-display", "script-search-results", "script-hidden",
+        "locale-search-display",
+        "locale-search-results",
+        "locale-hidden",
+        "script-search-display",
+        "script-search-results",
+        "script-hidden",
     ):
         assert f'id="{stem}-new"' in out, (
             f"expected {stem!r} id suffixed with -new for the new-name form"
@@ -932,10 +1030,7 @@ def test_metadata_field_order_visibility_then_sort_as_then_locale_then_script():
         # ordering is what matters.
         positions[f] = METADATA_FIELDS.index(f'name="{f}"')
     assert (
-        positions["visibility"]
-        < positions["sort_as"]
-        < positions["locale"]
-        < positions["script"]
+        positions["visibility"] < positions["sort_as"] < positions["locale"] < positions["script"]
     ), f"metadata field order wrong: {positions}"
 
 
@@ -948,9 +1043,7 @@ def test_locale_label_carries_bcp47_parenthetical():
     """Locale label is `Locale (BCP-47)` — the standard moves from
     placeholder into the label so the placeholder reads as an example
     rather than dual-purpose."""
-    assert ">Locale (BCP-47)" in METADATA_FIELDS, (
-        "locale label must read 'Locale (BCP-47)'"
-    )
+    assert ">Locale (BCP-47)" in METADATA_FIELDS, "locale label must read 'Locale (BCP-47)'"
 
 
 def test_locale_placeholder_carries_example_codes_only():
@@ -971,9 +1064,7 @@ def test_locale_placeholder_carries_example_codes_only():
 
 def test_script_label_carries_iso15924_parenthetical():
     """Script label is `Script (ISO 15924)`."""
-    assert ">Script (ISO 15924)" in METADATA_FIELDS, (
-        "script label must read 'Script (ISO 15924)'"
-    )
+    assert ">Script (ISO 15924)" in METADATA_FIELDS, "script label must read 'Script (ISO 15924)'"
 
 
 def test_script_placeholder_carries_example_codes_only():
@@ -1021,7 +1112,7 @@ def _honorific_block(field):
     # Find the matching </div>: form-group is structurally simple (label
     # + input only after the redesign), so the next </div> closes it.
     group_close = PARTS_EDITOR_BODY.index("</div>", input_idx)
-    return PARTS_EDITOR_BODY[group_open:group_close + len("</div>")]
+    return PARTS_EDITOR_BODY[group_open : group_close + len("</div>")]
 
 
 def test_honorific_prefix_placeholder_carries_examples_and_drops_small_help():
@@ -1032,9 +1123,7 @@ def test_honorific_prefix_placeholder_carries_examples_and_drops_small_help():
         f"honorific_prefix placeholder lacks examples: {placeholder!r}"
     )
     # The below-control <small> helper is gone (placeholder absorbs the hint).
-    assert "<small" not in block, (
-        "honorific_prefix block still has a <small> helper element"
-    )
+    assert "<small" not in block, "honorific_prefix block still has a <small> helper element"
 
 
 def test_honorific_suffix_placeholder_carries_examples_and_drops_small_help():
@@ -1043,9 +1132,7 @@ def test_honorific_suffix_placeholder_carries_examples_and_drops_small_help():
     assert any(ex in placeholder for ex in ("Jr.", "PhD", "II")), (
         f"honorific_suffix placeholder lacks examples: {placeholder!r}"
     )
-    assert "<small" not in block, (
-        "honorific_suffix block still has a <small> helper element"
-    )
+    assert "<small" not in block, "honorific_suffix block still has a <small> helper element"
 
 
 # ---------------------------------------------------------------------------
@@ -1058,13 +1145,11 @@ def test_primary_identifier_help_text_above_control():
     # Find the primary_identifier select and check the help text precedes it.
     sel_idx = PARTS_EDITOR_BODY.index('name="primary_identifier"')
     # Grab a window before the select.
-    before = PARTS_EDITOR_BODY[max(0, sel_idx - 800):sel_idx]
-    after = PARTS_EDITOR_BODY[sel_idx:sel_idx + 800]
+    before = PARTS_EDITOR_BODY[max(0, sel_idx - 800) : sel_idx]
+    after = PARTS_EDITOR_BODY[sel_idx : sel_idx + 800]
     # The distinctive help substring must appear BEFORE the select, not after.
     needle = "primary surname-equivalent"
-    assert needle in before, (
-        "primary_identifier help text should appear above the control"
-    )
+    assert needle in before, "primary_identifier help text should appear above the control"
     assert needle not in after, (
         "primary_identifier help text should NOT appear after the control too"
     )
@@ -1092,9 +1177,7 @@ def test_primary_identifier_help_text_above_control():
 # CSP-tightening pass doesn't have to special-case the inline script.
 
 
-ADD_NAME_GUARD_JS = Path(
-    "src/static/admin/person-detail-add-name-guard.js"
-).read_text()
+ADD_NAME_GUARD_JS = Path("src/static/admin/person-detail-add-name-guard.js").read_text()
 
 
 def test_detail_add_name_button_has_id():
@@ -1125,10 +1208,11 @@ def test_new_name_form_cancel_dispatches_close_event():
     """The inline-Cancel for new-name forms must dispatch the custom
     event so the + Add name button can re-enable itself."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n=None, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_form_row.html").render(
+        n=None, parts=None, person_id="pid_x"
+    )
     # Cancel for the new-name branch removes the row and signals the page.
     assert "powerMap:newNameRowClosed" in out
     # The existing-row Cancel uses hx-get, not onclick; not affected.
@@ -1138,14 +1222,23 @@ def test_existing_row_cancel_unchanged():
     """Existing-row Cancel still issues an HTMX read-row swap, not the
     inline remove + dispatch."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    n = {"id": "nid_x", "name": "X", "name_type": "legal",
-         "is_canonical": True, "visibility": "public",
-         "locale": None, "script": None, "sort_as": None,
-         "reading_of_id": None, "reading_of_name": None}
-    out = env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n=n, parts=None, person_id="pid_x")
+    n = {
+        "id": "nid_x",
+        "name": "X",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
+    }
+    out = env.get_template("admin/people/partials/_name_form_row.html").render(
+        n=n, parts=None, person_id="pid_x"
+    )
     # Existing-row Cancel is HTMX-driven: hx-get to read-row, hx-target the row.
     assert "/names/nid_x/read-row/" in out
     # And its branch should not carry the new-row dispatch.
@@ -1158,6 +1251,7 @@ def test_cardstack_inputs_wrapped_in_form_group():
     inherits the baseline input styling (font-size, padding, min-height)
     instead of falling back to the browser default."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     parts = {
         "given_names": ["Ada"],
@@ -1167,9 +1261,9 @@ def test_cardstack_inputs_wrapped_in_form_group():
         "honorific_suffix": None,
         "primary_identifier": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=parts, person_id="pid_x"
+    )
     # Each card is a div with data-cardstack-card; inside, the <input>
     # should be inside a .form-group wrapper.
     for field in ("given_names", "family_names", "additional_names"):
@@ -1179,7 +1273,7 @@ def test_cardstack_inputs_wrapped_in_form_group():
         for seg in card_segments[1:]:
             # Bound the segment to the next card or end-of-stack.
             seg_bounded = seg.split('data-cardstack-card="')[0]
-            seg_bounded = seg_bounded.split('data-cardstack-add=')[0]
+            seg_bounded = seg_bounded.split("data-cardstack-add=")[0]
             assert "form-group" in seg_bounded, (
                 f"cardstack input for {field} not wrapped in .form-group "
                 f"— styling will fall back to browser default"
@@ -1196,6 +1290,7 @@ def test_parts_editor_renders_reorder_arrows_per_card():
     `data-cardstack-reorder` so `person-name-parts-reorder.js` can wire
     click handlers without selector ambiguity."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     parts = {
         "given_names": ["Ada", "Augusta"],
@@ -1205,9 +1300,9 @@ def test_parts_editor_renders_reorder_arrows_per_card():
         "honorific_suffix": None,
         "primary_identifier": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=parts, person_id="pid_x"
+    )
     assert out.count('data-cardstack-reorder="up"') == 3
     assert out.count('data-cardstack-reorder="down"') == 3
 
@@ -1216,6 +1311,7 @@ def test_parts_editor_disables_first_up_and_last_down():
     """Initial render: topmost card's ↑ disabled, bottommost card's ↓
     disabled. The JS re-syncs after every reorder / Add / Remove."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     parts = {
         "given_names": ["Ada", "Augusta", "Mary"],
@@ -1225,11 +1321,11 @@ def test_parts_editor_disables_first_up_and_last_down():
         "honorific_suffix": None,
         "primary_identifier": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=parts, person_id="pid_x"
+    )
     given_block = out.split('data-cardstack="given_names"', 1)[1]
-    given_block = given_block.split('data-cardstack-add=', 1)[0]
+    given_block = given_block.split("data-cardstack-add=", 1)[0]
     cards = given_block.split('data-cardstack-card="given_names"')[1:]
     # Match each direction's button tag wholesale so the assertion is
     # robust to attribute reordering: as long as `disabled` is somewhere
@@ -1244,6 +1340,7 @@ def test_reorder_arrow_buttons_use_type_button():
     """Arrow buttons must declare `type="button"` so clicking them inside
     the parent `<form>` does not submit the form."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     parts = {
         "given_names": ["Ada"],
@@ -1253,25 +1350,23 @@ def test_reorder_arrow_buttons_use_type_button():
         "honorific_suffix": None,
         "primary_identifier": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=parts, person_id="pid_x"
+    )
     for direction in ("up", "down"):
         snippet = out.split(f'data-cardstack-reorder="{direction}"', 1)[0]
         button_open = snippet.rfind("<button")
         assert button_open != -1
-        button_tag = out[button_open:out.index(">", button_open) + 1]
+        button_tag = out[button_open : out.index(">", button_open) + 1]
         assert 'type="button"' in button_tag
 
 
 def test_detail_loads_reorder_script():
     """Detail page loads the reorder JS alongside cardstack JS."""
     from pathlib import Path
+
     DETAIL = Path("src/templates/admin/people/detail.html").read_text()
-    assert (
-        'src="/static/admin/person-name-parts-reorder.js?v={{ asset_version }}" defer'
-        in DETAIL
-    )
+    assert 'src="/static/admin/person-name-parts-reorder.js?v={{ asset_version }}" defer' in DETAIL
 
 
 # ---------------------------------------------------------------------------
@@ -1296,6 +1391,7 @@ def test_per_card_button_aria_labels_carry_loop_index():
     screen reader can tell siblings apart. Without the index, every
     button in a stack reads identically."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     parts = {
         "given_names": ["Ada", "Augusta", "Mary"],
@@ -1305,9 +1401,9 @@ def test_per_card_button_aria_labels_carry_loop_index():
         "honorific_suffix": None,
         "primary_identifier": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=parts, person_id="pid_x"
+    )
     cards = _given_card_blocks(out)
     assert len(cards) == 3
     for idx, card in enumerate(cards, start=1):
@@ -1327,8 +1423,7 @@ def test_per_card_button_aria_labels_carry_loop_index():
         )
         assert rm, f"missing remove button in card {idx}"
         assert f"entry {idx}" in rm.group(), (
-            f"remove button on card {idx} missing 'entry {idx}' "
-            f"in aria-label: {rm.group()!r}"
+            f"remove button on card {idx} missing 'entry {idx}' in aria-label: {rm.group()!r}"
         )
 
 
@@ -1337,6 +1432,7 @@ def test_per_card_button_aria_labels_are_distinct_across_cards():
     is unique. Catches a regression where indices stop being interpolated
     (e.g. someone replaces `loop.index` with a constant)."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     parts = {
         "given_names": ["Ada", "Augusta"],
@@ -1346,9 +1442,9 @@ def test_per_card_button_aria_labels_are_distinct_across_cards():
         "honorific_suffix": None,
         "primary_identifier": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=parts, person_id="pid_x"
+    )
     cards = _given_card_blocks(out)
     for selector in (
         r'data-cardstack-reorder="up"',
@@ -1388,8 +1484,7 @@ def test_parts_editor_template_uses_jinja_array_cap_global():
     #139 CR refactor that deduplicated the editor + suggestion bodies.)
     """
     assert 'data-cardstack-cap="{{ ARRAY_CAP }}"' in PARTS_EDITOR_BODY, (
-        "parts editor body must interpolate ARRAY_CAP via Jinja global, "
-        "not hardcode the cap"
+        "parts editor body must interpolate ARRAY_CAP via Jinja global, not hardcode the cap"
     )
 
 
@@ -1405,9 +1500,9 @@ def test_parts_editor_renders_current_array_cap_value():
 
     env = Environment(loader=FileSystemLoader("src/templates"))
     env.globals["ARRAY_CAP"] = ARRAY_CAP
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert f'data-cardstack-cap="{ARRAY_CAP}"' in out
 
 
@@ -1424,9 +1519,9 @@ def test_parts_editor_picks_up_overridden_array_cap_global():
 
     env = Environment(loader=FileSystemLoader("src/templates"))
     env.globals["ARRAY_CAP"] = 7
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert 'data-cardstack-cap="7"' in out
 
 
@@ -1453,9 +1548,7 @@ def test_every_admin_jinja_env_has_array_cap_global():
     assets.inject_array_cap_into_admin_templates()
 
     found: list[tuple[str, Jinja2Templates]] = []
-    for mod_info in pkgutil.walk_packages(
-        admin_pkg.__path__, prefix=f"{admin_pkg.__name__}."
-    ):
+    for mod_info in pkgutil.walk_packages(admin_pkg.__path__, prefix=f"{admin_pkg.__name__}."):
         module = importlib.import_module(mod_info.name)
         for attr_name, attr in module.__dict__.items():
             if isinstance(attr, Jinja2Templates):
@@ -1485,14 +1578,20 @@ def _render_parts_editor(name_type="legal", parts=None):
     env.globals["ARRAY_CAP"] = ARRAY_CAP
     env.globals["NON_DECOMPOSABLE_TYPES"] = NON_DECOMPOSABLE_TYPES
     n = {
-        "id": "nid_x", "name": "Ada Lovelace", "name_type": name_type,
-        "is_canonical": True, "visibility": "public",
-        "locale": "en-US", "script": "Latn", "sort_as": None,
-        "reading_of_id": None, "reading_of_name": None,
+        "id": "nid_x",
+        "name": "Ada Lovelace",
+        "name_type": name_type,
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": "en-US",
+        "script": "Latn",
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
     }
-    return env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n=n, parts=parts, person_id="pid_x")
+    return env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n=n, parts=parts, person_id="pid_x"
+    )
 
 
 def test_parts_editor_renders_suggest_button_for_legal_name_type():
@@ -1528,8 +1627,14 @@ def test_parts_editor_hides_suggest_button_for_non_decomposable_types():
 def test_parts_editor_shows_suggest_button_for_other_human_name_types():
     """Sanity: button visible for all the other human-readable name_types."""
     for nt in (
-        "preferred", "alias", "former", "maiden", "religious",
-        "stage", "deadname", "variant",
+        "preferred",
+        "alias",
+        "former",
+        "maiden",
+        "religious",
+        "stage",
+        "deadname",
+        "variant",
     ):
         out = _render_parts_editor(name_type=nt)
         assert "Suggest decomposition" in out, (
@@ -1542,8 +1647,9 @@ def test_parts_editor_shows_suggest_button_for_other_human_name_types():
 # ---------------------------------------------------------------------------
 
 
-def _render_suggestion(*, n=None, parts=None, suggestion=None, advisory=None,
-                       prefilled=False, needs_confirm=False):
+def _render_suggestion(
+    *, n=None, parts=None, suggestion=None, advisory=None, prefilled=False, needs_confirm=False
+):
     from jinja2 import Environment, FileSystemLoader
 
     from src.api.admin.people_name_parts import ARRAY_CAP
@@ -1551,31 +1657,46 @@ def _render_suggestion(*, n=None, parts=None, suggestion=None, advisory=None,
     env = Environment(loader=FileSystemLoader("src/templates"))
     env.globals["ARRAY_CAP"] = ARRAY_CAP
     n = n or {
-        "id": "nid_x", "name": "Ada Lovelace", "name_type": "legal",
-        "is_canonical": True, "visibility": "public",
-        "locale": "en-US", "script": "Latn", "sort_as": None,
-        "reading_of_id": None, "reading_of_name": None,
+        "id": "nid_x",
+        "name": "Ada Lovelace",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": "en-US",
+        "script": "Latn",
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
     }
-    return env.get_template(
-        "admin/people/partials/_name_parts_suggestion.html"
-    ).render(
-        person_id="pid_x", n=n, parts=parts, suggestion=suggestion,
-        advisory=advisory, prefilled=prefilled, needs_confirm=needs_confirm,
+    return env.get_template("admin/people/partials/_name_parts_suggestion.html").render(
+        person_id="pid_x",
+        n=n,
+        parts=parts,
+        suggestion=suggestion,
+        advisory=advisory,
+        prefilled=prefilled,
+        needs_confirm=needs_confirm,
     )
 
 
 def test_suggestion_partial_renders_advisory_with_confidence_and_reasons():
     """Trivial suggestion renders an advisory line carrying confidence + reasons."""
     from src.core.normalizers.person_name import PartsSuggestion
+
     s = PartsSuggestion(
-        given_names=["Vincent"], family_names=["van der Berg"],
-        confidence="trivial", reasons=["particle:van der"],
+        given_names=["Vincent"],
+        family_names=["van der Berg"],
+        confidence="trivial",
+        reasons=["particle:van der"],
         primary_identifier="family",
     )
     parts = {
-        "given_names": ["Vincent"], "family_names": ["van der Berg"],
-        "additional_names": [], "honorific_prefix": None,
-        "honorific_suffix": None, "primary_identifier": "family",
+        "given_names": ["Vincent"],
+        "family_names": ["van der Berg"],
+        "additional_names": [],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": "family",
     }
     out = _render_suggestion(parts=parts, suggestion=s, prefilled=True)
     # Raw bucket survives via data attribute (stable contract); the
@@ -1591,9 +1712,11 @@ def test_suggestion_partial_renders_advisory_with_confidence_and_reasons():
 def test_suggestion_partial_renders_advisory_only_for_skip():
     """Skip confidence — advisory present, no pre-filled values."""
     from src.core.normalizers.person_name import PartsSuggestion
+
     s = PartsSuggestion.skip("unsupported-script:Cyrl")
     out = _render_suggestion(
-        parts=None, suggestion=s,
+        parts=None,
+        suggestion=s,
         advisory="This row has no script set. Set the script first.",
         prefilled=False,
     )
@@ -1606,9 +1729,12 @@ def test_suggestion_partial_renders_advisory_only_for_skip():
 def test_suggestion_partial_renders_confirm_state_when_needs_confirm():
     """Existing parts — render the Replace / Keep current buttons."""
     parts = {
-        "given_names": ["Augusta"], "family_names": ["King"],
-        "additional_names": [], "honorific_prefix": None,
-        "honorific_suffix": None, "primary_identifier": None,
+        "given_names": ["Augusta"],
+        "family_names": ["King"],
+        "additional_names": [],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": None,
     }
     out = _render_suggestion(parts=parts, needs_confirm=True)
     assert "Replace" in out
@@ -1631,14 +1757,20 @@ def test_suggestion_partial_keeps_stable_parts_editor_id():
 def test_suggestion_partial_pre_filled_renders_primary_identifier_selected():
     """Trivial bucket sets primary_identifier; the <select> must reflect it."""
     from src.core.normalizers.person_name import PartsSuggestion
+
     s = PartsSuggestion(
-        given_names=["Ada"], family_names=["Lovelace"],
-        confidence="trivial", primary_identifier="family",
+        given_names=["Ada"],
+        family_names=["Lovelace"],
+        confidence="trivial",
+        primary_identifier="family",
     )
     parts = {
-        "given_names": ["Ada"], "family_names": ["Lovelace"],
-        "additional_names": [], "honorific_prefix": None,
-        "honorific_suffix": None, "primary_identifier": "family",
+        "given_names": ["Ada"],
+        "family_names": ["Lovelace"],
+        "additional_names": [],
+        "honorific_prefix": None,
+        "honorific_suffix": None,
+        "primary_identifier": "family",
     }
     out = _render_suggestion(parts=parts, suggestion=s, prefilled=True)
     assert ('value="family" selected' in out) or ("selected>family" in out)
@@ -1647,15 +1779,22 @@ def test_suggestion_partial_pre_filled_renders_primary_identifier_selected():
 def test_suggestion_partial_pre_fills_honorifics():
     """Trivial bucket with honorifics — both prefix and suffix inputs carry values."""
     from src.core.normalizers.person_name import PartsSuggestion
+
     s = PartsSuggestion(
-        given_names=["John"], family_names=["Smith"],
-        honorific_prefix="Dr.", honorific_suffix="Jr.",
-        confidence="trivial", primary_identifier="family",
+        given_names=["John"],
+        family_names=["Smith"],
+        honorific_prefix="Dr.",
+        honorific_suffix="Jr.",
+        confidence="trivial",
+        primary_identifier="family",
     )
     parts = {
-        "given_names": ["John"], "family_names": ["Smith"],
-        "additional_names": [], "honorific_prefix": "Dr.",
-        "honorific_suffix": "Jr.", "primary_identifier": "family",
+        "given_names": ["John"],
+        "family_names": ["Smith"],
+        "additional_names": [],
+        "honorific_prefix": "Dr.",
+        "honorific_suffix": "Jr.",
+        "primary_identifier": "family",
     }
     out = _render_suggestion(parts=parts, suggestion=s, prefilled=True)
     assert 'value="Dr."' in out

@@ -23,17 +23,13 @@ def test_admin_root_redirects_when_unauthenticated():
 
 
 def test_admin_root_redirects_when_only_user_id_present():
-    response = _client.get(
-        "/admin/", headers={"X-ExeDev-UserID": "usr123"}, follow_redirects=False
-    )
+    response = _client.get("/admin/", headers={"X-ExeDev-UserID": "usr123"}, follow_redirects=False)
     assert response.status_code in (302, 307)
     assert "/__exe.dev/login" in response.headers["location"]
 
 
 def test_admin_root_redirects_when_only_email_present():
-    response = _client.get(
-        "/admin/", headers={"X-ExeDev-Email": "a@b.com"}, follow_redirects=False
-    )
+    response = _client.get("/admin/", headers={"X-ExeDev-Email": "a@b.com"}, follow_redirects=False)
     assert response.status_code in (302, 307)
     assert "/__exe.dev/login" in response.headers["location"]
 

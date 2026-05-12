@@ -12,8 +12,10 @@ FIXTURE = Path("tests/fixtures/ingestion/people_sample.csv")
 
 def read_fixture(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as f:
-        return [{k: v.strip() for k, v in row.items() if k is not None and isinstance(v, str)}
-                for row in csv.DictReader(f)]
+        return [
+            {k: v.strip() for k, v in row.items() if k is not None and isinstance(v, str)}
+            for row in csv.DictReader(f)
+        ]
 
 
 def test_validate_person_valid():

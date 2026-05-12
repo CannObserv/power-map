@@ -49,9 +49,9 @@ def test_admin_modal_js_has_aria_describedby():
 
 def test_admin_modal_js_uses_data_action_selectors():
     """Buttons must be selected by data-confirm-action, not fragile hardcoded IDs."""
-    assert 'data-confirm-action' in MODAL_JS
-    assert '#pm-confirm-cancel' not in MODAL_JS
-    assert '#pm-confirm-ok' not in MODAL_JS
+    assert "data-confirm-action" in MODAL_JS
+    assert "#pm-confirm-cancel" not in MODAL_JS
+    assert "#pm-confirm-ok" not in MODAL_JS
 
 
 def test_flash_js_exists():
@@ -152,9 +152,7 @@ def test_person_detail_js_updates_document_title():
 # SHA-256 of the upstream bundle — mutating or silently upgrading the file
 # flips this test, forcing a conscious provenance review.
 _HTMX_VENDOR_PATH = Path("src/static/admin/vendor/htmx-2.0.8.min.js")
-_HTMX_EXPECTED_SHA256 = (
-    "22283ef68cb7545914f0a88a1bdedc7256a703d1d580c1d255217d0a50d31313"
-)
+_HTMX_EXPECTED_SHA256 = "22283ef68cb7545914f0a88a1bdedc7256a703d1d580c1d255217d0a50d31313"
 _BASE_HTML_PATH = Path("src/templates/admin/base.html")
 
 

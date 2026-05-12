@@ -9,6 +9,7 @@ Tests cover:
 - Active toggle: restore button present when org is archived
 - Name-row dropdown driven by ORG_NAME_TYPES (single source of truth)
 """
+
 import re
 from pathlib import Path
 
@@ -26,9 +27,7 @@ ACTIVE_TOGGLE = Path("src/templates/admin/orgs/partials/_active_toggle.html").re
 NOTES_FORM = Path("src/templates/admin/orgs/partials/_notes_form.html").read_text()
 LIST_HTML = Path("src/templates/admin/orgs/list.html").read_text()
 REGION_HTML = Path("src/templates/admin/orgs/_region.html").read_text()
-NAME_FORM_ROW = Path(
-    "src/templates/admin/orgs/partials/_name_form_row.html"
-).read_text()
+NAME_FORM_ROW = Path("src/templates/admin/orgs/partials/_name_form_row.html").read_text()
 
 
 def _render_child_form(org_id: str = "org_x") -> str:
@@ -39,9 +38,7 @@ def _render_child_form(org_id: str = "org_x") -> str:
     raw template source which still contains the literal Jinja `{{ row_key }}`.
     """
     env = Environment(loader=FileSystemLoader("src/templates"))
-    return env.get_template(
-        "admin/orgs/partials/_child_form_row.html"
-    ).render(org_id=org_id)
+    return env.get_template("admin/orgs/partials/_child_form_row.html").render(org_id=org_id)
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +157,7 @@ def test_unlink_button_has_confirm_label():
 
 def test_unlink_hx_confirm_and_label_on_same_button():
     """Both attrs must be on the same element so the modal shows the right label."""
-    buttons = re.findall(r'<button\b[^>]*hx-confirm=[^>]*>[^<]*</button>', PARENT_FORM, re.DOTALL)
+    buttons = re.findall(r"<button\b[^>]*hx-confirm=[^>]*>[^<]*</button>", PARENT_FORM, re.DOTALL)
     unlink = [b for b in buttons if 'hx-confirm="Remove parent organization?"' in b]
     assert unlink, "No button with hx-confirm='Remove parent organization?' found"
     assert all('data-confirm-label="Unlink"' in b for b in unlink), (
@@ -180,7 +177,7 @@ def test_base_loads_admin_modal_js():
 
 def test_base_admin_modal_js_has_defer():
     """Non-critical script; must not block page render."""
-    scripts = re.findall(r'<script\b[^>]*admin-modal\.js[^>]*>', BASE_HTML)
+    scripts = re.findall(r"<script\b[^>]*admin-modal\.js[^>]*>", BASE_HTML)
     assert scripts, "admin-modal.js script tag not found in base.html"
     assert all("defer" in s for s in scripts), "admin-modal.js script tag must have defer"
 
@@ -203,7 +200,7 @@ def test_base_loads_flash_js():
 
 def test_base_flash_js_has_defer():
     """Non-critical script; must not block page render."""
-    scripts = re.findall(r'<script\b[^>]*flash\.js[^>]*>', BASE_HTML)
+    scripts = re.findall(r"<script\b[^>]*flash\.js[^>]*>", BASE_HTML)
     assert scripts, "flash.js script tag not found in base.html"
     assert all("defer" in s for s in scripts), "flash.js script tag must have defer"
 
@@ -227,7 +224,7 @@ def test_detail_html_loads_org_detail_js():
 
 def test_detail_html_org_detail_js_has_defer():
     """Must use defer so the script runs after DOM parse and HTMX is available."""
-    scripts = re.findall(r'<script\b[^>]*org-detail\.js[^>]*>', DETAIL_HTML)
+    scripts = re.findall(r"<script\b[^>]*org-detail\.js[^>]*>", DETAIL_HTML)
     assert scripts, "org-detail.js script tag not found in detail.html"
     assert all("defer" in s for s in scripts), "org-detail.js script tag must have defer"
 
@@ -338,9 +335,7 @@ def test_orgs_list_dup_notice_precedes_filter_card():
     #orgs-list-region), so dismissing it survives HTMX filter changes."""
     notice_pos = LIST_HTML.index("org_dup_count")
     filter_pos = LIST_HTML.index('class="filter-card"')
-    assert notice_pos < filter_pos, (
-        "org_dup_count notice must precede the filter card in list.html"
-    )
+    assert notice_pos < filter_pos, "org_dup_count notice must precede the filter card in list.html"
 
 
 def test_orgs_region_has_no_dup_notice():
@@ -372,7 +367,7 @@ def test_child_search_input_has_explicit_innerhtml_swap():
     inputs = re.findall(pattern, rendered, re.DOTALL)
     assert inputs, "No input with hx-target='#child-search-results-new' found"
     for inp in inputs:
-        assert 'hx-swap="innerHTML"' in inp, "Search input must have hx-swap=\"innerHTML\""
+        assert 'hx-swap="innerHTML"' in inp, 'Search input must have hx-swap="innerHTML"'
 
 
 # ---------------------------------------------------------------------------
@@ -389,10 +384,11 @@ def test_name_form_row_renders_an_option_for_every_org_name_type():
     propagates here automatically.
     """
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    rendered = env.get_template(
-        "admin/orgs/partials/_name_form_row.html"
-    ).render(n=None, org_id="o-test", name_types=ORG_NAME_TYPES)
+    rendered = env.get_template("admin/orgs/partials/_name_form_row.html").render(
+        n=None, org_id="o-test", name_types=ORG_NAME_TYPES
+    )
     for t in ORG_NAME_TYPES:
         assert f'<option value="{t}"' in rendered, (
             f"name_type option {t!r} missing from rendered org name form row"
@@ -410,9 +406,5 @@ def test_name_form_row_does_not_hardcode_org_name_type_list():
     select_close = NAME_FORM_ROW.index("</select>", select_open)
     block = NAME_FORM_ROW[select_open:select_close]
     for t in ORG_NAME_TYPES:
-        assert f"'{t}'" not in block, (
-            f"name_type dropdown contains hardcoded literal {t!r}"
-        )
-        assert f'"{t}"' not in block, (
-            f"name_type dropdown contains hardcoded literal {t!r}"
-        )
+        assert f"'{t}'" not in block, f"name_type dropdown contains hardcoded literal {t!r}"
+        assert f'"{t}"' not in block, f"name_type dropdown contains hardcoded literal {t!r}"

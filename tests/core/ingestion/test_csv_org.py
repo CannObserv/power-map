@@ -14,10 +14,9 @@ def read_fixture(path: Path) -> list[dict[str, str]]:
     rows = []
     with path.open(newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
-            rows.append({
-                k: v.strip() for k, v in row.items()
-                if k is not None and isinstance(v, str)
-            })
+            rows.append(
+                {k: v.strip() for k, v in row.items() if k is not None and isinstance(v, str)}
+            )
     return rows
 
 

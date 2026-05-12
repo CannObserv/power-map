@@ -35,7 +35,7 @@ class TestCountOrgDuplicates:
 
     async def test_cache_hit_skips_db(self):
         db = _make_db(3)
-        await count_org_duplicates(db)       # prime cache
+        await count_org_duplicates(db)  # prime cache
         db2 = _make_db(99)
         result = await count_org_duplicates(db2)  # should hit cache
         assert result == 3
@@ -43,7 +43,7 @@ class TestCountOrgDuplicates:
 
     async def test_invalidate_forces_refresh(self):
         db = _make_db(2)
-        await count_org_duplicates(db)       # prime cache with 2
+        await count_org_duplicates(db)  # prime cache with 2
         invalidate_dup_count_cache()
         db2 = _make_db(7)
         result = await count_org_duplicates(db2)  # cache cleared → re-query
@@ -69,7 +69,7 @@ class TestGetOrgDupCount:
 
     async def test_uses_cached_value(self):
         db = _make_db(6)
-        await get_org_dup_count(db=db)        # prime cache
+        await get_org_dup_count(db=db)  # prime cache
         db2 = _make_db(99)
         result = await get_org_dup_count(db=db2)
         assert result == 6
@@ -79,7 +79,7 @@ class TestGetOrgDupCount:
         """A failed query should not cache 0; next call re-queries."""
         db_bad = MagicMock()
         db_bad.fetchval = AsyncMock(side_effect=Exception("oops"))
-        await get_org_dup_count(db=db_bad)   # fails → returns 0, cache not updated
+        await get_org_dup_count(db=db_bad)  # fails → returns 0, cache not updated
         db_good = _make_db(3)
         result = await get_org_dup_count(db=db_good)
         assert result == 3
@@ -92,7 +92,4 @@ class TestGetOrgDupCount:
         with caplog.at_level(logging.WARNING, logger="src.api.admin.org_dups"):
             result = await get_org_dup_count(db=db)
         assert result == 0
-        assert any(
-            r.levelno == logging.WARNING and r.exc_info is not None
-            for r in caplog.records
-        )
+        assert any(r.levelno == logging.WARNING and r.exc_info is not None for r in caplog.records)

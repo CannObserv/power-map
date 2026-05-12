@@ -25,14 +25,14 @@ def test_visible_names_filter_uses_alias():
 ALLOWED_DIRECT_ACCESS = {
     # Files explicitly permitted to query person_names without inline visibility
     # filtering. Each file documents its handling stance in a comment.
-    "src/core/db.py",                       # defines the helper
-    "src/api/admin/people.py",              # admin detail / hard-delete — surfaces all
-    "src/api/admin/people_names.py",        # name-management page — edits all
-    "src/api/admin/people_name_suggest.py", # suggest-only decomposition — reads all names
-    "src/api/admin/people_merge.py",        # merge logic — touches all rows on both sides
+    "src/core/db.py",  # defines the helper
+    "src/api/admin/people.py",  # admin detail / hard-delete — surfaces all
+    "src/api/admin/people_names.py",  # name-management page — edits all
+    "src/api/admin/people_name_suggest.py",  # suggest-only decomposition — reads all names
+    "src/api/admin/people_merge.py",  # merge logic — touches all rows on both sides
     # _names_shared.py uses dynamic {names_table} f-strings; the regex below
     # never matches verbatim "person_names" there. Listed for reviewer clarity.
-    "src/api/admin/_names_shared.py",       # shared admin CRUD via {names_table}
+    "src/api/admin/_names_shared.py",  # shared admin CRUD via {names_table}
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

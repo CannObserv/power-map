@@ -6,6 +6,7 @@ WCAG 2.1 AA SC 2.4.6 / 4.1.2: disambiguates repeated action labels
 Form rows (Save/Cancel) are excluded — only one form row is open at a time,
 so there is no disambiguation issue on those buttons.
 """
+
 import re
 from pathlib import Path
 
@@ -53,6 +54,4 @@ def test_read_row_buttons_have_aria_labels():
             lines.append(f"  {rel}:")
             for tag in tags:
                 lines.append(f"    {tag[:140]!r}")
-        raise AssertionError(
-            "btn--sm elements missing aria-label:\n" + "\n".join(lines)
-        )
+        raise AssertionError("btn--sm elements missing aria-label:\n" + "\n".join(lines))

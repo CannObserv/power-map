@@ -10,9 +10,9 @@ CSS = Path("src/static/admin/admin.css").read_text()
 _TEMPLATE_DIR = Path("src/templates")
 # Unicode ranges covering common emoji blocks
 _EMOJI_RE = re.compile(
-    "[\U0001F300-\U0001FAFF"   # Misc symbols and pictographs
-    "\U00002600-\U000027BF"    # Misc symbols
-    "\U0001F900-\U0001F9FF]"   # Supplemental symbols
+    "[\U0001f300-\U0001faff"  # Misc symbols and pictographs
+    "\U00002600-\U000027bf"  # Misc symbols
+    "\U0001f900-\U0001f9ff]"  # Supplemental symbols
 )
 
 
@@ -77,7 +77,7 @@ def test_media_query_dark_covers_badges():
     assert "prefers-color-scheme: dark" in CSS
     # Verify badges are inside the media block (not just present anywhere)
     media_start = CSS.index("prefers-color-scheme: dark")
-    media_block = CSS[media_start:media_start + 2000]
+    media_block = CSS[media_start : media_start + 2000]
     assert ".badge--active" in media_block
     assert ".badge--inactive" in media_block
     assert ".badge--archived" in media_block
@@ -116,5 +116,5 @@ def test_no_bare_emojis_in_templates():
                 continue
             if _EMOJI_RE.search(line):
                 violations.append(f"{tmpl}:{lineno}: {line.strip()[:80]}")
-    msg = "Bare emojis found (wrap in <span aria-hidden=\"true\">):\n" + "\n".join(violations)
+    msg = 'Bare emojis found (wrap in <span aria-hidden="true">):\n' + "\n".join(violations)
     assert not violations, msg
