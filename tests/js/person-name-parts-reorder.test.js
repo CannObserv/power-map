@@ -155,22 +155,23 @@ describe('person-name-parts-reorder', () => {
   });
 
   describe('multi-stack isolation (two rows open simultaneously)', () => {
-    beforeEach(() => {
+    function setupTwoForms(cardsPerForm) {
       document.body.innerHTML = `
         <form id="form1">
           <fieldset>
-            <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', 3)}</div>
+            <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', cardsPerForm)}</div>
           </fieldset>
         </form>
         <form id="form2">
           <fieldset>
-            <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', 3)}</div>
+            <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', cardsPerForm)}</div>
           </fieldset>
         </form>`;
       eval(REORDER_SRC);
-    });
+    }
 
     it('Click ↑ in form A leaves form B values untouched', () => {
+      setupTwoForms(3);
       const form1 = document.getElementById('form1');
       const form2 = document.getElementById('form2');
       const ups = form1.querySelectorAll('[data-cardstack-reorder="up"]');
@@ -179,6 +180,25 @@ describe('person-name-parts-reorder', () => {
       const form2Vals = Array.from(form2.querySelectorAll('input')).map((i) => i.value);
       expect(form1Vals).toEqual(['v1', 'v0', 'v2']);
       expect(form2Vals).toEqual(['v0', 'v1', 'v2']);
+    });
+
+    // #145 — focus-follows-value must not leak across forms. 4 cards exercises
+    // the interior button-focus path (form-scoped selector); 2 cards exercises
+    // the boundary input-fallback path.
+    it('Interior ↑ in form A keeps focus inside form A', () => {
+      setupTwoForms(4);
+      const form1 = document.getElementById('form1');
+      const ups = form1.querySelectorAll('[data-cardstack-reorder="up"]');
+      ups[2].click();
+      expect(form1.contains(document.activeElement)).toBe(true);
+    });
+
+    it('Boundary ↑ in form A keeps focus inside form A', () => {
+      setupTwoForms(2);
+      const form1 = document.getElementById('form1');
+      const ups = form1.querySelectorAll('[data-cardstack-reorder="up"]');
+      ups[1].click();
+      expect(form1.contains(document.activeElement)).toBe(true);
     });
   });
 

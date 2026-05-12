@@ -21,6 +21,11 @@
  * re-syncs after every reorder, exposes `window.__cardstackReorderSync(root)`
  * for `person-name-parts-cardstack.js` to call after Add/Remove, and re-runs
  * init on DOMContentLoaded + htmx:afterSwap.
+ *
+ * Focus (#145): after a swap, focus moves to the neighbor's same-direction
+ * button so repeated arrow keys walk the value through the stack. At the
+ * boundary (neighbor's button is disabled), focus falls back to the
+ * neighbor's input — the cell that just received the value.
  */
 (function () {
   function cardsIn(stack) {
@@ -75,10 +80,7 @@
     input.value = neighborInput.value;
     neighborInput.value = tmp;
     syncStack(stack);
-    // #145 — focus-follows-value: land on the neighbor's same-direction
-    // button so repeated arrow keys walk the value through the stack.
-    // At the boundary the neighbor's button is disabled; fall back to
-    // the input that just received the value.
+    // #145 — focus-follows-value (see header docstring).
     var nextBtn = neighbor.querySelector('[data-cardstack-reorder="' + direction + '"]');
     if (nextBtn && !nextBtn.disabled) {
       nextBtn.focus();
