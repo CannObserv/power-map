@@ -73,11 +73,28 @@
   </div>
 </div>
 {% elif suggestion or advisory %}
+{# Map the suggester's internal `confidence` bucket to operator-facing
+   labels + badge styling. The internal field stays `trivial / ambiguous
+   / skip` (stable Python contract); only the rendered surface changes.
+   The `data-suggest-advisory` attribute still carries the raw bucket
+   so JS / external consumers and tests have a stable key to assert on. #}
+{%- set _CONF_LABEL = {
+  'trivial':   'High confidence',
+  'ambiguous': 'Needs review',
+  'skip':      'Cannot decompose',
+} -%}
+{%- set _CONF_BADGE = {
+  'trivial':   'badge--success',
+  'ambiguous': 'badge--warning',
+  'skip':      'badge--inactive',
+} -%}
+{%- set _conf = suggestion.confidence if suggestion else 'skip' -%}
 <div role="status" aria-live="polite"
-     data-suggest-advisory="{{ suggestion.confidence if suggestion else 'skip' }}"
+     data-suggest-advisory="{{ _conf }}"
      style="padding:var(--space-1) var(--space-2);font-size:0.75rem;color:var(--color-text-muted);background:var(--color-surface-alt,#f5f7fb);border-radius:4px">
   {% if suggestion %}
-    Suggested decomposition: <strong>{{ suggestion.confidence }}</strong>
+    Suggested decomposition:
+    <span class="badge {{ _CONF_BADGE.get(_conf, 'badge--inactive') }}">{{ _CONF_LABEL.get(_conf, _conf) }}</span>
     {%- if suggestion.reasons %} · {{ suggestion.reasons|join(' · ') }}{%- endif %}
   {% endif %}
   {% if advisory %}

@@ -1484,7 +1484,11 @@ def test_suggestion_partial_renders_advisory_with_confidence_and_reasons():
         "honorific_suffix": None, "primary_identifier": "family",
     }
     out = _render_suggestion(parts=parts, suggestion=s, prefilled=True)
-    assert "trivial" in out
+    # Raw bucket survives via data attribute (stable contract); the
+    # rendered surface uses the operator-facing label + success badge.
+    assert 'data-suggest-advisory="trivial"' in out
+    assert "High confidence" in out
+    assert "badge--success" in out
     assert "particle:van der" in out
     assert 'value="Vincent"' in out
     assert 'value="van der Berg"' in out

@@ -186,8 +186,11 @@ def test_suggest_parts_trivial_two_token_prefills(client, seeded_person):
     )
     assert r.status_code == 200, r.text
     body = r.text
-    # Advisory line surfaces confidence.
-    assert "trivial" in body.lower()
+    # Advisory carries the raw bucket via the data attribute (stable
+    # contract) and the operator-facing label "High confidence" in the
+    # rendered text.
+    assert 'data-suggest-advisory="trivial"' in body
+    assert "High confidence" in body
     # Pre-filled values — match the <input> with both name and value,
     # tolerant of attribute order and quote style.
     assert _input_has_value(body, "given_names", "Ada")
@@ -271,7 +274,10 @@ def test_suggest_parts_ambiguous_multi_token_middle_skips_prefill(
     )
     assert r.status_code == 200, r.text
     body = r.text
-    assert "ambiguous" in body.lower()
+    # Advisory bucket carried by data attribute; operator-facing label
+    # is "Needs review".
+    assert 'data-suggest-advisory="ambiguous"' in body
+    assert "Needs review" in body
     # No pre-filled inputs for given/family.
     assert not _has_any_input_value(body, "given_names")
     assert not _has_any_input_value(body, "family_names")
@@ -328,7 +334,11 @@ def test_suggest_parts_non_decomposable_name_type_advisory(client, seeded_person
     )
     assert r.status_code == 200, r.text
     body = r.text
-    assert "skip" in body.lower() or "initials" in body.lower()
+    # Skip bucket → "Cannot decompose" badge + the suggester's advisory
+    # text mentions the name_type that triggered the skip.
+    assert 'data-suggest-advisory="skip"' in body
+    assert "Cannot decompose" in body
+    assert "initials" in body.lower()
     assert not _has_any_input_value(body, "given_names")
 
 
