@@ -169,7 +169,9 @@
   </div>
   <button type="button" class="btn btn--sm btn--secondary"
           data-cardstack-add="{{ field }}"
-          aria-label="Add another {{ label|lower|replace(' names', '') }} entry"
+          {# Issue #146: keep "given names entry" vocabulary in sync with the
+             per-card up/down/remove buttons above. #}
+          aria-label="Add another {{ label|lower }} entry"
           style="margin-top:var(--space-1)">+ Add</button>
 </fieldset>
 {% endfor %}

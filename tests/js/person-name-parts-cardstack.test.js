@@ -175,31 +175,40 @@ describe('person-name-parts-cardstack', () => {
   // The server pre-renders these via Jinja's `loop.index`; the JS must keep
   // them in sync after Add (new card) and Remove (surviving cards shift).
   describe('per-card aria-label disambiguation (#146)', () => {
+    /** Derive the same human-readable labels the JS produces, so test fixtures
+     *  can mirror server-rendered aria-labels for any field name. */
+    function labelsFor(field) {
+      const lower = field.replace(/_/g, ' ');
+      const cap = lower.charAt(0).toUpperCase() + lower.slice(1);
+      return { lower, cap };
+    }
+
     /** Server-shape card: input + up/down/remove, all with indexed aria-labels. */
     function indexedCardHTML(field, n) {
+      const { lower, cap } = labelsFor(field);
       return Array.from({ length: n }, (_, i) => {
         const idx = i + 1;
         return `
         <div data-cardstack-card="${field}" style="display:flex;gap:var(--space-1);align-items:center">
           <div class="form-group" style="margin-bottom:0;flex:1">
-            <input type="text" name="${field}" value="v${i}" aria-label="Given names ${idx}">
+            <input type="text" name="${field}" value="v${i}" aria-label="${cap} ${idx}">
           </div>
           <button type="button" data-cardstack-reorder="up" data-cardstack-field="${field}"
-                  aria-label="Move given names entry ${idx} up">↑</button>
+                  aria-label="Move ${lower} entry ${idx} up">↑</button>
           <button type="button" data-cardstack-reorder="down" data-cardstack-field="${field}"
-                  aria-label="Move given names entry ${idx} down">↓</button>
+                  aria-label="Move ${lower} entry ${idx} down">↓</button>
           <button type="button" data-cardstack-remove="${field}"
-                  aria-label="Remove given names entry ${idx}">×</button>
+                  aria-label="Remove ${lower} entry ${idx}">×</button>
         </div>`;
       }).join('');
     }
 
-    function setupIndexedDOM(initialCards) {
+    function setupIndexedDOM(initialCards, field = 'given_names') {
       document.body.innerHTML = `
         <form>
           <fieldset>
-            <div data-cardstack="given_names" data-cardstack-cap="5">${indexedCardHTML('given_names', initialCards)}</div>
-            <button type="button" data-cardstack-add="given_names">+ Add</button>
+            <div data-cardstack="${field}" data-cardstack-cap="5">${indexedCardHTML(field, initialCards)}</div>
+            <button type="button" data-cardstack-add="${field}">+ Add</button>
           </fieldset>
         </form>`;
       eval(SRC);
@@ -259,6 +268,37 @@ describe('person-name-parts-cardstack', () => {
       expect(labels.map((l) => l.remove)).toEqual([
         'Remove given names entry 1',
         'Remove given names entry 2',
+      ]);
+    });
+
+    // Cross-field coverage: `fieldLabel` is field-agnostic, but a future
+    // special-case (e.g. stripping `_names` again) would only break the
+    // non-`given_names` paths. Pin Add + Remove for both other fields.
+    it.each([
+      { field: 'family_names', cap: 'Family names', lower: 'family names' },
+      { field: 'additional_names', cap: 'Additional names', lower: 'additional names' },
+    ])('Add + Remove track DOM position for $field', ({ field, cap, lower }) => {
+      setupIndexedDOM(2, field);
+      // Add → expect entry 3 with the field-derived label.
+      const addBtn = document.querySelector(`[data-cardstack-add="${field}"]`);
+      addBtn.click();
+      let labels = ariaLabelsByCard(field);
+      expect(labels).toHaveLength(3);
+      expect(labels[2].input).toBe(`${cap} 3`);
+      expect(labels[2].up).toBe(`Move ${lower} entry 3 up`);
+      expect(labels[2].down).toBe(`Move ${lower} entry 3 down`);
+      expect(labels[2].remove).toBe(`Remove ${lower} entry 3`);
+
+      // Remove the first card → survivors must re-index from 1, not stay
+      // at their original 2/3.
+      const firstRemove = document.querySelector(`[data-cardstack-remove="${field}"]`);
+      firstRemove.click();
+      labels = ariaLabelsByCard(field);
+      expect(labels).toHaveLength(2);
+      expect(labels.map((l) => l.input)).toEqual([`${cap} 1`, `${cap} 2`]);
+      expect(labels.map((l) => l.remove)).toEqual([
+        `Remove ${lower} entry 1`,
+        `Remove ${lower} entry 2`,
       ]);
     });
   });
