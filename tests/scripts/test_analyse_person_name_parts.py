@@ -5,22 +5,23 @@ writes a triage CSV. The CSV is the input to a follow-up migration that
 upserts confirmed parts.
 """
 
-import asyncio
 import csv
 import io
-import os
 from pathlib import Path
 
 import asyncpg
 import pytest
+import pytest_asyncio
 
 from scripts.analyse_person_name_parts import (
     CSV_COLUMNS,
     _format_csv_row,
     run_analysis,
 )
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 from src.core.normalizers.person_name import suggest_parts
+
+pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 # ---- Unit: row formatter ---------------------------------------------------
 
@@ -82,8 +83,7 @@ def test_format_csv_row_skip_bucket_clears_part_columns():
 
 def test_format_csv_row_includes_visibility_for_legal_context_review():
     row = _make_db_row(visibility="legal_only", name_type="deadname")
-    sug = suggest_parts(row["name"], locale="en-US", script="Latn",
-                        name_type="deadname")
+    sug = suggest_parts(row["name"], locale="en-US", script="Latn", name_type="deadname")
     out = _format_csv_row(row, sug)
     # The CSV preserves visibility so operator can filter legal_only/hidden
     # rows for separate review (per issue #135 §"Edge cases").
@@ -94,10 +94,21 @@ def test_format_csv_row_includes_visibility_for_legal_context_review():
 def test_csv_columns_includes_all_required_fields():
     """Columns are stable across runs — used as snapshot key."""
     required = {
-        "id", "person_id", "name", "name_type", "locale", "script", "visibility",
-        "confidence", "reasons",
-        "honorific_prefix", "given_names", "additional_names",
-        "family_names", "honorific_suffix", "primary_identifier",
+        "id",
+        "person_id",
+        "name",
+        "name_type",
+        "locale",
+        "script",
+        "visibility",
+        "confidence",
+        "reasons",
+        "honorific_prefix",
+        "given_names",
+        "additional_names",
+        "family_names",
+        "honorific_suffix",
+        "primary_identifier",
     }
     assert required <= set(CSV_COLUMNS)
 
@@ -108,26 +119,15 @@ def test_csv_columns_includes_all_required_fields():
 pytestmark_int = pytest.mark.integration
 
 
-def _dsn() -> str:
-    dsn = os.environ.get("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL not set")
-    return dsn
-
-
-@pytest.fixture
-async def db():
-    conn = await asyncpg.connect(_dsn())
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
         try:
             yield conn
         finally:
             await tr.rollback()
-    finally:
-        await conn.close()
 
 
 async def _seed(
@@ -172,7 +172,13 @@ async def _seed(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, visibility, locale, script)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        nid, pid, name, name_type, visibility, locale, script,
+        nid,
+        pid,
+        name,
+        name_type,
+        visibility,
+        locale,
+        script,
     )
     return nid
 
@@ -204,8 +210,7 @@ async def test_analysis_includes_non_public_visibility_rows(db, tmp_path: Path):
     """Decomposition is *allowed* on legal_only / hidden rows but must be
     flagged for separate review — the analyser includes them in the CSV
     with visibility populated so the operator can filter."""
-    nid = await _seed(db, name="Old Name", name_type="deadname",
-                       visibility="legal_only")
+    nid = await _seed(db, name="Old Name", name_type="deadname", visibility="legal_only")
     out_path = tmp_path / "analysis.csv"
     stats = await run_analysis(db, output_path=out_path)
     assert stats.rows_analysed == 1
@@ -217,7 +222,7 @@ async def test_analysis_includes_non_public_visibility_rows(db, tmp_path: Path):
 
 @pytestmark_int
 async def test_analysis_summary_buckets_by_confidence(db, tmp_path: Path):
-    await _seed(db, name="Jane Doe")           # trivial
+    await _seed(db, name="Jane Doe")  # trivial
     await _seed(db, name="Mary Jane Watson Parker")  # ambiguous
     await _seed(db, name="毛澤東", locale=None, script=None)  # skip (no script)
     await _seed(db, name="Some MRZ", name_type="mrz")  # skip (name_type)
@@ -226,6 +231,3 @@ async def test_analysis_summary_buckets_by_confidence(db, tmp_path: Path):
     assert stats.bucket_counts["trivial"] == 1
     assert stats.bucket_counts["ambiguous"] == 1
     assert stats.bucket_counts["skip"] == 2
-
-
-asyncio  # silence unused import on collection-only runs

@@ -11,23 +11,24 @@ Run unit tests with ``uv run pytest``; integration with
 ``uv run pytest -m integration``.
 """
 
-import asyncio
-import os
-
 import asyncpg
 import pytest
+import pytest_asyncio
 
 from scripts.migrate_person_names_locale_script import (
     _classify_rows,
     run_backfill,
 )
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
+
+pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 # ---- Unit: row classification (no DB) --------------------------------------
 
 
-def _row(name: str, *, id_: str = "n1", locale: str | None = None,
-         script: str | None = None) -> dict:
+def _row(
+    name: str, *, id_: str = "n1", locale: str | None = None, script: str | None = None
+) -> dict:
     return {"id": id_, "name": name, "locale": locale, "script": script}
 
 
@@ -107,7 +108,8 @@ def test_classify_locale_overrides_apply():
 def test_classify_locale_override_for_unknown_id_is_ignored():
     rows = [_row("Jane Doe", id_="a")]
     by_locale, by_script, _ = _classify_rows(
-        rows, locale_overrides={"nonexistent": "fr-FR"},
+        rows,
+        locale_overrides={"nonexistent": "fr-FR"},
     )
     assert by_locale == {"en-US": ["a"]}
     assert by_script == {"Latn": ["a"]}
@@ -116,7 +118,8 @@ def test_classify_locale_override_for_unknown_id_is_ignored():
 def test_classify_locale_override_does_not_overwrite_already_set_locale():
     rows = [_row("João Goulão", id_="joao", locale="en-US")]  # already en-US
     by_locale, by_script, _ = _classify_rows(
-        rows, locale_overrides={"joao": "pt-BR"},
+        rows,
+        locale_overrides={"joao": "pt-BR"},
     )
     # Already set — don't overwrite from the override map either.
     assert by_locale == {}
@@ -129,18 +132,9 @@ def test_classify_locale_override_does_not_overwrite_already_set_locale():
 pytestmark_int = pytest.mark.integration
 
 
-def _dsn() -> str:
-    dsn = os.environ.get("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL not set")
-    return dsn
-
-
-@pytest.fixture
-async def db():
-    conn = await asyncpg.connect(_dsn())
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    async with db_pool.acquire() as conn:
         # Seed minimal FK rows the backfill needs. Tests run inside a
         # transaction that gets rolled back, so this is per-test cleanup-free.
         tr = conn.transaction()
@@ -158,8 +152,6 @@ async def db():
             yield conn
         finally:
             await tr.rollback()
-    finally:
-        await conn.close()
 
 
 async def _seed_person_with_name(
@@ -172,12 +164,17 @@ async def _seed_person_with_name(
     pid = generate_id()
     nid = generate_id()
     await conn.execute(
-        "INSERT INTO people (id) VALUES ($1)", pid,
+        "INSERT INTO people (id) VALUES ($1)",
+        pid,
     )
     await conn.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, locale, script)"
         " VALUES ($1, $2, $3, 'legal', $4, $5)",
-        nid, pid, name, locale, script,
+        nid,
+        pid,
+        name,
+        locale,
+        script,
     )
     return pid, nid
 
@@ -190,7 +187,8 @@ async def test_dry_run_does_not_modify_db(db):
     assert result.locale_updated == 1
     assert result.script_updated == 1
     row = await db.fetchrow(
-        "SELECT locale, script FROM person_names WHERE id=$1", nid,
+        "SELECT locale, script FROM person_names WHERE id=$1",
+        nid,
     )
     assert row["locale"] is None
     assert row["script"] is None
@@ -204,7 +202,8 @@ async def test_execute_writes_locale_and_script(db):
     assert result.locale_updated == 1
     assert result.script_updated == 1
     row = await db.fetchrow(
-        "SELECT locale, script FROM person_names WHERE id=$1", nid,
+        "SELECT locale, script FROM person_names WHERE id=$1",
+        nid,
     )
     assert row["locale"] == "en-US"
     assert row["script"] == "Latn"
@@ -219,7 +218,8 @@ async def test_execute_skips_non_latin_rows_and_reports_them(db):
     assert result.script_updated == 1
     assert any(sid == nid_cjk for sid, _ in result.skipped)
     cjk_row = await db.fetchrow(
-        "SELECT locale, script FROM person_names WHERE id=$1", nid_cjk,
+        "SELECT locale, script FROM person_names WHERE id=$1",
+        nid_cjk,
     )
     assert cjk_row["locale"] is None
     assert cjk_row["script"] is None
@@ -232,7 +232,8 @@ async def test_execute_sets_script_on_latin_diacritic_rows_but_not_locale(db):
     assert result.locale_updated == 0
     assert result.script_updated == 1
     row = await db.fetchrow(
-        "SELECT locale, script FROM person_names WHERE id=$1", nid,
+        "SELECT locale, script FROM person_names WHERE id=$1",
+        nid,
     )
     assert row["locale"] is None  # escalated
     assert row["script"] == "Latn"
@@ -251,15 +252,19 @@ async def test_execute_applies_locale_override_for_specific_row(db):
     _, nid_joao = await _seed_person_with_name(db, name="João Goulão")
     _, nid_pedro = await _seed_person_with_name(db, name="Pedro García")
     result = await run_backfill(
-        db, dry_run=False, locale_overrides={nid_joao: "pt-BR"},
+        db,
+        dry_run=False,
+        locale_overrides={nid_joao: "pt-BR"},
     )
     assert result.locale_updated == 1
     assert result.script_updated == 2
     joao = await db.fetchrow(
-        "SELECT locale, script FROM person_names WHERE id=$1", nid_joao,
+        "SELECT locale, script FROM person_names WHERE id=$1",
+        nid_joao,
     )
     pedro = await db.fetchrow(
-        "SELECT locale, script FROM person_names WHERE id=$1", nid_pedro,
+        "SELECT locale, script FROM person_names WHERE id=$1",
+        nid_pedro,
     )
     assert joao["locale"] == "pt-BR"
     assert joao["script"] == "Latn"
@@ -295,7 +300,3 @@ async def test_preflight_aborts_when_lookup_tables_unseeded(db):
     await _seed_person_with_name(db, name="Jane Doe")
     with pytest.raises(SystemExit, match="bcp47_locales|seed"):
         await run_backfill(db, dry_run=False)
-
-
-# Make pytest-asyncio collect the bare async functions in this module.
-asyncio  # silence unused import in case collector skips integration block
