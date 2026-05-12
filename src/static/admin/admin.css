@@ -10,6 +10,12 @@
   --color-surface-0:     #f8fafc;
   --color-surface-1:     #ffffff;
   --color-surface-2:     #1e293b;
+  /* Subtle in-card callouts (advisory panels, asides) — distinct from
+     surface-1 so a panel reads as "informational region", not "card". */
+  --color-surface-alt:   #f5f7fb;
+  /* Warning-tinted callouts (confirm-before-overwrite, destructive
+     action panels). Pairs with the alert--warning text color. */
+  --color-surface-warn:  #fff7e0;
   --color-text:          #0f172a;
   --color-text-muted:    #64748b;
   --color-text-inverse:  #f1f5f9;
@@ -40,6 +46,7 @@
     --color-brand-subtle: #2d1f38; --color-brand-subtle-border: #4a3060;
     --color-brand-glow: rgba(167,139,196,0.20);
     --color-surface-0: #0f172a; --color-surface-1: #1e293b; --color-surface-2: #0f172a;
+    --color-surface-alt: #172033; --color-surface-warn: #3f2e08;
     --color-text: #f1f5f9; --color-text-muted: #94a3b8; --color-text-inverse: #0f172a;
     --color-border: #334155; --color-border-focus: #a78bc4;
     --color-success: #4ade80; --color-warning: #fbbf24;
@@ -56,6 +63,7 @@ html.dark {
   --color-brand-subtle: #2d1f38; --color-brand-subtle-border: #4a3060;
   --color-brand-glow: rgba(167,139,196,0.20);
   --color-surface-0: #0f172a; --color-surface-1: #1e293b; --color-surface-2: #0f172a;
+  --color-surface-alt: #172033; --color-surface-warn: #3f2e08;
   --color-text: #f1f5f9; --color-text-muted: #94a3b8; --color-text-inverse: #0f172a;
   --color-border: #334155; --color-border-focus: #a78bc4;
   --color-success: #4ade80; --color-warning: #fbbf24;
@@ -87,6 +95,7 @@ html.light {
   --color-brand-subtle: #f5f0f8; --color-brand-subtle-border: #ebe1f1;
   --color-brand-glow: rgba(109,68,136,0.18);
   --color-surface-0: #f8fafc; --color-surface-1: #ffffff; --color-surface-2: #1e293b;
+  --color-surface-alt: #f5f7fb; --color-surface-warn: #fff7e0;
   --color-text: #0f172a; --color-text-muted: #64748b; --color-text-inverse: #f1f5f9;
   --color-border: #e2e8f0; --color-border-focus: #6d4488;
   --color-success: #16a34a; --color-warning: #d97706;

@@ -187,10 +187,11 @@ def test_suggest_parts_trivial_two_token_prefills(client, seeded_person):
     assert r.status_code == 200, r.text
     body = r.text
     # Advisory carries the raw bucket via the data attribute (stable
-    # contract) and the operator-facing label "High confidence" in the
-    # rendered text.
+    # contract), the operator-facing label "High confidence" in the
+    # rendered text, and the corresponding success-badge styling class.
     assert 'data-suggest-advisory="trivial"' in body
     assert "High confidence" in body
+    assert "badge--success" in body
     # Pre-filled values — match the <input> with both name and value,
     # tolerant of attribute order and quote style.
     assert _input_has_value(body, "given_names", "Ada")
@@ -275,9 +276,10 @@ def test_suggest_parts_ambiguous_multi_token_middle_skips_prefill(
     assert r.status_code == 200, r.text
     body = r.text
     # Advisory bucket carried by data attribute; operator-facing label
-    # is "Needs review".
+    # is "Needs review" rendered as a warning-styled badge.
     assert 'data-suggest-advisory="ambiguous"' in body
     assert "Needs review" in body
+    assert "badge--warning" in body
     # No pre-filled inputs for given/family.
     assert not _has_any_input_value(body, "given_names")
     assert not _has_any_input_value(body, "family_names")
@@ -334,10 +336,12 @@ def test_suggest_parts_non_decomposable_name_type_advisory(client, seeded_person
     )
     assert r.status_code == 200, r.text
     body = r.text
-    # Skip bucket → "Cannot decompose" badge + the suggester's advisory
-    # text mentions the name_type that triggered the skip.
+    # Skip bucket → "Cannot decompose" label rendered as an
+    # inactive-styled badge; the suggester's advisory text mentions the
+    # name_type that triggered the skip.
     assert 'data-suggest-advisory="skip"' in body
     assert "Cannot decompose" in body
+    assert "badge--inactive" in body
     assert "initials" in body.lower()
     assert not _has_any_input_value(body, "given_names")
 
