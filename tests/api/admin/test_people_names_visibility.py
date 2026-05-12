@@ -6,27 +6,20 @@ Covers the `supports_person_metadata=True` flag on `make_names_router`:
 - deadname coercion via DB trigger (public → legal_only on insert/update)
 """
 
-import asyncio
-import os
-
-import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 from src.core.types import PERSON_NAME_TYPES
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
-
-
-def _dsn():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    return dsn
 
 
 @pytest.fixture
@@ -35,63 +28,57 @@ def client():
         yield c
 
 
-@pytest.fixture
-def person_and_name():
-    dsn = _dsn()
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_and_name(db_pool):
     pid, nid = generate_id(), generate_id()
 
-    async def setup():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-            await conn.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'Original Name', 'legal', TRUE)",
-                nid, pid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+            " VALUES ($1, $2, 'Original Name', 'legal', TRUE)",
+            nid,
+            pid,
+        )
 
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-            await conn.execute("DELETE FROM people WHERE id=$1", pid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     yield pid, nid
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+        await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
-async def _fetch_visibility(pid: str, nid: str) -> str:
-    conn = await asyncpg.connect(_dsn())
-    try:
+async def _fetch_visibility(pool, pid: str, nid: str) -> str:
+    async with pool.acquire() as conn:
         return await conn.fetchval(
             "SELECT visibility FROM person_names WHERE id=$1 AND person_id=$2",
-            nid, pid,
+            nid,
+            pid,
         )
-    finally:
-        await conn.close()
 
 
-async def _fetch_name_type(pid: str, nid: str) -> str:
-    conn = await asyncpg.connect(_dsn())
-    try:
+async def _fetch_name_type(pool, pid: str, nid: str) -> str:
+    async with pool.acquire() as conn:
         return await conn.fetchval(
             "SELECT name_type FROM person_names WHERE id=$1 AND person_id=$2",
-            nid, pid,
+            nid,
+            pid,
         )
-    finally:
-        await conn.close()
+
+
+async def _fetch_new_name_id(pool, pid: str, name: str) -> str:
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT id FROM person_names WHERE person_id=$1 AND name=$2",
+            pid,
+            name,
+        )
 
 
 # ---- visibility round-trip on create -------------------------------------
 
 
-def test_create_persists_visibility_legal_only(client, person_and_name):
+async def test_create_persists_visibility_legal_only(client, person_and_name, db_pool):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -104,11 +91,11 @@ def test_create_persists_visibility_legal_only(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    nid = asyncio.run(_fetch_new_name_id(pid, "Legal Only Name"))
-    assert asyncio.run(_fetch_visibility(pid, nid)) == "legal_only"
+    nid = await _fetch_new_name_id(db_pool, pid, "Legal Only Name")
+    assert await _fetch_visibility(db_pool, pid, nid) == "legal_only"
 
 
-def test_create_persists_visibility_hidden(client, person_and_name):
+async def test_create_persists_visibility_hidden(client, person_and_name, db_pool):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -121,11 +108,11 @@ def test_create_persists_visibility_hidden(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    nid = asyncio.run(_fetch_new_name_id(pid, "Hidden Name"))
-    assert asyncio.run(_fetch_visibility(pid, nid)) == "hidden"
+    nid = await _fetch_new_name_id(db_pool, pid, "Hidden Name")
+    assert await _fetch_visibility(db_pool, pid, nid) == "hidden"
 
 
-def test_create_defaults_visibility_to_public(client, person_and_name):
+async def test_create_defaults_visibility_to_public(client, person_and_name, db_pool):
     """Visibility omitted → DB default 'public' applies."""
     pid, _ = person_and_name
     r = client.post(
@@ -138,14 +125,14 @@ def test_create_defaults_visibility_to_public(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    nid = asyncio.run(_fetch_new_name_id(pid, "Public Default"))
-    assert asyncio.run(_fetch_visibility(pid, nid)) == "public"
+    nid = await _fetch_new_name_id(db_pool, pid, "Public Default")
+    assert await _fetch_visibility(db_pool, pid, nid) == "public"
 
 
 # ---- visibility round-trip on edit ---------------------------------------
 
 
-def test_edit_persists_visibility(client, person_and_name):
+async def test_edit_persists_visibility(client, person_and_name, db_pool):
     pid, nid = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
@@ -158,13 +145,13 @@ def test_edit_persists_visibility(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    assert asyncio.run(_fetch_visibility(pid, nid)) == "legal_only"
+    assert await _fetch_visibility(db_pool, pid, nid) == "legal_only"
 
 
 # ---- invalid visibility rejected with 422 --------------------------------
 
 
-def test_create_rejects_invalid_visibility(client, person_and_name):
+async def test_create_rejects_invalid_visibility(client, person_and_name):
     """Out-of-range visibility values return 422 (Pydantic Literal validation)."""
     pid, _ = person_and_name
     r = client.post(
@@ -180,7 +167,7 @@ def test_create_rejects_invalid_visibility(client, person_and_name):
     assert r.status_code == 422
 
 
-def test_edit_rejects_invalid_visibility(client, person_and_name):
+async def test_edit_rejects_invalid_visibility(client, person_and_name):
     pid, nid = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
@@ -203,7 +190,7 @@ def test_edit_rejects_invalid_visibility(client, person_and_name):
 # raw asyncpg.CheckViolationError.
 
 
-def test_create_rejects_invalid_name_type_non_htmx(client, person_and_name):
+async def test_create_rejects_invalid_name_type_non_htmx(client, person_and_name):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -219,7 +206,7 @@ def test_create_rejects_invalid_name_type_non_htmx(client, person_and_name):
     assert "nickname" in r.text
 
 
-def test_create_rejects_invalid_name_type_htmx(client, person_and_name):
+async def test_create_rejects_invalid_name_type_htmx(client, person_and_name):
     """HTMX path returns 200 with HX-Trigger flash, not 422 — admin
     convention for form errors so the page can render the flash."""
     pid, _ = person_and_name
@@ -237,7 +224,7 @@ def test_create_rejects_invalid_name_type_htmx(client, person_and_name):
     assert "Invalid name_type" in r.headers["HX-Trigger"]
 
 
-def test_edit_rejects_invalid_name_type_htmx(client, person_and_name):
+async def test_edit_rejects_invalid_name_type_htmx(client, person_and_name):
     pid, nid = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
@@ -253,7 +240,7 @@ def test_edit_rejects_invalid_name_type_htmx(client, person_and_name):
     assert "Invalid name_type" in r.headers["HX-Trigger"]
 
 
-def test_create_path_404_wins_over_body_422_for_invalid_name_type(client):
+async def test_create_path_404_wins_over_body_422_for_invalid_name_type(client):
     """Path-level errors (entity not found → 404) must win over
     body-level errors (invalid name_type → 422) when both apply.
 
@@ -273,7 +260,7 @@ def test_create_path_404_wins_over_body_422_for_invalid_name_type(client):
     assert r.status_code == 404
 
 
-def test_edit_path_404_wins_over_body_422_for_invalid_name_type(client):
+async def test_edit_path_404_wins_over_body_422_for_invalid_name_type(client):
     """Same precedence on the edit-row handler: a missing name_id
     surfaces 404 even when the body's name_type would otherwise 422."""
     r = client.post(
@@ -292,7 +279,7 @@ def test_edit_path_404_wins_over_body_422_for_invalid_name_type(client):
 
 
 @pytest.mark.parametrize("name_type", PERSON_NAME_TYPES)
-def test_create_accepts_all_name_types(client, person_and_name, name_type):
+async def test_create_accepts_all_name_types(client, person_and_name, db_pool, name_type):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -304,14 +291,14 @@ def test_create_accepts_all_name_types(client, person_and_name, name_type):
         },
     )
     assert r.status_code == 200, r.text
-    nid = asyncio.run(_fetch_new_name_id(pid, f"Test {name_type}"))
-    assert asyncio.run(_fetch_name_type(pid, nid)) == name_type
+    nid = await _fetch_new_name_id(db_pool, pid, f"Test {name_type}")
+    assert await _fetch_name_type(db_pool, pid, nid) == name_type
 
 
 # ---- deadname → legal_only coercion via trg_deadname_visibility ----------
 
 
-def test_create_deadname_coerces_public_to_legal_only(client, person_and_name):
+async def test_create_deadname_coerces_public_to_legal_only(client, person_and_name, db_pool):
     """Public visibility on deadname row → DB trigger downgrades to legal_only."""
     pid, _ = person_and_name
     r = client.post(
@@ -325,11 +312,11 @@ def test_create_deadname_coerces_public_to_legal_only(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    nid = asyncio.run(_fetch_new_name_id(pid, "Pre-Transition Name"))
-    assert asyncio.run(_fetch_visibility(pid, nid)) == "legal_only"
+    nid = await _fetch_new_name_id(db_pool, pid, "Pre-Transition Name")
+    assert await _fetch_visibility(db_pool, pid, nid) == "legal_only"
 
 
-def test_create_deadname_preserves_explicit_hidden(client, person_and_name):
+async def test_create_deadname_preserves_explicit_hidden(client, person_and_name, db_pool):
     """Explicit 'hidden' on deadname row is preserved (trigger only downgrades public)."""
     pid, _ = person_and_name
     r = client.post(
@@ -343,19 +330,5 @@ def test_create_deadname_preserves_explicit_hidden(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    nid = asyncio.run(_fetch_new_name_id(pid, "Hidden Deadname"))
-    assert asyncio.run(_fetch_visibility(pid, nid)) == "hidden"
-
-
-# ---- helper --------------------------------------------------------------
-
-
-async def _fetch_new_name_id(pid: str, name: str) -> str:
-    conn = await asyncpg.connect(_dsn())
-    try:
-        return await conn.fetchval(
-            "SELECT id FROM person_names WHERE person_id=$1 AND name=$2",
-            pid, name,
-        )
-    finally:
-        await conn.close()
+    nid = await _fetch_new_name_id(db_pool, pid, "Hidden Deadname")
+    assert await _fetch_visibility(db_pool, pid, nid) == "hidden"

@@ -20,9 +20,7 @@ async def activity_index(
     person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Activity landing page — overview cards for all activity sections."""
-    counts = await db.fetchrow(
-        "SELECT COUNT(*) AS imports FROM import_batches"
-    )
+    counts = await db.fetchrow("SELECT COUNT(*) AS imports FROM import_batches")
     return templates.TemplateResponse(
         request,
         "admin/activity/index.html",

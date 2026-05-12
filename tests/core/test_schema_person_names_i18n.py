@@ -1,29 +1,26 @@
 """Schema tests for person_names i18n / cultural-awareness columns."""
 
-import os
-
 import asyncpg
 import pytest
+import pytest_asyncio
 
 from src.core.db import apply_schema, generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 
-@pytest.fixture
-async def db():
-    dsn = os.environ.get("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
-        yield conn
-        await tr.rollback()
-    finally:
-        await conn.close()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 async def _person(conn) -> str:
@@ -51,9 +48,7 @@ async def test_person_names_has_column(db, column, data_type):
         column,
     )
     assert row is not None, f"person_names.{column} missing"
-    assert row["data_type"] == data_type or row["data_type"].lower().startswith(
-        data_type.lower()
-    )
+    assert row["data_type"] == data_type or row["data_type"].lower().startswith(data_type.lower())
 
 
 async def test_visibility_default_public(db):
@@ -61,7 +56,9 @@ async def test_visibility_default_public(db):
     nid = generate_id()
     await db.execute(
         "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
-        nid, pid, "Test Name",
+        nid,
+        pid,
+        "Test Name",
     )
     row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
     assert row["visibility"] == "public"
@@ -73,7 +70,9 @@ async def test_visibility_check_constraint(db):
         await db.execute(
             "INSERT INTO person_names (id, person_id, name, visibility)"
             " VALUES ($1, $2, $3, 'bogus')",
-            generate_id(), pid, "Test",
+            generate_id(),
+            pid,
+            "Test",
         )
 
 
@@ -84,55 +83,52 @@ async def test_visibility_internal_no_longer_accepted(db):
         await db.execute(
             "INSERT INTO person_names (id, person_id, name, visibility)"
             " VALUES ($1, $2, $3, 'internal')",
-            generate_id(), pid, "Test",
+            generate_id(),
+            pid,
+            "Test",
         )
 
 
-async def test_apply_schema_drops_vestigial_visibility_checks():
+async def test_apply_schema_drops_vestigial_visibility_checks(db_pool):
     """CR3-#22: the visibility-CHECK migration loop drops vestigial duplicates.
 
     Adds a second, conflicting CHECK on the visibility column, then re-runs
-    apply_schema() and asserts only the canonical CHECK remains. Uses its own
-    connection (not the rollback fixture) because we need apply_schema() to
-    commit DDL between phases.
+    apply_schema() and asserts only the canonical CHECK remains. Uses a
+    pool-acquired connection without the rollback fixture because we need
+    apply_schema()'s DDL to commit between phases.
     """
-    dsn = os.environ.get("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
-        # Inject a vestigial CHECK on the visibility column.
-        await conn.execute(
-            "ALTER TABLE person_names ADD CONSTRAINT vestigial_visibility_check "
-            "CHECK (visibility != 'nonsense')"
-        )
-        # Re-run apply_schema; the migration loop should drop the vestigial
-        # CHECK and leave only the canonical one.
-        await apply_schema(conn)
+    async with db_pool.acquire() as conn:
+        try:
+            # Inject a vestigial CHECK on the visibility column.
+            await conn.execute(
+                "ALTER TABLE person_names ADD CONSTRAINT vestigial_visibility_check "
+                "CHECK (visibility != 'nonsense')"
+            )
+            # Re-run apply_schema; the migration loop should drop the vestigial
+            # CHECK and leave only the canonical one.
+            await apply_schema(conn)
 
-        rows = await conn.fetch(
-            """
-            SELECT c.conname
-            FROM pg_constraint c
-            JOIN pg_class t ON t.oid = c.conrelid
-            JOIN pg_attribute a
-              ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
-            WHERE t.relname = 'person_names'
-              AND c.contype = 'c'
-              AND a.attname = 'visibility'
-            """
-        )
-        names = sorted(r["conname"] for r in rows)
-        assert names == ["person_names_visibility_check"], (
-            f"Expected exactly one visibility CHECK; got {names}"
-        )
-    finally:
-        # Defensive cleanup in case the test failed before re-apply_schema.
-        await conn.execute(
-            "ALTER TABLE person_names DROP CONSTRAINT IF EXISTS vestigial_visibility_check"
-        )
-        await conn.close()
+            rows = await conn.fetch(
+                """
+                SELECT c.conname
+                FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                JOIN pg_attribute a
+                  ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+                WHERE t.relname = 'person_names'
+                  AND c.contype = 'c'
+                  AND a.attname = 'visibility'
+                """
+            )
+            names = sorted(r["conname"] for r in rows)
+            assert names == ["person_names_visibility_check"], (
+                f"Expected exactly one visibility CHECK; got {names}"
+            )
+        finally:
+            # Defensive cleanup in case the test failed before re-apply_schema.
+            await conn.execute(
+                "ALTER TABLE person_names DROP CONSTRAINT IF EXISTS vestigial_visibility_check"
+            )
 
 
 async def test_reading_of_id_cascade_on_delete(db):
@@ -143,18 +139,21 @@ async def test_reading_of_id_cascade_on_delete(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, script)"
         " VALUES ($1, $2, $3, 'legal', 'Hant')",
-        visual_id, pid, "毛澤東",
+        visual_id,
+        pid,
+        "毛澤東",
     )
     await db.execute(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, script, reading_of_id)"
         " VALUES ($1, $2, $3, 'alias', 'Latn', $4)",
-        reading_id, pid, "Máo Zédōng", visual_id,
+        reading_id,
+        pid,
+        "Máo Zédōng",
+        visual_id,
     )
     await db.execute("DELETE FROM person_names WHERE id=$1", visual_id)
-    survivor = await db.fetchrow(
-        "SELECT id FROM person_names WHERE id=$1", reading_id
-    )
+    survivor = await db.fetchrow("SELECT id FROM person_names WHERE id=$1", reading_id)
     assert survivor is None, "reading row should have cascaded with parent visual delete"
 
 
@@ -166,7 +165,11 @@ async def test_reading_of_id_self_reference(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, script)"
         " VALUES ($1, $2, $3, $4, $5)",
-        visual_id, pid, "毛澤東", "legal", "Hant",
+        visual_id,
+        pid,
+        "毛澤東",
+        "legal",
+        "Hant",
     )
     # Use a name_type already permitted by the Task-1 CHECK; Task 2 will add
     # 'romanization' / 'reading' / 'mrz' as semantic-specific values.
@@ -174,11 +177,14 @@ async def test_reading_of_id_self_reference(db):
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, script, reading_of_id)"
         " VALUES ($1, $2, $3, $4, $5, $6)",
-        reading_id, pid, "Máo Zédōng", "alias", "Latn", visual_id,
+        reading_id,
+        pid,
+        "Máo Zédōng",
+        "alias",
+        "Latn",
+        visual_id,
     )
-    row = await db.fetchrow(
-        "SELECT reading_of_id FROM person_names WHERE id=$1", reading_id
-    )
+    row = await db.fetchrow("SELECT reading_of_id FROM person_names WHERE id=$1", reading_id)
     assert row["reading_of_id"] == visual_id
 
 
@@ -213,24 +219,26 @@ async def test_person_name_parts_has_column(db, column, data_type):
         column,
     )
     assert row is not None, f"person_name_parts.{column} missing"
-    assert row["data_type"] == data_type or row["data_type"].lower().startswith(
-        data_type.lower()
-    )
+    assert row["data_type"] == data_type or row["data_type"].lower().startswith(data_type.lower())
 
 
 async def test_person_name_parts_inserts_and_reads(db):
     pid = await _person(db)
     name_id = generate_id()
     await db.execute(
-        "INSERT INTO person_names (id, person_id, name, name_type)"
-        " VALUES ($1, $2, $3, 'legal')",
-        name_id, pid, "María José García López",
+        "INSERT INTO person_names (id, person_id, name, name_type) VALUES ($1, $2, $3, 'legal')",
+        name_id,
+        pid,
+        "María José García López",
     )
     await db.execute(
         "INSERT INTO person_name_parts ("
         "person_name_id, given_names, family_names, primary_identifier"
         ") VALUES ($1, $2, $3, $4)",
-        name_id, ["María", "José"], ["García", "López"], "family",
+        name_id,
+        ["María", "José"],
+        ["García", "López"],
+        "family",
     )
     row = await db.fetchrow(
         "SELECT given_names, family_names, primary_identifier "
@@ -247,7 +255,9 @@ async def test_person_name_parts_primary_identifier_check(db):
     name_id = generate_id()
     await db.execute(
         "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
-        name_id, pid, "Test",
+        name_id,
+        pid,
+        "Test",
     )
     with pytest.raises(asyncpg.CheckViolationError):
         await db.execute(
@@ -263,16 +273,20 @@ async def test_person_name_parts_one_per_person_name(db):
     name_id = generate_id()
     await db.execute(
         "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
-        name_id, pid, "Test",
+        name_id,
+        pid,
+        "Test",
     )
     await db.execute(
         "INSERT INTO person_name_parts (person_name_id, given_names) VALUES ($1, $2)",
-        name_id, ["First"],
+        name_id,
+        ["First"],
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
             "INSERT INTO person_name_parts (person_name_id, given_names) VALUES ($1, $2)",
-            name_id, ["Other"],
+            name_id,
+            ["Other"],
         )
 
 
@@ -282,16 +296,17 @@ async def test_person_name_parts_cascade_on_person_name_delete(db):
     name_id = generate_id()
     await db.execute(
         "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
-        name_id, pid, "Test",
+        name_id,
+        pid,
+        "Test",
     )
     await db.execute(
         "INSERT INTO person_name_parts (person_name_id, given_names) VALUES ($1, $2)",
-        name_id, ["Test"],
+        name_id,
+        ["Test"],
     )
     await db.execute("DELETE FROM person_names WHERE id=$1", name_id)
-    survivor = await db.fetchrow(
-        "SELECT 1 FROM person_name_parts WHERE person_name_id=$1", name_id
-    )
+    survivor = await db.fetchrow("SELECT 1 FROM person_name_parts WHERE person_name_id=$1", name_id)
     assert survivor is None
 
 
@@ -301,23 +316,25 @@ async def test_person_name_parts_updated_at_trigger_overrides_explicit_value(db)
     name_id = generate_id()
     await db.execute(
         "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
-        name_id, pid, "Test",
+        name_id,
+        pid,
+        "Test",
     )
     await db.execute(
         "INSERT INTO person_name_parts (person_name_id, given_names) VALUES ($1, $2)",
-        name_id, ["First"],
+        name_id,
+        ["First"],
     )
     await db.execute(
         "UPDATE person_name_parts SET given_names = $1, updated_at = '2000-01-01' "
         "WHERE person_name_id = $2",
-        ["First", "Middle"], name_id,
+        ["First", "Middle"],
+        name_id,
     )
     row = await db.fetchrow(
         "SELECT updated_at FROM person_name_parts WHERE person_name_id=$1", name_id
     )
-    assert row["updated_at"].year > 2000, (
-        "Trigger did not override the explicit updated_at value"
-    )
+    assert row["updated_at"].year > 2000, "Trigger did not override the explicit updated_at value"
 
 
 async def test_person_name_parts_distinct_per_script(db):
@@ -327,30 +344,42 @@ async def test_person_name_parts_distinct_per_script(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, script)"
         " VALUES ($1, $2, $3, 'legal', 'Hant')",
-        hant_id, pid, "毛澤東",
+        hant_id,
+        pid,
+        "毛澤東",
     )
     await db.execute(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, script, reading_of_id)"
         " VALUES ($1, $2, $3, 'romanization', 'Latn', $4)",
-        latn_id, pid, "Mao Zedong", hant_id,
+        latn_id,
+        pid,
+        "Mao Zedong",
+        hant_id,
     )
     await db.execute(
         "INSERT INTO person_name_parts "
         "(person_name_id, given_names, family_names, primary_identifier)"
         " VALUES ($1, $2, $3, $4)",
-        hant_id, ["澤東"], ["毛"], "family",
+        hant_id,
+        ["澤東"],
+        ["毛"],
+        "family",
     )
     await db.execute(
         "INSERT INTO person_name_parts "
         "(person_name_id, given_names, family_names, primary_identifier)"
         " VALUES ($1, $2, $3, $4)",
-        latn_id, ["Zedong"], ["Mao"], "family",
+        latn_id,
+        ["Zedong"],
+        ["Mao"],
+        "family",
     )
     rows = await db.fetch(
         "SELECT family_names FROM person_name_parts "
         "WHERE person_name_id IN ($1, $2) ORDER BY person_name_id",
-        hant_id, latn_id,
+        hant_id,
+        latn_id,
     )
     families = [r["family_names"] for r in rows]
     assert ["毛"] in families
@@ -360,8 +389,13 @@ async def test_person_name_parts_distinct_per_script(db):
 # --- Task 2: name_type expansion ---
 
 NEW_NAME_TYPES = [
-    "deadname", "mrz", "reading", "romanization",
-    "maiden", "religious", "stage",
+    "deadname",
+    "mrz",
+    "reading",
+    "romanization",
+    "maiden",
+    "religious",
+    "stage",
     # Issue #135: alt-spelling / nickname variant of an existing name.
     "variant",
 ]
@@ -371,9 +405,11 @@ NEW_NAME_TYPES = [
 async def test_person_names_accepts_new_name_type(db, name_type):
     pid = await _person(db)
     await db.execute(
-        "INSERT INTO person_names (id, person_id, name, name_type)"
-        " VALUES ($1, $2, $3, $4)",
-        generate_id(), pid, "Test", name_type,
+        "INSERT INTO person_names (id, person_id, name, name_type) VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        pid,
+        "Test",
+        name_type,
     )
 
 
@@ -385,15 +421,18 @@ async def test_person_names_variant_can_coexist_with_legal_for_same_person(db):
     variant_id = generate_id()
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-        " VALUES ($1, $2, 'Jodi', 'legal', TRUE)", legal_id, pid,
+        " VALUES ($1, $2, 'Jodi', 'legal', TRUE)",
+        legal_id,
+        pid,
     )
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-        " VALUES ($1, $2, 'Jody', 'variant', FALSE)", variant_id, pid,
+        " VALUES ($1, $2, 'Jody', 'variant', FALSE)",
+        variant_id,
+        pid,
     )
     rows = await db.fetch(
-        "SELECT name, name_type FROM person_names WHERE person_id=$1 "
-        "ORDER BY name_type",
+        "SELECT name, name_type FROM person_names WHERE person_id=$1 ORDER BY name_type",
         pid,
     )
     assert [(r["name"], r["name_type"]) for r in rows] == [
@@ -406,13 +445,16 @@ async def test_person_names_rejects_unknown_name_type(db):
     pid = await _person(db)
     with pytest.raises(asyncpg.CheckViolationError):
         await db.execute(
-            "INSERT INTO person_names (id, person_id, name, name_type)"
-            " VALUES ($1, $2, $3, $4)",
-            generate_id(), pid, "Test", "totally_invalid",
+            "INSERT INTO person_names (id, person_id, name, name_type) VALUES ($1, $2, $3, $4)",
+            generate_id(),
+            pid,
+            "Test",
+            "totally_invalid",
         )
 
 
 # --- Task 3: canonical-uniqueness keyed on (locale, script) ---
+
 
 async def test_canonical_unique_per_locale_script(db):
     """Two canonical legal names with different scripts coexist."""
@@ -421,13 +463,17 @@ async def test_canonical_unique_per_locale_script(db):
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, script)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'Hant')",
-        generate_id(), pid, "毛澤東",
+        generate_id(),
+        pid,
+        "毛澤東",
     )
     await db.execute(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, script)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'Latn')",
-        generate_id(), pid, "Mao Zedong",
+        generate_id(),
+        pid,
+        "Mao Zedong",
     )
 
 
@@ -438,14 +484,18 @@ async def test_canonical_unique_collision(db):
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, locale, script)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'en-US', 'Latn')",
-        generate_id(), pid, "John Smith",
+        generate_id(),
+        pid,
+        "John Smith",
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
             "INSERT INTO person_names "
             "(id, person_id, name, name_type, is_canonical, locale, script)"
             " VALUES ($1, $2, $3, 'legal', TRUE, 'en-US', 'Latn')",
-            generate_id(), pid, "Johnny Smith",
+            generate_id(),
+            pid,
+            "Johnny Smith",
         )
 
 
@@ -456,18 +506,23 @@ async def test_canonical_unique_null_locale_collision(db):
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical)"
         " VALUES ($1, $2, $3, 'legal', TRUE)",
-        generate_id(), pid, "Cher",
+        generate_id(),
+        pid,
+        "Cher",
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
             "INSERT INTO person_names "
             "(id, person_id, name, name_type, is_canonical)"
             " VALUES ($1, $2, $3, 'legal', TRUE)",
-            generate_id(), pid, "Cher Bono",
+            generate_id(),
+            pid,
+            "Cher Bono",
         )
 
 
 # --- Task 4: deadname → visibility consistency trigger ---
+
 
 async def test_deadname_coerced_to_legal_only_on_insert(db):
     pid = await _person(db)
@@ -475,7 +530,9 @@ async def test_deadname_coerced_to_legal_only_on_insert(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
         " VALUES ($1, $2, $3, 'deadname', 'public')",
-        nid, pid, "Old Name",
+        nid,
+        pid,
+        "Old Name",
     )
     row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
     assert row["visibility"] == "legal_only"
@@ -487,11 +544,11 @@ async def test_deadname_coerced_to_legal_only_on_update(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
         " VALUES ($1, $2, $3, 'former', 'public')",
-        nid, pid, "Old Name",
+        nid,
+        pid,
+        "Old Name",
     )
-    await db.execute(
-        "UPDATE person_names SET name_type='deadname' WHERE id=$1", nid
-    )
+    await db.execute("UPDATE person_names SET name_type='deadname' WHERE id=$1", nid)
     row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
     assert row["visibility"] == "legal_only"
 
@@ -503,7 +560,9 @@ async def test_deadname_hidden_visibility_preserved(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
         " VALUES ($1, $2, $3, 'deadname', 'hidden')",
-        nid, pid, "Old Name",
+        nid,
+        pid,
+        "Old Name",
     )
     row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
     assert row["visibility"] == "hidden"
@@ -515,7 +574,9 @@ async def test_non_deadname_public_unchanged(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
         " VALUES ($1, $2, $3, 'former', 'public')",
-        nid, pid, "Old Name",
+        nid,
+        pid,
+        "Old Name",
     )
     row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
     assert row["visibility"] == "public"
@@ -523,13 +584,16 @@ async def test_non_deadname_public_unchanged(db):
 
 # --- Task 5: visibility-aware v_person_display_names ---
 
+
 async def test_view_excludes_legal_only(db):
     pid = await _person(db)
     await db.execute(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'legal_only')",
-        generate_id(), pid, "Legal-Only Name",
+        generate_id(),
+        pid,
+        "Legal-Only Name",
     )
     row = await db.fetchrow(
         "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
@@ -543,7 +607,9 @@ async def test_view_excludes_hidden(db):
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'hidden')",
-        generate_id(), pid, "Hidden",
+        generate_id(),
+        pid,
+        "Hidden",
     )
     row = await db.fetchrow(
         "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
@@ -557,7 +623,9 @@ async def test_view_returns_public_canonical(db):
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'public')",
-        generate_id(), pid, "Public Name",
+        generate_id(),
+        pid,
+        "Public Name",
     )
     row = await db.fetchrow(
         "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
@@ -572,13 +640,17 @@ async def test_view_prefers_public_over_legal_only(db):
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, visibility, script)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'public', 'Latn')",
-        generate_id(), pid, "Public",
+        generate_id(),
+        pid,
+        "Public",
     )
     await db.execute(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, visibility, script)"
         " VALUES ($1, $2, $3, 'former', TRUE, 'legal_only', 'Latn')",
-        generate_id(), pid, "OldName",
+        generate_id(),
+        pid,
+        "OldName",
     )
     row = await db.fetchrow(
         "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid

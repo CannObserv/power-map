@@ -5,13 +5,17 @@ import os
 
 import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.admin.settings_api_keys import generate_api_key
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 AUTH_HEADERS = {
     "X-ExeDev-UserID": "usr_test",
@@ -19,17 +23,10 @@ AUTH_HEADERS = {
 }
 
 
-@pytest.fixture
-async def db():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    async with db_pool.acquire() as conn:
         yield conn
-    finally:
-        await conn.close()
 
 
 @pytest.fixture
@@ -40,43 +37,46 @@ def client():
 
 # --- Schema ---
 
+
 async def test_app_users_table_exists(db):
-    row = await db.fetchrow(
-        "SELECT 1 FROM information_schema.tables WHERE table_name='app_users'"
-    )
+    row = await db.fetchrow("SELECT 1 FROM information_schema.tables WHERE table_name='app_users'")
     assert row is not None
 
 
 async def test_api_keys_table_exists(db):
-    row = await db.fetchrow(
-        "SELECT 1 FROM information_schema.tables WHERE table_name='api_keys'"
-    )
+    row = await db.fetchrow("SELECT 1 FROM information_schema.tables WHERE table_name='api_keys'")
     assert row is not None
 
 
 async def test_api_keys_key_hash_unique(db):
     uid = generate_id()
-    await db.execute(
-        "INSERT INTO app_users (id, email) VALUES ($1, $2)", uid, "a@test.com"
-    )
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1, $2)", uid, "a@test.com")
     kid1 = generate_id()
     kid2 = generate_id()
     await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-        " VALUES ($1,$2,$3,$4,$5)",
-        kid1, uid, "key1", "pm_abc123", "deadbeef" * 8,
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid1,
+        uid,
+        "key1",
+        "pm_abc123",
+        "deadbeef" * 8,
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
             "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
             " VALUES ($1,$2,$3,$4,$5)",
-            kid2, uid, "key2", "pm_abc124", "deadbeef" * 8,
+            kid2,
+            uid,
+            "key2",
+            "pm_abc124",
+            "deadbeef" * 8,
         )
     await db.execute("DELETE FROM api_keys WHERE user_id=$1", uid)
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
 
 # --- provision_app_user ---
+
 
 async def test_provision_app_user_creates_row(db):
     """provision_app_user upserts an app_users row for the current user."""
@@ -111,27 +111,29 @@ async def test_provision_app_user_updates_email_on_conflict(db):
 
 # --- generate_api_key (unit) ---
 
-def test_generate_api_key_format():
+
+async def test_generate_api_key_format():
     raw_key, key_hash, key_prefix = generate_api_key()
     assert raw_key.startswith("pm_")
-    assert len(raw_key) == 35          # "pm_" + 32 hex chars
-    assert len(key_hash) == 64         # SHA-256 hex
+    assert len(raw_key) == 35  # "pm_" + 32 hex chars
+    assert len(key_hash) == 64  # SHA-256 hex
     assert key_prefix == raw_key[:8]
 
 
-def test_generate_api_key_is_random():
+async def test_generate_api_key_is_random():
     raw1, _, _ = generate_api_key()
     raw2, _, _ = generate_api_key()
     assert raw1 != raw2
 
 
-def test_generate_api_key_hash_matches():
+async def test_generate_api_key_hash_matches():
     raw_key, key_hash, _ = generate_api_key()
     expected = hashlib.sha256(raw_key.encode()).hexdigest()
     assert key_hash == expected
 
 
 # --- API keys routes ---
+
 
 async def _make_user_and_key(db, label="My Key"):
     """Helper: insert app_user + api_key owned by usr_test, return (uid, kid, raw_key).
@@ -145,27 +147,31 @@ async def _make_user_and_key(db, label="My Key"):
     await db.execute(
         "INSERT INTO app_users (id, email) VALUES ($1,$2)"
         " ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email",
-        uid, "admin@test.com",
+        uid,
+        "admin@test.com",
     )
     await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-        " VALUES ($1,$2,$3,$4,$5)",
-        kid, uid, label, raw_key[:8], key_hash,
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        uid,
+        label,
+        raw_key[:8],
+        key_hash,
     )
     return uid, kid, raw_key
 
 
-def test_api_keys_list_requires_auth(client):
+async def test_api_keys_list_requires_auth(client):
     r = client.get("/admin/settings/api-keys/", follow_redirects=False)
     assert r.status_code in (302, 307)
 
 
-def test_api_keys_list_returns_200(client):
+async def test_api_keys_list_returns_200(client):
     r = client.get("/admin/settings/api-keys/", headers=AUTH_HEADERS)
     assert r.status_code == 200
 
 
-def test_api_keys_new_row_returns_form(client):
+async def test_api_keys_new_row_returns_form(client):
     r = client.get("/admin/settings/api-keys/new-row/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert "label" in r.text
@@ -178,7 +184,7 @@ async def test_api_keys_create_returns_modal(client, db):
         data={"label": "Test Key"},
     )
     assert r.status_code == 200
-    assert "pm_" in r.text          # raw key in modal
+    assert "pm_" in r.text  # raw key in modal
     assert "not be shown again" in r.text
     # Clean up: find the inserted key
     await db.execute("DELETE FROM api_keys WHERE user_id='usr_test'")
@@ -201,9 +207,7 @@ async def test_api_keys_create_non_htmx_redirects(client, db):
 async def test_api_keys_edit_row_get(client, db):
     uid, kid, _ = await _make_user_and_key(db)
     try:
-        r = client.get(
-            f"/admin/settings/api-keys/{kid}/edit-row/", headers=AUTH_HEADERS
-        )
+        r = client.get(f"/admin/settings/api-keys/{kid}/edit-row/", headers=AUTH_HEADERS)
         assert r.status_code == 200
         assert "My Key" in r.text
     finally:
@@ -229,9 +233,7 @@ async def test_api_keys_edit_row_post(client, db):
 async def test_api_keys_read_row(client, db):
     uid, kid, _ = await _make_user_and_key(db)
     try:
-        r = client.get(
-            f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS
-        )
+        r = client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
         assert r.status_code == 200
         assert "My Key" in r.text
     finally:
@@ -295,9 +297,12 @@ async def test_api_keys_edit_other_users_key_returns_404(client, db):
         "INSERT INTO app_users (id, email) VALUES ($1,$2)", other_uid, "other@test.com"
     )
     await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-        " VALUES ($1,$2,$3,$4,$5)",
-        kid, other_uid, "Other Key", raw_key[:8], key_hash,
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        other_uid,
+        "Other Key",
+        raw_key[:8],
+        key_hash,
     )
     try:
         # AUTH_HEADERS authenticates as usr_test, not other_uid
@@ -322,9 +327,12 @@ async def test_api_keys_delete_other_users_key_returns_404(client, db):
         "INSERT INTO app_users (id, email) VALUES ($1,$2)", other_uid, "other@test.com"
     )
     await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-        " VALUES ($1,$2,$3,$4,$5)",
-        kid, other_uid, "Other Key", raw_key[:8], key_hash,
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        other_uid,
+        "Other Key",
+        raw_key[:8],
+        key_hash,
     )
     try:
         r = client.delete(

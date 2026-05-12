@@ -8,10 +8,9 @@ Three transformation kinds:
 Plus a dry-run wrapper that runs everything inside a savepoint.
 """
 
-import os
-
 import asyncpg
 import pytest
+import pytest_asyncio
 
 from scripts.cleanup_person_name_data_quality import (
     MergePerson,
@@ -20,23 +19,17 @@ from scripts.cleanup_person_name_data_quality import (
     apply_action,
     run_cleanup,
 )
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
-
-
-def _dsn() -> str:
-    dsn = os.environ.get("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL not set")
-    return dsn
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 
-@pytest.fixture
-async def db():
-    conn = await asyncpg.connect(_dsn())
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
         # Seed FK lookup rows the cleanup script needs for new variant inserts.
@@ -53,8 +46,6 @@ async def db():
             yield conn
         finally:
             await tr.rollback()
-    finally:
-        await conn.close()
 
 
 async def _seed_person_with_name(
@@ -72,7 +63,12 @@ async def _seed_person_with_name(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, locale, script)"
         " VALUES ($1, $2, $3, $4, TRUE, $5, $6)",
-        nid, pid, name, name_type, locale, script,
+        nid,
+        pid,
+        name,
+        name_type,
+        locale,
+        script,
     )
     return pid, nid
 
@@ -82,21 +78,22 @@ async def _seed_person_with_name(
 
 async def test_strip_suffix_updates_name_in_place(db):
     pid, nid = await _seed_person_with_name(db, name="Linda Thompson (2)")
-    await apply_action(db, StripSuffix(name_id=nid, new_name="Linda Thompson",
-                                       strip=" (2)"))
+    await apply_action(db, StripSuffix(name_id=nid, new_name="Linda Thompson", strip=" (2)"))
     row = await db.fetchrow("SELECT name FROM person_names WHERE id=$1", nid)
     assert row["name"] == "Linda Thompson"
 
 
 async def test_strip_suffix_preserves_other_columns(db):
     pid, nid = await _seed_person_with_name(
-        db, name="Mary Brown (2)", locale="en-US", script="Latn",
+        db,
+        name="Mary Brown (2)",
+        locale="en-US",
+        script="Latn",
     )
-    await apply_action(db, StripSuffix(name_id=nid, new_name="Mary Brown",
-                                       strip=" (2)"))
+    await apply_action(db, StripSuffix(name_id=nid, new_name="Mary Brown", strip=" (2)"))
     row = await db.fetchrow(
-        "SELECT name, name_type, is_canonical, locale, script "
-        "FROM person_names WHERE id=$1", nid,
+        "SELECT name, name_type, is_canonical, locale, script FROM person_names WHERE id=$1",
+        nid,
     )
     assert row["name"] == "Mary Brown"
     assert row["name_type"] == "legal"
@@ -109,7 +106,8 @@ async def test_strip_suffix_raises_when_name_id_missing(db):
     """Defensive — surface stale-config issues rather than silently no-op."""
     with pytest.raises(ValueError, match="not found"):
         await apply_action(
-            db, StripSuffix(name_id="nonexistent", new_name="x", strip=""),
+            db,
+            StripSuffix(name_id="nonexistent", new_name="x", strip=""),
         )
 
 
@@ -118,10 +116,15 @@ async def test_strip_suffix_raises_when_name_id_missing(db):
 
 async def test_split_name_updates_legal_and_inserts_variant(db):
     pid, nid = await _seed_person_with_name(db, name="Rene or Renee")
-    await apply_action(db, SplitName(
-        name_id=nid, new_legal_name="Rene", sibling_name="Renee",
-        sibling_type="variant",
-    ))
+    await apply_action(
+        db,
+        SplitName(
+            name_id=nid,
+            new_legal_name="Rene",
+            sibling_name="Renee",
+            sibling_type="variant",
+        ),
+    )
     rows = await db.fetch(
         "SELECT name, name_type, is_canonical FROM person_names "
         "WHERE person_id=$1 ORDER BY name_type",
@@ -135,13 +138,17 @@ async def test_split_name_updates_legal_and_inserts_variant(db):
 
 async def test_split_name_inserts_maiden_with_correct_type(db):
     pid, nid = await _seed_person_with_name(db, name="Virginia (Webber) Hoyer")
-    await apply_action(db, SplitName(
-        name_id=nid, new_legal_name="Virginia Hoyer",
-        sibling_name="Virginia Webber", sibling_type="maiden",
-    ))
+    await apply_action(
+        db,
+        SplitName(
+            name_id=nid,
+            new_legal_name="Virginia Hoyer",
+            sibling_name="Virginia Webber",
+            sibling_type="maiden",
+        ),
+    )
     rows = await db.fetch(
-        "SELECT name, name_type FROM person_names "
-        "WHERE person_id=$1 ORDER BY name_type",
+        "SELECT name, name_type FROM person_names WHERE person_id=$1 ORDER BY name_type",
         pid,
     )
     assert [(r["name"], r["name_type"]) for r in rows] == [
@@ -152,15 +159,22 @@ async def test_split_name_inserts_maiden_with_correct_type(db):
 
 async def test_split_name_inherits_locale_and_script_on_sibling(db):
     pid, nid = await _seed_person_with_name(
-        db, name="Victor (Vic) Colman", locale="en-US", script="Latn",
+        db,
+        name="Victor (Vic) Colman",
+        locale="en-US",
+        script="Latn",
     )
-    await apply_action(db, SplitName(
-        name_id=nid, new_legal_name="Victor Colman",
-        sibling_name="Vic Colman", sibling_type="variant",
-    ))
+    await apply_action(
+        db,
+        SplitName(
+            name_id=nid,
+            new_legal_name="Victor Colman",
+            sibling_name="Vic Colman",
+            sibling_type="variant",
+        ),
+    )
     sibling = await db.fetchrow(
-        "SELECT locale, script FROM person_names "
-        "WHERE person_id=$1 AND name_type='variant'",
+        "SELECT locale, script FROM person_names WHERE person_id=$1 AND name_type='variant'",
         pid,
     )
     assert sibling["locale"] == "en-US"
@@ -178,12 +192,17 @@ async def test_merge_person_action_consolidates_two_records(db):
     pid_b, nid_b = await _seed_person_with_name(db, name="Jody or Jodi")
 
     actions = [
-        SplitName(name_id=nid_a, new_legal_name="Jodi",
-                  sibling_name="Jody", sibling_type="variant"),
-        SplitName(name_id=nid_b, new_legal_name="Jody",
-                  sibling_name="Jodi", sibling_type="variant"),
-        MergePerson(winner_id=pid_a, loser_id=pid_b,
-                    rationale="Jodi/Jody and Jody or Jodi are the same person"),
+        SplitName(
+            name_id=nid_a, new_legal_name="Jodi", sibling_name="Jody", sibling_type="variant"
+        ),
+        SplitName(
+            name_id=nid_b, new_legal_name="Jody", sibling_name="Jodi", sibling_type="variant"
+        ),
+        MergePerson(
+            winner_id=pid_a,
+            loser_id=pid_b,
+            rationale="Jodi/Jody and Jody or Jodi are the same person",
+        ),
     ]
     for a in actions:
         await apply_action(db, a)
@@ -235,8 +254,7 @@ async def test_run_cleanup_counts_each_action_kind(db):
     pid_split, nid_split = await _seed_person_with_name(db, name="A or B")
     actions = [
         StripSuffix(name_id=nid_strip, new_name="X", strip=" (2)"),
-        SplitName(name_id=nid_split, new_legal_name="A", sibling_name="B",
-                  sibling_type="variant"),
+        SplitName(name_id=nid_split, new_legal_name="A", sibling_name="B", sibling_type="variant"),
     ]
     stats = await run_cleanup(db, actions=actions, dry_run=False)
     assert stats.kind_counts == {"StripSuffix": 1, "SplitName": 1}

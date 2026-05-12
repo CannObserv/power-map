@@ -54,7 +54,10 @@ async def identifier_types_page(
     return templates.TemplateResponse(
         request,
         "admin/settings/identifier_types.html",
-        {**_base_ctx(user, org_dup_count, person_dup_count, "settings_identifier_types"), "rows": rows},  # noqa: E501
+        {
+            **_base_ctx(user, org_dup_count, person_dup_count, "settings_identifier_types"),
+            "rows": rows,
+        },  # noqa: E501
     )
 
 
@@ -91,7 +94,11 @@ async def identifier_type_create(
         "INSERT INTO entity_identifier_types"
         " (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid, display_name.strip(), slug_val, full_name_val, entity_type,
+        iid,
+        display_name.strip(),
+        slug_val,
+        full_name_val,
+        entity_type,
     )
     rows = await _fetch_identifier_types(db)
     if not is_htmx(request):
@@ -113,9 +120,7 @@ async def identifier_type_edit_row_get(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    eit = await db.fetchrow(
-        "SELECT * FROM entity_identifier_types WHERE id=$1", item_id
-    )
+    eit = await db.fetchrow("SELECT * FROM entity_identifier_types WHERE id=$1", item_id)
     if not eit:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
@@ -142,16 +147,18 @@ async def identifier_type_edit_row_post(
         raise HTTPException(status_code=422, detail="slug is required")
     if not full_name_val:
         raise HTTPException(status_code=422, detail="full_name is required")
-    existing = await db.fetchrow(
-        "SELECT id FROM entity_identifier_types WHERE id=$1", item_id
-    )
+    existing = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE id=$1", item_id)
     if not existing:
         raise HTTPException(status_code=404)
     await db.execute(
         "UPDATE entity_identifier_types"
         " SET display_name=$1, slug=$2, full_name=$3, entity_type=$4"
         " WHERE id=$5",
-        display_name.strip(), slug_val, full_name_val, entity_type, item_id,
+        display_name.strip(),
+        slug_val,
+        full_name_val,
+        entity_type,
+        item_id,
     )
     row = await db.fetchrow(
         """
@@ -208,9 +215,7 @@ async def identifier_type_delete(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    existing = await db.fetchrow(
-        "SELECT id FROM entity_identifier_types WHERE id=$1", item_id
-    )
+    existing = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE id=$1", item_id)
     if not existing:
         raise HTTPException(status_code=404)
     try:

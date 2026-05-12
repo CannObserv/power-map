@@ -37,9 +37,7 @@ def is_htmx(request: Request) -> bool:
     return bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
 
 
-def flash_trigger(
-    level: str, body: str, extra: dict | None = None
-) -> dict[str, str]:
+def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str, str]:
     """Return an HX-Trigger header dict that dispatches a showFlash event on the client.
 
     Pass directly as the headers argument to TemplateResponse on HTMX mutation routes:

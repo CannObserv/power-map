@@ -56,7 +56,10 @@ async def reading_target_search(
             "   AND name ILIKE $3 ESCAPE '\\'"
             " ORDER BY is_canonical DESC, name_type, name"
             " LIMIT $4",
-            person_id, list(_READING_TYPES), pattern, limit,
+            person_id,
+            list(_READING_TYPES),
+            pattern,
+            limit,
         )
         results = [
             {

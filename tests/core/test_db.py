@@ -93,7 +93,8 @@ async def test_warn_fires_when_bcp47_locales_empty(db_conn, caplog):
     with caplog.at_level(logging.WARNING, logger="src.core.db"):
         await _warn_if_lookup_tables_unseeded(db_conn)
     matched = [
-        r for r in caplog.records
+        r
+        for r in caplog.records
         if r.levelno == logging.WARNING and "bcp47_locales" in r.getMessage()
     ]
     assert matched, "expected WARNING for empty bcp47_locales"
@@ -109,7 +110,8 @@ async def test_warn_fires_when_iso15924_scripts_empty(db_conn, caplog):
     with caplog.at_level(logging.WARNING, logger="src.core.db"):
         await _warn_if_lookup_tables_unseeded(db_conn)
     matched = [
-        r for r in caplog.records
+        r
+        for r in caplog.records
         if r.levelno == logging.WARNING and "iso15924_scripts" in r.getMessage()
     ]
     assert matched, "expected WARNING for empty iso15924_scripts"
@@ -148,9 +150,9 @@ async def test_warn_silent_when_both_lookup_tables_seeded(db_conn, caplog):
     with caplog.at_level(logging.WARNING, logger="src.core.db"):
         await _warn_if_lookup_tables_unseeded(db_conn)
     lookup_warnings = [
-        r for r in caplog.records
+        r
+        for r in caplog.records
         if r.levelno == logging.WARNING
         and ("bcp47_locales" in r.getMessage() or "iso15924_scripts" in r.getMessage())
     ]
     assert not lookup_warnings, f"unexpected warning(s): {lookup_warnings}"
-

@@ -7,22 +7,27 @@ Run with:
     DATABASE_URL=postgres://user:pass@localhost/power_map_test \\
         uv run pytest -m integration -v
 
-The target database should be dedicated to testing. apply_schema() is
-idempotent (IF NOT EXISTS / ON CONFLICT DO NOTHING), so re-runs are safe.
-Each test wraps its DML in a transaction that is rolled back on teardown,
-leaving the schema intact but the tables empty.
+The target database should be dedicated to testing. Schema is applied once
+at session start by the `db_pool` fixture in `tests/conftest.py`
+(`apply_schema()` is idempotent, so re-runs are safe). Each test acquires a
+connection from `db_pool` via the `db` fixture and wraps its DML in a
+transaction that is rolled back on teardown, leaving the schema intact and
+the tables empty.
 """
 
 import json
-import os
 
 import asyncpg
 import pytest
+import pytest_asyncio
 
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 from src.core.types import PERSON_NAME_TYPES
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -30,21 +35,16 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-async def db():
-    """Connect, apply schema, yield a connection whose DML rolls back after."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
-        yield conn
-        await tr.rollback()
-    finally:
-        await conn.close()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 # ---------------------------------------------------------------------------
@@ -69,8 +69,7 @@ async def _person(conn: asyncpg.Connection) -> str:
     pid = generate_id()
     await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
     await conn.execute(
-        "INSERT INTO person_names (id, person_id, name, is_canonical)"
-        " VALUES ($1, $2, $3, TRUE)",
+        "INSERT INTO person_names (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
         generate_id(),
         pid,
         "Test Person",
@@ -271,7 +270,9 @@ async def test_org_acronym_insert(db):
     await db.execute(
         "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), org_id, "ACME",
+        generate_id(),
+        org_id,
+        "ACME",
     )
 
 
@@ -282,14 +283,18 @@ async def test_org_acronym_duplicate_canonical_rejected(db):
     await db.execute(
         "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), org_id, "ACME",
+        generate_id(),
+        org_id,
+        "ACME",
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         async with db.transaction():
             await db.execute(
                 "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
                 " VALUES ($1, $2, $3, TRUE)",
-                generate_id(), org_id, "ACM",
+                generate_id(),
+                org_id,
+                "ACM",
             )
 
 
@@ -301,7 +306,9 @@ async def test_org_multiple_noncanonical_acronyms_accepted(db):
         await db.execute(
             "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
             " VALUES ($1, $2, $3, FALSE)",
-            generate_id(), org_id, acronym,
+            generate_id(),
+            org_id,
+            acronym,
         )
 
 
@@ -328,9 +335,7 @@ async def test_identifier_with_nonexistent_type_rejected(db):
 async def test_identifier_with_valid_type_accepted(db):
     """Inserting an identifier with a seeded entity_identifier_type_id must succeed."""
     org_id = await _org(db)
-    row = await db.fetchrow(
-        "SELECT id FROM entity_identifier_types WHERE slug = 'org_ubi'"
-    )
+    row = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug = 'org_ubi'")
 
     await db.execute(
         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
@@ -356,12 +361,8 @@ async def test_updated_at_trigger_overrides_explicit_value(db):
         "UPDATE organizations SET active = FALSE, updated_at = '2000-01-01' WHERE id = $1",
         org_id,
     )
-    row = await db.fetchrow(
-        "SELECT updated_at FROM organizations WHERE id = $1", org_id
-    )
-    assert row["updated_at"].year > 2000, (
-        "Trigger did not override the explicit updated_at value"
-    )
+    row = await db.fetchrow("SELECT updated_at FROM organizations WHERE id = $1", org_id)
+    assert row["updated_at"].year > 2000, "Trigger did not override the explicit updated_at value"
 
 
 # Per-binding coverage for trg_updated_at_<table>. Each insert helper inserts
@@ -376,7 +377,9 @@ async def _insert_address(conn: asyncpg.Connection) -> str:
     # Pass country explicitly: older test DBs may lack the schema default.
     await conn.execute(
         "INSERT INTO addresses (id, raw_input, country) VALUES ($1, $2, $3)",
-        aid, "123 Test St", "US",
+        aid,
+        "123 Test St",
+        "US",
     )
     return aid
 
@@ -399,7 +402,9 @@ async def _insert_role_assignment(conn: asyncpg.Connection) -> str:
     ra_id = generate_id()
     await conn.execute(
         "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
     return ra_id
 
@@ -408,7 +413,8 @@ async def _insert_app_user(conn: asyncpg.Connection) -> str:
     uid = generate_id()
     await conn.execute(
         "INSERT INTO app_users (id, email) VALUES ($1, $2)",
-        uid, "test@example.com",
+        uid,
+        "test@example.com",
     )
     return uid
 
@@ -436,9 +442,7 @@ async def test_updated_at_trigger_binding_per_table(db, table, insert_helper):
         f"UPDATE {table} SET updated_at = '2000-01-01' WHERE id = $1",
         row_id,
     )
-    row = await db.fetchrow(
-        f"SELECT updated_at FROM {table} WHERE id = $1", row_id
-    )
+    row = await db.fetchrow(f"SELECT updated_at FROM {table} WHERE id = $1", row_id)
     assert row["updated_at"].year > 2000, (
         f"trg_updated_at_{table} did not override the explicit updated_at value"
     )
@@ -504,13 +508,9 @@ async def test_org_cycle_three_node_rejected(db):
     """A → B → C → A (three-node cycle) must be rejected by the trigger."""
     a_id = await _org(db)
     b_id = generate_id()
-    await db.execute(
-        "INSERT INTO organizations (id, parent_id) VALUES ($1, $2)", b_id, a_id
-    )
+    await db.execute("INSERT INTO organizations (id, parent_id) VALUES ($1, $2)", b_id, a_id)
     c_id = generate_id()
-    await db.execute(
-        "INSERT INTO organizations (id, parent_id) VALUES ($1, $2)", c_id, b_id
-    )
+    await db.execute("INSERT INTO organizations (id, parent_id) VALUES ($1, $2)", c_id, b_id)
     with pytest.raises(asyncpg.exceptions.RaiseError):
         async with db.transaction():
             await db.execute(
@@ -524,14 +524,10 @@ async def test_org_reparent_no_cycle_accepted(db):
     """Moving a child to a different parent (no cycle) must be accepted."""
     a_id = await _org(db)
     b_id = generate_id()
-    await db.execute(
-        "INSERT INTO organizations (id, parent_id) VALUES ($1, $2)", b_id, a_id
-    )
+    await db.execute("INSERT INTO organizations (id, parent_id) VALUES ($1, $2)", b_id, a_id)
     c_id = await _org(db)
     # Re-parent b under c — no cycle
-    await db.execute(
-        "UPDATE organizations SET parent_id = $1 WHERE id = $2", c_id, b_id
-    )
+    await db.execute("UPDATE organizations SET parent_id = $1 WHERE id = $2", c_id, b_id)
 
 
 # ---------------------------------------------------------------------------
@@ -546,8 +542,7 @@ async def test_person_name_invalid_name_type_rejected(db):
     with pytest.raises(asyncpg.CheckViolationError):
         async with db.transaction():
             await db.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type)"
-                " VALUES ($1, $2, $3, $4)",
+                "INSERT INTO person_names (id, person_id, name, name_type) VALUES ($1, $2, $3, $4)",
                 generate_id(),
                 person_id,
                 "Bad Name",
@@ -566,8 +561,7 @@ async def test_person_name_valid_name_types_accepted(db):
 
     for name_type in PERSON_NAME_TYPES:
         await db.execute(
-            "INSERT INTO person_names (id, person_id, name, name_type)"
-            " VALUES ($1, $2, $3, $4)",
+            "INSERT INTO person_names (id, person_id, name, name_type) VALUES ($1, $2, $3, $4)",
             generate_id(),
             person_id,
             f"Name ({name_type})",
@@ -745,7 +739,12 @@ async def test_import_batches_insert(db):
         """INSERT INTO import_batches
                (id, source_file, file_hash, row_count, loaded_count, error_count)
            VALUES ($1, $2, $3, $4, $5, $6)""",
-        batch_id, "orgs.csv", "abc123", 10, 9, 1,
+        batch_id,
+        "orgs.csv",
+        "abc123",
+        10,
+        9,
+        1,
     )
     row = await db.fetchrow("SELECT * FROM import_batches WHERE id = $1", batch_id)
     assert row["row_count"] == 10
@@ -756,13 +755,19 @@ async def test_import_batches_insert(db):
 # import_provenance
 # ---------------------------------------------------------------------------
 
+
 async def test_import_provenance_insert(db):
     batch_id = generate_id()
     await db.execute(
         """INSERT INTO import_batches
                (id, source_file, file_hash, row_count, loaded_count, error_count)
            VALUES ($1, $2, $3, $4, $5, $6)""",
-        batch_id, "orgs.csv", "abc123", 1, 1, 0,
+        batch_id,
+        "orgs.csv",
+        "abc123",
+        1,
+        1,
+        0,
     )
     prov_id = generate_id()
     org_id = generate_id()
@@ -770,7 +775,12 @@ async def test_import_provenance_insert(db):
         """INSERT INTO import_provenance
                (id, batch_id, source_row, entity_type, entity_id, action, raw_data)
            VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-        prov_id, batch_id, 2, "organization", org_id, "created",
+        prov_id,
+        batch_id,
+        2,
+        "organization",
+        org_id,
+        "created",
         json.dumps({"Name": "Acme Corp"}),
     )
     row = await db.fetchrow("SELECT * FROM import_provenance WHERE id = $1", prov_id)
@@ -784,7 +794,12 @@ async def test_import_provenance_invalid_action(db):
         """INSERT INTO import_batches
                (id, source_file, file_hash, row_count, loaded_count, error_count)
            VALUES ($1, $2, $3, $4, $5, $6)""",
-        batch_id, "orgs.csv", "abc123", 1, 0, 1,
+        batch_id,
+        "orgs.csv",
+        "abc123",
+        1,
+        0,
+        1,
     )
     with pytest.raises(asyncpg.CheckViolationError):
         async with db.transaction():
@@ -792,7 +807,12 @@ async def test_import_provenance_invalid_action(db):
                 """INSERT INTO import_provenance
                        (id, batch_id, source_row, entity_type, entity_id, action, raw_data)
                    VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-                generate_id(), batch_id, 1, "organization", generate_id(), "bogus",
+                generate_id(),
+                batch_id,
+                1,
+                "organization",
+                generate_id(),
+                "bogus",
                 "{}",
             )
 
@@ -801,19 +821,23 @@ async def test_import_provenance_invalid_action(db):
 # field_confidence
 # ---------------------------------------------------------------------------
 
+
 async def test_field_confidence_insert(db):
     org_id = generate_id()
-    await db.execute(
-        "INSERT INTO organizations (id) VALUES ($1)", org_id
-    )
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
     conf_id = generate_id()
     await db.execute(
         """INSERT INTO field_confidence
                (id, entity_type, entity_id, field_name, value_hash,
                 source_reliability, validation_status)
            VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-        conf_id, "organization", org_id, "phone",
-        "abc123hash", 0.8, "unconfirmed",
+        conf_id,
+        "organization",
+        org_id,
+        "phone",
+        "abc123hash",
+        0.8,
+        "unconfirmed",
     )
     row = await db.fetchrow("SELECT * FROM field_confidence WHERE id = $1", conf_id)
     assert row["source_reliability"] == pytest.approx(0.8)
@@ -830,8 +854,13 @@ async def test_field_confidence_source_reliability_bounds(db):
                        (id, entity_type, entity_id, field_name, value_hash,
                         source_reliability, validation_status)
                    VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-                generate_id(), "organization", org_id, "phone",
-                "abc123", 1.5, "unconfirmed",  # out of range
+                generate_id(),
+                "organization",
+                org_id,
+                "phone",
+                "abc123",
+                1.5,
+                "unconfirmed",  # out of range
             )
 
 
@@ -845,12 +874,15 @@ async def test_field_confidence_append_only_by_convention(db):
                    (id, entity_type, entity_id, field_name, value_hash,
                     source_reliability, validation_status)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            generate_id(), "organization", org_id, "phone",
-            "samehash", 0.8, "unconfirmed",
+            generate_id(),
+            "organization",
+            org_id,
+            "phone",
+            "samehash",
+            0.8,
+            "unconfirmed",
         )
-    count = await db.fetchval(
-        "SELECT count(*) FROM field_confidence WHERE entity_id = $1", org_id
-    )
+    count = await db.fetchval("SELECT count(*) FROM field_confidence WHERE entity_id = $1", org_id)
     assert count == 2
 
 
@@ -876,7 +908,10 @@ async def test_import_provenance_nonexistent_batch_id_rejected(db):
                    VALUES ($1, $2, $3, $4, $5, $6, $7)""",
                 generate_id(),
                 "00000000000000000000000000",  # non-existent batch_id
-                1, "organization", generate_id(), "created",
+                1,
+                "organization",
+                generate_id(),
+                "created",
                 "{}",
             )
 
@@ -897,8 +932,13 @@ async def test_field_confidence_source_reliability_lower_bound(db):
                        (id, entity_type, entity_id, field_name, value_hash,
                         source_reliability, validation_status)
                    VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-                generate_id(), "organization", org_id, "phone",
-                "abc123", -0.1, "unconfirmed",  # below 0.0
+                generate_id(),
+                "organization",
+                org_id,
+                "phone",
+                "abc123",
+                -0.1,
+                "unconfirmed",  # below 0.0
             )
 
 
@@ -918,9 +958,14 @@ async def test_field_confidence_invalid_validation_status_rejected(db):
                        (id, entity_type, entity_id, field_name, value_hash,
                         source_reliability, validation_status)
                    VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-                generate_id(), "organization", org_id, "phone",
+                generate_id(),
+                "organization",
+                org_id,
+                "phone",
                 # "bogus" not in ('confirmed', 'unconfirmed', 'failed', 'not_attempted')
-                "abc123", 0.8, "bogus",
+                "abc123",
+                0.8,
+                "bogus",
             )
 
 
@@ -933,35 +978,23 @@ async def test_organizations_has_archived_at(db):
     """organizations.archived_at column must exist and be nullable."""
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
-    await db.execute(
-        "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
-    )
-    row = await db.fetchrow(
-        "SELECT archived_at FROM organizations WHERE id = $1", org_id
-    )
+    await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
+    row = await db.fetchrow("SELECT archived_at FROM organizations WHERE id = $1", org_id)
     assert row["archived_at"] is not None
 
 
 async def test_people_has_archived_at(db):
     person_id = await _person(db)
-    await db.execute(
-        "UPDATE people SET archived_at = NOW() WHERE id = $1", person_id
-    )
-    row = await db.fetchrow(
-        "SELECT archived_at FROM people WHERE id = $1", person_id
-    )
+    await db.execute("UPDATE people SET archived_at = NOW() WHERE id = $1", person_id)
+    row = await db.fetchrow("SELECT archived_at FROM people WHERE id = $1", person_id)
     assert row["archived_at"] is not None
 
 
 async def test_roles_has_archived_at(db):
     org_id = await _org(db)
     role_id = await _role(db, org_id)
-    await db.execute(
-        "UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id
-    )
-    row = await db.fetchrow(
-        "SELECT archived_at FROM roles WHERE id = $1", role_id
-    )
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    row = await db.fetchrow("SELECT archived_at FROM roles WHERE id = $1", role_id)
     assert row["archived_at"] is not None
 
 
@@ -972,14 +1005,12 @@ async def test_role_assignments_has_archived_at(db):
     ra_id = generate_id()
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
-    await db.execute(
-        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
-    )
-    row = await db.fetchrow(
-        "SELECT archived_at FROM role_assignments WHERE id = $1", ra_id
-    )
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
+    row = await db.fetchrow("SELECT archived_at FROM role_assignments WHERE id = $1", ra_id)
     assert row["archived_at"] is not None
 
 
@@ -990,12 +1021,10 @@ async def test_role_assignments_has_archived_at(db):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def require_uq_role_org_title(db):
     """Skip tests that need uq_role_org_title if it hasn't been created yet."""
-    exists = await db.fetchval(
-        "SELECT 1 FROM pg_indexes WHERE indexname = 'uq_role_org_title'"
-    )
+    exists = await db.fetchval("SELECT 1 FROM pg_indexes WHERE indexname = 'uq_role_org_title'")
     if not exists:
         pytest.skip(
             "uq_role_org_title index not present — "
@@ -1012,7 +1041,9 @@ async def test_duplicate_role_same_org_title_rejected(db, require_uq_role_org_ti
         async with db.transaction():
             await db.execute(
                 "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-                generate_id(), org_id, "Test Role",
+                generate_id(),
+                org_id,
+                "Test Role",
             )
 
 
@@ -1025,7 +1056,9 @@ async def test_role_title_case_insensitive_dedup(db, require_uq_role_org_title):
         async with db.transaction():
             await db.execute(
                 "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-                generate_id(), org_id, "TEST ROLE",
+                generate_id(),
+                org_id,
+                "TEST ROLE",
             )
 
 
@@ -1037,7 +1070,9 @@ async def test_archived_role_does_not_block_same_title(db, require_uq_role_org_t
 
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-        generate_id(), org_id, "Test Role",
+        generate_id(),
+        org_id,
+        "Test Role",
     )
 
 
@@ -1049,16 +1084,22 @@ async def test_same_title_different_orgs_allowed(db, require_uq_role_org_title):
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), org_b, "Org B",
+        generate_id(),
+        org_b,
+        "Org B",
     )
 
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-        generate_id(), org_a, "Director",
+        generate_id(),
+        org_a,
+        "Director",
     )
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-        generate_id(), org_b, "Director",
+        generate_id(),
+        org_b,
+        "Director",
     )
 
 
@@ -1075,14 +1116,17 @@ async def test_duplicate_assignment_null_start_date_rejected(db):
 
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
-        generate_id(), person_id, role_id,
+        generate_id(),
+        person_id,
+        role_id,
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         async with db.transaction():
             await db.execute(
-                "INSERT INTO role_assignments (id, person_id, role_id)"
-                " VALUES ($1, $2, $3)",
-                generate_id(), person_id, role_id,
+                "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
+                generate_id(),
+                person_id,
+                role_id,
             )
 
 
@@ -1095,12 +1139,16 @@ async def test_assignment_different_start_dates_allowed(db):
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
         " VALUES ($1, $2, $3, '2020-01-01')",
-        generate_id(), person_id, role_id,
+        generate_id(),
+        person_id,
+        role_id,
     )
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
         " VALUES ($1, $2, $3, '2023-01-01')",
-        generate_id(), person_id, role_id,
+        generate_id(),
+        person_id,
+        role_id,
     )
 
 
@@ -1113,14 +1161,16 @@ async def test_archived_assignment_does_not_block_same_start_date(db):
     ra_id = generate_id()
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
-    await db.execute(
-        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
-    )
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
 
     # New active assignment with same person+role+NULL start_date must succeed
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
-        generate_id(), person_id, role_id,
+        generate_id(),
+        person_id,
+        role_id,
     )

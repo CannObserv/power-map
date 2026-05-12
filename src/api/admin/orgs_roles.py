@@ -81,7 +81,9 @@ async def role_create(
     try:
         await db.execute(
             "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-            role_id, org_id, title,
+            role_id,
+            org_id,
+            title,
         )
     except asyncpg.UniqueViolationError:
         if not is_htmx(request):
@@ -139,10 +141,7 @@ async def role_merge(
         if winner["archived_at"] or loser["archived_at"]:
             raise HTTPException(status_code=409, detail="Cannot merge archived roles")
 
-        if (
-            winner["organization_id"] != org_id
-            or loser["organization_id"] != org_id
-        ):
+        if winner["organization_id"] != org_id or loser["organization_id"] != org_id:
             raise HTTPException(
                 status_code=409,
                 detail="Roles must belong to the same organization",
@@ -151,18 +150,13 @@ async def role_merge(
         # Notes: prefix loser's notes with merge metadata, append to winner
         if loser["notes"]:
             merge_date = datetime.now(UTC).strftime("%Y-%m-%d")
-            prefix = (
-                f"Merged from {loser['title']} on {merge_date}"
-                f" by {user.email}"
-            )
+            prefix = f"Merged from {loser['title']} on {merge_date} by {user.email}"
             appended = f"{prefix}\n{loser['notes']}"
-            new_notes = (
-                f"{winner['notes']}\n\n{appended}"
-                if winner["notes"]
-                else appended
-            )
+            new_notes = f"{winner['notes']}\n\n{appended}" if winner["notes"] else appended
             await db.execute(
-                "UPDATE roles SET notes=$1 WHERE id=$2", new_notes, winner_id,
+                "UPDATE roles SET notes=$1 WHERE id=$2",
+                new_notes,
+                winner_id,
             )
 
         # role_assignments: delete conflicts (same person+start_date), reassign rest
@@ -175,11 +169,13 @@ async def role_merge(
                        AND w.person_id = ra.person_id
                        AND w.start_date IS NOT DISTINCT FROM ra.start_date
                  )""",
-            loser_id, winner_id,
+            loser_id,
+            winner_id,
         )
         await db.execute(
             "UPDATE role_assignments SET role_id=$1 WHERE role_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         await db.execute("DELETE FROM roles WHERE id=$1", loser_id)

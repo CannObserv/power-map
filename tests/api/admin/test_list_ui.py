@@ -1,4 +1,5 @@
 """Integration tests for list view UI: pagination placement and per-page size."""
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -19,6 +20,7 @@ def client():
 
 
 # --- Pagination placement ---
+
 
 def test_orgs_list_has_sticky_pagination(client):
     """pagination--sticky class must appear in orgs list HTML."""
@@ -47,6 +49,7 @@ def test_ra_list_has_sticky_pagination(client):
 
 # --- Per-page size selector ---
 
+
 def test_orgs_list_has_page_size_select(client):
     """orgs list filter bar must include a page_size select."""
     response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
@@ -73,6 +76,7 @@ def test_ra_list_has_page_size_select(client):
 
 
 # --- page_size URL param respected ---
+
 
 def test_orgs_list_accepts_page_size_param(client):
     """page_size=25 in URL must be reflected in the selected option."""

@@ -17,9 +17,7 @@ from scripts.seed_locales_scripts import (  # noqa: E402
 
 def test_enumerate_bcp47_locales_yields_dict_records():
     rows = list(enumerate_bcp47_locales())
-    assert len(rows) > 1000, (
-        f"expected at least 1000 CLDR locales, got {len(rows)}"
-    )
+    assert len(rows) > 1000, f"expected at least 1000 CLDR locales, got {len(rows)}"
     sample = rows[0]
     assert {"code", "language", "script", "region", "display_name"} <= set(sample)
 

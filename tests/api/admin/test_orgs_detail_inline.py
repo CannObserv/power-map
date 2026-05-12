@@ -6,17 +6,19 @@ Run with:
 """
 
 import json
-import os
 
-import asyncpg
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from src.api.admin.deps import get_db
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 AUTH_HEADERS = {
     "X-ExeDev-UserID": "test-user",
@@ -30,24 +32,19 @@ HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-async def db():
-    """Live connection wrapped in a rolled-back transaction."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
-        yield conn
-        await tr.rollback()
-    finally:
-        await conn.close()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def org_id(db):
     """Insert a minimal org with a canonical name; return its id."""
     oid = generate_id()
@@ -62,7 +59,7 @@ async def org_id(db):
     return oid
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def client(db):
     """AsyncClient with app, overriding get_db to use the test connection."""
 
@@ -70,9 +67,7 @@ async def client(db):
         yield db
 
     app.dependency_overrides[get_db] = _get_db_override
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.pop(get_db, None)
 
@@ -132,17 +127,13 @@ async def test_active_post_non_htmx_redirects(client, org_id):
 
 
 async def test_notes_get_returns_partial(client, org_id):
-    r = await client.get(
-        f"/admin/orgs/{org_id}/inline/notes/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/orgs/{org_id}/inline/notes/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"notes-field" in r.content
 
 
 async def test_notes_edit_get_returns_form(client, org_id):
-    r = await client.get(
-        f"/admin/orgs/{org_id}/inline/notes/edit/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/orgs/{org_id}/inline/notes/edit/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"notes-textarea" in r.content
 
@@ -182,21 +173,15 @@ async def test_notes_post_returns_read_partial(client, org_id):
 
 
 async def test_notes_read_hides_edit_when_archived(client, org_id, db):
-    await db.execute(
-        "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_id
-    )
-    r = await client.get(
-        f"/admin/orgs/{org_id}/inline/notes/", headers=HTMX_HEADERS
-    )
+    await db.execute("UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_id)
+    r = await client.get(f"/admin/orgs/{org_id}/inline/notes/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"notes-field" in r.content
     assert b"inline/notes/edit/" not in r.content
 
 
 async def test_notes_read_shows_edit_when_not_archived(client, org_id):
-    r = await client.get(
-        f"/admin/orgs/{org_id}/inline/notes/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/orgs/{org_id}/inline/notes/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"inline/notes/edit/" in r.content
 
@@ -289,9 +274,7 @@ async def test_parent_post_set_returns_success_flash(client, org_id, db):
 async def test_parent_post_clear_returns_info_flash(client, org_id, db):
     parent_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", parent_id)
-    await db.execute(
-        "UPDATE organizations SET parent_id=$1 WHERE id=$2", parent_id, org_id
-    )
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", parent_id, org_id)
     r = await client.post(
         f"/admin/orgs/{org_id}/inline/parent/",
         data={"parent_id": ""},
@@ -333,9 +316,7 @@ async def test_children_search_returns_matching_org(client, org_id, db):
 
 async def test_children_search_excludes_existing_child(client, org_id, db):
     child_id = await _make_org(db, "Already Child")
-    await db.execute(
-        "UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, child_id
-    )
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, child_id)
     r = await client.get(
         f"/admin/orgs/{org_id}/children/search/",
         params={"q": "Already"},

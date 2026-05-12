@@ -140,9 +140,7 @@ def make_links_router(
             request,
             tmpl_read_row,
             _ctx(entity_id, l=row),
-            headers=flash_trigger(
-                "success", f"Link <strong>{escape(url.strip())}</strong> added."
-            ),
+            headers=flash_trigger("success", f"Link <strong>{escape(url.strip())}</strong> added."),
         )
 
     @router.get("/{link_id}/read-row/")
@@ -155,9 +153,7 @@ def make_links_router(
     ):
         """Return read-only link row (used by Cancel on edit form)."""
         row = await _get_link_or_404(link_id, entity_id, db)
-        return templates.TemplateResponse(
-            request, tmpl_read_row, _ctx(entity_id, l=row)
-        )
+        return templates.TemplateResponse(request, tmpl_read_row, _ctx(entity_id, l=row))
 
     @router.get("/{link_id}/edit-row/")
     async def link_edit_row_get(
@@ -218,9 +214,7 @@ def make_links_router(
             request,
             tmpl_read_row,
             _ctx(entity_id, l=row),
-            headers=flash_trigger(
-                "success", f"Link <strong>{escape(url.strip())}</strong> saved."
-            ),
+            headers=flash_trigger("success", f"Link <strong>{escape(url.strip())}</strong> saved."),
         )
 
     @router.delete("/{link_id}/")

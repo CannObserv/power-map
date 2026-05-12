@@ -18,6 +18,7 @@ from src.core.normalizers.address import (
 # LocalAddressNormalizer
 # ---------------------------------------------------------------------------
 
+
 def test_local_null_like_skipped():
     n = LocalAddressNormalizer()
     r = n.normalize(None)
@@ -48,6 +49,7 @@ def test_local_ambiguous_stores_raw_only():
 # ---------------------------------------------------------------------------
 # ExternalAddressNormalizer
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def config():
@@ -141,6 +143,7 @@ async def test_external_429_retries_then_raises(external):
 # ---------------------------------------------------------------------------
 # FallbackAddressNormalizer
 # ---------------------------------------------------------------------------
+
 
 async def test_fallback_uses_external_on_success(config):
     n = FallbackAddressNormalizer(config)
@@ -239,6 +242,7 @@ async def test_external_validate_captures_lat_lng_and_components(external_valida
 # country param
 # ---------------------------------------------------------------------------
 
+
 def test_local_non_us_stores_raw_only():
     """Non-US country: no usaddress parsing, raw_input stored, country preserved."""
     n = LocalAddressNormalizer()
@@ -321,6 +325,7 @@ async def test_fallback_non_us_falls_back_to_local_raw_only(config):
 # get_address_normalizer singleton
 # ---------------------------------------------------------------------------
 
+
 def test_get_address_normalizer_returns_fallback_instance():
     """get_address_normalizer returns a FallbackAddressNormalizer."""
     _reset_normalizer()
@@ -342,6 +347,7 @@ def test_get_address_normalizer_without_api_key_has_no_config():
     with patch.dict("os.environ", {}, clear=True):
         # Ensure key absent
         import os
+
         os.environ.pop("ADDRESS_VALIDATOR_API_KEY", None)
         n = get_address_normalizer()
     assert n.config is None

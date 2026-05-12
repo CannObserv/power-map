@@ -219,8 +219,13 @@ async def ra_create(
             """INSERT INTO role_assignments
                (id, person_id, role_id, is_current, start_date, end_date, notes)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            ra_id, person_id, role_id, is_current_bool,
-            start_date_val, end_date_val, notes or None,
+            ra_id,
+            person_id,
+            role_id,
+            is_current_bool,
+            start_date_val,
+            end_date_val,
+            notes or None,
         )
     except asyncpg.exceptions.CheckViolationError:
         people = await _fetch_people(db)
@@ -321,7 +326,8 @@ async def ra_inline_is_current(
     try:
         updated = await db.fetchval(
             "UPDATE role_assignments SET is_current=$1 WHERE id=$2 RETURNING id",
-            new_val, ra_id,
+            new_val,
+            ra_id,
         )
     except asyncpg.exceptions.CheckViolationError as exc:
         if not is_htmx(request):
@@ -405,7 +411,9 @@ async def ra_inline_dates_post(
     try:
         updated = await db.fetchval(
             "UPDATE role_assignments SET start_date=$1, end_date=$2 WHERE id=$3 RETURNING id",
-            start_val, end_val, ra_id,
+            start_val,
+            end_val,
+            ra_id,
         )
     except asyncpg.exceptions.CheckViolationError as exc:
         if not is_htmx(request):
@@ -481,7 +489,8 @@ async def ra_inline_notes_post(
     """Save notes; return read partial."""
     updated = await db.fetchval(
         "UPDATE role_assignments SET notes=$1 WHERE id=$2 RETURNING id",
-        notes.strip() or None, ra_id,
+        notes.strip() or None,
+        ra_id,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Role assignment not found")
@@ -510,15 +519,11 @@ async def ra_archive(
         ra_id,
     )
     if updated:
-        return RedirectResponse(
-            f"/admin/role-assignments/{ra_id}/?flash=archived", status_code=303
-        )
+        return RedirectResponse(f"/admin/role-assignments/{ra_id}/?flash=archived", status_code=303)
     exists = await db.fetchval("SELECT 1 FROM role_assignments WHERE id = $1", ra_id)
     if not exists:
         raise HTTPException(status_code=404, detail="Role assignment not found")
-    raise HTTPException(
-        status_code=409, detail="Role assignment is already archived"
-    )
+    raise HTTPException(status_code=409, detail="Role assignment is already archived")
 
 
 @router.post("/{ra_id}/unarchive/")
@@ -528,19 +533,13 @@ async def ra_unarchive(
     db=Depends(get_db),
 ):
     """Restore an archived role assignment. Returns 409 if not archived."""
-    ra = await db.fetchrow(
-        "SELECT id, archived_at FROM role_assignments WHERE id = $1", ra_id
-    )
+    ra = await db.fetchrow("SELECT id, archived_at FROM role_assignments WHERE id = $1", ra_id)
     if not ra:
         raise HTTPException(status_code=404, detail="Role assignment not found")
     if not ra["archived_at"]:
         raise HTTPException(status_code=409, detail="Role assignment is not archived")
-    await db.execute(
-        "UPDATE role_assignments SET archived_at = NULL WHERE id = $1", ra_id
-    )
-    return RedirectResponse(
-        f"/admin/role-assignments/{ra_id}/?flash=unarchived", status_code=303
-    )
+    await db.execute("UPDATE role_assignments SET archived_at = NULL WHERE id = $1", ra_id)
+    return RedirectResponse(f"/admin/role-assignments/{ra_id}/?flash=unarchived", status_code=303)
 
 
 @router.delete("/{ra_id}/")
@@ -552,9 +551,7 @@ async def ra_delete(
 ):
     """Hard delete an archived role assignment."""
 
-    ra = await db.fetchrow(
-        "SELECT id, archived_at FROM role_assignments WHERE id = $1", ra_id
-    )
+    ra = await db.fetchrow("SELECT id, archived_at FROM role_assignments WHERE id = $1", ra_id)
     if not ra:
         raise HTTPException(status_code=404, detail="Role assignment not found")
     if not ra["archived_at"]:

@@ -23,12 +23,8 @@ async def require_api_key(
     if raw_key is None:
         raise HTTPException(status_code=403, detail="Not authenticated")
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-    row = await db.fetchrow(
-        "SELECT id, user_id FROM api_keys WHERE key_hash = $1", key_hash
-    )
+    row = await db.fetchrow("SELECT id, user_id FROM api_keys WHERE key_hash = $1", key_hash)
     if not row:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    await db.execute(
-        "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"]
-    )
+    await db.execute("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"])
     return row["user_id"]

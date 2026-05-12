@@ -6,17 +6,19 @@ Run with:
 """
 
 import json
-import os
 
-import asyncpg
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from src.api.admin.deps import get_db
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 AUTH_HEADERS = {
     "X-ExeDev-UserID": "test-user",
@@ -29,24 +31,19 @@ AUTH_HEADERS = {
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-async def db():
-    """Live connection wrapped in a rolled-back transaction."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
-        yield conn
-        await tr.rollback()
-    finally:
-        await conn.close()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def org_id(db):
     """Insert a minimal org with a canonical name; return its id."""
     oid = generate_id()
@@ -61,7 +58,7 @@ async def org_id(db):
     return oid
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def client(db):
     """AsyncClient with the app, overriding get_db to use the test connection."""
 
@@ -69,9 +66,7 @@ async def client(db):
         yield db
 
     app.dependency_overrides[get_db] = _get_db_override
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.pop(get_db, None)
 
@@ -82,9 +77,7 @@ async def client(db):
 
 
 async def test_acronym_new_row_returns_form(client, org_id):
-    r = await client.get(
-        f"/admin/orgs/{org_id}/acronyms/new-row/", headers=AUTH_HEADERS
-    )
+    r = await client.get(f"/admin/orgs/{org_id}/acronyms/new-row/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert b"acronym" in r.content.lower()
 
@@ -97,9 +90,7 @@ async def test_acronym_create(client, org_id, db):
     )
     assert r.status_code == 200
     assert b"TABC" in r.content
-    row = await db.fetchrow(
-        "SELECT * FROM organization_acronyms WHERE organization_id=$1", org_id
-    )
+    row = await db.fetchrow("SELECT * FROM organization_acronyms WHERE organization_id=$1", org_id)
     assert row is not None
     assert row["acronym"] == "TABC"
     assert row["is_canonical"] is True
@@ -114,9 +105,7 @@ async def test_acronym_read_row(client, org_id, db):
         org_id,
         "ALT",
     )
-    r = await client.get(
-        f"/admin/orgs/{org_id}/acronyms/{aid}/read-row/", headers=AUTH_HEADERS
-    )
+    r = await client.get(f"/admin/orgs/{org_id}/acronyms/{aid}/read-row/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert b"ALT" in r.content
 
@@ -130,9 +119,7 @@ async def test_acronym_edit_row_get(client, org_id, db):
         org_id,
         "ALT",
     )
-    r = await client.get(
-        f"/admin/orgs/{org_id}/acronyms/{aid}/edit-row/", headers=AUTH_HEADERS
-    )
+    r = await client.get(f"/admin/orgs/{org_id}/acronyms/{aid}/edit-row/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert b"ALT" in r.content
 
@@ -153,9 +140,7 @@ async def test_acronym_edit_row_post(client, org_id, db):
     )
     assert r.status_code == 200
     assert b"NEW" in r.content
-    row = await db.fetchrow(
-        "SELECT acronym FROM organization_acronyms WHERE id=$1", aid
-    )
+    row = await db.fetchrow("SELECT acronym FROM organization_acronyms WHERE id=$1", aid)
     assert row["acronym"] == "NEW"
 
 
@@ -173,16 +158,12 @@ async def test_acronym_delete(client, org_id, db):
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )
     assert r.status_code == 200
-    row = await db.fetchrow(
-        "SELECT id FROM organization_acronyms WHERE id=$1", aid
-    )
+    row = await db.fetchrow("SELECT id FROM organization_acronyms WHERE id=$1", aid)
     assert row is None
 
 
 async def test_acronym_404_on_unknown_org(client):
-    r = await client.get(
-        "/admin/orgs/NONEXISTENT/acronyms/new-row/", headers=AUTH_HEADERS
-    )
+    r = await client.get("/admin/orgs/NONEXISTENT/acronyms/new-row/", headers=AUTH_HEADERS)
     assert r.status_code == 404
 
 
@@ -269,16 +250,12 @@ async def test_acronym_edit_returns_tbody(client, org_id, db):
 
 
 async def test_acronym_redirects_without_auth(client, org_id):
-    r = await client.get(
-        f"/admin/orgs/{org_id}/acronyms/new-row/", follow_redirects=False
-    )
+    r = await client.get(f"/admin/orgs/{org_id}/acronyms/new-row/", follow_redirects=False)
     assert r.status_code == 307
 
 
 async def test_acronym_form_row_canonical_toggle_has_aria_label(client, org_id):
-    r = await client.get(
-        f"/admin/orgs/{org_id}/acronyms/new-row/", headers=AUTH_HEADERS
-    )
+    r = await client.get(f"/admin/orgs/{org_id}/acronyms/new-row/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert b'aria-label="Canonical"' in r.content
 
@@ -352,9 +329,7 @@ async def test_acronym_delete_promotes_sole_remaining_non_canonical(client, org_
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )
     assert r.status_code == 200
-    row = await db.fetchrow(
-        "SELECT is_canonical FROM organization_acronyms WHERE id=$1", other_id
-    )
+    row = await db.fetchrow("SELECT is_canonical FROM organization_acronyms WHERE id=$1", other_id)
     assert row["is_canonical"] is True, "sole remaining acronym must be auto-promoted"
 
 
@@ -373,9 +348,7 @@ async def test_acronym_edit_sole_non_canonical_auto_promotes(client, org_id, db)
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )
     assert r.status_code == 200
-    row = await db.fetchrow(
-        "SELECT is_canonical FROM organization_acronyms WHERE id=$1", aid
-    )
+    row = await db.fetchrow("SELECT is_canonical FROM organization_acronyms WHERE id=$1", aid)
     assert row["is_canonical"] is True, "sole acronym must remain canonical after edit"
 
 
@@ -404,9 +377,7 @@ async def test_acronym_delete_last_acronym_blocked_when_no_canonical_name(client
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "error"
-    row = await db.fetchrow(
-        "SELECT id FROM organization_acronyms WHERE id=$1", aid
-    )
+    row = await db.fetchrow("SELECT id FROM organization_acronyms WHERE id=$1", aid)
     assert row is not None, "acronym must not be deleted"
 
 
@@ -426,9 +397,7 @@ async def test_acronym_delete_last_acronym_allowed_when_canonical_name_exists(cl
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "info"
-    row = await db.fetchrow(
-        "SELECT id FROM organization_acronyms WHERE id=$1", aid
-    )
+    row = await db.fetchrow("SELECT id FROM organization_acronyms WHERE id=$1", aid)
     assert row is None, "acronym must be deleted"
 
 

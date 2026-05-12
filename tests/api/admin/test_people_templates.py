@@ -1,4 +1,5 @@
 """Static assertions for people list template correctness."""
+
 from pathlib import Path
 
 REGION_HTML = Path("src/templates/admin/people/_region.html").read_text()

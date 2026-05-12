@@ -6,12 +6,8 @@ dep group or `TEST_DATABASE_URL` is missing.
 Run via `uv run --group seed pytest tests/scripts/test_seed_locales_scripts_integration.py`.
 """
 
-import os
-
-import asyncpg
 import pytest
-
-from src.core.db import apply_schema
+import pytest_asyncio
 
 pytest.importorskip("langcodes")
 pytest.importorskip("pycountry")
@@ -21,25 +17,21 @@ from scripts.seed_locales_scripts import (  # noqa: E402
     upsert_scripts,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 
-@pytest.fixture
-async def db():
-    dsn = os.environ.get("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
         try:
             yield conn
         finally:
             await tr.rollback()
-    finally:
-        await conn.close()
 
 
 # `test-` prefix avoids any real BCP 47 tag emitted by langcodes; safe in
@@ -84,9 +76,7 @@ async def test_upsert_locales_inserts_new_rows(db):
 async def test_upsert_locales_is_idempotent(db):
     await upsert_locales(db, iter(_LOC_ROWS))
     await upsert_locales(db, iter(_LOC_ROWS))
-    n = await db.fetchval(
-        "SELECT COUNT(*) FROM bcp47_locales WHERE code LIKE 'test-%'"
-    )
+    n = await db.fetchval("SELECT COUNT(*) FROM bcp47_locales WHERE code LIKE 'test-%'")
     assert n == 2
 
 
@@ -94,9 +84,7 @@ async def test_upsert_locales_updates_existing_rows(db):
     await upsert_locales(db, iter(_LOC_ROWS))
     revised = [{**_LOC_ROWS[0], "display_name": "Test (Alpha, revised)"}]
     await upsert_locales(db, iter(revised))
-    name = await db.fetchval(
-        "SELECT display_name FROM bcp47_locales WHERE code = 'test-AA'"
-    )
+    name = await db.fetchval("SELECT display_name FROM bcp47_locales WHERE code = 'test-AA'")
     assert name == "Test (Alpha, revised)"
 
 
@@ -131,9 +119,7 @@ async def test_upsert_scripts_updates_existing_rows(db):
     await upsert_scripts(db, iter(_SCR_ROWS))
     revised = [{**_SCR_ROWS[0], "name": "Test One (revised)"}]
     await upsert_scripts(db, iter(revised))
-    name = await db.fetchval(
-        "SELECT name FROM iso15924_scripts WHERE code = 'Tst1'"
-    )
+    name = await db.fetchval("SELECT name FROM iso15924_scripts WHERE code = 'Tst1'")
     assert name == "Test One (revised)"
 
 

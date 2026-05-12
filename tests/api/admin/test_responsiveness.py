@@ -1,4 +1,5 @@
 """CSS content assertions for responsiveness fixes (issue #22)."""
+
 import re
 from pathlib import Path
 
@@ -6,6 +7,7 @@ CSS = Path("src/static/admin/admin.css").read_text()
 
 
 # ── Task 1: Touch targets ────────────────────────────────────────────────────
+
 
 def test_btn_has_min_height_44():
     """All .btn elements must meet 44 px touch target height."""
@@ -85,6 +87,7 @@ def test_checkbox_label_touch_target_css_exists():
 
 # ── Task 2: Sticky thead ─────────────────────────────────────────────────────
 
+
 def test_data_table_thead_th_is_sticky():
     """thead th must be position:sticky so headers stay visible on scroll."""
     match = re.search(r"\.data-table\s+thead\s+th\s*\{[^}]*position:\s*sticky", CSS)
@@ -109,6 +112,7 @@ def test_data_table_thead_th_has_shadow():
 
 
 # ── Task 3: detail-grid ──────────────────────────────────────────────────────
+
 
 def test_detail_grid_uses_css_grid():
     """detail-grid must use CSS grid — currently has no CSS at all."""
@@ -142,6 +146,7 @@ def test_entity_section_has_margin_top():
 
 
 # ── Task 4: Mobile audit ─────────────────────────────────────────────────────
+
 
 def test_admin_main_has_reduced_padding_on_mobile():
     """admin-main padding should be reduced inside the 768px media block."""

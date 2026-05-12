@@ -1,27 +1,21 @@
 """Integration tests for org addresses CRUD."""
 
-import asyncio
 import json
-import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
-
-
-def _dsn():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    return dsn
 
 
 @pytest.fixture
@@ -30,56 +24,44 @@ def client():
         yield c
 
 
-@pytest.fixture
-def org_and_address():
-    dsn = _dsn()
+@pytest_asyncio.fixture(loop_scope="session")
+async def org_and_address(db_pool):
     oid = generate_id()
-    aid = generate_id()   # addresses.id
+    aid = generate_id()  # addresses.id
     eaid = generate_id()  # entity_addresses.id
 
-    async def setup():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-            await conn.execute(
-                "INSERT INTO addresses (id, address_line_1, city, region, postal_code, country)"
-                " VALUES ($1, '123 Main St', 'Olympia', 'WA', '98501', 'US')",
-                aid,
-            )
-            await conn.execute(
-                "INSERT INTO entity_addresses"
-                " (id, entity_type, entity_id, address_id, address_type)"
-                " VALUES ($1, 'organization', $2, $3, 'mailing')",
-                eaid,
-                oid,
-                aid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await conn.execute(
+            "INSERT INTO addresses (id, address_line_1, city, region, postal_code, country)"
+            " VALUES ($1, '123 Main St', 'Olympia', 'WA', '98501', 'US')",
+            aid,
+        )
+        await conn.execute(
+            "INSERT INTO entity_addresses"
+            " (id, entity_type, entity_id, address_id, address_type)"
+            " VALUES ($1, 'organization', $2, $3, 'mailing')",
+            eaid,
+            oid,
+            aid,
+        )
 
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute("DELETE FROM entity_addresses WHERE entity_id=$1", oid)
-            await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
-            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     yield oid, eaid
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM entity_addresses WHERE entity_id=$1", oid)
+        await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
+        await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
 
 
-def test_addresses_new_row_returns_form(client, org_and_address):
+async def test_addresses_new_row_returns_form(client, org_and_address):
     oid, _ = org_and_address
     r = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<form" in r.text
 
 
-def test_addresses_create(client, org_and_address):
+async def test_addresses_create(client, org_and_address):
     oid, _ = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
@@ -96,7 +78,7 @@ def test_addresses_create(client, org_and_address):
     assert "456 Oak Ave" in r.text
 
 
-def test_addresses_read_row_returns_row(client, org_and_address):
+async def test_addresses_read_row_returns_row(client, org_and_address):
     oid, eaid = org_and_address
     r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/read-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
@@ -104,41 +86,29 @@ def test_addresses_read_row_returns_row(client, org_and_address):
     assert "<form" not in r.text
 
 
-def test_addresses_delete_also_removes_address_row(client, org_and_address):
-    dsn = _dsn()
+async def test_addresses_delete_also_removes_address_row(client, org_and_address, db_pool):
     oid, eaid = org_and_address
 
-    async def get_address_id():
-        conn = await asyncpg.connect(dsn)
-        try:
-            return await conn.fetchval(
-                "SELECT address_id FROM entity_addresses WHERE id=$1", eaid
-            )
-        finally:
-            await conn.close()
-
-    async def address_exists(aid):
-        conn = await asyncpg.connect(dsn)
-        try:
-            return await conn.fetchval("SELECT id FROM addresses WHERE id=$1", aid)
-        finally:
-            await conn.close()
-
-    aid = asyncio.run(get_address_id())
+    async with db_pool.acquire() as conn:
+        aid = await conn.fetchval("SELECT address_id FROM entity_addresses WHERE id=$1", eaid)
     assert aid is not None
+
     r = client.delete(f"/admin/orgs/{oid}/addresses/{eaid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert asyncio.run(address_exists(aid)) is None
+
+    async with db_pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT id FROM addresses WHERE id=$1", aid)
+    assert exists is None
 
 
-def test_addresses_edit_row_returns_form(client, org_and_address):
+async def test_addresses_edit_row_returns_form(client, org_and_address):
     oid, eaid = org_and_address
     r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "123 Main St" in r.text and "<form" in r.text
 
 
-def test_addresses_update(client, org_and_address):
+async def test_addresses_update(client, org_and_address):
     oid, eaid = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
@@ -155,52 +125,62 @@ def test_addresses_update(client, org_and_address):
     assert "789 Pine Rd" in r.text
 
 
-def test_addresses_delete(client, org_and_address):
+async def test_addresses_delete(client, org_and_address):
     oid, eaid = org_and_address
     r = client.delete(f"/admin/orgs/{oid}/addresses/{eaid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
 
 
-def test_addresses_delete_unknown_returns_404(client, org_and_address):
+async def test_addresses_delete_unknown_returns_404(client, org_and_address):
     oid, _ = org_and_address
     r = client.delete(f"/admin/orgs/{oid}/addresses/{generate_id()}/", headers=HTMX_HEADERS)
     assert r.status_code == 404
 
 
-def test_address_form_row_has_form_group(client, org_and_address):
+async def test_address_form_row_has_form_group(client, org_and_address):
     oid, _ = org_and_address
     r = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "form-group" in r.text
 
 
-def test_addresses_create_returns_success_flash(client, org_and_address):
+async def test_addresses_create_returns_success_flash(client, org_and_address):
     oid, _ = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
-        data={"address_line_1": "1 Flash St", "city": "Seattle", "region": "WA",
-              "postal_code": "98101", "address_type": "physical"},
+        data={
+            "address_line_1": "1 Flash St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "physical",
+        },
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
 
 
-def test_addresses_update_returns_success_flash(client, org_and_address):
+async def test_addresses_update_returns_success_flash(client, org_and_address):
     oid, eaid = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
         headers=HTMX_HEADERS,
-        data={"address_line_1": "999 Flash Ave", "city": "Olympia", "region": "WA",
-              "postal_code": "98501", "address_type": "mailing"},
+        data={
+            "address_line_1": "999 Flash Ave",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+        },
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
 
 
-def test_addresses_delete_returns_info_flash(client, org_and_address):
+async def test_addresses_delete_returns_info_flash(client, org_and_address):
     oid, eaid = org_and_address
     r = client.delete(f"/admin/orgs/{oid}/addresses/{eaid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
@@ -208,33 +188,45 @@ def test_addresses_delete_returns_info_flash(client, org_and_address):
     assert trigger["showFlash"]["level"] == "info"
 
 
-def test_address_create_blank_returns_form_with_error(client, org_and_address):
+async def test_address_create_blank_returns_form_with_error(client, org_and_address):
     oid, _ = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
-        data={"address_line_1": "", "city": "", "region": "", "postal_code": "",
-              "address_type": "mailing"},
+        data={
+            "address_line_1": "",
+            "city": "",
+            "region": "",
+            "postal_code": "",
+            "address_type": "mailing",
+        },
     )
     assert r.status_code == 200
     assert "<form" in r.text
     assert "required" in r.text.lower()
 
 
-def test_address_edit_blank_returns_form_with_error(client, org_and_address):
+async def test_address_edit_blank_returns_form_with_error(client, org_and_address):
     oid, eaid = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
         headers=HTMX_HEADERS,
-        data={"address_line_1": "", "city": "", "region": "", "postal_code": "",
-              "address_type": "mailing"},
+        data={
+            "address_line_1": "",
+            "city": "",
+            "region": "",
+            "postal_code": "",
+            "address_type": "mailing",
+        },
     )
     assert r.status_code == 200
     assert "<form" in r.text
     assert "required" in r.text.lower()
 
 
-def test_address_create_mode_save_invalid_lat_returns_form_with_error(client, org_and_address):
+async def test_address_create_mode_save_invalid_lat_returns_form_with_error(
+    client, org_and_address
+):
     oid, _ = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
@@ -254,7 +246,7 @@ def test_address_create_mode_save_invalid_lat_returns_form_with_error(client, or
     assert "Invalid address data" in r.text
 
 
-def test_address_edit_mode_save_invalid_components_returns_form_with_error(
+async def test_address_edit_mode_save_invalid_components_returns_form_with_error(
     client, org_and_address
 ):
     oid, eaid = org_and_address
@@ -276,7 +268,7 @@ def test_address_edit_mode_save_invalid_components_returns_form_with_error(
     assert "Invalid address data" in r.text
 
 
-def test_address_create_mode_save_stores_standardized(client, org_and_address):
+async def test_address_create_mode_save_stores_standardized(client, org_and_address):
     oid, _ = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
@@ -299,7 +291,7 @@ def test_address_create_mode_save_stores_standardized(client, org_and_address):
     assert "<form" not in r.text
 
 
-def test_address_edit_mode_save_stores_standardized(client, org_and_address):
+async def test_address_edit_mode_save_stores_standardized(client, org_and_address):
     oid, eaid = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
@@ -319,7 +311,7 @@ def test_address_edit_mode_save_stores_standardized(client, org_and_address):
     assert "<form" not in r.text
 
 
-def test_address_create_mode_edit_returns_prefilled_form(client, org_and_address):
+async def test_address_create_mode_edit_returns_prefilled_form(client, org_and_address):
     oid, _ = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
@@ -339,24 +331,26 @@ def test_address_create_mode_edit_returns_prefilled_form(client, org_and_address
 
 
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
-def test_address_create_confirm_shows_confirm_modal(mock_normalizer, client, org_and_address):
+async def test_address_create_confirm_shows_confirm_modal(mock_normalizer, client, org_and_address):
     oid, _ = org_and_address
-    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
-        skipped=False,
-        value={
-            "address_line_1": "123 MAIN ST",
-            "address_line_2": None,
-            "city": "SEATTLE",
-            "region": "WA",
-            "postal_code": "98101",
-            "country": "US",
-            "standardized": "123 MAIN ST SEATTLE WA 98101",
-            "latitude": None,
-            "longitude": None,
-            "components": None,
-        },
-        validation_detail=None,
-    ))
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "123 MAIN ST",
+                "address_line_2": None,
+                "city": "SEATTLE",
+                "region": "WA",
+                "postal_code": "98101",
+                "country": "US",
+                "standardized": "123 MAIN ST SEATTLE WA 98101",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -377,18 +371,28 @@ def test_address_create_confirm_shows_confirm_modal(mock_normalizer, client, org
 
 
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
-def test_address_create_confirm_saves_directly_when_no_standardized(
+async def test_address_create_confirm_saves_directly_when_no_standardized(
     mock_normalizer, client, org_and_address
 ):
     oid, _ = org_and_address
-    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
-        skipped=False,
-        value={"standardized": None, "address_line_1": "123 Main St",
-               "city": "Seattle", "region": "WA", "postal_code": "98101",
-               "country": "US", "address_line_2": None,
-               "latitude": None, "longitude": None, "components": None},
-        validation_detail=None,
-    ))
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "standardized": None,
+                "address_line_1": "123 Main St",
+                "city": "Seattle",
+                "region": "WA",
+                "postal_code": "98101",
+                "country": "US",
+                "address_line_2": None,
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -406,24 +410,30 @@ def test_address_create_confirm_saves_directly_when_no_standardized(
 
 
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
-def test_address_confirm_shows_validation_status(mock_normalizer, client, org_and_address):
+async def test_address_confirm_shows_validation_status(mock_normalizer, client, org_and_address):
     oid, _ = org_and_address
-    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
-        skipped=False,
-        value={
-            "address_line_1": "123 MAIN ST",
-            "address_line_2": None,
-            "city": "SEATTLE",
-            "region": "WA",
-            "postal_code": "98101",
-            "country": "US",
-            "standardized": "123 MAIN ST SEATTLE WA 98101",
-            "latitude": 47.6062,
-            "longitude": -122.3321,
-            "components": None,
-        },
-        validation_detail={"status": "confirmed", "dpv_match_code": "Y", "provider": "usps"},
-    ))
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "123 MAIN ST",
+                "address_line_2": None,
+                "city": "SEATTLE",
+                "region": "WA",
+                "postal_code": "98101",
+                "country": "US",
+                "standardized": "123 MAIN ST SEATTLE WA 98101",
+                "latitude": 47.6062,
+                "longitude": -122.3321,
+                "components": None,
+            },
+            validation_detail={
+                "status": "confirmed",
+                "dpv_match_code": "Y",
+                "provider": "usps",
+            },
+        )
+    )
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -442,24 +452,26 @@ def test_address_confirm_shows_validation_status(mock_normalizer, client, org_an
 
 
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
-def test_address_edit_confirm_shows_confirm_modal(mock_normalizer, client, org_and_address):
+async def test_address_edit_confirm_shows_confirm_modal(mock_normalizer, client, org_and_address):
     oid, eaid = org_and_address
-    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
-        skipped=False,
-        value={
-            "address_line_1": "123 MAIN ST",
-            "address_line_2": None,
-            "city": "OLYMPIA",
-            "region": "WA",
-            "postal_code": "98501",
-            "country": "US",
-            "standardized": "123 MAIN ST OLYMPIA WA 98501",
-            "latitude": None,
-            "longitude": None,
-            "components": None,
-        },
-        validation_detail=None,
-    ))
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "123 MAIN ST",
+                "address_line_2": None,
+                "city": "OLYMPIA",
+                "region": "WA",
+                "postal_code": "98501",
+                "country": "US",
+                "standardized": "123 MAIN ST OLYMPIA WA 98501",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
         headers=HTMX_HEADERS,
@@ -480,24 +492,26 @@ def test_address_edit_confirm_shows_confirm_modal(mock_normalizer, client, org_a
 
 
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
-def test_address_create_confirm_non_htmx_redirects(mock_normalizer, client, org_and_address):
+async def test_address_create_confirm_non_htmx_redirects(mock_normalizer, client, org_and_address):
     oid, _ = org_and_address
-    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
-        skipped=False,
-        value={
-            "address_line_1": "123 MAIN ST",
-            "address_line_2": None,
-            "city": "SEATTLE",
-            "region": "WA",
-            "postal_code": "98101",
-            "country": "US",
-            "standardized": "123 MAIN ST SEATTLE WA 98101",
-            "latitude": None,
-            "longitude": None,
-            "components": None,
-        },
-        validation_detail=None,
-    ))
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "123 MAIN ST",
+                "address_line_2": None,
+                "city": "SEATTLE",
+                "region": "WA",
+                "postal_code": "98101",
+                "country": "US",
+                "standardized": "123 MAIN ST SEATTLE WA 98101",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=AUTH_HEADERS,  # no HX-Request
@@ -515,24 +529,26 @@ def test_address_create_confirm_non_htmx_redirects(mock_normalizer, client, org_
 
 
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
-def test_address_edit_confirm_non_htmx_redirects(mock_normalizer, client, org_and_address):
+async def test_address_edit_confirm_non_htmx_redirects(mock_normalizer, client, org_and_address):
     oid, eaid = org_and_address
-    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
-        skipped=False,
-        value={
-            "address_line_1": "123 MAIN ST",
-            "address_line_2": None,
-            "city": "OLYMPIA",
-            "region": "WA",
-            "postal_code": "98501",
-            "country": "US",
-            "standardized": "123 MAIN ST OLYMPIA WA 98501",
-            "latitude": None,
-            "longitude": None,
-            "components": None,
-        },
-        validation_detail=None,
-    ))
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "123 MAIN ST",
+                "address_line_2": None,
+                "city": "OLYMPIA",
+                "region": "WA",
+                "postal_code": "98501",
+                "country": "US",
+                "standardized": "123 MAIN ST OLYMPIA WA 98501",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
         headers=AUTH_HEADERS,  # no HX-Request
@@ -550,28 +566,19 @@ def test_address_edit_confirm_non_htmx_redirects(mock_normalizer, client, org_an
 
 
 @pytest.mark.integration
-def test_addresses_table_has_normalizer_columns():
-    dsn = _dsn()
-
-    async def check():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await apply_schema(conn)
-            cols = await conn.fetch(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name='addresses' AND table_schema='public'"
-            )
-            return {r["column_name"] for r in cols}
-        finally:
-            await conn.close()
-
-    col_names = asyncio.run(check())
+async def test_addresses_table_has_normalizer_columns(db_pool):
+    async with db_pool.acquire() as conn:
+        cols = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='addresses' AND table_schema='public'"
+        )
+    col_names = {r["column_name"] for r in cols}
     assert "latitude" in col_names
     assert "longitude" in col_names
     assert "components" in col_names
 
 
-def test_address_create_persists_country(client, org_and_address):
+async def test_address_create_persists_country(client, org_and_address):
     oid, _ = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
@@ -591,7 +598,7 @@ def test_address_create_persists_country(client, org_and_address):
     assert "GB" in r.text
 
 
-def test_address_edit_persists_country(client, org_and_address):
+async def test_address_edit_persists_country(client, org_and_address):
     oid, eaid = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
@@ -609,49 +616,38 @@ def test_address_edit_persists_country(client, org_and_address):
     assert "GB" in r.text
 
 
-def test_address_read_row_returns_country(client, org_and_address):
+async def test_address_read_row_returns_country(client, org_and_address, db_pool):
     """After creating a GB address, read-row returns the country."""
-    dsn = _dsn()
     oid, _ = org_and_address
 
-    async def insert_gb_address():
-        conn = await asyncpg.connect(dsn)
-        try:
-            aid = generate_id()
-            eaid = generate_id()
-            await conn.execute(
-                "INSERT INTO addresses (id, address_line_1, city, postal_code, country)"
-                " VALUES ($1, '10 Downing St', 'London', 'SW1A 2AA', 'GB')",
-                aid,
-            )
-            await conn.execute(
-                "INSERT INTO entity_addresses"
-                " (id, entity_type, entity_id, address_id, address_type)"
-                " VALUES ($1, 'organization', $2, $3, 'physical')",
-                eaid, oid, aid,
-            )
-            return eaid, aid
-        finally:
-            await conn.close()
+    aid = generate_id()
+    eaid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO addresses (id, address_line_1, city, postal_code, country)"
+            " VALUES ($1, '10 Downing St', 'London', 'SW1A 2AA', 'GB')",
+            aid,
+        )
+        await conn.execute(
+            "INSERT INTO entity_addresses"
+            " (id, entity_type, entity_id, address_id, address_type)"
+            " VALUES ($1, 'organization', $2, $3, 'physical')",
+            eaid,
+            oid,
+            aid,
+        )
 
-    async def cleanup(aid, eaid):
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute("DELETE FROM entity_addresses WHERE id=$1", eaid)
-            await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
-        finally:
-            await conn.close()
-
-    eaid, aid = asyncio.run(insert_gb_address())
     try:
         r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/read-row/", headers=HTMX_HEADERS)
         assert r.status_code == 200
         assert "GB" in r.text
     finally:
-        asyncio.run(cleanup(aid, eaid))
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM entity_addresses WHERE id=$1", eaid)
+            await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
 
 
-def test_address_us_country_not_shown_in_read_row(client, org_and_address):
+async def test_address_us_country_not_shown_in_read_row(client, org_and_address):
     """US country is implicit — not shown in the read row."""
     oid, eaid = org_and_address
     r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/read-row/", headers=HTMX_HEADERS)
@@ -661,25 +657,27 @@ def test_address_us_country_not_shown_in_read_row(client, org_and_address):
 
 @pytest.mark.integration
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
-def test_confirm_modal_keep_my_input_has_country(mock_normalizer, client, org_and_address):
+async def test_confirm_modal_keep_my_input_has_country(mock_normalizer, client, org_and_address):
     """Keep my input form must include country hidden field."""
     oid, _ = org_and_address
-    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
-        skipped=False,
-        value={
-            "address_line_1": "10 DOWNING ST",
-            "address_line_2": None,
-            "city": "LONDON",
-            "region": None,
-            "postal_code": "SW1A 2AA",
-            "country": "GB",
-            "standardized": "10 DOWNING ST LONDON SW1A 2AA",
-            "latitude": None,
-            "longitude": None,
-            "components": None,
-        },
-        validation_detail=None,
-    ))
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "10 DOWNING ST",
+                "address_line_2": None,
+                "city": "LONDON",
+                "region": None,
+                "postal_code": "SW1A 2AA",
+                "country": "GB",
+                "standardized": "10 DOWNING ST LONDON SW1A 2AA",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -699,26 +697,28 @@ def test_confirm_modal_keep_my_input_has_country(mock_normalizer, client, org_an
 
 @pytest.mark.integration
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
-def test_confirm_modal_shows_country_in_you_entered_when_non_us(
+async def test_confirm_modal_shows_country_in_you_entered_when_non_us(
     mock_normalizer, client, org_and_address
 ):
     oid, _ = org_and_address
-    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
-        skipped=False,
-        value={
-            "address_line_1": "10 DOWNING ST",
-            "address_line_2": None,
-            "city": "LONDON",
-            "region": None,
-            "postal_code": "SW1A 2AA",
-            "country": "GB",
-            "standardized": "10 DOWNING ST LONDON SW1A 2AA",
-            "latitude": None,
-            "longitude": None,
-            "components": None,
-        },
-        validation_detail=None,
-    ))
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "10 DOWNING ST",
+                "address_line_2": None,
+                "city": "LONDON",
+                "region": None,
+                "postal_code": "SW1A 2AA",
+                "country": "GB",
+                "standardized": "10 DOWNING ST LONDON SW1A 2AA",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -733,27 +733,29 @@ def test_confirm_modal_shows_country_in_you_entered_when_non_us(
     assert "GB" in r.text
 
 
-def test_address_form_row_has_country_field(client, org_and_address):
+async def test_address_form_row_has_country_field(client, org_and_address):
     oid, _ = org_and_address
     r = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert 'name="country"' in r.text
 
 
-def test_country_format_endpoint_returns_fields_partial(client, org_and_address):
+async def test_country_format_endpoint_returns_fields_partial(client, org_and_address):
     oid, _ = org_and_address
     with patch(
         "src.api.admin.orgs_addresses.get_country_format",
-        new=AsyncMock(return_value={
-            "country": "CA",
-            "fields": [
-                {"key": "address_line_1", "label": "Address line 1", "required": True},
-                {"key": "address_line_2", "label": "Apt/suite", "required": False},
-                {"key": "city", "label": "City", "required": True},
-                {"key": "region", "label": "Province", "required": True},
-                {"key": "postal_code", "label": "Postal code", "required": False},
-            ],
-        })
+        new=AsyncMock(
+            return_value={
+                "country": "CA",
+                "fields": [
+                    {"key": "address_line_1", "label": "Address line 1", "required": True},
+                    {"key": "address_line_2", "label": "Apt/suite", "required": False},
+                    {"key": "city", "label": "City", "required": True},
+                    {"key": "region", "label": "Province", "required": True},
+                    {"key": "postal_code", "label": "Postal code", "required": False},
+                ],
+            }
+        ),
     ):
         r = client.get(
             f"/admin/orgs/{oid}/addresses/country-format/?country=CA",
@@ -764,20 +766,22 @@ def test_country_format_endpoint_returns_fields_partial(client, org_and_address)
     assert "Postal code" in r.text
 
 
-def test_country_format_endpoint_us_returns_default_labels(client, org_and_address):
+async def test_country_format_endpoint_us_returns_default_labels(client, org_and_address):
     oid, _ = org_and_address
     with patch(
         "src.api.admin.orgs_addresses.get_country_format",
-        new=AsyncMock(return_value={
-            "country": "US",
-            "fields": [
-                {"key": "address_line_1", "label": "Address line 1", "required": True},
-                {"key": "address_line_2", "label": "Address line 2", "required": False},
-                {"key": "city", "label": "City", "required": True},
-                {"key": "region", "label": "State", "required": True},
-                {"key": "postal_code", "label": "ZIP code", "required": False},
-            ],
-        })
+        new=AsyncMock(
+            return_value={
+                "country": "US",
+                "fields": [
+                    {"key": "address_line_1", "label": "Address line 1", "required": True},
+                    {"key": "address_line_2", "label": "Address line 2", "required": False},
+                    {"key": "city", "label": "City", "required": True},
+                    {"key": "region", "label": "State", "required": True},
+                    {"key": "postal_code", "label": "ZIP code", "required": False},
+                ],
+            }
+        ),
     ):
         r = client.get(
             f"/admin/orgs/{oid}/addresses/country-format/?country=US",

@@ -1,26 +1,19 @@
 # tests/api/admin/test_orgs_inline.py
 """Integration tests for org inline editing (parent field)."""
 
-import asyncio
-import os
-
-import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
-
-
-def _dsn():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    return dsn
 
 
 @pytest.fixture
@@ -29,69 +22,39 @@ def client():
         yield c
 
 
-@pytest.fixture
-def org_id():
-    dsn = _dsn()
+@pytest_asyncio.fixture(loop_scope="session")
+async def org_id(db_pool):
     oid = generate_id()
 
-    async def setup():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-            await conn.execute(
-                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
-                " VALUES ($1, $2, 'Inline Test Org', TRUE)",
-                generate_id(),
-                oid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await conn.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Inline Test Org', TRUE)",
+            generate_id(),
+            oid,
+        )
 
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute(
-                "DELETE FROM organization_acronyms WHERE organization_id=$1", oid
-            )
-            await conn.execute(
-                "DELETE FROM organization_names WHERE organization_id=$1", oid
-            )
-            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     yield oid
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM organization_acronyms WHERE organization_id=$1", oid)
+        await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+        await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
 
 
-def test_parent_get_returns_partial(client, org_id):
+async def test_parent_get_returns_partial(client, org_id):
     r = client.get(f"/admin/orgs/{org_id}/inline/parent/", headers=HTMX_HEADERS)
     assert r.status_code == 200
 
 
-def test_parent_post_sets_parent(client, org_id):
+async def test_parent_post_sets_parent(client, org_id, db_pool):
     # Create a second org to be the parent
-    dsn = _dsn()
     parent_id = generate_id()
 
-    async def make_parent():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", parent_id)
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", parent_id)
 
-    async def drop_parent():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute("DELETE FROM organizations WHERE id=$1", parent_id)
-        finally:
-            await conn.close()
-
-    asyncio.run(make_parent())
     try:
         r = client.post(
             f"/admin/orgs/{org_id}/inline/parent/",
@@ -107,10 +70,11 @@ def test_parent_post_sets_parent(client, org_id):
             headers=HTMX_HEADERS,
             data={"parent_id": ""},
         )
-        asyncio.run(drop_parent())
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM organizations WHERE id=$1", parent_id)
 
 
-def test_parent_post_circular_returns_422(client, org_id):
+async def test_parent_post_circular_returns_422(client, org_id):
     r = client.post(
         f"/admin/orgs/{org_id}/inline/parent/",
         headers=HTMX_HEADERS,

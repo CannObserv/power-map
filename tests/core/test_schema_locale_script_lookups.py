@@ -1,34 +1,30 @@
 """Phase 2-prep: bcp47_locales + iso15924_scripts lookup tables."""
 
-import os
-
 import asyncpg
 import pytest
+import pytest_asyncio
 
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 
-@pytest.fixture
-async def db():
-    dsn = os.environ.get("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
         try:
             yield conn
         finally:
             await tr.rollback()
-    finally:
-        await conn.close()
 
 
 # --- Table existence + column shape ---
+
 
 async def test_bcp47_locales_table_exists(db):
     row = await db.fetchrow(
@@ -86,8 +82,7 @@ async def test_iso15924_scripts_numeric_code_unique(db):
     # ISO 15924 numeric codes are in the range 100..999; use 30000 to
     # guarantee no collision with seeded registry data.
     await db.execute(
-        "INSERT INTO iso15924_scripts (code, numeric_code, name) "
-        "VALUES ('Aaaa', 30000, 'Test')"
+        "INSERT INTO iso15924_scripts (code, numeric_code, name) VALUES ('Aaaa', 30000, 'Test')"
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
@@ -97,6 +92,7 @@ async def test_iso15924_scripts_numeric_code_unique(db):
 
 
 # --- pg_trgm GIN indexes for typeahead substring search ---
+
 
 @pytest.mark.parametrize(
     "table,column",
@@ -118,12 +114,14 @@ async def test_trgm_gin_index_exists(db, table, column):
           AND indexdef ILIKE '%gin_trgm_ops%'
           AND indexdef ILIKE '%' || $2 || '%'
         """,
-        table, column,
+        table,
+        column,
     )
     assert row is not None, f"missing pg_trgm GIN index on {table}({column})"
 
 
 # --- FK enforcement: person_names.locale / .script ---
+
 
 async def _person(conn) -> str:
     pid = generate_id()
@@ -140,9 +138,10 @@ async def test_person_names_locale_fk_rejects_unregistered(db):
     )
     with pytest.raises(asyncpg.ForeignKeyViolationError):
         await db.execute(
-            "INSERT INTO person_names (id, person_id, name, locale) "
-            "VALUES ($1, $2, $3, 'xx-XX')",
-            generate_id(), pid, "Test",
+            "INSERT INTO person_names (id, person_id, name, locale) VALUES ($1, $2, $3, 'xx-XX')",
+            generate_id(),
+            pid,
+            "Test",
         )
 
 
@@ -153,9 +152,10 @@ async def test_person_names_locale_fk_accepts_registered(db):
         "VALUES ('en-US', 'en', 'English (United States)') ON CONFLICT DO NOTHING"
     )
     await db.execute(
-        "INSERT INTO person_names (id, person_id, name, locale) "
-        "VALUES ($1, $2, $3, 'en-US')",
-        generate_id(), pid, "Test",
+        "INSERT INTO person_names (id, person_id, name, locale) VALUES ($1, $2, $3, 'en-US')",
+        generate_id(),
+        pid,
+        "Test",
     )
 
 
@@ -167,9 +167,10 @@ async def test_person_names_script_fk_rejects_unregistered(db):
     )
     with pytest.raises(asyncpg.ForeignKeyViolationError):
         await db.execute(
-            "INSERT INTO person_names (id, person_id, name, script) "
-            "VALUES ($1, $2, $3, 'Xxxx')",
-            generate_id(), pid, "Test",
+            "INSERT INTO person_names (id, person_id, name, script) VALUES ($1, $2, $3, 'Xxxx')",
+            generate_id(),
+            pid,
+            "Test",
         )
 
 
@@ -180,9 +181,10 @@ async def test_person_names_script_fk_accepts_registered(db):
         "VALUES ('Latn', 215, 'Latin') ON CONFLICT DO NOTHING"
     )
     await db.execute(
-        "INSERT INTO person_names (id, person_id, name, script) "
-        "VALUES ($1, $2, $3, 'Latn')",
-        generate_id(), pid, "Test",
+        "INSERT INTO person_names (id, person_id, name, script) VALUES ($1, $2, $3, 'Latn')",
+        generate_id(),
+        pid,
+        "Test",
     )
 
 
@@ -191,5 +193,7 @@ async def test_person_names_locale_null_still_allowed(db):
     pid = await _person(db)
     await db.execute(
         "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
-        generate_id(), pid, "Test",
+        generate_id(),
+        pid,
+        "Test",
     )

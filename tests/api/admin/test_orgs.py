@@ -1,34 +1,21 @@
 """Integration tests for admin organizations views."""
 
-import asyncio
-import os
-
-import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 AUTH_HEADERS = {
     "X-ExeDev-UserID": "usr_test",
     "X-ExeDev-Email": "admin@test.com",
 }
-
-
-def _get_dsn() -> str:
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    return dsn
-
-
-async def _aconnect(dsn: str) -> asyncpg.Connection:
-    conn = await asyncpg.connect(dsn)
-    await apply_schema(conn)
-    return conn
 
 
 @pytest.fixture
@@ -37,110 +24,89 @@ def client():
         yield c
 
 
-@pytest.fixture
-def org_id():
+@pytest_asyncio.fixture(loop_scope="session")
+async def org_id(db_pool):
     """Insert an org, yield its ID, then delete it."""
-    dsn = _get_dsn()
     oid = generate_id()
 
-    async def setup():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-            await conn.execute(
-                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
-                " VALUES ($1, $2, 'Test Org', TRUE)",
-                generate_id(), oid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await conn.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Test Org', TRUE)",
+            generate_id(),
+            oid,
+        )
 
-    async def teardown():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
-            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
-            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     yield oid
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
+        await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+        await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
 
 
-def test_orgs_list_returns_200(client):
+async def test_orgs_list_returns_200(client):
     response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "organizations" in response.text.lower()
 
 
-def test_orgs_list_redirects_unauthenticated(client):
+async def test_orgs_list_redirects_unauthenticated(client):
     response = client.get("/admin/orgs/", follow_redirects=False)
     assert response.status_code in (302, 307)
     assert "/__exe.dev/login" in response.headers["location"]
 
 
-def test_org_detail_returns_200(client, org_id):
+async def test_org_detail_returns_200(client, org_id):
     response = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Org" in response.text
 
 
-def test_org_detail_acronym_only_shows_acronym_in_heading(client):
+async def test_org_detail_acronym_only_shows_acronym_in_heading(client, db_pool):
     """Detail page for an org with only an acronym must show the acronym, not the raw ID."""
-    dsn = _get_dsn()
     oid = generate_id()
 
-    async def setup():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-            await conn.execute(
-                "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
-                " VALUES ($1, $2, 'ACRO', TRUE)",
-                generate_id(), oid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await conn.execute(
+            "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+            " VALUES ($1, $2, 'ACRO', TRUE)",
+            generate_id(),
+            oid,
+        )
 
-    async def teardown():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
-            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     try:
         response = client.get(f"/admin/orgs/{oid}/", headers=AUTH_HEADERS)
         assert response.status_code == 200
         assert 'id="page-heading"' in response.text, "h1 must have id=page-heading"
         assert "ACRO" in response.text, "h1 must show acronym"
     finally:
-        asyncio.run(teardown())
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
 
 
-def test_org_detail_404_for_unknown_id(client):
+async def test_org_detail_404_for_unknown_id(client):
     response = client.get(f"/admin/orgs/{generate_id()}/", headers=AUTH_HEADERS)
     assert response.status_code == 404
 
 
-def test_org_detail_has_email_and_phone_tables(client, org_id):
+async def test_org_detail_has_email_and_phone_tables(client, org_id):
     r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert 'id="emails-table"' in r.text
     assert 'id="phones-table"' in r.text
 
 
-def test_create_org_form_returns_200(client):
+async def test_create_org_form_returns_200(client):
     response = client.get("/admin/orgs/new/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "form" in response.text.lower()
 
 
-def test_create_org_post_redirects_on_success(client):
+async def test_create_org_post_redirects_on_success(client):
     response = client.post(
         "/admin/orgs/new/",
         headers=AUTH_HEADERS,
@@ -151,13 +117,13 @@ def test_create_org_post_redirects_on_success(client):
     assert "/admin/orgs/" in response.headers["location"]
 
 
-def test_edit_route_removed(client):
+async def test_edit_route_removed(client):
     """GET /edit/ must return 404 — route has been deleted."""
     r = client.get(f"/admin/orgs/{generate_id()}/edit/", headers=AUTH_HEADERS)
     assert r.status_code == 404
 
 
-def test_org_create_rejects_empty_name(client):
+async def test_org_create_rejects_empty_name(client):
     """POST /admin/orgs/new/ with empty name must be rejected (422)."""
     r = client.post(
         "/admin/orgs/new/",
@@ -168,7 +134,7 @@ def test_org_create_rejects_empty_name(client):
     assert r.status_code == 422
 
 
-def test_org_create_rejects_whitespace_only_name(client):
+async def test_org_create_rejects_whitespace_only_name(client):
     """POST /admin/orgs/new/ with whitespace-only name must be rejected (422)."""
     r = client.post(
         "/admin/orgs/new/",
@@ -179,7 +145,7 @@ def test_org_create_rejects_whitespace_only_name(client):
     assert r.status_code == 422
 
 
-def test_archive_org(client, org_id):
+async def test_archive_org(client, org_id):
     response = client.post(
         f"/admin/orgs/{org_id}/archive/",
         headers=AUTH_HEADERS,
@@ -188,20 +154,11 @@ def test_archive_org(client, org_id):
     assert response.status_code in (302, 303)
 
 
-def test_archive_already_archived_org_returns_409(client, org_id):
+async def test_archive_already_archived_org_returns_409(client, org_id, db_pool):
     """Re-archiving an already-archived org is rejected with 409."""
-    dsn = _get_dsn()
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
 
-    async def archive():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute(
-                "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(archive())
     response = client.post(
         f"/admin/orgs/{org_id}/archive/",
         headers=AUTH_HEADERS,
@@ -211,7 +168,7 @@ def test_archive_already_archived_org_returns_409(client, org_id):
     assert response.json()["detail"] == "Organization is already archived"
 
 
-def test_archive_org_redirects_with_flash_query(client, org_id):
+async def test_archive_org_redirects_with_flash_query(client, org_id):
     """Archive redirects to detail with ?flash=archived."""
     response = client.post(
         f"/admin/orgs/{org_id}/archive/",
@@ -222,7 +179,7 @@ def test_archive_org_redirects_with_flash_query(client, org_id):
     assert response.headers["location"] == f"/admin/orgs/{org_id}/?flash=archived"
 
 
-def test_archived_flash_renders_on_org_detail(client, org_id):
+async def test_archived_flash_renders_on_org_detail(client, org_id):
     """Org detail with ?flash=archived renders the success flash."""
     response = client.get(f"/admin/orgs/{org_id}/?flash=archived", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -232,20 +189,13 @@ def test_archived_flash_renders_on_org_detail(client, org_id):
     assert "flash" not in response.headers["HX-Replace-Url"]
 
 
-def test_unarchive_org_clears_archived_at(client, org_id):
-    dsn = _get_dsn()
+async def test_unarchive_org_clears_archived_at(client, org_id, db_pool):
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE organizations SET archived_at = NOW(), active = FALSE WHERE id = $1",
+            org_id,
+        )
 
-    async def archive():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute(
-                "UPDATE organizations SET archived_at = NOW(), active = FALSE WHERE id = $1",
-                org_id,
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(archive())
     response = client.post(
         f"/admin/orgs/{org_id}/unarchive/",
         headers=AUTH_HEADERS,
@@ -253,34 +203,19 @@ def test_unarchive_org_clears_archived_at(client, org_id):
     )
     assert response.status_code in (302, 303)
 
-    async def fetch():
-        conn = await _aconnect(dsn)
-        try:
-            return await conn.fetchrow(
-                "SELECT archived_at, active FROM organizations WHERE id = $1", org_id
-            )
-        finally:
-            await conn.close()
-
-    row = asyncio.run(fetch())
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT archived_at, active FROM organizations WHERE id = $1", org_id
+        )
     assert row["archived_at"] is None
     assert row["active"] is False  # prior active state preserved
 
 
-def test_unarchive_org_redirects_with_flash_query(client, org_id):
+async def test_unarchive_org_redirects_with_flash_query(client, org_id, db_pool):
     """Unarchive redirects to detail with ?flash=unarchived."""
-    dsn = _get_dsn()
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
 
-    async def archive():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute(
-                "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(archive())
     response = client.post(
         f"/admin/orgs/{org_id}/unarchive/",
         headers=AUTH_HEADERS,
@@ -290,7 +225,7 @@ def test_unarchive_org_redirects_with_flash_query(client, org_id):
     assert response.headers["location"] == f"/admin/orgs/{org_id}/?flash=unarchived"
 
 
-def test_unarchived_flash_renders_on_org_detail(client, org_id):
+async def test_unarchived_flash_renders_on_org_detail(client, org_id):
     """Org detail with ?flash=unarchived renders the success flash."""
     response = client.get(f"/admin/orgs/{org_id}/?flash=unarchived", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -300,7 +235,7 @@ def test_unarchived_flash_renders_on_org_detail(client, org_id):
     assert "flash" not in response.headers["HX-Replace-Url"]
 
 
-def test_org_detail_unknown_flash_key_ignored(client, org_id):
+async def test_org_detail_unknown_flash_key_ignored(client, org_id):
     """GET org detail with ?flash=bogus returns 200 with no flash and no HX-Replace-Url."""
     response = client.get(f"/admin/orgs/{org_id}/?flash=bogus", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -308,7 +243,7 @@ def test_org_detail_unknown_flash_key_ignored(client, org_id):
     assert "HX-Replace-Url" not in response.headers
 
 
-def test_unarchive_org_rejects_non_archived(client, org_id):
+async def test_unarchive_org_rejects_non_archived(client, org_id):
     response = client.post(
         f"/admin/orgs/{org_id}/unarchive/",
         headers=AUTH_HEADERS,
@@ -317,7 +252,7 @@ def test_unarchive_org_rejects_non_archived(client, org_id):
     assert response.status_code == 409
 
 
-def test_unarchive_org_redirects_unauthenticated(client, org_id):
+async def test_unarchive_org_redirects_unauthenticated(client, org_id):
     response = client.post(
         f"/admin/orgs/{org_id}/unarchive/",
         follow_redirects=False,
@@ -326,24 +261,15 @@ def test_unarchive_org_redirects_unauthenticated(client, org_id):
     assert "/__exe.dev/login" in response.headers["location"]
 
 
-def test_hard_delete_requires_archive_first(client, org_id):
+async def test_hard_delete_requires_archive_first(client, org_id):
     response = client.delete(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 409
 
 
-def test_hard_delete_archived_org(client, org_id):
-    dsn = _get_dsn()
+async def test_hard_delete_archived_org(client, org_id, db_pool):
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
 
-    async def archive():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute(
-                "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(archive())
     response = client.delete(
         f"/admin/orgs/{org_id}/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
@@ -353,20 +279,11 @@ def test_hard_delete_archived_org(client, org_id):
     assert "flash=deleted" in response.headers["HX-Location"]
 
 
-def test_hard_delete_archived_org_non_htmx_redirects(client, org_id):
+async def test_hard_delete_archived_org_non_htmx_redirects(client, org_id, db_pool):
     """Non-HTMX delete must redirect to org list."""
-    dsn = _get_dsn()
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
 
-    async def archive():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute(
-                "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(archive())
     response = client.delete(
         f"/admin/orgs/{org_id}/",
         headers=AUTH_HEADERS,
@@ -377,7 +294,7 @@ def test_hard_delete_archived_org_non_htmx_redirects(client, org_id):
     assert "flash=deleted" in response.headers["location"]
 
 
-def test_orgs_list_flash_deleted_renders_message(client):
+async def test_orgs_list_flash_deleted_renders_message(client):
     """GET /admin/orgs/?flash=deleted must render a flash notification."""
     response = client.get("/admin/orgs/?flash=deleted", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -385,7 +302,7 @@ def test_orgs_list_flash_deleted_renders_message(client):
     assert "flash" in response.text.lower()
 
 
-def test_orgs_list_flash_deleted_strips_param_via_hx_replace_url(client):
+async def test_orgs_list_flash_deleted_strips_param_via_hx_replace_url(client):
     """Full-page response with ?flash=deleted must include HX-Replace-Url without flash param."""
     response = client.get("/admin/orgs/?flash=deleted", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -393,7 +310,7 @@ def test_orgs_list_flash_deleted_strips_param_via_hx_replace_url(client):
     assert "flash" not in response.headers["HX-Replace-Url"]
 
 
-def test_orgs_list_unknown_flash_key_ignored(client):
+async def test_orgs_list_unknown_flash_key_ignored(client):
     """GET /admin/orgs/?flash=bogus must return 200 with no flash rendered."""
     response = client.get("/admin/orgs/?flash=bogus", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -401,39 +318,26 @@ def test_orgs_list_unknown_flash_key_ignored(client):
     assert "HX-Replace-Url" not in response.headers
 
 
-def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
-    dsn = _get_dsn()
+async def test_org_with_acronym_appears_once_in_list_with_formatted_name(client, db_pool):
     oid = generate_id()
 
-    async def setup():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-            await conn.execute(
-                "INSERT INTO organization_names"
-                " (id, organization_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'Cannabis Alliance', 'legal', TRUE)",
-                generate_id(), oid,
-            )
-            await conn.execute(
-                "INSERT INTO organization_acronyms"
-                " (id, organization_id, acronym, is_canonical)"
-                " VALUES ($1, $2, 'CA', TRUE)",
-                generate_id(), oid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await conn.execute(
+            "INSERT INTO organization_names"
+            " (id, organization_id, name, name_type, is_canonical)"
+            " VALUES ($1, $2, 'Cannabis Alliance', 'legal', TRUE)",
+            generate_id(),
+            oid,
+        )
+        await conn.execute(
+            "INSERT INTO organization_acronyms"
+            " (id, organization_id, acronym, is_canonical)"
+            " VALUES ($1, $2, 'CA', TRUE)",
+            generate_id(),
+            oid,
+        )
 
-    async def teardown():
-        conn = await _aconnect(dsn)
-        try:
-            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
-            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
-            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     try:
         response = client.get("/admin/orgs/?q=Cannabis+Alliance", headers=AUTH_HEADERS)
         assert response.status_code == 200
@@ -443,17 +347,16 @@ def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
         # count that rather than counting raw href occurrences (which depend
         # on how many links per row the template happens to render today).
         edit_aria_marker = 'aria-label="Edit Cannabis Alliance (CA)"'
-        assert response.text.count(edit_aria_marker) == 1, (
-            "org must appear in exactly one row"
-        )
+        assert response.text.count(edit_aria_marker) == 1, "org must appear in exactly one row"
     finally:
-        asyncio.run(teardown())
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id = $1", oid)
 
 
-def test_create_org_with_acronym_stores_acronym(client):
+async def test_create_org_with_acronym_stores_acronym(client, db_pool):
     """Creating an org with acronym=NEWCO must insert a canonical acronym row."""
-    dsn = _get_dsn()
-
     response = client.post(
         "/admin/orgs/new/",
         headers=AUTH_HEADERS,
@@ -464,20 +367,16 @@ def test_create_org_with_acronym_stores_acronym(client):
     location = response.headers["location"]
     created_id = location.rstrip("/").split("/")[-1]
 
-    async def get_acronym():
-        conn = await _aconnect(dsn)
-        try:
-            return await conn.fetchrow(
+    try:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow(
                 "SELECT acronym FROM organization_acronyms"
                 " WHERE organization_id = $1 AND is_canonical = TRUE",
                 created_id,
             )
-        finally:
-            await conn.close()
-
-    async def teardown():
-        conn = await _aconnect(dsn)
-        try:
+        assert row is not None and row["acronym"] == "NEWCO"
+    finally:
+        async with db_pool.acquire() as conn:
             await conn.execute(
                 "DELETE FROM organization_acronyms WHERE organization_id = $1", created_id
             )
@@ -485,20 +384,10 @@ def test_create_org_with_acronym_stores_acronym(client):
                 "DELETE FROM organization_names WHERE organization_id = $1", created_id
             )
             await conn.execute("DELETE FROM organizations WHERE id = $1", created_id)
-        finally:
-            await conn.close()
-
-    try:
-        row = asyncio.run(get_acronym())
-        assert row is not None and row["acronym"] == "NEWCO"
-    finally:
-        asyncio.run(teardown())
 
 
-def test_create_org_without_acronym_succeeds(client):
+async def test_create_org_without_acronym_succeeds(client, db_pool):
     """Creating an org with no acronym field must succeed and insert no acronym row."""
-    dsn = _get_dsn()
-
     response = client.post(
         "/admin/orgs/new/",
         headers=AUTH_HEADERS,
@@ -508,33 +397,21 @@ def test_create_org_without_acronym_succeeds(client):
     assert response.status_code in (302, 303)
     created_id = response.headers["location"].rstrip("/").split("/")[-1]
 
-    async def get_acronym_row():
-        conn = await _aconnect(dsn)
-        try:
-            return await conn.fetchrow(
+    try:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow(
                 "SELECT id FROM organization_acronyms WHERE organization_id = $1", created_id
             )
-        finally:
-            await conn.close()
-
-    async def teardown():
-        conn = await _aconnect(dsn)
-        try:
+        assert row is None, "no acronym row should be created"
+    finally:
+        async with db_pool.acquire() as conn:
             await conn.execute(
                 "DELETE FROM organization_names WHERE organization_id = $1", created_id
             )
             await conn.execute("DELETE FROM organizations WHERE id = $1", created_id)
-        finally:
-            await conn.close()
-
-    try:
-        row = asyncio.run(get_acronym_row())
-        assert row is None, "no acronym row should be created"
-    finally:
-        asyncio.run(teardown())
 
 
-def test_org_create_blank_name_returns_html_not_json(client):
+async def test_org_create_blank_name_returns_html_not_json(client):
     """POST /admin/orgs/new/ with blank name must return HTML form, not JSON."""
     r = client.post(
         "/admin/orgs/new/",
@@ -547,7 +424,7 @@ def test_org_create_blank_name_returns_html_not_json(client):
     assert "Name is required" in r.text
 
 
-def test_org_create_blank_name_preserves_submitted_values(client):
+async def test_org_create_blank_name_preserves_submitted_values(client):
     """POST /admin/orgs/new/ with blank name must re-render form with submitted acronym."""
     r = client.post(
         "/admin/orgs/new/",
@@ -559,7 +436,7 @@ def test_org_create_blank_name_preserves_submitted_values(client):
     assert "ACME" in r.text
 
 
-def test_org_create_blank_name_preserves_notes(client):
+async def test_org_create_blank_name_preserves_notes(client):
     """POST /admin/orgs/new/ with blank name must re-render form with submitted notes."""
     r = client.post(
         "/admin/orgs/new/",
@@ -571,7 +448,7 @@ def test_org_create_blank_name_preserves_notes(client):
     assert "Some notes here" in r.text
 
 
-def test_orgs_list_htmx_boost_returns_full_page(client):
+async def test_orgs_list_htmx_boost_returns_full_page(client):
     """Boosted navigation must return the full page layout, not a bare rows partial."""
     response = client.get(
         "/admin/orgs/",
@@ -581,7 +458,7 @@ def test_orgs_list_htmx_boost_returns_full_page(client):
     assert "admin-layout" in response.text
 
 
-def test_orgs_list_htmx_request_returns_rows_partial(client):
+async def test_orgs_list_htmx_request_returns_rows_partial(client):
     """Non-boosted HTMX request (filter/pagination) must return the rows partial only."""
     response = client.get(
         "/admin/orgs/",
@@ -591,7 +468,7 @@ def test_orgs_list_htmx_request_returns_rows_partial(client):
     assert "admin-layout" not in response.text
 
 
-def test_org_detail_hierarchy_has_entity_card(client, org_id):
+async def test_org_detail_hierarchy_has_entity_card(client, org_id):
     r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert "Parent Organization" in r.text
@@ -599,7 +476,7 @@ def test_org_detail_hierarchy_has_entity_card(client, org_id):
     assert "field-group-label" in r.text
 
 
-def test_org_detail_contact_information_section(client, org_id):
+async def test_org_detail_contact_information_section(client, org_id):
     r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert "Contact Information" in r.text
@@ -611,7 +488,7 @@ def test_org_detail_contact_information_section(client, org_id):
     assert "<h2>Contact Methods</h2>" not in r.text
 
 
-def test_org_detail_links_add_button_in_header(client, org_id):
+async def test_org_detail_links_add_button_in_header(client, org_id):
     r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     links_idx = r.text.find('id="links-table"')
@@ -619,7 +496,7 @@ def test_org_detail_links_add_button_in_header(client, org_id):
     assert add_link_idx < links_idx  # button comes before table
 
 
-def test_org_detail_identifiers_add_button_in_header(client, org_id):
+async def test_org_detail_identifiers_add_button_in_header(client, org_id):
     r = client.get(f"/admin/orgs/{org_id}/", headers=AUTH_HEADERS)
     idents_idx = r.text.find('id="identifiers-table"')
     add_idents_idx = r.text.find("+ Add identifier")

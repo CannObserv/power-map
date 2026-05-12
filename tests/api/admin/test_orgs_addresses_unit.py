@@ -12,7 +12,9 @@ def test_init_normalizer_deleted_from_module_namespace():
 
 def test_parse_normalizer_fields_valid():
     std, lat, lon, comp = _parse_normalizer_fields(
-        " 123 MAIN ST ", "47.6062", "-122.3321",
+        " 123 MAIN ST ",
+        "47.6062",
+        "-122.3321",
         '{"spec":"usps-pub28","spec_version":"unknown","values":{}}',
     )
     assert std == "123 MAIN ST"

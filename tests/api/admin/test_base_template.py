@@ -81,4 +81,4 @@ def test_dark_mode_js_loaded_with_defer(client):
     # Check defer appears on the same script tag line
     text = response.text
     idx = text.find("dark-mode.js")
-    assert "defer" in text[max(0, idx-100):idx+100]
+    assert "defer" in text[max(0, idx - 100) : idx + 100]

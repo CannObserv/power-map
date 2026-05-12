@@ -1,31 +1,28 @@
 """Integration tests for the deduplicate_roles migration script."""
 
-import os
-
 import asyncpg
 import pytest
+import pytest_asyncio
 
 from scripts.deduplicate_roles import run_deduplication
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 
-@pytest.fixture
-async def db():
-    """Connect, apply schema, yield a connection whose DML rolls back after."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
-        yield conn
-        await tr.rollback()
-    finally:
-        await conn.close()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 async def _org(conn: asyncpg.Connection) -> str:
@@ -34,7 +31,9 @@ async def _org(conn: asyncpg.Connection) -> str:
     await conn.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), oid, f"Org {oid[:8]}",
+        generate_id(),
+        oid,
+        f"Org {oid[:8]}",
     )
     return oid
 
@@ -43,9 +42,10 @@ async def _person(conn: asyncpg.Connection) -> str:
     pid = generate_id()
     await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
     await conn.execute(
-        "INSERT INTO person_names (id, person_id, name, is_canonical)"
-        " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), pid, f"Person {pid[:8]}",
+        "INSERT INTO person_names (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        pid,
+        f"Person {pid[:8]}",
     )
     return pid
 
@@ -55,7 +55,9 @@ async def _insert_role(conn: asyncpg.Connection, org_id: str, title: str) -> str
     rid = generate_id()
     await conn.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-        rid, org_id, title,
+        rid,
+        org_id,
+        title,
     )
     return rid
 
@@ -70,9 +72,11 @@ async def _insert_assignment(
     first if seeding duplicates."""
     aid = generate_id()
     await conn.execute(
-        "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
-        " VALUES ($1, $2, $3, $4)",
-        aid, person_id, role_id, start_date,
+        "INSERT INTO role_assignments (id, person_id, role_id, start_date) VALUES ($1, $2, $3, $4)",
+        aid,
+        person_id,
+        role_id,
+        start_date,
     )
     return aid
 
@@ -182,7 +186,8 @@ async def test_deduplicate_assignments_removes_duplicates(db):
     count_after = await db.fetchval(
         "SELECT count(*) FROM role_assignments"
         " WHERE person_id = $1 AND role_id = $2 AND archived_at IS NULL",
-        person_id, role_id,
+        person_id,
+        role_id,
     )
     assert count_after == 1
 
@@ -190,7 +195,8 @@ async def test_deduplicate_assignments_removes_duplicates(db):
     canonical_id = await db.fetchval(
         "SELECT id FROM role_assignments"
         " WHERE person_id = $1 AND role_id = $2 AND archived_at IS NULL",
-        person_id, role_id,
+        person_id,
+        role_id,
     )
     assert canonical_id == min(ra_a, ra_b, ra_c)
 
@@ -221,7 +227,8 @@ async def test_dry_run_makes_no_changes(db):
     ra_count = await db.fetchval(
         "SELECT count(*) FROM role_assignments"
         " WHERE person_id = $1 AND role_id = $2 AND archived_at IS NULL",
-        person_id, role_a,
+        person_id,
+        role_a,
     )
     assert ra_count == 2
 

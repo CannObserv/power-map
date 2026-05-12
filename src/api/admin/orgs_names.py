@@ -25,8 +25,7 @@ async def _last_identity_blocked(org_id: str, db) -> bool:
         org_id,
     )
     canonical_acronym_count = await db.fetchval(
-        "SELECT count(*) FROM organization_acronyms"
-        " WHERE organization_id=$1 AND is_canonical=TRUE",
+        "SELECT count(*) FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
         org_id,
     )
     return name_count == 1 and canonical_acronym_count == 0

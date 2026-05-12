@@ -1,17 +1,18 @@
 """Integration tests for person names CRUD."""
 
-import asyncio
 import json
-import os
 
-import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
 
@@ -22,78 +23,43 @@ def client():
         yield c
 
 
-def _dsn():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    return dsn
-
-
-@pytest.fixture
-def person_and_name():
-    dsn = _dsn()
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_and_name(db_pool):
     pid, nid = generate_id(), generate_id()
 
-    async def setup():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute(
-                "INSERT INTO people (id) VALUES ($1)",
-                pid,
-            )
-            await conn.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'Original Name', 'legal', TRUE)",
-                nid,
-                pid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+            " VALUES ($1, $2, 'Original Name', 'legal', TRUE)",
+            nid,
+            pid,
+        )
 
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-            await conn.execute("DELETE FROM people WHERE id=$1", pid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     yield pid, nid
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+        await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
-@pytest.fixture
-def person_only():
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_only(db_pool):
     """One person row, no names yet (for create-flow tests)."""
-    dsn = _dsn()
     pid = generate_id()
 
-    async def setup():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
 
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-            await conn.execute("DELETE FROM people WHERE id=$1", pid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     yield {"pid": pid}
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+        await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
-async def _fetch_canonical_name(person_id: str) -> dict | None:
-    conn = await asyncpg.connect(_dsn())
-    try:
+async def _fetch_canonical_name(pool, person_id: str) -> dict | None:
+    async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT name, name_type, is_canonical, visibility,"
             " locale, script, sort_as"
@@ -101,11 +67,30 @@ async def _fetch_canonical_name(person_id: str) -> dict | None:
             person_id,
         )
         return dict(row) if row else None
-    finally:
-        await conn.close()
 
 
-def test_names_create(client, person_and_name):
+async def _insert_second_name(
+    pool, person_id: str, name_id: str, name: str = "Former Name", name_type: str = "former"
+) -> None:
+    """Insert a second (non-canonical) name for an existing person."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+            " VALUES ($1, $2, $3, $4, FALSE)",
+            name_id,
+            person_id,
+            name,
+            name_type,
+        )
+
+
+async def _fetch_is_canonical(pool, name_id: str) -> bool | None:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT is_canonical FROM person_names WHERE id=$1", name_id)
+        return row["is_canonical"] if row else None
+
+
+async def test_names_create(client, person_and_name):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -116,7 +101,7 @@ def test_names_create(client, person_and_name):
     assert "Former Name" in r.text
 
 
-def test_names_read_row(client, person_and_name):
+async def test_names_read_row(client, person_and_name):
     pid, nid = person_and_name
     r = client.get(f"/admin/people/{pid}/names/{nid}/read-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
@@ -124,14 +109,14 @@ def test_names_read_row(client, person_and_name):
     assert "<form" not in r.text
 
 
-def test_names_edit_row_get(client, person_and_name):
+async def test_names_edit_row_get(client, person_and_name):
     pid, nid = person_and_name
     r = client.get(f"/admin/people/{pid}/names/{nid}/edit-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "Original Name" in r.text
 
 
-def test_names_update(client, person_and_name):
+async def test_names_update(client, person_and_name):
     pid, nid = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
@@ -142,7 +127,7 @@ def test_names_update(client, person_and_name):
     assert "Updated Name" in r.text
 
 
-def test_names_update_returns_success_flash(client, person_and_name):
+async def test_names_update_returns_success_flash(client, person_and_name):
     pid, nid = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
@@ -155,57 +140,36 @@ def test_names_update_returns_success_flash(client, person_and_name):
     assert "Updated Name" in trigger["showFlash"]["body"]
 
 
-def test_names_delete(client, person_and_name):
-    dsn = _dsn()
+async def test_names_delete(client, person_and_name, db_pool):
     pid, _ = person_and_name
     nid2 = generate_id()
+    await _insert_second_name(db_pool, pid, nid2)
 
-    async def add():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'Former Name', 'former', FALSE)",
-                nid2,
-                pid,
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(add())
     r = client.delete(f"/admin/people/{pid}/names/{nid2}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
 
 
-def test_names_delete_last_blocked(client, person_and_name):
+async def test_names_delete_last_blocked(client, person_and_name, db_pool):
     """Deleting the last name must be blocked with an error flash."""
     pid, nid = person_and_name
     r = client.delete(f"/admin/people/{pid}/names/{nid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "error"
-    dsn = _dsn()
 
-    async def check():
-        conn = await asyncpg.connect(dsn)
-        try:
-            return await conn.fetchrow("SELECT id FROM person_names WHERE id=$1", nid)
-        finally:
-            await conn.close()
-
-    assert asyncio.run(check()) is not None
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT id FROM person_names WHERE id=$1", nid)
+    assert row is not None
 
 
-def test_names_delete_last_non_htmx_returns_409(client, person_and_name):
+async def test_names_delete_last_non_htmx_returns_409(client, person_and_name):
     pid, nid = person_and_name
     r = client.delete(f"/admin/people/{pid}/names/{nid}/", headers=AUTH_HEADERS)
     assert r.status_code == 409
 
 
-def test_name_edit_sole_uncanonical_is_blocked(client, person_and_name):
+async def test_name_edit_sole_uncanonical_is_blocked(client, person_and_name, db_pool):
     """Unchecking canonical on the only name must be blocked with an error flash."""
-    dsn = _dsn()
     pid, nid = person_and_name
 
     r = client.post(
@@ -217,39 +181,16 @@ def test_name_edit_sole_uncanonical_is_blocked(client, person_and_name):
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "error"
 
-    async def check():
-        conn = await asyncpg.connect(dsn)
-        try:
-            row = await conn.fetchrow(
-                "SELECT is_canonical FROM person_names WHERE id=$1", nid
-            )
-            return row["is_canonical"]
-        finally:
-            await conn.close()
-
-    assert asyncio.run(check()) is True, "sole name must remain canonical after blocked edit"
+    is_canonical = await _fetch_is_canonical(db_pool, nid)
+    assert is_canonical is True, "sole name must remain canonical after blocked edit"
 
 
-def test_name_edit_uncanonical_with_multiple_names_blocked(client, person_and_name):
+async def test_name_edit_uncanonical_with_multiple_names_blocked(client, person_and_name, db_pool):
     """Unchecking canonical on the only canonical name (when others exist) must be blocked."""
-    dsn = _dsn()
     pid, canonical_nid = person_and_name
     other_nid = generate_id()
+    await _insert_second_name(db_pool, pid, other_nid)
 
-    async def add_second():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'Former Name', 'former', FALSE)",
-                other_nid,
-                pid,
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(add_second())
     r = client.post(
         f"/admin/people/{pid}/names/{canonical_nid}/edit-row/",
         headers=HTMX_HEADERS,
@@ -259,39 +200,16 @@ def test_name_edit_uncanonical_with_multiple_names_blocked(client, person_and_na
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "error"
 
-    async def check():
-        conn = await asyncpg.connect(dsn)
-        try:
-            row = await conn.fetchrow(
-                "SELECT is_canonical FROM person_names WHERE id=$1", canonical_nid
-            )
-            return row["is_canonical"]
-        finally:
-            await conn.close()
-
-    assert asyncio.run(check()) is True, "canonical must not be changed"
+    is_canonical = await _fetch_is_canonical(db_pool, canonical_nid)
+    assert is_canonical is True, "canonical must not be changed"
 
 
-def test_name_edit_uncanonical_non_htmx_redirects(client, person_and_name):
+async def test_name_edit_uncanonical_non_htmx_redirects(client, person_and_name, db_pool):
     """Non-HTMX path: unchecking canonical on only canonical (multiple names) must redirect."""
-    dsn = _dsn()
     pid, canonical_nid = person_and_name
     other_nid = generate_id()
+    await _insert_second_name(db_pool, pid, other_nid)
 
-    async def add_second():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'Former Name', 'former', FALSE)",
-                other_nid,
-                pid,
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(add_second())
     r = client.post(
         f"/admin/people/{pid}/names/{canonical_nid}/edit-row/",
         headers=AUTH_HEADERS,
@@ -300,39 +218,16 @@ def test_name_edit_uncanonical_non_htmx_redirects(client, person_and_name):
     )
     assert r.status_code == 303
 
-    async def check():
-        conn = await asyncpg.connect(dsn)
-        try:
-            row = await conn.fetchrow(
-                "SELECT is_canonical FROM person_names WHERE id=$1", canonical_nid
-            )
-            return row["is_canonical"]
-        finally:
-            await conn.close()
-
-    assert asyncio.run(check()) is True, "canonical must not be changed"
+    is_canonical = await _fetch_is_canonical(db_pool, canonical_nid)
+    assert is_canonical is True, "canonical must not be changed"
 
 
-def test_name_edit_non_canonical_row_can_stay_non_canonical(client, person_and_name):
+async def test_name_edit_non_canonical_row_can_stay_non_canonical(client, person_and_name, db_pool):
     """Editing a non-canonical name without checking canonical must succeed."""
-    dsn = _dsn()
     pid, _ = person_and_name
     other_nid = generate_id()
+    await _insert_second_name(db_pool, pid, other_nid)
 
-    async def add_second():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'Former Name', 'former', FALSE)",
-                other_nid,
-                pid,
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(add_second())
     r = client.post(
         f"/admin/people/{pid}/names/{other_nid}/edit-row/",
         headers=HTMX_HEADERS,
@@ -348,40 +243,26 @@ def test_name_edit_non_canonical_row_can_stay_non_canonical(client, person_and_n
 # ---------------------------------------------------------------------------
 
 
-def test_names_new_row_returns_form(client, person_and_name):
+async def test_names_new_row_returns_form(client, person_and_name):
     pid, _ = person_and_name
     r = client.get(f"/admin/people/{pid}/names/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<form" in r.text
 
 
-def test_names_form_row_canonical_toggle_has_aria_label(client, person_and_name):
+async def test_names_form_row_canonical_toggle_has_aria_label(client, person_and_name):
     pid, _ = person_and_name
     r = client.get(f"/admin/people/{pid}/names/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert 'aria-label="Canonical"' in r.text
 
 
-def test_names_edit_returns_tbody(client, person_and_name):
+async def test_names_edit_returns_tbody(client, person_and_name, db_pool):
     """Edit response must return all rows (tbody innerHTML), not just the edited row."""
-    dsn = _dsn()
     pid, nid = person_and_name
     nid2 = generate_id()
+    await _insert_second_name(db_pool, pid, nid2, name="Second Name")
 
-    async def add_second():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'Second Name', 'former', FALSE)",
-                nid2,
-                pid,
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(add_second())
     r = client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
         headers=HTMX_HEADERS,
@@ -393,7 +274,7 @@ def test_names_edit_returns_tbody(client, person_and_name):
     assert "<table" not in r.text
 
 
-def test_names_create_returns_update_person_header(client, person_and_name):
+async def test_names_create_returns_update_person_header(client, person_and_name):
     """Creating a name must emit updatePersonHeader in HX-Trigger."""
     pid, _ = person_and_name
     r = client.post(
@@ -406,7 +287,7 @@ def test_names_create_returns_update_person_header(client, person_and_name):
     assert "updatePersonHeader" in trigger
 
 
-def test_names_update_returns_update_person_header_with_new_display(client, person_and_name):
+async def test_names_update_returns_update_person_header_with_new_display(client, person_and_name):
     """Updating the canonical name must emit updatePersonHeader."""
     pid, nid = person_and_name
     r = client.post(
@@ -419,26 +300,12 @@ def test_names_update_returns_update_person_header_with_new_display(client, pers
     assert "updatePersonHeader" in trigger
 
 
-def test_names_delete_returns_update_person_header(client, person_and_name):
+async def test_names_delete_returns_update_person_header(client, person_and_name, db_pool):
     """Deleting a non-canonical name must emit updatePersonHeader."""
-    dsn = _dsn()
     pid, _ = person_and_name
     nid2 = generate_id()
+    await _insert_second_name(db_pool, pid, nid2)
 
-    async def add():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'Former Name', 'former', FALSE)",
-                nid2,
-                pid,
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(add())
     r = client.delete(f"/admin/people/{pid}/names/{nid2}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
@@ -450,9 +317,8 @@ def test_names_delete_returns_update_person_header(client, person_and_name):
 # ---------------------------------------------------------------------------
 
 
-def test_names_create_accepts_combined_parts_payload(client, person_and_name):
+async def test_names_create_accepts_combined_parts_payload(client, person_and_name, db_pool):
     """Issue #127: POST / accepts parts fields and seeds person_name_parts."""
-    dsn = _dsn()
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -468,30 +334,24 @@ def test_names_create_accepts_combined_parts_payload(client, person_and_name):
     )
     assert r.status_code == 200, r.text
 
-    async def fetch():
-        conn = await asyncpg.connect(dsn)
-        try:
-            return await conn.fetchrow(
-                "SELECT pn.id AS nid, pnp.given_names, pnp.family_names,"
-                " pnp.primary_identifier"
-                " FROM person_names pn"
-                " LEFT JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
-                " WHERE pn.person_id=$1 AND pn.name='Ada Lovelace'",
-                pid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT pn.id AS nid, pnp.given_names, pnp.family_names,"
+            " pnp.primary_identifier"
+            " FROM person_names pn"
+            " LEFT JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
+            " WHERE pn.person_id=$1 AND pn.name='Ada Lovelace'",
+            pid,
+        )
 
-    row = asyncio.run(fetch())
     assert row is not None
     assert row["given_names"] == ["Ada"]
     assert row["family_names"] == ["Lovelace"]
     assert row["primary_identifier"] == "family"
 
 
-def test_names_update_accepts_combined_parts_payload(client, person_and_name):
+async def test_names_update_accepts_combined_parts_payload(client, person_and_name, db_pool):
     """Issue #127: POST /edit-row/ updates name AND upserts parts in one transaction."""
-    dsn = _dsn()
     pid, nid = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
@@ -506,20 +366,15 @@ def test_names_update_accepts_combined_parts_payload(client, person_and_name):
     )
     assert r.status_code == 200, r.text
 
-    async def fetch():
-        conn = await asyncpg.connect(dsn)
-        try:
-            return await conn.fetchrow(
-                "SELECT pn.name, pnp.given_names, pnp.family_names"
-                " FROM person_names pn"
-                " LEFT JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
-                " WHERE pn.id=$1",
-                nid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT pn.name, pnp.given_names, pnp.family_names"
+            " FROM person_names pn"
+            " LEFT JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
+            " WHERE pn.id=$1",
+            nid,
+        )
 
-    row = asyncio.run(fetch())
     assert row["name"] == "Renamed"
     assert row["given_names"] == ["Re"]
     assert row["family_names"] == ["Named"]
@@ -530,7 +385,7 @@ def test_names_update_accepts_combined_parts_payload(client, person_and_name):
 # ---------------------------------------------------------------------------
 
 
-def test_create_new_name_persists_metadata_fields(client, person_only):
+async def test_create_new_name_persists_metadata_fields(client, person_only, db_pool):
     """Issue #130: POSTing the new-name form with metadata fields must write
     visibility/locale/script/sort_as to person_names. Regression coverage for
     the inline metadata include in `_name_form_row.html` new-name branch
@@ -551,7 +406,7 @@ def test_create_new_name_persists_metadata_fields(client, person_only):
         headers=HTMX_HEADERS,
     )
     assert resp.status_code == 200, resp.text
-    row = asyncio.run(_fetch_canonical_name(pid))
+    row = await _fetch_canonical_name(db_pool, pid)
     assert row is not None
     assert row["visibility"] == "legal_only"
     assert row["locale"] == "es-MX"

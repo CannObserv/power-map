@@ -1,17 +1,19 @@
 """Integration tests for admin settings views."""
 
-import os
 import re
 
-import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 from src.core.types import ORG_NAME_TYPES, PERSON_NAME_TYPES
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 AUTH_HEADERS = {
     "X-ExeDev-UserID": "usr_test",
@@ -19,17 +21,10 @@ AUTH_HEADERS = {
 }
 
 
-@pytest.fixture
-async def db():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    async with db_pool.acquire() as conn:
         yield conn
-    finally:
-        await conn.close()
 
 
 @pytest.fixture
@@ -40,12 +35,19 @@ def client():
 
 # --- Landing page ---
 
-def test_settings_landing_returns_200(client):
+
+async def test_settings_landing_returns_200(client):
     response = client.get("/admin/settings/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     # Verify all 6 cards render
-    for label in ("Link Types", "Identifier Types", "Organization Name Types",
-                  "Person Name Types", "Address Types", "API Keys"):
+    for label in (
+        "Link Types",
+        "Identifier Types",
+        "Organization Name Types",
+        "Person Name Types",
+        "Address Types",
+        "API Keys",
+    ):
         assert label in response.text
     # Read-only chips present
     assert "legal" in response.text
@@ -54,7 +56,7 @@ def test_settings_landing_returns_200(client):
     assert 'aria-current="page"' in response.text
 
 
-def test_settings_landing_redirects_unauthenticated(client):
+async def test_settings_landing_redirects_unauthenticated(client):
     response = client.get("/admin/settings/", follow_redirects=False)
     assert response.status_code in (302, 307)
     assert "/__exe.dev/login" in response.headers["location"]
@@ -69,13 +71,13 @@ def _name_types_section(response_text: str, heading: str) -> str:
     # of the badges flex row that immediately follows the heading.
     h2 = re.search(rf">{re.escape(heading)}</h2>", response_text)
     assert h2 is not None, f"settings card {heading!r} not found"
-    after = response_text[h2.end():]
+    after = response_text[h2.end() :]
     # Take a generous window — enough to span the badges row without
     # leaking into the next card.
     return after[:1000]
 
 
-def test_settings_landing_renders_every_person_name_type_as_badge(client):
+async def test_settings_landing_renders_every_person_name_type_as_badge(client):
     """Every value in PERSON_NAME_TYPES must surface as a badge in the
     Person Name Types card. Guards against the pre-#135 rot where the
     settings page hardcoded only 5 of the 12 (then current) types and
@@ -89,7 +91,7 @@ def test_settings_landing_renders_every_person_name_type_as_badge(client):
         )
 
 
-def test_settings_landing_renders_every_org_name_type_as_badge(client):
+async def test_settings_landing_renders_every_org_name_type_as_badge(client):
     response = client.get("/admin/settings/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     block = _name_types_section(response.text, "Organization Name Types")
@@ -101,33 +103,35 @@ def test_settings_landing_renders_every_org_name_type_as_badge(client):
 
 # --- Link Types page ---
 
-def test_link_types_page_returns_200(client):
+
+async def test_link_types_page_returns_200(client):
     response = client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "General" in response.text
     assert "Social" in response.text
 
 
-def test_link_types_page_has_aria_current(client):
+async def test_link_types_page_has_aria_current(client):
     """Link types sidebar item is marked aria-current on the link types page."""
     response = client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'aria-current="page"' in response.text
 
 
-def test_link_types_page_redirects_unauthenticated(client):
+async def test_link_types_page_redirects_unauthenticated(client):
     response = client.get("/admin/settings/link-types/", follow_redirects=False)
     assert response.status_code in (302, 307)
 
 
 # --- Identifier Types page ---
 
-def test_identifier_types_page_returns_200(client):
+
+async def test_identifier_types_page_returns_200(client):
     response = client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
     assert response.status_code == 200
 
 
-def test_identifier_types_page_has_aria_current(client):
+async def test_identifier_types_page_has_aria_current(client):
     """Identifier types sidebar item is marked aria-current on the identifier types page."""
     response = client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -136,25 +140,27 @@ def test_identifier_types_page_has_aria_current(client):
 
 # --- Link Type new-row ---
 
-def test_link_type_new_row_general(client):
+
+async def test_link_type_new_row_general(client):
     response = client.get("/admin/settings/link-types/general/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "display_name" in response.text
     assert "slug" in response.text
 
 
-def test_link_type_new_row_social(client):
+async def test_link_type_new_row_social(client):
     response = client.get("/admin/settings/link-types/social/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "display_name" in response.text
 
 
-def test_link_type_new_row_invalid_scope(client):
+async def test_link_type_new_row_invalid_scope(client):
     response = client.get("/admin/settings/link-types/bad/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 404
 
 
 # --- Link Type create ---
+
 
 async def test_create_general_link_type(client, db):
     slug = f"test-general-{generate_id()}"
@@ -182,11 +188,14 @@ async def test_create_social_link_type(client, db):
 
 # --- Link Type edit-row ---
 
+
 async def test_link_type_edit_row_get(client, db):
     lid = generate_id()
     await db.execute(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
-        lid, "Edit Me", f"edit-me-{lid}",
+        lid,
+        "Edit Me",
+        f"edit-me-{lid}",
     )
     try:
         response = client.get(
@@ -202,7 +211,9 @@ async def test_link_type_edit_row_post(client, db):
     lid = generate_id()
     await db.execute(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
-        lid, "Before", f"before-{lid}",
+        lid,
+        "Before",
+        f"before-{lid}",
     )
     try:
         response = client.post(
@@ -220,7 +231,9 @@ async def test_link_type_read_row(client, db):
     lid = generate_id()
     await db.execute(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
-        lid, "Read Me", f"read-me-{lid}",
+        lid,
+        "Read Me",
+        f"read-me-{lid}",
     )
     try:
         response = client.get(
@@ -234,15 +247,16 @@ async def test_link_type_read_row(client, db):
 
 # --- Link Type delete ---
 
+
 async def test_delete_general_link_type(client, db):
     lid = generate_id()
     await db.execute(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
-        lid, "Delete Me", f"del-{lid}",
+        lid,
+        "Delete Me",
+        f"del-{lid}",
     )
-    response = client.delete(
-        f"/admin/settings/link-types/general/{lid}/", headers=AUTH_HEADERS
-    )
+    response = client.delete(f"/admin/settings/link-types/general/{lid}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     row = await db.fetchrow("SELECT id FROM link_types WHERE id=$1", lid)
     assert row is None
@@ -253,7 +267,9 @@ async def test_delete_link_type_in_use_htmx_returns_flash(client, db):
     lid = generate_id()
     await db.execute(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
-        lid, "In Use Type", f"in-use-{lid}",
+        lid,
+        "In Use Type",
+        f"in-use-{lid}",
     )
     oid = generate_id()
     link_id = generate_id()
@@ -261,7 +277,9 @@ async def test_delete_link_type_in_use_htmx_returns_flash(client, db):
     await db.execute(
         "INSERT INTO links (id, entity_type, entity_id, url, link_type_id, is_active)"
         " VALUES ($1, 'organization', $2, 'https://example.com', $3, TRUE)",
-        link_id, oid, lid,
+        link_id,
+        oid,
+        lid,
     )
     try:
         response = client.delete(
@@ -285,7 +303,9 @@ async def test_delete_link_type_in_use_non_htmx_returns_409(client, db):
     lid = generate_id()
     await db.execute(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
-        lid, "In Use Type 409", f"in-use-409-{lid}",
+        lid,
+        "In Use Type 409",
+        f"in-use-409-{lid}",
     )
     oid = generate_id()
     link_id = generate_id()
@@ -293,12 +313,12 @@ async def test_delete_link_type_in_use_non_htmx_returns_409(client, db):
     await db.execute(
         "INSERT INTO links (id, entity_type, entity_id, url, link_type_id, is_active)"
         " VALUES ($1, 'organization', $2, 'https://example.com', $3, TRUE)",
-        link_id, oid, lid,
+        link_id,
+        oid,
+        lid,
     )
     try:
-        response = client.delete(
-            f"/admin/settings/link-types/general/{lid}/", headers=AUTH_HEADERS
-        )
+        response = client.delete(f"/admin/settings/link-types/general/{lid}/", headers=AUTH_HEADERS)
         assert response.status_code == 409
     finally:
         await db.execute("DELETE FROM links WHERE id=$1", link_id)
@@ -325,7 +345,9 @@ async def test_link_type_edit_row_post_non_htmx_redirects(client, db):
     lid = generate_id()
     await db.execute(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
-        lid, "Non-HTMX Edit", f"nonhtmx-edit-{lid}",
+        lid,
+        "Non-HTMX Edit",
+        f"nonhtmx-edit-{lid}",
     )
     try:
         response = client.post(
@@ -346,7 +368,11 @@ async def test_identifier_type_edit_row_post_non_htmx_redirects(client, db):
     await db.execute(
         "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid, "Non-HTMX ID Edit", f"nonhtmx-id-{iid}", "Non-HTMX Full", "organization",
+        iid,
+        "Non-HTMX ID Edit",
+        f"nonhtmx-id-{iid}",
+        "Non-HTMX Full",
+        "organization",
     )
     try:
         response = client.post(
@@ -366,7 +392,7 @@ async def test_identifier_type_edit_row_post_non_htmx_redirects(client, db):
         await db.execute("DELETE FROM entity_identifier_types WHERE id=$1", iid)
 
 
-def test_identifier_type_new_row(client):
+async def test_identifier_type_new_row(client):
     response = client.get("/admin/settings/identifier-types/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "display_name" in response.text
@@ -398,7 +424,11 @@ async def test_identifier_type_read_row(client, db):
     await db.execute(
         "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid, "Read Row ID", f"read-row-id-{iid}", "Read Row Full", "organization",
+        iid,
+        "Read Row ID",
+        f"read-row-id-{iid}",
+        "Read Row Full",
+        "organization",
     )
     try:
         response = client.get(
@@ -416,7 +446,11 @@ async def test_delete_identifier_type_in_use_htmx_returns_flash(client, db):
     await db.execute(
         "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid, "In Use ID Type", f"in-use-id-{iid}", "In Use Full", "organization",
+        iid,
+        "In Use ID Type",
+        f"in-use-id-{iid}",
+        "In Use Full",
+        "organization",
     )
     oid = generate_id()
     identifier_id = generate_id()
@@ -424,7 +458,9 @@ async def test_delete_identifier_type_in_use_htmx_returns_flash(client, db):
     await db.execute(
         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
         " VALUES ($1, $2, $3, '99999')",
-        identifier_id, oid, iid,
+        identifier_id,
+        oid,
+        iid,
     )
     try:
         response = client.delete(
@@ -448,7 +484,11 @@ async def test_delete_identifier_type_in_use_non_htmx_returns_409(client, db):
     await db.execute(
         "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid, "In Use ID 409", f"in-use-id-409-{iid}", "In Use Full 409", "organization",
+        iid,
+        "In Use ID 409",
+        f"in-use-id-409-{iid}",
+        "In Use Full 409",
+        "organization",
     )
     oid = generate_id()
     identifier_id = generate_id()
@@ -456,12 +496,12 @@ async def test_delete_identifier_type_in_use_non_htmx_returns_409(client, db):
     await db.execute(
         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
         " VALUES ($1, $2, $3, '88888')",
-        identifier_id, oid, iid,
+        identifier_id,
+        oid,
+        iid,
     )
     try:
-        response = client.delete(
-            f"/admin/settings/identifier-types/{iid}/", headers=AUTH_HEADERS
-        )
+        response = client.delete(f"/admin/settings/identifier-types/{iid}/", headers=AUTH_HEADERS)
         assert response.status_code == 409
     finally:
         await db.execute("DELETE FROM identifiers WHERE id=$1", identifier_id)
@@ -471,11 +511,14 @@ async def test_delete_identifier_type_in_use_non_htmx_returns_409(client, db):
 
 # --- Usage count ---
 
+
 async def test_link_type_usage_count_shown(client, db):
     lid = generate_id()
     await db.execute(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, FALSE)",
-        lid, "Counted Type", f"counted-{lid}",
+        lid,
+        "Counted Type",
+        f"counted-{lid}",
     )
     oid = generate_id()
     link_id = generate_id()
@@ -483,7 +526,9 @@ async def test_link_type_usage_count_shown(client, db):
     await db.execute(
         "INSERT INTO links (id, entity_type, entity_id, url, link_type_id, is_active)"
         " VALUES ($1, 'organization', $2, 'https://example.com', $3, TRUE)",
-        link_id, oid, lid,
+        link_id,
+        oid,
+        lid,
     )
     try:
         response = client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
@@ -496,6 +541,7 @@ async def test_link_type_usage_count_shown(client, db):
 
 
 # --- Identifier Types ---
+
 
 async def test_create_identifier_type(client, db):
     slug = f"test-id-{generate_id()}"
@@ -519,7 +565,11 @@ async def test_identifier_type_edit_row_get(client, db):
     await db.execute(
         "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid, "Edit ID", f"edit-id-{iid}", "Edit ID Full", "organization",
+        iid,
+        "Edit ID",
+        f"edit-id-{iid}",
+        "Edit ID Full",
+        "organization",
     )
     try:
         response = client.get(
@@ -536,7 +586,11 @@ async def test_identifier_type_edit_row_post(client, db):
     await db.execute(
         "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid, "Before ID", f"before-id-{iid}", "Before Full", "organization",
+        iid,
+        "Before ID",
+        f"before-id-{iid}",
+        "Before Full",
+        "organization",
     )
     try:
         response = client.post(
@@ -560,11 +614,13 @@ async def test_delete_identifier_type(client, db):
     await db.execute(
         "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid, "Delete ID", f"del-id-{iid}", "Delete Full", "organization",
+        iid,
+        "Delete ID",
+        f"del-id-{iid}",
+        "Delete Full",
+        "organization",
     )
-    response = client.delete(
-        f"/admin/settings/identifier-types/{iid}/", headers=AUTH_HEADERS
-    )
+    response = client.delete(f"/admin/settings/identifier-types/{iid}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     row = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE id=$1", iid)
     assert row is None
@@ -575,7 +631,11 @@ async def test_identifier_type_usage_count_shown(client, db):
     await db.execute(
         "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid, "Counted ID", f"counted-id-{iid}", "Counted Full", "organization",
+        iid,
+        "Counted ID",
+        f"counted-id-{iid}",
+        "Counted Full",
+        "organization",
     )
     oid = generate_id()
     identifier_id = generate_id()
@@ -583,7 +643,9 @@ async def test_identifier_type_usage_count_shown(client, db):
     await db.execute(
         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
         " VALUES ($1, $2, $3, '12345')",
-        identifier_id, oid, iid,
+        identifier_id,
+        oid,
+        iid,
     )
     try:
         response = client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)

@@ -29,12 +29,14 @@ class UrlNormalizer:
         if validators.url(raw) is not True:
             raise ValueError(f"invalid url: {raw!r}")
         parsed = urlparse(raw)
-        canonical = urlunparse((
-            parsed.scheme.lower(),
-            parsed.netloc.lower(),
-            parsed.path.rstrip("/") if parsed.path != "/" else "",
-            parsed.params,
-            parsed.query,
-            parsed.fragment,
-        ))
+        canonical = urlunparse(
+            (
+                parsed.scheme.lower(),
+                parsed.netloc.lower(),
+                parsed.path.rstrip("/") if parsed.path != "/" else "",
+                parsed.params,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
         return NormalizationResult(value=canonical)

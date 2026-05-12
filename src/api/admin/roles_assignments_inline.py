@@ -42,7 +42,8 @@ async def _get_assignment(assignment_id: str, role_id: str, db):
            JOIN people p ON p.id = ra.person_id
            LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
            WHERE ra.id = $1 AND ra.role_id = $2""",
-        assignment_id, role_id,
+        assignment_id,
+        role_id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Assignment not found")
@@ -133,8 +134,10 @@ async def assignment_create(
         )
 
     bound_err = _check_assignment_within_bounds(
-        start_date_val, end_date_val,
-        role["established_on"], role["abolished_on"],
+        start_date_val,
+        end_date_val,
+        role["established_on"],
+        role["abolished_on"],
     )
     if bound_err:
         if not is_htmx(request):
@@ -162,7 +165,12 @@ async def assignment_create(
             """INSERT INTO role_assignments
                (id, person_id, role_id, is_current, start_date, end_date)
                VALUES ($1, $2, $3, $4, $5, $6)""",
-            ra_id, person_id_val, role_id, is_current_val, start_date_val, end_date_val,
+            ra_id,
+            person_id_val,
+            role_id,
+            is_current_val,
+            start_date_val,
+            end_date_val,
         )
     except asyncpg.CheckViolationError:
         if not is_htmx(request):
@@ -313,8 +321,10 @@ async def assignment_edit_row_post(
         )
 
     bound_err = _check_assignment_within_bounds(
-        start_date_val, end_date_val,
-        role["established_on"], role["abolished_on"],
+        start_date_val,
+        end_date_val,
+        role["established_on"],
+        role["abolished_on"],
     )
     if bound_err:
         if not is_htmx(request):
@@ -335,7 +345,10 @@ async def assignment_edit_row_post(
             """UPDATE role_assignments
                SET is_current=$1, start_date=$2, end_date=$3
                WHERE id=$4""",
-            is_current_val, start_date_val, end_date_val, assignment_id,
+            is_current_val,
+            start_date_val,
+            end_date_val,
+            assignment_id,
         )
     except asyncpg.CheckViolationError:
         if not is_htmx(request):
@@ -390,12 +403,8 @@ async def assignment_archive(
     """Archive a role assignment from role detail. Returns 409 if already archived."""
     ra = await _get_assignment(assignment_id, role_id, db)
     if ra["archived_at"]:
-        raise HTTPException(
-            status_code=409, detail="Role assignment is already archived"
-        )
-    await db.execute(
-        "UPDATE role_assignments SET archived_at = NOW() WHERE id=$1", assignment_id
-    )
+        raise HTTPException(status_code=409, detail="Role assignment is already archived")
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id=$1", assignment_id)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
     assignments = await fetch_role_assignments(role_id, db)

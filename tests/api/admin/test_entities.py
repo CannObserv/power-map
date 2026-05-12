@@ -117,5 +117,3 @@ def test_entities_people_dup_link_hidden_when_zero(client_no_person_dups):
     assert response.status_code == 200
     # orgs link absent too (both zero), so generic check suffices
     assert "/admin/people/duplicates/" not in response.text
-
-

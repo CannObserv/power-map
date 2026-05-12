@@ -63,12 +63,8 @@ async def _execute_merge(
     """
     dropped_assignments = 0
     async with db.transaction():
-        winner = await db.fetchrow(
-            "SELECT id FROM organizations WHERE id=$1 FOR UPDATE", winner_id
-        )
-        loser = await db.fetchrow(
-            "SELECT id FROM organizations WHERE id=$1 FOR UPDATE", loser_id
-        )
+        winner = await db.fetchrow("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", winner_id)
+        loser = await db.fetchrow("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", loser_id)
         if not winner or not loser:
             raise HTTPException(status_code=404, detail="Organization not found")
 
@@ -86,15 +82,22 @@ async def _execute_merge(
                         "SELECT 1 FROM role_assignments"
                         " WHERE person_id=$1 AND role_id=$2 AND archived_at IS NULL"
                         " AND start_date IS NOT DISTINCT FROM $3",
-                        a["person_id"], winner_role_id, a["start_date"],
+                        a["person_id"],
+                        winner_role_id,
+                        a["start_date"],
                     )
                     if not exists:
                         await db.execute(
                             "INSERT INTO role_assignments"
                             " (id, person_id, role_id, start_date, end_date, is_current, notes)"
                             " VALUES ($1,$2,$3,$4,$5,$6,$7)",
-                            generate_id(), a["person_id"], winner_role_id,
-                            a["start_date"], a["end_date"], a["is_current"], a["notes"],
+                            generate_id(),
+                            a["person_id"],
+                            winner_role_id,
+                            a["start_date"],
+                            a["end_date"],
+                            a["is_current"],
+                            a["notes"],
                         )
                     else:
                         dropped_assignments += 1
@@ -102,7 +105,8 @@ async def _execute_merge(
                 await db.execute(
                     "UPDATE role_assignments SET role_id=$1"
                     " WHERE role_id=$2 AND archived_at IS NOT NULL",
-                    winner_role_id, loser_role_id,
+                    winner_role_id,
+                    loser_role_id,
                 )
                 # Remove remaining active assignments from loser role (the dropped dupes)
                 await db.execute(
@@ -113,7 +117,8 @@ async def _execute_merge(
 
         await db.execute(
             "UPDATE organizations SET parent_id=$1 WHERE parent_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         if keep_name_ids is not None:
@@ -122,20 +127,23 @@ async def _execute_merge(
                 await db.execute(
                     f"UPDATE organization_names SET organization_id=$1, is_canonical=FALSE"
                     f" WHERE organization_id=$2 AND id IN ({placeholders})",
-                    winner_id, loser_id, *keep_name_ids,
+                    winner_id,
+                    loser_id,
+                    *keep_name_ids,
                 )
             await db.execute(
-                "DELETE FROM organization_names WHERE organization_id=$1", loser_id,
+                "DELETE FROM organization_names WHERE organization_id=$1",
+                loser_id,
             )
         else:
             await db.execute(
                 "UPDATE organization_names SET organization_id=$1"
                 " WHERE organization_id=$2 AND is_canonical=FALSE",
-                winner_id, loser_id,
+                winner_id,
+                loser_id,
             )
             await db.execute(
-                "DELETE FROM organization_names"
-                " WHERE organization_id=$1 AND is_canonical=TRUE",
+                "DELETE FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
                 loser_id,
             )
 
@@ -145,20 +153,23 @@ async def _execute_merge(
                 await db.execute(
                     f"UPDATE organization_acronyms SET organization_id=$1, is_canonical=FALSE"
                     f" WHERE organization_id=$2 AND id IN ({placeholders})",
-                    winner_id, loser_id, *keep_acronym_ids,
+                    winner_id,
+                    loser_id,
+                    *keep_acronym_ids,
                 )
             await db.execute(
-                "DELETE FROM organization_acronyms WHERE organization_id=$1", loser_id,
+                "DELETE FROM organization_acronyms WHERE organization_id=$1",
+                loser_id,
             )
         else:
             await db.execute(
                 "UPDATE organization_acronyms SET organization_id=$1"
                 " WHERE organization_id=$2 AND is_canonical=FALSE",
-                winner_id, loser_id,
+                winner_id,
+                loser_id,
             )
             await db.execute(
-                "DELETE FROM organization_acronyms"
-                " WHERE organization_id=$1 AND is_canonical=TRUE",
+                "DELETE FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
                 loser_id,
             )
 
@@ -173,7 +184,8 @@ async def _execute_merge(
                               AND r_w.archived_at IS NULL
                WHERE r_l.organization_id = $1
                  AND r_l.archived_at IS NULL""",
-            loser_id, winner_id,
+            loser_id,
+            winner_id,
         )
         for conflict in remaining_conflicts:
             w_role = conflict["winner_role_id"]
@@ -188,22 +200,30 @@ async def _execute_merge(
                     "SELECT 1 FROM role_assignments"
                     " WHERE person_id=$1 AND role_id=$2 AND archived_at IS NULL"
                     " AND start_date IS NOT DISTINCT FROM $3",
-                    a["person_id"], w_role, a["start_date"],
+                    a["person_id"],
+                    w_role,
+                    a["start_date"],
                 )
                 if not exists:
                     await db.execute(
                         "INSERT INTO role_assignments"
                         " (id, person_id, role_id, start_date, end_date, is_current, notes)"
                         " VALUES ($1,$2,$3,$4,$5,$6,$7)",
-                        generate_id(), a["person_id"], w_role,
-                        a["start_date"], a["end_date"], a["is_current"], a["notes"],
+                        generate_id(),
+                        a["person_id"],
+                        w_role,
+                        a["start_date"],
+                        a["end_date"],
+                        a["is_current"],
+                        a["notes"],
                     )
                 else:
                     dropped_assignments += 1
             await db.execute(
                 "UPDATE role_assignments SET role_id=$1"
                 " WHERE role_id=$2 AND archived_at IS NOT NULL",
-                w_role, l_role,
+                w_role,
+                l_role,
             )
             await db.execute(
                 "DELETE FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
@@ -213,25 +233,34 @@ async def _execute_merge(
 
         await db.execute(
             "UPDATE roles SET organization_id=$1 WHERE organization_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
-        for table in ("entity_addresses", "contact_methods", "links",
-                      "import_provenance", "field_confidence"):
+        for table in (
+            "entity_addresses",
+            "contact_methods",
+            "links",
+            "import_provenance",
+            "field_confidence",
+        ):
             await db.execute(
                 f"UPDATE {table} SET entity_id=$1"
                 f" WHERE entity_type='organization' AND entity_id=$2",
-                winner_id, loser_id,
+                winner_id,
+                loser_id,
             )
         await db.execute(
             "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute(
             "DELETE FROM duplicate_dismissals"
             " WHERE entity_type='organization'"
             "   AND ((entity_a_id=$1 AND entity_b_id=$2)"
             "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute(
             """DELETE FROM duplicate_dismissals dd
@@ -243,7 +272,8 @@ async def _execute_merge(
                    (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_b_id)
                    OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_b_id)
                  )""",
-            loser_id, winner_id,
+            loser_id,
+            winner_id,
         )
         await db.execute(
             """DELETE FROM duplicate_dismissals dd
@@ -255,21 +285,24 @@ async def _execute_merge(
                    (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_a_id)
                    OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_a_id)
                  )""",
-            loser_id, winner_id,
+            loser_id,
+            winner_id,
         )
         await db.execute(
             """UPDATE duplicate_dismissals
                SET entity_a_id = LEAST($1, entity_b_id),
                    entity_b_id = GREATEST($1, entity_b_id)
                WHERE entity_type='organization' AND entity_a_id=$2""",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute(
             """UPDATE duplicate_dismissals
                SET entity_a_id = LEAST(entity_a_id, $1),
                    entity_b_id = GREATEST(entity_a_id, $1)
                WHERE entity_type='organization' AND entity_b_id=$2""",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
     invalidate_dup_count_cache()
@@ -294,9 +327,7 @@ async def orgs_duplicates(
         "person_dup_count": person_dup_count,
     }
     template = (
-        "admin/orgs/_duplicates_region.html"
-        if is_htmx(request)
-        else "admin/orgs/duplicates.html"
+        "admin/orgs/_duplicates_region.html" if is_htmx(request) else "admin/orgs/duplicates.html"
     )
     return templates.TemplateResponse(request, template, ctx)
 
@@ -322,9 +353,9 @@ async def org_merge(
     if is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         body = (
-            f'Merged <strong>{escape(loser_name)}</strong> into '
+            f"Merged <strong>{escape(loser_name)}</strong> into "
             f'<a href="/admin/orgs/{winner_id}/"><strong>{escape(winner_name)}</strong></a>. '
-            f'Review URLs, roles, and contact info for duplicates.'
+            f"Review URLs, roles, and contact info for duplicates."
         )
         ctx = {
             "user": user,
@@ -360,27 +391,22 @@ async def org_merge_with(
     loser_name = await db.fetchval(
         "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", loser_id
     )
-    parsed_pairs = [
-        (p.split(":", 1)[0], p.split(":", 1)[1])
-        for p in merge_role_pairs
-        if ":" in p
-    ]
+    parsed_pairs = [(p.split(":", 1)[0], p.split(":", 1)[1]) for p in merge_role_pairs if ":" in p]
     dropped = await _execute_merge(
-        db, winner_id, loser_id,
+        db,
+        winner_id,
+        loser_id,
         keep_name_ids=keep_name_ids,
         keep_acronym_ids=keep_acronym_ids,
         role_pairs_to_merge=parsed_pairs if parsed_pairs else None,
     )
     body = (
-        f'Merged <strong>{escape(loser_name)}</strong> into '
-        f'<strong>{escape(winner_name)}</strong>. '
-        f'Review names, roles, and contact info for duplicates.'
+        f"Merged <strong>{escape(loser_name)}</strong> into "
+        f"<strong>{escape(winner_name)}</strong>. "
+        f"Review names, roles, and contact info for duplicates."
     )
     if dropped:
-        body += (
-            f' {dropped} duplicate role assignment'
-            f'{"s" if dropped != 1 else ""} dropped.'
-        )
+        body += f" {dropped} duplicate role assignment{'s' if dropped != 1 else ''} dropped."
     redirect_url = f"/admin/orgs/{winner_id}/"
     if is_htmx(request):
         return HTMLResponse(
@@ -405,7 +431,10 @@ async def org_dismiss_duplicate(
         " (id, entity_type, entity_a_id, entity_b_id, dismissed_by)"
         " VALUES ($1, 'organization', $2, $3, $4)"
         " ON CONFLICT (entity_type, entity_a_id, entity_b_id) DO NOTHING",
-        generate_id(), a, b, user.email,
+        generate_id(),
+        a,
+        b,
+        user.email,
     )
     invalidate_dup_count_cache()
     if is_htmx(request):
@@ -529,8 +558,7 @@ async def org_merge_preview(
         if r["name"].lower() not in winner_names_lower
     ]
     _dropped_name = await db.fetchrow(
-        "SELECT id, name FROM organization_names"
-        " WHERE organization_id=$1 AND is_canonical=TRUE",
+        "SELECT id, name FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
         loser_id,
     )
     dropped_name = (
@@ -554,8 +582,7 @@ async def org_merge_preview(
     )
     dropped_acronym = (
         _dropped_acronym
-        if _dropped_acronym
-        and _dropped_acronym["acronym"].lower() not in winner_acronyms_lower
+        if _dropped_acronym and _dropped_acronym["acronym"].lower() not in winner_acronyms_lower
         else None
     )
 
@@ -564,8 +591,7 @@ async def org_merge_preview(
         loser_id,
     )
     contacts_count = await db.fetchval(
-        "SELECT count(*) FROM contact_methods"
-        " WHERE entity_type='organization' AND entity_id=$1",
+        "SELECT count(*) FROM contact_methods WHERE entity_type='organization' AND entity_id=$1",
         loser_id,
     )
     links_count = await db.fetchval(
@@ -573,8 +599,7 @@ async def org_merge_preview(
         loser_id,
     )
     addresses_count = await db.fetchval(
-        "SELECT count(*) FROM entity_addresses"
-        " WHERE entity_type='organization' AND entity_id=$1",
+        "SELECT count(*) FROM entity_addresses WHERE entity_type='organization' AND entity_id=$1",
         loser_id,
     )
     identifiers_count = await db.fetchval(
@@ -592,7 +617,8 @@ async def org_merge_preview(
                           AND r_w.archived_at IS NULL
            WHERE r_l.organization_id = $1
              AND r_l.archived_at IS NULL""",
-        loser_id, winner_id,
+        loser_id,
+        winner_id,
     )
 
     return templates.TemplateResponse(

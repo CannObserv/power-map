@@ -1,15 +1,16 @@
 """Integration tests for admin role assignments views."""
 
-import os
-
-import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 AUTH_HEADERS = {
     "X-ExeDev-UserID": "usr_test",
@@ -17,17 +18,10 @@ AUTH_HEADERS = {
 }
 
 
-@pytest.fixture
-async def db():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    async with db_pool.acquire() as conn:
         yield conn
-    finally:
-        await conn.close()
 
 
 @pytest.fixture
@@ -36,14 +30,15 @@ def client():
         yield c
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def org_id(db):
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, 'Test Org', TRUE)",
-        generate_id(), oid,
+        generate_id(),
+        oid,
     )
     yield oid
     await db.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", oid)
@@ -51,68 +46,72 @@ async def org_id(db):
     await db.execute("DELETE FROM organizations WHERE id = $1", oid)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def person_id(db):
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, is_canonical)"
         " VALUES ($1, $2, 'Test Person', TRUE)",
-        generate_id(), pid,
+        generate_id(),
+        pid,
     )
     yield pid
     await db.execute("DELETE FROM person_names WHERE person_id = $1", pid)
     await db.execute("DELETE FROM people WHERE id = $1", pid)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def role_id(db, org_id):
     rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Test Role')",
-        rid, org_id,
+        rid,
+        org_id,
     )
     yield rid
     await db.execute("DELETE FROM role_assignments WHERE role_id = $1", rid)
     await db.execute("DELETE FROM roles WHERE id = $1", rid)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def ra_id(db, person_id, role_id):
     raid = generate_id()
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
         " VALUES ($1, $2, $3, TRUE)",
-        raid, person_id, role_id,
+        raid,
+        person_id,
+        role_id,
     )
     yield raid
     await db.execute("DELETE FROM role_assignments WHERE id = $1", raid)
 
 
-def test_role_assignments_list_returns_200(client):
+async def test_role_assignments_list_returns_200(client):
     response = client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "assignment" in response.text.lower()
 
 
-def test_role_assignments_list_redirects_unauthenticated(client):
+async def test_role_assignments_list_redirects_unauthenticated(client):
     response = client.get("/admin/role-assignments/", follow_redirects=False)
     assert response.status_code in (302, 307)
     assert "/__exe.dev/login" in response.headers["location"]
 
 
-def test_ra_detail_returns_200(client, ra_id):
+async def test_ra_detail_returns_200(client, ra_id):
     response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Person" in response.text
 
 
-def test_ra_detail_404_for_unknown(client):
+async def test_ra_detail_404_for_unknown(client):
     response = client.get(f"/admin/role-assignments/{generate_id()}/", headers=AUTH_HEADERS)
     assert response.status_code == 404
 
 
-def test_create_ra_post_redirects(client, person_id, role_id):
+async def test_create_ra_post_redirects(client, person_id, role_id):
     response = client.post(
         "/admin/role-assignments/new/",
         headers=AUTH_HEADERS,
@@ -129,7 +128,7 @@ def test_create_ra_post_redirects(client, person_id, role_id):
     assert response.status_code in (302, 303)
 
 
-def test_create_ra_with_is_current_and_end_date_returns_error(client, person_id, role_id):
+async def test_create_ra_with_is_current_and_end_date_returns_error(client, person_id, role_id):
     response = client.post(
         "/admin/role-assignments/new/",
         headers=AUTH_HEADERS,
@@ -149,7 +148,7 @@ def test_create_ra_with_is_current_and_end_date_returns_error(client, person_id,
         assert "end date" in response.text.lower() or "current" in response.text.lower()
 
 
-def test_archive_ra(client, ra_id):
+async def test_archive_ra(client, ra_id):
     response = client.post(
         f"/admin/role-assignments/{ra_id}/archive/",
         headers=AUTH_HEADERS,
@@ -158,7 +157,7 @@ def test_archive_ra(client, ra_id):
     assert response.status_code in (302, 303)
 
 
-def test_archive_ra_redirects_with_flash_query(client, ra_id):
+async def test_archive_ra_redirects_with_flash_query(client, ra_id):
     """Archive redirects to detail with ?flash=archived so the detail view can render a flash."""
     response = client.post(
         f"/admin/role-assignments/{ra_id}/archive/",
@@ -169,24 +168,18 @@ def test_archive_ra_redirects_with_flash_query(client, ra_id):
     assert response.headers["location"] == f"/admin/role-assignments/{ra_id}/?flash=archived"
 
 
-def test_archived_flash_renders_on_detail(client, ra_id):
+async def test_archived_flash_renders_on_detail(client, ra_id):
     """Detail page with ?flash=archived renders the archived success flash."""
-    response = client.get(
-        f"/admin/role-assignments/{ra_id}/?flash=archived", headers=AUTH_HEADERS
-    )
+    response = client.get(f"/admin/role-assignments/{ra_id}/?flash=archived", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Assignment archived." in response.text
     assert "flash--success" in response.text
-    assert response.headers.get("HX-Replace-Url", "").endswith(
-        f"/admin/role-assignments/{ra_id}/"
-    )
+    assert response.headers.get("HX-Replace-Url", "").endswith(f"/admin/role-assignments/{ra_id}/")
 
 
-def test_deleted_flash_renders_on_list(client):
+async def test_deleted_flash_renders_on_list(client):
     """List with ?flash=deleted renders the deleted success flash."""
-    response = client.get(
-        "/admin/role-assignments/?flash=deleted", headers=AUTH_HEADERS
-    )
+    response = client.get("/admin/role-assignments/?flash=deleted", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Assignment deleted." in response.text
     assert "flash--success" in response.text
@@ -194,9 +187,7 @@ def test_deleted_flash_renders_on_list(client):
 
 async def test_archive_already_archived_returns_409(client, db, ra_id):
     """Re-archiving an already-archived row is rejected with 409 (idempotency guard)."""
-    await db.execute(
-        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
-    )
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
     response = client.post(
         f"/admin/role-assignments/{ra_id}/archive/",
         headers=AUTH_HEADERS,
@@ -220,7 +211,7 @@ async def test_unarchive_ra(client, db, ra_id):
     assert row["archived_at"] is None
 
 
-def test_unarchive_ra_not_found_returns_404(client):
+async def test_unarchive_ra_not_found_returns_404(client):
     """Unarchiving a non-existent RA returns 404."""
     response = client.post(
         "/admin/role-assignments/nonexistent/unarchive/",
@@ -241,7 +232,7 @@ async def test_unarchive_ra_not_archived_returns_409(client, db, ra_id):
     assert response.json()["detail"] == "Role assignment is not archived"
 
 
-def test_unarchived_flash_renders_on_detail(client, ra_id):
+async def test_unarchived_flash_renders_on_detail(client, ra_id):
     """Detail page with ?flash=unarchived renders the unarchived success flash."""
     response = client.get(
         f"/admin/role-assignments/{ra_id}/?flash=unarchived", headers=AUTH_HEADERS
@@ -253,11 +244,9 @@ def test_unarchived_flash_renders_on_detail(client, ra_id):
     assert "flash" not in response.headers["HX-Replace-Url"]
 
 
-def test_detail_unknown_flash_key_ignored(client, ra_id):
+async def test_detail_unknown_flash_key_ignored(client, ra_id):
     """GET detail with ?flash=bogus returns 200 with no flash and no HX-Replace-Url."""
-    response = client.get(
-        f"/admin/role-assignments/{ra_id}/?flash=bogus", headers=AUTH_HEADERS
-    )
+    response = client.get(f"/admin/role-assignments/{ra_id}/?flash=bogus", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "flash--success" not in response.text
     assert "HX-Replace-Url" not in response.headers
@@ -272,7 +261,7 @@ async def test_detail_shows_unarchive_button_when_archived(client, db, ra_id):
     assert "Unarchive" in response.text
 
 
-def test_hard_delete_requires_archive(client, ra_id):
+async def test_hard_delete_requires_archive(client, ra_id):
     response = client.delete(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 409
 
@@ -289,12 +278,10 @@ async def test_hard_delete_archived_ra(client, db, ra_id):
 
 async def test_detail_delete_button_has_no_legacy_push_url(client, db, ra_id):
     """Delete button relies on server HX-Location redirect, not hx-target/hx-push-url."""
-    await db.execute(
-        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
-    )
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
     response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert 'Delete permanently' in response.text
+    assert "Delete permanently" in response.text
     assert 'hx-target="body"' not in response.text
     assert "hx-push-url" not in response.text
 
@@ -312,27 +299,30 @@ async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
     await db.execute(
         "UPDATE organization_names SET name = $1"
         " WHERE organization_id = $2 AND is_canonical = TRUE",
-        unique_name, org_id,
+        unique_name,
+        org_id,
     )
     await db.execute(
         "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
         " VALUES ($1, $2, 'TO', TRUE)",
-        generate_id(), org_id,
+        generate_id(),
+        org_id,
     )
     ra_id = generate_id()
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
         " VALUES ($1, $2, $3, TRUE)",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
     try:
-        response = client.get(
-            f"/admin/role-assignments/?q={org_id}", headers=AUTH_HEADERS
-        )
+        response = client.get(f"/admin/role-assignments/?q={org_id}", headers=AUTH_HEADERS)
         assert response.status_code == 200
         assert f"{unique_name} (TO)" in response.text
-        assert response.text.count(f'href="/admin/role-assignments/{ra_id}/"') == 1, \
+        assert response.text.count(f'href="/admin/role-assignments/{ra_id}/"') == 1, (
             "assignment must appear exactly once"
+        )
     finally:
         await db.execute(
             "DELETE FROM organization_acronyms WHERE organization_id = $1",
@@ -340,7 +330,7 @@ async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
         )
 
 
-def test_ra_list_htmx_boost_returns_full_page(client):
+async def test_ra_list_htmx_boost_returns_full_page(client):
     """Boosted navigation must return the full page layout, not a bare rows partial."""
     response = client.get(
         "/admin/role-assignments/",
@@ -350,7 +340,7 @@ def test_ra_list_htmx_boost_returns_full_page(client):
     assert "admin-layout" in response.text
 
 
-def test_ra_list_htmx_request_returns_rows_partial(client):
+async def test_ra_list_htmx_request_returns_rows_partial(client):
     """Non-boosted HTMX request (filter/pagination) must return the rows partial only."""
     response = client.get(
         "/admin/role-assignments/",
@@ -360,14 +350,14 @@ def test_ra_list_htmx_request_returns_rows_partial(client):
     assert "admin-layout" not in response.text
 
 
-def test_ra_list_shows_person_name(client, ra_id):
+async def test_ra_list_shows_person_name(client, ra_id):
     """RA list must show canonical person name via v_person_display_names."""
     response = client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Person" in response.text
 
 
-def test_ra_list_uses_composed_format(client, ra_id):
+async def test_ra_list_uses_composed_format(client, ra_id):
     """List row must render 'Person – Role @ Org' (issue #98)."""
     response = client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -375,7 +365,7 @@ def test_ra_list_uses_composed_format(client, ra_id):
     assert "@ Test Role (Test Org)" not in response.text
 
 
-def test_ra_detail_uses_composed_format(client, ra_id):
+async def test_ra_detail_uses_composed_format(client, ra_id):
     """Detail h1 and <title> must render 'Person – Role @ Org' (issue #98)."""
     response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -387,9 +377,7 @@ def test_ra_detail_uses_composed_format(client, ra_id):
     assert "@ Test Role (Test Org)" not in response.text
 
 
-async def test_ra_list_renders_unnamed_fallback_for_missing_person_name(
-    client, db, role_id
-):
+async def test_ra_list_renders_unnamed_fallback_for_missing_person_name(client, db, role_id):
     """List must render '(unnamed) – Role @ Org' when person has no canonical name."""
     pid = generate_id()
     raid = generate_id()
@@ -397,7 +385,9 @@ async def test_ra_list_renders_unnamed_fallback_for_missing_person_name(
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
         " VALUES ($1, $2, $3, TRUE)",
-        raid, pid, role_id,
+        raid,
+        pid,
+        role_id,
     )
     try:
         response = client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
@@ -408,9 +398,7 @@ async def test_ra_list_renders_unnamed_fallback_for_missing_person_name(
         await db.execute("DELETE FROM people WHERE id = $1", pid)
 
 
-async def test_ra_detail_renders_unnamed_fallback_for_missing_org_name(
-    client, db, person_id
-):
+async def test_ra_detail_renders_unnamed_fallback_for_missing_org_name(client, db, person_id):
     """Detail h1 must render 'Person – Role @ (unnamed)' when org has no canonical name."""
     oid = generate_id()
     rid = generate_id()
@@ -418,12 +406,15 @@ async def test_ra_detail_renders_unnamed_fallback_for_missing_org_name(
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Nameless Role')",
-        rid, oid,
+        rid,
+        oid,
     )
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
         " VALUES ($1, $2, $3, TRUE)",
-        raid, person_id, rid,
+        raid,
+        person_id,
+        rid,
     )
     try:
         response = client.get(f"/admin/role-assignments/{raid}/", headers=AUTH_HEADERS)
@@ -435,53 +426,49 @@ async def test_ra_detail_renders_unnamed_fallback_for_missing_org_name(
         await db.execute("DELETE FROM organizations WHERE id = $1", oid)
 
 
-def test_ra_list_search_matches_person_name(client, ra_id):
+async def test_ra_list_search_matches_person_name(client, ra_id):
     """Search filter must match against v_person_display_names.display_name."""
-    response = client.get(
-        "/admin/role-assignments/?q=Test+Person", headers=AUTH_HEADERS
-    )
+    response = client.get("/admin/role-assignments/?q=Test+Person", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Person" in response.text
 
 
-def test_ra_list_search_no_match_excludes_person_name(client, ra_id):
+async def test_ra_list_search_no_match_excludes_person_name(client, ra_id):
     """Non-matching search must not return rows for the person."""
-    response = client.get(
-        "/admin/role-assignments/?q=NoSuchPersonXYZ", headers=AUTH_HEADERS
-    )
+    response = client.get("/admin/role-assignments/?q=NoSuchPersonXYZ", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Person" not in response.text
 
 
-def test_ra_detail_shows_person_name(client, ra_id):
+async def test_ra_detail_shows_person_name(client, ra_id):
     """RA detail must show canonical person name via v_person_display_names."""
     response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Person" in response.text
 
 
-def test_ra_form_shows_person_in_dropdown(client, person_id):
+async def test_ra_form_shows_person_in_dropdown(client, person_id):
     """New RA form must include canonical person name in the people dropdown."""
     response = client.get("/admin/role-assignments/new/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Test Person" in response.text
 
 
-def test_ra_detail_uses_entity_section_wrapper(client, ra_id):
+async def test_ra_detail_uses_entity_section_wrapper(client, ra_id):
     """Detail layout must wrap content in <section class="entity-section">."""
     response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'class="entity-section"' in response.text
 
 
-def test_ra_detail_drops_detail_grid_dl(client, ra_id):
+async def test_ra_detail_drops_detail_grid_dl(client, ra_id):
     """Legacy <dl class="detail-grid"> must be gone."""
     response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert 'detail-grid' not in response.text
+    assert "detail-grid" not in response.text
 
 
-def test_ra_detail_metadata_footer(client, ra_id):
+async def test_ra_detail_metadata_footer(client, ra_id):
     """Metadata footer must render ID + Created muted line (not a grid row)."""
     response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -489,7 +476,7 @@ def test_ra_detail_metadata_footer(client, ra_id):
     assert f"<code>{ra_id}</code>" in response.text
 
 
-def test_ra_detail_status_field_group_label(client, ra_id):
+async def test_ra_detail_status_field_group_label(client, ra_id):
     """Status renders in a field-group-label row, not a <dt>."""
     response = client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200

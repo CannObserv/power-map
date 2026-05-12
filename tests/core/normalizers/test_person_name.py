@@ -14,8 +14,9 @@ from src.core.normalizers.person_name import (
 )
 
 
-def _suggest(name: str, *, locale: str = "en-US", script: str = "Latn",
-             name_type: str = "legal") -> PartsSuggestion:
+def _suggest(
+    name: str, *, locale: str = "en-US", script: str = "Latn", name_type: str = "legal"
+) -> PartsSuggestion:
     return suggest_parts(name, locale=locale, script=script, name_type=name_type)
 
 
@@ -243,4 +244,4 @@ def test_suggestion_is_frozen_dataclass():
     """PartsSuggestion must be immutable so callers can't mutate the lists."""
     s = _suggest("Jane Doe")
     with pytest.raises((AttributeError, Exception)):
-        s.given_names = ["Other"]   # frozen=True
+        s.given_names = ["Other"]  # frozen=True

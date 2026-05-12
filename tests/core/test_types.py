@@ -47,7 +47,7 @@ def _extract_check_values(table: str) -> set[str]:
         # Restrict to CHECKs near *table*: walk back ~600 chars, look
         # for the table name. Skip if not present (unrelated CHECK).
         window_start = max(0, opener.start() - 600)
-        if table not in SCHEMA[window_start:opener.start()]:
+        if table not in SCHEMA[window_start : opener.start()]:
             continue
 
         # Walk forward from after the opening "(", balancing parens.
@@ -62,10 +62,8 @@ def _extract_check_values(table: str) -> set[str]:
                 if depth == 0:
                     break
             i += 1
-        assert depth == 0, (
-            f"unbalanced parens after name_type IN at offset {opener.end()}"
-        )
-        body = SCHEMA[opener.end():i]
+        assert depth == 0, f"unbalanced parens after name_type IN at offset {opener.end()}"
+        body = SCHEMA[opener.end() : i]
 
         # Strip line comments (-- to end-of-line) and quoted strings
         # are simple single-quotes here (no embedded quotes used in

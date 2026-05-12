@@ -30,10 +30,14 @@ def test_import_config_negative_reliability_raises():
 def test_import_config_boundary_reliability_ok():
     """0.0 and 1.0 are valid boundary values."""
     ImportConfig(
-        orgs_csv=Path("a.csv"), people_csv=Path("b.csv"),
-        roles_csv=Path("c.csv"), source_reliability=0.0,
+        orgs_csv=Path("a.csv"),
+        people_csv=Path("b.csv"),
+        roles_csv=Path("c.csv"),
+        source_reliability=0.0,
     )
     ImportConfig(
-        orgs_csv=Path("a.csv"), people_csv=Path("b.csv"),
-        roles_csv=Path("c.csv"), source_reliability=1.0,
+        orgs_csv=Path("a.csv"),
+        people_csv=Path("b.csv"),
+        roles_csv=Path("c.csv"),
+        source_reliability=1.0,
     )

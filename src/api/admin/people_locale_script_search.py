@@ -44,7 +44,8 @@ async def locale_search(
             " WHERE code ILIKE $1 ESCAPE '\\' OR display_name ILIKE $1 ESCAPE '\\'"
             " ORDER BY code ASC"
             " LIMIT $2",
-            pattern, limit,
+            pattern,
+            limit,
         )
         results = [{"code": r["code"], "display_name": r["display_name"]} for r in rows]
     return templates.TemplateResponse(
@@ -72,7 +73,8 @@ async def script_search(
             " WHERE code ILIKE $1 ESCAPE '\\' OR name ILIKE $1 ESCAPE '\\'"
             " ORDER BY code ASC"
             " LIMIT $2",
-            pattern, limit,
+            pattern,
+            limit,
         )
         results = [{"code": r["code"], "name": r["name"]} for r in rows]
     return templates.TemplateResponse(

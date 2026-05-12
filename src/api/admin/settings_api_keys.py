@@ -90,9 +90,12 @@ async def api_key_create(
     raw_key, key_hash, key_prefix = generate_api_key()
     kid = generate_id()
     await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-        " VALUES ($1,$2,$3,$4,$5)",
-        kid, user.id, label_val, key_prefix, key_hash,
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        user.id,
+        label_val,
+        key_prefix,
+        key_hash,
     )
     if not is_htmx(request):
         return RedirectResponse("/admin/settings/api-keys/", status_code=303)
@@ -113,7 +116,8 @@ async def api_key_edit_row_get(
     key = await db.fetchrow(
         "SELECT id, label, key_prefix, created_at, last_used_at"
         " FROM api_keys WHERE id=$1 AND user_id=$2",
-        key_id, user.id,
+        key_id,
+        user.id,
     )
     if not key:
         raise HTTPException(status_code=404)
@@ -135,9 +139,7 @@ async def api_key_edit_row_post(
     label_val = label.strip()
     if not label_val:
         raise HTTPException(status_code=422, detail="label is required")
-    key = await db.fetchrow(
-        "SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id
-    )
+    key = await db.fetchrow("SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id)
     if not key:
         raise HTTPException(status_code=404)
     await db.execute("UPDATE api_keys SET label=$1 WHERE id=$2", label_val, key_id)
@@ -151,9 +153,7 @@ async def api_key_edit_row_post(
         request,
         "admin/settings/partials/_api_key_row.html",
         {"key": row},
-        headers=flash_trigger(
-            "success", f"Key <strong>{escape(label_val)}</strong> renamed."
-        ),
+        headers=flash_trigger("success", f"Key <strong>{escape(label_val)}</strong> renamed."),
     )
 
 
@@ -167,7 +167,8 @@ async def api_key_read_row(
     row = await db.fetchrow(
         "SELECT id, label, key_prefix, created_at, last_used_at"
         " FROM api_keys WHERE id=$1 AND user_id=$2",
-        key_id, user.id,
+        key_id,
+        user.id,
     )
     if not row:
         raise HTTPException(status_code=404)

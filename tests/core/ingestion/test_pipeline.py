@@ -1,33 +1,35 @@
 """Integration tests for the import pipeline."""
 
-import os
 import shutil
 from pathlib import Path
 
-import asyncpg
 import pytest
+import pytest_asyncio
 
-from src.core.db import apply_schema
 from src.core.ingestion.pipeline import ImportConfig, run_import
 
 ORGS_FIXTURE = Path("tests/fixtures/ingestion/orgs_sample.csv")
 PEOPLE_FIXTURE = Path("tests/fixtures/ingestion/people_sample.csv")
 ROLES_FIXTURE = Path("tests/fixtures/ingestion/roles_sample.csv")
 
-
-@pytest.fixture
-async def db():
-    """Integration DB fixture with rollback — requires DATABASE_URL env var."""
-    conn = await asyncpg.connect(os.environ["DATABASE_URL"])
-    await apply_schema(conn)
-    tr = conn.transaction()
-    await tr.start()
-    yield conn
-    await tr.rollback()
-    await conn.close()
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 
-@pytest.mark.integration
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
+
+
 async def test_run_import_creates_orgs(db):
     config = ImportConfig(
         orgs_csv=ORGS_FIXTURE,
@@ -42,7 +44,6 @@ async def test_run_import_creates_orgs(db):
     assert count >= 1
 
 
-@pytest.mark.integration
 async def test_run_import_provenance_written(db):
     config = ImportConfig(
         orgs_csv=ORGS_FIXTURE,
@@ -59,7 +60,6 @@ async def test_run_import_provenance_written(db):
     assert count >= 1
 
 
-@pytest.mark.integration
 async def test_run_import_field_confidence_written(db):
     config = ImportConfig(
         orgs_csv=ORGS_FIXTURE,
@@ -75,7 +75,6 @@ async def test_run_import_field_confidence_written(db):
     assert row["source_reliability"] == pytest.approx(0.8)
 
 
-@pytest.mark.integration
 async def test_run_import_idempotent(db):
     """Running the same import twice yields matched, not duplicated, entities."""
     config = ImportConfig(
@@ -90,13 +89,10 @@ async def test_run_import_idempotent(db):
     await run_import(db, config)
     count_after = await db.fetchval("SELECT count(*) FROM organizations")
     assert count_before == count_after
-    matched = await db.fetchval(
-        "SELECT count(*) FROM import_provenance WHERE action = 'matched'"
-    )
+    matched = await db.fetchval("SELECT count(*) FROM import_provenance WHERE action = 'matched'")
     assert matched >= 1
 
 
-@pytest.mark.integration
 async def test_run_import_bad_phone_no_contact_method(db):
     """Rows with an invalid phone produce a warning but the entity still loads.
 
@@ -122,7 +118,6 @@ async def test_run_import_bad_phone_no_contact_method(db):
     assert phone_count == 0
 
 
-@pytest.mark.integration
 async def test_run_import_roles_idempotent_new_batch(db, tmp_path):
     """Re-importing with a new file hash must not create duplicate roles or assignments.
 

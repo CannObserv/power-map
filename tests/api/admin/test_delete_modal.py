@@ -47,6 +47,6 @@ def test_close_nulls_out_handle_delete_result():
 
 def test_delete_button_has_type_button():
     """Delete button must have type=button to prevent accidental form submit."""
-    match = re.search(r'<button[^>]*hx-delete[^>]*>', TEMPLATE, re.DOTALL)
+    match = re.search(r"<button[^>]*hx-delete[^>]*>", TEMPLATE, re.DOTALL)
     assert match, "Delete button with hx-delete not found"
     assert 'type="button"' in match.group(0)
