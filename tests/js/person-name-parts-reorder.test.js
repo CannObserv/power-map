@@ -230,4 +230,81 @@ describe('person-name-parts-reorder', () => {
       expect(downs[1].disabled).toBe(true);
     });
   });
+
+  // Issue #146 — reorder is a value-swap, not a DOM reorder. Aria-labels
+  // encode position, not value, so ↑↓ must leave them byte-identical.
+  // Locks in the design intent: if a future maintainer "helpfully" calls
+  // refreshIndices() after a swap, this test catches the regression and
+  // forces a deliberate decision.
+  describe('aria-label stability under ↑↓ swap (#146)', () => {
+    /** Render N cards with server-shape, #146-style indexed aria-labels. */
+    function indexedCardHTML(field, n) {
+      const lower = field.replace(/_/g, ' ');
+      const cap = lower.charAt(0).toUpperCase() + lower.slice(1);
+      return Array.from({ length: n }, (_, i) => {
+        const idx = i + 1;
+        const upDisabled = i === 0 ? ' disabled' : '';
+        const downDisabled = i === n - 1 ? ' disabled' : '';
+        return `
+          <div data-cardstack-card="${field}" style="display:flex;gap:var(--space-1);align-items:center">
+            <div class="form-group" style="margin-bottom:0;flex:1">
+              <input type="text" name="${field}" value="v${i}" aria-label="${cap} ${idx}">
+            </div>
+            <button type="button" class="btn btn--sm btn--secondary"
+                    data-cardstack-reorder="up" data-cardstack-field="${field}"
+                    aria-label="Move ${lower} entry ${idx} up"${upDisabled}>↑</button>
+            <button type="button" class="btn btn--sm btn--secondary"
+                    data-cardstack-reorder="down" data-cardstack-field="${field}"
+                    aria-label="Move ${lower} entry ${idx} down"${downDisabled}>↓</button>
+            <button type="button" class="btn btn--sm btn--secondary"
+                    data-cardstack-remove="${field}"
+                    aria-label="Remove ${lower} entry ${idx}">×</button>
+          </div>`;
+      }).join('');
+    }
+
+    function snapshotAriaLabels(field) {
+      const cards = Array.from(document.querySelectorAll(`[data-cardstack-card="${field}"]`));
+      return cards.map((card) => ({
+        input: card.querySelector(`input[name="${field}"]`).getAttribute('aria-label'),
+        up: card.querySelector('[data-cardstack-reorder="up"]').getAttribute('aria-label'),
+        down: card.querySelector('[data-cardstack-reorder="down"]').getAttribute('aria-label'),
+        remove: card.querySelector(`[data-cardstack-remove="${field}"]`).getAttribute('aria-label'),
+      }));
+    }
+
+    it('↑ on the middle card leaves every aria-label untouched (only values swap)', () => {
+      document.body.innerHTML = `
+        <form>
+          <fieldset>
+            <div data-cardstack="given_names" data-cardstack-cap="5">${indexedCardHTML('given_names', 3)}</div>
+          </fieldset>
+        </form>`;
+      eval(REORDER_SRC);
+      const before = snapshotAriaLabels('given_names');
+      const ups = document.querySelectorAll('[data-cardstack-reorder="up"]');
+      ups[1].click();
+      // Values swapped — card-1 now holds 'v1', card-2 holds 'v0'.
+      expect(values('given_names')).toEqual(['v1', 'v0', 'v2']);
+      // …but every aria-label is byte-identical to the pre-click snapshot.
+      const after = snapshotAriaLabels('given_names');
+      expect(after).toEqual(before);
+    });
+
+    it('↓ on the first card likewise preserves aria-labels', () => {
+      document.body.innerHTML = `
+        <form>
+          <fieldset>
+            <div data-cardstack="given_names" data-cardstack-cap="5">${indexedCardHTML('given_names', 3)}</div>
+          </fieldset>
+        </form>`;
+      eval(REORDER_SRC);
+      const before = snapshotAriaLabels('given_names');
+      const downs = document.querySelectorAll('[data-cardstack-reorder="down"]');
+      downs[0].click();
+      expect(values('given_names')).toEqual(['v1', 'v0', 'v2']);
+      const after = snapshotAriaLabels('given_names');
+      expect(after).toEqual(before);
+    });
+  });
 });

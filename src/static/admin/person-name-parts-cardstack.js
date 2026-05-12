@@ -68,25 +68,61 @@
     btn.disabled = cardsIn(field, root).length >= cap(field, root);
   }
 
-  /* Derive a human-readable label fragment from a field name.
-   * "given_names"      → "given"
-   * "family_names"     → "family"
-   * "additional_names" → "additional"
-   * Any other value    → the field name as-is (safe fallback).
+  /* Human-readable label for a field name. Mirrors the Jinja `label|lower`
+   * substitution in `_name_parts_editor_body.html` (Issue #146):
+   *   "given_names"      → "given names"
+   *   "family_names"     → "family names"
+   *   "additional_names" → "additional names"
+   * Any unknown field flows through with `_` → ` ` so the aria-label
+   * stays readable rather than silently dropping the field segment.
    */
-  function labelFragment(field) {
-    return field.replace(/_names$/, '');
+  function fieldLabel(field) {
+    return field.replace(/_/g, ' ');
+  }
+
+  /* Set aria-labels on a card's input + up/down/remove buttons to embed
+   * the card's 1-based position. Issue #146: without the index, every
+   * button in a 2+ stack reads identically to a screen reader.
+   *
+   * Centralised so the strings live in one place — both `refreshIndices`
+   * after Add and after Remove call this, so the two paths can't drift.
+   */
+  function applyCardAriaLabels(card, field, index) {
+    var label = fieldLabel(field);
+    var capLabel = label.charAt(0).toUpperCase() + label.slice(1);
+    var input = card.querySelector('input[name="' + field + '"]');
+    if (input) input.setAttribute('aria-label', capLabel + ' ' + index);
+    var up = card.querySelector('[data-cardstack-reorder="up"]');
+    if (up) up.setAttribute('aria-label', 'Move ' + label + ' entry ' + index + ' up');
+    var down = card.querySelector('[data-cardstack-reorder="down"]');
+    if (down) {
+      down.setAttribute('aria-label', 'Move ' + label + ' entry ' + index + ' down');
+    }
+    var rm = card.querySelector('[data-cardstack-remove="' + field + '"]');
+    if (rm) rm.setAttribute('aria-label', 'Remove ' + label + ' entry ' + index);
+  }
+
+  /* Walk every card for `field` in `root` and rewrite its aria-labels to
+   * match current DOM position. Called after Add (so the new card gets
+   * the right index) and after Remove (so survivors shift down). #146.
+   */
+  function refreshIndices(field, root) {
+    cardsIn(field, root).forEach(function (card, i) {
+      applyCardAriaLabels(card, field, i + 1);
+    });
   }
 
   function buildCard(field) {
     // Mirror the server-rendered card shape from
-    // `_name_parts_editor.html`: each card is a flex row holding a
+    // `_name_parts_editor_body.html`: each card is a flex row holding a
     // `.form-group`-wrapped <input>, up/down reorder buttons (#126),
     // and the Remove button. The wrapper is what lets the input
     // inherit the baseline `.form-group input` rule (font-size,
     // padding, min-height: 44px); a bare <input> falls back to
-    // browser-default sizing and renders smaller than the rest of the
-    // form.
+    // browser-default sizing.
+    //
+    // Aria-labels are intentionally not set here — `refreshIndices`
+    // owns them (#146) so the Add and post-Remove paths cannot drift.
     var card = document.createElement('div');
     card.setAttribute('data-cardstack-card', field);
     card.style.display = 'flex';
@@ -105,13 +141,11 @@
     wrapper.appendChild(input);
     card.appendChild(wrapper);
 
-    var fragment = labelFragment(field);
     var up = document.createElement('button');
     up.type = 'button';
     up.className = 'btn btn--sm btn--secondary';
     up.setAttribute('data-cardstack-reorder', 'up');
     up.setAttribute('data-cardstack-field', field);
-    up.setAttribute('aria-label', 'Move this ' + fragment + ' entry up');
     up.textContent = '↑';
     card.appendChild(up);
 
@@ -120,7 +154,6 @@
     down.className = 'btn btn--sm btn--secondary';
     down.setAttribute('data-cardstack-reorder', 'down');
     down.setAttribute('data-cardstack-field', field);
-    down.setAttribute('aria-label', 'Move this ' + fragment + ' entry down');
     down.textContent = '↓';
     card.appendChild(down);
 
@@ -128,7 +161,6 @@
     rm.type = 'button';
     rm.className = 'btn btn--sm btn--secondary';
     rm.setAttribute('data-cardstack-remove', field);
-    rm.setAttribute('aria-label', 'Remove this ' + fragment + ' entry');
     rm.textContent = '×';
     card.appendChild(rm);
     return card;
@@ -153,6 +185,7 @@
       var stack = stackFor(field, addRoot);
       if (!stack) return;
       stack.appendChild(buildCard(field));
+      refreshIndices(field, addRoot);
       syncAddBtn(field, addRoot);
       syncReorder(addRoot);
       return;
@@ -163,6 +196,7 @@
       var rmRoot = rmEl.closest('form') || document;
       var card = rmEl.closest('[data-cardstack-card="' + rmField + '"]');
       if (card) card.remove();
+      refreshIndices(rmField, rmRoot);
       syncAddBtn(rmField, rmRoot);
       syncReorder(rmRoot);
     }
