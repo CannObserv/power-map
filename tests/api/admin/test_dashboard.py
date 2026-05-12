@@ -104,12 +104,7 @@ async def test_dashboard_person_dup_badge_hidden_when_zero(client):
 
 
 async def test_dashboard_routes_db_through_get_db_dep(client):
-    """Dashboard must acquire its DB connection via Depends(get_db) — not bypass it.
-
-    Regression guard for #147: a route that calls ``src.core.db.acquire()`` directly
-    silently escapes ``app.dependency_overrides[get_db]``, breaking any test pattern
-    that relies on swapping the DB dep (e.g. transaction-rollback isolation).
-    """
+    """Dashboard's DB connection must come from Depends(get_db) so test overrides apply (#147)."""
     call_count = {"n": 0}
 
     async def counting_get_db():
