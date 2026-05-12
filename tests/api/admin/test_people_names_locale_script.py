@@ -8,28 +8,21 @@ FK violations on locale / script must surface as form errors (HTMX 200
 with flash, non-HTMX 422), never as bare 500s.
 """
 
-import asyncio
-import os
-
-import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 from src.core.types import PERSON_NAME_TYPES
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
-
-
-def _dsn() -> str:
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    return dsn
 
 
 @pytest.fixture
@@ -38,65 +31,49 @@ def client():
         yield c
 
 
-@pytest.fixture
-def person_and_name():
-    dsn = _dsn()
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_and_name(db_pool):
     pid, nid = generate_id(), generate_id()
 
-    async def setup():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-            await conn.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
-                " VALUES ($1, $2, 'Original Name', 'legal', TRUE)",
-                nid, pid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+            " VALUES ($1, $2, 'Original Name', 'legal', TRUE)",
+            nid,
+            pid,
+        )
 
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-            await conn.execute("DELETE FROM people WHERE id=$1", pid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     yield pid, nid
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+        await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
-async def _fetch_metadata(pid: str, nid: str) -> dict:
-    conn = await asyncpg.connect(_dsn())
-    try:
+async def _fetch_metadata(pool, pid: str, nid: str) -> dict:
+    async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT locale, script, sort_as FROM person_names"
-            " WHERE id=$1 AND person_id=$2",
-            nid, pid,
+            "SELECT locale, script, sort_as FROM person_names WHERE id=$1 AND person_id=$2",
+            nid,
+            pid,
         )
         return dict(row) if row else {}
-    finally:
-        await conn.close()
 
 
-async def _fetch_new_name_id(pid: str, name: str) -> str:
-    conn = await asyncpg.connect(_dsn())
-    try:
+async def _fetch_new_name_id(pool, pid: str, name: str) -> str:
+    async with pool.acquire() as conn:
         return await conn.fetchval(
             "SELECT id FROM person_names WHERE person_id=$1 AND name=$2",
-            pid, name,
+            pid,
+            name,
         )
-    finally:
-        await conn.close()
 
 
 # ---- Round-trip on create ------------------------------------------------
 
 
-def test_create_persists_locale(client, person_and_name):
+async def test_create_persists_locale(client, person_and_name, db_pool):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -109,11 +86,11 @@ def test_create_persists_locale(client, person_and_name):
         },
     )
     assert r.status_code == 200, r.text
-    new_id = asyncio.run(_fetch_new_name_id(pid, "Locale Test"))
-    assert asyncio.run(_fetch_metadata(pid, new_id))["locale"] == "en-US"
+    new_id = await _fetch_new_name_id(db_pool, pid, "Locale Test")
+    assert (await _fetch_metadata(db_pool, pid, new_id))["locale"] == "en-US"
 
 
-def test_create_persists_script(client, person_and_name):
+async def test_create_persists_script(client, person_and_name, db_pool):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -126,11 +103,11 @@ def test_create_persists_script(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    new_id = asyncio.run(_fetch_new_name_id(pid, "Script Test"))
-    assert asyncio.run(_fetch_metadata(pid, new_id))["script"] == "Latn"
+    new_id = await _fetch_new_name_id(db_pool, pid, "Script Test")
+    assert (await _fetch_metadata(db_pool, pid, new_id))["script"] == "Latn"
 
 
-def test_create_persists_sort_as(client, person_and_name):
+async def test_create_persists_sort_as(client, person_and_name, db_pool):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -143,11 +120,11 @@ def test_create_persists_sort_as(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    new_id = asyncio.run(_fetch_new_name_id(pid, "van der Meer"))
-    assert asyncio.run(_fetch_metadata(pid, new_id))["sort_as"] == "Meer, van der"
+    new_id = await _fetch_new_name_id(db_pool, pid, "van der Meer")
+    assert (await _fetch_metadata(db_pool, pid, new_id))["sort_as"] == "Meer, van der"
 
 
-def test_create_persists_all_three(client, person_and_name):
+async def test_create_persists_all_three(client, person_and_name, db_pool):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -162,12 +139,12 @@ def test_create_persists_all_three(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    new_id = asyncio.run(_fetch_new_name_id(pid, "Triple"))
-    md = asyncio.run(_fetch_metadata(pid, new_id))
+    new_id = await _fetch_new_name_id(db_pool, pid, "Triple")
+    md = await _fetch_metadata(db_pool, pid, new_id)
     assert md == {"locale": "en-US", "script": "Latn", "sort_as": "Triple, Test"}
 
 
-def test_create_empty_sort_as_stored_as_null(client, person_and_name):
+async def test_create_empty_sort_as_stored_as_null(client, person_and_name, db_pool):
     """Empty-string sort_as should become NULL, not '' — keeps sort fallback clean."""
     pid, _ = person_and_name
     r = client.post(
@@ -181,11 +158,11 @@ def test_create_empty_sort_as_stored_as_null(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    new_id = asyncio.run(_fetch_new_name_id(pid, "Empty Sort"))
-    assert asyncio.run(_fetch_metadata(pid, new_id))["sort_as"] is None
+    new_id = await _fetch_new_name_id(db_pool, pid, "Empty Sort")
+    assert (await _fetch_metadata(db_pool, pid, new_id))["sort_as"] is None
 
 
-def test_create_whitespace_only_sort_as_stored_as_null(client, person_and_name):
+async def test_create_whitespace_only_sort_as_stored_as_null(client, person_and_name, db_pool):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -198,11 +175,11 @@ def test_create_whitespace_only_sort_as_stored_as_null(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    new_id = asyncio.run(_fetch_new_name_id(pid, "WS Sort"))
-    assert asyncio.run(_fetch_metadata(pid, new_id))["sort_as"] is None
+    new_id = await _fetch_new_name_id(db_pool, pid, "WS Sort")
+    assert (await _fetch_metadata(db_pool, pid, new_id))["sort_as"] is None
 
 
-def test_create_strips_whitespace_from_sort_as(client, person_and_name):
+async def test_create_strips_whitespace_from_sort_as(client, person_and_name, db_pool):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -215,14 +192,14 @@ def test_create_strips_whitespace_from_sort_as(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    new_id = asyncio.run(_fetch_new_name_id(pid, "Trim Sort"))
-    assert asyncio.run(_fetch_metadata(pid, new_id))["sort_as"] == "Trim, Test"
+    new_id = await _fetch_new_name_id(db_pool, pid, "Trim Sort")
+    assert (await _fetch_metadata(db_pool, pid, new_id))["sort_as"] == "Trim, Test"
 
 
 # ---- Round-trip on edit --------------------------------------------------
 
 
-def test_edit_persists_metadata(client, person_and_name):
+async def test_edit_persists_metadata(client, person_and_name, db_pool):
     pid, nid = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
@@ -237,11 +214,11 @@ def test_edit_persists_metadata(client, person_and_name):
         },
     )
     assert r.status_code == 200
-    md = asyncio.run(_fetch_metadata(pid, nid))
+    md = await _fetch_metadata(db_pool, pid, nid)
     assert md == {"locale": "en-GB", "script": "Latn", "sort_as": "Original Name"}
 
 
-def test_edit_clears_sort_as_when_empty(client, person_and_name):
+async def test_edit_clears_sort_as_when_empty(client, person_and_name, db_pool):
     """Editing with sort_as='' should NULL it, allowing fallback to name."""
     pid, nid = person_and_name
     # First set it.
@@ -255,7 +232,7 @@ def test_edit_clears_sort_as_when_empty(client, person_and_name):
             "sort_as": "Set Value",
         },
     )
-    assert asyncio.run(_fetch_metadata(pid, nid))["sort_as"] == "Set Value"
+    assert (await _fetch_metadata(db_pool, pid, nid))["sort_as"] == "Set Value"
     # Now clear it.
     client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
@@ -267,13 +244,13 @@ def test_edit_clears_sort_as_when_empty(client, person_and_name):
             "sort_as": "",
         },
     )
-    assert asyncio.run(_fetch_metadata(pid, nid))["sort_as"] is None
+    assert (await _fetch_metadata(db_pool, pid, nid))["sort_as"] is None
 
 
 # ---- FK violation surfaces as form error (not 500) -----------------------
 
 
-def test_create_unregistered_locale_returns_form_error_htmx(client, person_and_name):
+async def test_create_unregistered_locale_returns_form_error_htmx(client, person_and_name, db_pool):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -289,11 +266,11 @@ def test_create_unregistered_locale_returns_form_error_htmx(client, person_and_n
     assert r.status_code == 200, r.text
     assert "showFlash" in r.headers.get("HX-Trigger", "")
     # No row should have been inserted.
-    new_id = asyncio.run(_fetch_new_name_id(pid, "Bad Locale"))
+    new_id = await _fetch_new_name_id(db_pool, pid, "Bad Locale")
     assert new_id is None
 
 
-def test_create_unregistered_script_returns_form_error_htmx(client, person_and_name):
+async def test_create_unregistered_script_returns_form_error_htmx(client, person_and_name, db_pool):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -307,11 +284,11 @@ def test_create_unregistered_script_returns_form_error_htmx(client, person_and_n
     )
     assert r.status_code == 200, r.text
     assert "showFlash" in r.headers.get("HX-Trigger", "")
-    new_id = asyncio.run(_fetch_new_name_id(pid, "Bad Script"))
+    new_id = await _fetch_new_name_id(db_pool, pid, "Bad Script")
     assert new_id is None
 
 
-def test_edit_unregistered_locale_returns_form_error_htmx(client, person_and_name):
+async def test_edit_unregistered_locale_returns_form_error_htmx(client, person_and_name, db_pool):
     pid, nid = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
@@ -326,10 +303,10 @@ def test_edit_unregistered_locale_returns_form_error_htmx(client, person_and_nam
     assert r.status_code == 200, r.text
     assert "showFlash" in r.headers.get("HX-Trigger", "")
     # Row unchanged.
-    assert asyncio.run(_fetch_metadata(pid, nid))["locale"] is None
+    assert (await _fetch_metadata(db_pool, pid, nid))["locale"] is None
 
 
-def test_create_unregistered_locale_non_htmx_returns_422(client, person_and_name):
+async def test_create_unregistered_locale_non_htmx_returns_422(client, person_and_name):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",
@@ -348,30 +325,13 @@ def test_create_unregistered_locale_non_htmx_returns_422(client, person_and_name
 # ---- supports_person_metadata=False (org_names) ignores the new fields ----------
 
 
-def test_org_names_ignores_locale_script_sort_as(client):
+async def test_org_names_ignores_locale_script_sort_as(client, db_pool):
     """Posting these fields to org_names must not 500 and must not affect storage."""
-    dsn = _dsn()
     org_id = generate_id()
 
-    async def setup():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute(
-                "INSERT INTO organizations (id) VALUES ($1)", org_id,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
 
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", org_id)
-            await conn.execute("DELETE FROM organizations WHERE id=$1", org_id)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     try:
         r = client.post(
             f"/admin/orgs/{org_id}/names/",
@@ -388,14 +348,16 @@ def test_org_names_ignores_locale_script_sort_as(client):
         )
         assert r.status_code == 200, r.text
     finally:
-        asyncio.run(teardown())
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", org_id)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", org_id)
 
 
 # ---- All 12 name_types still accepted (Task 1 Phase 2a regression) -------
 
 
 @pytest.mark.parametrize("name_type", PERSON_NAME_TYPES)
-def test_create_accepts_all_name_types_with_metadata(client, person_and_name, name_type):
+async def test_create_accepts_all_name_types_with_metadata(client, person_and_name, name_type):
     pid, _ = person_and_name
     r = client.post(
         f"/admin/people/{pid}/names/",

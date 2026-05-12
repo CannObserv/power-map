@@ -10,27 +10,21 @@ sorted by canonical DESC then name; capped at limit; empty q returns no
 rows. Returns HTML option-list partials shaped for typeahead-combobox.js.
 """
 
-import asyncio
-import os
 import re
 
-import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
-
-
-def _dsn() -> str:
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    return dsn
 
 
 @pytest.fixture
@@ -39,8 +33,8 @@ def client():
         yield c
 
 
-@pytest.fixture
-def two_people_with_names():
+@pytest_asyncio.fixture(loop_scope="session")
+async def two_people_with_names(db_pool):
     """Two people, each with one visual + one reading row.
 
     person_a: 'Ada Lovelace' (legal), 'ada lovelace' (romanization, parent=Ada)
@@ -49,7 +43,6 @@ def two_people_with_names():
     The reading_target_search for person_a should return only Ada's
     visual rows — never Bob's, never Ada's reading row.
     """
-    dsn = _dsn()
     pid_a = generate_id()
     pid_b = generate_id()
     nid_a_visual = generate_id()
@@ -57,55 +50,53 @@ def two_people_with_names():
     nid_b_visual = generate_id()
     nid_b_reading = generate_id()
 
-    async def setup():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            for pid in (pid_a, pid_b):
-                await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-            await conn.execute(
-                "INSERT INTO person_names"
-                " (id, person_id, name, name_type, is_canonical, visibility)"
-                " VALUES ($1, $2, 'Ada Lovelace', 'legal', TRUE, 'public')",
-                nid_a_visual, pid_a,
-            )
-            await conn.execute(
-                "INSERT INTO person_names"
-                " (id, person_id, name, name_type, is_canonical, visibility, reading_of_id)"
-                " VALUES ($1, $2, 'ada lovelace', 'romanization', FALSE, 'public', $3)",
-                nid_a_reading, pid_a, nid_a_visual,
-            )
-            await conn.execute(
-                "INSERT INTO person_names"
-                " (id, person_id, name, name_type, is_canonical, visibility)"
-                " VALUES ($1, $2, 'Bob Builder', 'legal', TRUE, 'public')",
-                nid_b_visual, pid_b,
-            )
-            await conn.execute(
-                "INSERT INTO person_names"
-                " (id, person_id, name, name_type, is_canonical, visibility, reading_of_id)"
-                " VALUES ($1, $2, 'bob', 'romanization', FALSE, 'public', $3)",
-                nid_b_reading, pid_b, nid_b_visual,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        for pid in (pid_a, pid_b):
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await conn.execute(
+            "INSERT INTO person_names"
+            " (id, person_id, name, name_type, is_canonical, visibility)"
+            " VALUES ($1, $2, 'Ada Lovelace', 'legal', TRUE, 'public')",
+            nid_a_visual,
+            pid_a,
+        )
+        await conn.execute(
+            "INSERT INTO person_names"
+            " (id, person_id, name, name_type, is_canonical, visibility, reading_of_id)"
+            " VALUES ($1, $2, 'ada lovelace', 'romanization', FALSE, 'public', $3)",
+            nid_a_reading,
+            pid_a,
+            nid_a_visual,
+        )
+        await conn.execute(
+            "INSERT INTO person_names"
+            " (id, person_id, name, name_type, is_canonical, visibility)"
+            " VALUES ($1, $2, 'Bob Builder', 'legal', TRUE, 'public')",
+            nid_b_visual,
+            pid_b,
+        )
+        await conn.execute(
+            "INSERT INTO person_names"
+            " (id, person_id, name, name_type, is_canonical, visibility, reading_of_id)"
+            " VALUES ($1, $2, 'bob', 'romanization', FALSE, 'public', $3)",
+            nid_b_reading,
+            pid_b,
+            nid_b_visual,
+        )
 
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
-            for pid in (pid_a, pid_b):
-                await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-                await conn.execute("DELETE FROM people WHERE id=$1", pid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     yield {
-        "pid_a": pid_a, "pid_b": pid_b,
-        "nid_a_visual": nid_a_visual, "nid_a_reading": nid_a_reading,
-        "nid_b_visual": nid_b_visual, "nid_b_reading": nid_b_reading,
+        "pid_a": pid_a,
+        "pid_b": pid_b,
+        "nid_a_visual": nid_a_visual,
+        "nid_a_reading": nid_a_reading,
+        "nid_b_visual": nid_b_visual,
+        "nid_b_reading": nid_b_reading,
     }
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        for pid in (pid_a, pid_b):
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
 def _option_ids(html: str) -> list[str]:
@@ -119,7 +110,7 @@ def _option_labels(html: str) -> list[str]:
 # ---- Scope: same-person, visual-only ----------------------------------
 
 
-def test_returns_same_person_visual_rows(client, two_people_with_names):
+async def test_returns_same_person_visual_rows(client, two_people_with_names):
     f = two_people_with_names
     r = client.get(
         f"/admin/people/{f['pid_a']}/_reading_target_search?q=ada",
@@ -132,7 +123,7 @@ def test_returns_same_person_visual_rows(client, two_people_with_names):
     assert f["nid_a_reading"] not in ids
 
 
-def test_excludes_other_person_visual_rows(client, two_people_with_names):
+async def test_excludes_other_person_visual_rows(client, two_people_with_names):
     f = two_people_with_names
     r = client.get(
         f"/admin/people/{f['pid_a']}/_reading_target_search?q=Bob",
@@ -145,7 +136,7 @@ def test_excludes_other_person_visual_rows(client, two_people_with_names):
     assert ids == []
 
 
-def test_excludes_reading_romanization_mrz_rows(client, two_people_with_names):
+async def test_excludes_reading_romanization_mrz_rows(client, two_people_with_names):
     """The reading row itself must never appear as a candidate parent
     even when q matches its name."""
     f = two_people_with_names
@@ -162,7 +153,7 @@ def test_excludes_reading_romanization_mrz_rows(client, two_people_with_names):
 # ---- Empty q + auth ---------------------------------------------------
 
 
-def test_empty_q_returns_empty_list(client, two_people_with_names):
+async def test_empty_q_returns_empty_list(client, two_people_with_names):
     f = two_people_with_names
     r = client.get(
         f"/admin/people/{f['pid_a']}/_reading_target_search?q=",
@@ -172,7 +163,7 @@ def test_empty_q_returns_empty_list(client, two_people_with_names):
     assert _option_ids(r.text) == []
 
 
-def test_missing_q_returns_empty_list(client, two_people_with_names):
+async def test_missing_q_returns_empty_list(client, two_people_with_names):
     f = two_people_with_names
     r = client.get(
         f"/admin/people/{f['pid_a']}/_reading_target_search",
@@ -182,7 +173,7 @@ def test_missing_q_returns_empty_list(client, two_people_with_names):
     assert _option_ids(r.text) == []
 
 
-def test_requires_auth(client, two_people_with_names):
+async def test_requires_auth(client, two_people_with_names):
     f = two_people_with_names
     r = client.get(
         f"/admin/people/{f['pid_a']}/_reading_target_search?q=Ada",
@@ -194,7 +185,7 @@ def test_requires_auth(client, two_people_with_names):
 # ---- Response shape ---------------------------------------------------
 
 
-def test_response_uses_option_list_shape(client, two_people_with_names):
+async def test_response_uses_option_list_shape(client, two_people_with_names):
     f = two_people_with_names
     r = client.get(
         f"/admin/people/{f['pid_a']}/_reading_target_search?q=Ada",
@@ -210,7 +201,7 @@ def test_response_uses_option_list_shape(client, two_people_with_names):
 # ---- Limit + escape_like ---------------------------------------------
 
 
-def test_limit_caps_results(client, two_people_with_names):
+async def test_limit_caps_results(client, two_people_with_names):
     f = two_people_with_names
     r = client.get(
         f"/admin/people/{f['pid_a']}/_reading_target_search?q=Ada&limit=0",
@@ -220,7 +211,7 @@ def test_limit_caps_results(client, two_people_with_names):
     assert r.status_code == 422
 
 
-def test_escape_like_neutralises_underscore(client, two_people_with_names):
+async def test_escape_like_neutralises_underscore(client, two_people_with_names):
     """`_` should not act as a single-char wildcard."""
     f = two_people_with_names
     # Real names don't contain '_'; query 'A_a' would match 'Ada' if `_` were
@@ -236,7 +227,7 @@ def test_escape_like_neutralises_underscore(client, two_people_with_names):
 # ---- 404 on unknown person -------------------------------------------
 
 
-def test_unknown_person_returns_404(client):
+async def test_unknown_person_returns_404(client):
     """A request for a non-existent person should 404, not silently return [].
 
     Same shape as other person-scoped endpoints (people_names, etc).

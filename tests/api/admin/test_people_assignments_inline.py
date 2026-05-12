@@ -1,71 +1,76 @@
 """Integration tests for inline assignment CRUD on person detail."""
-import json
-import os
 
-import asyncpg
+import json
+
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from src.api.admin.deps import get_db
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 AUTH_HEADERS = {"X-ExeDev-UserID": "test-user", "X-ExeDev-Email": "test@example.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
 
 
-@pytest.fixture
-async def db():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
-        yield conn
-        await tr.rollback()
-    finally:
-        await conn.close()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def client(db):
     async def _get_db_override():
         yield db
+
     app.dependency_overrides[get_db] = _get_db_override
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.pop(get_db, None)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def person_id(db):
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-        generate_id(), pid, "Jane Doe",
+        generate_id(),
+        pid,
+        "Jane Doe",
     )
     return pid
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def role_id(db):
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), oid, "Test Org",
+        generate_id(),
+        oid,
+        "Test Org",
     )
     rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-        rid, oid, "Executive Director",
+        rid,
+        oid,
+        "Executive Director",
     )
     return rid
 
@@ -76,9 +81,7 @@ async def role_id(db):
 
 
 async def test_new_row_returns_form(client, person_id):
-    r = await client.get(
-        f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"<form" in r.content
     assert b"role-search" in r.content
@@ -92,18 +95,14 @@ async def test_new_row_unknown_person_returns_404(client):
 
 
 async def test_new_row_is_current_uses_pill_toggle(client, person_id):
-    r = await client.get(
-        f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b'class="toggle"' in r.content
     assert b"toggle__track" in r.content
 
 
 async def test_new_row_js_disables_end_date_when_is_current_checked(client, person_id):
-    r = await client.get(
-        f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"endDt.disabled = true" in r.content
     assert b"endDt.disabled = false" in r.content
@@ -128,7 +127,8 @@ async def test_create_persists_assignment(client, person_id, role_id, db):
     assert r.status_code == 200
     row = await db.fetchrow(
         "SELECT * FROM role_assignments WHERE person_id=$1 AND role_id=$2",
-        person_id, role_id,
+        person_id,
+        role_id,
     )
     assert row is not None
     assert row["is_current"] is True
@@ -144,7 +144,8 @@ async def test_create_with_end_date(client, person_id, role_id, db):
     assert r.status_code == 200
     row = await db.fetchrow(
         "SELECT * FROM role_assignments WHERE person_id=$1 AND role_id=$2",
-        person_id, role_id,
+        person_id,
+        role_id,
     )
     assert row is not None
     assert str(row["end_date"]) == "2023-12-31"
@@ -215,7 +216,9 @@ async def test_create_duplicate_start_date_returns_error(client, person_id, role
     await db.execute(
         """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)
            VALUES ($1, $2, $3, FALSE, '2024-01-01')""",
-        generate_id(), person_id, role_id,
+        generate_id(),
+        person_id,
+        role_id,
     )
     r = await client.post(
         f"/admin/people/{person_id}/assignments/",
@@ -237,41 +240,48 @@ async def test_create_non_htmx_redirects(client, person_id, role_id):
     )
     assert r.status_code == 303
 
+
 # ---------------------------------------------------------------------------
 # Shared fixture — existing assignment
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def assignment_id(db, person_id, role_id):
     ra_id = generate_id()
     await db.execute(
         """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
            VALUES ($1, $2, $3, FALSE, '2020-01-01', '2022-12-31')""",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
     return ra_id
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def archived_assignment_id(db, person_id, role_id):
     ra_id = generate_id()
     await db.execute(
         """INSERT INTO role_assignments
                (id, person_id, role_id, is_current, start_date, end_date, archived_at)
            VALUES ($1, $2, $3, FALSE, '2018-01-01', '2019-12-31', NOW())""",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
     return ra_id
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def current_assignment_id(db, person_id, role_id):
     ra_id = generate_id()
     await db.execute(
         """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)
            VALUES ($1, $2, $3, TRUE, '2024-01-01')""",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
     return ra_id
 
@@ -319,9 +329,7 @@ async def test_read_row_archived_has_no_edit_button(client, person_id, archived_
     assert b"edit-row" not in r.content
 
 
-async def test_read_row_has_open_link_to_assignment_detail(
-    client, person_id, assignment_id
-):
+async def test_read_row_has_open_link_to_assignment_detail(client, person_id, assignment_id):
     r = await client.get(
         f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
         headers=HTMX_HEADERS,
@@ -338,18 +346,13 @@ async def test_read_row_archived_has_open_link_to_assignment_detail(
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    assert (
-        f'href="/admin/role-assignments/{archived_assignment_id}/"'.encode()
-        in r.content
-    )
+    assert f'href="/admin/role-assignments/{archived_assignment_id}/"'.encode() in r.content
 
 
 async def test_read_row_org_and_role_still_link_to_their_entities(
     client, person_id, role_id, assignment_id, db
 ):
-    org_id = await db.fetchval(
-        "SELECT organization_id FROM roles WHERE id=$1", role_id
-    )
+    org_id = await db.fetchval("SELECT organization_id FROM roles WHERE id=$1", role_id)
     r = await client.get(
         f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
         headers=HTMX_HEADERS,
@@ -437,7 +440,7 @@ async def test_edit_row_get_current_end_date_is_disabled(client, person_id, curr
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    assert b' disabled>' in r.content
+    assert b" disabled>" in r.content
 
 
 async def test_edit_row_get_non_current_end_date_not_disabled(client, person_id, assignment_id):
@@ -446,7 +449,7 @@ async def test_edit_row_get_non_current_end_date_not_disabled(client, person_id,
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    assert b' disabled>' not in r.content
+    assert b" disabled>" not in r.content
 
 
 async def test_edit_row_get_is_current_uses_pill_toggle(client, person_id, assignment_id):
@@ -515,9 +518,7 @@ async def test_edit_row_post_returns_success_flash(client, person_id, assignment
 # ---------------------------------------------------------------------------
 
 
-async def test_edit_row_post_current_with_end_date_returns_error(
-    client, person_id, assignment_id
-):
+async def test_edit_row_post_current_with_end_date_returns_error(client, person_id, assignment_id):
     r = await client.post(
         f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
         headers=HTMX_HEADERS,
@@ -609,12 +610,12 @@ async def test_person_detail_role_title_links_to_role_detail(
 
 async def test_person_detail_hides_add_button_when_archived(client, db):
     pid = generate_id()
-    await db.execute(
-        "INSERT INTO people (id, archived_at) VALUES ($1, NOW())", pid
-    )
+    await db.execute("INSERT INTO people (id, archived_at) VALUES ($1, NOW())", pid)
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-        generate_id(), pid, "Archived Person",
+        generate_id(),
+        pid,
+        "Archived Person",
     )
     r = await client.get(f"/admin/people/{pid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
@@ -645,13 +646,17 @@ async def test_archive_returns_sorted_tbody(client, person_id, role_id, db):
     await db.execute(
         """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)
            VALUES ($1, $2, $3, TRUE, '2024-01-01')""",
-        ra_keep, person_id, role_id,
+        ra_keep,
+        person_id,
+        role_id,
     )
     ra_arch = generate_id()
     await db.execute(
         """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
            VALUES ($1, $2, $3, FALSE, '2020-01-01', '2023-12-31')""",
-        ra_arch, person_id, role_id,
+        ra_arch,
+        person_id,
+        role_id,
     )
     r = await client.post(
         f"/admin/people/{person_id}/assignments/{ra_arch}/archive/",
@@ -672,9 +677,7 @@ async def test_archive_returns_success_flash(client, person_id, assignment_id):
     assert trigger["showFlash"]["body"] == "Assignment archived."
 
 
-async def test_archive_already_archived_returns_409(
-    client, person_id, archived_assignment_id
-):
+async def test_archive_already_archived_returns_409(client, person_id, archived_assignment_id):
     """Archiving an already-archived row is rejected with 409 (idempotency guard)."""
     r = await client.post(
         f"/admin/people/{person_id}/assignments/{archived_assignment_id}/archive/",
@@ -724,9 +727,7 @@ async def test_read_row_has_archive_button(client, person_id, assignment_id):
     assert b"hx-delete" not in r.content
 
 
-async def test_read_row_archived_has_no_archive_button(
-    client, person_id, archived_assignment_id
-):
+async def test_read_row_archived_has_no_archive_button(client, person_id, archived_assignment_id):
     """Archived rows show no archive or delete button; only Open."""
     r = await client.get(
         f"/admin/people/{person_id}/assignments/{archived_assignment_id}/read-row/",

@@ -1,26 +1,20 @@
 """Integration tests for inline role create on org detail."""
 
-import asyncio
 import json
-import os
 
-import asyncpg
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
-
-
-def _dsn():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    return dsn
 
 
 @pytest.fixture
@@ -29,53 +23,40 @@ def client():
         yield c
 
 
-@pytest.fixture
-def org():
-    dsn = _dsn()
+@pytest_asyncio.fixture(loop_scope="session")
+async def org(db_pool):
     oid = generate_id()
 
-    async def setup():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-            await conn.execute(
-                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
-                " VALUES ($1, $2, 'Test Org', TRUE)",
-                generate_id(),
-                oid,
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await conn.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Test Org', TRUE)",
+            generate_id(),
+            oid,
+        )
 
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute("DELETE FROM roles WHERE organization_id=$1", oid)
-            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
-            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     yield oid
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM roles WHERE organization_id=$1", oid)
+        await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+        await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
 
 
-def test_roles_new_row_returns_form(client, org):
+async def test_roles_new_row_returns_form(client, org):
     r = client.get(f"/admin/orgs/{org}/roles/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<form" in r.text
     assert 'name="title"' in r.text
 
 
-def test_roles_new_row_unknown_org_returns_404(client):
+async def test_roles_new_row_unknown_org_returns_404(client):
     r = client.get(f"/admin/orgs/{generate_id()}/roles/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 404
 
 
-def test_roles_create_persists_role(client, org):
-    dsn = _dsn()
+async def test_roles_create_persists_role(client, org, db_pool):
     r = client.post(
         f"/admin/orgs/{org}/roles/",
         headers=HTMX_HEADERS,
@@ -83,22 +64,17 @@ def test_roles_create_persists_role(client, org):
     )
     assert r.status_code == 200
 
-    async def check():
-        conn = await asyncpg.connect(dsn)
-        try:
-            return await conn.fetchrow(
-                "SELECT id FROM roles WHERE organization_id=$1 AND lower(title)=lower($2)"
-                " AND archived_at IS NULL",
-                org,
-                "Executive Director",
-            )
-        finally:
-            await conn.close()
-
-    assert asyncio.run(check()) is not None
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM roles WHERE organization_id=$1 AND lower(title)=lower($2)"
+            " AND archived_at IS NULL",
+            org,
+            "Executive Director",
+        )
+    assert row is not None
 
 
-def test_roles_create_returns_tbody_with_new_role(client, org):
+async def test_roles_create_returns_tbody_with_new_role(client, org):
     r = client.post(
         f"/admin/orgs/{org}/roles/",
         headers=HTMX_HEADERS,
@@ -109,7 +85,7 @@ def test_roles_create_returns_tbody_with_new_role(client, org):
     assert "<table" not in r.text  # tbody only, not full table
 
 
-def test_roles_create_returns_success_flash(client, org):
+async def test_roles_create_returns_success_flash(client, org):
     r = client.post(
         f"/admin/orgs/{org}/roles/",
         headers=HTMX_HEADERS,
@@ -121,22 +97,17 @@ def test_roles_create_returns_success_flash(client, org):
     assert "Communications Director" in trigger["showFlash"]["body"]
 
 
-def test_roles_create_duplicate_returns_error_flash(client, org):
-    dsn = _dsn()
+async def test_roles_create_duplicate_returns_error_flash(client, org, db_pool):
     rid = generate_id()
 
-    async def add_existing():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute(
-                "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-                rid, org, "Finance Director",
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+            rid,
+            org,
+            "Finance Director",
+        )
 
-    asyncio.run(add_existing())
     r = client.post(
         f"/admin/orgs/{org}/roles/",
         headers=HTMX_HEADERS,
@@ -149,23 +120,18 @@ def test_roles_create_duplicate_returns_error_flash(client, org):
     assert "<form" in r.text
 
 
-def test_roles_create_duplicate_case_insensitive(client, org):
+async def test_roles_create_duplicate_case_insensitive(client, org, db_pool):
     """Unique index is case-insensitive — 'TITLE' and 'title' are duplicates."""
-    dsn = _dsn()
     rid = generate_id()
 
-    async def add_existing():
-        conn = await asyncpg.connect(dsn)
-        await apply_schema(conn)
-        try:
-            await conn.execute(
-                "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-                rid, org, "Legal Counsel",
-            )
-        finally:
-            await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+            rid,
+            org,
+            "Legal Counsel",
+        )
 
-    asyncio.run(add_existing())
     r = client.post(
         f"/admin/orgs/{org}/roles/",
         headers=HTMX_HEADERS,
@@ -176,7 +142,7 @@ def test_roles_create_duplicate_case_insensitive(client, org):
     assert trigger["showFlash"]["level"] == "error"
 
 
-def test_roles_create_non_htmx_redirects(client, org):
+async def test_roles_create_non_htmx_redirects(client, org):
     r = client.post(
         f"/admin/orgs/{org}/roles/",
         headers=AUTH_HEADERS,
@@ -187,7 +153,7 @@ def test_roles_create_non_htmx_redirects(client, org):
     assert r.headers["location"].startswith("/admin/orgs/")
 
 
-def test_roles_create_unknown_org_returns_404(client):
+async def test_roles_create_unknown_org_returns_404(client):
     r = client.post(
         f"/admin/orgs/{generate_id()}/roles/",
         headers=HTMX_HEADERS,
@@ -196,7 +162,7 @@ def test_roles_create_unknown_org_returns_404(client):
     assert r.status_code == 404
 
 
-def test_roles_create_empty_title_returns_error_flash(client, org):
+async def test_roles_create_empty_title_returns_error_flash(client, org):
     """Whitespace-only title is rejected server-side."""
     r = client.post(
         f"/admin/orgs/{org}/roles/",
@@ -209,7 +175,7 @@ def test_roles_create_empty_title_returns_error_flash(client, org):
     assert "<form" in r.text
 
 
-def test_roles_create_empty_title_non_htmx_redirects(client, org):
+async def test_roles_create_empty_title_non_htmx_redirects(client, org):
     r = client.post(
         f"/admin/orgs/{org}/roles/",
         headers=AUTH_HEADERS,

@@ -1,17 +1,19 @@
 """Integration tests for people duplicate detection and dismiss routes."""
-import asyncio
-import json
-import os
 
-import asyncpg
+import json
+
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 
 from src.api.admin.people_dups import get_person_dup_count
 from src.api.main import app
-from src.core.db import apply_schema, generate_id
+from src.core.db import generate_id
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 AUTH_HEADERS = {
     "X-ExeDev-UserID": "usr_test",
@@ -29,75 +31,53 @@ def client_with_person_dups():
     app.dependency_overrides.clear()
 
 
-def _get_dsn() -> str:
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    return dsn
-
-
-async def _aconnect(dsn: str) -> asyncpg.Connection:
-    conn = await asyncpg.connect(dsn)
-    await apply_schema(conn)
-    return conn
-
-
 @pytest.fixture
 def client():
     with TestClient(app) as c:
         yield c
 
 
-@pytest.fixture
-def person_pair():
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_pair(db_pool):
     """Insert two near-duplicate people (id_a < id_b), yield (id_a, id_b), teardown."""
-    dsn = _get_dsn()
     id_a, id_b = generate_id(), generate_id()
     if id_a > id_b:
         id_a, id_b = id_b, id_a
 
-    async def setup():
-        conn = await _aconnect(dsn)
-        try:
-            for pid, name in [
-                (id_a, "Jonathan Smithfield"),
-                (id_b, "Jonathan Smithfield Jr"),   # deliberate near-match (similarity ~0.91)
-            ]:
-                await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-                await conn.execute(
-                    "INSERT INTO person_names"
-                    " (id, person_id, name, is_canonical)"
-                    " VALUES ($1, $2, $3, TRUE)",
-                    generate_id(), pid, name,
-                )
-        finally:
-            await conn.close()
-
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
+    async with db_pool.acquire() as conn:
+        for pid, name in [
+            (id_a, "Jonathan Smithfield"),
+            (id_b, "Jonathan Smithfield Jr"),  # deliberate near-match (similarity ~0.91)
+        ]:
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
             await conn.execute(
-                "DELETE FROM duplicate_dismissals"
-                " WHERE entity_a_id=$1 OR entity_b_id=$1"
-                " OR entity_a_id=$2 OR entity_b_id=$2",
-                id_a, id_b,
+                "INSERT INTO person_names"
+                " (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(),
+                pid,
+                name,
             )
-            for pid in [id_a, id_b]:
-                await conn.execute(
-                    "DELETE FROM person_names WHERE person_id=$1", pid
-                )
-                await conn.execute("DELETE FROM people WHERE id=$1", pid)
-        finally:
-            await conn.close()
 
-    asyncio.run(setup())
     yield id_a, id_b
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_a_id=$1 OR entity_b_id=$1"
+            " OR entity_a_id=$2 OR entity_b_id=$2",
+            id_a,
+            id_b,
+        )
+        for pid in [id_a, id_b]:
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
 # ── List screen ─────────────────────────────────────────────────────────────
 
-def test_people_list_shows_duplicate_banner(client, person_pair):
+
+async def test_people_list_shows_duplicate_banner(client, person_pair):
     response = client.get("/admin/people/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "possible duplicate" in response.text.lower()
@@ -105,20 +85,22 @@ def test_people_list_shows_duplicate_banner(client, person_pair):
 
 # ── Duplicates review screen ─────────────────────────────────────────────────
 
-def test_duplicates_list_returns_200(client, person_pair):
+
+async def test_duplicates_list_returns_200(client, person_pair):
     response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "duplicate" in response.text.lower()
 
 
-def test_duplicates_list_shows_pair(client, person_pair):
+async def test_duplicates_list_shows_pair(client, person_pair):
     response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
     assert "Jonathan Smithfield" in response.text
 
 
 # ── Dismiss ──────────────────────────────────────────────────────────────────
 
-def test_dismiss_pair_removes_from_list(client, person_pair):
+
+async def test_dismiss_pair_removes_from_list(client, person_pair):
     id_a, id_b = person_pair
     response = client.post(
         f"/admin/people/{id_a}/dismiss-duplicate/{id_b}/",
@@ -128,11 +110,13 @@ def test_dismiss_pair_removes_from_list(client, person_pair):
     assert response.status_code in (302, 303)
     response2 = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
     assert response2.status_code == 200
-    assert "Jonathan Smithfield" not in response2.text \
+    assert (
+        "Jonathan Smithfield" not in response2.text
         and "Jonathan Smithfield Jr" not in response2.text
+    )
 
 
-def test_dismiss_htmx_returns_200_with_region(client, person_pair):
+async def test_dismiss_htmx_returns_200_with_region(client, person_pair):
     id_a, id_b = person_pair
     response = client.post(
         f"/admin/people/{id_a}/dismiss-duplicate/{id_b}/",
@@ -143,7 +127,7 @@ def test_dismiss_htmx_returns_200_with_region(client, person_pair):
     assert "candidate" in response.text or "No duplicate" in response.text
 
 
-def test_dismiss_htmx_sends_hx_trigger_flash(client, person_pair):
+async def test_dismiss_htmx_sends_hx_trigger_flash(client, person_pair):
     id_a, id_b = person_pair
     response = client.post(
         f"/admin/people/{id_a}/dismiss-duplicate/{id_b}/",
@@ -159,15 +143,15 @@ def test_dismiss_htmx_sends_hx_trigger_flash(client, person_pair):
 
 # ── Sidebar badge on non-list pages ──────────────────────────────────────────
 
-@pytest.fixture
-def person_pair_with_roles():
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_pair_with_roles(db_pool):
     """
     Two near-duplicate people, each with:
       - one shared role+start_date (conflict → loser's deleted on merge)
       - one unique role (reassigned to winner on merge)
     Yields (id_winner, id_loser, shared_role_id, unique_role_id_loser).
     """
-    dsn = _get_dsn()
     id_a, id_b = generate_id(), generate_id()
     if id_a > id_b:
         id_a, id_b = id_b, id_a
@@ -178,85 +162,84 @@ def person_pair_with_roles():
     ra_b_shared = generate_id()
     ra_b_unique = generate_id()
 
-    async def setup():
-        conn = await _aconnect(dsn)
-        try:
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", id_org)
+        await conn.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Test Org', TRUE)",
+            generate_id(),
+            id_org,
+        )
+        for pid, name in [
+            (id_a, "Jonathan Smithfield"),
+            (id_b, "Jonathan Smithfield Jr"),
+        ]:
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
             await conn.execute(
-                "INSERT INTO organizations (id) VALUES ($1)", id_org
+                "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(),
+                pid,
+                name,
             )
+        for rid, title in [(shared_role_id, "Director"), (unique_role_id, "Advisor")]:
             await conn.execute(
-                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
-                " VALUES ($1, $2, 'Test Org', TRUE)",
-                generate_id(), id_org,
+                "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+                rid,
+                id_org,
+                title,
             )
-            for pid, name in [(id_a, "Jonathan Smithfield"),
-                              (id_b, "Jonathan Smithfield Jr")]:
-                await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-                await conn.execute(
-                    "INSERT INTO person_names (id, person_id, name, is_canonical)"
-                    " VALUES ($1, $2, $3, TRUE)",
-                    generate_id(), pid, name,
-                )
-            for rid, title in [(shared_role_id, "Director"),
-                               (unique_role_id, "Advisor")]:
-                await conn.execute(
-                    "INSERT INTO roles (id, organization_id, title)"
-                    " VALUES ($1, $2, $3)",
-                    rid, id_org, title,
-                )
-            # Both people hold shared_role starting 2024-01-01
-            for ra_id, pid in [(ra_a_shared, id_a), (ra_b_shared, id_b)]:
-                await conn.execute(
-                    "INSERT INTO role_assignments"
-                    " (id, person_id, role_id, is_current, start_date)"
-                    " VALUES ($1, $2, $3, FALSE, '2024-01-01')",
-                    ra_id, pid, shared_role_id,
-                )
-            # Only loser holds unique_role
+        # Both people hold shared_role starting 2024-01-01
+        for ra_id, pid in [(ra_a_shared, id_a), (ra_b_shared, id_b)]:
             await conn.execute(
                 "INSERT INTO role_assignments"
-                " (id, person_id, role_id, is_current)"
-                " VALUES ($1, $2, $3, TRUE)",
-                ra_b_unique, id_b, unique_role_id,
+                " (id, person_id, role_id, is_current, start_date)"
+                " VALUES ($1, $2, $3, FALSE, '2024-01-01')",
+                ra_id,
+                pid,
+                shared_role_id,
             )
-        finally:
-            await conn.close()
+        # Only loser holds unique_role
+        await conn.execute(
+            "INSERT INTO role_assignments"
+            " (id, person_id, role_id, is_current)"
+            " VALUES ($1, $2, $3, TRUE)",
+            ra_b_unique,
+            id_b,
+            unique_role_id,
+        )
 
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
-            await conn.execute(
-                "DELETE FROM duplicate_dismissals"
-                " WHERE entity_a_id=$1 OR entity_b_id=$1"
-                " OR entity_a_id=$2 OR entity_b_id=$2",
-                id_a, id_b,
-            )
-            await conn.execute(
-                "DELETE FROM role_assignments WHERE person_id=$1 OR person_id=$2",
-                id_a, id_b,
-            )
-            await conn.execute(
-                "DELETE FROM roles WHERE id=$1 OR id=$2",
-                shared_role_id, unique_role_id,
-            )
-            for pid in [id_a, id_b]:
-                await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-                await conn.execute("DELETE FROM people WHERE id=$1", pid)
-            await conn.execute(
-                "DELETE FROM organization_names WHERE organization_id=$1", id_org
-            )
-            await conn.execute("DELETE FROM organizations WHERE id=$1", id_org)
-        finally:
-            await conn.close()
-
-    asyncio.run(setup())
     yield id_a, id_b, shared_role_id, unique_role_id
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_a_id=$1 OR entity_b_id=$1"
+            " OR entity_a_id=$2 OR entity_b_id=$2",
+            id_a,
+            id_b,
+        )
+        await conn.execute(
+            "DELETE FROM role_assignments WHERE person_id=$1 OR person_id=$2",
+            id_a,
+            id_b,
+        )
+        await conn.execute(
+            "DELETE FROM roles WHERE id=$1 OR id=$2",
+            shared_role_id,
+            unique_role_id,
+        )
+        for pid in [id_a, id_b]:
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
+        await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", id_org)
+        await conn.execute("DELETE FROM organizations WHERE id=$1", id_org)
 
 
 # ── Merge ────────────────────────────────────────────────────────────────────
 
-def test_merge_hard_deletes_loser(client, person_pair):
+
+async def test_merge_hard_deletes_loser(client, person_pair, db_pool):
     id_a, id_b = person_pair
     response = client.post(
         f"/admin/people/{id_a}/merge/{id_b}/",
@@ -265,29 +248,18 @@ def test_merge_hard_deletes_loser(client, person_pair):
     )
     assert response.status_code == 303
 
-    async def check():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetchrow("SELECT id FROM people WHERE id=$1", id_b)
-        finally:
-            await conn.close()
-
-    assert asyncio.run(check()) is None
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT id FROM people WHERE id=$1", id_b)
+    assert row is None
 
 
-def test_merge_reassigns_loser_names_as_aliases(client, person_pair):
+async def test_merge_reassigns_loser_names_as_aliases(client, person_pair, db_pool):
     id_a, id_b = person_pair
 
-    async def get_names_before():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetch(
-                "SELECT name, is_canonical FROM person_names WHERE person_id=$1", id_b
-            )
-        finally:
-            await conn.close()
-
-    loser_names = asyncio.run(get_names_before())
+    async with db_pool.acquire() as conn:
+        loser_names = await conn.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", id_b
+        )
     loser_canonical = next(r["name"] for r in loser_names if r["is_canonical"])
 
     client.post(
@@ -296,16 +268,10 @@ def test_merge_reassigns_loser_names_as_aliases(client, person_pair):
         follow_redirects=False,
     )
 
-    async def check():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetch(
-                "SELECT name, is_canonical FROM person_names WHERE person_id=$1", id_a
-            )
-        finally:
-            await conn.close()
-
-    winner_names = asyncio.run(check())
+    async with db_pool.acquire() as conn:
+        winner_names = await conn.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", id_a
+        )
     winner_name_strs = {r["name"] for r in winner_names}
     # Loser's canonical name now exists on winner as a non-canonical alias
     assert loser_canonical in winner_name_strs
@@ -313,7 +279,7 @@ def test_merge_reassigns_loser_names_as_aliases(client, person_pair):
     assert len(canonical_rows) == 1  # exactly one canonical remains
 
 
-def test_merge_deletes_conflicting_role_assignment(client, person_pair_with_roles):
+async def test_merge_deletes_conflicting_role_assignment(client, person_pair_with_roles, db_pool):
     id_winner, id_loser, shared_role_id, unique_role_id = person_pair_with_roles
     client.post(
         f"/admin/people/{id_winner}/merge/{id_loser}/",
@@ -321,22 +287,16 @@ def test_merge_deletes_conflicting_role_assignment(client, person_pair_with_role
         follow_redirects=False,
     )
 
-    async def check():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetch(
-                "SELECT id FROM role_assignments"
-                " WHERE person_id=$1 AND role_id=$2",
-                id_winner, shared_role_id,
-            )
-        finally:
-            await conn.close()
-
-    rows = asyncio.run(check())
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+            id_winner,
+            shared_role_id,
+        )
     assert len(rows) == 1  # only winner's original assignment remains
 
 
-def test_merge_reassigns_unique_role_assignment(client, person_pair_with_roles):
+async def test_merge_reassigns_unique_role_assignment(client, person_pair_with_roles, db_pool):
     id_winner, id_loser, shared_role_id, unique_role_id = person_pair_with_roles
     client.post(
         f"/admin/people/{id_winner}/merge/{id_loser}/",
@@ -344,21 +304,16 @@ def test_merge_reassigns_unique_role_assignment(client, person_pair_with_roles):
         follow_redirects=False,
     )
 
-    async def check():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetchrow(
-                "SELECT id FROM role_assignments"
-                " WHERE person_id=$1 AND role_id=$2",
-                id_winner, unique_role_id,
-            )
-        finally:
-            await conn.close()
-
-    assert asyncio.run(check()) is not None  # loser's unique role now on winner
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+            id_winner,
+            unique_role_id,
+        )
+    assert row is not None  # loser's unique role now on winner
 
 
-def test_merge_returns_404_for_unknown_person(client, person_pair):
+async def test_merge_returns_404_for_unknown_person(client, person_pair):
     id_a, _ = person_pair
     response = client.post(
         f"/admin/people/{id_a}/merge/nonexistent-id/",
@@ -368,20 +323,14 @@ def test_merge_returns_404_for_unknown_person(client, person_pair):
     assert response.status_code == 404
 
 
-def test_merge_preserves_winner_existing_roles(client, person_pair_with_roles):
+async def test_merge_preserves_winner_existing_roles(client, person_pair_with_roles, db_pool):
     id_winner, id_loser, shared_role_id, unique_role_id = person_pair_with_roles
 
-    async def get_winner_role_count_before():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetchval(
-                "SELECT count(*) FROM role_assignments WHERE person_id=$1",
-                id_winner,
-            )
-        finally:
-            await conn.close()
-
-    count_before = asyncio.run(get_winner_role_count_before())
+    async with db_pool.acquire() as conn:
+        count_before = await conn.fetchval(
+            "SELECT count(*) FROM role_assignments WHERE person_id=$1",
+            id_winner,
+        )
 
     client.post(
         f"/admin/people/{id_winner}/merge/{id_loser}/",
@@ -389,22 +338,16 @@ def test_merge_preserves_winner_existing_roles(client, person_pair_with_roles):
         follow_redirects=False,
     )
 
-    async def get_winner_role_count_after():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetchval(
-                "SELECT count(*) FROM role_assignments WHERE person_id=$1",
-                id_winner,
-            )
-        finally:
-            await conn.close()
-
-    count_after = asyncio.run(get_winner_role_count_after())
+    async with db_pool.acquire() as conn:
+        count_after = await conn.fetchval(
+            "SELECT count(*) FROM role_assignments WHERE person_id=$1",
+            id_winner,
+        )
     # Winner had 1 role; loser had 1 shared (deleted) + 1 unique (reassigned) → winner gets 2
     assert count_after == count_before + 1  # shared conflict deleted; unique role added
 
 
-def test_merge_htmx_returns_200_with_region(client, person_pair):
+async def test_merge_htmx_returns_200_with_region(client, person_pair):
     id_a, id_b = person_pair
     response = client.post(
         f"/admin/people/{id_a}/merge/{id_b}/",
@@ -415,7 +358,7 @@ def test_merge_htmx_returns_200_with_region(client, person_pair):
     assert "candidate" in response.text or "No duplicate" in response.text
 
 
-def test_merge_htmx_sends_hx_trigger_flash(client, person_pair):
+async def test_merge_htmx_sends_hx_trigger_flash(client, person_pair):
     id_a, id_b = person_pair
     response = client.post(
         f"/admin/people/{id_a}/merge/{id_b}/",
@@ -431,48 +374,39 @@ def test_merge_htmx_sends_hx_trigger_flash(client, person_pair):
     assert "hx-swap-oob" not in response.text
 
 
-@pytest.fixture
-def person_pair_exact_name():
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_pair_exact_name(db_pool):
     """Two people with the same canonical name — merge must not produce duplicate name rows."""
-    dsn = _get_dsn()
     id_a, id_b = generate_id(), generate_id()
     if id_a > id_b:
         id_a, id_b = id_b, id_a
 
-    async def setup():
-        conn = await _aconnect(dsn)
-        try:
-            for pid in [id_a, id_b]:
-                await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-                await conn.execute(
-                    "INSERT INTO person_names (id, person_id, name, is_canonical)"
-                    " VALUES ($1, $2, 'Jordan Smith', TRUE)",
-                    generate_id(), pid,
-                )
-        finally:
-            await conn.close()
-
-    async def teardown():
-        conn = await asyncpg.connect(dsn)
-        try:
+    async with db_pool.acquire() as conn:
+        for pid in [id_a, id_b]:
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
             await conn.execute(
-                "DELETE FROM duplicate_dismissals"
-                " WHERE entity_a_id=$1 OR entity_b_id=$1"
-                " OR entity_a_id=$2 OR entity_b_id=$2",
-                id_a, id_b,
+                "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Jordan Smith', TRUE)",
+                generate_id(),
+                pid,
             )
-            for pid in [id_a, id_b]:
-                await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-                await conn.execute("DELETE FROM people WHERE id=$1", pid)
-        finally:
-            await conn.close()
 
-    asyncio.run(setup())
     yield id_a, id_b
-    asyncio.run(teardown())
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_a_id=$1 OR entity_b_id=$1"
+            " OR entity_a_id=$2 OR entity_b_id=$2",
+            id_a,
+            id_b,
+        )
+        for pid in [id_a, id_b]:
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
-def test_merge_deduplicates_identical_names(client, person_pair_exact_name):
+async def test_merge_deduplicates_identical_names(client, person_pair_exact_name, db_pool):
     id_a, id_b = person_pair_exact_name
     client.post(
         f"/admin/people/{id_a}/merge/{id_b}/",
@@ -480,21 +414,13 @@ def test_merge_deduplicates_identical_names(client, person_pair_exact_name):
         follow_redirects=False,
     )
 
-    async def check():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetch(
-                "SELECT name FROM person_names WHERE person_id=$1", id_a
-            )
-        finally:
-            await conn.close()
-
-    rows = asyncio.run(check())
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT name FROM person_names WHERE person_id=$1", id_a)
     assert len(rows) == 1
     assert rows[0]["name"] == "Jordan Smith"
 
 
-def test_duplicates_region_has_keep_a_keep_b_buttons(client, person_pair):
+async def test_duplicates_region_has_keep_a_keep_b_buttons(client, person_pair):
     id_a, id_b = person_pair
     response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
     assert response.status_code == 200
@@ -506,21 +432,17 @@ def test_duplicates_region_has_keep_a_keep_b_buttons(client, person_pair):
 
 # ── Notes merge ──────────────────────────────────────────────────────────────
 
-def test_merge_notes_loser_only(client, person_pair):
+
+async def test_merge_notes_loser_only(client, person_pair, db_pool):
     """Loser has notes, winner does not → winner gets prefixed loser notes."""
     id_a, id_b = person_pair
 
-    async def set_notes():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            await conn.execute(
-                "UPDATE people SET notes=$1 WHERE id=$2",
-                "Loser note content.", id_b,
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(set_notes())
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE people SET notes=$1 WHERE id=$2",
+            "Loser note content.",
+            id_b,
+        )
 
     client.post(
         f"/admin/people/{id_a}/merge/{id_b}/",
@@ -528,14 +450,8 @@ def test_merge_notes_loser_only(client, person_pair):
         follow_redirects=False,
     )
 
-    async def check():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
-        finally:
-            await conn.close()
-
-    notes = asyncio.run(check())
+    async with db_pool.acquire() as conn:
+        notes = await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
     assert notes is not None
     assert "Loser note content." in notes
     assert "Merged from" in notes
@@ -544,23 +460,13 @@ def test_merge_notes_loser_only(client, person_pair):
     assert not notes.startswith("\n")
 
 
-def test_merge_notes_both(client, person_pair):
+async def test_merge_notes_both(client, person_pair, db_pool):
     """Both have notes → winner's existing notes + blank line + prefixed loser notes."""
     id_a, id_b = person_pair
 
-    async def set_notes():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            await conn.execute(
-                "UPDATE people SET notes=$1 WHERE id=$2", "Winner original.", id_a
-            )
-            await conn.execute(
-                "UPDATE people SET notes=$1 WHERE id=$2", "Loser note.", id_b
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(set_notes())
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE people SET notes=$1 WHERE id=$2", "Winner original.", id_a)
+        await conn.execute("UPDATE people SET notes=$1 WHERE id=$2", "Loser note.", id_b)
 
     client.post(
         f"/admin/people/{id_a}/merge/{id_b}/",
@@ -568,32 +474,20 @@ def test_merge_notes_both(client, person_pair):
         follow_redirects=False,
     )
 
-    async def check():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
-        finally:
-            await conn.close()
-
-    notes = asyncio.run(check())
+    async with db_pool.acquire() as conn:
+        notes = await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
     assert notes.startswith("Winner original.")
     assert "\n\n" in notes
     assert "Loser note." in notes
     assert "Merged from" in notes
 
 
-def test_merge_notes_skipped_when_loser_has_none(client, person_pair):
+async def test_merge_notes_skipped_when_loser_has_none(client, person_pair, db_pool):
     """Loser has no notes → winner notes unchanged (NULL stays NULL)."""
     id_a, id_b = person_pair
 
-    async def set_notes():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            await conn.execute("UPDATE people SET notes=NULL WHERE id=$1", id_b)
-        finally:
-            await conn.close()
-
-    asyncio.run(set_notes())
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE people SET notes=NULL WHERE id=$1", id_b)
 
     client.post(
         f"/admin/people/{id_a}/merge/{id_b}/",
@@ -601,30 +495,17 @@ def test_merge_notes_skipped_when_loser_has_none(client, person_pair):
         follow_redirects=False,
     )
 
-    async def check():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
-        finally:
-            await conn.close()
-
-    assert asyncio.run(check()) is None
+    async with db_pool.acquire() as conn:
+        notes = await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
+    assert notes is None
 
 
-def test_merge_notes_skipped_preserves_winner_notes(client, person_pair):
+async def test_merge_notes_skipped_preserves_winner_notes(client, person_pair, db_pool):
     """Loser has no notes, winner has notes → winner notes unchanged."""
     id_a, id_b = person_pair
 
-    async def set_notes():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            await conn.execute(
-                "UPDATE people SET notes=$1 WHERE id=$2", "Winner only.", id_a
-            )
-        finally:
-            await conn.close()
-
-    asyncio.run(set_notes())
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE people SET notes=$1 WHERE id=$2", "Winner only.", id_a)
 
     client.post(
         f"/admin/people/{id_a}/merge/{id_b}/",
@@ -632,11 +513,6 @@ def test_merge_notes_skipped_preserves_winner_notes(client, person_pair):
         follow_redirects=False,
     )
 
-    async def check():
-        conn = await asyncpg.connect(_get_dsn())
-        try:
-            return await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
-        finally:
-            await conn.close()
-
-    assert asyncio.run(check()) == "Winner only."
+    async with db_pool.acquire() as conn:
+        notes = await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
+    assert notes == "Winner only."
