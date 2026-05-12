@@ -72,10 +72,12 @@ async def test_addresses_create(client, org_and_address):
             "region": "WA",
             "postal_code": "98101",
             "address_type": "physical",
+            "mode": "save",
         },
     )
     assert r.status_code == 200
     assert "456 Oak Ave" in r.text
+    assert "hx-trigger" in r.headers
 
 
 async def test_addresses_read_row_returns_row(client, org_and_address):
@@ -119,10 +121,12 @@ async def test_addresses_update(client, org_and_address):
             "region": "WA",
             "postal_code": "98402",
             "address_type": "physical",
+            "mode": "save",
         },
     )
     assert r.status_code == 200
     assert "789 Pine Rd" in r.text
+    assert "hx-trigger" in r.headers
 
 
 async def test_addresses_delete(client, org_and_address):
@@ -155,6 +159,7 @@ async def test_addresses_create_returns_success_flash(client, org_and_address):
             "region": "WA",
             "postal_code": "98101",
             "address_type": "physical",
+            "mode": "save",
         },
     )
     assert r.status_code == 200
@@ -173,6 +178,7 @@ async def test_addresses_update_returns_success_flash(client, org_and_address):
             "region": "WA",
             "postal_code": "98501",
             "address_type": "mailing",
+            "mode": "save",
         },
     )
     assert r.status_code == 200
