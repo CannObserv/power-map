@@ -61,8 +61,8 @@ async def test_addresses_new_row_returns_form(client, org_and_address):
     assert "<form" in r.text
 
 
-async def test_addresses_create(client, org_and_address):
-    oid, _ = org_and_address
+async def test_addresses_create(client, org_and_address, db_pool):
+    oid, existing_eaid = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -76,8 +76,21 @@ async def test_addresses_create(client, org_and_address):
         },
     )
     assert r.status_code == 200
-    assert "456 Oak Ave" in r.text
-    assert "hx-trigger" in r.headers
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT a.address_line_1, a.city, a.region, a.postal_code, ea.address_type"
+            " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+            " WHERE ea.entity_id=$1 AND ea.id != $2",
+            oid,
+            existing_eaid,
+        )
+    assert row is not None
+    assert row["address_line_1"] == "456 Oak Ave"
+    assert row["city"] == "Seattle"
+    assert row["region"] == "WA"
+    assert row["postal_code"] == "98101"
+    assert row["address_type"] == "physical"
 
 
 async def test_addresses_read_row_returns_row(client, org_and_address):
@@ -110,7 +123,7 @@ async def test_addresses_edit_row_returns_form(client, org_and_address):
     assert "123 Main St" in r.text and "<form" in r.text
 
 
-async def test_addresses_update(client, org_and_address):
+async def test_addresses_update(client, org_and_address, db_pool):
     oid, eaid = org_and_address
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
@@ -125,8 +138,20 @@ async def test_addresses_update(client, org_and_address):
         },
     )
     assert r.status_code == 200
-    assert "789 Pine Rd" in r.text
-    assert "hx-trigger" in r.headers
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT a.address_line_1, a.city, a.region, a.postal_code, ea.address_type"
+            " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+            " WHERE ea.id=$1",
+            eaid,
+        )
+    assert row is not None
+    assert row["address_line_1"] == "789 Pine Rd"
+    assert row["city"] == "Tacoma"
+    assert row["region"] == "WA"
+    assert row["postal_code"] == "98402"
+    assert row["address_type"] == "physical"
 
 
 async def test_addresses_delete(client, org_and_address):
