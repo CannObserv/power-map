@@ -104,9 +104,7 @@ async def orgs_list(
         "flash_msg": flash_msg,
         **pctx,
     }
-    template = (
-        "admin/orgs/_region.html" if is_htmx(request) else "admin/orgs/list.html"
-    )
+    template = "admin/orgs/_region.html" if is_htmx(request) else "admin/orgs/list.html"
     return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
@@ -185,18 +183,25 @@ async def org_create(
     async with db.transaction():
         await db.execute(
             "INSERT INTO organizations (id, active, parent_id, notes) VALUES ($1, $2, $3, $4)",
-            org_id, active == "true", parent_id or None, notes or None,
+            org_id,
+            active == "true",
+            parent_id or None,
+            notes or None,
         )
         await db.execute(
             "INSERT INTO organization_names"
             " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-            generate_id(), org_id, name.strip(),
+            generate_id(),
+            org_id,
+            name.strip(),
         )
         if acronym.strip():
             await db.execute(
                 "INSERT INTO organization_acronyms"
                 " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, $3, TRUE)",
-                generate_id(), org_id, acronym.strip(),
+                generate_id(),
+                org_id,
+                acronym.strip(),
             )
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 
@@ -241,9 +246,7 @@ async def org_inline_active_post(
     if not org:
         raise HTTPException(status_code=404)
     new_active = active == "true"
-    await db.execute(
-        "UPDATE organizations SET active=$1 WHERE id=$2", new_active, org_id
-    )
+    await db.execute("UPDATE organizations SET active=$1 WHERE id=$2", new_active, org_id)
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
@@ -268,9 +271,7 @@ async def org_inline_notes_get(
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
         raise HTTPException(status_code=404)
-    return templates.TemplateResponse(
-        request, "admin/orgs/partials/_notes_read.html", {"org": org}
-    )
+    return templates.TemplateResponse(request, "admin/orgs/partials/_notes_read.html", {"org": org})
 
 
 @router.get("/{org_id}/inline/notes/edit/")
@@ -284,9 +285,7 @@ async def org_inline_notes_edit_get(
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
         raise HTTPException(status_code=404)
-    return templates.TemplateResponse(
-        request, "admin/orgs/partials/_notes_form.html", {"org": org}
-    )
+    return templates.TemplateResponse(request, "admin/orgs/partials/_notes_form.html", {"org": org})
 
 
 @router.post("/{org_id}/inline/notes/")
@@ -362,9 +361,7 @@ async def org_inline_parent_post(
         exists = await db.fetchval("SELECT id FROM organizations WHERE id=$1", resolved)
         if not exists:
             raise HTTPException(status_code=422, detail="Parent organization not found")
-    await db.execute(
-        "UPDATE organizations SET parent_id=$1 WHERE id=$2", resolved, org_id
-    )
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", resolved, org_id)
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     parent = None
     if org["parent_id"]:

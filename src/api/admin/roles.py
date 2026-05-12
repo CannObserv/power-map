@@ -158,7 +158,10 @@ async def role_create(
     role_id = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title, notes) VALUES ($1, $2, $3, $4)",
-        role_id, organization_id, title, notes or None,
+        role_id,
+        organization_id,
+        title,
+        notes or None,
     )
     return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
 

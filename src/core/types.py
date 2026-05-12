@@ -16,20 +16,36 @@ PersonNameVisibility = Literal["public", "legal_only", "hidden"]
 # Literal first — the static type. The runtime tuple is built from
 # ``typing.get_args`` below so the two cannot drift.
 PersonNameType = Literal[
-    "legal", "preferred", "alias", "former", "initials",
-    "maiden", "religious", "stage",
+    "legal",
+    "preferred",
+    "alias",
+    "former",
+    "initials",
+    "maiden",
+    "religious",
+    "stage",
     "deadname",
-    "reading", "romanization", "mrz",
+    "reading",
+    "romanization",
+    "mrz",
     "variant",
 ]
 # Order is the dropdown render order — semantic groupings (legal /
 # common variants / cultural-awareness / phonetic decompositions /
 # alt-spelling). Issue #135 added 'variant'.
 PERSON_NAME_TYPES: tuple[PersonNameType, ...] = (
-    "legal", "preferred", "alias", "former", "initials",
-    "maiden", "religious", "stage",
+    "legal",
+    "preferred",
+    "alias",
+    "former",
+    "initials",
+    "maiden",
+    "religious",
+    "stage",
     "deadname",
-    "reading", "romanization", "mrz",
+    "reading",
+    "romanization",
+    "mrz",
     "variant",
 )
 

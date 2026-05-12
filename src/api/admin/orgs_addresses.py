@@ -76,10 +76,18 @@ async def _maybe_confirm(
     country: str = "US",
 ):
     """Call normalizer and return confirm partial if standardized result; else None."""
-    raw = " ".join(filter(None, [
-        address_line_1.strip(), address_line_2.strip(),
-        city.strip(), region.strip(), postal_code.strip(),
-    ]))
+    raw = " ".join(
+        filter(
+            None,
+            [
+                address_line_1.strip(),
+                address_line_2.strip(),
+                city.strip(),
+                region.strip(),
+                postal_code.strip(),
+            ],
+        )
+    )
     result = await _NORMALIZER.normalize(raw, country=country)
     if not (result.value and result.value.get("standardized")):
         return None
@@ -236,9 +244,17 @@ async def address_create(
         )
     if mode == "confirm":
         confirm = await _maybe_confirm(
-            request, org_id, None,
-            address_line_1, address_line_2, city, region, postal_code,
-            address_type, display_name, country,
+            request,
+            org_id,
+            None,
+            address_line_1,
+            address_line_2,
+            city,
+            region,
+            postal_code,
+            address_type,
+            display_name,
+            country,
         )
         if confirm is not None:
             return confirm
@@ -412,9 +428,17 @@ async def address_edit_row_post(
         )
     if mode == "confirm":
         confirm = await _maybe_confirm(
-            request, org_id, addr_id,
-            address_line_1, address_line_2, city, region, postal_code,
-            address_type, display_name, country,
+            request,
+            org_id,
+            addr_id,
+            address_line_1,
+            address_line_2,
+            city,
+            region,
+            postal_code,
+            address_type,
+            display_name,
+            country,
         )
         if confirm is not None:
             return confirm

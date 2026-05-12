@@ -4,17 +4,36 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 # Strings treated as absent / unknown regardless of case
-NULL_LIKE: frozenset[str] = frozenset({
-    "", "n/a", "na", "none", "null", "unknown", "tbd", "-", "--", "n.a.", "not available",
-})
+NULL_LIKE: frozenset[str] = frozenset(
+    {
+        "",
+        "n/a",
+        "na",
+        "none",
+        "null",
+        "unknown",
+        "tbd",
+        "-",
+        "--",
+        "n.a.",
+        "not available",
+    }
+)
 
 # Strings treated as truthy regardless of case. Covers the union of every
 # free-text boolean source in the codebase: CSV ingestion flags
 # ("Yes"/"No", "Y"/"N"), HTMX query-string confirmation tokens
 # ("1", "true"), and abbreviated single-letter forms ("y", "t").
-TRUTHY_LIKE: frozenset[str] = frozenset({
-    "1", "t", "true", "y", "yes", "on",
-})
+TRUTHY_LIKE: frozenset[str] = frozenset(
+    {
+        "1",
+        "t",
+        "true",
+        "y",
+        "yes",
+        "on",
+    }
+)
 
 
 def is_null_like(raw: str | None) -> bool:
@@ -36,8 +55,8 @@ def is_truthy_like(raw: str | None) -> bool:
 class NormalizationResult:
     """Output of a single normalizer call."""
 
-    value: Any | None                    # normalized output; None when skipped
-    skipped: bool = False                # True when input was absent/null-like
+    value: Any | None  # normalized output; None when skipped
+    skipped: bool = False  # True when input was absent/null-like
     warnings: list[str] = field(default_factory=list)
     confidence_hint: str = "unconfirmed"  # feeds field_confidence.validation_status
     validation_detail: dict | None = None

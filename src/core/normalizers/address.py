@@ -58,14 +58,16 @@ class LocalAddressNormalizer:
             )
         try:
             tagged, _ = usaddress.tag(raw)
-            result.update({
-                "address_line_1": _build_line1(tagged),
-                "address_line_2": _build_line2(tagged) if tagged.get("OccupancyType") else None,
-                "city": tagged.get("PlaceName"),
-                "region": tagged.get("StateName"),
-                "postal_code": tagged.get("ZipCode"),
-                "standardized": None,
-            })
+            result.update(
+                {
+                    "address_line_1": _build_line1(tagged),
+                    "address_line_2": _build_line2(tagged) if tagged.get("OccupancyType") else None,
+                    "city": tagged.get("PlaceName"),
+                    "region": tagged.get("StateName"),
+                    "postal_code": tagged.get("ZipCode"),
+                    "standardized": None,
+                }
+            )
         except usaddress.RepeatedLabelError:
             return NormalizationResult(
                 value=result,
@@ -161,11 +163,13 @@ class ExternalAddressNormalizer:
         confidence_hint = "unconfirmed"
         if self.config.run_validation and "validation" in data:
             v = data["validation"]
-            detail.update({
-                "status": v.get("status"),
-                "dpv_match_code": v.get("dpv_match_code"),
-                "provider": v.get("provider", "address-validator"),
-            })
+            detail.update(
+                {
+                    "status": v.get("status"),
+                    "dpv_match_code": v.get("dpv_match_code"),
+                    "provider": v.get("provider", "address-validator"),
+                }
+            )
             confidence_hint = _STATUS_MAP.get(v.get("status", ""), "not_attempted")
         detail["warnings"] = data.get("warnings", [])
         warnings = [f"address-validator warning: {w}" for w in data.get("warnings", [])]
@@ -217,9 +221,7 @@ def get_address_normalizer() -> FallbackAddressNormalizer:
     global _normalizer
     if _normalizer is None:
         api_key = os.environ.get("ADDRESS_VALIDATOR_API_KEY")
-        run_validation = (
-            os.environ.get("ADDRESS_VALIDATOR_RUN_VALIDATION", "").lower() == "true"
-        )
+        run_validation = os.environ.get("ADDRESS_VALIDATOR_RUN_VALIDATION", "").lower() == "true"
         config = (
             AddressNormalizerConfig(api_key=api_key, run_validation=run_validation)
             if api_key

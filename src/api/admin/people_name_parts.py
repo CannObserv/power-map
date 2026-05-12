@@ -18,7 +18,6 @@ Public surface:
   for raising / rolling back when the return value is non-None.
 """
 
-
 # Mirror person_name_parts.primary_identifier CHECK constraint.
 _PRIMARY_IDENTIFIERS: tuple[str, ...] = ("family", "given", "patronymic", "mononym")
 
@@ -77,7 +76,8 @@ async def upsert_or_delete_parts(
         # Idempotent delete — issue #127 semantic flip. If the row never
         # existed this is a no-op; if it existed, it's now gone.
         await db.execute(
-            "DELETE FROM person_name_parts WHERE person_name_id=$1", name_id,
+            "DELETE FROM person_name_parts WHERE person_name_id=$1",
+            name_id,
         )
         return None
 

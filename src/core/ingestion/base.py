@@ -30,9 +30,9 @@ class ConfidenceRecord:
     entity_type: str
     entity_id: str
     field_name: str
-    normalized_value: str          # the actual stored value; hashed at insert time
+    normalized_value: str  # the actual stored value; hashed at insert time
     source_reliability: float
-    validation_status: str         # 'confirmed'|'unconfirmed'|'failed'|'not_attempted'
+    validation_status: str  # 'confirmed'|'unconfirmed'|'failed'|'not_attempted'
     assessed_by: str
     validation_detail: dict | None = None
 

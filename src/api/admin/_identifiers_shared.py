@@ -88,8 +88,7 @@ def make_identifiers_router(
         """Return empty identifier form row."""
         await _get_entity_or_404(entity_id, db)
         ident_types = await db.fetch(
-            "SELECT * FROM entity_identifier_types"
-            " WHERE entity_type=$1 ORDER BY display_name",
+            "SELECT * FROM entity_identifier_types WHERE entity_type=$1 ORDER BY display_name",
             entity_type,
         )
         return templates.TemplateResponse(
@@ -138,9 +137,7 @@ def make_identifiers_router(
     ):
         """Return read-only identifier row (used by Cancel on edit form)."""
         row = await _get_identifier_or_404(ident_id, entity_id, db)
-        return templates.TemplateResponse(
-            request, tmpl_read_row, _ctx(entity_id, ident=row)
-        )
+        return templates.TemplateResponse(request, tmpl_read_row, _ctx(entity_id, ident=row))
 
     @router.get("/{ident_id}/edit-row/")
     async def identifier_edit_row_get(
@@ -153,8 +150,7 @@ def make_identifiers_router(
         """Return identifier edit form row."""
         row = await _get_identifier_or_404(ident_id, entity_id, db)
         ident_types = await db.fetch(
-            "SELECT * FROM entity_identifier_types"
-            " WHERE entity_type=$1 ORDER BY display_name",
+            "SELECT * FROM entity_identifier_types WHERE entity_type=$1 ORDER BY display_name",
             entity_type,
         )
         return templates.TemplateResponse(

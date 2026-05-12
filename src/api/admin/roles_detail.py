@@ -80,9 +80,7 @@ async def role_inline_org_post(
             {"role": role},
             headers=flash_trigger("error", "Organization not found."),
         )
-    await db.execute(
-        "UPDATE roles SET organization_id=$1 WHERE id=$2", resolved, role_id
-    )
+    await db.execute("UPDATE roles SET organization_id=$1 WHERE id=$2", resolved, role_id)
     role = await _get_role(role_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
@@ -219,9 +217,7 @@ async def role_inline_notes_post(
 ):
     """Save notes; return updated read partial."""
     await _get_role(role_id, db)  # 404 check
-    await db.execute(
-        "UPDATE roles SET notes=$1 WHERE id=$2", notes.strip() or None, role_id
-    )
+    await db.execute("UPDATE roles SET notes=$1 WHERE id=$2", notes.strip() or None, role_id)
     role = await _get_role(role_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
@@ -325,7 +321,8 @@ async def role_inline_dates_post(
         role_id,
     )
     violations = [
-        ra for ra in assignments
+        ra
+        for ra in assignments
         if _check_assignment_within_bounds(
             ra["start_date"], ra["end_date"], established_on_val, abolished_on_val
         )
@@ -347,7 +344,9 @@ async def role_inline_dates_post(
 
     await db.execute(
         "UPDATE roles SET established_on=$1, abolished_on=$2 WHERE id=$3",
-        established_on_val, abolished_on_val, role_id,
+        established_on_val,
+        abolished_on_val,
+        role_id,
     )
     role = await _get_role(role_id, db)
     if not is_htmx(request):
@@ -358,4 +357,3 @@ async def role_inline_dates_post(
         {"role": role},
         headers=flash_trigger("success", "Boundary dates saved."),
     )
-

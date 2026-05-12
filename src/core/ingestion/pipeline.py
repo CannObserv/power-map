@@ -56,7 +56,7 @@ class ImportConfig:
 class ReferenceData:
     """Lookup dicts loaded from DB at pipeline start."""
 
-    link_type_ids: dict[str, str] = field(default_factory=dict)        # slug → id
+    link_type_ids: dict[str, str] = field(default_factory=dict)  # slug → id
     identifier_type_ids: dict[str, str] = field(default_factory=dict)  # slug → id
 
 
@@ -82,7 +82,9 @@ def _build_address_normalizer(validate_addresses: bool) -> FallbackAddressNormal
         logger.warning("ADDRESS_VALIDATOR_API_KEY not set; using local address parser")
         return normalizer
     run_validation = validate_addresses or os.environ.get("VALIDATE_ADDRESSES", "").lower() in (
-        "1", "true", "yes",
+        "1",
+        "true",
+        "yes",
     )
     if run_validation and not normalizer.config.run_validation:
         # Return a new instance with run_validation enabled; don't mutate the singleton.
@@ -107,10 +109,7 @@ def _file_hash(path: Path) -> str:
 def _read_csv(path: Path) -> list[dict[str, str]]:
     """Read a CSV file into a list of row dicts. Pydantic models handle stripping."""
     with path.open(newline="", encoding="utf-8-sig") as f:
-        return [
-            {k: v for k, v in row.items() if k is not None}
-            for row in csv.DictReader(f)
-        ]
+        return [{k: v for k, v in row.items() if k is not None} for row in csv.DictReader(f)]
 
 
 async def _write_provenance(
@@ -128,10 +127,13 @@ async def _write_provenance(
         """INSERT INTO import_provenance
                (id, batch_id, source_row, entity_type, entity_id, action, error_detail, raw_data)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
-        generate_id(), batch_id, source_row, entity_type, entity_id,
+        generate_id(),
+        batch_id,
+        source_row,
+        entity_type,
+        entity_id,
         action,
-        json.dumps([{"field": e.field, "message": e.message} for e in errors])
-        if errors else None,
+        json.dumps([{"field": e.field, "message": e.message} for e in errors]) if errors else None,
         json.dumps(raw),
     )
 
@@ -144,9 +146,13 @@ async def _write_confidence(conn: asyncpg.Connection, records: list[ConfidenceRe
                    (id, entity_type, entity_id, field_name, value_hash,
                     source_reliability, validation_status, validation_detail, assessed_by)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
-            generate_id(), rec.entity_type, rec.entity_id, rec.field_name,
+            generate_id(),
+            rec.entity_type,
+            rec.entity_id,
+            rec.field_name,
             value_hash(rec.normalized_value),
-            rec.source_reliability, rec.validation_status,
+            rec.source_reliability,
+            rec.validation_status,
             json.dumps(rec.validation_detail) if rec.validation_detail else None,
             rec.assessed_by,
         )
@@ -196,9 +202,15 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
 
     summary: dict[str, Any] = {
         "batch_id": batch_id,
-        "orgs_loaded": 0, "orgs_matched": 0, "orgs_error": 0,
-        "people_loaded": 0, "people_matched": 0, "people_error": 0,
-        "roles_loaded": 0, "roles_matched": 0, "roles_error": 0,
+        "orgs_loaded": 0,
+        "orgs_matched": 0,
+        "orgs_error": 0,
+        "people_loaded": 0,
+        "people_matched": 0,
+        "people_error": 0,
+        "roles_loaded": 0,
+        "roles_matched": 0,
+        "roles_error": 0,
     }
 
     org_index: dict[str, str] = {}
@@ -219,7 +231,8 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
             )
             continue
         result = await transform_org(
-            result, org_index=org_index,
+            result,
+            org_index=org_index,
             source_reliability=config.source_reliability,
             address_normalizer=addr_normalizer,
         )
@@ -247,28 +260,41 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         async with conn.transaction():
             await conn.execute(
                 "INSERT INTO organizations (id, active, parent_id, notes) VALUES ($1, $2, $3, $4)",
-                t["org_id"], t["active"], t["parent_id"], t["notes"],
+                t["org_id"],
+                t["active"],
+                t["parent_id"],
+                t["notes"],
             )
             for n in t["names"]:
                 await conn.execute(
                     "INSERT INTO organization_names"
                     " (id, organization_id, name, name_type, is_canonical)"
                     " VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), t["org_id"], n["name"], n["name_type"], n["is_canonical"],
+                    generate_id(),
+                    t["org_id"],
+                    n["name"],
+                    n["name_type"],
+                    n["is_canonical"],
                 )
             if t.get("acronym"):
                 await conn.execute(
                     "INSERT INTO organization_acronyms"
                     " (id, organization_id, acronym, is_canonical)"
                     " VALUES ($1, $2, $3, TRUE)",
-                    generate_id(), t["org_id"], t["acronym"],
+                    generate_id(),
+                    t["org_id"],
+                    t["acronym"],
                 )
             for cm in t["contact_methods"]:
                 await conn.execute(
                     "INSERT INTO contact_methods"
                     " (id, entity_type, entity_id, contact_type, value)"
                     " VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "organization", t["org_id"], cm["contact_type"], cm["value"],
+                    generate_id(),
+                    "organization",
+                    t["org_id"],
+                    cm["contact_type"],
+                    cm["value"],
                 )
             for lnk in t["links"]:
                 link_type_id = ref.link_type_ids.get(lnk["link_type_slug"])
@@ -279,8 +305,11 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         " VALUES ($1, $2, $3, $4, $5)"
                         " ON CONFLICT (entity_type, entity_id, url, link_type_id)"
                         " DO NOTHING",
-                        generate_id(), "organization", t["org_id"],
-                        lnk["url"], link_type_id,
+                        generate_id(),
+                        "organization",
+                        t["org_id"],
+                        lnk["url"],
+                        link_type_id,
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
@@ -289,7 +318,10 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         "INSERT INTO identifiers"
                         " (id, entity_id, entity_identifier_type_id, value)"
                         " VALUES ($1, $2, $3, $4)",
-                        generate_id(), t["org_id"], type_id, ident["value"],
+                        generate_id(),
+                        t["org_id"],
+                        type_id,
+                        ident["value"],
                     )
             if t["address"]:
                 addr_id = generate_id()
@@ -298,23 +330,30 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     """INSERT INTO addresses (id, raw_input, standardized, address_line_1,
                            address_line_2, city, region, postal_code, country)
                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
-                    addr_id, a.get("raw_input"), a.get("standardized"),
-                    a.get("address_line_1"), a.get("address_line_2"),
-                    a.get("city"), a.get("region"), a.get("postal_code"),
+                    addr_id,
+                    a.get("raw_input"),
+                    a.get("standardized"),
+                    a.get("address_line_1"),
+                    a.get("address_line_2"),
+                    a.get("city"),
+                    a.get("region"),
+                    a.get("postal_code"),
                     a.get("country", "US"),
                 )
                 await conn.execute(
                     "INSERT INTO entity_addresses"
                     " (id, entity_type, entity_id, address_id, address_type)"
                     " VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "organization", t["org_id"], addr_id, "mailing",
+                    generate_id(),
+                    "organization",
+                    t["org_id"],
+                    addr_id,
+                    "mailing",
                 )
             for rec in t["confidence_records"]:
                 rec.assessed_by = f"import:{batch_id}"
             await _write_confidence(conn, t["confidence_records"])
-            await _write_provenance(
-                conn, batch_id, i, "organization", t["org_id"], "created", raw
-            )
+            await _write_provenance(conn, batch_id, i, "organization", t["org_id"], "created", raw)
 
         org_index[name_lower] = t["org_id"]
         summary["orgs_loaded"] += 1
@@ -364,21 +403,31 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         async with conn.transaction():
             await conn.execute(
                 "INSERT INTO people (id, personal_pronouns, notes) VALUES ($1, $2, $3)",
-                t["person_id"], t.get("personal_pronouns"), t["notes"],
+                t["person_id"],
+                t.get("personal_pronouns"),
+                t["notes"],
             )
             for n in t["names"]:
                 await conn.execute(
                     "INSERT INTO person_names"
                     " (id, person_id, name, name_type, is_canonical)"
                     " VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), t["person_id"], n["name"], n["name_type"], n["is_canonical"],
+                    generate_id(),
+                    t["person_id"],
+                    n["name"],
+                    n["name_type"],
+                    n["is_canonical"],
                 )
             for cm in t["contact_methods"]:
                 await conn.execute(
                     "INSERT INTO contact_methods"
                     " (id, entity_type, entity_id, contact_type, value)"
                     " VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "person", t["person_id"], cm["contact_type"], cm["value"],
+                    generate_id(),
+                    "person",
+                    t["person_id"],
+                    cm["contact_type"],
+                    cm["value"],
                 )
             for lnk in t["links"]:
                 link_type_id = ref.link_type_ids.get(lnk["link_type_slug"])
@@ -389,8 +438,11 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         " VALUES ($1, $2, $3, $4, $5)"
                         " ON CONFLICT (entity_type, entity_id, url, link_type_id)"
                         " DO NOTHING",
-                        generate_id(), "person", t["person_id"],
-                        lnk["url"], link_type_id,
+                        generate_id(),
+                        "person",
+                        t["person_id"],
+                        lnk["url"],
+                        link_type_id,
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
@@ -399,7 +451,10 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         "INSERT INTO identifiers"
                         " (id, entity_id, entity_identifier_type_id, value)"
                         " VALUES ($1, $2, $3, $4)",
-                        generate_id(), t["person_id"], type_id, ident["value"],
+                        generate_id(),
+                        t["person_id"],
+                        type_id,
+                        ident["value"],
                     )
             if t.get("address"):
                 addr_id = generate_id()
@@ -408,23 +463,30 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     """INSERT INTO addresses (id, raw_input, standardized, address_line_1,
                            address_line_2, city, region, postal_code, country)
                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
-                    addr_id, a.get("raw_input"), a.get("standardized"),
-                    a.get("address_line_1"), a.get("address_line_2"),
-                    a.get("city"), a.get("region"), a.get("postal_code"),
+                    addr_id,
+                    a.get("raw_input"),
+                    a.get("standardized"),
+                    a.get("address_line_1"),
+                    a.get("address_line_2"),
+                    a.get("city"),
+                    a.get("region"),
+                    a.get("postal_code"),
                     a.get("country", "US"),
                 )
                 await conn.execute(
                     "INSERT INTO entity_addresses"
                     " (id, entity_type, entity_id, address_id, address_type)"
                     " VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "person", t["person_id"], addr_id, "mailing",
+                    generate_id(),
+                    "person",
+                    t["person_id"],
+                    addr_id,
+                    "mailing",
                 )
             for rec in t["confidence_records"]:
                 rec.assessed_by = f"import:{batch_id}"
             await _write_confidence(conn, t["confidence_records"])
-            await _write_provenance(
-                conn, batch_id, i, "person", t["person_id"], "created", raw
-            )
+            await _write_provenance(conn, batch_id, i, "person", t["person_id"], "created", raw)
 
         person_index[name_lower] = t["person_id"]
         summary["people_loaded"] += 1
@@ -450,8 +512,13 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                 conn, batch_id, i, "role_assignment", generate_id(), "error", raw, result.errors
             )
             continue
-        result = transform_role(result, org_index=org_index, person_index=person_index,
-                                role_index=role_index, source_reliability=config.source_reliability)
+        result = transform_role(
+            result,
+            org_index=org_index,
+            person_index=person_index,
+            role_index=role_index,
+            source_reliability=config.source_reliability,
+        )
         if not result.ok:
             summary["roles_error"] += 1
             for e in result.errors:
@@ -471,7 +538,9 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         existing_ra = await conn.fetchrow(
             "SELECT id FROM role_assignments"
             " WHERE person_id = $1 AND role_id = $2 AND start_date IS NOT DISTINCT FROM $3",
-            t["person_id"], t["role_id"], t.get("start_date"),
+            t["person_id"],
+            t["role_id"],
+            t.get("start_date"),
         )
         if existing_ra:
             await _write_provenance(
@@ -486,7 +555,10 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     "INSERT INTO roles (id, organization_id, title, notes)"
                     " VALUES ($1, $2, $3, $4)"
                     " ON CONFLICT DO NOTHING RETURNING id",
-                    t["role_id"], t["org_id"], t["title"], t["notes"],
+                    t["role_id"],
+                    t["org_id"],
+                    t["title"],
+                    t["notes"],
                 )
                 if actual_role_id is None:
                     # Conflict fired (race or pre-existing row) — look up the winner
@@ -494,22 +566,29 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         "SELECT id FROM roles"
                         " WHERE organization_id = $1 AND lower(title) = lower($2)"
                         " AND archived_at IS NULL",
-                        t["org_id"], t["title"],
+                        t["org_id"],
+                        t["title"],
                     )
                 if actual_role_id and actual_role_id != t["role_id"]:
                     t = {**t, "role_id": actual_role_id}
             await conn.execute(
                 "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
                 " VALUES ($1, $2, $3, $4)",
-                t["assignment_id"], t["person_id"], t["role_id"], t["is_current"],
+                t["assignment_id"],
+                t["person_id"],
+                t["role_id"],
+                t["is_current"],
             )
             for cm in t["contact_methods"]:
                 await conn.execute(
                     "INSERT INTO contact_methods"
                     " (id, entity_type, entity_id, contact_type, value)"
                     " VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "role_assignment",
-                    t["assignment_id"], cm["contact_type"], cm["value"],
+                    generate_id(),
+                    "role_assignment",
+                    t["assignment_id"],
+                    cm["contact_type"],
+                    cm["value"],
                 )
             for lnk in t["links"]:
                 link_type_id = ref.link_type_ids.get(lnk["link_type_slug"])
@@ -520,8 +599,11 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         " VALUES ($1, $2, $3, $4, $5)"
                         " ON CONFLICT (entity_type, entity_id, url, link_type_id)"
                         " DO NOTHING",
-                        generate_id(), "role_assignment", t["assignment_id"],
-                        lnk["url"], link_type_id,
+                        generate_id(),
+                        "role_assignment",
+                        t["assignment_id"],
+                        lnk["url"],
+                        link_type_id,
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
@@ -530,7 +612,10 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         "INSERT INTO identifiers"
                         " (id, entity_id, entity_identifier_type_id, value)"
                         " VALUES ($1, $2, $3, $4)",
-                        generate_id(), t["assignment_id"], type_id, ident["value"],
+                        generate_id(),
+                        t["assignment_id"],
+                        type_id,
+                        ident["value"],
                     )
             for rec in t["confidence_records"]:
                 rec.assessed_by = f"import:{batch_id}"
@@ -563,7 +648,11 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
     elapsed = time.monotonic() - start
     logger.info(
         "import complete: batch=%s loaded=%d matched=%d errors=%d elapsed=%.1fs",
-        batch_id, loaded, matched, errors, elapsed,
+        batch_id,
+        loaded,
+        matched,
+        errors,
+        elapsed,
     )
     summary["elapsed_s"] = elapsed
     return summary

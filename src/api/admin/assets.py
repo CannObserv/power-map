@@ -65,16 +65,12 @@ def compute_asset_version() -> str:
 ASSET_VERSION: str = compute_asset_version()
 
 
-def register_asset_version_global(
-    templates: Jinja2Templates, version: str = ASSET_VERSION
-) -> None:
+def register_asset_version_global(templates: Jinja2Templates, version: str = ASSET_VERSION) -> None:
     """Inject ``asset_version`` into a Jinja2Templates instance's globals."""
     templates.env.globals["asset_version"] = version
 
 
-def register_array_cap_global(
-    templates: Jinja2Templates, cap: int = ARRAY_CAP
-) -> None:
+def register_array_cap_global(templates: Jinja2Templates, cap: int = ARRAY_CAP) -> None:
     """Inject ``ARRAY_CAP`` into a Jinja2Templates instance's globals."""
     templates.env.globals["ARRAY_CAP"] = cap
 

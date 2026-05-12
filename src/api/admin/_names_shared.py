@@ -87,21 +87,13 @@ def _fk_violation_message(exc: asyncpg.ForeignKeyViolationError) -> str:
     detail = (exc.detail or "").lower()
     cname = exc.constraint_name or ""
     if "bcp47_locales" in detail or "_locale_fkey" in cname:
-        return (
-            "Locale is not a registered BCP 47 code. "
-            "Pick from the typeahead suggestions."
-        )
+        return "Locale is not a registered BCP 47 code. Pick from the typeahead suggestions."
     if "iso15924_scripts" in detail or "_script_fkey" in cname:
-        return (
-            "Script is not a registered ISO 15924 code. "
-            "Pick from the typeahead suggestions."
-        )
+        return "Script is not a registered ISO 15924 code. Pick from the typeahead suggestions."
     if "reading_of_id" in detail or "reading_of_id" in cname:
-        return (
-            "Reading-of target is not a valid name row. "
-            "Pick from the typeahead suggestions."
-        )
+        return "Reading-of target is not a valid name row. Pick from the typeahead suggestions."
     return "Foreign key constraint violation. Check locale/script/reading_of values."
+
 
 templates = Jinja2Templates(directory="src/templates")
 
@@ -218,17 +210,22 @@ def make_names_router(
         embedding it here would drift as the schema evolves.
         """
         if value not in name_types:
-            return (
-                f"Invalid name_type {value!r}. "
-                "Choose a value from the dropdown."
-            )
+            return f"Invalid name_type {value!r}. Choose a value from the dropdown."
         return None
 
     async def _insert_name(
-        db, *, nid: str, entity_id: str, name: str, name_type: NameType,
-        is_canonical: bool, vis: PersonNameVisibility | None,
-        locale: str | None = None, script: str | None = None,
-        sort_as: str | None = None, reading_of_id: str | None = None,
+        db,
+        *,
+        nid: str,
+        entity_id: str,
+        name: str,
+        name_type: NameType,
+        is_canonical: bool,
+        vis: PersonNameVisibility | None,
+        locale: str | None = None,
+        script: str | None = None,
+        sort_as: str | None = None,
+        reading_of_id: str | None = None,
     ) -> None:
         """Insert a name row. Optional metadata columns are included only
         when non-None so the DB default / triggers handle the omitted case.
@@ -247,10 +244,17 @@ def make_names_router(
         )
 
     async def _update_name(
-        db, *, name_id: str, name: str, name_type: NameType,
-        is_canonical: bool, vis: PersonNameVisibility | None,
-        locale: str | None = None, script: str | None = None,
-        sort_as: str | None = None, reading_of_id: str | None = None,
+        db,
+        *,
+        name_id: str,
+        name: str,
+        name_type: NameType,
+        is_canonical: bool,
+        vis: PersonNameVisibility | None,
+        locale: str | None = None,
+        script: str | None = None,
+        sort_as: str | None = None,
+        reading_of_id: str | None = None,
         write_metadata: bool = False,
     ) -> None:
         """Update a name row.
@@ -268,7 +272,11 @@ def make_names_router(
         vals: list[object] = [name, name_type, is_canonical]
         if write_metadata:
             for col, val in _metadata_pairs(
-                vis, locale, script, sort_as, reading_of_id,
+                vis,
+                locale,
+                script,
+                sort_as,
+                reading_of_id,
             ):
                 if col == "visibility" and val is None:
                     continue
@@ -281,7 +289,10 @@ def make_names_router(
         )
 
     async def _validate_reading_of_target(
-        db, *, entity_id: str, reading_of_id: str | None,
+        db,
+        *,
+        entity_id: str,
+        reading_of_id: str | None,
         name_id: str | None = None,
     ) -> str | None:
         """Return the reason this `reading_of_id` is invalid, or None.
@@ -302,28 +313,20 @@ def make_names_router(
         if reading_of_id is None:
             return None
         if name_id is not None and reading_of_id == name_id:
-            return (
-                "Reading-of cannot point at itself. "
-                "Pick a different visual row."
-            )
+            return "Reading-of cannot point at itself. Pick a different visual row."
         target = await db.fetchrow(
             f"SELECT {entity_fk}, name_type FROM {names_table} WHERE id = $1",
             reading_of_id,
         )
         if target is None:
-            return (
-                "Reading-of target row does not exist. "
-                "Pick from the typeahead suggestions."
-            )
+            return "Reading-of target row does not exist. Pick from the typeahead suggestions."
         if target[entity_fk] != entity_id:
             return (
-                "Reading-of target must be on the same person. "
-                "Pick from the typeahead suggestions."
+                "Reading-of target must be on the same person. Pick from the typeahead suggestions."
             )
         if target["name_type"] in ("reading", "romanization", "mrz"):
             return (
-                "Reading-of target must be a visual row "
-                "(not another reading/romanization/mrz row)."
+                "Reading-of target must be a visual row (not another reading/romanization/mrz row)."
             )
         return None
 
@@ -448,7 +451,9 @@ def make_names_router(
             return _form_error_response(nt_err, request)
         if rof is not None:
             err = await _validate_reading_of_target(
-                db, entity_id=entity_id, reading_of_id=rof,
+                db,
+                entity_id=entity_id,
+                reading_of_id=rof,
             )
             if err is not None:
                 return _form_error_response(err, request)
@@ -462,9 +467,17 @@ def make_names_router(
                         entity_id,
                     )
                 await _insert_name(
-                    db, nid=nid, entity_id=entity_id, name=name.strip(),
-                    name_type=name_type, is_canonical=(is_canonical == "true"),
-                    vis=vis, locale=loc, script=scr, sort_as=sa, reading_of_id=rof,
+                    db,
+                    nid=nid,
+                    entity_id=entity_id,
+                    name=name.strip(),
+                    name_type=name_type,
+                    is_canonical=(is_canonical == "true"),
+                    vis=vis,
+                    locale=loc,
+                    script=scr,
+                    sort_as=sa,
+                    reading_of_id=rof,
                 )
                 # Skip the parts helper entirely on create when no parts
                 # fields were submitted: the just-inserted name has no
@@ -472,8 +485,12 @@ def make_names_router(
                 # would issue a guaranteed-zero-row write. Cap validation
                 # still runs when any parts field IS submitted.
                 if supports_person_metadata and (
-                    given_names or family_names or additional_names
-                    or honorific_prefix or honorific_suffix or primary_identifier
+                    given_names
+                    or family_names
+                    or additional_names
+                    or honorific_prefix
+                    or honorific_suffix
+                    or primary_identifier
                 ):
                     parts_err = await upsert_or_delete_parts(
                         db,
@@ -490,7 +507,9 @@ def make_names_router(
                         raise _PartsValidationError(parts_err)
         except asyncpg.ForeignKeyViolationError as exc:
             return _form_error_response(
-                _fk_violation_message(exc), request, from_exc=exc,
+                _fk_violation_message(exc),
+                request,
+                from_exc=exc,
             )
         except _PartsValidationError as exc:
             # Transaction already rolled back by the `async with` exit on raise —
@@ -543,9 +562,7 @@ def make_names_router(
                     parts_row["additional_names"] if parts_row else None,
                 ),
             }
-        return templates.TemplateResponse(
-            request, tmpl_read_row, _ctx(entity_id, n=n_ctx)
-        )
+        return templates.TemplateResponse(request, tmpl_read_row, _ctx(entity_id, n=n_ctx))
 
     @router.get("/{name_id}/edit-row/")
     async def name_edit_row_get(
@@ -628,7 +645,10 @@ def make_names_router(
             return _form_error_response(nt_err, request)
         if rof is not None:
             err = await _validate_reading_of_target(
-                db, entity_id=entity_id, reading_of_id=rof, name_id=name_id,
+                db,
+                entity_id=entity_id,
+                reading_of_id=rof,
+                name_id=name_id,
             )
             if err is not None:
                 return _form_error_response(err, request)
@@ -663,9 +683,16 @@ def make_names_router(
                         name_id,
                     )
                 await _update_name(
-                    db, name_id=name_id, name=name.strip(), name_type=name_type,
+                    db,
+                    name_id=name_id,
+                    name=name.strip(),
+                    name_type=name_type,
                     is_canonical=(is_canonical == "true"),
-                    vis=vis, locale=loc, script=scr, sort_as=sa, reading_of_id=rof,
+                    vis=vis,
+                    locale=loc,
+                    script=scr,
+                    sort_as=sa,
+                    reading_of_id=rof,
                     write_metadata=supports_person_metadata,
                 )
                 if supports_person_metadata:
@@ -684,7 +711,9 @@ def make_names_router(
                         raise _PartsValidationError(parts_err)
         except asyncpg.ForeignKeyViolationError as exc:
             return _form_error_response(
-                _fk_violation_message(exc), request, from_exc=exc,
+                _fk_violation_message(exc),
+                request,
+                from_exc=exc,
             )
         except _PartsValidationError as exc:
             # Transaction already rolled back by the `async with` exit on raise —
@@ -741,9 +770,7 @@ def make_names_router(
             request,
             tmpl_rows,
             _ctx(entity_id, names=names),
-            headers=flash_trigger(
-                "info", "Name removed.", extra=await header_extra(entity_id, db)
-            ),
+            headers=flash_trigger("info", "Name removed.", extra=await header_extra(entity_id, db)),
         )
 
     return router

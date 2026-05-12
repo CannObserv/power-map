@@ -108,10 +108,12 @@ async def merge_person_into(
             is missing from ``people``.
     """
     winner = await db.fetchrow(
-        "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", winner_id,
+        "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE",
+        winner_id,
     )
     loser = await db.fetchrow(
-        "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE", loser_id,
+        "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE",
+        loser_id,
     )
     if not winner or not loser:
         raise PersonNotFoundError(
@@ -121,10 +123,13 @@ async def merge_person_into(
         )
 
     if loser_display_name is None:
-        loser_display_name = await db.fetchval(
-            "SELECT display_name FROM v_person_display_names WHERE person_id=$1",
-            loser_id,
-        ) or loser_id
+        loser_display_name = (
+            await db.fetchval(
+                "SELECT display_name FROM v_person_display_names WHERE person_id=$1",
+                loser_id,
+            )
+            or loser_id
+        )
 
     # notes: prefix loser's notes with merge metadata and append to winner
     if loser["notes"]:
@@ -133,7 +138,9 @@ async def merge_person_into(
         appended = f"{prefix}\n{loser['notes']}"
         new_notes = f"{winner['notes']}\n\n{appended}" if winner["notes"] else appended
         await db.execute(
-            "UPDATE people SET notes=$1 WHERE id=$2", new_notes, winner_id,
+            "UPDATE people SET notes=$1 WHERE id=$2",
+            new_notes,
+            winner_id,
         )
 
     # person_names: demote loser's canonical, drop exact-name duplicates,
@@ -149,11 +156,13 @@ async def merge_person_into(
         "DELETE FROM person_names"
         " WHERE person_id=$1"
         "   AND name IN (SELECT name FROM person_names WHERE person_id=$2)",
-        loser_id, winner_id,
+        loser_id,
+        winner_id,
     )
     await db.execute(
         "UPDATE person_names SET person_id=$1 WHERE person_id=$2",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
 
     # role_assignments: delete conflicts (same role+start_date), then reassign.
@@ -165,28 +174,35 @@ async def merge_person_into(
                  FROM role_assignments
                  WHERE person_id=$2 AND archived_at IS NULL
              )""",
-        loser_id, winner_id,
+        loser_id,
+        winner_id,
     )
     await db.execute(
         "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
 
     # Polymorphic entity tables.
     for table in (
-        "contact_methods", "links", "entity_addresses",
-        "import_provenance", "field_confidence",
+        "contact_methods",
+        "links",
+        "entity_addresses",
+        "import_provenance",
+        "field_confidence",
     ):
         await db.execute(
             f"UPDATE {table} SET entity_id=$1 "  # noqa: S608
             f"WHERE entity_type='person' AND entity_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
     # identifiers (no entity_type column).
     await db.execute(
         "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
 
     # duplicate_dismissals: delete the merged pair, reassign others.
@@ -195,7 +211,8 @@ async def merge_person_into(
         " WHERE entity_type='person'"
         "   AND ((entity_a_id=$1 AND entity_b_id=$2)"
         "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
     await db.execute(
         """DELETE FROM duplicate_dismissals dd
@@ -207,7 +224,8 @@ async def merge_person_into(
                (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_b_id)
                OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_b_id)
              )""",
-        loser_id, winner_id,
+        loser_id,
+        winner_id,
     )
     await db.execute(
         """DELETE FROM duplicate_dismissals dd
@@ -219,21 +237,24 @@ async def merge_person_into(
                (dd.entity_a_id = $1 AND dd.entity_b_id = dw.entity_a_id)
                OR (dd.entity_b_id = $1 AND dd.entity_a_id = dw.entity_a_id)
              )""",
-        loser_id, winner_id,
+        loser_id,
+        winner_id,
     )
     await db.execute(
         """UPDATE duplicate_dismissals
            SET entity_a_id = LEAST($1, entity_b_id),
                entity_b_id = GREATEST($1, entity_b_id)
            WHERE entity_type='person' AND entity_a_id=$2""",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
     await db.execute(
         """UPDATE duplicate_dismissals
            SET entity_a_id = LEAST(entity_a_id, $1),
                entity_b_id = GREATEST(entity_a_id, $1)
            WHERE entity_type='person' AND entity_b_id=$2""",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
 
     await db.execute("DELETE FROM people WHERE id=$1", loser_id)

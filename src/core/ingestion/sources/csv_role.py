@@ -81,11 +81,13 @@ def validate_role(raw: dict[str, str], source_row: int) -> RowResult:
             loc = e["loc"]
             raw_loc = str(loc[0]) if loc else "unknown"
             field_name = _alias_to_field(raw_loc)
-            result.errors.append(FieldError(
-                field=field_name,
-                message=e["msg"],
-                raw_value=raw.get(raw_loc),
-            ))
+            result.errors.append(
+                FieldError(
+                    field=field_name,
+                    message=e["msg"],
+                    raw_value=raw.get(raw_loc),
+                )
+            )
     return result
 
 
@@ -107,21 +109,25 @@ def transform_role(
     # Resolve org
     org_id = org_index.get(validated.organization.strip().lower())
     if org_id is None:
-        result.errors.append(FieldError(
-            field="organization",
-            message=f"org not found in index: {validated.organization!r}",
-            raw_value=validated.organization,
-        ))
+        result.errors.append(
+            FieldError(
+                field="organization",
+                message=f"org not found in index: {validated.organization!r}",
+                raw_value=validated.organization,
+            )
+        )
         return result
 
     # Resolve person
     person_id = person_index.get(validated.name.strip().lower())
     if person_id is None:
-        result.errors.append(FieldError(
-            field="name",
-            message=f"person not found in index: {validated.name!r}",
-            raw_value=validated.name,
-        ))
+        result.errors.append(
+            FieldError(
+                field="name",
+                message=f"person not found in index: {validated.name!r}",
+                raw_value=validated.name,
+            )
+        )
         return result
 
     # Role dedup
@@ -140,16 +146,18 @@ def transform_role(
     def _add_confidence(
         field_name: str, normalized_value: str, hint: str, detail: dict | None = None
     ) -> None:
-        confidence_records.append(ConfidenceRecord(
-            entity_type="role_assignment",
-            entity_id=assignment_id,
-            field_name=field_name,
-            normalized_value=normalized_value,
-            source_reliability=source_reliability,
-            validation_status=hint,
-            assessed_by="import:pending",
-            validation_detail=detail,
-        ))
+        confidence_records.append(
+            ConfidenceRecord(
+                entity_type="role_assignment",
+                entity_id=assignment_id,
+                field_name=field_name,
+                normalized_value=normalized_value,
+                source_reliability=source_reliability,
+                validation_status=hint,
+                assessed_by="import:pending",
+                validation_detail=detail,
+            )
+        )
 
     # Contact methods
     contact_methods: list[dict] = []
@@ -191,9 +199,12 @@ def transform_role(
             try:
                 r = _url.normalize(raw_url)
                 if not r.skipped:
-                    links.append({
-                        "url": r.value, "link_type_slug": link_type_slug,
-                    })
+                    links.append(
+                        {
+                            "url": r.value,
+                            "link_type_slug": link_type_slug,
+                        }
+                    )
                     _add_confidence(f"social:{link_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:
                 warnings.append(f"social link skipped ({link_type_slug}): {exc}")

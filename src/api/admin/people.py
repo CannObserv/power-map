@@ -291,8 +291,7 @@ async def person_detail(
         historical_count = sum(1 for n in names if n["visibility"] != "public")
     else:
         historical_count = await db.fetchval(
-            "SELECT COUNT(*) FROM person_names"
-            " WHERE person_id = $1 AND visibility != 'public'",
+            "SELECT COUNT(*) FROM person_names WHERE person_id = $1 AND visibility != 'public'",
             person_id,
         )
     contacts = await db.fetch(
@@ -553,5 +552,3 @@ async def person_pronouns_save(
         {"person": updated},
         headers=flash_trigger("success", "Pronouns saved."),
     )
-
-

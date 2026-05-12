@@ -65,7 +65,11 @@ async def link_types_page(
     return templates.TemplateResponse(
         request,
         "admin/settings/link_types.html",
-        {**_base_ctx(user, org_dup_count, person_dup_count, "settings_link_types"), "general": general, "social": social},  # noqa: E501
+        {
+            **_base_ctx(user, org_dup_count, person_dup_count, "settings_link_types"),
+            "general": general,
+            "social": social,
+        },  # noqa: E501
     )
 
 
@@ -99,7 +103,10 @@ async def link_type_create(
     lid = generate_id()
     await db.execute(
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, $4)",
-        lid, display_name.strip(), slug_val, is_social,
+        lid,
+        display_name.strip(),
+        slug_val,
+        is_social,
     )
     rows = await _fetch_link_types(db, is_social)
     if not is_htmx(request):
@@ -156,7 +163,9 @@ async def link_type_edit_row_post(
         raise HTTPException(status_code=404)
     await db.execute(
         "UPDATE link_types SET display_name=$1, slug=$2 WHERE id=$3",
-        display_name.strip(), slug_val, item_id,
+        display_name.strip(),
+        slug_val,
+        item_id,
     )
     row = await db.fetchrow(
         """
@@ -197,7 +206,8 @@ async def link_type_read_row(
         WHERE lt.id = $1 AND lt.is_social = $2
         GROUP BY lt.id
         """,
-        item_id, is_social,
+        item_id,
+        is_social,
     )
     if not row:
         raise HTTPException(status_code=404)

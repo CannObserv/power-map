@@ -41,9 +41,7 @@ Confidence = Literal["trivial", "ambiguous", "skip"]
 # editor on these rows is meaningless (per docs/CONVENTIONS.md §"Storage
 # rules" — `initials` is e.g. "JFK", `mrz` is "GARCIA<LOPEZ<<JOSE",
 # `reading` / `romanization` are phonetic transcriptions of another row).
-NON_DECOMPOSABLE_TYPES: frozenset[str] = frozenset(
-    {"initials", "mrz", "reading", "romanization"}
-)
+NON_DECOMPOSABLE_TYPES: frozenset[str] = frozenset({"initials", "mrz", "reading", "romanization"})
 
 
 @dataclass(frozen=True)
@@ -80,11 +78,34 @@ class PartsSuggestion:
 # only for emitting human-readable `reasons` tags during decomposition; the
 # actual particle handling (gluing them to the surname compound) happens
 # inside HumanName.
-_PARTICLE_TOKENS: frozenset[str] = frozenset({
-    "van", "von", "der", "den", "de", "del", "della", "di", "da", "do",
-    "dos", "du", "la", "le", "el", "al", "bin", "binte", "ibn", "ben",
-    "ter", "ten", "af", "av",
-})
+_PARTICLE_TOKENS: frozenset[str] = frozenset(
+    {
+        "van",
+        "von",
+        "der",
+        "den",
+        "de",
+        "del",
+        "della",
+        "di",
+        "da",
+        "do",
+        "dos",
+        "du",
+        "la",
+        "le",
+        "el",
+        "al",
+        "bin",
+        "binte",
+        "ibn",
+        "ben",
+        "ter",
+        "ten",
+        "af",
+        "av",
+    }
+)
 
 
 def _split_middle(middle: str) -> list[str]:
@@ -184,22 +205,14 @@ def _suggest_latn(name: str) -> PartsSuggestion:
         _INITIAL_RE.match(tok) for tok in middle_tokens
     )
     has_anchor = bool(
-        title
-        or suffix
-        or any(r.startswith("particle:") for r in reasons)
-        or "," in name
+        title or suffix or any(r.startswith("particle:") for r in reasons) or "," in name
     )
 
     confidence: Confidence = "trivial"
     if len(middle_tokens) >= 2 and not all_middle_initials:
         confidence = "ambiguous"
         reasons.append("multi-token-middle")
-    elif (
-        len(raw_tokens) >= 4
-        and not has_anchor
-        and middle_tokens
-        and not all_middle_initials
-    ):
+    elif len(raw_tokens) >= 4 and not has_anchor and middle_tokens and not all_middle_initials:
         confidence = "ambiguous"
         reasons.append("multi-token-no-particle")
 

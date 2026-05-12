@@ -156,17 +156,14 @@ def make_contacts_router(
     ):
         """Return read-only contact row (used by Cancel on edit form)."""
         contact = await db.fetchrow(
-            "SELECT * FROM contact_methods"
-            " WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
+            "SELECT * FROM contact_methods WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
             contact_id,
             entity_type,
             entity_id,
         )
         if not contact:
             raise HTTPException(status_code=404)
-        return templates.TemplateResponse(
-            request, tmpl_read_row, _ctx(entity_id, c=contact)
-        )
+        return templates.TemplateResponse(request, tmpl_read_row, _ctx(entity_id, c=contact))
 
     @router.get("/{contact_id}/edit-row/")
     async def contact_edit_row_get(
@@ -178,8 +175,7 @@ def make_contacts_router(
     ):
         """Return contact edit form row."""
         contact = await db.fetchrow(
-            "SELECT * FROM contact_methods"
-            " WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
+            "SELECT * FROM contact_methods WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
             contact_id,
             entity_type,
             entity_id,
@@ -204,8 +200,7 @@ def make_contacts_router(
     ):
         """Update a contact method (contact_type is immutable)."""
         existing = await db.fetchrow(
-            "SELECT * FROM contact_methods"
-            " WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
+            "SELECT * FROM contact_methods WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
             contact_id,
             entity_type,
             entity_id,
@@ -259,8 +254,7 @@ def make_contacts_router(
     ):
         """Delete a contact method."""
         existing = await db.fetchrow(
-            "SELECT id FROM contact_methods"
-            " WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
+            "SELECT id FROM contact_methods WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
             contact_id,
             entity_type,
             entity_id,
