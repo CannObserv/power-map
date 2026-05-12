@@ -78,6 +78,13 @@
    / skip` (stable Python contract); only the rendered surface changes.
    The `data-suggest-advisory` attribute still carries the raw bucket
    so JS / external consumers and tests have a stable key to assert on. #}
+{# Bucket semantics (canonical defs in src/core/normalizers/person_name.py
+   PartsSuggestion.__doc__):
+     - trivial    = safe-to-apply; nameparser confidently partitioned.
+     - ambiguous  = operator must verify; partition is one of several
+                    plausible reads.
+     - skip       = no decomposition possible (script unsupported,
+                    name_type non-decomposable, name empty/punctuation). #}
 {%- set _SUGGEST_BUCKET_DISPLAY = {
   'trivial':   {'label': 'High confidence',  'badge': 'badge--success'},
   'ambiguous': {'label': 'Needs review',     'badge': 'badge--warning'},
