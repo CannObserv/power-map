@@ -60,9 +60,9 @@ async def db_pool():
     if not dsn:
         pytest.skip("DATABASE_URL not set")
     pool = await asyncpg.create_pool(dsn)
-    async with pool.acquire() as conn:
-        await apply_schema(conn)
     try:
+        async with pool.acquire() as conn:
+            await apply_schema(conn)
         yield pool
     finally:
         await pool.close()

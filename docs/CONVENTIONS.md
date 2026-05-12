@@ -24,6 +24,7 @@ Reference for public API, database, and ingestion patterns. For admin dashboard 
 - Phone: normalize to E.164 via `PhoneNormalizer` from `src.core.normalizers.phone`
 - Email: validate via `EmailNormalizer` from `src.core.normalizers.email`
 - Integration tests (marked `integration`) require `TEST_DATABASE_URL` env var; `tests/conftest.py` redirects `DATABASE_URL` → `TEST_DATABASE_URL` and skips when absent — never runs against the production DB
+- Integration test fixtures share a session-scoped `db_pool` (`asyncpg.create_pool`) from `tests/conftest.py`; `apply_schema` runs once at session start. Fixtures and tests acquire via `async with db_pool.acquire() as conn:` — never `await asyncpg.connect(...)` per call. New test modules must declare `pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]` and use `@pytest_asyncio.fixture(loop_scope="session")` on async fixtures. Both `loop_scope="session"` markers are required: `db_pool` is bound to the session event loop, so without them you'll see `RuntimeError: ... attached to a different loop`. Reference recipe: `tests/api/admin/test_people_names.py`. Sole exception: `tests/core/test_db.py`, which tests pool lifecycle itself and intentionally owns its own connection.
 
 ### Display names
 

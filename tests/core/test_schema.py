@@ -7,10 +7,12 @@ Run with:
     DATABASE_URL=postgres://user:pass@localhost/power_map_test \\
         uv run pytest -m integration -v
 
-The target database should be dedicated to testing. apply_schema() is
-idempotent (IF NOT EXISTS / ON CONFLICT DO NOTHING), so re-runs are safe.
-Each test wraps its DML in a transaction that is rolled back on teardown,
-leaving the schema intact but the tables empty.
+The target database should be dedicated to testing. Schema is applied once
+at session start by the `db_pool` fixture in `tests/conftest.py`
+(`apply_schema()` is idempotent, so re-runs are safe). Each test acquires a
+connection from `db_pool` via the `db` fixture and wraps its DML in a
+transaction that is rolled back on teardown, leaving the schema intact and
+the tables empty.
 """
 
 import json
