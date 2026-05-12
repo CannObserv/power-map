@@ -1,12 +1,13 @@
 """Integration tests for admin dashboard route."""
 
 import re
-from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 
+from src.api.admin.people_dups import get_person_dup_count
+from src.api.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -81,22 +82,46 @@ async def test_dashboard_shows_counts(client, seeded_counts):
 
 
 async def test_dashboard_person_dup_badge_shown(client):
-    """Person dup count badge appears when count_person_duplicates returns > 0."""
-    with patch(
-        "src.api.admin.dashboard.count_person_duplicates",
-        new=AsyncMock(return_value=7),
-    ):
+    """Person dup count badge appears when get_person_dup_count returns > 0."""
+    app.dependency_overrides[get_person_dup_count] = lambda: 7
+    try:
         resp = client.get("/admin/", headers=AUTH_HEADERS)
+    finally:
+        app.dependency_overrides.pop(get_person_dup_count, None)
     assert resp.status_code == 200
     assert "7 duplicates" in resp.text
 
 
 async def test_dashboard_person_dup_badge_hidden_when_zero(client):
-    """Person dup count badge is absent when count_person_duplicates returns 0."""
-    with patch(
-        "src.api.admin.dashboard.count_person_duplicates",
-        new=AsyncMock(return_value=0),
-    ):
+    """Person dup count badge is absent when get_person_dup_count returns 0."""
+    app.dependency_overrides[get_person_dup_count] = lambda: 0
+    try:
         resp = client.get("/admin/", headers=AUTH_HEADERS)
+    finally:
+        app.dependency_overrides.pop(get_person_dup_count, None)
     assert resp.status_code == 200
     assert "people/duplicates" not in resp.text
+
+
+async def test_dashboard_routes_db_through_get_db_dep(client):
+    """Dashboard must acquire its DB connection via Depends(get_db) — not bypass it.
+
+    Regression guard for #147: a route that calls ``src.core.db.acquire()`` directly
+    silently escapes ``app.dependency_overrides[get_db]``, breaking any test pattern
+    that relies on swapping the DB dep (e.g. transaction-rollback isolation).
+    """
+    call_count = {"n": 0}
+
+    async def counting_get_db():
+        call_count["n"] += 1
+        async for conn in get_db():
+            yield conn
+
+    app.dependency_overrides[get_db] = counting_get_db
+    try:
+        resp = client.get("/admin/", headers=AUTH_HEADERS)
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+    assert resp.status_code == 200
+    assert call_count["n"] >= 1, "dashboard route did not route DB acquisition through get_db dep"
