@@ -75,6 +75,16 @@
     input.value = neighborInput.value;
     neighborInput.value = tmp;
     syncStack(stack);
+    // #145 — focus-follows-value: land on the neighbor's same-direction
+    // button so repeated arrow keys walk the value through the stack.
+    // At the boundary the neighbor's button is disabled; fall back to
+    // the input that just received the value.
+    var nextBtn = neighbor.querySelector('[data-cardstack-reorder="' + direction + '"]');
+    if (nextBtn && !nextBtn.disabled) {
+      nextBtn.focus();
+    } else {
+      neighborInput.focus();
+    }
   });
 
   document.addEventListener('DOMContentLoaded', function () {

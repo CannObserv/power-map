@@ -307,4 +307,64 @@ describe('person-name-parts-reorder', () => {
       expect(after).toEqual(before);
     });
   });
+
+  // Issue #145 — keyboard-only reorder UX. After a value swap, focus must
+  // follow the value: land on the neighbor's same-direction button so a
+  // user can keep pressing the arrow key to walk the value through the
+  // stack. At the boundary (neighbor's same-direction button is disabled),
+  // fall back to the neighbor's input — the value just landed there.
+  describe('focus-follows-value after ↑↓ swap (#145)', () => {
+    function neighborButton(field, cardIdx, direction) {
+      const cards = document.querySelectorAll(`[data-cardstack-card="${field}"]`);
+      return cards[cardIdx].querySelector(`[data-cardstack-reorder="${direction}"]`);
+    }
+
+    function neighborInput(field, cardIdx) {
+      const cards = document.querySelectorAll(`[data-cardstack-card="${field}"]`);
+      return cards[cardIdx].querySelector(`input[name="${field}"]`);
+    }
+
+    // 4 cards needed: with 3 cards, the middle card's neighbors are both
+    // boundaries (top has ↑ disabled, bottom has ↓ disabled), so the
+    // interior-fallthrough path is unreachable.
+    it("Interior ↑ moves focus to neighbor card's ↑ button", () => {
+      setupDOM(4);
+      const ups = reorderButtons('given_names', 'up');
+      ups[2].click();
+      expect(document.activeElement).toBe(neighborButton('given_names', 1, 'up'));
+    });
+
+    it("Interior ↓ moves focus to neighbor card's ↓ button", () => {
+      setupDOM(4);
+      const downs = reorderButtons('given_names', 'down');
+      downs[1].click();
+      expect(document.activeElement).toBe(neighborButton('given_names', 2, 'down'));
+    });
+
+    it("Boundary ↑ (neighbor is topmost) falls back to neighbor's input", () => {
+      setupDOM(2);
+      const ups = reorderButtons('given_names', 'up');
+      ups[1].click();
+      expect(document.activeElement).toBe(neighborInput('given_names', 0));
+    });
+
+    it("Boundary ↓ (neighbor is bottommost) falls back to neighbor's input", () => {
+      setupDOM(2);
+      const downs = reorderButtons('given_names', 'down');
+      downs[0].click();
+      expect(document.activeElement).toBe(neighborInput('given_names', 1));
+    });
+
+    it('Repeated ↑ on activeElement walks a value to the top', () => {
+      setupDOM(4);
+      reorderButtons('given_names', 'up')[3].click();
+      // After move 1: [v0, v1, v3, v2], focus on card-3's ↑.
+      document.activeElement.click();
+      // After move 2: [v0, v3, v1, v2], focus on card-2's ↑.
+      document.activeElement.click();
+      // After move 3: [v3, v0, v1, v2], focus falls back to card-1's input.
+      expect(values('given_names')).toEqual(['v3', 'v0', 'v1', 'v2']);
+      expect(document.activeElement).toBe(neighborInput('given_names', 0));
+    });
+  });
 });
