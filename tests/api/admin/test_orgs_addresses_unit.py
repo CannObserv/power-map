@@ -1,5 +1,7 @@
 """Unit tests for pure helpers in orgs_addresses (no DB required)."""
 
+import inspect
+
 import pytest
 
 import src.api.admin.orgs_addresses as orgs_addresses_module
@@ -8,6 +10,16 @@ from src.api.admin.orgs_addresses import _parse_normalizer_fields
 
 def test_init_normalizer_deleted_from_module_namespace():
     assert not hasattr(orgs_addresses_module, "_init_normalizer")
+
+
+def test_address_create_mode_form_default_is_confirm():
+    sig = inspect.signature(orgs_addresses_module.address_create)
+    assert sig.parameters["mode"].default.default == "confirm"
+
+
+def test_address_edit_row_post_mode_form_default_is_confirm():
+    sig = inspect.signature(orgs_addresses_module.address_edit_row_post)
+    assert sig.parameters["mode"].default.default == "confirm"
 
 
 def test_parse_normalizer_fields_valid():
