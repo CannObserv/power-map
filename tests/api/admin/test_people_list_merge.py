@@ -32,7 +32,9 @@ AUTH_HEADERS = {
     "X-ExeDev-Email": "admin@test.com",
 }
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
-LIST_TARGET_HEADERS = {**HTMX_HEADERS, "HX-Target": "people-table-body"}
+# CR #2 follow-up: the list-flow merge swaps the whole region so caption
+# and sticky pagination stay in sync with the post-merge row count.
+LIST_TARGET_HEADERS = {**HTMX_HEADERS, "HX-Target": "people-list-region"}
 
 
 @pytest.fixture
@@ -131,8 +133,9 @@ async def test_people_list_rows_have_data_title(client, person_pair):
 # ── List-flow merge route branch ────────────────────────────────────────────
 
 
-async def test_merge_with_list_target_returns_rows_partial(client, person_pair):
-    """HX-Target=people-table-body must return the rows partial, not duplicates region."""
+async def test_merge_with_list_target_returns_region_partial(client, person_pair):
+    """HX-Target=people-list-region must return the region partial (table +
+    caption + sticky pagination), not the duplicates region."""
     id_a, id_b = person_pair
     response = client.post(
         f"/admin/people/{id_a}/merge/{id_b}/",
@@ -140,10 +143,28 @@ async def test_merge_with_list_target_returns_rows_partial(client, person_pair):
         follow_redirects=False,
     )
     assert response.status_code == 200
-    # Rows partial: <tr> elements only; no duplicates-region wrapper
     assert 'id="people-duplicates-region"' not in response.text
     assert "No duplicate candidates found" not in response.text
-    assert "<tr" in response.text
+    # _region.html distinctive markers
+    assert 'id="people-table"' in response.text
+    assert "<caption>People &mdash;" in response.text or "<caption>People —" in response.text
+
+
+async def test_merge_with_list_target_refreshes_total_count(client, person_pair):
+    """CR #2 follow-up: caption shows post-merge total (loser hard-deleted)."""
+    id_a, id_b = person_pair
+    # Pre-merge: confirm caption reads "2 records" for our filtered pair
+    pre = client.get("/admin/people/?q=Xyzzy", headers=HTMX_HEADERS)
+    assert "People &mdash; 2 record" in pre.text or "People — 2 record" in pre.text
+
+    response = client.post(
+        f"/admin/people/{id_a}/merge/{id_b}/",
+        headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/people/?q=Xyzzy"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    # Post-merge: only winner remains under that filter
+    assert "People &mdash; 1 record" in response.text or "People — 1 record" in response.text
 
 
 async def test_merge_with_list_target_includes_winner_row(client, person_pair):

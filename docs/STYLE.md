@@ -1220,16 +1220,17 @@ The same `role-merge.js` also handles the roles filter input (`#roles-filter`). 
 
 ### People list variant (`people-merge.js`)
 
-Same DOM contract, four deltas:
+Same DOM contract, five deltas:
 
 | Delta | Roles (org detail) | People list |
 |---|---|---|
 | Table id / data-attrs | `#roles-table[data-org-id]`, rows carry `data-role-id` | `#people-table` (no `data-org-id`), rows carry `data-person-id` |
-| Tbody id | (anonymous; selector is `#roles-table tbody`) | `#people-table-body` — used by HTMX `hx-target` and the server's HX-Target branch |
+| Swap target | `#roles-table tbody` (rows only) | `#people-list-region` (entire region: table, caption count, sticky pagination) — keeps post-merge totals consistent |
 | Sticky pagination | None on org detail roles table | `.pagination--sticky` present; JS hides it on `enterMergeMode`, restores on `exitMergeMode` / `showFlash` — single sticky slot, no overlap |
 | Filter input | Inline client-side `#roles-filter` | None; the list uses server-side search via the filter card |
+| Region swap survival | Roles table never swapped wholesale | Filter card swaps `#people-list-region` on every search / status / page-size change. people-merge.js uses lazy element resolution, document-level event delegation, and re-applies merge-mode visual state on `htmx:afterSwap` so the UI keeps working through any swap |
 
-POST URL pattern: `/admin/people/{winner_id}/merge/{loser_id}/`. The route ([src/api/admin/people_merge.py](../src/api/admin/people_merge.py)) detects the list flow via `HX-Target == "people-table-body"` and returns `_rows.html` instead of `_duplicates_region.html`. Filter state (`q`, `status`, `page`, `page_size`) is parsed from `HX-Current-URL` so the refreshed rows respect the user's active filters.
+POST URL pattern: `/admin/people/{winner_id}/merge/{loser_id}/`. The route ([src/api/admin/people_merge.py](../src/api/admin/people_merge.py)) detects the list flow via `HX-Target == "people-list-region"` and returns `_region.html` instead of `_duplicates_region.html`. Filter state (`q`, `status`, `page`, `page_size`) is parsed from `HX-Current-URL` so the refreshed region respects the user's active filters; the shared query helper lives in [src/api/admin/people_queries.py](../src/api/admin/people_queries.py) and is used by both the list route and the merge route's list-flow branch.
 
 Merge button always renders (the People list mixes active + archived via the status filter); the `_btn-wrap` shows the `not-allowed` cursor + tooltip when fewer than 2 rows are visible in the current tbody. Selection state clears on `htmx:afterSwap` (search, pagination, page-size change) — cross-page selection persistence is intentionally not implemented.
 

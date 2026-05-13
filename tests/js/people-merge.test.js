@@ -331,15 +331,15 @@ describe('bar at 2 selections', () => {
     );
   });
 
-  it('keep-a hx-target swaps the table body', () => {
+  it('keep-a hx-target swaps the whole list region (caption + pagination stay in sync)', () => {
     expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-target')).toBe(
-      '#people-table-body',
+      '#people-list-region',
     );
   });
 
-  it('keep-b hx-target swaps the table body', () => {
+  it('keep-b hx-target swaps the whole list region (caption + pagination stay in sync)', () => {
     expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-target')).toBe(
-      '#people-table-body',
+      '#people-list-region',
     );
   });
 
@@ -396,6 +396,135 @@ describe('showFlash exits merge mode', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Survives region swap (CR #1 — search/filter/pagination re-renders the
+// whole #people-list-region; cached element refs would break merge UI).
+// ---------------------------------------------------------------------------
+
+function dispatchAfterSwap(target) {
+  // htmx:afterSwap bubbles; dispatching with bubbles:true lets a
+  // document-level listener catch it.
+  target.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+}
+
+function rebuildRegionInPlace({ numPeople = 3 } = {}) {
+  // Simulate what HTMX does on a search/filter swap: replace the inner
+  // HTML of #people-list-region with fresh markup that re-uses the same
+  // IDs but produces new DOM nodes.
+  var region = document.getElementById('people-list-region');
+  var rows = Array.from({ length: numPeople }, (_, i) => {
+    var n = i + 100; // distinct IDs so we can tell new from old
+    return `<tr data-title="Person ${n}" data-person-id="person-${n}">
+      <td class="merge-col"><input type="checkbox" name="merge-select" value="person-${n}"></td>
+      <td>Person ${n}</td>
+    </tr>`;
+  }).join('');
+  region.innerHTML = `
+    <table id="people-table">
+      <thead><tr><th class="merge-col">Sel</th><th>Name</th></tr></thead>
+      <tbody id="people-table-body">${rows}</tbody>
+    </table>
+    <div class="pagination--sticky">pagination here</div>
+    <div id="people-merge-bar" style="display:none">
+      <span class="merge-bar__label">Merge people:</span>
+      <button class="merge-bar__keep-a" type="button"></button>
+      <button class="merge-bar__keep-b" type="button"></button>
+    </div>
+  `;
+  dispatchAfterSwap(region);
+}
+
+describe('survives region swap', () => {
+  beforeEach(() => setup({ numPeople: 3 }));
+
+  it('checkbox change still drives merge bar after a swap', () => {
+    document.getElementById('people-merge-btn').click(); // enter merge mode
+    rebuildRegionInPlace({ numPeople: 3 });
+
+    // Click a checkbox in the NEW table — the IIFE's cached refs would be
+    // stale, but document-level delegation must still catch this.
+    var cb = document.querySelector('#people-table input[name="merge-select"]');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(document.querySelector('.merge-bar__label').textContent).toBe('Select 1 more:');
+  });
+
+  it('merge-col cells in the new table are visible if mode was active before swap', () => {
+    document.getElementById('people-merge-btn').click();
+    rebuildRegionInPlace({ numPeople: 3 });
+
+    document.querySelectorAll('#people-table .merge-col').forEach((col) => {
+      expect(col.style.display).toBe('');
+    });
+  });
+
+  it('pagination stays hidden after swap if merge mode was active before', () => {
+    document.getElementById('people-merge-btn').click();
+    rebuildRegionInPlace({ numPeople: 3 });
+
+    expect(document.querySelector('.pagination--sticky').style.display).toBe('none');
+  });
+
+  it('clears stale selection on swap (selection does not persist into a new view)', () => {
+    document.getElementById('people-merge-btn').click();
+    check(checkboxes()[0]); // select Person 1
+    expect(document.querySelector('.merge-bar__label').textContent).toBe('Select 1 more:');
+
+    rebuildRegionInPlace({ numPeople: 3 });
+
+    // After the swap the new rows are different people; selection is wiped
+    // so the bar returns to the 0-selection prompt.
+    expect(document.querySelector('.merge-bar__label').textContent).toBe(
+      'Select 2 people to merge:',
+    );
+  });
+
+  it('merge button re-syncs disabled state after swap leaves <2 rows', () => {
+    var btn = document.getElementById('people-merge-btn');
+    expect(btn.disabled).toBe(false);
+
+    // Swap in a region with only 1 row
+    var region = document.getElementById('people-list-region');
+    region.innerHTML = `
+      <table id="people-table">
+        <tbody id="people-table-body">
+          <tr data-title="Solo" data-person-id="person-solo">
+            <td class="merge-col"><input type="checkbox" name="merge-select" value="person-solo"></td>
+            <td>Solo</td>
+          </tr>
+        </tbody>
+      </table>
+      <div id="people-merge-bar" style="display:none">
+        <span class="merge-bar__label"></span>
+        <button class="merge-bar__keep-a"></button>
+        <button class="merge-bar__keep-b"></button>
+      </div>
+    `;
+    dispatchAfterSwap(region);
+
+    expect(btn.disabled).toBe(true);
+  });
+
+  it('checkbox handler ignores changes outside #people-table (delegation safety)', () => {
+    document.getElementById('people-merge-btn').click();
+    // Inject a sibling checkbox with the same name outside the table.
+    var rogue = document.createElement('input');
+    rogue.type = 'checkbox';
+    rogue.name = 'merge-select';
+    rogue.value = 'rogue-id';
+    document.body.appendChild(rogue);
+
+    rogue.checked = true;
+    rogue.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // Rogue checkbox must NOT enter selection — bar still at 0 prompt.
+    expect(document.querySelector('.merge-bar__label').textContent).toBe(
+      'Select 2 people to merge:',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Merge button disabled state (syncMergeBtn)
 // ---------------------------------------------------------------------------
 
@@ -432,7 +561,7 @@ describe('merge button disabled state', () => {
     expect(btn.disabled).toBe(false);
   });
 
-  it('re-evaluates after htmx:afterSwap on the table', () => {
+  it('re-evaluates after htmx:afterSwap inside the list region', () => {
     setup({ numPeople: 2 });
     const btn = document.getElementById('people-merge-btn');
     const wrap = document.getElementById('people-merge-btn-wrap');
@@ -443,7 +572,11 @@ describe('merge button disabled state', () => {
       <td class="merge-col"><input type="checkbox" name="merge-select" value="person-1"></td>
       <td>P1</td>
     </tr>`;
-    document.getElementById('people-table').dispatchEvent(new Event('htmx:afterSwap'));
+    // Event must bubble to the document-level listener (the JS now uses
+    // delegation so it survives region swaps).
+    document
+      .getElementById('people-table')
+      .dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
 
     expect(btn.disabled).toBe(true);
     expect(wrap.style.cursor).toBe('not-allowed');

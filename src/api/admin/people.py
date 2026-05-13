@@ -16,8 +16,8 @@ from src.api.admin.deps import (
     resolve_query_flash,
 )
 from src.api.admin.org_dups import get_org_dup_count
-from src.api.admin.pagination import pagination_context
 from src.api.admin.people_dups import get_person_dup_count
+from src.api.admin.people_queries import query_people_rows
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -96,42 +96,8 @@ async def people_list(
 ):
     """List people with search and status filter."""
 
-    conditions = []
-    params: list = []
-
-    if status == "active":
-        conditions.append("p.archived_at IS NULL")
-    elif status == "archived":
-        conditions.append("p.archived_at IS NOT NULL")
-
-    if q:
-        params.append(f"%{escape_like(q)}%")
-        conditions.append(f"n.display_name ILIKE ${len(params)} ESCAPE '\\'")
-
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    count_params = params[:]
-
-    count = await db.fetchval(
-        f"""SELECT count(DISTINCT p.id)
-            FROM people p
-            LEFT JOIN v_person_display_names n ON n.person_id = p.id
-            {where}""",
-        *count_params,
-    )
-
-    pctx = pagination_context(page, count, page_size)
-    offset = (pctx["page"] - 1) * page_size
-    list_params = params + [page_size, offset]
-
-    rows = await db.fetch(
-        f"""SELECT p.id, p.archived_at, p.created_at,
-                   n.display_name AS canonical_name
-            FROM people p
-            LEFT JOIN v_person_display_names n ON n.person_id = p.id
-            {where}
-            ORDER BY n.sort_key COLLATE "und-x-icu" NULLS LAST
-            LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
-        *list_params,
+    rows, count, pctx = await query_people_rows(
+        db, q=q, status=status, page=page, page_size=page_size
     )
 
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)

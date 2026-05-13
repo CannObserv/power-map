@@ -24,24 +24,30 @@ Add a manual "Merge" action to the People list screen (`/admin/people/`), mirror
 ```python
 if is_htmx(request):
     target = request.headers.get("HX-Target", "")
-    if target == "people-table-body":
+    if target == "people-list-region":
         # Called from the People list — re-run list query honoring the user's
-        # current filters (parsed from HX-Current-URL) and return refreshed rows.
-        q, status, page, page_size = _parse_list_filters_from_hx(request)
-        people, ... = await _query_people(db, q=q, status=status, page=page, page_size=page_size)
+        # current filters (parsed from HX-Current-URL) and return the full
+        # region so caption total + sticky pagination stay in sync.
+        filters = _parse_list_filters_from_hx_current_url(request)
+        rows, count, pctx = await query_people_rows(db, **filters)
+        ctx = {"people": rows, "total": count, **filters, **pctx, ...}
         return templates.TemplateResponse(
             request,
-            "admin/people/_rows.html",
-            {"people": people},
+            "admin/people/_region.html",
+            ctx,
             headers=flash_trigger("success", body),
         )
     # Existing duplicates flow — unchanged
     return templates.TemplateResponse(request, "admin/people/_duplicates_region.html", ...)
 ```
 
-**Filter-state preservation: parse `HX-Current-URL` (option a).** The list flow's Keep buttons stay attribute-free of filter state; the route reads `HX-Current-URL` (a standard HTMX request header), pulls `q`, `status`, `page`, `page_size` query params, and re-runs the list query with those values. Defaults match the list route's defaults if any param is missing or unparsable. No template change to the buttons; one small helper in `people_merge.py`.
+**Swap the whole region, not just the tbody (CR #2 follow-up).** The Keep buttons set `hx-target="#people-list-region"` and the server returns `_region.html`. Returning only `_rows.html` left the `<caption>People — N records</caption>` and sticky-pagination totals stale until the next user navigation. Swapping the whole region adds zero round-trips and keeps every count consistent with the post-merge state.
 
-If `page` × `page_size` lands past the end after a merge (the loser was the only row on the last page), clamp `page` to the new last page. Simple `max(1, min(page, total_pages))` calculation.
+**Filter-state preservation: parse `HX-Current-URL` (option a).** The list flow's Keep buttons stay attribute-free of filter state; the route reads `HX-Current-URL` (a standard HTMX request header), pulls `q`, `status`, `page`, `page_size` query params, and re-runs the list query with those values. Defaults match the list route's defaults if any param is missing or unparsable. No template change to the buttons; helper `_parse_list_filters_from_hx_current_url` in `people_merge.py` (unit-tested in `test_people_merge_filter_parser.py`).
+
+The shared list query lives in [src/api/admin/people_queries.py](../../src/api/admin/people_queries.py) as `query_people_rows()`, called by both the list route (`people.py`) and the merge route's list-flow branch (`people_merge.py`) — one source of truth.
+
+If `page` × `page_size` lands past the end after a merge (the loser was the only row on the last page), `pagination_context()` clamps `page` to the new last page. No special handling needed in the merge route.
 
 ### UI: Checkbox selection mode with sticky merge bar (footer-swap)
 
@@ -82,19 +88,29 @@ Mechanics: `people-merge.js` adds `style.display='none'` to `.pagination--sticky
 | 1 | "Select 1 more:" | `Selected: "<name>"` (disabled) | `—` (disabled) |
 | 2 | "Merge people:" | `Keep "A"` (enabled, `hx-post` set) | `Keep "B"` (enabled, `hx-post` set) |
 
-Each Keep button: `hx-post="/admin/people/{winner_id}/merge/{loser_id}/"`, `hx-target="#people-table-body"`, `hx-swap="innerHTML"`, `hx-confirm="Merge \"<loser>\" into \"<winner>\"? This cannot be undone."`.
+Each Keep button: `hx-post="/admin/people/{winner_id}/merge/{loser_id}/"`, `hx-target="#people-list-region"`, `hx-swap="innerHTML"`, `hx-confirm="Merge \"<loser>\" into \"<winner>\"? This cannot be undone."`.
 
 **After merge:**
-- Server returns refreshed `_rows.html` for `#people-table-body` + `HX-Trigger: showFlash` header.
-- `showFlash` listener exits merge mode (hide checkboxes, restore pagination bar, reset button text). Same hook role-merge uses.
+- Server returns refreshed `_region.html` for `#people-list-region` + `HX-Trigger: showFlash` header.
+- `htmx:afterSwap` listener re-applies merge-mode visual state on the freshly-rendered DOM (since the region was replaced); then `showFlash` listener exits merge mode (hide checkboxes, restore pagination bar, reset button text).
 
 ### Selection state across HTMX swaps
 
-Pagination, search, and `Per page` changes swap `#people-list-region` via HTMX. The existing role-merge pattern clears selections on `htmx:afterSwap`. **Adopt the same behavior for v1**: switching pages or refining the search cancels the in-progress selection.
+Pagination, search, and `Per page` changes swap `#people-list-region` via HTMX. people-merge.js clears `checked = []` and re-syncs the bar on every `htmx:afterSwap` whose target is the region (or descends from it). Merge mode itself is preserved — the user stays in merge mode through the swap; only selections are reset.
 
 Rationale: the dominant workflow is "search narrows candidates to the same page, then select two adjacent rows." Cross-page selection persistence (via `sessionStorage`) is a useful follow-up but adds JS state we don't need on day one.
 
-If the user reports this is needed: store `{tableId: Set<personId>}` in `sessionStorage`, re-hydrate on `htmx:afterSwap` by re-checking matching checkboxes. Out of scope for #137.
+### Region-swap survival (CR #1 follow-up)
+
+The filter card's search/status/page-size HTMX targets `#people-list-region`. The previous IIFE captured `table` and `mergeBar` element refs at load time — those refs became stale after the region was swapped, breaking every click thereafter. Fixed by:
+
+1. **Lazy element resolution** — `getTable()` / `getMergeBar()` re-resolve via `getElementById` on every call, never cached.
+2. **Document-level event delegation** — the `change` handler is bound to `document` and matches `#people-table input[name="merge-select"]` via selector, so freshly-rendered checkboxes work without re-binding.
+3. **`htmx:afterSwap` re-apply** — on swap of `#people-list-region` (or any descendant), re-apply `data-merge-mode` to the new table, set `.merge-col` visibility, hide pagination, and re-sync the merge button's enabled state.
+
+Only `mergeBtn` and `mergeBtnWrap` (in `.page-header`, outside the swap region) are cached at IIFE init — they're guaranteed-stable.
+
+If the user reports cross-page selection persistence is needed: store `{tableId: Set<personId>}` in `sessionStorage`, re-hydrate on `htmx:afterSwap` by re-checking matching checkboxes. Out of scope for #137.
 
 ### Archived people
 
@@ -174,6 +190,9 @@ Loaded via the existing `extra_head` or `extra_scripts` slot on `list.html`.
 | Reuse existing `person_merge` route | All reassignment logic already proven via the duplicates flow; only the HTMX response needs branching |
 | Branch HTMX response on `HX-Target` | Avoids new query params or duplicated routes; one route, two presentations |
 | Parse `HX-Current-URL` for filters (option a) | Preserves user's `q`/`status`/`page`/`page_size` across merge without coupling button templates to filter state |
+| Swap whole `#people-list-region`, not just tbody | Keeps caption row-count + sticky pagination in sync with post-merge state (CR #2) |
+| Lazy element resolution + document-level delegation | The list region is swapped on every filter/search/page change; cached refs would break merge UI after any such swap (CR #1) |
+| Shared query helper in `people_queries.py` | Single source of truth for the list query — `people.py` and `people_merge.py` both call it (CR #5) |
 | Swap (not stack) the bottom sticky bar | Eliminates overlap/z-order with `.pagination--sticky`; top pagination remains for navigation; mode change is visually obvious |
 | Parallel JS file (people-merge.js) | Cheaper than parameterizing role-merge.js; data contracts differ enough that abstraction would obscure both |
 | Selection cleared on `afterSwap` (v1) | Matches role-merge; dominant workflow is same-page; cross-page persistence is a future enhancement |

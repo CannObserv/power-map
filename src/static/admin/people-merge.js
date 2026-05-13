@@ -7,37 +7,51 @@
  *
  * Lives in <head> via the extra_head block so hx-boost never re-executes it.
  *
- * Structural parallel of role-merge.js. Diff:
- *   - no `data-org-id` — URL is `/admin/people/{a}/merge/{b}/`
- *   - hides/restores `.pagination--sticky` on mode toggle (roles page has none)
- *   - hx-target is `#people-table-body` (signals the list-flow branch on the route)
- *   - no inline client-side filter (search is server-side via the filter card)
+ * Swap-resilient: the People list's filter card swaps the entire
+ * `#people-list-region` on search/status/page-size change. Element refs
+ * inside the region (table, merge bar, pagination strip) are re-resolved
+ * on demand rather than cached; `change` events are caught at the
+ * document level via delegation; merge-mode visual state is re-applied
+ * on `htmx:afterSwap`.
  */
 (function () {
-  var table = document.getElementById('people-table');
+  // Stable elements (outside #people-list-region — survive region swaps).
   var mergeBtn = document.getElementById('people-merge-btn');
   var mergeBtnWrap = document.getElementById('people-merge-btn-wrap');
-  var mergeBar = document.getElementById('people-merge-bar');
-  if (!table || !mergeBtn || !mergeBar) return;
+  if (!mergeBtn) return;
 
-  var checked = []; // ordered list of {id, title} for checked people
+  // Volatile elements live inside #people-list-region. Re-resolve on each
+  // access so a swap doesn't leave us holding detached nodes.
+  function getTable() {
+    return document.getElementById('people-table');
+  }
+  function getMergeBar() {
+    return document.getElementById('people-merge-bar');
+  }
+
+  // Module-scope state — persists across region swaps.
+  var inMergeMode = false;
+  var checked = []; // ordered list of {id, title}
 
   function setMergeColVisibility(visible) {
-    table.querySelectorAll('.merge-col').forEach(function (col) {
+    var t = getTable();
+    if (!t) return;
+    t.querySelectorAll('.merge-col').forEach(function (col) {
       col.style.display = visible ? '' : 'none';
     });
   }
 
   function setPaginationVisibility(visible) {
-    // Swap pagination ↔ merge bar within the same sticky slot. No-op if
-    // pagination is absent (short lists hide it via {% if total_pages > 1 %}).
+    // No-op if pagination is absent (short lists hide it server-side).
     document.querySelectorAll('.pagination--sticky').forEach(function (el) {
       el.style.display = visible ? '' : 'none';
     });
   }
 
   function enterMergeMode() {
-    table.dataset.mergeMode = 'true';
+    inMergeMode = true;
+    var t = getTable();
+    if (t) t.dataset.mergeMode = 'true';
     mergeBtn.textContent = 'Cancel merge';
     mergeBtn.classList.remove('btn--secondary');
     mergeBtn.classList.add('btn--ghost');
@@ -49,7 +63,9 @@
   }
 
   function exitMergeMode() {
-    delete table.dataset.mergeMode;
+    inMergeMode = false;
+    var t = getTable();
+    if (t) delete t.dataset.mergeMode;
     mergeBtn.textContent = 'Merge';
     mergeBtn.classList.remove('btn--ghost');
     mergeBtn.classList.add('btn--secondary');
@@ -61,7 +77,7 @@
   }
 
   function toggleMergeMode() {
-    if (table.dataset.mergeMode === 'true') {
+    if (inMergeMode) {
       exitMergeMode();
     } else {
       enterMergeMode();
@@ -69,7 +85,9 @@
   }
 
   function updateCheckboxes() {
-    var cbs = table.querySelectorAll('input[name="merge-select"]');
+    var t = getTable();
+    if (!t) return;
+    var cbs = t.querySelectorAll('input[name="merge-select"]');
     var checkedIds = checked.map(function (c) {
       return c.id;
     });
@@ -82,16 +100,18 @@
   }
 
   function updateBar() {
-    if (table.dataset.mergeMode !== 'true') {
-      mergeBar.style.display = 'none';
+    var bar = getMergeBar();
+    if (!bar) return;
+    if (!inMergeMode) {
+      bar.style.display = 'none';
       return;
     }
 
-    mergeBar.style.display = 'flex';
+    bar.style.display = 'flex';
 
-    var label = mergeBar.querySelector('.merge-bar__label');
-    var btnA = mergeBar.querySelector('.merge-bar__keep-a');
-    var btnB = mergeBar.querySelector('.merge-bar__keep-b');
+    var label = bar.querySelector('.merge-bar__label');
+    var btnA = bar.querySelector('.merge-bar__keep-a');
+    var btnB = bar.querySelector('.merge-bar__keep-b');
 
     if (checked.length === 0) {
       if (label) label.textContent = 'Select 2 people to merge:';
@@ -136,7 +156,7 @@
       btnA.textContent = 'Keep "' + personA.title + '"';
       btnA.disabled = false;
       btnA.setAttribute('hx-post', '/admin/people/' + personA.id + '/merge/' + personB.id + '/');
-      btnA.setAttribute('hx-target', '#people-table-body');
+      btnA.setAttribute('hx-target', '#people-list-region');
       btnA.setAttribute('hx-swap', 'innerHTML');
       btnA.setAttribute(
         'hx-confirm',
@@ -147,7 +167,7 @@
       btnB.textContent = 'Keep "' + personB.title + '"';
       btnB.disabled = false;
       btnB.setAttribute('hx-post', '/admin/people/' + personB.id + '/merge/' + personA.id + '/');
-      btnB.setAttribute('hx-target', '#people-table-body');
+      btnB.setAttribute('hx-target', '#people-list-region');
       btnB.setAttribute('hx-swap', 'innerHTML');
       btnB.setAttribute(
         'hx-confirm',
@@ -163,7 +183,9 @@
 
   function onCheckboxChange(e) {
     var cb = e.target;
-    if (!cb.matches || !cb.matches('input[name="merge-select"]')) return;
+    if (!cb || !cb.matches) return;
+    // Document-level delegation — match only checkboxes inside #people-table.
+    if (!cb.matches('#people-table input[name="merge-select"]')) return;
 
     var personId = cb.value;
     var row = cb.closest('tr');
@@ -182,7 +204,8 @@
   }
 
   function syncMergeBtn() {
-    var rows = table.querySelectorAll('tbody tr[data-person-id]');
+    var t = getTable();
+    var rows = t ? t.querySelectorAll('tbody tr[data-person-id]') : [];
     var canMerge = rows.length >= 2;
     mergeBtn.disabled = !canMerge;
     if (mergeBtnWrap) {
@@ -195,21 +218,44 @@
     }
   }
 
-  // Listen for checkbox changes via delegation on the table
-  table.addEventListener('change', onCheckboxChange);
+  // Re-apply merge-mode visuals after the region is swapped (search / filter
+  // / page change / post-merge refresh). Selection is intentionally cleared
+  // on swap — the new tbody may not contain the previously selected rows,
+  // and v1 keeps the role-merge behaviour of starting fresh after a swap.
+  function onRegionSwap() {
+    checked = [];
+    if (inMergeMode) {
+      var t = getTable();
+      if (t) t.dataset.mergeMode = 'true';
+      setMergeColVisibility(true);
+      setPaginationVisibility(false);
+    } else {
+      setMergeColVisibility(false);
+      setPaginationVisibility(true);
+    }
+    updateBar();
+    updateCheckboxes();
+    syncMergeBtn();
+  }
 
-  // Toggle button
+  // Document-level delegation — survives region swaps.
+  document.addEventListener('change', onCheckboxChange);
+
   mergeBtn.addEventListener('click', toggleMergeMode);
 
-  // Exit merge mode after successful merge (HTMX swap replaces tbody)
   document.addEventListener('showFlash', function () {
-    if (table.dataset.mergeMode === 'true') {
-      exitMergeMode();
-    }
+    if (inMergeMode) exitMergeMode();
   });
 
-  // Re-evaluate button state after any tbody swap (search, pagination, merge)
-  table.addEventListener('htmx:afterSwap', syncMergeBtn);
+  // htmx:afterSwap bubbles to document; listen there so test cleanup (which
+  // spies on document.addEventListener) can drain it between tests.
+  document.addEventListener('htmx:afterSwap', function (e) {
+    var t = e.target;
+    if (!t) return;
+    if (t.id === 'people-list-region' || (t.closest && t.closest('#people-list-region'))) {
+      onRegionSwap();
+    }
+  });
 
   syncMergeBtn();
 })();
