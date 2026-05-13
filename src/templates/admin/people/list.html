@@ -5,10 +5,16 @@
 {% block breadcrumb %}
   <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span><span>People</span>
 {% endblock %}
+{% block extra_head %}
+  <script src="/static/admin/people-merge.js?v={{ asset_version }}" defer></script>
+{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>People</h1>
-  <a href="/admin/people/new/" class="btn btn--primary">+ Add person</a>
+  <div style="display:flex;gap:var(--space-2)">
+    <span id="people-merge-btn-wrap" style="display:inline-block"><button id="people-merge-btn" class="btn btn--secondary" type="button">Merge</button></span>
+    <a href="/admin/people/new/" class="btn btn--primary">+ Add person</a>
+  </div>
 </div>
 {% if person_dup_count %}
 <div class="alert alert--notice" style="margin-bottom:var(--space-4);display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)">

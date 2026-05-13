@@ -1,5 +1,6 @@
 {% for person in people %}
-<tr class="{% if person.archived_at %}is-archived{% endif %}">
+<tr class="{% if person.archived_at %}is-archived{% endif %}" data-title="{{ person.canonical_name or '(unnamed)' }}" data-person-id="{{ person.id }}">
+  <td class="merge-col" style="display:none;padding-right:0"><input type="checkbox" name="merge-select" value="{{ person.id }}" aria-label="Select {{ person.canonical_name or '(unnamed)' }} for merge"></td>
   <td><a href="/admin/people/{{ person.id }}/">{{ person.canonical_name or '(unnamed)' }}</a></td>
   <td>
     {% if person.archived_at %}<span class="badge badge--archived">Archived</span>
@@ -9,5 +10,5 @@
   <td><a href="/admin/people/{{ person.id }}/" class="btn btn--ghost btn--sm" aria-label="Edit {{ person.canonical_name or '(unnamed)' }}">Edit</a></td>
 </tr>
 {% else %}
-<tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
+<tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
 {% endfor %}

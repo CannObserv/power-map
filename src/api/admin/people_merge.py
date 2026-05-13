@@ -1,6 +1,7 @@
 """Admin views for person merge and duplicate review."""
 
 from datetime import UTC, datetime
+from urllib.parse import parse_qs, urlsplit
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -23,7 +24,50 @@ from src.api.admin.people_dups import (
 from src.api.admin.people_dups import (
     invalidate_dup_count_cache as invalidate_person_dup_count_cache,
 )
+from src.api.admin.people_queries import query_people_rows
 from src.core.db import generate_id
+
+_LIST_TARGET = "people-list-region"
+_DEFAULT_PAGE_SIZE = 50
+_VALID_STATUSES = {"active", "archived"}
+
+
+def _parse_list_filters_from_hx_current_url(request: Request) -> dict:
+    """Parse `q` / `status` / `page` / `page_size` out of HX-Current-URL.
+
+    HX-Current-URL is sent by HTMX on every request and carries the URL
+    the user is currently on (e.g. `/admin/people/?q=foo&status=archived`).
+    The merge POST has no query string of its own, so this header is the
+    source of truth for which list view to re-render.
+
+    Falls back to defaults silently on a missing or malformed header — the
+    merge succeeded; surfacing a parse error here would be needlessly noisy.
+    """
+    defaults = {"q": "", "status": "active", "page": 1, "page_size": _DEFAULT_PAGE_SIZE}
+    raw = request.headers.get("HX-Current-URL", "")
+    if not raw:
+        return defaults
+    try:
+        params = parse_qs(urlsplit(raw).query)
+    except ValueError:
+        return defaults
+
+    q = (params.get("q", [""])[0] or "").strip()
+    status = (params.get("status", ["active"])[0] or "active").lower()
+    if status not in _VALID_STATUSES:
+        status = "active"
+    try:
+        page = max(1, int(params.get("page", ["1"])[0]))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(params.get("page_size", [str(_DEFAULT_PAGE_SIZE)])[0])
+    except (TypeError, ValueError):
+        page_size = _DEFAULT_PAGE_SIZE
+    if not 10 <= page_size <= 500:
+        page_size = _DEFAULT_PAGE_SIZE
+    return {"q": q, "status": status, "page": page, "page_size": page_size}
+
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/people", tags=["admin-people-merge"])
@@ -292,12 +336,37 @@ async def person_merge(
     invalidate_person_dup_count_cache()
 
     if is_htmx(request):
-        pairs = await _fetch_duplicate_pairs(db)
         body = (
             f"Merged <strong>{escape(loser_name)}</strong> into "
             f'<a href="/admin/people/{winner_id}/"><strong>{escape(winner_name)}</strong></a>. '
-            f"Review role assignments and contact info for duplicates."
+            f"Review role assignments and contact info."
         )
+        # List-flow branch (issue #137): merge initiated from /admin/people/.
+        # HX-Target identifies the swap region; we re-render the full
+        # `_region.html` (rows + caption total + sticky pagination) so the
+        # post-merge counts stay consistent. Filter state preserved via
+        # HX-Current-URL.
+        if request.headers.get("HX-Target") == _LIST_TARGET:
+            filters = _parse_list_filters_from_hx_current_url(request)
+            rows, count, pctx = await query_people_rows(db, **filters)
+            ctx = {
+                "user": user,
+                "active_section": "people",
+                "people": rows,
+                "total": count,
+                "q": filters["q"],
+                "status": filters["status"],
+                "page_size": filters["page_size"],
+                **pctx,
+            }
+            return templates.TemplateResponse(
+                request,
+                "admin/people/_region.html",
+                ctx,
+                headers=flash_trigger("success", body),
+            )
+        # Duplicates-review-screen branch (existing).
+        pairs = await _fetch_duplicate_pairs(db)
         ctx = {
             "user": user,
             "active_section": "people_duplicates",
