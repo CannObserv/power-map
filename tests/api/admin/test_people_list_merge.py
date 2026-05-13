@@ -287,3 +287,137 @@ async def test_non_htmx_merge_still_redirects(client, person_pair):
     )
     assert response.status_code == 303
     assert response.headers["location"] == "/admin/people/duplicates/"
+
+
+# ── A/B regression on HX-Target branching (CR2 #8) ──────────────────────────
+
+
+@pytest.mark.parametrize(
+    "extra_headers,must_contain,must_not_contain",
+    [
+        pytest.param(
+            {
+                "HX-Target": "people-list-region",
+                "HX-Current-URL": "/admin/people/?q=Xyzzy",
+            },
+            'id="people-table"',
+            'id="people-duplicates-region"',
+            id="list-flow-returns-region-partial",
+        ),
+        pytest.param(
+            {},  # HTMX but no HX-Target → duplicates-flow branch
+            'id="people-duplicates-region"',
+            'id="people-table"',
+            id="duplicates-flow-returns-duplicates-region",
+        ),
+    ],
+)
+async def test_merge_branches_on_hx_target_header(
+    client, person_pair, extra_headers, must_contain, must_not_contain
+):
+    """Same POST + fresh fixture, only HX-Target differs → distinct responses.
+
+    Locks in that HX-Target is the sole branching signal for the two HTMX
+    response shapes. Each parametrize invocation gets its own person_pair
+    (function-scoped fixture) so the merge in case A doesn't affect case B.
+    """
+    id_a, id_b = person_pair
+    response = client.post(
+        f"/admin/people/{id_a}/merge/{id_b}/",
+        headers={**HTMX_HEADERS, **extra_headers},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert must_contain in response.text
+    assert must_not_contain not in response.text
+
+
+# ── End-to-end page / page_size preservation (CR2 #7) ───────────────────────
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_batch(db_pool):
+    """12 people sharing a unique prefix — lets us exercise pagination in
+    integration tests without depending on the live row count of the DB.
+
+    page_size=10 + page=2 against this batch gives 2 rows; merging two of
+    them on page 1 leaves 11 rows, so page 2 should then show exactly 1.
+    """
+    prefix = "Pgtest"
+    ids = sorted([generate_id() for _ in range(12)])
+
+    async with db_pool.acquire() as conn:
+        for i, pid in enumerate(ids):
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+            await conn.execute(
+                "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(),
+                pid,
+                f"{prefix} Person {i:02d}",  # 00..11 — stable sort
+            )
+
+    yield prefix, ids
+
+    async with db_pool.acquire() as conn:
+        for pid in ids:
+            await conn.execute(
+                "DELETE FROM duplicate_dismissals"
+                " WHERE entity_a_id=$1 OR entity_b_id=$1",
+                pid,
+            )
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_merge_preserves_page_and_page_size_from_hx_current_url(
+    client, person_batch
+):
+    """HX-Current-URL `?page=2&page_size=10` must shape the refreshed region:
+    post-merge count of 11 means page 2 holds exactly 1 row."""
+    prefix, ids = person_batch
+    winner_id, loser_id = ids[0], ids[1]  # merge two on page 1
+
+    response = client.post(
+        f"/admin/people/{winner_id}/merge/{loser_id}/",
+        headers={
+            **LIST_TARGET_HEADERS,
+            "HX-Current-URL": f"/admin/people/?q={prefix}&page=2&page_size=10",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+
+    # Post-merge: 11 rows match the prefix. Caption reflects total = 11.
+    assert "11 record" in response.text
+
+    # page=2 with page_size=10 → exactly 1 row visible (the 11th in sort order).
+    # Count the person-row anchors to that effect.
+    visible_count = response.text.count('class="btn btn--ghost btn--sm" aria-label="Edit')
+    assert visible_count == 1, (
+        f"page=2 page_size=10 should yield exactly 1 row post-merge, "
+        f"got {visible_count} edit anchors"
+    )
+
+
+async def test_merge_handles_overflow_page_from_hx_current_url(client, person_batch):
+    """When `page` × `page_size` lands past the new last page (e.g. the loser
+    was the only row on the last page), pagination_context clamps page to
+    the new last page rather than returning an empty result."""
+    prefix, ids = person_batch
+    # Page-size=10 → 12 rows = pages 1 (10) + 2 (2). Merge the 2 on page 2.
+    response = client.post(
+        f"/admin/people/{ids[10]}/merge/{ids[11]}/",
+        headers={
+            **LIST_TARGET_HEADERS,
+            # Request page 2; after merge there are only 11 rows so page 2
+            # has 1 row — still a valid page, not overflowed yet.
+            "HX-Current-URL": f"/admin/people/?q={prefix}&page=2&page_size=10",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "11 record" in response.text
+    # Page 2 of 11 rows @ page_size 10 → 1 row.
+    visible_count = response.text.count('class="btn btn--ghost btn--sm" aria-label="Edit')
+    assert visible_count == 1
