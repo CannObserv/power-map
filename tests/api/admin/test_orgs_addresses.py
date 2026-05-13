@@ -49,8 +49,19 @@ async def org_and_address(db_pool):
     yield oid, eaid
 
     async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT address_id FROM entity_addresses WHERE entity_id=$1", oid
+        )
+        address_ids = [r["address_id"] for r in rows]
         await conn.execute("DELETE FROM entity_addresses WHERE entity_id=$1", oid)
-        await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
+        if address_ids:
+            await conn.execute(
+                "DELETE FROM addresses WHERE id = ANY($1::text[])"
+                " AND NOT EXISTS ("
+                "SELECT 1 FROM entity_addresses ea WHERE ea.address_id = addresses.id"
+                ")",
+                address_ids,
+            )
         await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
 
 
