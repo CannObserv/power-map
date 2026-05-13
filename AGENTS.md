@@ -112,7 +112,14 @@ Full command reference: `docs/COMMANDS.md`
 | `/etc/power-map/.env` | root:exedev (640) | `DATABASE_URL`, `ADDRESS_VALIDATOR_API_KEY`, `ADDRESS_VALIDATOR_RUN_VALIDATION` |
 | `.env` (repo, gitignored) | developer | `GH_TOKEN`, `TEST_DATABASE_URL` |
 
-Load both: `export $(cat /etc/power-map/.env | xargs) 2>/dev/null && export $(cat .env | xargs) 2>/dev/null`
+Load both via uv's dotenv parser (gated on existence — uv errors hard on a missing `--env-file`):
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+uv run "${env_args[@]}" <cmd>
+```
+See `docs/COMMANDS.md` § Environment.
 
 ## Agent Skills & Tools
 

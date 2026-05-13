@@ -134,11 +134,14 @@ Kill any existing dev server on 8001, then start fresh with `--reload` from the 
 
 ```bash
 fuser -k 8001/tcp 2>/dev/null; sleep 1
-# uv has a proper dotenv parser; pass both files via --env-file (later
-# wins on conflict, matching the cat-and-export ordering this replaces).
-nohup uv run \
-    --env-file /etc/power-map/.env \
-    --env-file .env \
+# uv has a proper dotenv parser; pass each file via --env-file (later
+# wins on conflict). Gate on existence — uv errors hard on a missing
+# --env-file, and `.env` or `/etc/power-map/.env` may be absent on an
+# unprovisioned dev box.
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+nohup uv run "${env_args[@]}" \
     uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload \
     > /tmp/power-map-dev.log 2>&1 &
 sleep 2 && curl -s -o /dev/null -w "Dev server: %{http_code}\n" http://localhost:8001/admin/
@@ -151,10 +154,11 @@ Dev server accessible at `https://power-map.exe.xyz:8001/`.
 ```bash
 # Full suite (unit + integration). If TEST_DATABASE_URL is unset, all
 # integration tests will skip — the conftest skip reason names the misconfig.
-uv run \
-    --env-file /etc/power-map/.env \
-    --env-file .env \
-    pytest --no-cov -q
+# --env-file is gated on existence (uv errors hard on a missing file).
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+uv run "${env_args[@]}" pytest --no-cov -q
 
 # Surface integration-test status explicitly so a silent skip-everything
 # can't be mistaken for a clean pass. Read TEST_DATABASE_URL out of .env

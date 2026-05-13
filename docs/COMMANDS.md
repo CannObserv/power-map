@@ -20,12 +20,16 @@ First-time setup: create `/etc/power-map/.env` (640, root:exedev) with productio
 
 ## Environment
 
-Two env files; load both before any command that needs secrets:
+Two env files; both feed `uv run` via `--env-file`. uv has a proper dotenv parser and respects key/value quoting, unlike `cat … | xargs`. The flags are gated on existence because uv errors hard on a missing `--env-file`.
 
 ```bash
-export $(cat /etc/power-map/.env | xargs) 2>/dev/null   # DATABASE_URL + address validator keys
-export $(cat .env | xargs) 2>/dev/null                  # GH_TOKEN, TEST_DATABASE_URL
+# Build --env-file flags once; reuse across uv run invocations below
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
 ```
+
+Later files win on conflicting keys.
 
 | File | Contents |
 |---|---|
@@ -58,13 +62,14 @@ Dev server runs on port 8001 with `--reload`. Always run from a git worktree —
 Accessible via exe.dev proxy at `https://power-map.exe.xyz:8001/`.
 
 ```bash
-# Load env vars first
-export $(cat /etc/power-map/.env | xargs) 2>/dev/null
-export $(cat .env | xargs) 2>/dev/null
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
 
 # Kill any existing dev server on 8001, then start fresh from your worktree
 fuser -k 8001/tcp 2>/dev/null; sleep 1
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run "${env_args[@]}" uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
 
 # Inject admin auth headers locally via mitmdump reverse proxy (port 3000 → 8001)
 mitmdump \
@@ -153,18 +158,19 @@ uv run ruff check --fix .
 ## Import
 
 ```bash
-# Load env vars first
-export $(cat /etc/power-map/.env | xargs) 2>/dev/null
-export $(cat .env | xargs) 2>/dev/null
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
 
 # Import Cannabis Observer CSV exports
-uv run python scripts/import_cannabis_observer.py \
+uv run "${env_args[@]}" python scripts/import_cannabis_observer.py \
     --orgs   data/cannabis_observer/Organizations.csv \
     --people data/cannabis_observer/People.csv \
     --roles  data/cannabis_observer/Roles.csv
 
 # Also run address validation (requires ADDRESS_VALIDATOR_API_KEY)
-uv run python scripts/import_cannabis_observer.py \
+uv run "${env_args[@]}" python scripts/import_cannabis_observer.py \
     --orgs   data/cannabis_observer/Organizations.csv \
     --people data/cannabis_observer/People.csv \
     --roles  data/cannabis_observer/Roles.csv \
@@ -179,15 +185,16 @@ uv run python scripts/import_cannabis_observer.py \
 ## Deduplication (one-time fix)
 
 ```bash
-# Load env vars first
-export $(cat /etc/power-map/.env | xargs) 2>/dev/null
-export $(cat .env | xargs) 2>/dev/null
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
 
 # Dry run — report what would be removed (no DB changes)
-uv run python -m scripts.deduplicate_roles
+uv run "${env_args[@]}" python -m scripts.deduplicate_roles
 
 # Execute — apply deduplication and commit changes
-uv run python -m scripts.deduplicate_roles --execute
+uv run "${env_args[@]}" python -m scripts.deduplicate_roles --execute
 ```
 
 Run before re-applying schema on a dirty DB (see bootstrap sequence in AGENTS.md).
@@ -195,13 +202,14 @@ Run before re-applying schema on a dirty DB (see bootstrap sequence in AGENTS.md
 ## Seed BCP 47 / ISO 15924 lookup tables (after schema apply, idempotent)
 
 ```bash
-# Load env vars first
-export $(cat /etc/power-map/.env | xargs) 2>/dev/null
-export $(cat .env | xargs) 2>/dev/null
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
 
 # Populate bcp47_locales + iso15924_scripts from langcodes + pycountry.
 # Idempotent — safe to re-run to pick up registry updates.
-uv run --group seed scripts/seed_locales_scripts.py
+uv run "${env_args[@]}" --group seed scripts/seed_locales_scripts.py
 ```
 
 Required after a fresh `apply_schema` on a brand-new DB. The FK on
