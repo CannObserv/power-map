@@ -16,6 +16,11 @@ import pytest_asyncio
 
 from src.core.db import apply_schema
 
+INTEGRATION_SKIP_REASON = (
+    "TEST_DATABASE_URL not set — set it in .env (see docs/COMMANDS.md); "
+    "skipping integration tests"
+)
+
 
 def pytest_configure(config):
     """Swap DATABASE_URL → TEST_DATABASE_URL before any test collection."""
@@ -28,9 +33,7 @@ def pytest_collection_modifyitems(config, items):
     """Skip integration tests when TEST_DATABASE_URL is not set."""
     if os.environ.get("TEST_DATABASE_URL"):
         return
-    skip = pytest.mark.skip(
-        reason="TEST_DATABASE_URL not set — refusing to run integration tests against production DB"
-    )
+    skip = pytest.mark.skip(reason=INTEGRATION_SKIP_REASON)
     for item in items:
         if "integration" in item.keywords:
             item.add_marker(skip)

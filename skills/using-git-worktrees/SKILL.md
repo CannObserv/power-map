@@ -106,9 +106,26 @@ git worktree add "$path" -b "$BRANCH_NAME"
 ```bash
 # From the new worktree directory
 cd "$path"
+
+# Python deps
 uv sync
-# git rev-parse --git-common-dir points to the main .git regardless of worktree
-cp "$(git rev-parse --git-common-dir | xargs dirname)/.env" .env 2>/dev/null || true
+
+# JS deps — required for the vitest pre-commit hook.
+# `npm ci` (not `install`) honours package-lock.json exactly and won't
+# mutate the lock when it sees minor format drift.
+npm ci
+
+# .env carries GH_TOKEN + TEST_DATABASE_URL; without it integration tests
+# silently skip. Copy explicitly and warn loudly on miss.
+# git rev-parse --git-common-dir points to the main .git regardless of worktree.
+parent_env="$(git rev-parse --git-common-dir | xargs dirname)/.env"
+if [ -f "$parent_env" ]; then
+    cp "$parent_env" .env
+    echo ".env copied from $parent_env"
+else
+    echo "WARNING: $parent_env not found — integration tests will skip and gh CLI will fail."
+    echo "Create .env with TEST_DATABASE_URL and GH_TOKEN (see docs/COMMANDS.md)."
+fi
 ```
 
 ### 4. Reload Dev Server on Port 8001
@@ -117,9 +134,16 @@ Kill any existing dev server on 8001, then start fresh with `--reload` from the 
 
 ```bash
 fuser -k 8001/tcp 2>/dev/null; sleep 1
-export $(cat /etc/power-map/.env | xargs) 2>/dev/null
-export $(cat .env | xargs) 2>/dev/null
-nohup uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload > /tmp/power-map-dev.log 2>&1 &
+# uv has a proper dotenv parser; pass each file via --env-file (later
+# wins on conflict). Gate on existence — uv errors hard on a missing
+# --env-file, and `.env` or `/etc/power-map/.env` may be absent on an
+# unprovisioned dev box.
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+nohup uv run "${env_args[@]}" \
+    uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload \
+    > /tmp/power-map-dev.log 2>&1 &
 sleep 2 && curl -s -o /dev/null -w "Dev server: %{http_code}\n" http://localhost:8001/admin/
 ```
 
@@ -128,12 +152,25 @@ Dev server accessible at `https://power-map.exe.xyz:8001/`.
 ### 5. Verify Clean Baseline
 
 ```bash
-export $(cat /etc/power-map/.env | xargs) 2>/dev/null
-export $(cat .env | xargs) 2>/dev/null
-uv run pytest --no-cov -q
+# Full suite (unit + integration). If TEST_DATABASE_URL is unset, all
+# integration tests will skip — the conftest skip reason names the misconfig.
+# --env-file is gated on existence (uv errors hard on a missing file).
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+uv run "${env_args[@]}" pytest --no-cov -q
+
+# Surface integration-test status explicitly so a silent skip-everything
+# can't be mistaken for a clean pass. Read TEST_DATABASE_URL out of .env
+# directly since uv loads the env only inside its child process.
+if ! grep -q '^TEST_DATABASE_URL=' .env 2>/dev/null; then
+    echo "WARNING: TEST_DATABASE_URL not set in .env — integration tests were skipped."
+fi
 ```
 
 **If tests fail:** Report failures, ask whether to proceed or investigate.
+
+**If integration tests skipped:** Report the warning before claiming ready.
 
 **If tests pass:** Report ready.
 
