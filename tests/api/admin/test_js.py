@@ -1,6 +1,7 @@
 """Structural tests for admin JS files."""
 
 import hashlib
+import re
 from pathlib import Path
 
 _MODAL_JS_PATH = Path("src/static/admin/admin-modal.js")
@@ -14,6 +15,25 @@ ORG_DETAIL_JS = _ORG_DETAIL_JS_PATH.read_text() if _ORG_DETAIL_JS_PATH.exists() 
 
 _PERSON_DETAIL_JS_PATH = Path("src/static/admin/person-detail.js")
 PERSON_DETAIL_JS = _PERSON_DETAIL_JS_PATH.read_text() if _PERSON_DETAIL_JS_PATH.exists() else ""
+
+_BASE_HTML_PATH = Path("src/templates/admin/base.html")
+
+
+def _brand_suffix_from_base() -> str:
+    """Extract the title brand suffix (e.g. ' — Power Map') from base.html.
+
+    Single source of truth — detail-page JS files mirror this when they
+    overwrite document.title in response to live header-sync events.
+    """
+    base = _BASE_HTML_PATH.read_text()
+    match = re.search(r"\{% endblock %\}([^<]+)</title>", base)
+    assert match, "base.html must declare a brand suffix after the title block"
+    return match.group(1)
+
+
+def _js_escape_em_dash(s: str) -> str:
+    """Mirror the convention in detail-page JS files: em-dash → \\u2014 escape."""
+    return s.replace("—", "\\u2014")
 
 
 def test_admin_modal_js_exists():
@@ -119,13 +139,15 @@ def test_org_detail_js_updates_document_title():
 
 
 def test_org_detail_js_title_matches_base_brand_suffix():
-    """JS-written document.title must end with the same '— Power Map' brand as base.html.
+    """JS-written document.title must end with the same brand suffix as base.html.
 
     Regression guard for #152: previously the JS wrote '— power-map' (lowercase),
     so any canonical name/acronym edit silently flipped the browser-tab brand
-    capitalization.
+    capitalization. Derives the suffix from base.html so any future rename
+    forces both detail JS files to update in lockstep.
     """
-    assert "\\u2014 Organization \\u2014 Power Map" in ORG_DETAIL_JS
+    suffix = _js_escape_em_dash(_brand_suffix_from_base())
+    assert f"\\u2014 Organization{suffix}" in ORG_DETAIL_JS
 
 
 # ---------------------------------------------------------------------------
@@ -158,22 +180,14 @@ def test_person_detail_js_updates_document_title():
 
 
 def test_person_detail_js_title_matches_base_brand_suffix():
-    """JS-written document.title must end with the same '— Power Map' brand as base.html.
+    """JS-written document.title must end with the same brand suffix as base.html.
 
     Regression guard for #152: previously the JS wrote only '— Person' and dropped
-    the brand entirely, so any canonical name edit silently lost the brand suffix.
+    the brand entirely. Derives the suffix from base.html so any future rename
+    forces both detail JS files to update in lockstep.
     """
-    assert "\\u2014 Person \\u2014 Power Map" in PERSON_DETAIL_JS
-
-
-def test_base_html_brand_suffix_anchor():
-    """If base.html's brand suffix changes, the two JS files above must change in lockstep.
-
-    This test pins the literal so any rename of the brand forces a conscious
-    update to org-detail.js and person-detail.js.
-    """
-    base = _BASE_HTML_PATH.read_text()
-    assert "{% endblock %} — Power Map</title>" in base
+    suffix = _js_escape_em_dash(_brand_suffix_from_base())
+    assert f"\\u2014 Person{suffix}" in PERSON_DETAIL_JS
 
 
 # --- Vendored HTMX bundle -----------------------------------------------------
@@ -182,7 +196,6 @@ def test_base_html_brand_suffix_anchor():
 # flips this test, forcing a conscious provenance review.
 _HTMX_VENDOR_PATH = Path("src/static/admin/vendor/htmx-2.0.8.min.js")
 _HTMX_EXPECTED_SHA256 = "22283ef68cb7545914f0a88a1bdedc7256a703d1d580c1d255217d0a50d31313"
-_BASE_HTML_PATH = Path("src/templates/admin/base.html")
 
 
 def test_htmx_vendor_js_exists():
