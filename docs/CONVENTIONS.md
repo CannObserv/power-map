@@ -28,6 +28,7 @@ Reference for public API, database, and ingestion patterns. For admin dashboard 
   - Required markers in every consumer module: `pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]` at module level, and `@pytest_asyncio.fixture(loop_scope="session")` on every async fixture.
   - Both `loop_scope="session"` markers are load-bearing: `db_pool` is bound to the session event loop. Omitting either raises `RuntimeError: ... attached to a different loop` at fixture setup.
   - Sole exception: `tests/core/test_db.py` tests `src.core.db.get_pool()` / `create_pool()` lifecycle itself and intentionally owns its own connection.
+  - Teardown for entities referenced by a polymorphic side table (e.g. `addresses` via `entity_addresses`): fetch the side-table's foreign-key ids before dropping the join rows, then delete the entity rows guarded by `NOT EXISTS` so a shared row can't FK-fail. Wrap the read+writes in a single `async with conn.transaction():` so a mid-teardown failure rolls back cleanly. Pair with a module-scoped autouse fixture that snapshots the entity table's rowcount before/after and asserts equality — catches leaks if someone later "simplifies" the teardown. Reference: `tests/api/admin/test_orgs_addresses.py` (#150).
 
 ### Display names
 

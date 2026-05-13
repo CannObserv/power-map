@@ -24,11 +24,29 @@ def client():
         yield c
 
 
+@pytest_asyncio.fixture(scope="module", loop_scope="session", autouse=True)
+async def _no_address_leak(db_pool):
+    """Guard against re-introducing the org_and_address teardown leak (#150).
+
+    Snapshots the ``addresses`` rowcount before this module's tests run and
+    asserts equality after — fails loudly if any fixture in this module
+    stops cleaning up newly-created ``addresses`` rows.
+    """
+    async with db_pool.acquire() as conn:
+        before = await conn.fetchval("SELECT COUNT(*) FROM addresses")
+    yield
+    async with db_pool.acquire() as conn:
+        after = await conn.fetchval("SELECT COUNT(*) FROM addresses")
+    assert after == before, (
+        f"org_and_address fixture leaked {after - before} addresses row(s) — see #150"
+    )
+
+
 @pytest_asyncio.fixture(loop_scope="session")
 async def org_and_address(db_pool):
     oid = generate_id()
-    aid = generate_id()  # addresses.id
-    eaid = generate_id()  # entity_addresses.id
+    aid = generate_id()
+    eaid = generate_id()
 
     async with db_pool.acquire() as conn:
         await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
@@ -48,7 +66,7 @@ async def org_and_address(db_pool):
 
     yield oid, eaid
 
-    async with db_pool.acquire() as conn:
+    async with db_pool.acquire() as conn, conn.transaction():
         rows = await conn.fetch(
             "SELECT address_id FROM entity_addresses WHERE entity_id=$1", oid
         )
