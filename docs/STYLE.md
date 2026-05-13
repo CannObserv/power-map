@@ -1139,7 +1139,7 @@ All list-view search inputs and filter selects include `hx-push-url="true"` so t
 
 ## 24. Merge Bar Pattern
 
-A fixed-position page overlay for bulk-select-and-merge on tables with potentially duplicate rows. Currently used on the Roles table of the org detail page; `role-merge.js` drives it.
+A fixed-position page overlay for bulk-select-and-merge on tables with potentially duplicate rows. Used on the Roles table of the org detail page (`role-merge.js`) and the People list (`people-merge.js`).
 
 > **Positioning:** `.merge-bar` is `position: fixed; bottom: 3rem; left: var(--sidebar-w); right: 0` — a full-width overlay above the sticky pagination, not a block contained by its parent element. It is placed inside `table-wrapper` in the DOM for logical proximity only; the containing block has no effect on layout.
 
@@ -1217,6 +1217,21 @@ The same `role-merge.js` also handles the roles filter input (`#roles-filter`). 
 <input type="search" id="roles-filter" placeholder="Filter roles…"
        class="filter-card__search">
 ```
+
+### People list variant (`people-merge.js`)
+
+Same DOM contract, four deltas:
+
+| Delta | Roles (org detail) | People list |
+|---|---|---|
+| Table id / data-attrs | `#roles-table[data-org-id]`, rows carry `data-role-id` | `#people-table` (no `data-org-id`), rows carry `data-person-id` |
+| Tbody id | (anonymous; selector is `#roles-table tbody`) | `#people-table-body` — used by HTMX `hx-target` and the server's HX-Target branch |
+| Sticky pagination | None on org detail roles table | `.pagination--sticky` present; JS hides it on `enterMergeMode`, restores on `exitMergeMode` / `showFlash` — single sticky slot, no overlap |
+| Filter input | Inline client-side `#roles-filter` | None; the list uses server-side search via the filter card |
+
+POST URL pattern: `/admin/people/{winner_id}/merge/{loser_id}/`. The route ([src/api/admin/people_merge.py](../src/api/admin/people_merge.py)) detects the list flow via `HX-Target == "people-table-body"` and returns `_rows.html` instead of `_duplicates_region.html`. Filter state (`q`, `status`, `page`, `page_size`) is parsed from `HX-Current-URL` so the refreshed rows respect the user's active filters.
+
+Merge button always renders (the People list mixes active + archived via the status filter); the `_btn-wrap` shows the `not-allowed` cursor + tooltip when fewer than 2 rows are visible in the current tbody. Selection state clears on `htmx:afterSwap` (search, pagination, page-size change) — cross-page selection persistence is intentionally not implemented.
 
 ---
 
