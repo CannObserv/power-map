@@ -61,7 +61,6 @@ afterEach(() => {
   }
   addSpy.mockRestore();
   document.body.innerHTML = '';
-  document.title = '';
 });
 
 // ---------------------------------------------------------------------------
