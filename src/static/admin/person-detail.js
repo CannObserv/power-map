@@ -9,10 +9,11 @@
  * HTMX is available, and hx-boost never re-executes head scripts.
  */
 document.addEventListener('updatePersonHeader', function (e) {
-  var display = e.detail && e.detail.display ? e.detail.display : '';
+  var d = e.detail && e.detail.display;
+  if (!d) return;
   var h1 = document.getElementById('page-heading');
-  var crumb = document.getElementById('breadcrumb-current');
-  if (h1) h1.textContent = display;
-  if (crumb) crumb.textContent = display;
-  if (display) document.title = display + ' \u2014 Person \u2014 Power Map';
+  var bc = document.getElementById('breadcrumb-current');
+  if (h1) h1.textContent = d;
+  if (bc) bc.textContent = d;
+  document.title = d + ' \u2014 Person \u2014 Power Map';
 });
