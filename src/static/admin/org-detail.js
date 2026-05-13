@@ -14,5 +14,5 @@ document.addEventListener('updateOrgHeader', function (e) {
   var bc = document.getElementById('breadcrumb-current');
   if (h1) h1.textContent = d;
   if (bc) bc.textContent = d;
-  document.title = d + ' \u2014 Organization \u2014 power-map';
+  document.title = d + ' \u2014 Organization \u2014 Power Map';
 });

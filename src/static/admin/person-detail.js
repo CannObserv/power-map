@@ -14,5 +14,5 @@ document.addEventListener('updatePersonHeader', function (e) {
   var crumb = document.getElementById('breadcrumb-current');
   if (h1) h1.textContent = display;
   if (crumb) crumb.textContent = display;
-  if (display) document.title = display + ' \u2014 Person';
+  if (display) document.title = display + ' \u2014 Person \u2014 Power Map';
 });
