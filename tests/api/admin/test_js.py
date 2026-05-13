@@ -118,6 +118,16 @@ def test_org_detail_js_updates_document_title():
     assert "document.title" in ORG_DETAIL_JS
 
 
+def test_org_detail_js_title_matches_base_brand_suffix():
+    """JS-written document.title must end with the same '— Power Map' brand as base.html.
+
+    Regression guard for #152: previously the JS wrote '— power-map' (lowercase),
+    so any canonical name/acronym edit silently flipped the browser-tab brand
+    capitalization.
+    """
+    assert "\\u2014 Organization \\u2014 Power Map" in ORG_DETAIL_JS
+
+
 # ---------------------------------------------------------------------------
 # person-detail.js
 # ---------------------------------------------------------------------------
@@ -145,6 +155,25 @@ def test_person_detail_js_targets_breadcrumb_current():
 def test_person_detail_js_updates_document_title():
     """Must update document.title — tab title sync is the third live-update target."""
     assert "document.title" in PERSON_DETAIL_JS
+
+
+def test_person_detail_js_title_matches_base_brand_suffix():
+    """JS-written document.title must end with the same '— Power Map' brand as base.html.
+
+    Regression guard for #152: previously the JS wrote only '— Person' and dropped
+    the brand entirely, so any canonical name edit silently lost the brand suffix.
+    """
+    assert "\\u2014 Person \\u2014 Power Map" in PERSON_DETAIL_JS
+
+
+def test_base_html_brand_suffix_anchor():
+    """If base.html's brand suffix changes, the two JS files above must change in lockstep.
+
+    This test pins the literal so any rename of the brand forces a conscious
+    update to org-detail.js and person-detail.js.
+    """
+    base = _BASE_HTML_PATH.read_text()
+    assert "{% endblock %} — Power Map</title>" in base
 
 
 # --- Vendored HTMX bundle -----------------------------------------------------
