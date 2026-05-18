@@ -24,26 +24,26 @@ Init after cloning: `git submodule update --init --recursive`
 
 Submodule freshness auto-enforced by `UserPromptSubmit` hook in `.claude/settings.json`. Force-refresh: `git submodule update --remote --merge skills-vendor/gregoryfoster-skills skills-vendor/obra-superpowers`
 
-To add a new external skill repo: follow the `managing-skills-claude` skill.
+To add a new external skill repo: follow the `managing-skills` skill.
 
 ## Available Skills
 
 | Skill | Source | Triggers |
 |---|---|---|
-| `reviewing-code-claude` | Local override | CR, code review, perform a review |
-| `reviewing-architecture-claude` | `gregoryfoster-skills` | AR, architecture review, architectural review |
-| `shipping-work-claude` | Local override | ship it, push GH, close GH, wrap up |
-| `brainstorming` | Local override | brainstorm, design this, let's design |
+| `reviewing-code-python-fastapi` | `gregoryfoster-skills` | CR, code review, perform a review |
+| `reviewing-architecture` | `gregoryfoster-skills` | AR, architecture review, architectural review |
+| `shipping-work-python-fastapi` | `gregoryfoster-skills` | ship it, push GH, close GH, wrap up |
+| `brainstorming` | Local override (`obra-superpowers/brainstorming`) | brainstorm, design this, let's design |
 | `systematic-debugging` | `obra-superpowers` | description-driven¹ |
 | `verification-before-completion` | `obra-superpowers` | description-driven¹ |
 | `test-driven-development` | `obra-superpowers` | description-driven¹ |
-| `writing-plans` | `obra-superpowers` | write plan, implementation plan |
+| `writing-plans` | `gregoryfoster-skills` | write a plan, plan this, let's plan |
 | `writing-skills` | `obra-superpowers` | write skill, new skill, author skill |
 | `subagent-driven-development` | `obra-superpowers` | subagent dev, dispatch agents |
 | `dispatching-parallel-agents` | `obra-superpowers` | parallel agents |
-| `using-git-worktrees` | Local override | set up worktree, create worktree |
-| `managing-skills-claude` | `gregoryfoster-skills` | add skill repo, add external skills, manage skills |
-| `orchestrating-issue-backlog-claude` | `gregoryfoster-skills` | orchestrate backlog, prioritize issues, plan issue execution, clear backlog |
+| `using-git-worktrees` | `gregoryfoster-skills` | create worktree, new worktree, destroy worktree, wt |
+| `managing-skills` | `gregoryfoster-skills` | add skill repo, add external skills, manage skills |
+| `orchestrating-issue-backlog` | `gregoryfoster-skills` | orchestrate backlog, prioritize issues, plan issue execution, clear backlog |
 
 ¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
 
