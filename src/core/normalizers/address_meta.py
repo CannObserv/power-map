@@ -49,7 +49,7 @@ async def get_country_format(country_code: str) -> dict:
         return entry["value"]
 
     try:
-        url = f"{_ADDRESS_VALIDATOR_BASE}/api/v1/countries/{code}/format"
+        url = f"{_ADDRESS_VALIDATOR_BASE}/api/v2/countries/{code}/format"
         headers = {"X-API-Key": _ADDRESS_VALIDATOR_API_KEY} if _ADDRESS_VALIDATOR_API_KEY else {}
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers)

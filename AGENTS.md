@@ -109,7 +109,7 @@ Full command reference: `docs/COMMANDS.md`
 
 | File | Owner | Contents |
 |---|---|---|
-| `/etc/power-map/.env` | root:exedev (640) | `DATABASE_URL`, `ADDRESS_VALIDATOR_API_KEY`, `ADDRESS_VALIDATOR_RUN_VALIDATION` |
+| `/etc/power-map/.env` | root:exedev (640) | `DATABASE_URL`, `ADDRESS_VALIDATOR_API_KEY`, `ADDRESS_VALIDATOR_RUN_VALIDATION`, `ADDRESS_VALIDATOR_BASE_URL` (optional; defaults to `https://address-validator.exe.xyz:8000`; override to point at dev server on port 8001) |
 | `.env` (repo, gitignored) | developer | `GH_TOKEN`, `TEST_DATABASE_URL` |
 
 Load both via uv's dotenv parser (gated on existence — uv errors hard on a missing `--env-file`):

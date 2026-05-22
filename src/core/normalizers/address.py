@@ -15,6 +15,9 @@ _STATUS_MAP = {
     "confirmed_missing_secondary": "confirmed",
     "confirmed_bad_secondary": "confirmed",
     "not_confirmed": "failed",
+    "not_found": "failed",
+    "invalid": "failed",
+    "error": "failed",
     "unavailable": "not_attempted",
 }
 
@@ -122,7 +125,7 @@ class ExternalAddressNormalizer:
             return NormalizationResult(value=None, skipped=True)
         raw = raw.strip()
         endpoint = "validate" if self.config.run_validation else "standardize"
-        url = f"{self.config.base_url}/api/v1/{endpoint}"
+        url = f"{self.config.base_url}/api/v2/{endpoint}"
         payload = {"address": raw, "country": country}
         headers = {"X-API-Key": self.config.api_key}
 

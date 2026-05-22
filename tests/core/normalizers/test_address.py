@@ -1,6 +1,6 @@
 """Tests for address normalizers."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import usaddress
@@ -13,6 +13,7 @@ from src.core.normalizers.address import (
     _reset_normalizer,
     get_address_normalizer,
 )
+from tests.core.normalizers.http_mock import mock_http_client
 
 # ---------------------------------------------------------------------------
 # LocalAddressNormalizer
@@ -90,10 +91,7 @@ async def test_external_standardize_success(external):
         "components": {},
         "warnings": [],
     }
-    with patch("httpx.AsyncClient") as MockClient:
-        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value.post = AsyncMock(return_value=mock_response)
+    with mock_http_client(mock_response):
         r = await external.normalize("123 Main St, Seattle WA 98101")
     assert r.value["standardized"] == "123 MAIN ST SEATTLE WA 98101"
     assert r.validation_detail["provider"] == "address-validator"
@@ -118,10 +116,7 @@ async def test_external_validate_endpoint_used_when_configured(external_validate
             "provider": "usps",
         },
     }
-    with patch("httpx.AsyncClient") as MockClient:
-        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value.post = AsyncMock(return_value=mock_response)
+    with mock_http_client(mock_response) as MockClient:
         r = await external_validate.normalize("123 Main St, Seattle WA 98101")
     called_url = MockClient.return_value.post.call_args[0][0]
     assert "/validate" in called_url
@@ -132,10 +127,7 @@ async def test_external_429_retries_then_raises(external):
     mock_response = MagicMock()
     mock_response.status_code = 429
     mock_response.headers = {"Retry-After": "0"}  # 0s for fast tests
-    with patch("httpx.AsyncClient") as MockClient:
-        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value.post = AsyncMock(return_value=mock_response)
+    with mock_http_client(mock_response):
         with pytest.raises(RuntimeError, match="rate limit"):
             await external.normalize("123 Main St, Seattle WA 98101")
 
@@ -160,20 +152,14 @@ async def test_fallback_uses_external_on_success(config):
         "components": {},
         "warnings": [],
     }
-    with patch("httpx.AsyncClient") as MockClient:
-        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value.post = AsyncMock(return_value=mock_response)
+    with mock_http_client(mock_response):
         r = await n.normalize("123 Main St, Seattle WA 98101")
     assert r.validation_detail["provider"] == "address-validator"
 
 
 async def test_fallback_uses_local_on_service_error(config):
     n = FallbackAddressNormalizer(config)
-    with patch("httpx.AsyncClient") as MockClient:
-        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value.post = AsyncMock(side_effect=Exception("timeout"))
+    with mock_http_client(side_effect=Exception("timeout")):
         r = await n.normalize("123 Main St, Seattle WA 98101")
     assert r.validation_detail["provider"] == "usaddress"
     assert "fallback" in r.warnings[0].lower()
@@ -197,10 +183,7 @@ async def test_external_standardize_captures_components(external):
         },
         "warnings": [],
     }
-    with patch("httpx.AsyncClient") as MockClient:
-        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value.post = AsyncMock(return_value=mock_response)
+    with mock_http_client(mock_response):
         r = await external.normalize("123 Main St Seattle WA")
     assert r.value["components"] == {
         "spec": "usps-pub28",
@@ -228,10 +211,7 @@ async def test_external_validate_captures_lat_lng_and_components(external_valida
         "warnings": [],
         "validation": {"status": "confirmed", "dpv_match_code": "Y", "provider": "usps"},
     }
-    with patch("httpx.AsyncClient") as MockClient:
-        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value.post = AsyncMock(return_value=mock_response)
+    with mock_http_client(mock_response):
         r = await external_validate.normalize("123 Main St Seattle WA")
     assert r.value["latitude"] == 47.6062
     assert r.value["longitude"] == -122.3321
@@ -277,10 +257,7 @@ async def test_external_passes_country_in_payload():
         "components": None,
         "warnings": [],
     }
-    with patch("httpx.AsyncClient") as MockClient:
-        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value.post = AsyncMock(return_value=mock_response)
+    with mock_http_client(mock_response) as MockClient:
         await n.normalize("10 Downing St, London", country="GB")
     payload = MockClient.return_value.post.call_args[1]["json"]
     assert payload["country"] == "GB"
@@ -300,10 +277,7 @@ async def test_fallback_forwards_country_to_external(config):
         "components": None,
         "warnings": [],
     }
-    with patch("httpx.AsyncClient") as MockClient:
-        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value.post = AsyncMock(return_value=mock_response)
+    with mock_http_client(mock_response) as MockClient:
         await n.normalize("1 Infinite Loop, Cupertino CA", country="US")
     payload = MockClient.return_value.post.call_args[1]["json"]
     assert payload["country"] == "US"
@@ -312,13 +286,95 @@ async def test_fallback_forwards_country_to_external(config):
 async def test_fallback_non_us_falls_back_to_local_raw_only(config):
     """On service error, non-US falls back to local which stores raw only."""
     n = FallbackAddressNormalizer(config)
-    with patch("httpx.AsyncClient") as MockClient:
-        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value.post = AsyncMock(side_effect=Exception("timeout"))
+    with mock_http_client(side_effect=Exception("timeout")):
         r = await n.normalize("10 Downing St, London SW1A 2AA", country="GB")
     assert r.value["country"] == "GB"
     assert r.value.get("city") is None  # local doesn't parse non-US
+
+
+# ---------------------------------------------------------------------------
+# v2 API path assertions
+# ---------------------------------------------------------------------------
+
+
+async def test_external_standardize_uses_v2_path(external):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "address_line_1": "123 MAIN ST",
+        "address_line_2": None,
+        "city": "SEATTLE",
+        "region": "WA",
+        "postal_code": "98101",
+        "country": "US",
+        "standardized": "123 MAIN ST SEATTLE WA 98101",
+        "components": {},
+        "warnings": [],
+    }
+    with mock_http_client(mock_response) as MockClient:
+        await external.normalize("123 Main St, Seattle WA 98101")
+    called_url = MockClient.return_value.post.call_args[0][0]
+    assert "/api/v2/standardize" in called_url
+
+
+async def test_external_validate_uses_v2_path(external_validate):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "address_line_1": "123 MAIN ST",
+        "address_line_2": None,
+        "city": "SEATTLE",
+        "region": "WA",
+        "postal_code": "98101",
+        "country": "US",
+        "validated": "123 MAIN ST SEATTLE WA 98101",
+        "components": {},
+        "warnings": [],
+        "validation": {"status": "confirmed", "dpv_match_code": "Y", "provider": "usps"},
+    }
+    with mock_http_client(mock_response) as MockClient:
+        await external_validate.normalize("123 Main St, Seattle WA 98101")
+    called_url = MockClient.return_value.post.call_args[0][0]
+    assert "/api/v2/validate" in called_url
+
+
+# ---------------------------------------------------------------------------
+# v2 _STATUS_MAP — non-US statuses
+# ---------------------------------------------------------------------------
+
+
+async def _validate_with_status(external_validate, status: str):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "address_line_1": "",
+        "address_line_2": None,
+        "city": "",
+        "region": None,
+        "postal_code": "",
+        "country": "CA",
+        "validated": None,
+        "components": None,
+        "warnings": [],
+        "validation": {"status": status, "provider": "libpostal"},
+    }
+    with mock_http_client(mock_response):
+        return await external_validate.normalize("123 Fake St, Toronto ON", country="CA")
+
+
+async def test_external_validate_not_found_maps_to_failed(external_validate):
+    r = await _validate_with_status(external_validate, "not_found")
+    assert r.confidence_hint == "failed"
+
+
+async def test_external_validate_invalid_maps_to_failed(external_validate):
+    r = await _validate_with_status(external_validate, "invalid")
+    assert r.confidence_hint == "failed"
+
+
+async def test_external_validate_error_maps_to_failed(external_validate):
+    r = await _validate_with_status(external_validate, "error")
+    assert r.confidence_hint == "failed"
 
 
 # ---------------------------------------------------------------------------
