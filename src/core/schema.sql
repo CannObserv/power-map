@@ -927,7 +927,7 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     ('01KKZ3WGJSZF0F96SMYC000AVR', 'organization',    'org_wa_pdc',    'WA PDC', 'Washington State Public Disclosure Commission'),
     ('01KKZ3WGJSZF0F96SMYC000AVS', 'person',          'person_wa_pdc', 'WA PDC', 'Washington State Public Disclosure Commission'),
     ('01KKZ3WGJSZF0F96SMYC000AVT', 'person',          'person_ssn',    'SSN',    'United States Social Security Number'),
-    ('01KKZ3WGJSZF0F96SMYC000AVV', 'role_assignment', 'role_wa_pdc',                   'WA PDC',        'Washington State Public Disclosure Commission'),
+    ('01KKZ3WGJSZF0F96SMYC000AVV', 'role_assignment', 'role_wa_pdc',   'WA PDC', 'Washington State Public Disclosure Commission'),
     ('01KKZ3WGJSZF0F96SMYC000AVW', 'person',          'person_wa_legislature_member_id',  'WA Legislature', 'Washington State Legislature Member ID'),
     ('01KKZ3WGJSZF0F96SMYC000AVX', 'organization',    'org_wa_legislature_committee_id',  'WA Legislature', 'Washington State Legislature Committee ID')
 ON CONFLICT (id) DO UPDATE SET

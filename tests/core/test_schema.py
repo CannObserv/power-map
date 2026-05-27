@@ -347,14 +347,14 @@ async def test_identifier_with_valid_type_accepted(db):
 
 
 async def test_wa_legislature_identifier_types_seeded(db):
-    """Both WA Legislature identifier type slugs must exist after apply_schema."""
+    """Both WA Legislature identifier type slugs must exist with correct entity_type."""
     rows = await db.fetch(
-        "SELECT slug FROM entity_identifier_types WHERE slug = ANY($1)",
+        "SELECT slug, entity_type FROM entity_identifier_types WHERE slug = ANY($1)",
         ["person_wa_legislature_member_id", "org_wa_legislature_committee_id"],
     )
-    assert {r["slug"] for r in rows} == {
-        "person_wa_legislature_member_id",
-        "org_wa_legislature_committee_id",
+    assert {r["slug"]: r["entity_type"] for r in rows} == {
+        "person_wa_legislature_member_id": "person",
+        "org_wa_legislature_committee_id": "organization",
     }
 
 
