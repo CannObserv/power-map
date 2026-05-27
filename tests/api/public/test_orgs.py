@@ -4,11 +4,14 @@ import hashlib
 import os
 
 import pytest
+import pytest_asyncio
 
 from src.core.db import generate_id
 
+pytestmark = [pytest.mark.asyncio(loop_scope="session")]
 
-@pytest.fixture
+
+@pytest_asyncio.fixture(loop_scope="session")
 async def api_key(db):
     uid = generate_id()
     kid = generate_id()
@@ -28,7 +31,7 @@ async def api_key(db):
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def org_fixture(db):
     """Create a test org with names, acronym, and identifiers; yield ids; clean up."""
     org_id = generate_id()

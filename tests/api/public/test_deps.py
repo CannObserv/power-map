@@ -4,11 +4,14 @@ import hashlib
 import os
 
 import pytest
+import pytest_asyncio
 
 from src.core.db import generate_id
 
+pytestmark = [pytest.mark.asyncio(loop_scope="session")]
 
-@pytest.fixture
+
+@pytest_asyncio.fixture(loop_scope="session")
 async def api_key_pair(db):
     """Insert a test app_user + api_key; yield raw_key; clean up."""
     uid = generate_id()

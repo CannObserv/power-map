@@ -7,9 +7,9 @@ from src.api.public.schemas import (
     OrgDetail,
     OrgIdentifier,
     OrgName,
-    OrgSearchMeta,
     OrgSearchResponse,
     OrgSearchResult,
+    SearchMeta,
     _fmt_ts,
 )
 
@@ -85,12 +85,12 @@ def test_org_search_result_optional_fields_default_none():
 
 
 # ---------------------------------------------------------------------------
-# OrgSearchMeta
+# SearchMeta
 # ---------------------------------------------------------------------------
 
 
 def test_org_search_meta_all_fields():
-    meta = OrgSearchMeta(limit=10, offset=0, count=3, has_more=False)
+    meta = SearchMeta(limit=10, offset=0, count=3, has_more=False)
     assert meta.limit == 10
     assert meta.offset == 0
     assert meta.count == 3
@@ -105,7 +105,7 @@ def test_org_search_meta_all_fields():
 def test_org_search_response_shape():
     response = OrgSearchResponse(
         data=[OrgSearchResult(id="x", name="Foo")],
-        meta=OrgSearchMeta(limit=10, offset=0, count=1, has_more=False),
+        meta=SearchMeta(limit=10, offset=0, count=1, has_more=False),
     )
     dumped = response.model_dump(mode="json")
     assert "data" in dumped
@@ -117,7 +117,7 @@ def test_org_search_response_shape():
 def test_org_search_response_empty_data():
     response = OrgSearchResponse(
         data=[],
-        meta=OrgSearchMeta(limit=10, offset=0, count=0, has_more=False),
+        meta=SearchMeta(limit=10, offset=0, count=0, has_more=False),
     )
     assert response.data == []
     assert response.meta.count == 0

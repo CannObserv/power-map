@@ -25,8 +25,8 @@ class OrgSearchResult(BaseModel):
         return _fmt_ts(v)
 
 
-class OrgSearchMeta(BaseModel):
-    """Pagination metadata for search responses."""
+class SearchMeta(BaseModel):
+    """Pagination metadata shared by all search responses."""
 
     limit: int
     offset: int
@@ -38,10 +38,12 @@ class OrgSearchResponse(BaseModel):
     """Envelope for paginated org search results."""
 
     data: list[OrgSearchResult]
-    meta: OrgSearchMeta
+    meta: SearchMeta
 
 
 class OrgName(BaseModel):
+    """A single name variant for an organization."""
+
     id: str
     name: str
     name_type: str
@@ -49,12 +51,16 @@ class OrgName(BaseModel):
 
 
 class OrgAcronym(BaseModel):
+    """A single acronym for an organization."""
+
     id: str
     acronym: str
     is_canonical: bool
 
 
 class OrgIdentifier(BaseModel):
+    """An external identifier attached to an organization."""
+
     id: str
     type_id: str
     type_slug: str
@@ -85,10 +91,12 @@ class PersonSearchResponse(BaseModel):
     """Envelope for paginated people search results."""
 
     data: list[PersonSearchResult]
-    meta: OrgSearchMeta
+    meta: SearchMeta
 
 
 class PersonName(BaseModel):
+    """A single public name variant for a person."""
+
     id: str
     name: str
     name_type: str
@@ -97,6 +105,8 @@ class PersonName(BaseModel):
 
 
 class PersonIdentifier(BaseModel):
+    """An external identifier attached to a person."""
+
     id: str
     type_id: str
     type_slug: str

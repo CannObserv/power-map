@@ -114,7 +114,7 @@ async def get_person(
     }
 
 
-async def _fetch_detail_arrays(person_id: str, db: Any) -> tuple:
+async def _fetch_detail_arrays(person_id: str, db: Any) -> tuple[list[Any], list[Any]]:
     """Fetch public name variants and identifiers for a person."""
     names = await db.fetch(
         f"""
