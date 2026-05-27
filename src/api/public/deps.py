@@ -2,7 +2,7 @@
 
 import hashlib
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Query
 from fastapi.security import APIKeyHeader
 
 from src.api.deps import get_db
@@ -28,3 +28,19 @@ async def require_api_key(
         raise HTTPException(status_code=401, detail="Invalid API key")
     await db.execute("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"])
     return row["user_id"]
+
+
+def identifier_filter(
+    identifier_type: str | None = Query(default=None),
+    identifier_value: str | None = Query(default=None),
+) -> tuple[str | None, str | None]:
+    """Validate that identifier_type and identifier_value are supplied together.
+
+    Either both must be present or both must be absent; one alone raises 422.
+    """
+    if (identifier_type is None) != (identifier_value is None):
+        raise HTTPException(
+            status_code=422,
+            detail="identifier_type and identifier_value must be supplied together",
+        )
+    return identifier_type, identifier_value

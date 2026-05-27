@@ -390,6 +390,9 @@ CREATE TABLE IF NOT EXISTS identifiers (
 CREATE INDEX IF NOT EXISTS idx_identifiers_entity
     ON identifiers(entity_identifier_type_id, entity_id);
 
+CREATE INDEX IF NOT EXISTS idx_identifiers_lookup
+    ON identifiers(entity_identifier_type_id, value);
+
 -- =============================================================================
 -- Schema evolution: archived_at columns
 -- =============================================================================
