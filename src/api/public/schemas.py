@@ -67,3 +67,44 @@ class OrgDetail(OrgSearchResult):
     names: list[OrgName] = []
     acronyms: list[OrgAcronym] = []
     identifiers: list[OrgIdentifier] = []
+
+
+class PersonSearchResult(BaseModel):
+    """Single item in a people search response."""
+
+    id: str
+    display_name: str | None = None
+    archived_at: datetime | None = None
+
+    @field_serializer("archived_at")
+    def _serialize_archived_at(self, v: datetime | None) -> str | None:
+        return _fmt_ts(v)
+
+
+class PersonSearchResponse(BaseModel):
+    """Envelope for paginated people search results."""
+
+    data: list[PersonSearchResult]
+    meta: OrgSearchMeta
+
+
+class PersonName(BaseModel):
+    id: str
+    name: str
+    name_type: str
+    locale: str | None = None
+    is_canonical: bool
+
+
+class PersonIdentifier(BaseModel):
+    id: str
+    type_id: str
+    type_slug: str
+    value: str
+
+
+class PersonDetail(PersonSearchResult):
+    """Full person record including public name variants and identifiers."""
+
+    names: list[PersonName] = []
+    identifiers: list[PersonIdentifier] = []
