@@ -39,7 +39,11 @@ async def search_orgs(
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
-    """Search organizations by name, acronym, or name variant."""
+    """Search organizations by name, acronym, or name variant.
+
+    When identifier_type and identifier_value are both supplied they take precedence
+    over q and return at most one result with has_more always false.
+    """
     limit = min(limit, 50)
     id_type, id_value = id_filter
 

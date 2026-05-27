@@ -26,7 +26,11 @@ async def search_people(
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
-    """Search people by display name or public name variant."""
+    """Search people by display name or public name variant.
+
+    When identifier_type and identifier_value are both supplied they take precedence
+    over q and return at most one result with has_more always false.
+    """
     limit = min(limit, 50)
     id_type, id_value = id_filter
 
@@ -82,7 +86,7 @@ async def search_people(
                   SELECT 1 FROM person_names pn
                   WHERE pn.person_id = p.id
                     AND pn.name ILIKE $1
-                    AND {visible_names_filter('pn')}
+                    AND {visible_names_filter("pn")}
               )
           )
         ORDER BY

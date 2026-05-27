@@ -36,11 +36,19 @@ def identifier_filter(
 ) -> tuple[str | None, str | None]:
     """Validate that identifier_type and identifier_value are supplied together.
 
-    Either both must be present or both must be absent; one alone raises 422.
+    Both must be present and non-empty, or both must be absent; one alone or either
+    empty raises 422.
     """
-    if (identifier_type is None) != (identifier_value is None):
+    both_present = identifier_type is not None and identifier_value is not None
+    neither_present = identifier_type is None and identifier_value is None
+    if not both_present and not neither_present:
         raise HTTPException(
             status_code=422,
             detail="identifier_type and identifier_value must be supplied together",
+        )
+    if both_present and (not identifier_type.strip() or not identifier_value.strip()):
+        raise HTTPException(
+            status_code=422,
+            detail="identifier_type and identifier_value must not be empty",
         )
     return identifier_type, identifier_value

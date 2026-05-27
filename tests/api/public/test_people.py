@@ -234,9 +234,7 @@ async def test_search_does_not_match_legal_only_names(client, api_key, person_fi
 
 @pytest.mark.integration
 async def test_search_excludes_archived_by_default(client, api_key, person_fixture, db):
-    await db.execute(
-        "UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"]
-    )
+    await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
     r = _search(client, api_key, "Jane")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["data"]]
@@ -246,9 +244,7 @@ async def test_search_excludes_archived_by_default(client, api_key, person_fixtu
 
 @pytest.mark.integration
 async def test_search_include_archived_flag(client, api_key, person_fixture, db):
-    await db.execute(
-        "UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"]
-    )
+    await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
     r = _search(client, api_key, "Jane", include_archived="true")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["data"]]
@@ -258,9 +254,7 @@ async def test_search_include_archived_flag(client, api_key, person_fixture, db)
 
 @pytest.mark.integration
 async def test_search_archived_result_has_z_suffix_timestamp(client, api_key, person_fixture, db):
-    await db.execute(
-        "UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"]
-    )
+    await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
     r = _search(client, api_key, "Jane", include_archived="true")
     hit = next(p for p in r.json()["data"] if p["id"] == person_fixture["person_id"])
     assert hit["archived_at"].endswith("Z"), f"expected Z suffix, got {hit['archived_at']}"
@@ -341,12 +335,8 @@ async def test_get_person_by_id_not_found(client, api_key):
 @pytest.mark.integration
 async def test_get_archived_person_still_returned(client, api_key, person_fixture, db):
     """GET by ID returns archived people — caller must check archived_at."""
-    await db.execute(
-        "UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"]
-    )
-    r = client.get(
-        f"/api/v1/people/{person_fixture['person_id']}", headers={"X-API-Key": api_key}
-    )
+    await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
+    r = client.get(f"/api/v1/people/{person_fixture['person_id']}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     archived_at = r.json()["archived_at"]
     assert archived_at is not None
@@ -394,6 +384,27 @@ async def test_identifier_search_unknown_value_returns_empty(client, api_key, pe
     r = _search_by_identifier(client, api_key, "person_wa_pdc", "DOES-NOT-EXIST")
     assert r.status_code == 200
     assert r.json()["data"] == []
+    assert r.json()["meta"]["has_more"] is False
+
+
+@pytest.mark.integration
+async def test_identifier_search_empty_type_returns_422(client, api_key):
+    r = client.get(
+        "/api/v1/people/search",
+        params={"identifier_type": "", "identifier_value": "PDC-99999"},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.integration
+async def test_identifier_search_empty_value_returns_422(client, api_key):
+    r = client.get(
+        "/api/v1/people/search",
+        params={"identifier_type": "person_wa_pdc", "identifier_value": ""},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 422
 
 
 @pytest.mark.integration
@@ -450,9 +461,7 @@ async def test_identifier_search_wins_over_q(client, api_key, person_fixture, db
 
 @pytest.mark.integration
 async def test_identifier_search_excludes_archived_by_default(client, api_key, person_fixture, db):
-    await db.execute(
-        "UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"]
-    )
+    await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
     r = _search_by_identifier(client, api_key, "person_wa_pdc", "PDC-99999")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["data"]]
@@ -462,9 +471,7 @@ async def test_identifier_search_excludes_archived_by_default(client, api_key, p
 
 @pytest.mark.integration
 async def test_identifier_search_include_archived(client, api_key, person_fixture, db):
-    await db.execute(
-        "UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"]
-    )
+    await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
     r = _search_by_identifier(
         client, api_key, "person_wa_pdc", "PDC-99999", include_archived="true"
     )

@@ -360,6 +360,27 @@ async def test_identifier_search_unknown_value_returns_empty(client, api_key, or
     r = _search_by_identifier(client, api_key, "wa_sos", "DOES-NOT-EXIST")
     assert r.status_code == 200
     assert r.json()["data"] == []
+    assert r.json()["meta"]["has_more"] is False
+
+
+@pytest.mark.integration
+async def test_identifier_search_empty_type_returns_422(client, api_key):
+    r = client.get(
+        "/api/v1/orgs/search",
+        params={"identifier_type": "", "identifier_value": "12345"},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.integration
+async def test_identifier_search_empty_value_returns_422(client, api_key):
+    r = client.get(
+        "/api/v1/orgs/search",
+        params={"identifier_type": "wa_sos", "identifier_value": ""},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 422
 
 
 @pytest.mark.integration
@@ -427,9 +448,7 @@ async def test_identifier_search_include_archived(client, api_key, org_fixture, 
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
     )
-    r = _search_by_identifier(
-        client, api_key, "wa_sos", "12345", include_archived="true"
-    )
+    r = _search_by_identifier(client, api_key, "wa_sos", "12345", include_archived="true")
     assert r.status_code == 200
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
