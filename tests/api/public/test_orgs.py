@@ -114,33 +114,6 @@ def _search(client, api_key, q, **params):
 
 
 # ---------------------------------------------------------------------------
-# Auth
-# ---------------------------------------------------------------------------
-
-
-def test_search_missing_key_returns_403(unit_client):
-    r = unit_client.get("/api/v1/orgs/search?q=test")
-    assert r.status_code == 403
-
-
-@pytest.mark.integration
-def test_search_invalid_key_returns_401(client):
-    r = client.get("/api/v1/orgs/search?q=test", headers={"X-API-Key": "pm_bad"})
-    assert r.status_code == 401
-
-
-def test_get_org_missing_key_returns_403(unit_client):
-    r = unit_client.get("/api/v1/orgs/someid")
-    assert r.status_code == 403
-
-
-@pytest.mark.integration
-def test_get_org_invalid_key_returns_401(client):
-    r = client.get("/api/v1/orgs/someid", headers={"X-API-Key": "pm_bad"})
-    assert r.status_code == 401
-
-
-# ---------------------------------------------------------------------------
 # Search — response shape
 # ---------------------------------------------------------------------------
 

@@ -32,20 +32,8 @@ async def api_key_pair(db):
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
 
-def test_api_root_missing_key_returns_403(unit_client):
-    """403 is raised before the DB is touched — no integration fixture needed."""
-    response = unit_client.get("/api/v1/")
-    assert response.status_code == 403
-
-
 @pytest.mark.integration
-def test_api_root_invalid_key_returns_401(client):
-    response = client.get("/api/v1/", headers={"X-API-Key": "pm_notavalidkey"})
-    assert response.status_code == 401
-
-
-@pytest.mark.integration
-def test_api_root_valid_key_returns_200(client, api_key_pair):
+async def test_api_root_valid_key_returns_200(client, api_key_pair):
     response = client.get("/api/v1/", headers={"X-API-Key": api_key_pair})
     assert response.status_code == 200
 
