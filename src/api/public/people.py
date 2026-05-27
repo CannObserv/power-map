@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.deps import get_db
-from src.api.public.deps import require_api_key
+from src.api.public.deps import identifier_filter, require_api_key
 from src.api.public.schemas import PersonDetail, PersonSearchResponse
 from src.core.db import visible_names_filter
 
@@ -22,11 +22,44 @@ async def search_people(
     limit: int = Query(default=10, ge=1),
     offset: int = Query(default=0, ge=0),
     include_archived: bool = Query(default=False),
+    id_filter: tuple[str | None, str | None] = Depends(identifier_filter),
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
     """Search people by display name or public name variant."""
     limit = min(limit, 50)
+    id_type, id_value = id_filter
+
+    if id_type is not None:
+        rows = await db.fetch(
+            """
+            SELECT p.id, v.display_name, p.archived_at
+            FROM people p
+            JOIN identifiers i ON i.entity_id = p.id
+            JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+            LEFT JOIN v_person_display_names v ON v.person_id = p.id
+            WHERE t.slug = $1
+              AND i.value = $2
+              AND t.entity_type = 'person'
+              AND ($3 OR p.archived_at IS NULL)
+            LIMIT 1
+            """,
+            id_type,
+            id_value,
+            include_archived,
+        )
+        return {
+            "data": [
+                {"id": r["id"], "display_name": r["display_name"], "archived_at": r["archived_at"]}
+                for r in rows
+            ],
+            "meta": {
+                "limit": limit,
+                "offset": offset,
+                "count": len(rows),
+                "has_more": False,
+            },
+        }
 
     if not q.strip():
         return {

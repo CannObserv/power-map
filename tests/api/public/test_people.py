@@ -121,6 +121,14 @@ def _search(client, api_key, q, **params):
     )
 
 
+def _search_by_identifier(client, api_key, identifier_type, identifier_value, **params):
+    return client.get(
+        "/api/v1/people/search",
+        params={"identifier_type": identifier_type, "identifier_value": identifier_value, **params},
+        headers={"X-API-Key": api_key},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Search — response shape
 # ---------------------------------------------------------------------------
@@ -356,3 +364,111 @@ async def test_get_person_detail_names_only_public(client, api_key, person_fixtu
     returned_ids = {n["id"] for n in names}
     assert person_fixture["hidden_name_id"] not in returned_ids, "hidden name leaked"
     assert person_fixture["legal_only_name_id"] not in returned_ids, "legal_only name leaked"
+
+
+# ---------------------------------------------------------------------------
+# Search — identifier_type / identifier_value filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_identifier_search_returns_correct_person(client, api_key, person_fixture):
+    r = _search_by_identifier(client, api_key, "person_wa_pdc", "PDC-99999")
+    assert r.status_code == 200
+    body = r.json()
+    ids = [p["id"] for p in body["data"]]
+    assert person_fixture["person_id"] in ids
+    assert body["meta"]["has_more"] is False
+
+
+@pytest.mark.integration
+async def test_identifier_search_unknown_type_returns_empty(client, api_key, person_fixture):
+    r = _search_by_identifier(client, api_key, "nonexistent_slug", "PDC-99999")
+    assert r.status_code == 200
+    assert r.json()["data"] == []
+    assert r.json()["meta"]["has_more"] is False
+
+
+@pytest.mark.integration
+async def test_identifier_search_unknown_value_returns_empty(client, api_key, person_fixture):
+    r = _search_by_identifier(client, api_key, "person_wa_pdc", "DOES-NOT-EXIST")
+    assert r.status_code == 200
+    assert r.json()["data"] == []
+
+
+@pytest.mark.integration
+async def test_identifier_search_type_only_returns_422(client, api_key):
+    r = client.get(
+        "/api/v1/people/search",
+        params={"identifier_type": "person_wa_pdc"},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.integration
+async def test_identifier_search_value_only_returns_422(client, api_key):
+    r = client.get(
+        "/api/v1/people/search",
+        params={"identifier_value": "PDC-99999"},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.integration
+async def test_identifier_search_wins_over_q(client, api_key, person_fixture, db):
+    """When both q and identifier params are given, identifier takes precedence."""
+    other_id = generate_id()
+    other_name_id = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", other_id)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility)"
+        " VALUES ($1,$2,'Jane Other','legal',TRUE,'public')",
+        other_name_id,
+        other_id,
+    )
+    try:
+        # q matches both "Jane" people; identifier should narrow to exactly one
+        r = client.get(
+            "/api/v1/people/search",
+            params={
+                "q": "Jane",
+                "identifier_type": "person_wa_pdc",
+                "identifier_value": "PDC-99999",
+            },
+            headers={"X-API-Key": api_key},
+        )
+        assert r.status_code == 200
+        ids = [p["id"] for p in r.json()["data"]]
+        assert person_fixture["person_id"] in ids
+        assert other_id not in ids
+    finally:
+        await db.execute("DELETE FROM person_names WHERE id=$1", other_name_id)
+        await db.execute("DELETE FROM people WHERE id=$1", other_id)
+
+
+@pytest.mark.integration
+async def test_identifier_search_excludes_archived_by_default(client, api_key, person_fixture, db):
+    await db.execute(
+        "UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"]
+    )
+    r = _search_by_identifier(client, api_key, "person_wa_pdc", "PDC-99999")
+    assert r.status_code == 200
+    ids = [p["id"] for p in r.json()["data"]]
+    assert person_fixture["person_id"] not in ids
+    await db.execute("UPDATE people SET archived_at=NULL WHERE id=$1", person_fixture["person_id"])
+
+
+@pytest.mark.integration
+async def test_identifier_search_include_archived(client, api_key, person_fixture, db):
+    await db.execute(
+        "UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"]
+    )
+    r = _search_by_identifier(
+        client, api_key, "person_wa_pdc", "PDC-99999", include_archived="true"
+    )
+    assert r.status_code == 200
+    ids = [p["id"] for p in r.json()["data"]]
+    assert person_fixture["person_id"] in ids
+    await db.execute("UPDATE people SET archived_at=NULL WHERE id=$1", person_fixture["person_id"])

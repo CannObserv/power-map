@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.deps import get_db
-from src.api.public.deps import require_api_key
+from src.api.public.deps import identifier_filter, require_api_key
 from src.api.public.schemas import OrgDetail, OrgSearchResponse
 
 router = APIRouter(prefix="/orgs", tags=["public-api"])
@@ -35,11 +35,47 @@ async def search_orgs(
     limit: int = Query(default=10, ge=1),
     offset: int = Query(default=0, ge=0),
     include_archived: bool = Query(default=False),
+    id_filter: tuple[str | None, str | None] = Depends(identifier_filter),
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
     """Search organizations by name, acronym, or name variant."""
     limit = min(limit, 50)
+    id_type, id_value = id_filter
+
+    if id_type is not None:
+        rows = await db.fetch(
+            """
+            SELECT
+                o.id,
+                n.name,
+                a.acronym,
+                o.parent_id,
+                o.archived_at
+            FROM organizations o
+            JOIN identifiers i ON i.entity_id = o.id
+            JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+            LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
+            LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
+            WHERE t.slug = $1
+              AND i.value = $2
+              AND t.entity_type = 'organization'
+              AND ($3 OR o.archived_at IS NULL)
+            LIMIT 1
+            """,
+            id_type,
+            id_value,
+            include_archived,
+        )
+        return {
+            "data": [_org_row_to_dict(r) for r in rows],
+            "meta": {
+                "limit": limit,
+                "offset": offset,
+                "count": len(rows),
+                "has_more": False,
+            },
+        }
 
     if not q.strip():
         return {
