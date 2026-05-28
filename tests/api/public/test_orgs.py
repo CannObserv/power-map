@@ -472,11 +472,12 @@ async def test_get_org_etag_and_last_modified_present(client, api_key, org_fixtu
 
 
 @pytest.mark.integration
-async def test_get_org_cache_control_present(client, api_key, org_fixture):
+async def test_get_org_cache_control_and_vary_present(client, api_key, org_fixture):
     oid = org_fixture["org_id"]
     r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     assert r.headers.get("cache-control") == "no-cache"
+    assert r.headers.get("vary") == "X-API-Key"
 
 
 @pytest.mark.integration
@@ -490,6 +491,8 @@ async def test_get_org_304_on_matching_etag(client, api_key, org_fixture):
     )
     assert r2.status_code == 304
     assert r2.content == b""
+    assert r2.headers.get("etag") == etag
+    assert r2.headers.get("cache-control") == "no-cache"
 
 
 @pytest.mark.integration
@@ -542,6 +545,28 @@ async def test_get_org_etag_changes_after_name_added(client, api_key, org_fixtur
     assert r2.headers["etag"] != etag1
 
     await db.execute("DELETE FROM organization_names WHERE id=$1", tmp_id)
+
+
+@pytest.mark.integration
+async def test_get_org_etag_changes_after_acronym_added(client, api_key, org_fixture, db):
+    """Touch-parent trigger: adding an acronym row bumps the org's updated_at."""
+    oid = org_fixture["org_id"]
+    r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    etag1 = r1.headers["etag"]
+
+    await db.execute("SELECT pg_sleep(0.001)")
+    tmp_id = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1,$2,'TMP',FALSE)",
+        tmp_id,
+        oid,
+    )
+
+    r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    assert r2.headers["etag"] != etag1
+
+    await db.execute("DELETE FROM organization_acronyms WHERE id=$1", tmp_id)
 
 
 @pytest.mark.integration

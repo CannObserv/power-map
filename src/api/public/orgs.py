@@ -169,12 +169,17 @@ async def get_org(
         raise HTTPException(status_code=404, detail="Organization not found")
 
     etag = make_etag(row["id"], row["updated_at"])
+    cache_headers = {
+        "ETag": etag,
+        "Last-Modified": row["updated_at"].strftime("%a, %d %b %Y %H:%M:%S GMT"),
+        "Cache-Control": "no-cache",
+        "Vary": "X-API-Key",
+    }
     if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304)
+        return Response(status_code=304, headers=cache_headers)
 
-    response.headers["ETag"] = etag
-    response.headers["Last-Modified"] = row["updated_at"].strftime("%a, %d %b %Y %H:%M:%S GMT")
-    response.headers["Cache-Control"] = "no-cache"
+    for k, v in cache_headers.items():
+        response.headers[k] = v
 
     names, acronyms, identifiers = await _fetch_detail_arrays(org_id, db)
 

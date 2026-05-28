@@ -498,11 +498,12 @@ async def test_get_person_etag_and_last_modified_present(client, api_key, person
 
 
 @pytest.mark.integration
-async def test_get_person_cache_control_present(client, api_key, person_fixture):
+async def test_get_person_cache_control_and_vary_present(client, api_key, person_fixture):
     pid = person_fixture["person_id"]
     r = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     assert r.headers.get("cache-control") == "no-cache"
+    assert r.headers.get("vary") == "X-API-Key"
 
 
 @pytest.mark.integration
@@ -516,6 +517,8 @@ async def test_get_person_304_on_matching_etag(client, api_key, person_fixture):
     )
     assert r2.status_code == 304
     assert r2.content == b""
+    assert r2.headers.get("etag") == etag
+    assert r2.headers.get("cache-control") == "no-cache"
 
 
 @pytest.mark.integration
