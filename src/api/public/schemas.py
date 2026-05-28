@@ -10,6 +10,12 @@ def _fmt_ts(v: datetime | None) -> str | None:
     return v.isoformat().replace("+00:00", "Z") if v else None
 
 
+def make_etag(entity_id: str, updated_at: datetime) -> str:
+    """Return a strong ETag for a detail resource: ``"<id>-<updated_at_ms>"``."""
+    ts_ms = int(updated_at.timestamp() * 1000)
+    return f'"{entity_id}-{ts_ms}"'
+
+
 class OrgSearchResult(BaseModel):
     """Single item in a search response."""
 

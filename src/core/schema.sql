@@ -839,6 +839,77 @@ CREATE OR REPLACE TRIGGER trg_updated_at_iso15924_scripts
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =============================================================================
+-- Touch-parent triggers
+-- Propagate child INSERT/UPDATE/DELETE to the parent entity's updated_at so
+-- that ETag-based conditional GETs reflect any change to the full detail payload.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION touch_parent_org()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE organizations SET updated_at = NOW()
+    WHERE id = COALESCE(NEW.organization_id, OLD.organization_id);
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_org_on_name_change
+    AFTER INSERT OR UPDATE OR DELETE ON organization_names
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_org();
+
+CREATE OR REPLACE TRIGGER trg_touch_org_on_acronym_change
+    AFTER INSERT OR UPDATE OR DELETE ON organization_acronyms
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_org();
+
+CREATE OR REPLACE FUNCTION touch_parent_person()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE people SET updated_at = NOW()
+    WHERE id = COALESCE(NEW.person_id, OLD.person_id);
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_person_on_name_change
+    AFTER INSERT OR UPDATE OR DELETE ON person_names
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_person();
+
+-- identifiers is polymorphic: look up entity_type from entity_identifier_types
+-- to dispatch the touch to the correct parent table.
+CREATE OR REPLACE FUNCTION touch_parent_on_identifier_change()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_entity_id   TEXT;
+    v_type_id     TEXT;
+    v_entity_type TEXT;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_entity_id := OLD.entity_id;
+        v_type_id   := OLD.entity_identifier_type_id;
+    ELSE
+        v_entity_id := NEW.entity_id;
+        v_type_id   := NEW.entity_identifier_type_id;
+    END IF;
+
+    SELECT entity_type INTO v_entity_type
+    FROM entity_identifier_types
+    WHERE id = v_type_id;
+
+    IF v_entity_type = 'organization' THEN
+        UPDATE organizations SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'person' THEN
+        UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_entity_on_identifier_change
+    AFTER INSERT OR UPDATE OR DELETE ON identifiers
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_on_identifier_change();
+
+-- =============================================================================
 -- Migration: urls/social_links/url_types/platforms → link_types/links
 -- Idempotent: checks table existence before operating. Safe to re-run.
 -- =============================================================================

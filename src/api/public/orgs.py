@@ -2,11 +2,11 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import identifier_filter, require_api_key
-from src.api.public.schemas import OrgDetail, OrgSearchResponse
+from src.api.public.schemas import OrgDetail, OrgSearchResponse, make_etag
 
 router = APIRouter(prefix="/orgs", tags=["public-api"])
 
@@ -143,6 +143,8 @@ async def search_orgs(
 )
 async def get_org(
     org_id: str,
+    request: Request,
+    response: Response,
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
@@ -153,6 +155,7 @@ async def get_org(
             o.id,
             o.parent_id,
             o.archived_at,
+            o.updated_at,
             n.name,
             a.acronym
         FROM organizations o
@@ -164,6 +167,14 @@ async def get_org(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Organization not found")
+
+    etag = make_etag(row["id"], row["updated_at"])
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304)
+
+    response.headers["ETag"] = etag
+    response.headers["Last-Modified"] = row["updated_at"].strftime("%a, %d %b %Y %H:%M:%S GMT")
+    response.headers["Cache-Control"] = "no-cache"
 
     names, acronyms, identifiers = await _fetch_detail_arrays(org_id, db)
 

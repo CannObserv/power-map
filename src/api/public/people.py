@@ -2,11 +2,11 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import identifier_filter, require_api_key
-from src.api.public.schemas import PersonDetail, PersonSearchResponse
+from src.api.public.schemas import PersonDetail, PersonSearchResponse, make_etag
 from src.core.db import visible_names_filter
 
 router = APIRouter(prefix="/people", tags=["public-api"])
@@ -124,13 +124,15 @@ async def search_people(
 )
 async def get_person(
     person_id: str,
+    request: Request,
+    response: Response,
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
     """Return full person record with public name variants and identifiers."""
     row = await db.fetchrow(
         """
-        SELECT p.id, p.archived_at, v.display_name
+        SELECT p.id, p.archived_at, p.updated_at, v.display_name
         FROM people p
         LEFT JOIN v_person_display_names v ON v.person_id = p.id
         WHERE p.id = $1
@@ -139,6 +141,14 @@ async def get_person(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Person not found")
+
+    etag = make_etag(row["id"], row["updated_at"])
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304)
+
+    response.headers["ETag"] = etag
+    response.headers["Last-Modified"] = row["updated_at"].strftime("%a, %d %b %Y %H:%M:%S GMT")
+    response.headers["Cache-Control"] = "no-cache"
 
     names, identifiers = await _fetch_detail_arrays(person_id, db)
 
