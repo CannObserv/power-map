@@ -1,0 +1,81 @@
+# power-map Public API
+
+**Schema and endpoint inventory:** `/docs` (Swagger UI, both dev and prod) is the authoritative reference for request parameters, response shapes, and per-endpoint descriptions. This document covers the meta-level contracts, auth model, and implicit behaviors that the OpenAPI spec does not capture.
+
+---
+
+## Authentication
+
+Every request requires `X-API-Key: <token>`. Missing header → 403; invalid key → 401.
+
+Keys are stored as SHA-256 hashes — the raw token is never persisted after issuance. Each valid request updates `last_used_at` on the key row, which can be queried to audit inactive keys.
+
+---
+
+## Scope
+
+All keys are read-only. No write endpoints exist in v1. There is no per-key permission scoping — a valid key reaches all v1 read endpoints.
+
+---
+
+## Rate Limits
+
+None are enforced at the application layer. Implement client-side throttling to avoid saturating the DB connection pool under sustained load.
+
+---
+
+## Key Lifecycle
+
+No self-serve key management. To request, rotate, or revoke a key, open an issue or contact the maintainer. Include the `key_prefix` (first 8 characters of the raw token, visible in the admin dashboard) so the correct row can be identified without the raw secret.
+
+---
+
+## Pagination — implicit behaviors
+
+The `/docs` spec documents the `q`, `limit`, `offset`, `include_archived`, `identifier_type`, and `identifier_value` parameters. The following behavioral details are not captured there:
+
+- **`count` is the page count, not the total.** `meta.count` is the number of items returned in this response. No total-dataset-size field exists.
+- **`limit` is server-clamped to 50.** Values above 50 are silently reduced; the cap is enforced in code, not in schema validation, so the OpenAPI spec shows no upper bound.
+- **Empty `q` short-circuits.** When `q` is absent or whitespace-only, the endpoint returns an empty result set immediately — no DB query is issued. A non-empty `q` is required for meaningful results.
+- **`identifier_type` + `identifier_value` take precedence over `q`.** When both are supplied, they perform an exact identifier lookup and return at most one result with `has_more: false`; `q`, `limit`, and `offset` are accepted but have no effect.
+- **`include_archived: false` is a silent filter.** Archived entities are excluded by default with no signal in the response that a matching archived record exists. Pass `include_archived=true` to include them.
+
+Iteration pattern:
+
+```python
+offset, limit = 0, 50
+while True:
+    resp = client.get("/api/v1/orgs/search", params={"q": "<term>", "limit": limit, "offset": offset})
+    page = resp.json()
+    process(page["data"])
+    if not page["meta"]["has_more"]:
+        break
+    offset += limit
+```
+
+---
+
+## Caching — detail endpoints
+
+`GET /api/v1/orgs/{id}` and `GET /api/v1/people/{id}` return caching headers on every `200` response:
+
+| Header | Value |
+|--------|-------|
+| `ETag` | `"<id>-<updated_at_ms>"` — strong ETag based on last-update timestamp |
+| `Last-Modified` | RFC 7231 format |
+| `Cache-Control` | `no-cache` — revalidation required before serving from cache |
+| `Vary` | `X-API-Key` |
+
+Send `If-None-Match: <etag>` to receive `304 Not Modified` when the record is unchanged. `Vary: X-API-Key` means shared proxy caches store a separate entry per key — if multiple services share one key they share a cache entry.
+
+---
+
+## Versioning
+
+Path-versioned (`/api/v1/`). Breaking changes introduce a new prefix (`/api/v2/`) with advance notice. Additive changes (new optional fields, new endpoints) may appear within a version without notice.
+
+---
+
+## Health check
+
+`GET /api/v1/` returns `{"status": "ok", "version": "v1"}` when authenticated. Use it to confirm key validity before hitting data endpoints.

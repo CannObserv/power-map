@@ -45,7 +45,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
 src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion)
 src/static/     — Static assets; vendor/ is SHA-pinned and excluded from linting
 tests/          — Mirrors src/ structure; js/ for Vitest
-docs/           — Reference docs (COMMANDS, STYLE, CONVENTIONS, SKILLS)
+docs/           — Reference docs (COMMANDS, STYLE, CONVENTIONS, SKILLS, PUBLIC_API)
 scripts/        — One-off operational scripts
 infra/          — systemd unit file
 ```
