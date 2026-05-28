@@ -479,3 +479,117 @@ async def test_identifier_search_include_archived(client, api_key, person_fixtur
     ids = [p["id"] for p in r.json()["data"]]
     assert person_fixture["person_id"] in ids
     await db.execute("UPDATE people SET archived_at=NULL WHERE id=$1", person_fixture["person_id"])
+
+
+# ---------------------------------------------------------------------------
+# ETag / conditional GET
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_get_person_etag_and_last_modified_present(client, api_key, person_fixture):
+    pid = person_fixture["person_id"]
+    r = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    etag = r.headers.get("etag")
+    assert etag is not None, "ETag header missing"
+    assert etag.startswith('"') and etag.endswith('"'), f"ETag not quoted: {etag}"
+    assert r.headers.get("last-modified") is not None, "Last-Modified header missing"
+
+
+@pytest.mark.integration
+async def test_get_person_cache_control_present(client, api_key, person_fixture):
+    pid = person_fixture["person_id"]
+    r = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    assert r.headers.get("cache-control") == "no-cache"
+
+
+@pytest.mark.integration
+async def test_get_person_304_on_matching_etag(client, api_key, person_fixture):
+    pid = person_fixture["person_id"]
+    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    etag = r1.headers["etag"]
+    r2 = client.get(
+        f"/api/v1/people/{pid}",
+        headers={"X-API-Key": api_key, "If-None-Match": etag},
+    )
+    assert r2.status_code == 304
+    assert r2.content == b""
+
+
+@pytest.mark.integration
+async def test_get_person_200_on_mismatched_etag(client, api_key, person_fixture):
+    pid = person_fixture["person_id"]
+    r = client.get(
+        f"/api/v1/people/{pid}",
+        headers={"X-API-Key": api_key, "If-None-Match": '"wrong-etag-value"'},
+    )
+    assert r.status_code == 200
+    assert r.json()["id"] == pid
+
+
+@pytest.mark.integration
+async def test_get_person_etag_changes_after_parent_update(client, api_key, person_fixture, db):
+    pid = person_fixture["person_id"]
+    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    etag1 = r1.headers["etag"]
+
+    await db.execute("SELECT pg_sleep(0.001)")
+    await db.execute("UPDATE people SET archived_at = archived_at WHERE id=$1", pid)
+
+    r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    assert r2.headers["etag"] != etag1
+
+    r3 = client.get(
+        f"/api/v1/people/{pid}",
+        headers={"X-API-Key": api_key, "If-None-Match": etag1},
+    )
+    assert r3.status_code == 200
+
+
+@pytest.mark.integration
+async def test_get_person_etag_changes_after_name_added(client, api_key, person_fixture, db):
+    """Touch-parent trigger: adding a name row bumps the person's updated_at."""
+    pid = person_fixture["person_id"]
+    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    etag1 = r1.headers["etag"]
+
+    await db.execute("SELECT pg_sleep(0.001)")
+    tmp_id = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility)"
+        " VALUES ($1,$2,'Temp Public Name','alias',FALSE,'public')",
+        tmp_id,
+        pid,
+    )
+
+    r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    assert r2.headers["etag"] != etag1
+
+    await db.execute("DELETE FROM person_names WHERE id=$1", tmp_id)
+
+
+@pytest.mark.integration
+async def test_get_person_etag_changes_after_identifier_added(
+    client, api_key, person_fixture, db
+):
+    """Touch-parent trigger: adding an identifier bumps the person's updated_at."""
+    pid = person_fixture["person_id"]
+    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    etag1 = r1.headers["etag"]
+
+    await db.execute("SELECT pg_sleep(0.001)")
+    tmp_id = generate_id()
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1,$2,$3,'PDC-TMP-001')",
+        tmp_id,
+        pid,
+        person_fixture["eid_type_id"],
+    )
+
+    r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    assert r2.headers["etag"] != etag1
+
+    await db.execute("DELETE FROM identifiers WHERE id=$1", tmp_id)
