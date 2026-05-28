@@ -8,7 +8,7 @@
 
 Every request requires `X-API-Key: <token>`. Missing header → 403; invalid key → 401.
 
-Keys are stored as SHA-256 hashes — the raw token is never persisted after issuance. Each valid request updates `last_used_at` on the key row, which can be queried to audit inactive keys.
+Keys are stored as SHA-256 hashes — the raw token is never persisted after issuance. Each valid request updates `last_used_at` on the key row; the maintainer can review per-key usage in the admin dashboard to identify inactive keys.
 
 ---
 
@@ -26,7 +26,7 @@ None are enforced at the application layer. Implement client-side throttling to 
 
 ## Key Lifecycle
 
-No self-serve key management. To request, rotate, or revoke a key, open an issue or contact the maintainer. Include the `key_prefix` (first 8 characters of the raw token, visible in the admin dashboard) so the correct row can be identified without the raw secret.
+No self-serve key management. To request, rotate, or revoke a key, open an issue or contact the maintainer. Include the `key_prefix` (first 8 characters of your raw token) so the correct row can be identified without the raw secret.
 
 ---
 
@@ -72,7 +72,7 @@ Send `If-None-Match: <etag>` to receive `304 Not Modified` when the record is un
 
 ## Versioning
 
-Path-versioned (`/api/v1/`). Breaking changes introduce a new prefix (`/api/v2/`) with advance notice. Additive changes (new optional fields, new endpoints) may appear within a version without notice.
+Path-versioned (`/api/v1/`). Breaking changes introduce a new prefix (`/api/v2/`). Additive changes (new optional fields, new endpoints) may appear within a version without notice.
 
 ---
 
