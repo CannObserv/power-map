@@ -88,8 +88,10 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
 
         logger.info(
             "role dedup: org=%s title=%r canonical=%s duplicates=%s",
-            group["organization_id"], group["title_lower"],
-            canonical_id, dup_ids,
+            group["organization_id"],
+            group["title_lower"],
+            canonical_id,
+            dup_ids,
         )
 
         # Assignments on duplicate roles that would conflict when re-pointed
@@ -111,7 +113,8 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
                         AND ra_can.archived_at IS NULL
                   )
                 """,
-                canonical_id, dup_ids,
+                canonical_id,
+                dup_ids,
             )
         ]
         if conflicting_ra_ids:
@@ -134,7 +137,8 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
         # Re-point remaining assignments to canonical role (no conflicts possible now)
         await conn.execute(
             "UPDATE role_assignments SET role_id = $1 WHERE role_id = ANY($2::text[])",
-            canonical_id, dup_ids,
+            canonical_id,
+            dup_ids,
         )
 
         # Migrate role links that won't conflict on URL uniqueness; delete any
@@ -155,7 +159,8 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
                     AND l2.link_type_id = links.link_type_id
               )
             """,
-            canonical_id, dup_ids,
+            canonical_id,
+            dup_ids,
         )
         await conn.execute(
             "DELETE FROM links WHERE entity_type = 'role' AND entity_id = ANY($1::text[])",
@@ -193,8 +198,11 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
 
         logger.info(
             "assignment dedup: person=%s role=%s start=%s canonical=%s duplicates=%s",
-            group["person_id"], group["role_id"], group["start_date"],
-            canonical_id, dup_ids,
+            group["person_id"],
+            group["role_id"],
+            group["start_date"],
+            canonical_id,
+            dup_ids,
         )
 
         # Migrate polymorphic children (no unique constraints — always safe).
@@ -203,7 +211,8 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
         for table in ("contact_methods", "identifiers", "field_confidence"):
             await conn.execute(
                 f"UPDATE {table} SET entity_id = $1 WHERE entity_id = ANY($2::text[])",  # noqa: S608
-                canonical_id, dup_ids,
+                canonical_id,
+                dup_ids,
             )
 
         # Links: migrate non-conflicting links by URL identity; delete the rest
@@ -222,7 +231,8 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
                     AND l2.link_type_id = links.link_type_id
               )
             """,
-            canonical_id, dup_ids,
+            canonical_id,
+            dup_ids,
         )
         await conn.execute(
             "DELETE FROM links"
@@ -239,9 +249,7 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
     return roles_removed, assignments_removed
 
 
-async def run_deduplication(
-    conn: asyncpg.Connection, dry_run: bool = True
-) -> DeduplicationResult:
+async def run_deduplication(conn: asyncpg.Connection, dry_run: bool = True) -> DeduplicationResult:
     """Collapse duplicate roles and role_assignments.
 
     On dry_run=True, all SQL runs inside a savepoint that is rolled back so no

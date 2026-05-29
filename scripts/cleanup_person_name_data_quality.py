@@ -63,9 +63,9 @@ class SplitName:
     ``visibility='public'``, ``is_canonical=FALSE``.
     """
 
-    name_id: str            # existing person_names.id whose name is being cleaned
-    new_legal_name: str     # what the existing row's name becomes
-    sibling_name: str       # full name string for the new sibling row
+    name_id: str  # existing person_names.id whose name is being cleaned
+    new_legal_name: str  # what the existing row's name becomes
+    sibling_name: str  # full name string for the new sibling row
     sibling_type: Literal["variant", "maiden"]
 
 
@@ -111,31 +111,30 @@ async def apply_action(db: asyncpg.Connection, action: CleanupAction) -> None:
     if isinstance(action, StripSuffix):
         result = await db.execute(
             "UPDATE person_names SET name=$1 WHERE id=$2",
-            action.new_name, action.name_id,
+            action.new_name,
+            action.name_id,
         )
         # asyncpg returns "UPDATE 0" on no-match.
         if result.endswith(" 0"):
-            raise ValueError(
-                f"StripSuffix: name_id={action.name_id!r} not found"
-            )
+            raise ValueError(f"StripSuffix: name_id={action.name_id!r} not found")
         logger.info(
             "strip-suffix: %s -> %r (stripped %r)",
-            action.name_id, action.new_name, action.strip,
+            action.name_id,
+            action.new_name,
+            action.strip,
         )
 
     elif isinstance(action, SplitName):
         row = await db.fetchrow(
-            "SELECT person_id, locale, script, visibility "
-            "FROM person_names WHERE id=$1",
+            "SELECT person_id, locale, script, visibility FROM person_names WHERE id=$1",
             action.name_id,
         )
         if row is None:
-            raise ValueError(
-                f"SplitName: name_id={action.name_id!r} not found"
-            )
+            raise ValueError(f"SplitName: name_id={action.name_id!r} not found")
         await db.execute(
             "UPDATE person_names SET name=$1 WHERE id=$2",
-            action.new_legal_name, action.name_id,
+            action.new_legal_name,
+            action.name_id,
         )
         sibling_id = generate_id()
         await db.execute(
@@ -143,14 +142,21 @@ async def apply_action(db: asyncpg.Connection, action: CleanupAction) -> None:
             "(id, person_id, name, name_type, is_canonical, "
             " locale, script, visibility) "
             "VALUES ($1, $2, $3, $4, FALSE, $5, $6, $7)",
-            sibling_id, row["person_id"], action.sibling_name,
-            action.sibling_type, row["locale"], row["script"],
+            sibling_id,
+            row["person_id"],
+            action.sibling_name,
+            action.sibling_type,
+            row["locale"],
+            row["script"],
             row["visibility"],
         )
         logger.info(
             "split-name: %s -> legal=%r + %s=%r (sibling_id=%s)",
-            action.name_id, action.new_legal_name, action.sibling_type,
-            action.sibling_name, sibling_id,
+            action.name_id,
+            action.new_legal_name,
+            action.sibling_type,
+            action.sibling_name,
+            sibling_id,
         )
 
     elif isinstance(action, MergePerson):
@@ -162,7 +168,9 @@ async def apply_action(db: asyncpg.Connection, action: CleanupAction) -> None:
         )
         logger.info(
             "merge-person: loser=%s -> winner=%s (%s)",
-            action.loser_id, action.winner_id, action.rationale,
+            action.loser_id,
+            action.winner_id,
+            action.rationale,
         )
 
     else:  # pragma: no cover — exhaustive type union
@@ -210,71 +218,83 @@ CLEANUP_ACTIONS: list[CleanupAction] = [
     # Legal becomes the FIRST given name (canonical); second becomes variant.
     SplitName(
         name_id="01KM1CTMRNZ07T5ERS5DN165SE",  # 'Rene or Renee'
-        new_legal_name="Rene", sibling_name="Renee", sibling_type="variant",
+        new_legal_name="Rene",
+        sibling_name="Renee",
+        sibling_type="variant",
     ),
     SplitName(
         name_id="01KM1CTKNHT6BKNEC24W2S96JA",  # 'Libby/Lynn Rindal'
-        new_legal_name="Libby Rindal", sibling_name="Lynn Rindal",
+        new_legal_name="Libby Rindal",
+        sibling_name="Lynn Rindal",
         sibling_type="variant",
     ),
     SplitName(
         name_id="01KM1CTM6B9M3CF8CH78KSMQBM",  # 'Micael (Michael?) Tsegai'
-        new_legal_name="Micael Tsegai", sibling_name="Michael Tsegai",
+        new_legal_name="Micael Tsegai",
+        sibling_name="Michael Tsegai",
         sibling_type="variant",
     ),
-
     # --- Bucket C: parenthesized markers ---------------------------------------
     # Strip the (2) dedupe-disambiguation markers — those should never have
     # ended up in `name`. Leaves the row otherwise untouched.
     StripSuffix(
         name_id="01KM1CTKPE5FP8D8PMFERVYEM9",  # 'Linda Thompson (2)'
-        new_name="Linda Thompson", strip=" (2)",
+        new_name="Linda Thompson",
+        strip=" (2)",
     ),
     StripSuffix(
         name_id="01KM1CTM08M02DQJSKGBJKWXDT",  # 'Mary Brown (2)'
-        new_name="Mary Brown", strip=" (2)",
+        new_name="Mary Brown",
+        strip=" (2)",
     ),
     StripSuffix(
         name_id="01KM1CTNFS4K611707B60QPDGS",  # 'Shannon Angell (2)'
-        new_name="Shannon Angell", strip=" (2)",
+        new_name="Shannon Angell",
+        strip=" (2)",
     ),
     # Inline alt-spelling / nickname / maiden parens.
     SplitName(
         name_id="01KM1CTMCFMK4N558AXCZ8HD18",  # 'Myra (Mayra) Hernandez'
-        new_legal_name="Myra Hernandez", sibling_name="Mayra Hernandez",
+        new_legal_name="Myra Hernandez",
+        sibling_name="Mayra Hernandez",
         sibling_type="variant",
     ),
     SplitName(
         name_id="01KM1CTNZSRRYWG444M5GVAYZ1",  # 'Victor (Vic) Colman'
-        new_legal_name="Victor Colman", sibling_name="Vic Colman",
+        new_legal_name="Victor Colman",
+        sibling_name="Vic Colman",
         sibling_type="variant",
     ),
     SplitName(
         name_id="01KM1CTP05ZKAJ8WNDFHY3VGQX",  # 'Virginia (Webber) Hoyer'
-        new_legal_name="Virginia Hoyer", sibling_name="Virginia Webber",
+        new_legal_name="Virginia Hoyer",
+        sibling_name="Virginia Webber",
         sibling_type="maiden",
     ),
-
     # --- Bucket D: quoted nickname surfaces as a separate variant row ----------
     SplitName(
         name_id="01KM1CTKFMSJXTYHNE6SYFQR7W",  # 'Kristopher "Kip" Hill'
-        new_legal_name="Kristopher Hill", sibling_name="Kip Hill",
+        new_legal_name="Kristopher Hill",
+        sibling_name="Kip Hill",
         sibling_type="variant",
     ),
-
     # --- Bucket B (continued): split BEFORE merge so both records carry both
     # spellings; the merge's exact-name dedup collapses them cleanly.
     SplitName(
         name_id="01KM1CTK12XJ3MHQPFFZ6WR5SP",  # 'Jodi/Jody' (winner — older + has notes)
-        new_legal_name="Jodi", sibling_name="Jody", sibling_type="variant",
+        new_legal_name="Jodi",
+        sibling_name="Jody",
+        sibling_type="variant",
     ),
     SplitName(
         name_id="01KM234TX6NV6W2M8ZQFYR5VX7",  # 'Jody or Jodi' (loser)
-        new_legal_name="Jody", sibling_name="Jodi", sibling_type="variant",
+        new_legal_name="Jody",
+        sibling_name="Jodi",
+        sibling_type="variant",
     ),
     MergePerson(
         winner_id="01KM1CTK11KGSM3P7AF84NKPFB",  # Jodi/Jody person
-        loser_id="01KM234TX521Q0P7D05ZBWZS8D",   # Jody or Jodi person
+        loser_id="01KM234TX521Q0P7D05ZBWZS8D",  # Jody or Jodi person
         rationale="Same person — uncertainty about Jodi vs Jody spelling.",
     ),
 ]

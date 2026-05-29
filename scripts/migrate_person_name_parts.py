@@ -132,9 +132,7 @@ async def run_migration(
             if err is not None:
                 # validation error from upsert_or_delete_parts; raise to
                 # roll back the entire batch.
-                raise ValueError(
-                    f"row id={kwargs['name_id']!r}: {err}"
-                )
+                raise ValueError(f"row id={kwargs['name_id']!r}: {err}")
             stats.applied += 1
     except Exception:
         await sp.rollback()
@@ -161,7 +159,8 @@ async def _main() -> None:
         help="Commit changes. Default is dry run (no changes made).",
     )
     parser.add_argument(
-        "-i", "--input",
+        "-i",
+        "--input",
         type=Path,
         default=DEFAULT_CSV_PATH,
         help=f"Path to the analyser CSV (default: {DEFAULT_CSV_PATH}).",
@@ -170,7 +169,7 @@ async def _main() -> None:
         "--include-ambiguous",
         action="store_true",
         help="Also commit rows labelled `ambiguous` (the operator has "
-             "reviewed them). Default filter is `trivial` only.",
+        "reviewed them). Default filter is `trivial` only.",
     )
     args = parser.parse_args()
     dry_run = not args.execute

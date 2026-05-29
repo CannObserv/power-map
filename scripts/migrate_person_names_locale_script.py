@@ -126,12 +126,11 @@ async def _preflight(
     missing: list[str] = []
     for code in sorted(needed_locales):
         if not await conn.fetchval(
-            "SELECT 1 FROM bcp47_locales WHERE code=$1", code,
+            "SELECT 1 FROM bcp47_locales WHERE code=$1",
+            code,
         ):
             missing.append(f"bcp47_locales[{code!r}]")
-    if not await conn.fetchval(
-        "SELECT 1 FROM iso15924_scripts WHERE code='Latn'"
-    ):
+    if not await conn.fetchval("SELECT 1 FROM iso15924_scripts WHERE code='Latn'"):
         missing.append("iso15924_scripts['Latn']")
     if missing:
         raise SystemExit(
@@ -161,11 +160,11 @@ async def run_backfill(
     await _preflight(conn, locale_overrides=locale_overrides)
 
     rows = await conn.fetch(
-        "SELECT id, name, locale, script FROM person_names"
-        " WHERE locale IS NULL OR script IS NULL"
+        "SELECT id, name, locale, script FROM person_names WHERE locale IS NULL OR script IS NULL"
     )
     by_locale, by_script, skipped = _classify_rows(
-        rows, locale_overrides=locale_overrides,
+        rows,
+        locale_overrides=locale_overrides,
     )
 
     stats = BackfillStats(skipped=skipped, dry_run=dry_run)
@@ -176,22 +175,28 @@ async def run_backfill(
         for locale_code, ids in by_locale.items():
             await conn.execute(
                 "UPDATE person_names SET locale=$1 WHERE id = ANY($2::text[])",
-                locale_code, ids,
+                locale_code,
+                ids,
             )
             stats.locale_updated += len(ids)
             stats.locale_breakdown[locale_code] = len(ids)
             logger.info(
-                "backfill: set locale=%s on %d rows", locale_code, len(ids),
+                "backfill: set locale=%s on %d rows",
+                locale_code,
+                len(ids),
             )
         for script_code, ids in by_script.items():
             await conn.execute(
                 "UPDATE person_names SET script=$1 WHERE id = ANY($2::text[])",
-                script_code, ids,
+                script_code,
+                ids,
             )
             stats.script_updated += len(ids)
             stats.script_breakdown[script_code] = len(ids)
             logger.info(
-                "backfill: set script=%s on %d rows", script_code, len(ids),
+                "backfill: set script=%s on %d rows",
+                script_code,
+                len(ids),
             )
     except Exception:
         await sp.rollback()

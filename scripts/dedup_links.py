@@ -68,9 +68,7 @@ async def _do_consolidation(conn: asyncpg.Connection) -> int:
     return int(result.split()[-1])
 
 
-async def run_consolidation(
-    conn: asyncpg.Connection, dry_run: bool = True
-) -> ConsolidationResult:
+async def run_consolidation(conn: asyncpg.Connection, dry_run: bool = True) -> ConsolidationResult:
     """Consolidate duplicate ``links`` rows.
 
     On ``dry_run=True``, all SQL runs inside a savepoint that is rolled back

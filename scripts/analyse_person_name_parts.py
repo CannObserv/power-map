@@ -44,9 +44,16 @@ logger = get_logger(__name__)
 
 CSV_COLUMNS: tuple[str, ...] = (
     # Identity / context
-    "id", "person_id", "name", "name_type", "locale", "script", "visibility",
+    "id",
+    "person_id",
+    "name",
+    "name_type",
+    "locale",
+    "script",
+    "visibility",
     # Suggestion
-    "confidence", "reasons",
+    "confidence",
+    "reasons",
     # Parts (in canonical print order)
     "honorific_prefix",
     "given_names",
@@ -92,7 +99,9 @@ def _format_csv_row(row: dict | asyncpg.Record, suggestion: PartsSuggestion) -> 
 
 
 async def run_analysis(
-    conn: asyncpg.Connection, *, output_path: Path,
+    conn: asyncpg.Connection,
+    *,
+    output_path: Path,
 ) -> AnalysisStats:
     """Walk every `person_names` row, suggest parts, write CSV.
 
@@ -101,8 +110,7 @@ async def run_analysis(
     triage them. The caller owns the connection lifecycle.
     """
     rows = await conn.fetch(
-        "SELECT id, person_id, name, name_type, locale, script, visibility"
-        " FROM person_names"
+        "SELECT id, person_id, name, name_type, locale, script, visibility FROM person_names"
     )
     stats = AnalysisStats()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -125,7 +133,9 @@ async def run_analysis(
             stats.bucket_counts[sug.confidence] += 1
     logger.info(
         "analysis: wrote %d rows to %s — buckets=%s",
-        stats.rows_analysed, output_path, dict(stats.bucket_counts),
+        stats.rows_analysed,
+        output_path,
+        dict(stats.bucket_counts),
     )
     return stats
 
@@ -134,7 +144,8 @@ async def _main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=Path,
         default=Path("tmp/person_name_parts_analysis.csv"),
         help="Output CSV path (default: tmp/person_name_parts_analysis.csv)",

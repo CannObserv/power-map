@@ -121,7 +121,7 @@ async def test_people_list_rows_have_merge_checkboxes(client, person_pair):
     response = client.get("/admin/people/?q=Xyzzy", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'name="merge-select"' in response.text
-    assert 'data-person-id=' in response.text
+    assert "data-person-id=" in response.text
 
 
 async def test_people_list_rows_have_data_title(client, person_pair):
@@ -362,17 +362,14 @@ async def person_batch(db_pool):
     async with db_pool.acquire() as conn:
         for pid in ids:
             await conn.execute(
-                "DELETE FROM duplicate_dismissals"
-                " WHERE entity_a_id=$1 OR entity_b_id=$1",
+                "DELETE FROM duplicate_dismissals WHERE entity_a_id=$1 OR entity_b_id=$1",
                 pid,
             )
             await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
             await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
-async def test_merge_preserves_page_and_page_size_from_hx_current_url(
-    client, person_batch
-):
+async def test_merge_preserves_page_and_page_size_from_hx_current_url(client, person_batch):
     """HX-Current-URL `?page=2&page_size=10` must shape the refreshed region:
     post-merge count of 11 means page 2 holds exactly 1 row."""
     prefix, ids = person_batch

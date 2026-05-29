@@ -34,11 +34,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Import Cannabis Observer CSV data into PostgreSQL."
     )
-    parser.add_argument("--orgs",   type=Path, required=True, help="Path to Organizations.csv")
+    parser.add_argument("--orgs", type=Path, required=True, help="Path to Organizations.csv")
     parser.add_argument("--people", type=Path, required=True, help="Path to People.csv")
-    parser.add_argument("--roles",  type=Path, required=True, help="Path to Roles.csv")
+    parser.add_argument("--roles", type=Path, required=True, help="Path to Roles.csv")
     parser.add_argument(
-        "--source-reliability", type=float, default=0.8,
+        "--source-reliability",
+        type=float,
+        default=0.8,
         help="Source reliability score (0.0–1.0). Default: 0.8",
     )
     parser.add_argument(

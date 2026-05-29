@@ -17,8 +17,7 @@ import pytest_asyncio
 from src.core.db import apply_schema
 
 INTEGRATION_SKIP_REASON = (
-    "TEST_DATABASE_URL not set — set it in .env (see docs/COMMANDS.md); "
-    "skipping integration tests"
+    "TEST_DATABASE_URL not set — set it in .env (see docs/COMMANDS.md); skipping integration tests"
 )
 
 

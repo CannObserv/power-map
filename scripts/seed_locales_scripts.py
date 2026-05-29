@@ -31,9 +31,7 @@ def enumerate_bcp47_locales() -> Iterator[dict]:
     the result is a deduplicated set of ~3500 locale codes covering CLDR.
     """
     seen: set[str] = set()
-    candidates = list(langcodes.LIKELY_SUBTAGS.keys()) + list(
-        langcodes.LIKELY_SUBTAGS.values()
-    )
+    candidates = list(langcodes.LIKELY_SUBTAGS.keys()) + list(langcodes.LIKELY_SUBTAGS.values())
     for code in candidates:
         try:
             tag = langcodes.Language.get(code).simplify_script()
@@ -81,13 +79,10 @@ _UPSERT_SCRIPTS_SQL = """
 """
 
 
-async def upsert_locales(
-    conn: asyncpg.Connection, rows: Iterator[dict]
-) -> int:
+async def upsert_locales(conn: asyncpg.Connection, rows: Iterator[dict]) -> int:
     """Idempotent batch upsert into bcp47_locales. Returns row count processed."""
     payload = [
-        (r["code"], r["language"], r["script"], r["region"], r["display_name"])
-        for r in rows
+        (r["code"], r["language"], r["script"], r["region"], r["display_name"]) for r in rows
     ]
     if not payload:
         return 0
@@ -95,9 +90,7 @@ async def upsert_locales(
     return len(payload)
 
 
-async def upsert_scripts(
-    conn: asyncpg.Connection, rows: Iterator[dict]
-) -> int:
+async def upsert_scripts(conn: asyncpg.Connection, rows: Iterator[dict]) -> int:
     """Idempotent batch upsert into iso15924_scripts. Returns row count processed."""
     payload = [(r["code"], r["numeric_code"], r["name"]) for r in rows]
     if not payload:

@@ -574,9 +574,7 @@ async def test_get_person_etag_changes_after_name_added(client, api_key, person_
 
 
 @pytest.mark.integration
-async def test_get_person_etag_changes_after_identifier_added(
-    client, api_key, person_fixture, db
-):
+async def test_get_person_etag_changes_after_identifier_added(client, api_key, person_fixture, db):
     """Touch-parent trigger: adding an identifier bumps the person's updated_at."""
     pid = person_fixture["person_id"]
     r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})

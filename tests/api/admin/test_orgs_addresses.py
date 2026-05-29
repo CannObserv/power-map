@@ -67,9 +67,7 @@ async def org_and_address(db_pool):
     yield oid, eaid
 
     async with db_pool.acquire() as conn, conn.transaction():
-        rows = await conn.fetch(
-            "SELECT address_id FROM entity_addresses WHERE entity_id=$1", oid
-        )
+        rows = await conn.fetch("SELECT address_id FROM entity_addresses WHERE entity_id=$1", oid)
         address_ids = [r["address_id"] for r in rows]
         await conn.execute("DELETE FROM entity_addresses WHERE entity_id=$1", oid)
         if address_ids:
