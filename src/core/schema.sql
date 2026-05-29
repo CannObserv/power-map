@@ -1054,6 +1054,36 @@ CREATE TABLE IF NOT EXISTS api_keys (
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
 
 -- =============================================================================
+-- API Key Scopes
+-- =============================================================================
+
+-- Defines valid scope identifiers for API key access control.
+CREATE TABLE IF NOT EXISTS api_key_scope_types (
+    id           TEXT PRIMARY KEY,   -- e.g. 'observations:write'
+    display_name TEXT NOT NULL,
+    description  TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS api_key_scopes (
+    api_key_id   TEXT        NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+    scope_id     TEXT        NOT NULL REFERENCES api_key_scope_types(id),
+    granted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    granted_by   TEXT        REFERENCES app_users(id),
+    PRIMARY KEY (api_key_id, scope_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_key_scopes_key
+    ON api_key_scopes(api_key_id);
+
+-- Seed built-in scope types.
+INSERT INTO api_key_scope_types (id, display_name, description) VALUES
+    ('observations:write',
+     'Observations: Write',
+     'Submit identity observations via POST /api/v1/observations')
+ON CONFLICT (id) DO NOTHING;
+
+-- =============================================================================
 -- Ingestion Audit Tables
 -- =============================================================================
 
