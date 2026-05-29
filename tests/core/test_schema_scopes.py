@@ -32,3 +32,27 @@ async def test_api_key_scopes_table_exists(db_pool):
         )
     col_names = {r["column_name"] for r in rows}
     assert {"api_key_id", "scope_id", "granted_at", "granted_by"} <= col_names
+
+
+@pytest.mark.integration
+async def test_api_key_scope_types_seed_description(db_pool):
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT description FROM api_key_scope_types WHERE id = 'observations:write'"
+        )
+    assert row is not None
+    assert "observations" in row["description"].lower()
+
+
+@pytest.mark.integration
+async def test_api_key_scopes_fk_enforced(db_pool):
+    """Insert with invalid scope_id must raise."""
+    import asyncpg
+
+    async with db_pool.acquire() as conn:
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await conn.execute(
+                "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1, $2)",
+                "nonexistent-key-id",
+                "nonexistent:scope",
+            )

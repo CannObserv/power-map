@@ -1067,14 +1067,17 @@ CREATE TABLE IF NOT EXISTS api_key_scope_types (
 
 CREATE TABLE IF NOT EXISTS api_key_scopes (
     api_key_id   TEXT        NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
-    scope_id     TEXT        NOT NULL REFERENCES api_key_scope_types(id),
+    scope_id     TEXT        NOT NULL REFERENCES api_key_scope_types(id) ON DELETE RESTRICT,
     granted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    granted_by   TEXT        REFERENCES app_users(id),
+    granted_by   TEXT        REFERENCES app_users(id) ON DELETE SET NULL,
     PRIMARY KEY (api_key_id, scope_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_api_key_scopes_key
     ON api_key_scopes(api_key_id);
+
+CREATE INDEX IF NOT EXISTS idx_api_key_scopes_scope
+    ON api_key_scopes(scope_id);
 
 -- Seed built-in scope types.
 INSERT INTO api_key_scope_types (id, display_name, description) VALUES
