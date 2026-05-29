@@ -39,13 +39,13 @@ Add `POST /api/v1/observations` behind a new `observations:write` API key scope.
 
    | Surface | Policy |
    |---|---|
-   | names | append if no exact string match; `visibility='public'`; record `source_key_id` |
+   | names | append if no exact string match; `visibility='public'`; record `source_key_id`; attach supplied `person_name_parts` to new name rows; write-if-null on existing name rows with no parts |
    | links | append; dedup on `(entity_type, entity_id, url, link_type_id)`; resolve slug→id if needed |
    | contact methods | E.164/email normalise first → `rejected` on failure; dedup on `(type, value)` |
    | addresses | call address validation API synchronously; dedup on `(standardised_form, address_type)`; API failure → `rejected` |
    | org acronyms | append; exact-string dedup; never set `is_canonical` |
-   | role assignments | no-op if open assignment exists for same role; else append |
-   | org parent | resolve via id / canonical name / canonical acronym; write-if-null; ambiguous → `rejected` |
+   | role assignments | accept `role_id` (power-map ULID); no-op if open assignment exists for same role; else append |
+   | org parent | `organization_parent_id` xor `organization_parent_name` xor `organization_parent_acronym`; name/acronym resolve canonical-only, active-only; zero or multiple matches → `rejected` (use `organization_parent_id` for certainty); write-if-null |
    | pronouns | write-if-null |
    | additional identifiers | conflict on same type, different value → abort; fall back to new entity |
 
@@ -55,7 +55,5 @@ Add `POST /api/v1/observations` behind a new `observations:write` API key scope.
 
 ## Open questions / risks
 
-- **Role assignment payload protocol** — how does a client specify which role to assign? By `role_id` (power-map ULID, requires prior lookup) or by `(org_identifier_type, org_identifier_value, role_title)`? Needs resolution before step 7 can be fully implemented. For usa-wa's P3, role assignment may not be part of the initial payload — confirm scope with usa-wa before implementation.
-- **Address validation unavailability** — sync API call in the request path means an outage rejects all observations carrying addresses. Acceptable for v1; revisit if reliability becomes an issue.
-- **`organization_parent_name` ambiguity** — canonical name lookup could still match multiple orgs (e.g., two orgs both named "Board of Directors"). Scope to `archived_at IS NULL` (active only) to reduce false hits; still possible. Flag as known edge case in CONVENTIONS.md.
-- **`person_name_parts` in payload** — if an upstream includes structured name parts, they must be silently dropped (never persisted). Confirm whether to surface this as a warning in the response or fail silently.
+- **Role assignment scope for usa-wa P3** — `role_id` is resolved as the reference mechanism, but confirm whether usa-wa's initial P3 payload actually includes role assignments. If not, the role assignment surface in step 7 can be deferred to a follow-on without blocking the endpoint launch.
+- **`person_name_parts` distinction in CONVENTIONS.md** — accepted when upstream-supplied (pre-parsed, not auto-decomposed). CONVENTIONS.md currently says "never auto-written" without distinguishing these cases; update the relevant paragraph during implementation to make the upstream-supplied exception explicit.
