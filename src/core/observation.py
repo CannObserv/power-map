@@ -147,23 +147,26 @@ async def write_names(
                 is_new = False
             else:
                 name_id = generate_id()
-                await conn.execute(
-                    "INSERT INTO person_names"
-                    " (id, person_id, name, name_type, locale, script, sort_as,"
-                    "  visibility, source_key_id)"
-                    " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8)",
-                    name_id,
-                    entity_id,
-                    n.name,
-                    n.name_type,
-                    n.locale,
-                    n.script,
-                    n.sort_as,
-                    api_key_id,
-                )
+                async with conn.transaction():
+                    await conn.execute(
+                        "INSERT INTO person_names"
+                        " (id, person_id, name, name_type, locale, script, sort_as,"
+                        "  visibility, source_key_id)"
+                        " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8)",
+                        name_id,
+                        entity_id,
+                        n.name,
+                        n.name_type,
+                        n.locale,
+                        n.script,
+                        n.sort_as,
+                        api_key_id,
+                    )
+                    if n.parts is not None:
+                        await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
                 is_new = True
-            if n.parts is not None:
-                await _write_person_name_parts(conn, name_id, n.parts, is_new=is_new)
+            if n.parts is not None and not is_new:
+                await _write_person_name_parts(conn, name_id, n.parts, is_new=False)
     elif entity_type == "organization":
         for n in names:
             existing = await conn.fetchrow(
@@ -303,8 +306,14 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
             result = await normalizer.normalize(addr.raw_input)
         except Exception as exc:
             raise ObservationRejected(f"Address normalization failed: {exc}") from exc
-        if result.skipped or result.value is None:
-            raise ObservationRejected(f"Address rejected: {addr.raw_input!r}")
+        if result.skipped:
+            raise ObservationRejected(
+                f"Address skipped by normalizer (unrecognised format): {addr.raw_input!r}"
+            )
+        if result.value is None:
+            raise ObservationRejected(
+                f"Address normalisation returned no result for: {addr.raw_input!r}"
+            )
         v = result.value
         # Dedup key: standardized form if present, else raw_input
         dedup_form = v.get("standardized") or v.get("raw_input") or addr.raw_input
@@ -323,35 +332,36 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
         components_val = v.get("components")
         components_str = json.dumps(components_val) if components_val else None
         aid = generate_id()
-        await conn.execute(
-            "INSERT INTO addresses"
-            " (id, raw_input, address_line_1, address_line_2, city, region,"
-            "  postal_code, country, standardized, latitude, longitude, components)"
-            " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-            aid,
-            v.get("raw_input") or addr.raw_input,
-            v.get("address_line_1"),
-            v.get("address_line_2"),
-            v.get("city"),
-            v.get("region"),
-            v.get("postal_code"),
-            v.get("country") or "US",
-            v.get("standardized"),
-            v.get("latitude"),
-            v.get("longitude"),
-            components_str,
-        )
-        await conn.execute(
-            "INSERT INTO entity_addresses"
-            " (id, entity_type, entity_id, address_id, address_type, display_name)"
-            " VALUES ($1, $2, $3, $4, $5, $6)",
-            generate_id(),
-            entity_type,
-            entity_id,
-            aid,
-            addr.address_type,
-            addr.display_name,
-        )
+        async with conn.transaction():
+            await conn.execute(
+                "INSERT INTO addresses"
+                " (id, raw_input, address_line_1, address_line_2, city, region,"
+                "  postal_code, country, standardized, latitude, longitude, components)"
+                " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                aid,
+                v.get("raw_input") or addr.raw_input,
+                v.get("address_line_1"),
+                v.get("address_line_2"),
+                v.get("city"),
+                v.get("region"),
+                v.get("postal_code"),
+                v.get("country") or "US",
+                v.get("standardized"),
+                v.get("latitude"),
+                v.get("longitude"),
+                components_str,
+            )
+            await conn.execute(
+                "INSERT INTO entity_addresses"
+                " (id, entity_type, entity_id, address_id, address_type, display_name)"
+                " VALUES ($1, $2, $3, $4, $5, $6)",
+                generate_id(),
+                entity_type,
+                entity_id,
+                aid,
+                addr.address_type,
+                addr.display_name,
+            )
 
 
 async def write_org_acronyms(conn, organization_id: str, acronyms: list[str]) -> None:
