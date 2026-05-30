@@ -1,6 +1,7 @@
 """Public API authentication dependency."""
 
 import hashlib
+from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Query
 from fastapi.security import APIKeyHeader
@@ -8,6 +9,14 @@ from fastapi.security import APIKeyHeader
 from src.api.deps import get_db
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+@dataclass
+class AuthedKey:
+    """Authenticated API key context — returned by require_scope."""
+
+    user_id: str
+    key_id: str
 
 
 async def _resolve_api_key(raw_key: str | None, db) -> dict:
@@ -41,14 +50,15 @@ async def require_api_key(
 def require_scope(scope_id: str):
     """Return a FastAPI dependency that requires the given scope on the API key.
 
-    Usage: user_id: str = Depends(require_scope("observations:write"))
+    Usage: auth: AuthedKey = Depends(require_scope("observations:write"))
     Raises 403 (not authenticated), 401 (invalid key), or 403 (insufficient scope).
+    Returns AuthedKey with user_id and key_id.
     """
 
     async def _check(
         raw_key: str | None = Depends(api_key_header),
         db=Depends(get_db),
-    ) -> str:
+    ) -> AuthedKey:
         row = await _resolve_api_key(raw_key, db)
         scope_row = await db.fetchrow(
             "SELECT 1 FROM api_key_scopes WHERE api_key_id = $1 AND scope_id = $2",
@@ -57,7 +67,7 @@ def require_scope(scope_id: str):
         )
         if not scope_row:
             raise HTTPException(status_code=403, detail="Insufficient scope")
-        return row["user_id"]
+        return AuthedKey(user_id=row["user_id"], key_id=row["id"])
 
     return _check
 
