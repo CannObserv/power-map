@@ -64,7 +64,7 @@ Full conventions → `docs/STYLE.md §32`
 
 Full conventions → `docs/CONVENTIONS.md`
 
-- Auth: `X-API-Key` → `require_api_key` dep; 403 on missing, 401 on invalid
+- Auth: `X-API-Key` → `require_api_key` dep (read); `require_scope("scope:id")` dep (write) from `src.api.public.deps`; 403 on missing/insufficient scope, 401 on invalid key
 - All routes: Pydantic `response_model` + `operation_id`; no `dict[str, Any]` returns
 - Lists: `{"data": [...], "meta": {"limit", "offset", "count", "has_more"}}`; fetch `limit+1` rows for `has_more`
 - Timestamps: `_fmt_ts()` from `schemas.py`; ISO 8601 with `Z` suffix
