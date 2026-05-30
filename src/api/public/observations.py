@@ -25,6 +25,17 @@ router = APIRouter()
 _REJECTED = ObservationResponse(disposition="rejected", entity_id=None, entity_type=None)
 
 
+async def _lookup_org_by_canonical(conn, sql: str, value: str) -> str:
+    """Lookup a single active org by canonical name or acronym.
+
+    Raises ObservationRejected if zero or multiple matches.
+    """
+    rows = await conn.fetch(sql, value)
+    if len(rows) != 1:
+        raise ObservationRejected(f"Org parent lookup returned {len(rows)} matches (expected 1)")
+    return rows[0]["id"]
+
+
 @router.post(
     "/observations",
     response_model=ObservationResponse,
@@ -57,27 +68,22 @@ async def submit_observation(
                 if request.organization_parent_id:
                     parent_id = request.organization_parent_id
                 elif request.organization_parent_name:
-                    rows = await db.fetch(
+                    parent_id = await _lookup_org_by_canonical(
+                        db,
                         """SELECT o.id FROM organizations o
                            JOIN organization_names n ON n.organization_id = o.id
-                           WHERE n.name = $1 AND n.is_canonical = TRUE
-                             AND o.archived_at IS NULL""",
+                           WHERE n.name = $1 AND n.is_canonical = TRUE AND o.archived_at IS NULL""",
                         request.organization_parent_name,
                     )
-                    if len(rows) != 1:
-                        return _REJECTED
-                    parent_id = rows[0]["id"]
                 elif request.organization_parent_acronym:
-                    rows = await db.fetch(
+                    parent_id = await _lookup_org_by_canonical(
+                        db,
                         """SELECT o.id FROM organizations o
                            JOIN organization_acronyms a ON a.organization_id = o.id
                            WHERE a.acronym = $1 AND a.is_canonical = TRUE
                              AND o.archived_at IS NULL""",
                         request.organization_parent_acronym,
                     )
-                    if len(rows) != 1:
-                        return _REJECTED
-                    parent_id = rows[0]["id"]
 
                 if parent_id:
                     await write_org_parent(db, entity_id, parent_id)
