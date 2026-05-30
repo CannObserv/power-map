@@ -127,6 +127,23 @@ async def org_eit_slug(db):
 
 
 @pytest_asyncio.fixture(loop_scope="session")
+async def additional_eit_slug(db):
+    """Ensure a second person-type entity_identifier_type exists for additional-identifier tests."""
+    slug = "person_obs_test_secondary"
+    row = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug=$1", slug)
+    if not row:
+        eit_id = generate_id()
+        await db.execute(
+            "INSERT INTO entity_identifier_types"
+            " (id, entity_type, slug, display_name, full_name)"
+            " VALUES ($1, 'person', $2, 'Obs Secondary', 'Observation Test Secondary ID')",
+            eit_id,
+            slug,
+        )
+    yield slug
+
+
+@pytest_asyncio.fixture(loop_scope="session")
 async def link_type_slug(db):
     """Return an existing link_type slug from the DB (seeded by schema)."""
     row = await db.fetchrow("SELECT slug FROM link_types LIMIT 1")
@@ -737,3 +754,152 @@ async def test_org_parent_by_name_ambiguous_rejected(client, write_key, db):
         await db.execute("DELETE FROM organization_names WHERE id=$1", name_b_id)
         await db.execute("DELETE FROM organizations WHERE id=$1", org_id_a)
         await db.execute("DELETE FROM organizations WHERE id=$1", org_id_b)
+
+
+# ---------------------------------------------------------------------------
+# 14. Additional identifiers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_additional_identifier_creates_row(
+    client, write_key, person_eit_slug, additional_eit_slug, db
+):
+    """Submitting additional_identifiers creates an identifiers row for the entity."""
+    raw_key, _ = write_key
+    value = _unique_value()
+
+    r = _post(
+        client,
+        raw_key,
+        {
+            "identifier_type": person_eit_slug,
+            "identifier_value": value,
+            "additional_identifiers": [
+                {"identifier_type_slug": additional_eit_slug, "identifier_value": "extra_" + value}
+            ],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] in ("new", "auto-attached")
+    entity_id = body["entity_id"]
+
+    eit = await db.fetchrow(
+        "SELECT id FROM entity_identifier_types WHERE slug=$1", additional_eit_slug
+    )
+    row = await db.fetchrow(
+        "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
+        entity_id,
+        eit["id"],
+    )
+    assert row is not None
+
+
+@pytest.mark.integration
+async def test_additional_identifier_conflict_rejected(
+    client, write_key, person_eit_slug, additional_eit_slug, db
+):
+    """Same additional identifier type with different value → rejected."""
+    raw_key, _ = write_key
+    value = _unique_value()
+
+    # First submission establishes the entity and the additional identifier
+    r1 = _post(
+        client,
+        raw_key,
+        {
+            "identifier_type": person_eit_slug,
+            "identifier_value": value,
+            "additional_identifiers": [
+                {"identifier_type_slug": additional_eit_slug, "identifier_value": "first_" + value}
+            ],
+        },
+    )
+    assert r1.status_code == 200
+    assert r1.json()["disposition"] != "rejected"
+
+    # Second submission: same primary identifier, different value for the additional type → conflict
+    r2 = _post(
+        client,
+        raw_key,
+        {
+            "identifier_type": person_eit_slug,
+            "identifier_value": value,
+            "additional_identifiers": [
+                {
+                    "identifier_type_slug": additional_eit_slug,
+                    "identifier_value": "conflict_" + value,
+                }
+            ],
+        },
+    )
+    assert r2.status_code == 200
+    assert r2.json()["disposition"] == "rejected"
+
+
+# ---------------------------------------------------------------------------
+# 15. Orphaned entity retry (resolver commits outside writer transaction)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_orphaned_entity_auto_attached_on_retry(client, write_key, person_eit_slug, db):
+    """Failed write (bad phone) leaves entity; retry with valid data returns auto-attached."""
+    raw_key, _ = write_key
+    value = _unique_value()
+
+    # First call: creates entity + identifier, but writer rejects due to bad phone
+    r1 = _post(
+        client,
+        raw_key,
+        {
+            "identifier_type": person_eit_slug,
+            "identifier_value": value,
+            "contact_methods": [{"contact_type": "phone", "value": "not-a-phone!!!"}],
+        },
+    )
+    assert r1.status_code == 200
+    assert r1.json()["disposition"] == "rejected"
+
+    # Entity + identifier row should still exist (resolve_entity committed independently)
+    eit = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug=$1", person_eit_slug)
+    row = await db.fetchrow(
+        "SELECT entity_id FROM identifiers WHERE entity_identifier_type_id=$1 AND value=$2",
+        eit["id"],
+        value,
+    )
+    assert row is not None, "Entity must persist even after rejected write"
+
+    # Second call: same identifier, valid data → auto-attached
+    r2 = _post(
+        client,
+        raw_key,
+        {"identifier_type": person_eit_slug, "identifier_value": value},
+    )
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["disposition"] == "auto-attached"
+    assert body2["entity_id"] == row["entity_id"]
+
+
+# ---------------------------------------------------------------------------
+# 16. DB constraint violations return rejected (not 500)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_invalid_name_type_returns_rejected(client, write_key, person_eit_slug):
+    """Submitting an invalid name_type is rejected at Pydantic validation (422)."""
+    raw_key, _ = write_key
+    r = _post(
+        client,
+        raw_key,
+        {
+            "identifier_type": person_eit_slug,
+            "identifier_value": _unique_value(),
+            "names": [{"name": "Jane Doe", "name_type": "not_a_valid_type"}],
+        },
+    )
+    # Pydantic Literal enforcement → 422 Unprocessable Entity
+    assert r.status_code == 422

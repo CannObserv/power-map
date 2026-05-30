@@ -1,5 +1,6 @@
 """Public API: observation / upsert endpoint."""
 
+import asyncpg
 from fastapi import APIRouter, Depends
 
 from src.api.deps import get_db
@@ -10,6 +11,7 @@ from src.core.observation import (
     IdentifierConflict,
     ObservationRejected,
     resolve_entity,
+    write_additional_identifiers,
     write_addresses,
     write_contact_methods,
     write_links,
@@ -93,9 +95,14 @@ async def submit_observation(
                 if request.personal_pronouns:
                     await write_pronouns(db, entity_id, request.personal_pronouns)
 
-    except ObservationRejected:
-        return _REJECTED
-    except IdentifierConflict:
+            await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+
+    except (
+        ObservationRejected,
+        IdentifierConflict,
+        asyncpg.CheckViolationError,
+        asyncpg.ForeignKeyViolationError,
+    ):
         return _REJECTED
 
     return ObservationResponse(

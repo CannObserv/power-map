@@ -3,7 +3,6 @@
 import json
 from datetime import date
 from enum import StrEnum
-from typing import Any
 
 from src.core.db import generate_id
 from src.core.logging import get_logger
@@ -146,6 +145,7 @@ async def write_names(
                 name_id = existing["id"]
                 is_new = False
             else:
+                is_new = True
                 name_id = generate_id()
                 async with conn.transaction():
                     await conn.execute(
@@ -164,7 +164,6 @@ async def write_names(
                     )
                     if n.parts is not None:
                         await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
-                is_new = True
             if n.parts is not None and not is_new:
                 await _write_person_name_parts(conn, name_id, n.parts, is_new=False)
     elif entity_type == "organization":
@@ -427,12 +426,10 @@ async def write_pronouns(conn, person_id: str, pronouns: str) -> None:
     )
 
 
-async def write_additional_identifiers(
-    conn, entity_id: str, additional_identifiers: list[dict[str, Any]]
-) -> None:
+async def write_additional_identifiers(conn, entity_id: str, additional_identifiers: list) -> None:
     """Write additional identifier claims.
 
-    Each item is a dict with keys ``identifier_type_slug`` and ``identifier_value``.
+    Each item must expose ``.identifier_type_slug`` and ``.identifier_value``.
 
     Policy:
       - Same type + same value on entity → no-op
@@ -441,8 +438,8 @@ async def write_additional_identifiers(
       - New type → insert
     """
     for item in additional_identifiers:
-        slug = item["identifier_type_slug"]
-        value = item["identifier_value"]
+        slug = item.identifier_type_slug
+        value = item.identifier_value
         eit = await conn.fetchrow("SELECT id FROM entity_identifier_types WHERE slug=$1", slug)
         if eit is None:
             raise ObservationRejected(f"Unknown identifier_type_slug: {slug!r}")

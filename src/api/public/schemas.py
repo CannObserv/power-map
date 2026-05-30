@@ -161,7 +161,21 @@ class ObservationName(BaseModel):
     """A name claim included in an observation."""
 
     name: str
-    name_type: str = "legal"  # must match person_names.name_type CHECK values
+    name_type: Literal[
+        "legal",
+        "preferred",
+        "alias",
+        "former",
+        "initials",
+        "maiden",
+        "religious",
+        "stage",
+        "deadname",
+        "reading",
+        "romanization",
+        "mrz",
+        "variant",
+    ] = "legal"
     locale: str | None = None  # BCP 47
     script: str | None = None  # ISO 15924
     sort_as: str | None = None
@@ -210,6 +224,13 @@ class ObservationRoleAssignment(BaseModel):
     end_date: str | None = None
 
 
+class ObservationAdditionalIdentifier(BaseModel):
+    """An additional identifier claim to attach to the resolved entity."""
+
+    identifier_type_slug: str
+    identifier_value: str
+
+
 class ObservationRequest(BaseModel):
     """Payload sent to POST /api/v1/observations."""
 
@@ -240,6 +261,9 @@ class ObservationRequest(BaseModel):
 
     # Optional attribute claims — role assignments
     role_assignments: list[ObservationRoleAssignment] = []
+
+    # Optional attribute claims — additional identifiers (same-type conflict → rejected)
+    additional_identifiers: list[ObservationAdditionalIdentifier] = []
 
     @model_validator(mode="after")
     def _xor_org_parent(self) -> "ObservationRequest":

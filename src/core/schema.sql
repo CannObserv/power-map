@@ -1073,9 +1073,6 @@ CREATE TABLE IF NOT EXISTS api_key_scopes (
     PRIMARY KEY (api_key_id, scope_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_api_key_scopes_key
-    ON api_key_scopes(api_key_id);
-
 CREATE INDEX IF NOT EXISTS idx_api_key_scopes_scope
     ON api_key_scopes(scope_id);
 
@@ -1165,3 +1162,7 @@ ALTER TABLE person_names
     ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;
 ALTER TABLE organization_names
     ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;
+
+-- Migration (#162 CR): drop redundant api_key_scopes_key index — the PK on
+-- (api_key_id, scope_id) already supports lookups by api_key_id alone.
+DROP INDEX IF EXISTS idx_api_key_scopes_key;

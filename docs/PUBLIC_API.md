@@ -14,7 +14,7 @@ Keys are stored as SHA-256 hashes — the raw token is never persisted after iss
 
 ## Scope
 
-All keys are read-only. No write endpoints exist in v1. There is no per-key permission scoping — a valid key reaches all v1 read endpoints.
+Read endpoints are accessible with any valid key. Write endpoints require an additional per-key scope grant (e.g. `observations:write`). A key without the required scope receives a 403. Scope grants are managed by the maintainer via the admin dashboard.
 
 ---
 

@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 
 from src.api.public.schemas import (
+    ObservationAdditionalIdentifier,
     ObservationAddress,
     ObservationContactMethod,
     ObservationLink,
@@ -382,8 +383,10 @@ async def test_write_pronouns_noop_when_set(db, person_id):
 
 
 async def test_write_additional_identifiers_new_type(db, person_id):
-    additional = [{"identifier_type_slug": "person_ssn", "identifier_value": "123-45-6789"}]
-    await write_additional_identifiers(db, person_id, additional)
+    item = ObservationAdditionalIdentifier(
+        identifier_type_slug="person_ssn", identifier_value="123-45-6789"
+    )
+    await write_additional_identifiers(db, person_id, [item])
     eit = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug='person_ssn'")
     row = await db.fetchrow(
         "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
@@ -395,9 +398,11 @@ async def test_write_additional_identifiers_new_type(db, person_id):
 
 
 async def test_write_additional_identifiers_same_value_noop(db, person_id):
-    additional = [{"identifier_type_slug": "person_ssn", "identifier_value": "123-45-6789"}]
-    await write_additional_identifiers(db, person_id, additional)
-    await write_additional_identifiers(db, person_id, additional)
+    item = ObservationAdditionalIdentifier(
+        identifier_type_slug="person_ssn", identifier_value="123-45-6789"
+    )
+    await write_additional_identifiers(db, person_id, [item])
+    await write_additional_identifiers(db, person_id, [item])
     eit = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug='person_ssn'")
     rows = await db.fetch(
         "SELECT id FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
@@ -408,9 +413,10 @@ async def test_write_additional_identifiers_same_value_noop(db, person_id):
 
 
 async def test_write_additional_identifiers_conflict_raises(db, person_id):
-    a1 = [{"identifier_type_slug": "person_ssn", "identifier_value": "123-45-6789"}]
-    a2 = [{"identifier_type_slug": "person_ssn", "identifier_value": "999-99-9999"}]
-    await write_additional_identifiers(db, person_id, a1)
+    mk = lambda v: [  # noqa: E731
+        ObservationAdditionalIdentifier(identifier_type_slug="person_ssn", identifier_value=v)
+    ]
+    await write_additional_identifiers(db, person_id, mk("123"))
     with pytest.raises(IdentifierConflict) as exc:
-        await write_additional_identifiers(db, person_id, a2)
+        await write_additional_identifiers(db, person_id, mk("999"))
     assert exc.value.identifier_type_slug == "person_ssn"
