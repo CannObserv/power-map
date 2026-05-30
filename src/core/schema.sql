@@ -1054,6 +1054,39 @@ CREATE TABLE IF NOT EXISTS api_keys (
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
 
 -- =============================================================================
+-- API Key Scopes
+-- =============================================================================
+
+-- Defines valid scope identifiers for API key access control.
+CREATE TABLE IF NOT EXISTS api_key_scope_types (
+    id           TEXT PRIMARY KEY,   -- e.g. 'observations:write'
+    display_name TEXT NOT NULL,
+    description  TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS api_key_scopes (
+    api_key_id   TEXT        NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+    scope_id     TEXT        NOT NULL REFERENCES api_key_scope_types(id) ON DELETE RESTRICT,
+    granted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    granted_by   TEXT        REFERENCES app_users(id) ON DELETE SET NULL,
+    PRIMARY KEY (api_key_id, scope_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_key_scopes_key
+    ON api_key_scopes(api_key_id);
+
+CREATE INDEX IF NOT EXISTS idx_api_key_scopes_scope
+    ON api_key_scopes(scope_id);
+
+-- Seed built-in scope types.
+INSERT INTO api_key_scope_types (id, display_name, description) VALUES
+    ('observations:write',
+     'Observations: Write',
+     'Submit identity observations via POST /api/v1/observations')
+ON CONFLICT (id) DO NOTHING;
+
+-- =============================================================================
 -- Ingestion Audit Tables
 -- =============================================================================
 
@@ -1125,3 +1158,10 @@ ALTER TABLE addresses ADD COLUMN IF NOT EXISTS components JSONB;
 -- Migration: drop DEFAULT 'US' from addresses.country
 -- Existing rows keep their 'US' value; application layer now always provides country explicitly.
 ALTER TABLE addresses ALTER COLUMN country DROP DEFAULT;
+
+-- Migration (#162): per-name provenance — which API key sourced a name row.
+-- NULL for pre-observation-API rows; populated by observation writers going forward.
+ALTER TABLE person_names
+    ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;
+ALTER TABLE organization_names
+    ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;

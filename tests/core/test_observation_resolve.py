@@ -1,0 +1,146 @@
+"""Integration tests for src.core.observation.resolve_entity.
+
+Uses seeded entity_identifier_types from schema.sql:
+  - 'person_wa_legislature_member_id'  (entity_type=person)
+  - 'org_ubi'                          (entity_type=organization)
+"""
+
+import pytest
+import pytest_asyncio
+
+from src.core.db import generate_id
+from src.core.observation import Disposition, resolve_entity
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+async def test_auto_attached_returns_existing_entity(db):
+    """Identifier already exists → AUTO_ATTACHED with original entity_id."""
+    person_id = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+
+    eit_row = await db.fetchrow(
+        "SELECT id FROM entity_identifier_types WHERE slug = $1",
+        "person_wa_legislature_member_id",
+    )
+    assert eit_row is not None
+
+    identifier_id = generate_id()
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        identifier_id,
+        person_id,
+        eit_row["id"],
+        "WA-LEGISLATOR-001",
+    )
+
+    entity_id, entity_type, disposition = await resolve_entity(
+        db, "person_wa_legislature_member_id", "WA-LEGISLATOR-001"
+    )
+
+    assert entity_id == person_id
+    assert entity_type == "person"
+    assert disposition == Disposition.AUTO_ATTACHED
+
+
+async def test_new_person_creates_rows(db):
+    """Unknown identifier value for person slug → NEW, creates people + identifiers rows."""
+    entity_id, entity_type, disposition = await resolve_entity(
+        db, "person_wa_legislature_member_id", "WA-LEGISLATOR-NEW-999"
+    )
+
+    assert disposition == Disposition.NEW
+    assert entity_type == "person"
+    assert entity_id != ""
+
+    # Verify people row was created
+    person_row = await db.fetchrow("SELECT id FROM people WHERE id = $1", entity_id)
+    assert person_row is not None
+
+    # Verify identifier row was created
+    eit_row = await db.fetchrow(
+        "SELECT id FROM entity_identifier_types WHERE slug = $1",
+        "person_wa_legislature_member_id",
+    )
+    id_row = await db.fetchrow(
+        "SELECT entity_id FROM identifiers WHERE entity_identifier_type_id = $1 AND value = $2",
+        eit_row["id"],
+        "WA-LEGISLATOR-NEW-999",
+    )
+    assert id_row is not None
+    assert id_row["entity_id"] == entity_id
+
+
+async def test_new_organization_creates_rows(db):
+    """Unknown identifier value for org slug → NEW, creates organizations + identifiers rows."""
+    entity_id, entity_type, disposition = await resolve_entity(db, "org_ubi", "UBI-TEST-88888")
+
+    assert disposition == Disposition.NEW
+    assert entity_type == "organization"
+    assert entity_id != ""
+
+    # Verify organizations row was created
+    org_row = await db.fetchrow("SELECT id FROM organizations WHERE id = $1", entity_id)
+    assert org_row is not None
+
+    # Verify identifier row was created
+    eit_row = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug = $1", "org_ubi")
+    id_row = await db.fetchrow(
+        "SELECT entity_id FROM identifiers WHERE entity_identifier_type_id = $1 AND value = $2",
+        eit_row["id"],
+        "UBI-TEST-88888",
+    )
+    assert id_row is not None
+    assert id_row["entity_id"] == entity_id
+
+
+async def test_rejected_unknown_slug(db):
+    """Unknown identifier_type_slug → REJECTED, returns empty strings."""
+    entity_id, entity_type, disposition = await resolve_entity(
+        db, "nonexistent_slug_xyz", "ANY-VALUE"
+    )
+
+    assert disposition == Disposition.REJECTED
+    assert entity_id == ""
+    assert entity_type == ""
+
+
+async def test_idempotent_second_call_returns_auto_attached(db):
+    """Two calls with same inputs → second call returns AUTO_ATTACHED with same entity_id."""
+    first_id, first_type, first_disp = await resolve_entity(
+        db, "person_wa_legislature_member_id", "WA-LEGISLATOR-IDEM-42"
+    )
+    assert first_disp == Disposition.NEW
+
+    second_id, second_type, second_disp = await resolve_entity(
+        db, "person_wa_legislature_member_id", "WA-LEGISLATOR-IDEM-42"
+    )
+    assert second_disp == Disposition.AUTO_ATTACHED
+    assert second_id == first_id
+    assert second_type == first_type

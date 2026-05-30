@@ -1,0 +1,35 @@
+{# _api_key_scopes.html — scope detail panel; expects: key, current_scopes, scope_types #}
+<div id="api-key-scopes-{{ key.id }}" style="padding:var(--space-3);border-top:1px solid var(--color-border)">
+  <h3 style="font-size:var(--font-size-sm);font-weight:600;margin:0 0 var(--space-2)">Scopes</h3>
+  {% if current_scopes %}
+  <ul style="margin:0 0 var(--space-3);padding:0;list-style:none">
+    {% for scope in current_scopes %}
+    <li style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1)">
+      <code style="font-size:var(--font-size-sm)">{{ scope.scope_id }}</code>
+      <span style="color:var(--color-text-muted);font-size:var(--font-size-sm)">{{ scope.display_name }}</span>
+      <button type="button" class="btn btn--sm btn--danger"
+              hx-post="/admin/settings/api-keys/{{ key.id }}/scopes/{{ scope.scope_id }}/revoke/"
+              hx-target="#api-key-scopes-{{ key.id }}"
+              hx-swap="outerHTML">Revoke</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p style="color:var(--color-text-muted);margin:0 0 var(--space-3);font-size:var(--font-size-sm)">No scopes granted.</p>
+  {% endif %}
+
+  {% set granted_ids = current_scopes | map(attribute='scope_id') | list %}
+  {% set available = scope_types | rejectattr('id', 'in', granted_ids) | list %}
+  {% if available %}
+  <div>
+    <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">Grant:</span>
+    {% for st in available %}
+    <button type="button" class="btn btn--sm btn--secondary" style="margin-left:var(--space-1)"
+            title="{{ st.description }}"
+            hx-post="/admin/settings/api-keys/{{ key.id }}/scopes/{{ st.id }}/grant/"
+            hx-target="#api-key-scopes-{{ key.id }}"
+            hx-swap="outerHTML">{{ st.id }}</button>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

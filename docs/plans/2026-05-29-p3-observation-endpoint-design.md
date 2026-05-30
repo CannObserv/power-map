@@ -1,7 +1,7 @@
 ---
 title: P3 observation / upsert endpoint
 date: 2026-05-29
-status: draft
+status: implemented
 ---
 
 # P3 observation / upsert endpoint
