@@ -179,6 +179,107 @@ async def api_key_read_row(
     )
 
 
+async def _fetch_scope_panel_ctx(key_id: str, db) -> dict:
+    """Return template context dict for the scope panel partial.
+
+    Queries current scopes and all available scope types for key_id.
+    Caller must have already confirmed key ownership.
+    """
+    key = await db.fetchrow("SELECT id, label FROM api_keys WHERE id=$1", key_id)
+    current_scopes = await db.fetch(
+        "SELECT s.scope_id, t.display_name, t.description"
+        " FROM api_key_scopes s"
+        " JOIN api_key_scope_types t ON t.id = s.scope_id"
+        " WHERE s.api_key_id = $1"
+        " ORDER BY s.scope_id",
+        key_id,
+    )
+    scope_types = await db.fetch(
+        "SELECT id, display_name, description FROM api_key_scope_types ORDER BY id"
+    )
+    return {"key": key, "current_scopes": current_scopes, "scope_types": scope_types}
+
+
+@router.get("/{key_id}/detail/")
+async def api_key_detail(
+    key_id: str,
+    request: Request,
+    user: AdminUser = Depends(provision_app_user),
+    db=Depends(get_db),
+):
+    """Return scope detail panel partial for an API key."""
+    key = await db.fetchrow("SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id)
+    if not key:
+        raise HTTPException(status_code=404)
+    ctx = await _fetch_scope_panel_ctx(key_id, db)
+    if not is_htmx(request):
+        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/settings/partials/_api_key_scopes.html",
+        ctx,
+    )
+
+
+@router.post("/{key_id}/scopes/{scope_id}/grant/")
+async def api_key_scope_grant(
+    key_id: str,
+    scope_id: str,
+    request: Request,
+    user: AdminUser = Depends(provision_app_user),
+    db=Depends(get_db),
+):
+    """Grant a scope to an API key (idempotent)."""
+    key = await db.fetchrow("SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id)
+    if not key:
+        raise HTTPException(status_code=404)
+    await db.execute(
+        "INSERT INTO api_key_scopes (api_key_id, scope_id, granted_by)"
+        " VALUES ($1,$2,$3)"
+        " ON CONFLICT DO NOTHING",
+        key_id,
+        scope_id,
+        user.id,
+    )
+    ctx = await _fetch_scope_panel_ctx(key_id, db)
+    if not is_htmx(request):
+        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/settings/partials/_api_key_scopes.html",
+        ctx,
+        headers=flash_trigger("success", f"Scope <strong>{escape(scope_id)}</strong> granted."),
+    )
+
+
+@router.post("/{key_id}/scopes/{scope_id}/revoke/")
+async def api_key_scope_revoke(
+    key_id: str,
+    scope_id: str,
+    request: Request,
+    user: AdminUser = Depends(provision_app_user),
+    db=Depends(get_db),
+):
+    """Revoke a scope from an API key (no-op if not present)."""
+    key = await db.fetchrow("SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id)
+    if not key:
+        raise HTTPException(status_code=404)
+    await db.execute(
+        "DELETE FROM api_key_scopes WHERE api_key_id=$1 AND scope_id=$2",
+        key_id,
+        scope_id,
+    )
+    ctx = await _fetch_scope_panel_ctx(key_id, db)
+    if not is_htmx(request):
+        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/settings/partials/_api_key_scopes.html",
+        ctx,
+        headers=flash_trigger("success", f"Scope <strong>{escape(scope_id)}</strong> revoked."),
+    )
+
+
 @router.delete("/{key_id}/")
 async def api_key_delete(
     key_id: str,

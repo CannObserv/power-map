@@ -10,6 +10,12 @@
             hx-get="/admin/settings/api-keys/{{ key.id }}/edit-row/"
             hx-target="#api-key-row-{{ key.id }}"
             hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Manage scopes for {{ key.label }}"
+            hx-get="/admin/settings/api-keys/{{ key.id }}/detail/"
+            hx-target="#api-key-scopes-{{ key.id }}"
+            hx-swap="innerHTML"
+            hx-swap-oob="true">Scopes</button>
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Delete API key {{ key.label }}"
             hx-delete="/admin/settings/api-keys/{{ key.id }}/"
@@ -20,3 +26,4 @@
             data-confirm-label="Delete">Delete</button>
   </td>
 </tr>
+<div id="api-key-scopes-{{ key.id }}"></div>
