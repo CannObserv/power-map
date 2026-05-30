@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, field_serializer, model_validator
 
 
 def _fmt_ts(v: datetime | None) -> str | None:
@@ -143,3 +143,122 @@ class LinkTypesResponse(BaseModel):
     """
 
     data: list[LinkType]
+
+
+class ObservationNameParts(BaseModel):
+    """Structured name parts supplied by upstream source (pre-parsed, not auto-decomposed)."""
+
+    given_names: list[str] = []
+    family_names: list[str] = []
+    additional_names: list[str] = []
+    honorific_prefix: str | None = None
+    honorific_suffix: str | None = None
+    primary_identifier: str | None = None  # 'family', 'given', 'patronymic', or 'mononym'
+
+
+class ObservationName(BaseModel):
+    """A name claim included in an observation."""
+
+    name: str
+    name_type: str = "legal"  # must match person_names.name_type CHECK values
+    locale: str | None = None  # BCP 47
+    script: str | None = None  # ISO 15924
+    sort_as: str | None = None
+    parts: ObservationNameParts | None = None  # upstream-supplied structure only
+
+
+class ObservationLink(BaseModel):
+    """A web URL claim included in an observation."""
+
+    url: str
+    link_type_id: str | None = None  # XOR with link_type_slug
+    link_type_slug: str | None = None
+
+    @model_validator(mode="after")
+    def _xor_link_type(self) -> "ObservationLink":
+        has_id = self.link_type_id is not None
+        has_slug = self.link_type_slug is not None
+        if has_id and has_slug:
+            raise ValueError("Specify link_type_id or link_type_slug, not both")
+        if not has_id and not has_slug:
+            raise ValueError("One of link_type_id or link_type_slug is required")
+        return self
+
+
+class ObservationContactMethod(BaseModel):
+    """A contact method claim (email or phone)."""
+
+    contact_type: str  # 'email' or 'phone'
+    value: str  # raw value — normalized before storage
+    display_label: str | None = None
+
+
+class ObservationAddress(BaseModel):
+    """An address claim included in an observation."""
+
+    raw_input: str
+    address_type: str = "other"  # 'mailing', 'physical', or 'other'
+    display_name: str | None = None  # optional label, e.g. "Seattle Office"
+
+
+class ObservationRoleAssignment(BaseModel):
+    """A role assignment claim — references an existing role by its power-map ID."""
+
+    role_id: str  # power-map ULID
+    start_date: str | None = None  # ISO 8601 date string, YYYY-MM-DD
+    end_date: str | None = None
+
+
+class ObservationRequest(BaseModel):
+    """Payload sent to POST /api/v1/observations."""
+
+    # Required
+    identifier_type: str
+    identifier_value: str
+
+    # Optional attribute claims — names
+    names: list[ObservationName] = []
+
+    # Optional attribute claims — links
+    links: list[ObservationLink] = []
+
+    # Optional attribute claims — contact methods
+    contact_methods: list[ObservationContactMethod] = []
+
+    # Optional attribute claims — addresses
+    addresses: list[ObservationAddress] = []
+
+    # Optional attribute claims — org only
+    org_acronyms: list[str] = []
+    organization_parent_id: str | None = None
+    organization_parent_name: str | None = None
+    organization_parent_acronym: str | None = None
+
+    # Optional attribute claims — person only
+    personal_pronouns: str | None = None
+
+    # Optional attribute claims — role assignments
+    role_assignments: list[ObservationRoleAssignment] = []
+
+    @model_validator(mode="after")
+    def _xor_org_parent(self) -> "ObservationRequest":
+        parent_fields = [
+            self.organization_parent_id,
+            self.organization_parent_name,
+            self.organization_parent_acronym,
+        ]
+        non_none = sum(1 for f in parent_fields if f is not None)
+        if non_none > 1:
+            raise ValueError(
+                "Specify at most one of organization_parent_id, "
+                "organization_parent_name, organization_parent_acronym"
+            )
+        return self
+
+
+class ObservationResponse(BaseModel):
+    """Response returned by POST /api/v1/observations."""
+
+    disposition: str  # 'auto-attached', 'new', or 'rejected'
+    entity_id: str | None = None  # None only when disposition == 'rejected'
+    entity_type: str | None = None  # 'person' or 'organization'; None when rejected
