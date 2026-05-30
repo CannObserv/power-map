@@ -136,6 +136,10 @@ class LinkType(BaseModel):
 
 
 class LinkTypesResponse(BaseModel):
-    """Unpaginated list of all link types."""
+    """Unpaginated list of all link types.
+
+    Intentionally omits ``meta`` pagination — link_types is a small, stable
+    lookup table returned in full. No limit/offset parameters are accepted.
+    """
 
     data: list[LinkType]
