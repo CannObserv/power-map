@@ -4,7 +4,10 @@ import pytest
 from pydantic import ValidationError
 
 from src.api.public.schemas import (
+    ObservationAddress,
+    ObservationContactMethod,
     ObservationLink,
+    ObservationNameParts,
     ObservationRequest,
     ObservationResponse,
 )
@@ -93,3 +96,24 @@ def test_observation_response_rejected_entity_id_none():
     assert resp.disposition == "rejected"
     assert resp.entity_id is None
     assert resp.entity_type is None
+
+
+def test_contact_method_invalid_type_rejected():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ObservationContactMethod(contact_type="fax", value="12345")
+
+
+def test_address_invalid_type_rejected():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ObservationAddress(raw_input="123 Main St", address_type="postal")
+
+
+def test_name_parts_invalid_primary_identifier_rejected():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ObservationNameParts(primary_identifier="nickname")

@@ -51,16 +51,17 @@ async def resolve_entity(
     if existing:
         return existing["entity_id"], entity_type, Disposition.AUTO_ATTACHED
 
-    # No match — create entity + identifier
-    entity_id = await _create_entity(conn, entity_type)
-    await conn.execute(
-        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
-        " VALUES ($1, $2, $3, $4)",
-        generate_id(),
-        entity_id,
-        entity_identifier_type_id,
-        identifier_value,
-    )
+    # No match — create entity + identifier atomically
+    async with conn.transaction():
+        entity_id = await _create_entity(conn, entity_type)
+        await conn.execute(
+            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+            " VALUES ($1, $2, $3, $4)",
+            generate_id(),
+            entity_id,
+            entity_identifier_type_id,
+            identifier_value,
+        )
     logger.info(
         "Created %s entity_id=%s for identifier_type=%s value=%r",
         entity_type,

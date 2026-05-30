@@ -1,6 +1,7 @@
 """Pydantic response models for the public API v1."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, field_serializer, model_validator
 
@@ -153,7 +154,7 @@ class ObservationNameParts(BaseModel):
     additional_names: list[str] = []
     honorific_prefix: str | None = None
     honorific_suffix: str | None = None
-    primary_identifier: str | None = None  # 'family', 'given', 'patronymic', or 'mononym'
+    primary_identifier: Literal["family", "given", "patronymic", "mononym"] | None = None
 
 
 class ObservationName(BaseModel):
@@ -188,7 +189,7 @@ class ObservationLink(BaseModel):
 class ObservationContactMethod(BaseModel):
     """A contact method claim (email or phone)."""
 
-    contact_type: str  # 'email' or 'phone'
+    contact_type: Literal["email", "phone"]
     value: str  # raw value — normalized before storage
     display_label: str | None = None
 
@@ -197,7 +198,7 @@ class ObservationAddress(BaseModel):
     """An address claim included in an observation."""
 
     raw_input: str
-    address_type: str = "other"  # 'mailing', 'physical', or 'other'
+    address_type: Literal["mailing", "physical", "other"] = "other"
     display_name: str | None = None  # optional label, e.g. "Seattle Office"
 
 
