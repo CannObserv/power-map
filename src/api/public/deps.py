@@ -30,6 +30,36 @@ async def require_api_key(
     return row["user_id"]
 
 
+def require_scope(scope_id: str):
+    """Return a FastAPI dependency that requires the given scope on the API key.
+
+    Usage: user_id: str = Depends(require_scope("observations:write"))
+    Raises 403 (not authenticated), 401 (invalid key), or 403 (insufficient scope).
+    """
+
+    async def _check(
+        raw_key: str | None = Depends(api_key_header),
+        db=Depends(get_db),
+    ) -> str:
+        if raw_key is None:
+            raise HTTPException(status_code=403, detail="Not authenticated")
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        row = await db.fetchrow("SELECT id, user_id FROM api_keys WHERE key_hash = $1", key_hash)
+        if not row:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        await db.execute("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"])
+        scope_row = await db.fetchrow(
+            "SELECT 1 FROM api_key_scopes WHERE api_key_id = $1 AND scope_id = $2",
+            row["id"],
+            scope_id,
+        )
+        if not scope_row:
+            raise HTTPException(status_code=403, detail="Insufficient scope")
+        return row["user_id"]
+
+    return _check
+
+
 def identifier_filter(
     identifier_type: str | None = Query(default=None),
     identifier_value: str | None = Query(default=None),
