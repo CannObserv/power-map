@@ -817,7 +817,7 @@ async def test_additional_identifier_conflict_rejected(
         },
     )
     assert r1.status_code == 200
-    assert r1.json()["disposition"] != "rejected"
+    assert r1.json()["disposition"] == "new"
 
     # Second submission: same primary identifier, different value for the additional type → conflict
     r2 = _post(

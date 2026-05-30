@@ -100,8 +100,8 @@ async def submit_observation(
     except (
         ObservationRejected,
         IdentifierConflict,
-        asyncpg.CheckViolationError,
-        asyncpg.ForeignKeyViolationError,
+        asyncpg.CheckViolationError,  # invalid name_type, locale/script FK
+        asyncpg.ForeignKeyViolationError,  # bad role_id or other FK
     ):
         return _REJECTED
 
