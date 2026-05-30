@@ -1158,3 +1158,10 @@ ALTER TABLE addresses ADD COLUMN IF NOT EXISTS components JSONB;
 -- Migration: drop DEFAULT 'US' from addresses.country
 -- Existing rows keep their 'US' value; application layer now always provides country explicitly.
 ALTER TABLE addresses ALTER COLUMN country DROP DEFAULT;
+
+-- Migration (#162): per-name provenance — which API key sourced a name row.
+-- NULL for pre-observation-API rows; populated by observation writers going forward.
+ALTER TABLE person_names
+    ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;
+ALTER TABLE organization_names
+    ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;

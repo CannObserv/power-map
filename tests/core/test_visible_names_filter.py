@@ -33,6 +33,10 @@ ALLOWED_DIRECT_ACCESS = {
     # _names_shared.py uses dynamic {names_table} f-strings; the regex below
     # never matches verbatim "person_names" there. Listed for reviewer clarity.
     "src/api/admin/_names_shared.py",  # shared admin CRUD via {names_table}
+    # observation writers must dedup on the full (person_id, name) space
+    # regardless of visibility — a hidden or legal-only existing row still
+    # blocks a duplicate INSERT. No display is performed.
+    "src/core/observation.py",
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
