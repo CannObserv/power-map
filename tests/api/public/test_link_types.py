@@ -8,8 +8,6 @@ import pytest_asyncio
 
 from src.core.db import generate_id
 
-pytestmark = [pytest.mark.asyncio(loop_scope="session")]
-
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def api_key(db):
@@ -34,6 +32,7 @@ async def api_key(db):
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
 
+@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.integration
 async def test_link_types_with_valid_key_returns_200(client, api_key):
     """GET /api/v1/link-types with valid key returns 200."""
@@ -41,6 +40,7 @@ async def test_link_types_with_valid_key_returns_200(client, api_key):
     assert response.status_code == 200
 
 
+@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.integration
 async def test_link_types_response_has_data_list(client, api_key):
     """Response has `data` key with list of items."""
@@ -51,6 +51,7 @@ async def test_link_types_response_has_data_list(client, api_key):
     assert isinstance(body["data"], list)
 
 
+@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.integration
 async def test_link_types_items_have_required_fields(client, api_key):
     """Each item in data list has id, slug, display_name, is_social."""
@@ -66,15 +67,15 @@ async def test_link_types_items_have_required_fields(client, api_key):
         assert isinstance(item["is_social"], bool)
 
 
-@pytest.mark.integration
-async def test_link_types_without_key_returns_403(unit_client):
+def test_link_types_without_key_returns_403(unit_client):
     """GET /api/v1/link-types without X-API-Key returns 403."""
     response = unit_client.get("/api/v1/link-types")
     assert response.status_code == 403
 
 
+@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.integration
-async def test_link_types_with_invalid_key_returns_401(unit_client):
+async def test_link_types_with_invalid_key_returns_401(client):
     """GET /api/v1/link-types with invalid key returns 401."""
-    response = unit_client.get("/api/v1/link-types", headers={"X-API-Key": "pm_invalid"})
+    response = client.get("/api/v1/link-types", headers={"X-API-Key": "pm_invalid"})
     assert response.status_code == 401

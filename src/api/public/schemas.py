@@ -124,3 +124,18 @@ class PersonDetail(PersonSearchResult):
 
     names: list[PersonName] = []
     identifiers: list[PersonIdentifier] = []
+
+
+class LinkType(BaseModel):
+    """A link type used to categorise web URLs attached to entities."""
+
+    id: str
+    slug: str
+    display_name: str
+    is_social: bool
+
+
+class LinkTypesResponse(BaseModel):
+    """Unpaginated list of all link types."""
+
+    data: list[LinkType]
