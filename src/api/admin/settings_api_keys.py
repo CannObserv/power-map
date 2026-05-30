@@ -211,9 +211,9 @@ async def api_key_detail(
     key = await db.fetchrow("SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id)
     if not key:
         raise HTTPException(status_code=404)
-    ctx = await _fetch_scope_panel_ctx(key_id, db)
     if not is_htmx(request):
         return RedirectResponse("/admin/settings/api-keys/", status_code=303)
+    ctx = await _fetch_scope_panel_ctx(key_id, db)
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_api_key_scopes.html",
@@ -233,6 +233,11 @@ async def api_key_scope_grant(
     key = await db.fetchrow("SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id)
     if not key:
         raise HTTPException(status_code=404)
+    scope_type = await db.fetchrow("SELECT id FROM api_key_scope_types WHERE id = $1", scope_id)
+    if not scope_type:
+        raise HTTPException(status_code=422, detail="Unknown scope")
+    if not is_htmx(request):
+        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
     await db.execute(
         "INSERT INTO api_key_scopes (api_key_id, scope_id, granted_by)"
         " VALUES ($1,$2,$3)"
@@ -242,8 +247,6 @@ async def api_key_scope_grant(
         user.id,
     )
     ctx = await _fetch_scope_panel_ctx(key_id, db)
-    if not is_htmx(request):
-        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_api_key_scopes.html",
@@ -264,14 +267,14 @@ async def api_key_scope_revoke(
     key = await db.fetchrow("SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id)
     if not key:
         raise HTTPException(status_code=404)
+    if not is_htmx(request):
+        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
     await db.execute(
         "DELETE FROM api_key_scopes WHERE api_key_id=$1 AND scope_id=$2",
         key_id,
         scope_id,
     )
     ctx = await _fetch_scope_panel_ctx(key_id, db)
-    if not is_htmx(request):
-        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_api_key_scopes.html",

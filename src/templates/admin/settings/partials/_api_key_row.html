@@ -14,8 +14,7 @@
             aria-label="Manage scopes for {{ key.label }}"
             hx-get="/admin/settings/api-keys/{{ key.id }}/detail/"
             hx-target="#api-key-scopes-{{ key.id }}"
-            hx-swap="innerHTML"
-            hx-swap-oob="true">Scopes</button>
+            hx-swap="outerHTML">Scopes</button>
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Delete API key {{ key.label }}"
             hx-delete="/admin/settings/api-keys/{{ key.id }}/"
