@@ -305,6 +305,11 @@ async def _execute_merge(
             loser_id,
         )
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
+        await db.execute(
+            "INSERT INTO deleted_entities (entity_type, entity_id) VALUES ('organization', $1)"
+            " ON CONFLICT DO NOTHING",
+            loser_id,
+        )
     invalidate_dup_count_cache()
     return dropped_assignments
 

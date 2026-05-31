@@ -686,6 +686,11 @@ async def org_delete(
         await db.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", org_id)
         await db.execute("DELETE FROM organization_names WHERE organization_id = $1", org_id)
         await db.execute("DELETE FROM organizations WHERE id = $1", org_id)
+        await db.execute(
+            "INSERT INTO deleted_entities (entity_type, entity_id) VALUES ('organization', $1)"
+            " ON CONFLICT DO NOTHING",
+            org_id,
+        )
     except asyncpg.ForeignKeyViolationError:
         raise HTTPException(
             status_code=409,

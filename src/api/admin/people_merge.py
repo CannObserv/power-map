@@ -302,6 +302,11 @@ async def merge_person_into(
     )
 
     await db.execute("DELETE FROM people WHERE id=$1", loser_id)
+    await db.execute(
+        "INSERT INTO deleted_entities (entity_type, entity_id) VALUES ('person', $1)"
+        " ON CONFLICT DO NOTHING",
+        loser_id,
+    )
 
 
 @router.post("/{winner_id}/merge/{loser_id}/")

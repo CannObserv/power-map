@@ -1166,3 +1166,24 @@ ALTER TABLE organization_names
 -- Migration (#162 CR): drop redundant api_key_scopes_key index — the PK on
 -- (api_key_id, scope_id) already supports lookups by api_key_id alone.
 DROP INDEX IF EXISTS idx_api_key_scopes_key;
+
+-- Migration (#163): change feed — deleted_entities tombstone + updated_at indexes.
+
+CREATE TABLE IF NOT EXISTS deleted_entities (
+    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('person', 'organization')),
+    entity_id    TEXT        NOT NULL,
+    deleted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (entity_type, entity_id)
+);
+
+-- TTL cleanup: rows older than 90 days are safe to purge (cron or manual).
+-- DELETE FROM deleted_entities WHERE deleted_at < NOW() - INTERVAL '90 days';
+
+CREATE INDEX IF NOT EXISTS idx_deleted_entities_deleted_at
+    ON deleted_entities (deleted_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_people_updated_at
+    ON people (updated_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_organizations_updated_at
+    ON organizations (updated_at ASC);

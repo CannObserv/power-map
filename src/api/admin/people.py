@@ -379,6 +379,11 @@ async def person_delete(
         # rows regardless of visibility.
         await db.execute("DELETE FROM person_names WHERE person_id = $1", person_id)
         await db.execute("DELETE FROM people WHERE id = $1", person_id)
+        await db.execute(
+            "INSERT INTO deleted_entities (entity_type, entity_id) VALUES ('person', $1)"
+            " ON CONFLICT DO NOTHING",
+            person_id,
+        )
     except asyncpg.ForeignKeyViolationError:
         raise HTTPException(
             status_code=409,

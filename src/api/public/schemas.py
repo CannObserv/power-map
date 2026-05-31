@@ -287,3 +287,33 @@ class ObservationResponse(BaseModel):
     disposition: str  # 'auto-attached', 'new', or 'rejected'
     entity_id: str | None = None  # None only when disposition == 'rejected'
     entity_type: str | None = None  # 'person' or 'organization'; None when rejected
+
+
+class ChangeItem(BaseModel):
+    """A single entry in the change feed — updated or deleted entity."""
+
+    entity_type: Literal["person", "organization"]
+    entity_id: str
+    changed_at: datetime
+    change_kind: Literal["updated", "deleted"]
+    archived_at: datetime | None = None
+
+    @field_serializer("changed_at", "archived_at")
+    def _serialize_ts(self, v: datetime | None) -> str | None:
+        return _fmt_ts(v)
+
+
+class ChangeMeta(BaseModel):
+    """Pagination metadata for the change feed."""
+
+    limit: int
+    count: int
+    has_more: bool
+    next_since: str  # ISO 8601 Z — pass as ?since= on the next poll
+
+
+class ChangeFeedResponse(BaseModel):
+    """Response envelope for GET /api/v1/changes."""
+
+    data: list[ChangeItem]
+    meta: ChangeMeta
