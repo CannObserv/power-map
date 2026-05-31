@@ -217,6 +217,39 @@ Required after a fresh `apply_schema` on a brand-new DB. The FK on
 write fails until this script populates the lookup tables. `apply_schema`
 logs a WARNING when either lookup table is empty.
 
+## Tombstone cleanup (deleted_entities TTL)
+
+Rows in `deleted_entities` older than 90 days are safe to purge — sibling services should have invalidated their caches by then. Run manually or via cron:
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+# Dry run — count rows that would be deleted
+uv run "${env_args[@]}" python -c "
+import asyncio, asyncpg, os
+async def main():
+    conn = await asyncpg.connect(os.environ['DATABASE_URL'])
+    n = await conn.fetchval(\"SELECT COUNT(*) FROM deleted_entities WHERE deleted_at < NOW() - INTERVAL '90 days'\")
+    print(f'{n} rows eligible for cleanup')
+    await conn.close()
+asyncio.run(main())
+"
+
+# Execute — purge stale tombstones
+uv run "${env_args[@]}" python -c "
+import asyncio, asyncpg, os
+async def main():
+    conn = await asyncpg.connect(os.environ['DATABASE_URL'])
+    result = await conn.execute(\"DELETE FROM deleted_entities WHERE deleted_at < NOW() - INTERVAL '90 days'\")
+    print(result)
+    await conn.close()
+asyncio.run(main())
+"
+```
+
 ## Git Submodules
 
 ```bash

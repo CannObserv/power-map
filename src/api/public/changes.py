@@ -1,6 +1,6 @@
 """GET /api/v1/changes — entity change feed for sibling-service cache invalidation."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -68,6 +68,9 @@ async def get_changes(
     (>=) to avoid dropping events at exact timestamp boundaries; de-duplicate
     the overlap row using ``entity_id`` if needed.
     """
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=UTC)
+
     # Fetch limit+1 to detect has_more without a separate COUNT query.
     rows = await db.fetch(_QUERY, since, limit + 1)
 
