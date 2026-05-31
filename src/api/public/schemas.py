@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, field_serializer, model_validator
 
 
-def _fmt_ts(v: datetime | None) -> str | None:
+def fmt_ts(v: datetime | None) -> str | None:
     """Serialize a UTC datetime to ISO 8601 with Z suffix."""
     return v.isoformat().replace("+00:00", "Z") if v else None
 
@@ -29,7 +29,7 @@ class OrgSearchResult(BaseModel):
 
     @field_serializer("archived_at")
     def _serialize_archived_at(self, v: datetime | None) -> str | None:
-        return _fmt_ts(v)
+        return fmt_ts(v)
 
 
 class SearchMeta(BaseModel):
@@ -91,7 +91,7 @@ class PersonSearchResult(BaseModel):
 
     @field_serializer("archived_at")
     def _serialize_archived_at(self, v: datetime | None) -> str | None:
-        return _fmt_ts(v)
+        return fmt_ts(v)
 
 
 class PersonSearchResponse(BaseModel):
@@ -300,7 +300,7 @@ class ChangeItem(BaseModel):
 
     @field_serializer("changed_at", "archived_at")
     def _serialize_ts(self, v: datetime | None) -> str | None:
-        return _fmt_ts(v)
+        return fmt_ts(v)
 
 
 class ChangeMeta(BaseModel):

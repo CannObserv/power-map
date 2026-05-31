@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 
 from src.api.deps import get_db
 from src.api.public.deps import require_api_key
-from src.api.public.schemas import ChangeFeedResponse, ChangeItem, ChangeMeta, _fmt_ts
+from src.api.public.schemas import ChangeFeedResponse, ChangeItem, ChangeMeta, fmt_ts
 
 router = APIRouter()
 
@@ -85,7 +85,7 @@ async def get_changes(
         for row in rows
     ]
 
-    next_since = _fmt_ts(rows[-1]["changed_at"]) if rows else _fmt_ts(since)
+    next_since = fmt_ts(rows[-1]["changed_at"]) if rows else fmt_ts(since)
 
     return ChangeFeedResponse(
         data=items,

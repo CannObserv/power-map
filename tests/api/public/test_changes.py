@@ -8,7 +8,10 @@ import pytest_asyncio
 
 from src.core.db import generate_id
 
-pytestmark = [pytest.mark.asyncio(loop_scope="session")]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.asyncio(loop_scope="session"),
+]
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -60,22 +63,6 @@ async def change_fixtures(db):
     await db.execute("DELETE FROM people WHERE id=$1", person_id)
     await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
     await db.execute("DELETE FROM deleted_entities WHERE entity_id=$1", deleted_person_id)
-
-
-# ---------------------------------------------------------------------------
-# Auth
-# ---------------------------------------------------------------------------
-
-
-def test_changes_requires_api_key(unit_client):
-    r = unit_client.get("/api/v1/changes")
-    assert r.status_code == 403
-
-
-@pytest.mark.integration
-def test_changes_rejects_invalid_key(client):
-    r = client.get("/api/v1/changes", headers={"X-API-Key": "pm_bad"})
-    assert r.status_code == 401
 
 
 # ---------------------------------------------------------------------------

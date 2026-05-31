@@ -76,6 +76,65 @@ Path-versioned (`/api/v1/`). Breaking changes introduce a new prefix (`/api/v2/`
 
 ---
 
+## Change Feed
+
+`GET /api/v1/changes` returns a time-ordered feed of entity mutations for sibling-service cache invalidation.
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `since` | ISO 8601 timestamp | required | Return events at or after this timestamp |
+| `limit` | integer 1–1000 | 50 | Max items per page |
+
+### Response shape
+
+```json
+{
+  "data": [
+    {
+      "entity_type": "person",
+      "entity_id": "01JVBN...",
+      "changed_at": "2025-06-01T12:00:00.000000Z",
+      "change_kind": "updated",
+      "archived_at": null
+    }
+  ],
+  "meta": {
+    "limit": 50,
+    "count": 1,
+    "has_more": false,
+    "next_since": "2025-06-01T12:00:00.000000Z"
+  }
+}
+```
+
+`change_kind` is `"updated"` for live or archived entities and `"deleted"` for hard-deleted or merged entities.
+
+### Polling pattern
+
+Pass `meta.next_since` from the previous response as `since` on the next poll:
+
+```python
+since = "2025-01-01T00:00:00.000000Z"
+while True:
+    resp = client.get("/api/v1/changes", params={"since": since})
+    page = resp.json()
+    process(page["data"])
+    since = page["meta"]["next_since"]
+    if not page["meta"]["has_more"]:
+        break
+```
+
+### Implicit behaviors
+
+- **Inclusive boundary.** `since` uses `>=` semantics — the timestamp returned as `next_since` may appear again in the next page. Deduplicate by `entity_id` when processing consecutive pages.
+- **Deleted entities.** Hard deletes and merges write a tombstone to an internal `deleted_entities` table (TTL ≈ 90 days). After the TTL, `GET /api/v1/people/{id}` or `/orgs/{id}` returning 404 is the fallback signal that an entity was removed.
+- **Order.** Results are ordered by `changed_at ASC, entity_id ASC`. Within a single timestamp, order is deterministic but arbitrary.
+- **No total count.** `meta.count` is the page count, not a dataset total.
+
+---
+
 ## Health check
 
 `GET /api/v1/` returns `{"status": "ok", "version": "v1"}` when authenticated. Use it to confirm key validity before hitting data endpoints.

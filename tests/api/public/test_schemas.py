@@ -1,4 +1,4 @@
-"""Unit tests for public API response schemas and _fmt_ts serializer."""
+"""Unit tests for public API response schemas and fmt_ts serializer."""
 
 from datetime import UTC, datetime
 
@@ -10,49 +10,49 @@ from src.api.public.schemas import (
     OrgSearchResponse,
     OrgSearchResult,
     SearchMeta,
-    _fmt_ts,
+    fmt_ts,
 )
 
 # ---------------------------------------------------------------------------
-# _fmt_ts
+# fmt_ts
 # ---------------------------------------------------------------------------
 
 
-def test_fmt_ts_none_returns_none():
-    assert _fmt_ts(None) is None
+def testfmt_ts_none_returns_none():
+    assert fmt_ts(None) is None
 
 
-def test_fmt_ts_utc_aware_ends_with_z():
+def testfmt_ts_utc_aware_ends_with_z():
     dt = datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
-    result = _fmt_ts(dt)
+    result = fmt_ts(dt)
     assert result is not None
     assert result.endswith("Z"), f"expected Z suffix, got {result!r}"
 
 
-def test_fmt_ts_utc_aware_no_plus_offset():
+def testfmt_ts_utc_aware_no_plus_offset():
     dt = datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
-    result = _fmt_ts(dt)
+    result = fmt_ts(dt)
     assert "+00:00" not in result
 
 
-def test_fmt_ts_preserves_microseconds():
+def testfmt_ts_preserves_microseconds():
     dt = datetime(2024, 6, 15, 12, 0, 0, 123456, tzinfo=UTC)
-    result = _fmt_ts(dt)
+    result = fmt_ts(dt)
     assert "123456" in result
 
 
-def test_fmt_ts_formats_date_components_correctly():
+def testfmt_ts_formats_date_components_correctly():
     dt = datetime(2025, 3, 7, 9, 5, 3, tzinfo=UTC)
-    result = _fmt_ts(dt)
+    result = fmt_ts(dt)
     assert result == "2025-03-07T09:05:03Z"
 
 
-def test_fmt_ts_naive_datetime_returns_no_z_suffix():
+def testfmt_ts_naive_datetime_returns_no_z_suffix():
     # All DB timestamps are TIMESTAMPTZ (UTC-aware), so naive datetimes cannot
-    # reach _fmt_ts in practice. This test documents the edge-case behaviour:
+    # reach fmt_ts in practice. This test documents the edge-case behaviour:
     # no timezone info → no +00:00 replacement → no Z suffix in output.
     dt = datetime(2024, 1, 1)  # naive, no tzinfo
-    result = _fmt_ts(dt)
+    result = fmt_ts(dt)
     assert result is not None
     assert not result.endswith("Z"), f"naive datetime should not produce Z suffix, got {result!r}"
 
