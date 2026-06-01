@@ -2,16 +2,29 @@
 
 from typing import Any, Literal
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
-from src.api.public.deps import require_api_key
+from src.api.public.deps import AuthedKey, require_api_key, require_scope
 from src.api.public.schemas import (
     JurisdictionLineageResponse,
     JurisdictionListResponse,
+    JurisdictionObservationRequest,
     JurisdictionRelationshipsResponse,
     JurisdictionResponse,
+    ObservationResponse,
     make_etag,
+)
+from src.core.observation import (
+    Disposition,
+    IdentifierConflict,
+    ObservationRejected,
+    resolve_entity,
+    write_additional_identifiers,
+    write_addresses,
+    write_contact_methods,
+    write_links,
 )
 
 router = APIRouter(prefix="/jurisdictions", tags=["public-api"])
@@ -374,3 +387,68 @@ async def get_jurisdiction_lineage(
         depth,
     )
     return {"data": [_row_to_jur(r) for r in rows]}
+
+
+# ---------------------------------------------------------------------------
+# POST /jurisdictions/observations
+# ---------------------------------------------------------------------------
+
+_REJECTED_OBS = ObservationResponse(disposition="rejected", entity_id=None, entity_type=None)
+
+
+@router.post(
+    "/observations",
+    response_model=ObservationResponse,
+    operation_id="submitJurisdictionObservation",
+)
+async def submit_jurisdiction_observation(
+    request: JurisdictionObservationRequest,
+    auth: AuthedKey = Depends(require_scope("observations:write")),
+    db=Depends(get_db),
+) -> ObservationResponse:
+    """Submit a jurisdiction identity observation; attach to existing or create new."""
+    create_data: dict | None = None
+    if (
+        request.jurisdiction_slug is not None
+        and request.jurisdiction_name is not None
+        and request.jurisdiction_type_slug is not None
+    ):
+        create_data = {
+            "slug": request.jurisdiction_slug,
+            "name": request.jurisdiction_name,
+            "type_slug": request.jurisdiction_type_slug,
+            "valid_from": request.jurisdiction_valid_from,
+            "valid_until": request.jurisdiction_valid_until,
+            "notes": request.jurisdiction_notes,
+        }
+
+    entity_id, entity_type, disposition = await resolve_entity(
+        db,
+        request.identifier_type,
+        request.identifier_value,
+        create_data=create_data,
+    )
+
+    if disposition is Disposition.REJECTED:
+        return _REJECTED_OBS
+
+    try:
+        async with db.transaction():
+            await write_links(db, entity_id, entity_type, request.links)
+            await write_contact_methods(db, entity_id, entity_type, request.contact_methods)
+            await write_addresses(db, entity_id, entity_type, request.addresses)
+            await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+    except (
+        ObservationRejected,
+        IdentifierConflict,
+        asyncpg.CheckViolationError,
+        asyncpg.ForeignKeyViolationError,
+        asyncpg.UniqueViolationError,
+    ):
+        return _REJECTED_OBS
+
+    return ObservationResponse(
+        disposition=disposition.value,
+        entity_id=entity_id,
+        entity_type=entity_type,
+    )

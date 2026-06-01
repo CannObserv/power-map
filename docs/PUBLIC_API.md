@@ -137,17 +137,45 @@ while True:
 
 ## Jurisdictions
 
-Five read-only endpoints behind standard `X-API-Key` auth (no write scope required).
-
 ### Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/v1/jurisdictions` | Paginated list. Params: `type` (slug filter), `include_archived` (bool, default `false`), `limit` (max 100), `offset`. |
-| `GET` | `/api/v1/jurisdictions/resolve` | Lookup by slug or external identifier. Params: `slug` xor (`scheme` + `value`). Returns a single record or 404. |
-| `GET` | `/api/v1/jurisdictions/{id}` | Detail by ULID or slug. ETag caching — see caching section above. |
-| `GET` | `/api/v1/jurisdictions/{id}/relationships` | Edges involving this jurisdiction. Params: `direction` (`from`/`to`/`both`, default `both`), `category` (`spatial`/`governance`/`functional`/`lineage`), `rel_type` (slug filter), `limit`, `offset`. |
-| `GET` | `/api/v1/jurisdictions/{id}/lineage` | Walk `lineage`-category edges recursively. Returns ordered list of jurisdictions (depth-first). Params: `depth` (default 10, max 50). |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/jurisdictions` | API key | Paginated list. Params: `type` (slug filter), `include_archived` (bool, default `false`), `limit` (max 100), `offset`. |
+| `GET` | `/api/v1/jurisdictions/resolve` | API key | Lookup by slug or external identifier. Params: `slug` xor (`scheme` + `value`). Returns a single record or 404. |
+| `GET` | `/api/v1/jurisdictions/{id}` | API key | Detail by ULID or slug. ETag caching — see caching section above. |
+| `GET` | `/api/v1/jurisdictions/{id}/relationships` | API key | Edges involving this jurisdiction. Params: `direction` (`from`/`to`/`both`, default `both`), `category` (`spatial`/`governance`/`functional`/`lineage`), `rel_type` (slug filter), `limit`, `offset`. |
+| `GET` | `/api/v1/jurisdictions/{id}/lineage` | API key | Walk `lineage`-category edges recursively. Returns ordered list of jurisdictions (depth-first). Params: `depth` (default 10, max 50). |
+| `POST` | `/api/v1/jurisdictions/observations` | `observations:write` scope | Submit a jurisdiction identity observation. |
+
+### Observation write — `POST /jurisdictions/observations`
+
+Upserts a jurisdiction by identifier, following the same match-or-create semantics as `POST /observations`.
+
+**Request fields:**
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `identifier_type` | always | Must be a registered jurisdiction identifier type slug (`jur_ocd`, `jur_fips`, `jur_iso3166_2`) |
+| `identifier_value` | always | Value for the identifier |
+| `jurisdiction_slug` | NEW only | Unique slug (e.g. `usa-wa`, `usa-wa-ld-21`). Required when creating a new jurisdiction; ignored on AUTO_ATTACHED. |
+| `jurisdiction_name` | NEW only | Human-readable name. Required for NEW; ignored on AUTO_ATTACHED. |
+| `jurisdiction_type_slug` | NEW only | Must match a seeded `jurisdiction_types` slug (e.g. `state`, `county`, `legislative_district_upper`). Required for NEW. |
+| `jurisdiction_valid_from` | optional | ISO 8601 date — validity-axis start |
+| `jurisdiction_valid_until` | optional | ISO 8601 date — validity-axis end; must be ≥ `valid_from` if both supplied |
+| `jurisdiction_notes` | optional | Free-text notes |
+| `links` | optional | Same shape as `POST /observations` links |
+| `contact_methods` | optional | Same shape |
+| `addresses` | optional | Same shape |
+| `additional_identifiers` | optional | Same shape — for attaching secondary identifier schemes |
+
+**Disposition semantics:**
+
+| Disposition | Condition |
+|-------------|-----------|
+| `new` | Identifier not seen before; jurisdiction created |
+| `auto-attached` | Identifier already known; existing entity returned |
+| `rejected` | Unknown identifier type; required NEW fields missing; invalid `jurisdiction_type_slug`; slug collision with a different entity |
 
 ### Implicit behaviors
 

@@ -134,3 +134,21 @@ def test_jurisdiction_relationships_missing_key_returns_403(unit_client):
 def test_jurisdiction_lineage_missing_key_returns_403(unit_client):
     r = unit_client.get("/api/v1/jurisdictions/some-id/lineage")
     assert r.status_code == 403
+
+
+# /api/v1/jurisdictions/observations
+
+
+def test_jurisdiction_observations_missing_key_returns_403(unit_client):
+    r = unit_client.post("/api/v1/jurisdictions/observations", json={})
+    assert r.status_code == 403
+
+
+@pytest.mark.integration
+def test_jurisdiction_observations_invalid_key_returns_401(client):
+    r = client.post(
+        "/api/v1/jurisdictions/observations",
+        json={},
+        headers={"X-API-Key": "pm_bad"},
+    )
+    assert r.status_code == 401

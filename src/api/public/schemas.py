@@ -286,13 +286,47 @@ class ObservationResponse(BaseModel):
 
     disposition: str  # 'auto-attached', 'new', or 'rejected'
     entity_id: str | None = None  # None only when disposition == 'rejected'
-    entity_type: str | None = None  # 'person' or 'organization'; None when rejected
+    entity_type: str | None = None  # 'person', 'organization', 'jurisdiction'; None when rejected
+
+
+class JurisdictionObservationRequest(BaseModel):
+    """Payload for POST /api/v1/jurisdictions/observations."""
+
+    # Required: identifier used for match-or-create
+    identifier_type: str
+    identifier_value: str
+
+    # Required for NEW disposition; ignored on AUTO_ATTACHED
+    jurisdiction_slug: str | None = None
+    jurisdiction_name: str | None = None
+    jurisdiction_type_slug: str | None = None
+
+    # Optional for both dispositions
+    jurisdiction_valid_from: date | None = None
+    jurisdiction_valid_until: date | None = None
+    jurisdiction_notes: str | None = None
+
+    # Generic attribute claims (same as other entity types)
+    links: list[ObservationLink] = []
+    contact_methods: list[ObservationContactMethod] = []
+    addresses: list[ObservationAddress] = []
+    additional_identifiers: list[ObservationAdditionalIdentifier] = []
+
+    @model_validator(mode="after")
+    def _check_valid_range(self) -> "JurisdictionObservationRequest":
+        if (
+            self.jurisdiction_valid_from is not None
+            and self.jurisdiction_valid_until is not None
+            and self.jurisdiction_valid_from > self.jurisdiction_valid_until
+        ):
+            raise ValueError("jurisdiction_valid_from must be <= jurisdiction_valid_until")
+        return self
 
 
 class ChangeItem(BaseModel):
     """A single entry in the change feed — updated or deleted entity."""
 
-    entity_type: Literal["person", "organization"]
+    entity_type: Literal["person", "organization", "jurisdiction"]
     entity_id: str
     changed_at: datetime
     change_kind: Literal["updated", "deleted"]

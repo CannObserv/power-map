@@ -4,6 +4,8 @@ import json
 from datetime import date
 from enum import StrEnum
 
+import asyncpg
+
 from src.core.db import generate_id
 from src.core.logging import get_logger
 from src.core.normalizers.address import get_address_normalizer
@@ -47,6 +49,8 @@ async def resolve_entity(
     conn,
     identifier_type_slug: str,
     identifier_value: str,
+    *,
+    create_data: dict | None = None,
 ) -> tuple[str, str, Disposition]:
     """Find or create the entity identified by the given identifier.
 
@@ -55,7 +59,8 @@ async def resolve_entity(
     disposition is:
       - AUTO_ATTACHED  if an existing identifier row was found
       - NEW            if a new entity + identifier row were created
-      - REJECTED       if the identifier_type_slug is unknown
+      - REJECTED       if the identifier_type_slug is unknown, or if the entity
+                       type requires create_data for NEW and none was provided
 
     Raises nothing — REJECTED is returned, not raised.
     """
@@ -78,16 +83,41 @@ async def resolve_entity(
     if existing:
         return existing["entity_id"], entity_type, Disposition.AUTO_ATTACHED
 
-    async with conn.transaction():
-        entity_id = await _create_entity(conn, entity_type)
-        await conn.execute(
-            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
-            " VALUES ($1, $2, $3, $4)",
-            generate_id(),
-            entity_id,
-            entity_identifier_type_id,
+    if entity_type == "jurisdiction":
+        if not create_data:
+            logger.warning(
+                "Jurisdiction NEW disposition requires create_data; identifier_type=%r",
+                identifier_type_slug,
+            )
+            return "", "", Disposition.REJECTED
+        # Pre-validate type_slug outside the transaction so we can return REJECTED cleanly.
+        type_row = await conn.fetchrow(
+            "SELECT id FROM jurisdiction_types WHERE slug=$1", create_data["type_slug"]
+        )
+        if type_row is None:
+            logger.warning("Unknown jurisdiction_type_slug=%r", create_data["type_slug"])
+            return "", "", Disposition.REJECTED
+        create_data = {**create_data, "type_id": type_row["id"]}
+
+    try:
+        async with conn.transaction():
+            entity_id = await _create_entity(conn, entity_type, create_data=create_data)
+            await conn.execute(
+                "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+                " VALUES ($1, $2, $3, $4)",
+                generate_id(),
+                entity_id,
+                entity_identifier_type_id,
+                identifier_value,
+            )
+    except asyncpg.UniqueViolationError:
+        logger.warning(
+            "UniqueViolation creating %s for identifier_type=%r value=%r",
+            entity_type,
+            identifier_type_slug,
             identifier_value,
         )
+        return "", "", Disposition.REJECTED
     logger.info(
         "Created %s entity_id=%s for identifier_type=%s value=%r",
         entity_type,
@@ -98,13 +128,27 @@ async def resolve_entity(
     return entity_id, entity_type, Disposition.NEW
 
 
-async def _create_entity(conn, entity_type: str) -> str:
+async def _create_entity(conn, entity_type: str, *, create_data: dict | None = None) -> str:
     """Insert a minimal entity row and return its id."""
     entity_id = generate_id()
     if entity_type == "person":
         await conn.execute("INSERT INTO people (id) VALUES ($1)", entity_id)
     elif entity_type == "organization":
         await conn.execute("INSERT INTO organizations (id) VALUES ($1)", entity_id)
+    elif entity_type == "jurisdiction":
+        assert create_data  # guarded + type_id pre-resolved in resolve_entity
+        await conn.execute(
+            "INSERT INTO jurisdictions"
+            " (id, slug, name, type_id, valid_from, valid_until, notes)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            entity_id,
+            create_data["slug"],
+            create_data["name"],
+            create_data["type_id"],
+            create_data.get("valid_from"),
+            create_data.get("valid_until"),
+            create_data.get("notes"),
+        )
     elif entity_type == "role_assignment":
         raise ValueError("Cannot create bare role_assignment entity from observation")
     else:
@@ -185,6 +229,8 @@ async def write_names(
                 n.name_type,
                 api_key_id,
             )
+    elif entity_type == "jurisdiction":
+        pass  # jurisdiction name lives on the row; no names table
     else:
         raise ValueError(f"write_names: unsupported entity_type {entity_type!r}")
 
