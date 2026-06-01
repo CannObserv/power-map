@@ -29,14 +29,6 @@ _DETAIL_SQL = """
     JOIN jurisdiction_types jt ON jt.id = j.type_id
 """
 
-_REL_TYPE_COLS = """
-        jrt.id           AS rel_type_id,
-        jrt.slug         AS rel_type_slug,
-        jrt.display_name AS rel_type_display_name,
-        jrt.category     AS rel_type_category,
-        jrt.is_symmetric AS rel_type_is_symmetric
-"""
-
 
 def _row_to_jur(r: Any) -> dict[str, Any]:
     return {
@@ -262,9 +254,14 @@ async def list_jurisdiction_relationships(
     jid = jur["id"]
 
     rows = await db.fetch(
-        "SELECT jr.id, jr.from_id, jr.to_id,"
-        + _REL_TYPE_COLS
-        + """,
+        """
+        SELECT
+            jr.id, jr.from_id, jr.to_id,
+            jrt.id           AS rel_type_id,
+            jrt.slug         AS rel_type_slug,
+            jrt.display_name AS rel_type_display_name,
+            jrt.category     AS rel_type_category,
+            jrt.is_symmetric AS rel_type_is_symmetric,
             jr.valid_from, jr.valid_until,
             jr.recorded_at, jr.superseded_at, jr.created_at
         FROM jurisdiction_relationships jr
