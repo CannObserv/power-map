@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, field_serializer, model_validator
+from pydantic import BaseModel, Field, field_serializer, model_validator
 
 
 def fmt_ts(v: datetime | None) -> str | None:
@@ -77,9 +77,9 @@ class OrgIdentifier(BaseModel):
 class OrgDetail(OrgSearchResult):
     """Full org record including name variants, acronyms, and identifiers."""
 
-    names: list[OrgName] = []
-    acronyms: list[OrgAcronym] = []
-    identifiers: list[OrgIdentifier] = []
+    names: list[OrgName] = Field(default_factory=list)
+    acronyms: list[OrgAcronym] = Field(default_factory=list)
+    identifiers: list[OrgIdentifier] = Field(default_factory=list)
 
 
 class PersonSearchResult(BaseModel):
@@ -123,8 +123,8 @@ class PersonIdentifier(BaseModel):
 class PersonDetail(PersonSearchResult):
     """Full person record including public name variants and identifiers."""
 
-    names: list[PersonName] = []
-    identifiers: list[PersonIdentifier] = []
+    names: list[PersonName] = Field(default_factory=list)
+    identifiers: list[PersonIdentifier] = Field(default_factory=list)
 
 
 class LinkType(BaseModel):
@@ -149,9 +149,9 @@ class LinkTypesResponse(BaseModel):
 class ObservationNameParts(BaseModel):
     """Structured name parts supplied by upstream source (pre-parsed, not auto-decomposed)."""
 
-    given_names: list[str] = []
-    family_names: list[str] = []
-    additional_names: list[str] = []
+    given_names: list[str] = Field(default_factory=list)
+    family_names: list[str] = Field(default_factory=list)
+    additional_names: list[str] = Field(default_factory=list)
     honorific_prefix: str | None = None
     honorific_suffix: str | None = None
     primary_identifier: Literal["family", "given", "patronymic", "mononym"] | None = None
@@ -239,19 +239,19 @@ class ObservationRequest(BaseModel):
     identifier_value: str
 
     # Optional attribute claims — names
-    names: list[ObservationName] = []
+    names: list[ObservationName] = Field(default_factory=list)
 
     # Optional attribute claims — links
-    links: list[ObservationLink] = []
+    links: list[ObservationLink] = Field(default_factory=list)
 
     # Optional attribute claims — contact methods
-    contact_methods: list[ObservationContactMethod] = []
+    contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
 
     # Optional attribute claims — addresses
-    addresses: list[ObservationAddress] = []
+    addresses: list[ObservationAddress] = Field(default_factory=list)
 
     # Optional attribute claims — org only
-    org_acronyms: list[str] = []
+    org_acronyms: list[str] = Field(default_factory=list)
     organization_parent_id: str | None = None
     organization_parent_name: str | None = None
     organization_parent_acronym: str | None = None
@@ -260,10 +260,10 @@ class ObservationRequest(BaseModel):
     personal_pronouns: str | None = None
 
     # Optional attribute claims — role assignments
-    role_assignments: list[ObservationRoleAssignment] = []
+    role_assignments: list[ObservationRoleAssignment] = Field(default_factory=list)
 
     # Optional attribute claims — additional identifiers (same-type conflict → rejected)
-    additional_identifiers: list[ObservationAdditionalIdentifier] = []
+    additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _xor_org_parent(self) -> "ObservationRequest":
@@ -301,16 +301,19 @@ class JurisdictionObservationRequest(BaseModel):
     jurisdiction_name: str | None = None
     jurisdiction_type_slug: str | None = None
 
-    # Optional for both dispositions
+    # Applied on NEW only; silently ignored on AUTO_ATTACHED.
+    # These are core entity fields on the jurisdiction row itself — unlike
+    # attribute tables (links, contact_methods, etc.) they are not appended
+    # on AUTO_ATTACHED, to preserve the integrity of first-submitted data.
     jurisdiction_valid_from: date | None = None
     jurisdiction_valid_until: date | None = None
     jurisdiction_notes: str | None = None
 
     # Generic attribute claims (same as other entity types)
-    links: list[ObservationLink] = []
-    contact_methods: list[ObservationContactMethod] = []
-    addresses: list[ObservationAddress] = []
-    additional_identifiers: list[ObservationAdditionalIdentifier] = []
+    links: list[ObservationLink] = Field(default_factory=list)
+    contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
+    addresses: list[ObservationAddress] = Field(default_factory=list)
+    additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_valid_range(self) -> "JurisdictionObservationRequest":
@@ -408,7 +411,7 @@ class JurisdictionListItem(BaseModel):
 class JurisdictionResponse(JurisdictionListItem):
     """Full jurisdiction record including identifiers."""
 
-    identifiers: list[JurisdictionIdentifier] = []
+    identifiers: list[JurisdictionIdentifier] = Field(default_factory=list)
 
 
 class JurisdictionListResponse(BaseModel):

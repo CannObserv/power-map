@@ -161,9 +161,9 @@ Upserts a jurisdiction by identifier, following the same match-or-create semanti
 | `jurisdiction_slug` | NEW only | Unique slug (e.g. `usa-wa`, `usa-wa-ld-21`). Required when creating a new jurisdiction; ignored on AUTO_ATTACHED. |
 | `jurisdiction_name` | NEW only | Human-readable name. Required for NEW; ignored on AUTO_ATTACHED. |
 | `jurisdiction_type_slug` | NEW only | Must match a seeded `jurisdiction_types` slug (e.g. `state`, `county`, `legislative_district_upper`). Required for NEW. |
-| `jurisdiction_valid_from` | optional | ISO 8601 date — validity-axis start |
-| `jurisdiction_valid_until` | optional | ISO 8601 date — validity-axis end; must be ≥ `valid_from` if both supplied |
-| `jurisdiction_notes` | optional | Free-text notes |
+| `jurisdiction_valid_from` | NEW only | ISO 8601 date — validity-axis start. Ignored on AUTO_ATTACHED — core entity fields are not overwritten after creation. |
+| `jurisdiction_valid_until` | NEW only | ISO 8601 date — validity-axis end; must be ≥ `valid_from` if both supplied. Ignored on AUTO_ATTACHED. |
+| `jurisdiction_notes` | NEW only | Free-text notes. Ignored on AUTO_ATTACHED. |
 | `links` | optional | Same shape as `POST /observations` links |
 | `contact_methods` | optional | Same shape |
 | `addresses` | optional | Same shape |

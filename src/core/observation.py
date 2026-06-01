@@ -136,7 +136,8 @@ async def _create_entity(conn, entity_type: str, *, create_data: dict | None = N
     elif entity_type == "organization":
         await conn.execute("INSERT INTO organizations (id) VALUES ($1)", entity_id)
     elif entity_type == "jurisdiction":
-        assert create_data  # guarded + type_id pre-resolved in resolve_entity
+        if not create_data:
+            raise ValueError("jurisdiction _create_entity requires create_data")
         await conn.execute(
             "INSERT INTO jurisdictions"
             " (id, slug, name, type_id, valid_from, valid_until, notes)"
