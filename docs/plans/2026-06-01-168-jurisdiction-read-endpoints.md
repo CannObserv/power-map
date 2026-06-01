@@ -1,7 +1,7 @@
 ---
 title: "#168 — Jurisdiction read endpoints (phase 1)"
 date: 2026-06-01
-status: draft
+status: implemented
 ---
 
 # #168 — Jurisdiction read endpoints (phase 1)

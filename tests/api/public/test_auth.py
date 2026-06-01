@@ -92,3 +92,45 @@ def test_changes_missing_key_returns_403(unit_client):
 def test_changes_invalid_key_returns_401(client):
     r = client.get("/api/v1/changes", headers={"X-API-Key": "pm_bad"})
     assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# /api/v1/jurisdictions
+# ---------------------------------------------------------------------------
+
+
+def test_list_jurisdictions_missing_key_returns_403(unit_client):
+    r = unit_client.get("/api/v1/jurisdictions")
+    assert r.status_code == 403
+
+
+@pytest.mark.integration
+def test_list_jurisdictions_invalid_key_returns_401(client):
+    r = client.get("/api/v1/jurisdictions", headers={"X-API-Key": "pm_bad"})
+    assert r.status_code == 401
+
+
+def test_get_jurisdiction_missing_key_returns_403(unit_client):
+    r = unit_client.get("/api/v1/jurisdictions/some-id")
+    assert r.status_code == 403
+
+
+@pytest.mark.integration
+def test_get_jurisdiction_invalid_key_returns_401(client):
+    r = client.get("/api/v1/jurisdictions/some-id", headers={"X-API-Key": "pm_bad"})
+    assert r.status_code == 401
+
+
+def test_resolve_jurisdiction_missing_key_returns_403(unit_client):
+    r = unit_client.get("/api/v1/jurisdictions/resolve?slug=usa-wa")
+    assert r.status_code == 403
+
+
+def test_jurisdiction_relationships_missing_key_returns_403(unit_client):
+    r = unit_client.get("/api/v1/jurisdictions/some-id/relationships")
+    assert r.status_code == 403
+
+
+def test_jurisdiction_lineage_missing_key_returns_403(unit_client):
+    r = unit_client.get("/api/v1/jurisdictions/some-id/lineage")
+    assert r.status_code == 403
