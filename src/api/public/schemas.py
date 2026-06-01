@@ -1,6 +1,6 @@
 """Pydantic response models for the public API v1."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, field_serializer, model_validator
@@ -317,3 +317,99 @@ class ChangeFeedResponse(BaseModel):
 
     data: list[ChangeItem]
     meta: ChangeMeta
+
+
+# ---------------------------------------------------------------------------
+# Jurisdiction schemas (#168)
+# ---------------------------------------------------------------------------
+
+
+class JurisdictionType(BaseModel):
+    """A jurisdiction type from the lookup table."""
+
+    id: str
+    slug: str
+    display_name: str
+
+
+class JurisdictionRelationshipType(BaseModel):
+    """A jurisdiction relationship type from the lookup table."""
+
+    id: str
+    slug: str
+    display_name: str
+    category: str
+    is_symmetric: bool
+
+
+class JurisdictionIdentifier(BaseModel):
+    """An external identifier attached to a jurisdiction."""
+
+    id: str
+    type_id: str
+    type_slug: str
+    value: str
+
+
+class JurisdictionListItem(BaseModel):
+    """Single item in a jurisdiction list response."""
+
+    id: str
+    slug: str
+    name: str
+    type: JurisdictionType
+    valid_from: date | None = None
+    valid_until: date | None = None
+    recorded_at: datetime
+    superseded_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None = None
+
+    @field_serializer("recorded_at", "superseded_at", "created_at", "updated_at", "archived_at")
+    def _serialize_ts(self, v: datetime | None) -> str | None:
+        return fmt_ts(v)
+
+
+class JurisdictionResponse(JurisdictionListItem):
+    """Full jurisdiction record including identifiers."""
+
+    identifiers: list[JurisdictionIdentifier] = []
+
+
+class JurisdictionListResponse(BaseModel):
+    """Paginated list of jurisdictions."""
+
+    data: list[JurisdictionListItem]
+    meta: SearchMeta
+
+
+class JurisdictionRelationship(BaseModel):
+    """A typed edge in the jurisdiction graph."""
+
+    id: str
+    from_id: str
+    to_id: str
+    rel_type: JurisdictionRelationshipType
+    valid_from: date | None = None
+    valid_until: date | None = None
+    recorded_at: datetime
+    superseded_at: datetime | None = None
+    created_at: datetime
+
+    @field_serializer("recorded_at", "superseded_at", "created_at")
+    def _serialize_ts(self, v: datetime | None) -> str | None:
+        return fmt_ts(v)
+
+
+class JurisdictionRelationshipsResponse(BaseModel):
+    """Paginated list of jurisdiction relationships."""
+
+    data: list[JurisdictionRelationship]
+    meta: SearchMeta
+
+
+class JurisdictionLineageResponse(BaseModel):
+    """Ordered chain of jurisdictions returned by the lineage endpoint."""
+
+    data: list[JurisdictionListItem]
