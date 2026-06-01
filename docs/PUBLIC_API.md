@@ -57,7 +57,7 @@ while True:
 
 ## Caching — detail endpoints
 
-`GET /api/v1/orgs/{id}` and `GET /api/v1/people/{id}` return caching headers on every `200` response:
+`GET /api/v1/orgs/{id}`, `GET /api/v1/people/{id}`, and `GET /api/v1/jurisdictions/{id}` return caching headers on every `200` response:
 
 | Header | Value |
 |--------|-------|
@@ -132,6 +132,31 @@ while True:
 - **Deleted entities.** Hard deletes and merges write a tombstone to an internal `deleted_entities` table (TTL ≈ 90 days). After the TTL, `GET /api/v1/people/{id}` or `/orgs/{id}` returning 404 is the fallback signal that an entity was removed.
 - **Order.** Results are ordered by `changed_at ASC, entity_id ASC`. Within a single timestamp, order is deterministic but arbitrary.
 - **No total count.** `meta.count` is the page count, not a dataset total.
+
+---
+
+## Jurisdictions
+
+Five read-only endpoints behind standard `X-API-Key` auth (no write scope required).
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/jurisdictions` | Paginated list. Params: `type` (slug filter), `archived` (bool, default `false`), `limit` (max 100), `offset`. |
+| `GET` | `/api/v1/jurisdictions/resolve` | Lookup by slug or external identifier. Params: `slug` xor (`scheme` + `value`). Returns a single record or 404. |
+| `GET` | `/api/v1/jurisdictions/{id}` | Detail by ULID or slug. ETag caching — see caching section above. |
+| `GET` | `/api/v1/jurisdictions/{id}/relationships` | Edges involving this jurisdiction. Params: `direction` (`from`/`to`/`both`, default `both`), `category` (`spatial`/`governance`/`functional`/`lineage`), `rel_type` (slug filter), `limit`, `offset`. |
+| `GET` | `/api/v1/jurisdictions/{id}/lineage` | Walk `lineage`-category edges recursively. Returns ordered list of jurisdictions (depth-first). Params: `depth` (default 10, max 50). |
+
+### Implicit behaviors
+
+- **`{id}` accepts ULID or slug.** All `{id}` path parameters on jurisdiction routes resolve by ULID first, then by slug. A URL of `/jurisdictions/usa-wa` is equivalent to `/jurisdictions/01KT...` when the slug matches.
+- **`type` is free-text but registry-backed.** The `type.slug` field comes from the `jurisdiction_types` lookup table seeded at install time (~16 values: `country`, `state`, `county`, `city`, `legislative_district_upper`, etc.). Unknown type slugs in the `type` filter return an empty result set, not a 422.
+- **Relationship directionality.** Edges are stored once in the DB (from→to). Symmetric relationship types (`is_symmetric: true` on `rel_type`) imply both directions at the application layer — `direction=both` queries both `from_id` and `to_id` regardless of symmetry flag. Pass `direction=from` or `direction=to` to see only one side.
+- **Lineage cycle safety.** The lineage endpoint uses a recursive CTE with a visited-array guard. The `depth` cap prevents runaway traversal even on a cyclic graph.
+- **Bitemporal fields.** `valid_from` / `valid_until` are the validity-axis dates (when the jurisdiction or relationship was legally in effect). `recorded_at` / `superseded_at` are the transaction-axis timestamps (when the record was created/replaced in this system). All four may be null.
+- **`archived` default.** Archived jurisdictions (`archived_at` non-null) are excluded from the list endpoint by default. They are always returned by the detail and resolve endpoints regardless of archived state.
 
 ---
 
