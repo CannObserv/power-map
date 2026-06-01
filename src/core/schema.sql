@@ -24,10 +24,35 @@ CREATE TABLE IF NOT EXISTS link_types (
 CREATE TABLE IF NOT EXISTS entity_identifier_types (
     id           TEXT        PRIMARY KEY,
     entity_type  TEXT        NOT NULL
-                             CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
+                             CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction')),
     slug         TEXT        NOT NULL UNIQUE,
     display_name TEXT        NOT NULL,           -- short: "UBI", "SSN", "WA PDC"
     full_name    TEXT        NOT NULL,           -- long:  "Washington Unified Business Identifier"
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- =============================================================================
+-- Jurisdiction Lookup Tables
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS jurisdiction_types (
+    id           TEXT        PRIMARY KEY,
+    slug         TEXT        NOT NULL UNIQUE,
+    display_name TEXT        NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Relationship types for the jurisdiction graph.
+-- category: spatial | governance | functional | lineage
+-- symmetric: TRUE means querying (from_id=$id OR to_id=$id) is correct at
+--   application level — the edge exists once in the DB, reads both ways.
+CREATE TABLE IF NOT EXISTS jurisdiction_relationship_types (
+    id           TEXT        PRIMARY KEY,
+    slug         TEXT        NOT NULL UNIQUE,
+    display_name TEXT        NOT NULL,
+    category     TEXT        NOT NULL
+                             CHECK (category IN ('spatial', 'governance', 'functional', 'lineage')),
+    is_symmetric BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -90,7 +115,7 @@ CREATE TABLE IF NOT EXISTS addresses (
 -- Polymorphic join: links any entity to one or more addresses with a typed relationship
 CREATE TABLE IF NOT EXISTS entity_addresses (
     id           TEXT        PRIMARY KEY,
-    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person')),
+    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'jurisdiction')),
     entity_id    TEXT        NOT NULL,
     address_id   TEXT        NOT NULL REFERENCES addresses(id),
     address_type TEXT        NOT NULL CHECK (address_type IN ('mailing', 'physical', 'other')),
@@ -304,6 +329,62 @@ EXCEPTION WHEN unique_violation THEN
 END $$;
 
 -- =============================================================================
+-- Jurisdiction Entities (#168)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS jurisdictions (
+    id            TEXT        PRIMARY KEY,
+    slug          TEXT        NOT NULL UNIQUE,
+    name          TEXT        NOT NULL,
+    type_id       TEXT        NOT NULL REFERENCES jurisdiction_types(id),
+    valid_from    DATE,
+    valid_until   DATE,
+    recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    superseded_at TIMESTAMPTZ,
+    notes         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at   TIMESTAMPTZ,
+    CONSTRAINT chk_jurisdiction_valid_range
+        CHECK (valid_from IS NULL OR valid_until IS NULL OR valid_from <= valid_until)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jurisdictions_type_id
+    ON jurisdictions(type_id);
+
+-- Typed, bitemporal edges in the jurisdiction graph.
+-- For symmetric rel_types (symmetric=TRUE on jurisdiction_relationship_types),
+-- query both directions: WHERE (from_id = $id OR to_id = $id).
+CREATE TABLE IF NOT EXISTS jurisdiction_relationships (
+    id            TEXT        PRIMARY KEY,
+    from_id       TEXT        NOT NULL REFERENCES jurisdictions(id),
+    to_id         TEXT        NOT NULL REFERENCES jurisdictions(id),
+    rel_type_id   TEXT        NOT NULL REFERENCES jurisdiction_relationship_types(id),
+    valid_from    DATE,
+    valid_until   DATE,
+    recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    superseded_at TIMESTAMPTZ,
+    notes         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_no_self_rel CHECK (from_id <> to_id),
+    CONSTRAINT chk_rel_valid_range
+        CHECK (valid_from IS NULL OR valid_until IS NULL OR valid_from <= valid_until)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jurisdiction_rels_from
+    ON jurisdiction_relationships(from_id);
+CREATE INDEX IF NOT EXISTS idx_jurisdiction_rels_to
+    ON jurisdiction_relationships(to_id);
+CREATE INDEX IF NOT EXISTS idx_jurisdiction_rels_type
+    ON jurisdiction_relationships(rel_type_id);
+
+CREATE OR REPLACE VIEW v_jurisdiction_display_names AS
+SELECT j.id   AS jurisdiction_id,
+       j.name AS display_name,
+       j.slug
+FROM jurisdictions j;
+
+-- =============================================================================
 -- Polymorphic Tables
 -- =============================================================================
 
@@ -311,7 +392,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS contact_methods (
     id            TEXT        PRIMARY KEY,
     entity_type   TEXT        NOT NULL
-                              CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
+                              CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction')),
     entity_id     TEXT        NOT NULL,
     contact_type  TEXT        NOT NULL CHECK (contact_type IN ('email', 'phone')),
     value         TEXT        NOT NULL,          -- E.164 for phone; validated addr for email
@@ -326,7 +407,7 @@ CREATE INDEX IF NOT EXISTS idx_contact_methods_entity
 CREATE TABLE IF NOT EXISTS links (
     id            TEXT        PRIMARY KEY,
     entity_type   TEXT        NOT NULL
-                              CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment')),
+                              CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction')),
     entity_id     TEXT        NOT NULL,
     url           TEXT        NOT NULL,
     link_type_id  TEXT        NOT NULL REFERENCES link_types(id),
@@ -838,6 +919,10 @@ CREATE OR REPLACE TRIGGER trg_updated_at_iso15924_scripts
     BEFORE UPDATE ON iso15924_scripts
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+CREATE OR REPLACE TRIGGER trg_updated_at_jurisdictions
+    BEFORE UPDATE ON jurisdictions
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 -- =============================================================================
 -- Touch-parent triggers
 -- Propagate child INSERT/UPDATE/DELETE to the parent entity's updated_at so
@@ -899,6 +984,8 @@ BEGIN
         UPDATE organizations SET updated_at = NOW() WHERE id = v_entity_id;
     ELSIF v_entity_type = 'person' THEN
         UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'jurisdiction' THEN
+        UPDATE jurisdictions SET updated_at = NOW() WHERE id = v_entity_id;
     END IF;
 
     RETURN NULL;
@@ -995,6 +1082,22 @@ ON CONFLICT (id) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     is_social    = EXCLUDED.is_social;
 
+-- Extend entity_identifier_types.entity_type CHECK before seeding jurisdiction rows.
+-- Must run before the INSERT below on existing DBs; CREATE TABLE IF NOT EXISTS
+-- already carries the new shape for fresh DBs.
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'entity_identifier_types_entity_type_check'
+          AND check_clause NOT LIKE '%jurisdiction%'
+    ) THEN
+        ALTER TABLE entity_identifier_types DROP CONSTRAINT entity_identifier_types_entity_type_check;
+        ALTER TABLE entity_identifier_types ADD CONSTRAINT entity_identifier_types_entity_type_check
+            CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction'));
+    END IF;
+END $$;
+
 INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name) VALUES
     ('01KKZ3WGJSZF0F96SMYC000AVP', 'organization',    'org_ubi',       'UBI',    'Washington Unified Business Identifier'),
     ('01KKZ3WGJSZF0F96SMYC000AVQ', 'organization',    'org_wslcb',     'WSLCB',  'WA State Liquor and Cannabis Board License'),
@@ -1003,12 +1106,59 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     ('01KKZ3WGJSZF0F96SMYC000AVT', 'person',          'person_ssn',    'SSN',    'United States Social Security Number'),
     ('01KKZ3WGJSZF0F96SMYC000AVV', 'role_assignment', 'role_wa_pdc',   'WA PDC', 'Washington State Public Disclosure Commission'),
     ('01KKZ3WGJSZF0F96SMYC000AVW', 'person',          'person_wa_legislature_member_id',  'WA Legislature', 'Washington State Legislature Member ID'),
-    ('01KKZ3WGJSZF0F96SMYC000AVX', 'organization',    'org_wa_legislature_committee_id',  'WA Legislature', 'Washington State Legislature Committee ID')
+    ('01KKZ3WGJSZF0F96SMYC000AVX', 'organization',    'org_wa_legislature_committee_id',  'WA Legislature', 'Washington State Legislature Committee ID'),
+    -- Jurisdiction identifiers (#168)
+    ('01KT0HK3452TNDD2WM8E50ZTBM', 'jurisdiction',    'jur_ocd',       'OCD',        'Open Civic Data Identifier'),
+    ('01KT0HK3452TNDD2WM8E50ZTBN', 'jurisdiction',    'jur_fips',      'FIPS',       'Census FIPS Code'),
+    ('01KT0HK3452TNDD2WM8E50ZTBP', 'jurisdiction',    'jur_iso3166_2', 'ISO 3166-2', 'ISO 3166-2 Subdivision Code')
 ON CONFLICT (id) DO UPDATE SET
     entity_type  = EXCLUDED.entity_type,
     slug         = EXCLUDED.slug,
     display_name = EXCLUDED.display_name,
     full_name    = EXCLUDED.full_name;
+
+-- =============================================================================
+-- Jurisdiction Seed Data (#168)
+-- =============================================================================
+
+INSERT INTO jurisdiction_types (id, slug, display_name) VALUES
+    ('01KT0HK3452TNDD2WM8E50ZTAS', 'country',                    'Country'),
+    ('01KT0HK3452TNDD2WM8E50ZTAT', 'state',                      'State'),
+    ('01KT0HK3452TNDD2WM8E50ZTAV', 'county',                     'County'),
+    ('01KT0HK3452TNDD2WM8E50ZTAW', 'city',                       'City'),
+    ('01KT0HK3452TNDD2WM8E50ZTAX', 'legislative_district_upper', 'Legislative District (Upper)'),
+    ('01KT0HK3452TNDD2WM8E50ZTAY', 'legislative_district_lower', 'Legislative District (Lower)'),
+    ('01KT0HK3452TNDD2WM8E50ZTAZ', 'congressional_district',     'Congressional District'),
+    ('01KT0HK3452TNDD2WM8E50ZTB0', 'tribal',                     'Tribal'),
+    ('01KT0HK3452TNDD2WM8E50ZTB1', 'territory',                  'Territory'),
+    ('01KT0HK3452TNDD2WM8E50ZTB2', 'special_district',           'Special District'),
+    ('01KT0HK3452TNDD2WM8E50ZTB3', 'school_district',            'School District'),
+    ('01KT0HK3452TNDD2WM8E50ZTB4', 'judicial_district',          'Judicial District'),
+    ('01KT0HK3452TNDD2WM8E50ZTB5', 'metropolitan',               'Metropolitan'),
+    ('01KT0HK3452TNDD2WM8E50ZTB6', 'borough',                    'Borough'),
+    ('01KT0HK3452TNDD2WM8E50ZTB7', 'township',                   'Township'),
+    ('01KT0HK3452TNDD2WM8E50ZTB8', 'village',                    'Village')
+ON CONFLICT (id) DO UPDATE SET
+    slug         = EXCLUDED.slug,
+    display_name = EXCLUDED.display_name;
+
+INSERT INTO jurisdiction_relationship_types (id, slug, display_name, category, is_symmetric) VALUES
+    ('01KT0HK3452TNDD2WM8E50ZTB9', 'contains',         'Contains',          'spatial',    FALSE),
+    ('01KT0HK3452TNDD2WM8E50ZTBA', 'borders',          'Borders',           'spatial',    TRUE),
+    ('01KT0HK3452TNDD2WM8E50ZTBB', 'overlaps',         'Overlaps',          'spatial',    TRUE),
+    ('01KT0HK3452TNDD2WM8E50ZTBC', 'governs',          'Governs',           'governance', FALSE),
+    ('01KT0HK3452TNDD2WM8E50ZTBD', 'delegates_to',     'Delegates To',      'governance', FALSE),
+    ('01KT0HK3452TNDD2WM8E50ZTBE', 'administers',      'Administers',       'governance', FALSE),
+    ('01KT0HK3452TNDD2WM8E50ZTBF', 'represents',       'Represents',        'functional', FALSE),
+    ('01KT0HK3452TNDD2WM8E50ZTBG', 'coextensive_with', 'Coextensive With',  'functional', TRUE),
+    ('01KT0HK3452TNDD2WM8E50ZTBH', 'supersedes',       'Supersedes',        'lineage',    FALSE),
+    ('01KT0HK3452TNDD2WM8E50ZTBJ', 'evolved_from',     'Evolved From',      'lineage',    FALSE),
+    ('01KT0HK3452TNDD2WM8E50ZTBK', 'merged_into',      'Merged Into',       'lineage',    FALSE)
+ON CONFLICT (id) DO UPDATE SET
+    slug         = EXCLUDED.slug,
+    display_name = EXCLUDED.display_name,
+    category     = EXCLUDED.category,
+    is_symmetric = EXCLUDED.is_symmetric;
 
 -- =============================================================================
 -- Duplicate Management
@@ -1115,7 +1265,7 @@ CREATE TABLE IF NOT EXISTS import_provenance (
     id              TEXT        PRIMARY KEY,
     batch_id        TEXT        NOT NULL REFERENCES import_batches(id),
     source_row      INTEGER     NOT NULL,
-    entity_type     TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
+    entity_type     TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction')),
     entity_id       TEXT        NOT NULL,
     action          TEXT        NOT NULL CHECK (action IN ('created','matched','skipped','error')),
     error_detail    JSONB,
@@ -1132,7 +1282,7 @@ CREATE INDEX IF NOT EXISTS idx_import_provenance_entity
 -- Latest assessment: ORDER BY assessed_at DESC LIMIT 1.
 CREATE TABLE IF NOT EXISTS field_confidence (
     id                  TEXT        PRIMARY KEY,
-    entity_type         TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'role_assignment')),
+    entity_type         TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction')),
     entity_id           TEXT        NOT NULL,
     field_name          TEXT        NOT NULL,
     value_hash          TEXT        NOT NULL,
@@ -1170,7 +1320,7 @@ DROP INDEX IF EXISTS idx_api_key_scopes_key;
 -- Migration (#163): change feed — deleted_entities tombstone + updated_at indexes.
 
 CREATE TABLE IF NOT EXISTS deleted_entities (
-    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('person', 'organization')),
+    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('person', 'organization', 'jurisdiction')),
     entity_id    TEXT        NOT NULL,
     deleted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (entity_type, entity_id)
@@ -1187,3 +1337,88 @@ CREATE INDEX IF NOT EXISTS idx_people_updated_at
 
 CREATE INDEX IF NOT EXISTS idx_organizations_updated_at
     ON organizations (updated_at ASC);
+
+-- =============================================================================
+-- Migration (#168): extend entity_type CHECK constraints to include 'jurisdiction'
+-- Pattern: check if constraint exists and lacks 'jurisdiction', then drop + re-add.
+-- The CREATE TABLE IF NOT EXISTS definitions above already carry the new shape for
+-- fresh databases; these blocks handle existing databases.
+-- =============================================================================
+
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'entity_addresses_entity_type_check'
+          AND check_clause NOT LIKE '%jurisdiction%'
+    ) THEN
+        ALTER TABLE entity_addresses DROP CONSTRAINT entity_addresses_entity_type_check;
+        ALTER TABLE entity_addresses ADD CONSTRAINT entity_addresses_entity_type_check
+            CHECK (entity_type IN ('organization', 'person', 'jurisdiction'));
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'contact_methods_entity_type_check'
+          AND check_clause NOT LIKE '%jurisdiction%'
+    ) THEN
+        ALTER TABLE contact_methods DROP CONSTRAINT contact_methods_entity_type_check;
+        ALTER TABLE contact_methods ADD CONSTRAINT contact_methods_entity_type_check
+            CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction'));
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'links_entity_type_check'
+          AND check_clause NOT LIKE '%jurisdiction%'
+    ) THEN
+        ALTER TABLE links DROP CONSTRAINT links_entity_type_check;
+        ALTER TABLE links ADD CONSTRAINT links_entity_type_check
+            CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction'));
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'import_provenance_entity_type_check'
+          AND check_clause NOT LIKE '%jurisdiction%'
+    ) THEN
+        ALTER TABLE import_provenance DROP CONSTRAINT import_provenance_entity_type_check;
+        ALTER TABLE import_provenance ADD CONSTRAINT import_provenance_entity_type_check
+            CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction'));
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'field_confidence_entity_type_check'
+          AND check_clause NOT LIKE '%jurisdiction%'
+    ) THEN
+        ALTER TABLE field_confidence DROP CONSTRAINT field_confidence_entity_type_check;
+        ALTER TABLE field_confidence ADD CONSTRAINT field_confidence_entity_type_check
+            CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction'));
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'deleted_entities_entity_type_check'
+          AND check_clause NOT LIKE '%jurisdiction%'
+    ) THEN
+        ALTER TABLE deleted_entities DROP CONSTRAINT deleted_entities_entity_type_check;
+        ALTER TABLE deleted_entities ADD CONSTRAINT deleted_entities_entity_type_check
+            CHECK (entity_type IN ('person', 'organization', 'jurisdiction'));
+    END IF;
+END $$;
