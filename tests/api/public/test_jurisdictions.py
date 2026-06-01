@@ -188,7 +188,7 @@ async def test_list_returns_active_by_default(client, jur_api_key, jur_fixtures)
 
 async def test_list_includes_archived_when_flag_set(client, jur_api_key, jur_fixtures):
     r = client.get(
-        "/api/v1/jurisdictions?archived=true",
+        "/api/v1/jurisdictions?include_archived=true",
         headers={"X-API-Key": jur_api_key},
     )
     assert r.status_code == 200
@@ -211,7 +211,7 @@ async def test_list_type_filter(client, jur_api_key, jur_fixtures):
 
 async def test_list_pagination(client, jur_api_key, jur_fixtures):
     r1 = client.get(
-        "/api/v1/jurisdictions?limit=2&offset=0&archived=true",
+        "/api/v1/jurisdictions?limit=2&offset=0&include_archived=true",
         headers={"X-API-Key": jur_api_key},
     )
     assert r1.status_code == 200
@@ -221,7 +221,7 @@ async def test_list_pagination(client, jur_api_key, jur_fixtures):
 
     if body1["meta"]["has_more"]:
         r2 = client.get(
-            "/api/v1/jurisdictions?limit=2&offset=2&archived=true",
+            "/api/v1/jurisdictions?limit=2&offset=2&include_archived=true",
             headers={"X-API-Key": jur_api_key},
         )
         assert r2.status_code == 200
@@ -459,18 +459,18 @@ async def test_lineage_single_hop(client, jur_api_key, jur_fixtures):
     assert jur_fixtures["old_ld21_id"] in ids
 
 
-async def test_lineage_depth_zero_returns_only_self(client, jur_api_key, jur_fixtures):
+async def test_lineage_min_depth_includes_direct_neighbor(client, jur_api_key, jur_fixtures):
+    # depth=1 → CTE condition is 'l.depth < 1': allows exactly one recursive step
+    # (base row at depth=0 triggers it, producing depth=1 neighbors).
+    # Minimum enforced by ge=1; there is no way to return only the seed node.
     r = client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/lineage?depth=1",
         headers={"X-API-Key": jur_api_key},
     )
     assert r.status_code == 200
-    # depth=1 allows 1 hop from the base row (depth=0 → depth<1 is False so only base)
-    # Actually depth param means 'depth < $2', so depth=1 allows one recursive step.
-    # The base row has depth=0, the first hop has depth=1; depth < 1 is False so we
-    # get exactly the base row.
     ids = {item["id"] for item in r.json()["data"]}
     assert jur_fixtures["ld21_id"] in ids
+    assert jur_fixtures["old_ld21_id"] in ids
 
 
 async def test_lineage_no_lineage_edges_returns_only_self(client, jur_api_key, jur_fixtures):

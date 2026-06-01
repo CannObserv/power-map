@@ -161,7 +161,7 @@ async def resolve_jurisdiction(
 )
 async def list_jurisdictions(
     type: str | None = Query(default=None, description="Filter by type slug"),
-    archived: bool = Query(default=False),
+    include_archived: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     _: str = Depends(require_api_key),
@@ -176,7 +176,7 @@ async def list_jurisdictions(
         ORDER BY j.name, j.id
         LIMIT $3 OFFSET $4
         """,
-        archived,
+        include_archived,
         type,
         limit + 1,
         offset,
@@ -262,10 +262,9 @@ async def list_jurisdiction_relationships(
     jid = jur["id"]
 
     rows = await db.fetch(
-        f"""
-        SELECT
-            jr.id, jr.from_id, jr.to_id,
-            {_REL_TYPE_COLS},
+        "SELECT jr.id, jr.from_id, jr.to_id,"
+        + _REL_TYPE_COLS
+        + """,
             jr.valid_from, jr.valid_until,
             jr.recorded_at, jr.superseded_at, jr.created_at
         FROM jurisdiction_relationships jr

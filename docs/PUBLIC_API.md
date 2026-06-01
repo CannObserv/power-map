@@ -143,7 +143,7 @@ Five read-only endpoints behind standard `X-API-Key` auth (no write scope requir
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/v1/jurisdictions` | Paginated list. Params: `type` (slug filter), `archived` (bool, default `false`), `limit` (max 100), `offset`. |
+| `GET` | `/api/v1/jurisdictions` | Paginated list. Params: `type` (slug filter), `include_archived` (bool, default `false`), `limit` (max 100), `offset`. |
 | `GET` | `/api/v1/jurisdictions/resolve` | Lookup by slug or external identifier. Params: `slug` xor (`scheme` + `value`). Returns a single record or 404. |
 | `GET` | `/api/v1/jurisdictions/{id}` | Detail by ULID or slug. ETag caching — see caching section above. |
 | `GET` | `/api/v1/jurisdictions/{id}/relationships` | Edges involving this jurisdiction. Params: `direction` (`from`/`to`/`both`, default `both`), `category` (`spatial`/`governance`/`functional`/`lineage`), `rel_type` (slug filter), `limit`, `offset`. |
@@ -156,7 +156,7 @@ Five read-only endpoints behind standard `X-API-Key` auth (no write scope requir
 - **Relationship directionality.** Edges are stored once in the DB (from→to). Symmetric relationship types (`is_symmetric: true` on `rel_type`) imply both directions at the application layer — `direction=both` queries both `from_id` and `to_id` regardless of symmetry flag. Pass `direction=from` or `direction=to` to see only one side.
 - **Lineage cycle safety.** The lineage endpoint uses a recursive CTE with a visited-array guard. The `depth` cap prevents runaway traversal even on a cyclic graph.
 - **Bitemporal fields.** `valid_from` / `valid_until` are the validity-axis dates (when the jurisdiction or relationship was legally in effect). `recorded_at` / `superseded_at` are the transaction-axis timestamps (when the record was created/replaced in this system). All four may be null.
-- **`archived` default.** Archived jurisdictions (`archived_at` non-null) are excluded from the list endpoint by default. They are always returned by the detail and resolve endpoints regardless of archived state.
+- **`include_archived` default.** Archived jurisdictions (`archived_at` non-null) are excluded from the list endpoint by default. Pass `include_archived=true` to include them. Detail and resolve endpoints always return archived jurisdictions regardless of this flag.
 
 ---
 

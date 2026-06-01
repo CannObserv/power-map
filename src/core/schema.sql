@@ -353,7 +353,7 @@ CREATE INDEX IF NOT EXISTS idx_jurisdictions_type_id
     ON jurisdictions(type_id);
 
 -- Typed, bitemporal edges in the jurisdiction graph.
--- For symmetric rel_types (symmetric=TRUE on jurisdiction_relationship_types),
+-- For symmetric rel_types (is_symmetric=TRUE on jurisdiction_relationship_types),
 -- query both directions: WHERE (from_id = $id OR to_id = $id).
 CREATE TABLE IF NOT EXISTS jurisdiction_relationships (
     id            TEXT        PRIMARY KEY,
