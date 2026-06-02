@@ -31,6 +31,18 @@ CREATE TABLE IF NOT EXISTS entity_identifier_types (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS entity_event_types (
+    id                      TEXT PRIMARY KEY,
+    slug                    TEXT UNIQUE NOT NULL,
+    display_name            TEXT NOT NULL,
+    applies_to              TEXT NOT NULL
+                            CHECK (applies_to IN ('person', 'organization', 'both')),
+    requires_year           BOOLEAN NOT NULL DEFAULT FALSE,
+    requires_linked_entity  BOOLEAN NOT NULL DEFAULT FALSE,
+    constraints             JSONB,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- =============================================================================
 -- Jurisdiction Lookup Tables
 -- =============================================================================
@@ -1161,6 +1173,29 @@ ON CONFLICT (id) DO UPDATE SET
     is_symmetric = EXCLUDED.is_symmetric;
 
 -- =============================================================================
+-- Entity Event Types Seed Data (#170)
+-- =============================================================================
+
+INSERT INTO entity_event_types (id, slug, display_name, applies_to, requires_year, requires_linked_entity) VALUES
+    ('01KV0000000000000000000001', 'birth',           'Birth',        'person',       TRUE,  FALSE),
+    ('01KV0000000000000000000002', 'death',           'Death',        'person',       TRUE,  FALSE),
+    ('01KV0000000000000000000003', 'marriage',        'Marriage',     'person',       FALSE, TRUE),
+    ('01KV0000000000000000000004', 'divorce',         'Divorce',      'person',       FALSE, TRUE),
+    ('01KV0000000000000000000005', 'naturalization',  'Naturalization','person',      FALSE, FALSE),
+    ('01KV0000000000000000000006', 'founded',         'Founded',      'organization', TRUE,  FALSE),
+    ('01KV0000000000000000000007', 'dissolved',       'Dissolved',    'organization', TRUE,  FALSE),
+    ('01KV0000000000000000000008', 'merged_with',     'Merged With',  'organization', FALSE, TRUE),
+    ('01KV0000000000000000000009', 'split_from',      'Split From',   'organization', FALSE, TRUE),
+    ('01KV000000000000000000000A', 'renamed',         'Renamed',      'organization', FALSE, FALSE),
+    ('01KV000000000000000000000B', 'other',           'Other',        'both',         FALSE, FALSE)
+ON CONFLICT (id) DO UPDATE SET
+    slug                   = EXCLUDED.slug,
+    display_name           = EXCLUDED.display_name,
+    applies_to             = EXCLUDED.applies_to,
+    requires_year          = EXCLUDED.requires_year,
+    requires_linked_entity = EXCLUDED.requires_linked_entity;
+
+-- =============================================================================
 -- Duplicate Management
 -- =============================================================================
 
@@ -1232,6 +1267,59 @@ INSERT INTO api_key_scope_types (id, display_name, description) VALUES
      'Observations: Write',
      'Submit identity observations via POST /api/v1/observations')
 ON CONFLICT (id) DO NOTHING;
+
+-- =============================================================================
+-- Entity Events (#170)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS entity_events (
+    id                      TEXT PRIMARY KEY,
+    entity_type             TEXT NOT NULL CHECK (entity_type IN ('person', 'organization')),
+    entity_id               TEXT NOT NULL,
+    event_type_id           TEXT NOT NULL REFERENCES entity_event_types(id),
+
+    event_year              INTEGER,
+    event_month             INTEGER CHECK (event_month BETWEEN 1 AND 12),
+    event_day               INTEGER CHECK (event_day BETWEEN 1 AND 31),
+    event_hour              INTEGER CHECK (event_hour BETWEEN 0 AND 23),
+    event_minute            INTEGER CHECK (event_minute BETWEEN 0 AND 59),
+    event_second            INTEGER CHECK (event_second BETWEEN 0 AND 59),
+    event_at                TIMESTAMPTZ,
+
+    event_place_text        TEXT,
+    event_place_address_id  TEXT REFERENCES addresses(id),
+
+    linked_entity_type      TEXT CHECK (linked_entity_type IN ('person', 'organization')),
+    linked_entity_id        TEXT,
+
+    notes                   TEXT,
+    visibility              TEXT NOT NULL DEFAULT 'public'
+                            CHECK (visibility IN ('public', 'legal_only', 'hidden')),
+    source_key_id           TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
+    verified_at             TIMESTAMPTZ,
+    archived_at             TIMESTAMPTZ,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_month_requires_year    CHECK (event_month  IS NULL OR event_year   IS NOT NULL),
+    CONSTRAINT chk_day_requires_month     CHECK (event_day    IS NULL OR event_month  IS NOT NULL),
+    CONSTRAINT chk_hour_requires_day      CHECK (event_hour   IS NULL OR event_day    IS NOT NULL),
+    CONSTRAINT chk_minute_requires_hour   CHECK (event_minute IS NULL OR event_hour   IS NOT NULL),
+    CONSTRAINT chk_second_requires_minute CHECK (event_second IS NULL OR event_minute IS NOT NULL),
+    CONSTRAINT chk_linked_entity_pair     CHECK (
+        (linked_entity_type IS NULL) = (linked_entity_id IS NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_entity_events_entity
+    ON entity_events(entity_type, entity_id);
+
+CREATE INDEX IF NOT EXISTS idx_entity_events_type
+    ON entity_events(event_type_id);
+
+CREATE OR REPLACE TRIGGER trg_updated_at_entity_events
+    BEFORE UPDATE ON entity_events
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =============================================================================
 -- Ingestion Audit Tables
@@ -1422,3 +1510,8 @@ DO $$ BEGIN
             CHECK (entity_type IN ('person', 'organization', 'jurisdiction'));
     END IF;
 END $$;
+
+-- Migration (#170): add precision tier to addresses for event-place and historical records.
+ALTER TABLE addresses
+    ADD COLUMN IF NOT EXISTS precision TEXT
+        CHECK (precision IN ('country', 'region', 'city', 'postal', 'street'));
