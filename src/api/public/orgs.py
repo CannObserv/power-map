@@ -2,13 +2,95 @@
 
 from typing import Any
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
-from src.api.public.deps import identifier_filter, require_api_key
-from src.api.public.schemas import OrgDetail, OrgSearchResponse, make_etag
+from src.api.public.deps import AuthedKey, identifier_filter, require_api_key, require_scope
+from src.api.public.schemas import (
+    ObservationResponse,
+    OrganizationObservationRequest,
+    OrgDetail,
+    OrgSearchResponse,
+    make_etag,
+)
+from src.core.observation import (
+    Disposition,
+    IdentifierConflict,
+    ObservationRejected,
+    lookup_org_parent_by_acronym,
+    lookup_org_parent_by_name,
+    resolve_entity,
+    write_additional_identifiers,
+    write_addresses,
+    write_contact_methods,
+    write_links,
+    write_names,
+    write_org_acronyms,
+    write_org_parent,
+)
 
 router = APIRouter(prefix="/orgs", tags=["public-api"])
+
+_REJECTED_OBS = ObservationResponse(disposition="rejected", entity_id=None, entity_type=None)
+
+
+@router.post(
+    "/observations",
+    response_model=ObservationResponse,
+    operation_id="submitOrgObservation",
+)
+async def submit_org_observation(
+    request: OrganizationObservationRequest,
+    auth: AuthedKey = Depends(require_scope("observations:write")),
+    db=Depends(get_db),
+) -> ObservationResponse:
+    """Submit an organization identity observation; attach to existing org or create a new one."""
+    entity_id, entity_type, disposition = await resolve_entity(
+        db, request.identifier_type, request.identifier_value
+    )
+
+    if disposition is Disposition.REJECTED:
+        return _REJECTED_OBS
+    if entity_type != "organization":
+        return _REJECTED_OBS
+
+    try:
+        async with db.transaction():
+            await write_names(db, entity_id, entity_type, auth.key_id, request.names)
+            await write_links(db, entity_id, entity_type, request.links)
+            await write_contact_methods(db, entity_id, entity_type, request.contact_methods)
+            await write_addresses(db, entity_id, entity_type, request.addresses)
+            await write_org_acronyms(db, entity_id, request.org_acronyms)
+
+            parent_id: str | None = None
+            if request.organization_parent_id:
+                parent_id = request.organization_parent_id
+            elif request.organization_parent_name:
+                parent_id = await lookup_org_parent_by_name(db, request.organization_parent_name)
+            elif request.organization_parent_acronym:
+                parent_id = await lookup_org_parent_by_acronym(
+                    db, request.organization_parent_acronym
+                )
+
+            if parent_id:
+                await write_org_parent(db, entity_id, parent_id)
+
+            await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+    except (
+        ObservationRejected,
+        IdentifierConflict,
+        asyncpg.CheckViolationError,
+        asyncpg.ForeignKeyViolationError,
+        asyncpg.UniqueViolationError,
+    ):
+        return _REJECTED_OBS
+
+    return ObservationResponse(
+        disposition=disposition.value,
+        entity_id=entity_id,
+        entity_type=entity_type,
+    )
 
 
 def _org_row_to_dict(r: Any) -> dict[str, Any]:

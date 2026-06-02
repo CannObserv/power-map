@@ -473,6 +473,46 @@ async def write_pronouns(conn, person_id: str, pronouns: str) -> None:
     )
 
 
+async def lookup_org_parent_by_name(conn, name: str) -> str:
+    """Return id of the single active org whose canonical name matches.
+
+    Raises ObservationRejected on zero or multiple matches.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT o.id FROM organizations o
+        JOIN organization_names n ON n.organization_id = o.id
+        WHERE n.name = $1 AND n.is_canonical = TRUE AND o.archived_at IS NULL
+        """,
+        name,
+    )
+    if len(rows) != 1:
+        raise ObservationRejected(
+            f"Org parent name lookup returned {len(rows)} matches (expected 1)"
+        )
+    return rows[0]["id"]
+
+
+async def lookup_org_parent_by_acronym(conn, acronym: str) -> str:
+    """Return id of the single active org whose canonical acronym matches.
+
+    Raises ObservationRejected on zero or multiple matches.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT o.id FROM organizations o
+        JOIN organization_acronyms a ON a.organization_id = o.id
+        WHERE a.acronym = $1 AND a.is_canonical = TRUE AND o.archived_at IS NULL
+        """,
+        acronym,
+    )
+    if len(rows) != 1:
+        raise ObservationRejected(
+            f"Org parent acronym lookup returned {len(rows)} matches (expected 1)"
+        )
+    return rows[0]["id"]
+
+
 async def write_additional_identifiers(conn, entity_id: str, additional_identifiers: list) -> None:
     """Write additional identifier claims.
 

@@ -150,7 +150,7 @@ while True:
 
 ### Observation write — `POST /jurisdictions/observations`
 
-Upserts a jurisdiction by identifier, following the same match-or-create semantics as `POST /observations`.
+Upserts a jurisdiction by identifier using the same match-or-create semantics as the other observation write endpoints.
 
 **Request fields:**
 
@@ -164,10 +164,10 @@ Upserts a jurisdiction by identifier, following the same match-or-create semanti
 | `jurisdiction_valid_from` | NEW only | ISO 8601 date — validity-axis start. Ignored on AUTO_ATTACHED — core entity fields are not overwritten after creation. |
 | `jurisdiction_valid_until` | NEW only | ISO 8601 date — validity-axis end; must be ≥ `valid_from` if both supplied. Ignored on AUTO_ATTACHED. |
 | `jurisdiction_notes` | NEW only | Free-text notes. Ignored on AUTO_ATTACHED. |
-| `links` | optional | Same shape as `POST /observations` links |
-| `contact_methods` | optional | Same shape |
-| `addresses` | optional | Same shape |
-| `additional_identifiers` | optional | Same shape — for attaching secondary identifier schemes |
+| `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
+| `contact_methods` | optional | List of `{contact_type, value}` — `contact_type` must be `email` or `phone` |
+| `addresses` | optional | List of `{raw_input, address_type}` — `address_type` must be `mailing` or `physical` |
+| `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
 
 **Disposition semantics:**
 
@@ -175,7 +175,7 @@ Upserts a jurisdiction by identifier, following the same match-or-create semanti
 |-------------|-----------|
 | `new` | Identifier not seen before; jurisdiction created |
 | `auto-attached` | Identifier already known; existing entity returned |
-| `rejected` | Unknown identifier type; required NEW fields missing; invalid `jurisdiction_type_slug`; slug collision with a different entity |
+| `rejected` | Unknown identifier type; identifier belongs to a non-jurisdiction entity; required NEW fields missing; invalid `jurisdiction_type_slug`; slug collision with a different entity |
 
 ### Implicit behaviors
 
@@ -185,6 +185,84 @@ Upserts a jurisdiction by identifier, following the same match-or-create semanti
 - **Lineage cycle safety.** The lineage endpoint uses a recursive CTE with a visited-array guard. The `depth` cap prevents runaway traversal even on a cyclic graph.
 - **Bitemporal fields.** `valid_from` / `valid_until` are the validity-axis dates (when the jurisdiction or relationship was legally in effect). `recorded_at` / `superseded_at` are the transaction-axis timestamps (when the record was created/replaced in this system). All four may be null.
 - **`include_archived` default.** Archived jurisdictions (`archived_at` non-null) are excluded from the list endpoint by default. Pass `include_archived=true` to include them. Detail and resolve endpoints always return archived jurisdictions regardless of this flag.
+
+---
+
+## People
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/people/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `include_archived`, `limit`, `offset`. |
+| `GET` | `/api/v1/people/{id}` | API key | Detail by ULID. Returns public name variants and identifiers. ETag caching — see caching section above. |
+| `POST` | `/api/v1/people/observations` | `observations:write` scope | Submit a person identity observation. |
+
+### Observation write — `POST /people/observations`
+
+Upserts a person by identifier using the same match-or-create semantics as the other observation write endpoints.
+
+**Request fields:**
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `identifier_type` | always | Must be a registered person identifier type slug (e.g. `person_wa_pdc`) |
+| `identifier_value` | always | Value for the identifier |
+| `names` | optional | List of `{name, name_type}` — `name_type` must be a valid name type (e.g. `legal`, `preferred`). Exact-match dedup: re-submitting the same name is a no-op. |
+| `personal_pronouns` | optional | Free-text pronouns string (e.g. `they/them`). Written only if the field is currently null; ignored if already set. |
+| `role_assignments` | optional | List of `{role_id, start_date?, end_date?}`. Exact-match dedup on `(person_id, role_id, start_date, end_date)`. |
+| `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
+| `contact_methods` | optional | List of `{contact_type, value}` — `contact_type` must be `email` or `phone` |
+| `addresses` | optional | List of `{raw_input, address_type}` — `address_type` must be `mailing` or `physical` |
+| `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
+
+**Disposition semantics:**
+
+| Disposition | Condition |
+|-------------|-----------|
+| `new` | Identifier not seen before; person created |
+| `auto-attached` | Identifier already known; existing entity returned |
+| `rejected` | Unknown identifier type; identifier belongs to a non-person entity; DB constraint violation |
+
+---
+
+## Organizations
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/orgs/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `include_archived`, `limit`, `offset`. |
+| `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, and identifiers. ETag caching — see caching section above. |
+| `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
+
+### Observation write — `POST /orgs/observations`
+
+Upserts an organization by identifier using the same match-or-create semantics as the other observation write endpoints.
+
+**Request fields:**
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `identifier_type` | always | Must be a registered organization identifier type slug (e.g. `org_ubi`) |
+| `identifier_value` | always | Value for the identifier |
+| `names` | optional | List of `{name, name_type}`. Exact-match dedup. |
+| `org_acronyms` | optional | List of acronym strings. Written with `is_canonical=false`; exact-match dedup. |
+| `organization_parent_id` | optional | ULID of the parent org. Mutually exclusive with `organization_parent_name` and `organization_parent_acronym` — supply at most one. |
+| `organization_parent_name` | optional | Canonical name of the parent org. Resolves to a single active org; rejected if zero or multiple matches. |
+| `organization_parent_acronym` | optional | Canonical acronym of the parent org. Resolves to a single active org; rejected if zero or multiple matches. |
+| `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
+| `contact_methods` | optional | List of `{contact_type, value}` — `contact_type` must be `email` or `phone` |
+| `addresses` | optional | List of `{raw_input, address_type}` — `address_type` must be `mailing` or `physical` |
+| `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
+
+**Disposition semantics:**
+
+| Disposition | Condition |
+|-------------|-----------|
+| `new` | Identifier not seen before; organization created |
+| `auto-attached` | Identifier already known; existing entity returned |
+| `rejected` | Unknown identifier type; identifier belongs to a non-organization entity; ambiguous parent lookup (0 or 2+ matches); DB constraint violation |
 
 ---
 

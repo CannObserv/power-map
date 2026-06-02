@@ -2,14 +2,82 @@
 
 from typing import Any
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
-from src.api.public.deps import identifier_filter, require_api_key
-from src.api.public.schemas import PersonDetail, PersonSearchResponse, make_etag
+from src.api.public.deps import AuthedKey, identifier_filter, require_api_key, require_scope
+from src.api.public.schemas import (
+    ObservationResponse,
+    PeopleObservationRequest,
+    PersonDetail,
+    PersonSearchResponse,
+    make_etag,
+)
 from src.core.db import visible_names_filter
+from src.core.observation import (
+    Disposition,
+    IdentifierConflict,
+    ObservationRejected,
+    resolve_entity,
+    write_additional_identifiers,
+    write_addresses,
+    write_contact_methods,
+    write_links,
+    write_names,
+    write_pronouns,
+    write_role_assignments,
+)
 
 router = APIRouter(prefix="/people", tags=["public-api"])
+
+_REJECTED_OBS = ObservationResponse(disposition="rejected", entity_id=None, entity_type=None)
+
+
+@router.post(
+    "/observations",
+    response_model=ObservationResponse,
+    operation_id="submitPeopleObservation",
+)
+async def submit_people_observation(
+    request: PeopleObservationRequest,
+    auth: AuthedKey = Depends(require_scope("observations:write")),
+    db=Depends(get_db),
+) -> ObservationResponse:
+    """Submit a person identity observation; attach to existing person or create a new one."""
+    entity_id, entity_type, disposition = await resolve_entity(
+        db, request.identifier_type, request.identifier_value
+    )
+
+    if disposition is Disposition.REJECTED:
+        return _REJECTED_OBS
+    if entity_type != "person":
+        return _REJECTED_OBS
+
+    try:
+        async with db.transaction():
+            await write_names(db, entity_id, entity_type, auth.key_id, request.names)
+            await write_links(db, entity_id, entity_type, request.links)
+            await write_contact_methods(db, entity_id, entity_type, request.contact_methods)
+            await write_addresses(db, entity_id, entity_type, request.addresses)
+            await write_role_assignments(db, entity_id, request.role_assignments)
+            if request.personal_pronouns:
+                await write_pronouns(db, entity_id, request.personal_pronouns)
+            await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+    except (
+        ObservationRejected,
+        IdentifierConflict,
+        asyncpg.CheckViolationError,
+        asyncpg.ForeignKeyViolationError,
+        asyncpg.UniqueViolationError,
+    ):
+        return _REJECTED_OBS
+
+    return ObservationResponse(
+        disposition=disposition.value,
+        entity_id=entity_id,
+        entity_type=entity_type,
+    )
 
 
 @router.get(

@@ -431,6 +431,8 @@ async def submit_jurisdiction_observation(
 
     if disposition is Disposition.REJECTED:
         return _REJECTED_OBS
+    if entity_type != "jurisdiction":
+        return _REJECTED_OBS
 
     try:
         async with db.transaction():

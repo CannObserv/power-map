@@ -392,6 +392,21 @@ async def test_missing_scope_returns_403(client, jur_read_key):
     assert r.status_code == 403
 
 
+async def test_rejected_on_wrong_entity_type(client, jur_write_key):
+    """Identifier belonging to a person entity → rejected on /jurisdictions/observations."""
+    raw, _ = jur_write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",  # seeded as entity_type='person'
+            "identifier_value": "99999",
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "rejected"
+
+
 async def test_slug_collision_returns_rejected(client, jur_write_key, db):
     """Two different OCD IDs claiming the same slug → second is rejected."""
     raw, _ = jur_write_key

@@ -231,49 +231,45 @@ class ObservationAdditionalIdentifier(BaseModel):
     identifier_value: str
 
 
-class ObservationRequest(BaseModel):
-    """Payload sent to POST /api/v1/observations."""
+class PeopleObservationRequest(BaseModel):
+    """Payload for POST /api/v1/people/observations."""
 
-    # Required
     identifier_type: str
     identifier_value: str
 
-    # Optional attribute claims — names
     names: list[ObservationName] = Field(default_factory=list)
-
-    # Optional attribute claims — links
+    personal_pronouns: str | None = None
+    role_assignments: list[ObservationRoleAssignment] = Field(default_factory=list)
     links: list[ObservationLink] = Field(default_factory=list)
-
-    # Optional attribute claims — contact methods
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
-
-    # Optional attribute claims — addresses
     addresses: list[ObservationAddress] = Field(default_factory=list)
+    additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
 
-    # Optional attribute claims — org only
+
+class OrganizationObservationRequest(BaseModel):
+    """Payload for POST /api/v1/orgs/observations."""
+
+    identifier_type: str
+    identifier_value: str
+
+    names: list[ObservationName] = Field(default_factory=list)
     org_acronyms: list[str] = Field(default_factory=list)
     organization_parent_id: str | None = None
     organization_parent_name: str | None = None
     organization_parent_acronym: str | None = None
-
-    # Optional attribute claims — person only
-    personal_pronouns: str | None = None
-
-    # Optional attribute claims — role assignments
-    role_assignments: list[ObservationRoleAssignment] = Field(default_factory=list)
-
-    # Optional attribute claims — additional identifiers (same-type conflict → rejected)
+    links: list[ObservationLink] = Field(default_factory=list)
+    contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
+    addresses: list[ObservationAddress] = Field(default_factory=list)
     additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _xor_org_parent(self) -> "ObservationRequest":
+    def _xor_org_parent(self) -> "OrganizationObservationRequest":
         parent_fields = [
             self.organization_parent_id,
             self.organization_parent_name,
             self.organization_parent_acronym,
         ]
-        non_none = sum(1 for f in parent_fields if f is not None)
-        if non_none > 1:
+        if sum(1 for f in parent_fields if f is not None) > 1:
             raise ValueError(
                 "Specify at most one of organization_parent_id, "
                 "organization_parent_name, organization_parent_acronym"
