@@ -1,7 +1,7 @@
 ---
 title: "#170 entity_events — implementation plan"
 date: 2026-06-02
-status: draft
+status: approved
 ---
 
 # #170 entity_events — implementation plan
@@ -40,5 +40,5 @@ Implement in eight sequential steps, each independently verifiable: schema first
 
 ## Open questions / risks
 
-- **`/people/{id}/events` filter params** — Design specifies a simple paginated list. Should v1 support `?event_type=birth` filtering, or defer to a follow-on? Simple is fine to ship; flag if usa-wa needs it now.
-- **`applies_to` enforcement on observation writer** — If a scraper pushes a `birth` event via `POST /orgs/observations`, reject it (disposition `rejected`) or silently skip? Design says `rejected` for validation failures — confirm this applies to `applies_to` mismatch.
+- **`/people/{id}/events` filter params** — Deferred. v1 ships simple paginated list only; usa-wa to request via GH issue if filtering is needed.
+- **`applies_to` enforcement on observation writer** — Confirmed: `applies_to` mismatch returns disposition `rejected`.
