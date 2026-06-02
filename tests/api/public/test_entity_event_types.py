@@ -77,7 +77,7 @@ async def test_entity_event_types_seed_data_present(client, api_key):
     assert "founded" in slugs
 
 
-async def test_entity_event_types_without_key_returns_403(unit_client):
+def test_entity_event_types_without_key_returns_403(unit_client):
     """GET /api/v1/entity-event-types without X-API-Key returns 403."""
     response = unit_client.get("/api/v1/entity-event-types")
     assert response.status_code == 403
