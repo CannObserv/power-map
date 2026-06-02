@@ -8,10 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, identifier_filter, require_api_key, require_scope
 from src.api.public.schemas import (
+    EntityEventsResponse,
     ObservationResponse,
     PeopleObservationRequest,
     PersonDetail,
     PersonSearchResponse,
+    fmt_ts,
     make_etag,
 )
 from src.core.db import visible_names_filter
@@ -231,6 +233,93 @@ async def get_person(
         "archived_at": row["archived_at"],
         "names": [dict(n) for n in names],
         "identifiers": [dict(i) for i in identifiers],
+    }
+
+
+def _row_to_event(r: Any) -> dict:
+    """Map an entity_events row (with joined event_type fields) to a response dict."""
+    return {
+        "id": r["id"],
+        "event_type": {
+            "id": r["event_type_id"],
+            "slug": r["event_type_slug"],
+            "display_name": r["event_type_display_name"],
+        },
+        "date": {
+            "year": r["event_year"],
+            "month": r["event_month"],
+            "day": r["event_day"],
+            "hour": r["event_hour"],
+            "minute": r["event_minute"],
+            "second": r["event_second"],
+            "at": fmt_ts(r["event_at"]) if r["event_at"] else None,
+        },
+        "event_place_text": r["event_place_text"],
+        "linked_entity_type": r["linked_entity_type"],
+        "linked_entity_id": r["linked_entity_id"],
+        "notes": r["notes"],
+        "visibility": r["visibility"],
+        "verified_at": r["verified_at"],
+        "created_at": r["created_at"],
+    }
+
+
+@router.get(
+    "/{person_id}/events",
+    response_model=EntityEventsResponse,
+    operation_id="listPersonEvents",
+)
+async def list_person_events(
+    person_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    _: str = Depends(require_api_key),
+    db=Depends(get_db),
+) -> Any:
+    """Return public, active lifecycle events for a person."""
+    exists = await db.fetchval("SELECT 1 FROM people WHERE id = $1", person_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    rows = await db.fetch(
+        """
+        SELECT
+            ee.id,
+            ee.event_year, ee.event_month, ee.event_day,
+            ee.event_hour, ee.event_minute, ee.event_second,
+            ee.event_at,
+            ee.event_place_text,
+            ee.linked_entity_type, ee.linked_entity_id,
+            ee.notes, ee.visibility, ee.verified_at, ee.created_at,
+            eet.id AS event_type_id,
+            eet.slug AS event_type_slug,
+            eet.display_name AS event_type_display_name
+        FROM entity_events ee
+        JOIN entity_event_types eet ON eet.id = ee.event_type_id
+        WHERE ee.entity_id = $1
+          AND ee.entity_type = 'person'
+          AND ee.visibility = 'public'
+          AND ee.archived_at IS NULL
+        ORDER BY ee.event_year DESC NULLS LAST, ee.event_month DESC NULLS LAST,
+                 ee.event_day DESC NULLS LAST, ee.created_at DESC
+        LIMIT $2 OFFSET $3
+        """,
+        person_id,
+        limit + 1,
+        offset,
+    )
+
+    has_more = len(rows) > limit
+    page = rows[:limit]
+
+    return {
+        "data": [_row_to_event(r) for r in page],
+        "meta": {
+            "limit": limit,
+            "offset": offset,
+            "count": len(page),
+            "has_more": has_more,
+        },
     }
 
 

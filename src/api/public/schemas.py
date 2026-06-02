@@ -343,6 +343,52 @@ class JurisdictionObservationRequest(BaseModel):
         return self
 
 
+class EventTypeInline(BaseModel):
+    """Event type embedded in event list items."""
+
+    id: str
+    slug: str
+    display_name: str
+
+
+class PartialDate(BaseModel):
+    """Partial date/time with explicit precision."""
+
+    year: int | None = None
+    month: int | None = None
+    day: int | None = None
+    hour: int | None = None
+    minute: int | None = None
+    second: int | None = None
+    at: str | None = None  # ISO 8601 with Z suffix when event_at is populated
+
+
+class EntityEvent(BaseModel):
+    """Single event item in a list response."""
+
+    id: str
+    event_type: EventTypeInline
+    date: PartialDate
+    event_place_text: str | None = None
+    linked_entity_type: str | None = None
+    linked_entity_id: str | None = None
+    notes: str | None = None
+    visibility: str
+    verified_at: datetime | str | None = None
+    created_at: datetime | str
+
+    @field_serializer("verified_at", "created_at")
+    def _serialize_ts(self, v) -> str | None:
+        return fmt_ts(v) if isinstance(v, datetime) else v
+
+
+class EntityEventsResponse(BaseModel):
+    """Paginated list of entity events."""
+
+    data: list[EntityEvent]
+    meta: SearchMeta
+
+
 class ChangeItem(BaseModel):
     """A single entry in the change feed — updated or deleted entity."""
 
