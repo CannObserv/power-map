@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS entity_event_types (
                             CHECK (applies_to IN ('person', 'organization', 'both')),
     requires_year           BOOLEAN NOT NULL DEFAULT FALSE,
     requires_linked_entity  BOOLEAN NOT NULL DEFAULT FALSE,
-    constraints             JSONB,
+    constraints             JSONB,   -- reserved: per-type validation rules (future use)
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -1278,7 +1278,7 @@ CREATE TABLE IF NOT EXISTS entity_events (
     entity_id               TEXT NOT NULL,
     event_type_id           TEXT NOT NULL REFERENCES entity_event_types(id),
 
-    event_year              INTEGER,
+    event_year              INTEGER CHECK (event_year BETWEEN -9999 AND 9999),
     event_month             INTEGER CHECK (event_month BETWEEN 1 AND 12),
     event_day               INTEGER CHECK (event_day BETWEEN 1 AND 31),
     event_hour              INTEGER CHECK (event_hour BETWEEN 0 AND 23),
@@ -1287,7 +1287,7 @@ CREATE TABLE IF NOT EXISTS entity_events (
     event_at                TIMESTAMPTZ,
 
     event_place_text        TEXT,
-    event_place_address_id  TEXT REFERENCES addresses(id),
+    event_place_address_id  TEXT REFERENCES addresses(id) ON DELETE SET NULL,
 
     linked_entity_type      TEXT CHECK (linked_entity_type IN ('person', 'organization')),
     linked_entity_id        TEXT,
@@ -1308,7 +1308,8 @@ CREATE TABLE IF NOT EXISTS entity_events (
     CONSTRAINT chk_second_requires_minute CHECK (event_second IS NULL OR event_minute IS NOT NULL),
     CONSTRAINT chk_linked_entity_pair     CHECK (
         (linked_entity_type IS NULL) = (linked_entity_id IS NULL)
-    )
+    ),
+    CONSTRAINT chk_at_requires_year      CHECK (event_at IS NULL OR event_year IS NOT NULL)
 );
 
 CREATE INDEX IF NOT EXISTS idx_entity_events_entity
@@ -1316,6 +1317,10 @@ CREATE INDEX IF NOT EXISTS idx_entity_events_entity
 
 CREATE INDEX IF NOT EXISTS idx_entity_events_type
     ON entity_events(event_type_id);
+
+CREATE INDEX IF NOT EXISTS idx_entity_events_entity_active
+    ON entity_events(entity_type, entity_id)
+    WHERE archived_at IS NULL;
 
 CREATE OR REPLACE TRIGGER trg_updated_at_entity_events
     BEFORE UPDATE ON entity_events
