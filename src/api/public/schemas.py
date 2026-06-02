@@ -146,6 +146,27 @@ class LinkTypesResponse(BaseModel):
     data: list[LinkType]
 
 
+class EntityEventType(BaseModel):
+    """An entity event type used to classify life/organisational events."""
+
+    id: str
+    slug: str
+    display_name: str
+    applies_to: str  # 'person' | 'organization' | 'both'
+    requires_year: bool
+    requires_linked_entity: bool
+
+
+class EntityEventTypesResponse(BaseModel):
+    """Unpaginated list of all entity event types.
+
+    Intentionally omits ``meta`` pagination — entity_event_types is a small,
+    stable lookup table returned in full. No limit/offset parameters are accepted.
+    """
+
+    data: list[EntityEventType]
+
+
 class ObservationNameParts(BaseModel):
     """Structured name parts supplied by upstream source (pre-parsed, not auto-decomposed)."""
 
