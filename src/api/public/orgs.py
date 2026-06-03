@@ -26,6 +26,7 @@ from src.core.observation import (
     write_additional_identifiers,
     write_addresses,
     write_contact_methods,
+    write_entity_events,
     write_links,
     write_names,
     write_org_acronyms,
@@ -79,6 +80,7 @@ async def submit_org_observation(
                 await write_org_parent(db, entity_id, parent_id)
 
             await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+            await write_entity_events(db, entity_id, entity_type, auth.key_id, request.events)
     except (
         ObservationRejected,
         IdentifierConflict,

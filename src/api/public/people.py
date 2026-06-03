@@ -25,6 +25,7 @@ from src.core.observation import (
     write_additional_identifiers,
     write_addresses,
     write_contact_methods,
+    write_entity_events,
     write_links,
     write_names,
     write_pronouns,
@@ -66,6 +67,7 @@ async def submit_people_observation(
             if request.personal_pronouns:
                 await write_pronouns(db, entity_id, request.personal_pronouns)
             await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+            await write_entity_events(db, entity_id, entity_type, auth.key_id, request.events)
     except (
         ObservationRejected,
         IdentifierConflict,

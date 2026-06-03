@@ -252,6 +252,36 @@ class ObservationAdditionalIdentifier(BaseModel):
     identifier_value: str
 
 
+class ObservationEventItem(BaseModel):
+    """A lifecycle event claim included in an observation."""
+
+    event_type_id: str | None = None
+    event_type_slug: str | None = None  # XOR with event_type_id
+
+    event_year: int | None = None
+    event_month: int | None = None
+    event_day: int | None = None
+    event_hour: int | None = None
+    event_minute: int | None = None
+    event_second: int | None = None
+
+    event_place_text: str | None = None
+    linked_entity_type: str | None = None
+    linked_entity_id: str | None = None
+    notes: str | None = None
+    visibility: Literal["public", "legal_only", "hidden"] = "public"
+
+    @model_validator(mode="after")
+    def _xor_event_type(self) -> "ObservationEventItem":
+        has_id = self.event_type_id is not None
+        has_slug = self.event_type_slug is not None
+        if has_id and has_slug:
+            raise ValueError("Specify event_type_id or event_type_slug, not both")
+        if not has_id and not has_slug:
+            raise ValueError("One of event_type_id or event_type_slug is required")
+        return self
+
+
 class PeopleObservationRequest(BaseModel):
     """Payload for POST /api/v1/people/observations."""
 
@@ -265,6 +295,7 @@ class PeopleObservationRequest(BaseModel):
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
     addresses: list[ObservationAddress] = Field(default_factory=list)
     additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
+    events: list[ObservationEventItem] = Field(default_factory=list)
 
 
 class OrganizationObservationRequest(BaseModel):
@@ -282,6 +313,7 @@ class OrganizationObservationRequest(BaseModel):
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
     addresses: list[ObservationAddress] = Field(default_factory=list)
     additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
+    events: list[ObservationEventItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _xor_org_parent(self) -> "OrganizationObservationRequest":
