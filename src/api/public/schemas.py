@@ -281,6 +281,16 @@ class ObservationEventItem(BaseModel):
             raise ValueError("One of event_type_id or event_type_slug is required")
         return self
 
+    @model_validator(mode="after")
+    def _linked_entity_pair(self) -> "ObservationEventItem":
+        has_type = self.linked_entity_type is not None
+        has_id = self.linked_entity_id is not None
+        if has_type != has_id:
+            raise ValueError(
+                "linked_entity_type and linked_entity_id must both be present or both absent"
+            )
+        return self
+
 
 class PeopleObservationRequest(BaseModel):
     """Payload for POST /api/v1/people/observations."""

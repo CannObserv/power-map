@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -40,7 +41,7 @@ ORDER BY display_name
 """
 
 
-async def fetch_entity_events(entity_id: str, entity_type: str, db) -> list:
+async def fetch_entity_events(entity_id: str, entity_type: str, db: asyncpg.Connection) -> list:
     """Fetch all events for an entity, sorted for display.
 
     Exposed at module level so detail routes can include events in context.

@@ -362,3 +362,48 @@ async def test_events_scope_enforcement(client, evt_read_key):
         },
     )
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Test 11: linked_entity_pair validation — 422 when only one of the pair is given
+# ---------------------------------------------------------------------------
+
+
+async def test_linked_entity_id_without_type_is_422(client, evt_write_key):
+    """Providing linked_entity_id without linked_entity_type → 422 (Pydantic validator)."""
+    raw, _ = evt_write_key
+    r = _post_people(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": _unique_id(),
+            "events": [
+                {
+                    "event_type_slug": "marriage",
+                    "linked_entity_id": "01SOMEENTITYID00000000000",
+                }
+            ],
+        },
+    )
+    assert r.status_code == 422
+
+
+async def test_linked_entity_type_without_id_is_422(client, evt_write_key):
+    """Providing linked_entity_type without linked_entity_id → 422 (Pydantic validator)."""
+    raw, _ = evt_write_key
+    r = _post_people(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": _unique_id(),
+            "events": [
+                {
+                    "event_type_slug": "marriage",
+                    "linked_entity_type": "person",
+                }
+            ],
+        },
+    )
+    assert r.status_code == 422

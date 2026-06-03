@@ -551,7 +551,7 @@ async def write_additional_identifiers(conn, entity_id: str, additional_identifi
 
 
 async def write_entity_events(
-    conn,
+    conn: asyncpg.Connection,
     entity_id: str,
     entity_type: str,
     key_id: str | None,

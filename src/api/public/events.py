@@ -1,9 +1,11 @@
 """Shared helpers for entity event list endpoints."""
 
+import asyncpg
+
 from src.api.public.schemas import fmt_ts
 
 
-def row_to_event(r) -> dict:
+def row_to_event(r: asyncpg.Record) -> dict:
     """Convert an entity_events DB row (with joined event_type fields) to a response dict."""
     return {
         "id": r["id"],
