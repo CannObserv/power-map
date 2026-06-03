@@ -1,7 +1,12 @@
 {# admin/orgs/partials/_event_row.html — single event read row #}
 {% set month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] %}
 <tr id="org-event-row-{{ ev.id }}">
-  <td>{{ ev.event_type_name }}</td>
+  <td>
+    {{ ev.event_type_name }}
+    {% if ev.notes %}
+    <div style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin-top:0.125rem">{{ ev.notes[:60] }}{% if ev.notes|length > 60 %}…{% endif %}</div>
+    {% endif %}
+  </td>
   <td>
     {% if ev.event_year is not none %}
       {% if ev.event_month is not none %}
@@ -20,8 +25,8 @@
   <td>{{ (ev.event_place_text or '')[:40] }}{% if ev.event_place_text and ev.event_place_text|length > 40 %}…{% endif %}</td>
   <td>
     {% if ev.linked_entity_type and ev.linked_entity_id %}
-      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ ev.linked_entity_type }}:</span>
-      <code style="font-size:var(--font-size-sm)">{{ ev.linked_entity_id }}</code>
+      <span class="badge badge--inactive">{{ ev.linked_entity_type }}</span>
+      <code style="font-size:var(--font-size-sm)">…{{ ev.linked_entity_id[-8:] }}</code>
     {% else %}
       —
     {% endif %}
