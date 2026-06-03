@@ -374,12 +374,12 @@ class EntityEvent(BaseModel):
     linked_entity_id: str | None = None
     notes: str | None = None
     visibility: str
-    verified_at: datetime | str | None = None
-    created_at: datetime | str
+    verified_at: datetime | None = None
+    created_at: datetime
 
     @field_serializer("verified_at", "created_at")
-    def _serialize_ts(self, v) -> str | None:
-        return fmt_ts(v) if isinstance(v, datetime) else v
+    def _serialize_ts(self, v: datetime | None) -> str | None:
+        return fmt_ts(v)
 
 
 class EntityEventsResponse(BaseModel):

@@ -7,13 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, identifier_filter, require_api_key, require_scope
+from src.api.public.events import row_to_event
 from src.api.public.schemas import (
     EntityEventsResponse,
     ObservationResponse,
     OrganizationObservationRequest,
     OrgDetail,
     OrgSearchResponse,
-    fmt_ts,
     make_etag,
 )
 from src.core.observation import (
@@ -275,34 +275,6 @@ async def get_org(
     }
 
 
-def _row_to_event(r: Any) -> dict:
-    """Map an entity_events row (with joined event_type fields) to a response dict."""
-    return {
-        "id": r["id"],
-        "event_type": {
-            "id": r["event_type_id"],
-            "slug": r["event_type_slug"],
-            "display_name": r["event_type_display_name"],
-        },
-        "date": {
-            "year": r["event_year"],
-            "month": r["event_month"],
-            "day": r["event_day"],
-            "hour": r["event_hour"],
-            "minute": r["event_minute"],
-            "second": r["event_second"],
-            "at": fmt_ts(r["event_at"]) if r["event_at"] else None,
-        },
-        "event_place_text": r["event_place_text"],
-        "linked_entity_type": r["linked_entity_type"],
-        "linked_entity_id": r["linked_entity_id"],
-        "notes": r["notes"],
-        "visibility": r["visibility"],
-        "verified_at": r["verified_at"],
-        "created_at": r["created_at"],
-    }
-
-
 @router.get(
     "/{org_id}/events",
     response_model=EntityEventsResponse,
@@ -352,7 +324,7 @@ async def list_org_events(
     page = rows[:limit]
 
     return {
-        "data": [_row_to_event(r) for r in page],
+        "data": [row_to_event(r) for r in page],
         "meta": {
             "limit": limit,
             "offset": offset,

@@ -1,4 +1,4 @@
-"""Tests for GET /api/v1/people/{id}/events and GET /api/v1/organizations/{id}/events."""
+"""Tests for GET /api/v1/people/{id}/events and GET /api/v1/orgs/{id}/events."""
 
 import hashlib
 import os
@@ -295,3 +295,20 @@ async def test_list_org_events_404_when_org_not_found(client, api_key):
         headers={"X-API-Key": api_key},
     )
     assert r.status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_list_org_events_401_with_invalid_key(client):
+    """GET /api/v1/orgs/{id}/events with invalid key returns 401."""
+    response = client.get(
+        "/api/v1/orgs/someid/events",
+        headers={"X-API-Key": "invalid-key"},
+    )
+    assert response.status_code == 401
+
+
+def test_list_org_events_403_without_key(unit_client):
+    """GET /api/v1/orgs/{id}/events without key returns 403."""
+    response = unit_client.get("/api/v1/orgs/01ANYORGID000000000000000000/events")
+    assert response.status_code == 403
