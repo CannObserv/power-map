@@ -567,23 +567,25 @@ async def write_entity_events(
     - requires_linked_entity with no linked_entity_id → ObservationRejected
     """
     for ev in events:
-        # Resolve slug → id
+        # Resolve slug → id (single query on slug path)
         event_type_id = ev.event_type_id
         if event_type_id is None:
-            row = await conn.fetchrow(
-                "SELECT id FROM entity_event_types WHERE slug=$1", ev.event_type_slug
+            etype = await conn.fetchrow(
+                "SELECT id, applies_to, requires_year, requires_linked_entity"
+                " FROM entity_event_types WHERE slug=$1",
+                ev.event_type_slug,
             )
-            if row is None:
+            if etype is None:
                 raise ObservationRejected(f"Unknown event_type_slug: {ev.event_type_slug!r}")
-            event_type_id = row["id"]
-
-        etype = await conn.fetchrow(
-            "SELECT applies_to, requires_year, requires_linked_entity"
-            " FROM entity_event_types WHERE id=$1",
-            event_type_id,
-        )
-        if etype is None:
-            raise ObservationRejected(f"Unknown event_type_id: {event_type_id!r}")
+            event_type_id = etype["id"]
+        else:
+            etype = await conn.fetchrow(
+                "SELECT applies_to, requires_year, requires_linked_entity"
+                " FROM entity_event_types WHERE id=$1",
+                event_type_id,
+            )
+            if etype is None:
+                raise ObservationRejected(f"Unknown event_type_id: {event_type_id!r}")
 
         # applies_to check
         if etype["applies_to"] != "both" and etype["applies_to"] != entity_type:
