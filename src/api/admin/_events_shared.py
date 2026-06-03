@@ -204,8 +204,8 @@ def make_events_router(
             )
 
         eid = generate_id()
-        linked_type = linked_entity_type.strip() or None
         linked_id = linked_entity_id.strip() or None
+        linked_type = linked_entity_type.strip() or None if linked_id else None
         await db.execute(
             """INSERT INTO entity_events
                (id, entity_type, entity_id, event_type_id,
@@ -328,8 +328,8 @@ def make_events_router(
                 error="Linked entity is required for this event type.",
             )
 
-        linked_type = linked_entity_type.strip() or None
         linked_id = linked_entity_id.strip() or None
+        linked_type = linked_entity_type.strip() or None if linked_id else None
         await db.execute(
             """UPDATE entity_events SET
                event_type_id=$1,

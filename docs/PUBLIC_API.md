@@ -288,7 +288,7 @@ Standard paginated envelope. Each item:
 |-------|------|-------|
 | `id` | string | ULID |
 | `event_type` | object | `{id, slug, display_name}` — inline event type |
-| `date` | object | `{year, month, day, hour, minute, second, at}` — partial date; null fields = unknown precision. `at` is ISO 8601 Z when full date is known |
+| `date` | object | `{year, month, day, hour, minute, second, at}` — partial date; null fields = unknown precision. `at` is ISO 8601 Z (reserved — currently always null; future use for denormalized full-precision timestamps) |
 | `event_place_text` | string\|null | Freeform place name |
 | `linked_entity_type` | string\|null | `person` or `organization` |
 | `linked_entity_id` | string\|null | ULID of related entity |

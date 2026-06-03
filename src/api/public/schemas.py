@@ -152,7 +152,7 @@ class EntityEventType(BaseModel):
     id: str
     slug: str
     display_name: str
-    applies_to: str  # 'person' | 'organization' | 'both'
+    applies_to: Literal["person", "organization", "both"]
     requires_year: bool
     requires_linked_entity: bool
 
@@ -402,10 +402,10 @@ class EntityEvent(BaseModel):
     event_type: EventTypeInline
     date: PartialDate
     event_place_text: str | None = None
-    linked_entity_type: str | None = None
+    linked_entity_type: Literal["person", "organization"] | None = None
     linked_entity_id: str | None = None
     notes: str | None = None
-    visibility: str
+    visibility: Literal["public", "legal_only", "hidden"]
     verified_at: datetime | None = None
     created_at: datetime
 
