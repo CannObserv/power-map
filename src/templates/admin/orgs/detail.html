@@ -113,6 +113,28 @@
 </section>
 
 <section class="entity-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Events</h2>
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/orgs/{{ org.id }}/events/new-row/"
+            hx-target="#org-events-table tbody"
+            hx-swap="afterbegin">+ Add event</button>
+  </div>
+  <div class="table-wrapper">
+    <table id="org-events-table" class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">Type</th><th scope="col">Date</th><th scope="col">Place</th><th scope="col">Linked Entity</th><th scope="col">Visibility</th><th scope="col">Status</th><th scope="col"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% include "admin/orgs/partials/_event_rows.html" %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
   <h2>Contact Information</h2>
   <div class="entity-card">
 
@@ -282,26 +304,6 @@
   &middot; Created: {{ org.created_at.strftime('%Y-%m-%d') }}
   &middot; Updated: {{ org.updated_at.strftime('%Y-%m-%d') }}
 </p>
-
-<section class="entity-section">
-  <div class="entity-section__header">
-    <h2>Events</h2>
-    <button type="button" class="btn btn--sm btn--primary"
-            hx-get="/admin/orgs/{{ org.id }}/events/new-row/"
-            hx-target="#org-events-table tbody"
-            hx-swap="afterbegin">Add event</button>
-  </div>
-  <table id="org-events-table" class="table">
-    <thead>
-      <tr>
-        <th>Type</th><th>Date</th><th>Place</th><th>Linked Entity</th><th>Visibility</th><th>Status</th><th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% include "admin/orgs/partials/_event_rows.html" %}
-    </tbody>
-  </table>
-</section>
 
 {% if not org.archived_at %}
 <h2>Danger Zone</h2>
