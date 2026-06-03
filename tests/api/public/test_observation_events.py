@@ -308,7 +308,45 @@ async def test_requires_linked_entity_missing_rejected(client, evt_write_key):
 
 
 # ---------------------------------------------------------------------------
-# Test 8: Scope enforcement
+# Test 8: Partial date chain — month without year → rejected
+# ---------------------------------------------------------------------------
+
+
+async def test_event_with_month_but_no_year_is_rejected(client, evt_write_key):
+    """POST observation with event_month but no event_year hits DB constraint → rejected."""
+    raw, _ = evt_write_key
+    value = _unique_id()
+    payload = {
+        "identifier_type": "person_wa_pdc",
+        "identifier_value": value,
+        "events": [{"event_type_slug": "birth", "event_year": None, "event_month": 6}],
+    }
+    r = _post_people(client, raw, payload)
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "rejected"
+
+
+# ---------------------------------------------------------------------------
+# Test 9: Unknown event_type_slug → rejected
+# ---------------------------------------------------------------------------
+
+
+async def test_unknown_event_type_slug_is_rejected(client, evt_write_key):
+    """POST observation with unknown event_type_slug → disposition: rejected."""
+    raw, _ = evt_write_key
+    value = _unique_id()
+    payload = {
+        "identifier_type": "person_wa_pdc",
+        "identifier_value": value,
+        "events": [{"event_type_slug": "nonexistent_type_xyz"}],
+    }
+    r = _post_people(client, raw, payload)
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "rejected"
+
+
+# ---------------------------------------------------------------------------
+# Test 10: Scope enforcement
 # ---------------------------------------------------------------------------
 
 

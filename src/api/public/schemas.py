@@ -266,7 +266,7 @@ class ObservationEventItem(BaseModel):
     event_second: int | None = None
 
     event_place_text: str | None = None
-    linked_entity_type: str | None = None
+    linked_entity_type: Literal["person", "organization"] | None = None
     linked_entity_id: str | None = None
     notes: str | None = None
     visibility: Literal["public", "legal_only", "hidden"] = "public"

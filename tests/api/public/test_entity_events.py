@@ -312,3 +312,9 @@ def test_list_org_events_403_without_key(unit_client):
     """GET /api/v1/orgs/{id}/events without key returns 403."""
     response = unit_client.get("/api/v1/orgs/01ANYORGID000000000000000000/events")
     assert response.status_code == 403
+
+
+def test_list_person_events_403_without_key(unit_client):
+    """GET /api/v1/people/{id}/events without key returns 403."""
+    response = unit_client.get("/api/v1/people/nonexistent-id/events")
+    assert response.status_code == 403
