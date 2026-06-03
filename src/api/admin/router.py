@@ -11,6 +11,7 @@ from src.api.admin import orgs as orgs_module
 from src.api.admin import orgs_acronyms as orgs_acronyms_module
 from src.api.admin import orgs_addresses as orgs_addresses_module
 from src.api.admin import orgs_contacts as orgs_contacts_module
+from src.api.admin import orgs_events as orgs_events_module
 from src.api.admin import orgs_identifiers as orgs_identifiers_module
 from src.api.admin import orgs_links as orgs_links_module
 from src.api.admin import orgs_merge as orgs_merge_module
@@ -20,6 +21,7 @@ from src.api.admin import people as people_module
 from src.api.admin import people_addresses as people_addresses_module
 from src.api.admin import people_assignments as people_assignments_module
 from src.api.admin import people_contacts as people_contacts_module
+from src.api.admin import people_events as people_events_module
 from src.api.admin import people_identifiers as people_identifiers_module
 from src.api.admin import people_links as people_links_module
 from src.api.admin import people_locale_script_search as people_locale_script_search_module
@@ -58,6 +60,7 @@ admin_router.include_router(orgs_addresses_module.router)
 admin_router.include_router(orgs_contacts_module.router)
 admin_router.include_router(orgs_links_module.router)
 admin_router.include_router(orgs_identifiers_module.router)
+admin_router.include_router(orgs_events_module.router)
 admin_router.include_router(orgs_roles_module.router)
 # Same ordering constraint as orgs above.
 admin_router.include_router(people_merge_module.router)
@@ -80,6 +83,7 @@ admin_router.include_router(people_addresses_module.router)
 admin_router.include_router(people_links_module.router)
 admin_router.include_router(people_identifiers_module.router)
 admin_router.include_router(people_assignments_module.router)
+admin_router.include_router(people_events_module.router)
 admin_router.include_router(roles_module.router)
 admin_router.include_router(roles_detail_module.router)
 admin_router.include_router(roles_assignments_inline_module.router)

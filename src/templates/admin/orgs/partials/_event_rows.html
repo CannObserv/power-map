@@ -1,0 +1,6 @@
+{# admin/orgs/partials/_event_rows.html — full tbody for org events table #}
+{% for ev in events %}
+{% include "admin/orgs/partials/_event_row.html" %}
+{% else %}
+<tr><td colspan="7" style="text-align:center;color:var(--color-text-muted)">No events</td></tr>
+{% endfor %}

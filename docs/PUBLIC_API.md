@@ -196,6 +196,7 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 |--------|------|------|-------------|
 | `GET` | `/api/v1/people/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `include_archived`, `limit`, `offset`. |
 | `GET` | `/api/v1/people/{id}` | API key | Detail by ULID. Returns public name variants and identifiers. ETag caching — see caching section above. |
+| `GET` | `/api/v1/people/{id}/events` | API key | Paginated lifecycle events for a person. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. |
 | `POST` | `/api/v1/people/observations` | `observations:write` scope | Submit a person identity observation. |
 
 ### Observation write — `POST /people/observations`
@@ -215,6 +216,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 | `contact_methods` | optional | List of `{contact_type, value}` — `contact_type` must be `email` or `phone` |
 | `addresses` | optional | List of `{raw_input, address_type}` — `address_type` must be `mailing` or `physical` |
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
+| `events` | optional | List of `{event_type_id XOR event_type_slug, event_year?, event_month?, event_day?, event_hour?, event_minute?, event_second?, event_place_text?, linked_entity_type?, linked_entity_id?, notes?, visibility?}`. See entity events section below. |
 
 **Disposition semantics:**
 
@@ -234,6 +236,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 |--------|------|------|-------------|
 | `GET` | `/api/v1/orgs/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `include_archived`, `limit`, `offset`. |
 | `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, and identifiers. ETag caching — see caching section above. |
+| `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. |
 | `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
 
 ### Observation write — `POST /orgs/observations`
@@ -255,6 +258,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 | `contact_methods` | optional | List of `{contact_type, value}` — `contact_type` must be `email` or `phone` |
 | `addresses` | optional | List of `{raw_input, address_type}` — `address_type` must be `mailing` or `physical` |
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
+| `events` | optional | List of event claims — same shape as for `POST /people/observations`. See entity events section below. |
 
 **Disposition semantics:**
 
@@ -263,6 +267,63 @@ Upserts an organization by identifier using the same match-or-create semantics a
 | `new` | Identifier not seen before; organization created |
 | `auto-attached` | Identifier already known; existing entity returned |
 | `rejected` | Unknown identifier type; identifier belongs to a non-organization entity; ambiguous parent lookup (0 or 2+ matches); DB constraint violation |
+
+---
+
+## Entity Events
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/people/{id}/events` | API key | Paginated lifecycle events for a person. |
+| `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. |
+| `GET` | `/api/v1/entity-event-types` | API key | Unpaginated list of all event type vocabulary entries. |
+
+### Response shape — `GET /people/{id}/events` and `GET /orgs/{id}/events`
+
+Standard paginated envelope. Each item:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | string | ULID |
+| `event_type` | object | `{id, slug, display_name}` — inline event type |
+| `date` | object | `{year, month, day, hour, minute, second, at}` — partial date; null fields = unknown precision. `at` is ISO 8601 Z (reserved — currently always null; future use for denormalized full-precision timestamps) |
+| `event_place_text` | string\|null | Freeform place name |
+| `linked_entity_type` | string\|null | `person` or `organization` |
+| `linked_entity_id` | string\|null | ULID of related entity |
+| `notes` | string\|null | |
+| `visibility` | string | Always `public` in list responses (other tiers filtered out) |
+| `verified_at` | string\|null | ISO 8601 Z |
+| `created_at` | string | ISO 8601 Z |
+
+### Observation `events` surface
+
+When submitting a `POST /people/observations` or `POST /orgs/observations`, an optional `events` list accepts lifecycle event claims:
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `event_type_id` | XOR with slug | Power Map event type ULID |
+| `event_type_slug` | XOR with id | e.g. `birth`, `founded`, `marriage` — use `GET /entity-event-types` to discover available slugs |
+| `event_year` | depends | Required when the event type has `requires_year: true` (e.g. `birth`, `founded`) |
+| `event_month` | optional | 1–12; requires `event_year` |
+| `event_day` | optional | 1–31; requires `event_month` |
+| `event_hour` | optional | 0–23; requires `event_day` |
+| `event_minute` | optional | 0–59; requires `event_hour` |
+| `event_second` | optional | 0–59; requires `event_minute` |
+| `event_place_text` | optional | Freeform place string (e.g. `Berlin, Germany`) |
+| `linked_entity_type` | depends | Required when `requires_linked_entity: true` (e.g. `marriage`, `merged_with`). `person` or `organization` |
+| `linked_entity_id` | depends | ULID of linked entity; required alongside `linked_entity_type` |
+| `notes` | optional | Free text |
+| `visibility` | optional | `public` (default), `legal_only`, or `hidden` |
+
+**Implicit behaviors:**
+
+- **`applies_to` enforcement.** Submitting a person-only event type (e.g. `birth`) via `POST /orgs/observations` returns `disposition: rejected`.
+- **Append-only.** Conflicting observations from different sources both land. Two observations claiming `birth` with different years each create a separate event row; resolution is editorial (admin UI).
+- **Dedup.** Exact match on `(event_type_id, event_year, event_month, event_day, event_hour, event_minute, event_second, linked_entity_id)` — re-submitting the identical event claim is a no-op.
+- **Partial date precision chain.** `event_month` requires `event_year`; `event_day` requires `event_month`; and so on down to `event_second`. Violating this chain results in `disposition: rejected`.
+- **Source attribution.** Each event row records the `source_key_id` of the API key that submitted it.
 
 ---
 

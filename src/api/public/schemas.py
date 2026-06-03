@@ -146,6 +146,27 @@ class LinkTypesResponse(BaseModel):
     data: list[LinkType]
 
 
+class EntityEventType(BaseModel):
+    """An entity event type used to classify life/organisational events."""
+
+    id: str
+    slug: str
+    display_name: str
+    applies_to: Literal["person", "organization", "both"]
+    requires_year: bool
+    requires_linked_entity: bool
+
+
+class EntityEventTypesResponse(BaseModel):
+    """Unpaginated list of all entity event types.
+
+    Intentionally omits ``meta`` pagination — entity_event_types is a small,
+    stable lookup table returned in full. No limit/offset parameters are accepted.
+    """
+
+    data: list[EntityEventType]
+
+
 class ObservationNameParts(BaseModel):
     """Structured name parts supplied by upstream source (pre-parsed, not auto-decomposed)."""
 
@@ -231,6 +252,46 @@ class ObservationAdditionalIdentifier(BaseModel):
     identifier_value: str
 
 
+class ObservationEventItem(BaseModel):
+    """A lifecycle event claim included in an observation."""
+
+    event_type_id: str | None = None
+    event_type_slug: str | None = None  # XOR with event_type_id
+
+    event_year: int | None = None
+    event_month: int | None = None
+    event_day: int | None = None
+    event_hour: int | None = None
+    event_minute: int | None = None
+    event_second: int | None = None
+
+    event_place_text: str | None = None
+    linked_entity_type: Literal["person", "organization"] | None = None
+    linked_entity_id: str | None = None
+    notes: str | None = None
+    visibility: Literal["public", "legal_only", "hidden"] = "public"
+
+    @model_validator(mode="after")
+    def _xor_event_type(self) -> "ObservationEventItem":
+        has_id = self.event_type_id is not None
+        has_slug = self.event_type_slug is not None
+        if has_id and has_slug:
+            raise ValueError("Specify event_type_id or event_type_slug, not both")
+        if not has_id and not has_slug:
+            raise ValueError("One of event_type_id or event_type_slug is required")
+        return self
+
+    @model_validator(mode="after")
+    def _linked_entity_pair(self) -> "ObservationEventItem":
+        has_type = self.linked_entity_type is not None
+        has_id = self.linked_entity_id is not None
+        if has_type != has_id:
+            raise ValueError(
+                "linked_entity_type and linked_entity_id must both be present or both absent"
+            )
+        return self
+
+
 class PeopleObservationRequest(BaseModel):
     """Payload for POST /api/v1/people/observations."""
 
@@ -244,6 +305,7 @@ class PeopleObservationRequest(BaseModel):
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
     addresses: list[ObservationAddress] = Field(default_factory=list)
     additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
+    events: list[ObservationEventItem] = Field(default_factory=list)
 
 
 class OrganizationObservationRequest(BaseModel):
@@ -261,6 +323,7 @@ class OrganizationObservationRequest(BaseModel):
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
     addresses: list[ObservationAddress] = Field(default_factory=list)
     additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
+    events: list[ObservationEventItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _xor_org_parent(self) -> "OrganizationObservationRequest":
@@ -320,6 +383,52 @@ class JurisdictionObservationRequest(BaseModel):
         ):
             raise ValueError("jurisdiction_valid_from must be <= jurisdiction_valid_until")
         return self
+
+
+class EventTypeInline(BaseModel):
+    """Event type embedded in event list items."""
+
+    id: str
+    slug: str
+    display_name: str
+
+
+class PartialDate(BaseModel):
+    """Partial date/time with explicit precision."""
+
+    year: int | None = None
+    month: int | None = None
+    day: int | None = None
+    hour: int | None = None
+    minute: int | None = None
+    second: int | None = None
+    at: str | None = None  # ISO 8601 with Z suffix when event_at is populated
+
+
+class EntityEvent(BaseModel):
+    """Single event item in a list response."""
+
+    id: str
+    event_type: EventTypeInline
+    date: PartialDate
+    event_place_text: str | None = None
+    linked_entity_type: Literal["person", "organization"] | None = None
+    linked_entity_id: str | None = None
+    notes: str | None = None
+    visibility: Literal["public", "legal_only", "hidden"]
+    verified_at: datetime | None = None
+    created_at: datetime
+
+    @field_serializer("verified_at", "created_at")
+    def _serialize_ts(self, v: datetime | None) -> str | None:
+        return fmt_ts(v)
+
+
+class EntityEventsResponse(BaseModel):
+    """Paginated list of entity events."""
+
+    data: list[EntityEvent]
+    meta: SearchMeta
 
 
 class ChangeItem(BaseModel):

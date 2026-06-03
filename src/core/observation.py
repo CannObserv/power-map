@@ -548,3 +548,105 @@ async def write_additional_identifiers(conn, entity_id: str, additional_identifi
             eit_id,
             value,
         )
+
+
+async def write_entity_events(
+    conn: asyncpg.Connection,
+    entity_id: str,
+    entity_type: str,
+    key_id: str | None,
+    events: list,
+) -> None:
+    """Write entity event claims. Append-only with application-layer dedup.
+
+    Dedup key: (event_type_id, event_year, event_month, event_day, event_hour,
+    event_minute, event_second, linked_entity_id) — NULLs treated as equal.
+    Validation:
+    - applies_to mismatch → ObservationRejected
+    - requires_year with no event_year → ObservationRejected
+    - requires_linked_entity with no linked_entity_id → ObservationRejected
+    """
+    for ev in events:
+        # Resolve slug → id (single query on slug path)
+        event_type_id = ev.event_type_id
+        if event_type_id is None:
+            etype = await conn.fetchrow(
+                "SELECT id, applies_to, requires_year, requires_linked_entity"
+                " FROM entity_event_types WHERE slug=$1",
+                ev.event_type_slug,
+            )
+            if etype is None:
+                raise ObservationRejected(f"Unknown event_type_slug: {ev.event_type_slug!r}")
+            event_type_id = etype["id"]
+        else:
+            etype = await conn.fetchrow(
+                "SELECT applies_to, requires_year, requires_linked_entity"
+                " FROM entity_event_types WHERE id=$1",
+                event_type_id,
+            )
+            if etype is None:
+                raise ObservationRejected(f"Unknown event_type_id: {event_type_id!r}")
+
+        # applies_to check
+        if etype["applies_to"] != "both" and etype["applies_to"] != entity_type:
+            raise ObservationRejected(
+                f"Event type {event_type_id!r} does not apply to {entity_type!r}"
+            )
+
+        # required field validation
+        if etype["requires_year"] and ev.event_year is None:
+            raise ObservationRejected(f"Event type {event_type_id!r} requires event_year")
+        if etype["requires_linked_entity"] and not ev.linked_entity_id:
+            raise ObservationRejected(f"Event type {event_type_id!r} requires linked_entity_id")
+
+        # Dedup: same event type + same partial date + same linked_entity_id = skip
+        existing = await conn.fetchrow(
+            """SELECT id FROM entity_events
+               WHERE entity_id = $1
+                 AND entity_type = $2
+                 AND event_type_id = $3
+                 AND event_year IS NOT DISTINCT FROM $4
+                 AND event_month IS NOT DISTINCT FROM $5
+                 AND event_day IS NOT DISTINCT FROM $6
+                 AND event_hour IS NOT DISTINCT FROM $7
+                 AND event_minute IS NOT DISTINCT FROM $8
+                 AND event_second IS NOT DISTINCT FROM $9
+                 AND linked_entity_id IS NOT DISTINCT FROM $10""",
+            entity_id,
+            entity_type,
+            event_type_id,
+            ev.event_year,
+            ev.event_month,
+            ev.event_day,
+            ev.event_hour,
+            ev.event_minute,
+            ev.event_second,
+            ev.linked_entity_id,
+        )
+        if existing:
+            continue
+
+        await conn.execute(
+            """INSERT INTO entity_events
+               (id, entity_type, entity_id, event_type_id,
+                event_year, event_month, event_day, event_hour, event_minute, event_second,
+                event_place_text, linked_entity_type, linked_entity_id,
+                notes, visibility, source_key_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)""",
+            generate_id(),
+            entity_type,
+            entity_id,
+            event_type_id,
+            ev.event_year,
+            ev.event_month,
+            ev.event_day,
+            ev.event_hour,
+            ev.event_minute,
+            ev.event_second,
+            ev.event_place_text,
+            ev.linked_entity_type,
+            ev.linked_entity_id,
+            ev.notes,
+            ev.visibility,
+            key_id,
+        )

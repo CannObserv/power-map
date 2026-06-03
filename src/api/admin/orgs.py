@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._events_shared import fetch_entity_events
 from src.api.admin.deps import (
     AdminUser,
     escape_like,
@@ -488,6 +489,7 @@ async def org_detail(
            ORDER BY r.title""",
         org_id,
     )
+    events = await fetch_entity_events(org_id, "organization", db)
     parent = None
     if org["parent_id"]:
         parent = await db.fetchrow(
@@ -527,6 +529,7 @@ async def org_detail(
             "identifiers": identifiers,
             "children": children,
             "roles": roles,
+            "events": events,
             "parent": parent,
             "org_dup_count": org_dup_count,
             "person_dup_count": person_dup_count,

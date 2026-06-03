@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, identifier_filter, require_api_key, require_scope
+from src.api.public.events import row_to_event
 from src.api.public.schemas import (
+    EntityEventsResponse,
     ObservationResponse,
     OrganizationObservationRequest,
     OrgDetail,
@@ -24,6 +26,7 @@ from src.core.observation import (
     write_additional_identifiers,
     write_addresses,
     write_contact_methods,
+    write_entity_events,
     write_links,
     write_names,
     write_org_acronyms,
@@ -77,6 +80,7 @@ async def submit_org_observation(
                 await write_org_parent(db, entity_id, parent_id)
 
             await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+            await write_entity_events(db, entity_id, entity_type, auth.key_id, request.events)
     except (
         ObservationRejected,
         IdentifierConflict,
@@ -270,6 +274,65 @@ async def get_org(
         "names": [dict(n) for n in names],
         "acronyms": [dict(a) for a in acronyms],
         "identifiers": [dict(i) for i in identifiers],
+    }
+
+
+@router.get(
+    "/{org_id}/events",
+    response_model=EntityEventsResponse,
+    operation_id="listOrgEvents",
+)
+async def list_org_events(
+    org_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    _: str = Depends(require_api_key),
+    db=Depends(get_db),
+) -> Any:
+    """Return public, active lifecycle events for an organization."""
+    exists = await db.fetchval("SELECT 1 FROM organizations WHERE id = $1", org_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    rows = await db.fetch(
+        """
+        SELECT
+            ee.id,
+            ee.event_year, ee.event_month, ee.event_day,
+            ee.event_hour, ee.event_minute, ee.event_second,
+            ee.event_at,
+            ee.event_place_text,
+            ee.linked_entity_type, ee.linked_entity_id,
+            ee.notes, ee.visibility, ee.verified_at, ee.created_at,
+            eet.id AS event_type_id,
+            eet.slug AS event_type_slug,
+            eet.display_name AS event_type_display_name
+        FROM entity_events ee
+        JOIN entity_event_types eet ON eet.id = ee.event_type_id
+        WHERE ee.entity_id = $1
+          AND ee.entity_type = 'organization'
+          AND ee.visibility = 'public'
+          AND ee.archived_at IS NULL
+        ORDER BY ee.event_year DESC NULLS LAST, ee.event_month DESC NULLS LAST,
+                 ee.event_day DESC NULLS LAST, ee.created_at DESC
+        LIMIT $2 OFFSET $3
+        """,
+        org_id,
+        limit + 1,
+        offset,
+    )
+
+    has_more = len(rows) > limit
+    page = rows[:limit]
+
+    return {
+        "data": [row_to_event(r) for r in page],
+        "meta": {
+            "limit": limit,
+            "offset": offset,
+            "count": len(page),
+            "has_more": has_more,
+        },
     }
 
 

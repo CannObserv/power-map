@@ -283,6 +283,26 @@
   &middot; Updated: {{ org.updated_at.strftime('%Y-%m-%d') }}
 </p>
 
+<section class="entity-section">
+  <div class="entity-section__header">
+    <h2>Events</h2>
+    <button type="button" class="btn btn--sm btn--primary"
+            hx-get="/admin/orgs/{{ org.id }}/events/new-row/"
+            hx-target="#org-events-table tbody"
+            hx-swap="afterbegin">Add event</button>
+  </div>
+  <table id="org-events-table" class="table">
+    <thead>
+      <tr>
+        <th>Type</th><th>Date</th><th>Place</th><th>Linked Entity</th><th>Visibility</th><th>Status</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% include "admin/orgs/partials/_event_rows.html" %}
+    </tbody>
+  </table>
+</section>
+
 {% if not org.archived_at %}
 <h2>Danger Zone</h2>
 <div class="danger-zone">
