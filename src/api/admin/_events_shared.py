@@ -49,9 +49,14 @@ async def fetch_entity_events(entity_id: str, entity_type: str, db) -> list:
 
 
 def _parse_int(value: str) -> int | None:
-    """Parse an optional integer form field. Returns None for empty/whitespace input."""
+    """Parse an optional integer form field. Returns None for empty/whitespace/invalid input."""
     stripped = value.strip()
-    return int(stripped) if stripped else None
+    if not stripped:
+        return None
+    try:
+        return int(stripped)
+    except ValueError:
+        return None
 
 
 def make_events_router(
@@ -173,29 +178,30 @@ def make_events_router(
             "SELECT requires_year, requires_linked_entity FROM entity_event_types WHERE id=$1",
             event_type_id,
         )
-        if etype_row:
-            if etype_row["requires_year"] and year_val is None:
-                if not is_htmx(request):
-                    return RedirectResponse(detail_url(entity_id), status_code=303)
-                event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
-                return _form_response(
-                    request,
-                    entity_id,
-                    None,
-                    event_types,
-                    error="Year is required for this event type.",
-                )
-            if etype_row["requires_linked_entity"] and not linked_entity_id.strip():
-                if not is_htmx(request):
-                    return RedirectResponse(detail_url(entity_id), status_code=303)
-                event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
-                return _form_response(
-                    request,
-                    entity_id,
-                    None,
-                    event_types,
-                    error="Linked entity is required for this event type.",
-                )
+        if not etype_row:
+            raise HTTPException(status_code=400, detail="Unknown event type")
+        if etype_row["requires_year"] and year_val is None:
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(
+                request,
+                entity_id,
+                None,
+                event_types,
+                error="Year is required for this event type.",
+            )
+        if etype_row["requires_linked_entity"] and not linked_entity_id.strip():
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(
+                request,
+                entity_id,
+                None,
+                event_types,
+                error="Linked entity is required for this event type.",
+            )
 
         eid = generate_id()
         linked_type = linked_entity_type.strip() or None
@@ -297,29 +303,30 @@ def make_events_router(
             "SELECT requires_year, requires_linked_entity FROM entity_event_types WHERE id=$1",
             event_type_id,
         )
-        if etype_row:
-            if etype_row["requires_year"] and year_val is None:
-                if not is_htmx(request):
-                    return RedirectResponse(detail_url(entity_id), status_code=303)
-                event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
-                return _form_response(
-                    request,
-                    entity_id,
-                    existing,
-                    event_types,
-                    error="Year is required for this event type.",
-                )
-            if etype_row["requires_linked_entity"] and not linked_entity_id.strip():
-                if not is_htmx(request):
-                    return RedirectResponse(detail_url(entity_id), status_code=303)
-                event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
-                return _form_response(
-                    request,
-                    entity_id,
-                    existing,
-                    event_types,
-                    error="Linked entity is required for this event type.",
-                )
+        if not etype_row:
+            raise HTTPException(status_code=400, detail="Unknown event type")
+        if etype_row["requires_year"] and year_val is None:
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(
+                request,
+                entity_id,
+                existing,
+                event_types,
+                error="Year is required for this event type.",
+            )
+        if etype_row["requires_linked_entity"] and not linked_entity_id.strip():
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(
+                request,
+                entity_id,
+                existing,
+                event_types,
+                error="Linked entity is required for this event type.",
+            )
 
         linked_type = linked_entity_type.strip() or None
         linked_id = linked_entity_id.strip() or None
@@ -417,6 +424,8 @@ def make_events_router(
         if not ev["archived_at"]:
             raise HTTPException(status_code=409, detail="Event must be archived before deletion")
         await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
+        if not is_htmx(request):
+            return RedirectResponse(detail_url(entity_id), status_code=303)
         return HTMLResponse(
             content="",
             status_code=200,

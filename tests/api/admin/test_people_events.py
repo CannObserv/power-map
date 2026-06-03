@@ -108,6 +108,7 @@ async def test_event_create_returns_read_row(client, person_and_event_type, db_p
     )
     assert r.status_code == 200
     assert "Test Event" in r.text
+    assert "HX-Trigger" in r.headers
 
     # Clean up
     async with db_pool.acquire() as conn:
@@ -140,6 +141,34 @@ async def test_event_create_requires_year_for_typed_event(client, db_pool):
     )
     assert r.status_code == 200
     assert "Year is required" in r.text
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM entity_event_types WHERE id=$1", etid)
+        await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_event_create_requires_linked_entity_for_typed_event(client, db_pool):
+    """Event type with requires_linked_entity=True must reject missing linked_entity_id."""
+    pid = generate_id()
+    etid = generate_id()
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await conn.execute(
+            "INSERT INTO entity_event_types"
+            " (id, slug, display_name, applies_to, requires_linked_entity)"
+            " VALUES ($1, $2, 'Linked Event', 'person', TRUE)",
+            etid,
+            f"linked-event-{etid[:8]}",
+        )
+
+    r = client.post(
+        f"/admin/people/{pid}/events/",
+        headers=HTMX_HEADERS,
+        data={"event_type_id": etid, "linked_entity_id": "", "visibility": "public"},
+    )
+    assert r.status_code == 200
+    assert "Linked entity is required" in r.text
 
     async with db_pool.acquire() as conn:
         await conn.execute("DELETE FROM entity_event_types WHERE id=$1", etid)
@@ -188,6 +217,42 @@ async def test_event_update_saves_and_returns_read_row(client, person_with_event
     assert "<form" not in r.text
 
 
+async def test_event_edit_requires_year_for_typed_event(client, db_pool, person_and_event_type):
+    """POST edit-row with requires_year event type and no year returns form with error."""
+    pid, _ = person_and_event_type
+    etid = generate_id()
+    eid = generate_id()
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO entity_event_types"
+            " (id, slug, display_name, applies_to, requires_year)"
+            " VALUES ($1, $2, 'Dated Edit Event', 'person', TRUE)",
+            etid,
+            f"dated-edit-event-{etid[:8]}",
+        )
+        await conn.execute(
+            "INSERT INTO entity_events"
+            " (id, entity_type, entity_id, event_type_id, event_year, visibility)"
+            " VALUES ($1, 'person', $2, $3, 2020, 'public')",
+            eid,
+            pid,
+            etid,
+        )
+
+    r = client.post(
+        f"/admin/people/{pid}/events/{eid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"event_type_id": etid, "event_year": "", "visibility": "public"},
+    )
+    assert r.status_code == 200
+    assert "Year is required" in r.text
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+        await conn.execute("DELETE FROM entity_event_types WHERE id=$1", etid)
+
+
 # ---------------------------------------------------------------------------
 # Archive / Unarchive
 # ---------------------------------------------------------------------------
@@ -197,6 +262,7 @@ async def test_event_archive_sets_archived_at(client, person_with_event, db_pool
     pid, etid, eid = person_with_event
     r = client.post(f"/admin/people/{pid}/events/{eid}/archive/", headers=HTMX_HEADERS)
     assert r.status_code == 200
+    assert "HX-Trigger" in r.headers
 
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("SELECT archived_at FROM entity_events WHERE id=$1", eid)
