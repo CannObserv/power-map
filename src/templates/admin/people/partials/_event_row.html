@@ -1,0 +1,72 @@
+{# admin/people/partials/_event_row.html — single event read row #}
+{% set month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] %}
+<tr id="person-event-row-{{ ev.id }}">
+  <td>{{ ev.event_type_name }}</td>
+  <td>
+    {% if ev.event_year is not none %}
+      {% if ev.event_month is not none %}
+        {% if ev.event_day is not none %}
+          {{ ev.event_day }} {{ month_names[ev.event_month - 1] }} {{ ev.event_year }}{% if ev.event_hour is not none %} {{ "%02d"|format(ev.event_hour) }}:{{ "%02d"|format(ev.event_minute) }}{% if ev.event_second is not none %}:{{ "%02d"|format(ev.event_second) }}{% endif %}{% endif %}
+        {% else %}
+          {{ month_names[ev.event_month - 1] }} {{ ev.event_year }}
+        {% endif %}
+      {% else %}
+        {{ ev.event_year }}
+      {% endif %}
+    {% else %}
+      —
+    {% endif %}
+  </td>
+  <td>{{ (ev.event_place_text or '')[:40] }}{% if ev.event_place_text and ev.event_place_text|length > 40 %}…{% endif %}</td>
+  <td>
+    {% if ev.linked_entity_type and ev.linked_entity_id %}
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ ev.linked_entity_type }}:</span>
+      <code style="font-size:var(--font-size-sm)">{{ ev.linked_entity_id }}</code>
+    {% else %}
+      —
+    {% endif %}
+  </td>
+  <td>
+    {% if ev.visibility == 'public' %}
+      <span class="badge badge--active">Public</span>
+    {% elif ev.visibility == 'legal_only' %}
+      <span class="badge badge--inactive">Legal only</span>
+    {% else %}
+      <span class="badge badge--archived">Hidden</span>
+    {% endif %}
+  </td>
+  <td>
+    {% if ev.archived_at %}
+      <span class="badge badge--archived">Archived</span>
+    {% else %}
+      <span class="badge badge--active">Active</span>
+    {% endif %}
+  </td>
+  <td style="text-align:right;white-space:nowrap">
+    {% if not ev.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Edit {{ ev.event_type_name }} event"
+            hx-get="/admin/people/{{ person_id }}/events/{{ ev.id }}/edit-row/"
+            hx-target="#person-event-row-{{ ev.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Archive {{ ev.event_type_name }} event"
+            hx-post="/admin/people/{{ person_id }}/events/{{ ev.id }}/archive/"
+            hx-target="#person-events-table tbody"
+            hx-swap="innerHTML"
+            hx-confirm="Archive this event?">Archive</button>
+    {% else %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Unarchive {{ ev.event_type_name }} event"
+            hx-post="/admin/people/{{ person_id }}/events/{{ ev.id }}/unarchive/"
+            hx-target="#person-events-table tbody"
+            hx-swap="innerHTML">Unarchive</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Delete {{ ev.event_type_name }} event permanently"
+            hx-delete="/admin/people/{{ person_id }}/events/{{ ev.id }}/"
+            hx-target="#person-event-row-{{ ev.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this event permanently?">Delete</button>
+    {% endif %}
+  </td>
+</tr>

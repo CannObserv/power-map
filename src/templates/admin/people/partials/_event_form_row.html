@@ -1,0 +1,108 @@
+{# admin/people/partials/_event_form_row.html — event create/edit form #}
+<tr id="{% if ev %}person-event-row-{{ ev.id }}{% else %}person-event-row-new{% endif %}">
+  <td colspan="7" style="padding:var(--space-3) var(--space-4)">
+    {% if form_error %}
+    <div class="alert alert--error" style="margin-bottom:var(--space-3)">{{ form_error }}</div>
+    {% endif %}
+    <form {% if ev %}
+          hx-post="/admin/people/{{ person_id }}/events/{{ ev.id }}/edit-row/"
+          hx-target="#person-event-row-{{ ev.id }}"
+          {% else %}
+          hx-post="/admin/people/{{ person_id }}/events/"
+          hx-target="#person-event-row-new"
+          {% endif %}
+          hx-swap="outerHTML">
+      <table style="width:100%;border-collapse:collapse">
+        <tr>
+          <td style="padding:var(--space-1) var(--space-2) var(--space-1) 0;white-space:nowrap;vertical-align:middle;font-size:var(--font-size-sm);color:var(--color-text-muted)">Type</td>
+          <td style="padding:var(--space-1) 0">
+            <select name="event_type_id" style="width:100%">
+              {% for et in event_types %}
+              <option value="{{ et.id }}"{% if ev and ev.event_type_id == et.id %} selected{% endif %}>{{ et.display_name }}</option>
+              {% endfor %}
+            </select>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:var(--space-1) var(--space-2) var(--space-1) 0;white-space:nowrap;vertical-align:middle;font-size:var(--font-size-sm);color:var(--color-text-muted)">Year / Month / Day</td>
+          <td style="padding:var(--space-1) 0;display:flex;gap:var(--space-2)">
+            <input type="number" name="event_year" placeholder="Year"
+                   value="{{ ev.event_year if ev and ev.event_year is not none else '' }}"
+                   style="width:6rem">
+            <input type="number" name="event_month" placeholder="Mo" min="1" max="12"
+                   value="{{ ev.event_month if ev and ev.event_month is not none else '' }}"
+                   style="width:4rem">
+            <input type="number" name="event_day" placeholder="Day" min="1" max="31"
+                   value="{{ ev.event_day if ev and ev.event_day is not none else '' }}"
+                   style="width:4rem">
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:var(--space-1) var(--space-2) var(--space-1) 0;white-space:nowrap;vertical-align:middle;font-size:var(--font-size-sm);color:var(--color-text-muted)">Hour : Min : Sec</td>
+          <td style="padding:var(--space-1) 0;display:flex;gap:var(--space-2)">
+            <input type="number" name="event_hour" placeholder="HH" min="0" max="23"
+                   value="{{ ev.event_hour if ev and ev.event_hour is not none else '' }}"
+                   style="width:4rem">
+            <input type="number" name="event_minute" placeholder="MM" min="0" max="59"
+                   value="{{ ev.event_minute if ev and ev.event_minute is not none else '' }}"
+                   style="width:4rem">
+            <input type="number" name="event_second" placeholder="SS" min="0" max="59"
+                   value="{{ ev.event_second if ev and ev.event_second is not none else '' }}"
+                   style="width:4rem">
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:var(--space-1) var(--space-2) var(--space-1) 0;white-space:nowrap;vertical-align:middle;font-size:var(--font-size-sm);color:var(--color-text-muted)">Place</td>
+          <td style="padding:var(--space-1) 0">
+            <input type="text" name="event_place_text" placeholder="Place (optional)"
+                   value="{{ ev.event_place_text or '' if ev else '' }}"
+                   style="width:100%">
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:var(--space-1) var(--space-2) var(--space-1) 0;white-space:nowrap;vertical-align:middle;font-size:var(--font-size-sm);color:var(--color-text-muted)">Linked entity</td>
+          <td style="padding:var(--space-1) 0;display:flex;gap:var(--space-2)">
+            <select name="linked_entity_type" style="width:10rem">
+              <option value=""{% if not ev or not ev.linked_entity_type %} selected{% endif %}>— none —</option>
+              <option value="person"{% if ev and ev.linked_entity_type == 'person' %} selected{% endif %}>Person</option>
+              <option value="organization"{% if ev and ev.linked_entity_type == 'organization' %} selected{% endif %}>Organization</option>
+            </select>
+            <input type="text" name="linked_entity_id" placeholder="Entity ID"
+                   value="{{ ev.linked_entity_id or '' if ev else '' }}"
+                   style="flex:1">
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:var(--space-1) var(--space-2) var(--space-1) 0;white-space:nowrap;vertical-align:top;font-size:var(--font-size-sm);color:var(--color-text-muted);padding-top:var(--space-2)">Notes</td>
+          <td style="padding:var(--space-1) 0">
+            <textarea name="notes" rows="2" style="width:100%">{{ ev.notes or '' if ev else '' }}</textarea>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:var(--space-1) var(--space-2) var(--space-1) 0;white-space:nowrap;vertical-align:middle;font-size:var(--font-size-sm);color:var(--color-text-muted)">Visibility</td>
+          <td style="padding:var(--space-1) 0">
+            <select name="visibility">
+              <option value="public"{% if not ev or ev.visibility == 'public' %} selected{% endif %}>Public</option>
+              <option value="legal_only"{% if ev and ev.visibility == 'legal_only' %} selected{% endif %}>Legal only</option>
+              <option value="hidden"{% if ev and ev.visibility == 'hidden' %} selected{% endif %}>Hidden</option>
+            </select>
+          </td>
+        </tr>
+        <tr>
+          <td></td>
+          <td style="padding:var(--space-2) 0 var(--space-1) 0;display:flex;gap:var(--space-2)">
+            <button type="submit" class="btn btn--sm btn--primary">Save</button>
+            <button type="button" class="btn btn--sm btn--secondary"
+                    {% if ev %}
+                    hx-get="/admin/people/{{ person_id }}/events/{{ ev.id }}/read-row/"
+                    hx-target="#person-event-row-{{ ev.id }}"
+                    hx-swap="outerHTML"
+                    {% else %}
+                    onclick="this.closest('tr').remove()"
+                    {% endif %}>Cancel</button>
+          </td>
+        </tr>
+      </table>
+    </form>
+  </td>
+</tr>

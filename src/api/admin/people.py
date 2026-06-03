@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from src.api.admin._events_shared import fetch_entity_events
 from src.api.admin.deps import (
     AdminUser,
     build_parts_summary,
@@ -303,6 +304,8 @@ async def person_detail(
         person_id,
     )
 
+    events = await fetch_entity_events(person_id, "person", db)
+
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
@@ -321,6 +324,7 @@ async def person_detail(
             "links": links,
             "identifiers": identifiers,
             "role_assignments": role_assignments,
+            "events": events,
             "org_dup_count": org_dup_count,
             "person_dup_count": person_dup_count,
             "flash_msg": flash_msg,

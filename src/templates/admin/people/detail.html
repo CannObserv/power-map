@@ -252,6 +252,35 @@
   </div>
 </section>
 
+<section class="entity-section">
+  <div class="entity-section__header">
+    <h2>Events</h2>
+    <button type="button" class="btn btn--sm btn--primary"
+            hx-get="/admin/people/{{ person.id }}/events/new-row/"
+            hx-target="#person-events-table tbody"
+            hx-swap="afterbegin">Add event</button>
+  </div>
+  <div class="table-wrapper">
+    <table id="person-events-table" class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">Type</th>
+          <th scope="col">Date</th>
+          <th scope="col">Place</th>
+          <th scope="col">Linked Entity</th>
+          <th scope="col">Visibility</th>
+          <th scope="col">Status</th>
+          <th scope="col"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set person_id = person.id %}
+        {% include "admin/people/partials/_event_rows.html" %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <div id="address-confirm-portal"></div>
 
 <p style="color:var(--color-text-muted);font-size:var(--font-size-sm);margin-top:var(--space-6)">
