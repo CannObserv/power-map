@@ -14,6 +14,7 @@
   <script src="/static/admin/person-name-parts-cardstack.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/person-name-row-typeahead.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/person-detail-add-name-guard.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/event-add-guard.js?v={{ asset_version }}" defer></script>
 {% endblock %}
 {% block content %}
 <div class="page-header">
@@ -255,7 +256,9 @@
 <section class="entity-section">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h2>Events</h2>
-    <button type="button" class="btn btn--sm btn--secondary"
+    <button id="add-event-btn" type="button" class="btn btn--sm btn--secondary"
+            data-events-table="person-events-table"
+            data-new-row-id="person-event-row-new"
             hx-get="/admin/people/{{ person.id }}/events/new-row/"
             hx-target="#person-events-table tbody"
             hx-swap="afterbegin">+ Add event</button>
