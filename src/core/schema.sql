@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS addresses (
 -- Polymorphic join: links any entity to one or more addresses with a typed relationship
 CREATE TABLE IF NOT EXISTS entity_addresses (
     id           TEXT        PRIMARY KEY,
-    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'jurisdiction')),
+    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'role', 'jurisdiction')),
     entity_id    TEXT        NOT NULL,
     address_id   TEXT        NOT NULL REFERENCES addresses(id),
     address_type TEXT        NOT NULL CHECK (address_type IN ('mailing', 'physical', 'other')),
@@ -404,7 +404,7 @@ FROM jurisdictions j;
 CREATE TABLE IF NOT EXISTS contact_methods (
     id            TEXT        PRIMARY KEY,
     entity_type   TEXT        NOT NULL
-                              CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction')),
+                              CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction')),
     entity_id     TEXT        NOT NULL,
     contact_type  TEXT        NOT NULL CHECK (contact_type IN ('email', 'phone')),
     value         TEXT        NOT NULL,          -- E.164 for phone; validated addr for email
@@ -1520,3 +1520,15 @@ END $$;
 ALTER TABLE addresses
     ADD COLUMN IF NOT EXISTS precision TEXT
         CHECK (precision IN ('country', 'region', 'city', 'postal', 'street'));
+
+-- Migration (#176): roles as first-class public-API entities.
+-- contact_methods: add 'role' so roles can carry email/phone.
+-- Use DROP CONSTRAINT IF EXISTS + ADD (idempotent; only adds values, never removes).
+ALTER TABLE contact_methods DROP CONSTRAINT IF EXISTS contact_methods_entity_type_check;
+ALTER TABLE contact_methods ADD CONSTRAINT contact_methods_entity_type_check
+    CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction'));
+
+-- entity_addresses: add 'role' so roles can carry physical/mailing addresses.
+ALTER TABLE entity_addresses DROP CONSTRAINT IF EXISTS entity_addresses_entity_type_check;
+ALTER TABLE entity_addresses ADD CONSTRAINT entity_addresses_entity_type_check
+    CHECK (entity_type IN ('organization', 'person', 'role', 'jurisdiction'));

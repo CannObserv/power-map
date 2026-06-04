@@ -429,6 +429,52 @@ async def write_org_acronyms(conn, organization_id: str, acronyms: list[str]) ->
         )
 
 
+async def resolve_role(
+    conn,
+    organization_id: str,
+    title: str,
+    *,
+    notes: str | None = None,
+    established_on: date | None = None,
+    abolished_on: date | None = None,
+) -> tuple[str, Disposition]:
+    """Match or create a role by (organization_id, lower(title)).
+
+    Returns (role_id, disposition).
+    disposition is AUTO_ATTACHED if an active (non-archived) match is found,
+    NEW if created, REJECTED if the organization_id does not exist.
+    """
+    org_exists = await conn.fetchval(
+        "SELECT 1 FROM organizations WHERE id=$1 AND archived_at IS NULL", organization_id
+    )
+    if not org_exists:
+        logger.warning("resolve_role: unknown organization_id=%r", organization_id)
+        return "", Disposition.REJECTED
+
+    existing = await conn.fetchrow(
+        "SELECT id FROM roles WHERE organization_id=$1 AND lower(title)=lower($2)"
+        " AND archived_at IS NULL",
+        organization_id,
+        title,
+    )
+    if existing:
+        return existing["id"], Disposition.AUTO_ATTACHED
+
+    role_id = generate_id()
+    await conn.execute(
+        "INSERT INTO roles (id, organization_id, title, notes, established_on, abolished_on)"
+        " VALUES ($1,$2,$3,$4,$5,$6)",
+        role_id,
+        organization_id,
+        title,
+        notes,
+        established_on,
+        abolished_on,
+    )
+    logger.info("Created role id=%s org=%s title=%r", role_id, organization_id, title)
+    return role_id, Disposition.NEW
+
+
 async def write_role_assignments(conn, person_id: str, role_assignments: list) -> None:
     """Append role assignments. No-op if open (no end_date) assignment exists for same role."""
     for ra in role_assignments:

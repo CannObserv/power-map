@@ -241,3 +241,40 @@ def test_changes_limit_zero(client, api_key):
         headers={"X-API-Key": api_key},
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Roles in the change feed
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def role_change_fixtures(db):
+    """Seed an org + role; return IDs and sentinel timestamp."""
+    before = await db.fetchval("SELECT NOW()")
+    org_id = generate_id()
+    role_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Test Feed Role')",
+        role_id,
+        org_id,
+    )
+    yield {"before": before, "role_id": role_id}
+    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
+    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+
+
+async def test_changes_includes_roles(client, api_key, role_change_fixtures):
+    since = role_change_fixtures["before"].isoformat().replace("+00:00", "Z")
+    r = client.get(
+        "/api/v1/changes",
+        params={"since": since, "limit": 100},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200
+    items = r.json()["data"]
+    role_items = [i for i in items if i["entity_id"] == role_change_fixtures["role_id"]]
+    assert len(role_items) == 1
+    assert role_items[0]["entity_type"] == "role"
+    assert role_items[0]["change_kind"] == "updated"

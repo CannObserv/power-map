@@ -1,0 +1,172 @@
+"""Public API v1 — role endpoints."""
+
+from typing import Any
+
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+
+from src.api.deps import get_db
+from src.api.public.deps import AuthedKey, require_api_key, require_scope
+from src.api.public.schemas import (
+    ObservationResponse,
+    RoleListItem,
+    RoleListResponse,
+    RoleObservationRequest,
+    make_etag,
+)
+from src.core.observation import (
+    Disposition,
+    IdentifierConflict,
+    ObservationRejected,
+    resolve_role,
+    write_addresses,
+    write_contact_methods,
+    write_links,
+)
+
+router = APIRouter(prefix="/roles", tags=["public-api"])
+
+_REJECTED_OBS = ObservationResponse(disposition="rejected", entity_id=None, entity_type=None)
+
+
+def _role_row_to_dict(r: Any) -> dict[str, Any]:
+    return {
+        "id": r["id"],
+        "organization_id": r["organization_id"],
+        "title": r["title"],
+        "notes": r["notes"],
+        "established_on": r["established_on"],
+        "abolished_on": r["abolished_on"],
+        "archived_at": r["archived_at"],
+        "created_at": r["created_at"],
+        "updated_at": r["updated_at"],
+    }
+
+
+@router.get(
+    "",
+    response_model=RoleListResponse,
+    operation_id="listRoles",
+)
+async def list_roles(
+    organization_id: str | None = Query(default=None),
+    include_archived: bool = Query(default=False),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    _: str = Depends(require_api_key),
+    db=Depends(get_db),
+) -> Any:
+    """Return a paginated list of roles, optionally filtered by organization."""
+    rows = await db.fetch(
+        """
+        SELECT id, organization_id, title, notes, established_on, abolished_on,
+               archived_at, created_at, updated_at
+        FROM roles
+        WHERE ($1::TEXT IS NULL OR organization_id = $1)
+          AND ($2 OR archived_at IS NULL)
+        ORDER BY organization_id, title
+        LIMIT $3 OFFSET $4
+        """,
+        organization_id,
+        include_archived,
+        limit + 1,
+        offset,
+    )
+
+    has_more = len(rows) > limit
+    page = rows[:limit]
+
+    return {
+        "data": [_role_row_to_dict(r) for r in page],
+        "meta": {
+            "limit": limit,
+            "offset": offset,
+            "count": len(page),
+            "has_more": has_more,
+        },
+    }
+
+
+@router.get(
+    "/{role_id}",
+    response_model=RoleListItem,
+    operation_id="getRole",
+)
+async def get_role(
+    role_id: str,
+    request: Request,
+    response: Response,
+    _: str = Depends(require_api_key),
+    db=Depends(get_db),
+) -> Any:
+    """Return a single role record."""
+    row = await db.fetchrow(
+        """
+        SELECT id, organization_id, title, notes, established_on, abolished_on,
+               archived_at, created_at, updated_at
+        FROM roles
+        WHERE id = $1
+        """,
+        role_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    etag = make_etag(row["id"], row["updated_at"])
+    cache_headers = {
+        "ETag": etag,
+        "Last-Modified": row["updated_at"].strftime("%a, %d %b %Y %H:%M:%S GMT"),
+        "Cache-Control": "no-cache",
+        "Vary": "X-API-Key",
+    }
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+
+    for k, v in cache_headers.items():
+        response.headers[k] = v
+
+    return _role_row_to_dict(row)
+
+
+@router.post(
+    "/observations",
+    response_model=ObservationResponse,
+    operation_id="submitRoleObservation",
+)
+async def submit_role_observation(
+    req: RoleObservationRequest,
+    auth: AuthedKey = Depends(require_scope("observations:write")),
+    db=Depends(get_db),
+) -> ObservationResponse:
+    """Submit a role observation; match by (organization_id, title) or create."""
+    role_id, disposition = await resolve_role(
+        db,
+        req.organization_id,
+        req.title,
+        notes=req.notes,
+        established_on=req.established_on,
+        abolished_on=req.abolished_on,
+    )
+
+    if disposition is Disposition.REJECTED:
+        return _REJECTED_OBS
+
+    try:
+        async with db.transaction():
+            await write_links(db, role_id, "role", req.links)
+            await write_contact_methods(db, role_id, "role", req.contact_methods)
+            await write_addresses(db, role_id, "role", req.addresses)
+    except (
+        ObservationRejected,
+        IdentifierConflict,
+        asyncpg.CheckViolationError,
+        asyncpg.ForeignKeyViolationError,
+        asyncpg.UniqueViolationError,
+    ):
+        return _REJECTED_OBS
+
+    return ObservationResponse(
+        disposition=disposition.value,
+        entity_id=role_id,
+        entity_type="role",
+    )

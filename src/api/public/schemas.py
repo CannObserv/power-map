@@ -434,7 +434,7 @@ class EntityEventsResponse(BaseModel):
 class ChangeItem(BaseModel):
     """A single entry in the change feed — updated or deleted entity."""
 
-    entity_type: Literal["person", "organization", "jurisdiction"]
+    entity_type: Literal["person", "organization", "jurisdiction", "role"]
     entity_id: str
     changed_at: datetime
     change_kind: Literal["updated", "deleted"]
@@ -555,3 +555,58 @@ class JurisdictionLineageResponse(BaseModel):
     """Ordered chain of jurisdictions returned by the lineage endpoint."""
 
     data: list[JurisdictionListItem]
+
+
+# ---------------------------------------------------------------------------
+# Role schemas (#176)
+# ---------------------------------------------------------------------------
+
+
+class RoleListItem(BaseModel):
+    """Single item in a role list response."""
+
+    id: str
+    organization_id: str
+    title: str
+    notes: str | None = None
+    established_on: date | None = None
+    abolished_on: date | None = None
+    archived_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("archived_at", "created_at", "updated_at")
+    def _serialize_ts(self, v: datetime | None) -> str | None:
+        return fmt_ts(v)
+
+
+class RoleListResponse(BaseModel):
+    """Paginated list of roles."""
+
+    data: list[RoleListItem]
+    meta: SearchMeta
+
+
+class RoleObservationRequest(BaseModel):
+    """Payload for POST /api/v1/roles/observations."""
+
+    organization_id: str
+    title: str
+
+    notes: str | None = None
+    established_on: date | None = None
+    abolished_on: date | None = None
+
+    links: list[ObservationLink] = Field(default_factory=list)
+    contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
+    addresses: list[ObservationAddress] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_date_order(self) -> "RoleObservationRequest":
+        if (
+            self.established_on is not None
+            and self.abolished_on is not None
+            and self.established_on > self.abolished_on
+        ):
+            raise ValueError("established_on must be <= abolished_on")
+        return self

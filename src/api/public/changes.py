@@ -37,6 +37,17 @@ FROM (
     UNION ALL
 
     SELECT
+        'role'     AS entity_type,
+        id         AS entity_id,
+        updated_at AS changed_at,
+        'updated'  AS change_kind,
+        archived_at
+    FROM roles
+    WHERE updated_at >= $1
+
+    UNION ALL
+
+    SELECT
         entity_type,
         entity_id,
         deleted_at  AS changed_at,
