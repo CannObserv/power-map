@@ -253,12 +253,12 @@
 </section>
 
 <section class="entity-section">
-  <div class="entity-section__header">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h2>Events</h2>
-    <button type="button" class="btn btn--sm btn--primary"
+    <button type="button" class="btn btn--sm btn--secondary"
             hx-get="/admin/people/{{ person.id }}/events/new-row/"
             hx-target="#person-events-table tbody"
-            hx-swap="afterbegin">Add event</button>
+            hx-swap="afterbegin">+ Add event</button>
   </div>
   <div class="table-wrapper">
     <table id="person-events-table" class="data-table">
