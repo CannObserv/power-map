@@ -88,6 +88,37 @@
 </section>
 
 <section class="entity-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Events</h2>
+    <button id="add-event-btn" type="button" class="btn btn--sm btn--secondary"
+            data-events-table="person-events-table"
+            data-new-row-id="person-event-row-new"
+            hx-get="/admin/people/{{ person.id }}/events/new-row/"
+            hx-target="#person-events-table tbody"
+            hx-swap="afterbegin"
+            hx-disabled-elt="this">+ Add event</button>
+  </div>
+  <div class="table-wrapper">
+    <table id="person-events-table" class="data-table">
+      <thead>
+        <tr>
+          <th scope="col" style="width:10rem">Type</th>
+          <th scope="col" style="width:9rem">Date</th>
+          <th scope="col">Place</th>
+          <th scope="col">Linked Entity</th>
+          <th scope="col" style="width:6rem">Status</th>
+          <th scope="col"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set person_id = person.id %}
+        {% include "admin/people/partials/_event_rows.html" %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
   <h2>Contact Information</h2>
   <div class="entity-card">
 
@@ -248,37 +279,6 @@
         {% else %}
         <tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No role assignments</td></tr>
         {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="entity-section">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
-    <h2>Events</h2>
-    <button id="add-event-btn" type="button" class="btn btn--sm btn--secondary"
-            data-events-table="person-events-table"
-            data-new-row-id="person-event-row-new"
-            hx-get="/admin/people/{{ person.id }}/events/new-row/"
-            hx-target="#person-events-table tbody"
-            hx-swap="afterbegin"
-            hx-disabled-elt="this">+ Add event</button>
-  </div>
-  <div class="table-wrapper">
-    <table id="person-events-table" class="data-table">
-      <thead>
-        <tr>
-          <th scope="col" style="width:10rem">Type</th>
-          <th scope="col" style="width:9rem">Date</th>
-          <th scope="col">Place</th>
-          <th scope="col">Linked Entity</th>
-          <th scope="col" style="width:6rem">Status</th>
-          <th scope="col"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% set person_id = person.id %}
-        {% include "admin/people/partials/_event_rows.html" %}
       </tbody>
     </table>
   </div>
