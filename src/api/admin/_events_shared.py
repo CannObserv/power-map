@@ -57,18 +57,25 @@ def _validate_date_time(
     if second is not None and not (0 <= second <= 59):
         return "Second must be between 0 and 59."
 
+    # Hierarchical presence checks (mirrors DB constraints)
+    if month is not None and year is None:
+        return "A year is required when a month is provided."
+    if day is not None and month is None:
+        return "A month is required when a day is provided."
+    if hour is not None and day is None:
+        return "A date is required when a time is provided."
+    if minute is not None and hour is None:
+        return "Hour is required when minute is provided."
+    if second is not None and minute is None:
+        return "Minute is required when second is provided."
+
+    # Calendar accuracy — year is guaranteed non-None here (hierarchy check above)
     if month is not None and day is not None:
-        if year is not None:
-            max_day = _MONTH_MAX_DAYS[month]
-            if month == 2 and _is_leap_year(year):
-                max_day = 29
-            if day > max_day:
-                return f"Day {day} does not exist in {_MONTH_NAMES[month]} {year}."
-        else:
-            # Without year, Feb allows 29 (any leap year is possible)
-            max_day = 29 if month == 2 else _MONTH_MAX_DAYS[month]
-            if day > max_day:
-                return f"Day {day} does not exist in {_MONTH_NAMES[month]}."
+        max_day = _MONTH_MAX_DAYS[month]
+        if month == 2 and _is_leap_year(year):  # type: ignore[arg-type]
+            max_day = 29
+        if day > max_day:
+            return f"Day {day} does not exist in {_MONTH_NAMES[month]} {year}."
 
     return None
 

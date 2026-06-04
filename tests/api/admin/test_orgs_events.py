@@ -296,9 +296,10 @@ async def test_event_create_range_validation(
 @pytest.mark.parametrize(
     "month,day,year,expected_fragment",
     [
-        ("2", "30", None, "does not exist in February"),
+        ("2", "30", "2021", "does not exist in February 2021"),
         ("2", "29", "2023", "does not exist in February 2023"),
-        ("4", "31", None, "does not exist in April"),
+        ("2", "29", "1900", "does not exist in February 1900"),  # non-leap century
+        ("4", "31", "2021", "does not exist in April 2021"),
         ("11", "31", "2024", "does not exist in November 2024"),
     ],
 )
@@ -320,16 +321,18 @@ async def test_event_create_calendar_validation(
     assert expected_fragment in r.text
 
 
-async def test_event_create_feb29_leap_year_succeeds(client, org_and_event_type, db_pool):
+@pytest.mark.parametrize("year", ["2024", "2000"])
+async def test_event_create_feb29_leap_year_succeeds(client, org_and_event_type, db_pool, year):
     oid, etid = org_and_event_type
     r = client.post(
         f"/admin/orgs/{oid}/events/",
         headers=HTMX_HEADERS,
         data={
             "event_type_id": etid,
-            "event_year": "2024",
+            "event_year": year,
             "event_month": "2",
             "event_day": "29",
+            "notes": "Feb29LeapTest",
             "visibility": "public",
         },
     )
@@ -339,8 +342,7 @@ async def test_event_create_feb29_leap_year_succeeds(client, org_and_event_type,
     async with db_pool.acquire() as conn:
         await conn.execute(
             "DELETE FROM entity_events"
-            " WHERE entity_id=$1 AND entity_type='organization'"
-            " AND event_year=2024 AND event_month=2 AND event_day=29",
+            " WHERE entity_id=$1 AND entity_type='organization' AND notes='Feb29LeapTest'",
             oid,
         )
 
@@ -362,3 +364,44 @@ async def test_event_edit_calendar_validation(client, org_with_event):
     assert r.status_code == 200
     assert "<form" in r.text
     assert "does not exist in February 2023" in r.text
+
+
+@pytest.mark.parametrize(
+    "data_override,expected_fragment",
+    [
+        # month without year
+        ({"event_month": "6"}, "year is required when a month"),
+        # day without month
+        ({"event_day": "15"}, "month is required when a day"),
+        # hour without day (month+year present, day absent)
+        (
+            {"event_month": "6", "event_year": "2020", "event_hour": "10"},
+            "date is required when a time",
+        ),
+        # minute without hour
+        (
+            {"event_month": "6", "event_year": "2020", "event_day": "15", "event_minute": "30"},
+            "Hour is required when minute",
+        ),
+        # second without minute
+        (
+            {
+                "event_month": "6",
+                "event_year": "2020",
+                "event_day": "15",
+                "event_hour": "10",
+                "event_second": "45",
+            },
+            "Minute is required when second",
+        ),
+    ],
+)
+async def test_event_create_presence_validation(
+    client, org_and_event_type, data_override, expected_fragment
+):
+    oid, etid = org_and_event_type
+    data = {"event_type_id": etid, "visibility": "public", **data_override}
+    r = client.post(f"/admin/orgs/{oid}/events/", headers=HTMX_HEADERS, data=data)
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert expected_fragment in r.text
