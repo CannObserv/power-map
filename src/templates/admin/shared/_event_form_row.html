@@ -1,7 +1,7 @@
 {# admin/shared/_event_form_row.html — shared event create/edit form.
    Callers must set: _ev_url_base, _ev_row_prefix #}
 <tr id="{% if ev %}{{ _ev_row_prefix }}-{{ ev.id }}{% else %}{{ _ev_row_prefix }}-new{% endif %}">
-  <td colspan="7" style="padding:var(--space-3) var(--space-4)">
+  <td colspan="6" style="padding:var(--space-3) var(--space-4)">
     {% if form_error %}
     <div class="alert alert--error" style="margin-bottom:var(--space-3)">{{ form_error }}</div>
     {% endif %}
@@ -15,10 +15,12 @@
           hx-swap="outerHTML"
           style="display:grid;gap:var(--space-2)">
       <div style="display:flex;gap:var(--space-2);align-items:center">
-        <div class="form-group" style="margin-bottom:0;flex:2">
+        <div class="form-group" style="margin-bottom:0;flex:1">
           <select name="event_type_id">
             {% for et in event_types %}
-            <option value="{{ et.id }}"{% if ev and ev.event_type_id == et.id %} selected{% endif %}>{{ et.display_name }}</option>
+            <option value="{{ et.id }}"
+                    data-requires-linked="{{ et.requires_linked_entity | lower }}"
+                    {% if ev and ev.event_type_id == et.id %} selected{% endif %}>{{ et.display_name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -31,45 +33,54 @@
         </div>
       </div>
       <div style="display:flex;gap:var(--space-2);align-items:center">
-        <input type="number" name="event_year" placeholder="Year"
-               value="{{ ev.event_year if ev and ev.event_year is not none else '' }}"
-               style="width:6rem">
-        <input type="number" name="event_month" placeholder="Mo" min="1" max="12"
-               value="{{ ev.event_month if ev and ev.event_month is not none else '' }}"
-               style="width:4rem">
-        <input type="number" name="event_day" placeholder="Day" min="1" max="31"
-               value="{{ ev.event_day if ev and ev.event_day is not none else '' }}"
-               style="width:4rem">
+        <div class="form-group" style="margin-bottom:0;width:6rem">
+          <input type="number" name="event_year" placeholder="Year"
+                 value="{{ ev.event_year if ev and ev.event_year is not none else '' }}">
+        </div>
+        <div class="form-group" style="margin-bottom:0;width:4rem">
+          <input type="number" name="event_month" placeholder="Mo" min="1" max="12"
+                 value="{{ ev.event_month if ev and ev.event_month is not none else '' }}">
+        </div>
+        <div class="form-group" style="margin-bottom:0;width:4rem">
+          <input type="number" name="event_day" placeholder="Day" min="1" max="31"
+                 value="{{ ev.event_day if ev and ev.event_day is not none else '' }}">
+        </div>
       </div>
       <details{% if ev and ev.event_hour is not none %} open{% endif %}>
         <summary style="font-size:var(--font-size-sm);color:var(--color-text-muted);cursor:pointer;user-select:none">Time</summary>
         <div style="display:flex;gap:var(--space-2);margin-top:var(--space-1)">
-          <input type="number" name="event_hour" placeholder="HH" min="0" max="23"
-                 value="{{ ev.event_hour if ev and ev.event_hour is not none else '' }}"
-                 style="width:4rem">
-          <input type="number" name="event_minute" placeholder="MM" min="0" max="59"
-                 value="{{ ev.event_minute if ev and ev.event_minute is not none else '' }}"
-                 style="width:4rem">
-          <input type="number" name="event_second" placeholder="SS" min="0" max="59"
-                 value="{{ ev.event_second if ev and ev.event_second is not none else '' }}"
-                 style="width:4rem">
+          <div class="form-group" style="margin-bottom:0;width:4rem">
+            <input type="number" name="event_hour" placeholder="HH" min="0" max="23"
+                   value="{{ ev.event_hour if ev and ev.event_hour is not none else '' }}">
+          </div>
+          <div class="form-group" style="margin-bottom:0;width:4rem">
+            <input type="number" name="event_minute" placeholder="MM" min="0" max="59"
+                   value="{{ ev.event_minute if ev and ev.event_minute is not none else '' }}">
+          </div>
+          <div class="form-group" style="margin-bottom:0;width:4rem">
+            <input type="number" name="event_second" placeholder="SS" min="0" max="59"
+                   value="{{ ev.event_second if ev and ev.event_second is not none else '' }}">
+          </div>
         </div>
       </details>
       <div class="form-group" style="margin-bottom:0">
         <input type="text" name="event_place_text" placeholder="Place (optional)"
                value="{{ ev.event_place_text or '' if ev else '' }}">
       </div>
-      <div style="display:flex;gap:var(--space-2);align-items:center">
-        <div class="form-group" style="margin-bottom:0">
-          <select name="linked_entity_type">
-            <option value=""{% if not ev or not ev.linked_entity_type %} selected{% endif %}>— none —</option>
-            <option value="person"{% if ev and ev.linked_entity_type == 'person' %} selected{% endif %}>Person</option>
-            <option value="organization"{% if ev and ev.linked_entity_type == 'organization' %} selected{% endif %}>Organization</option>
-          </select>
-        </div>
-        <div class="form-group" style="margin-bottom:0;flex:1">
-          <input type="text" name="linked_entity_id" placeholder="Entity ID"
-                 value="{{ ev.linked_entity_id or '' if ev else '' }}">
+      <div data-linked-entity-section>
+        <label style="font-size:0.75rem;font-weight:600;display:block;color:var(--color-text-muted);margin-bottom:var(--space-1)">Linked Entity</label>
+        <div style="display:flex;gap:var(--space-2);align-items:center">
+          <div class="form-group" style="margin-bottom:0">
+            <select name="linked_entity_type">
+              <option value=""{% if not ev or not ev.linked_entity_type %} selected{% endif %}>— none —</option>
+              <option value="person"{% if ev and ev.linked_entity_type == 'person' %} selected{% endif %}>Person</option>
+              <option value="organization"{% if ev and ev.linked_entity_type == 'organization' %} selected{% endif %}>Organization</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;flex:1">
+            <input type="text" name="linked_entity_id" placeholder="Entity ID"
+                   value="{{ ev.linked_entity_id or '' if ev else '' }}">
+          </div>
         </div>
       </div>
       <div class="form-group" style="margin-bottom:0">
@@ -87,5 +98,18 @@
                 {% endif %}>Cancel</button>
       </div>
     </form>
+    <script>
+    (function () {
+      var form = document.currentScript.previousElementSibling;
+      var sel = form.querySelector('[name="event_type_id"]');
+      var section = form.querySelector('[data-linked-entity-section]');
+      function sync() {
+        var opt = sel.options[sel.selectedIndex];
+        section.style.display = opt && opt.dataset.requiresLinked === 'true' ? '' : 'none';
+      }
+      sel.addEventListener('change', sync);
+      sync();
+    })();
+    </script>
   </td>
 </tr>

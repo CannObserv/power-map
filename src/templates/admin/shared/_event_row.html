@@ -33,15 +33,6 @@
     {% endif %}
   </td>
   <td>
-    {% if ev.visibility == 'public' %}
-      <span class="badge badge--active">Public</span>
-    {% elif ev.visibility == 'legal_only' %}
-      <span class="badge badge--inactive">Legal only</span>
-    {% else %}
-      <span class="badge badge--archived">Hidden</span>
-    {% endif %}
-  </td>
-  <td>
     {% if ev.archived_at %}
       <span class="badge badge--archived">Archived</span>
     {% else %}
