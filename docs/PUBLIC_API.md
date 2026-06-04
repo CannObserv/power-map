@@ -270,6 +270,58 @@ Upserts an organization by identifier using the same match-or-create semantics a
 
 ---
 
+## Roles
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/roles` | API key | Paginated list of roles, optionally filtered by org. |
+| `GET` | `/api/v1/roles/{id}` | API key | Single role record with ETag caching. |
+| `POST` | `/api/v1/roles/observations` | `observations:write` scope | Submit a role observation (match-or-create). |
+
+### List — `GET /api/v1/roles`
+
+Query parameters:
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `organization_id` | (none) | Filter to roles owned by this org ULID. Highly recommended; without it the list spans all orgs. |
+| `include_archived` | `false` | Include archived roles (`archived_at` non-null). |
+| `limit` | 20 | 1–100 |
+| `offset` | 0 | |
+
+Response item fields: `id`, `organization_id`, `title`, `notes`, `established_on`, `abolished_on`, `archived_at`, `created_at`, `updated_at`.
+
+### Observation write — `POST /roles/observations`
+
+Match-or-create semantics. Roles are keyed by `(organization_id, lower(title))` — no external identifier type is needed.
+
+**Request fields:**
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `organization_id` | always | ULID of the owning organization. Must exist and be active; unknown/archived org → `rejected`. |
+| `title` | always | Role title. Case-insensitive match against existing roles in the same org. |
+| `notes` | optional | Free text. Only written on NEW. |
+| `established_on` | optional | ISO 8601 date. Only written on NEW. |
+| `abolished_on` | optional | ISO 8601 date. Only written on NEW. Must be >= `established_on` if both supplied. |
+| `links` | optional | List of `{url, link_type_id XOR link_type_slug}`. Written on both NEW and AUTO_ATTACHED (append-only). |
+| `contact_methods` | optional | List of `{contact_type, value}`. Written on both NEW and AUTO_ATTACHED (append-only). |
+| `addresses` | optional | List of `{raw_input, address_type}`. Written on both NEW and AUTO_ATTACHED (append-only). |
+
+**Disposition semantics:**
+
+| Disposition | Condition |
+|-------------|-----------|
+| `new` | No active role with this `(org_id, lower(title))` found; role created |
+| `auto-attached` | Active role already exists; attribute writes still applied |
+| `rejected` | Organization unknown or archived; DB constraint violation |
+
+**Note:** `notes`, `established_on`, and `abolished_on` are only written on NEW disposition. They are intentionally not updated on AUTO_ATTACHED to preserve first-submitter authority over these core role fields.
+
+---
+
 ## Entity Events
 
 ### Endpoints
