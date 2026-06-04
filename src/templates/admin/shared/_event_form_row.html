@@ -33,32 +33,45 @@
         </div>
       </div>
       <div style="display:flex;gap:var(--space-2);align-items:center">
-        <div class="form-group" style="margin-bottom:0;width:6rem">
-          <input type="number" name="event_year" placeholder="Year"
-                 value="{{ ev.event_year if ev and ev.event_year is not none else '' }}">
+        <div class="form-group" style="margin-bottom:0">
+          <select name="event_month">
+            <option value="">Mo</option>
+            <option value="1"{% if ev and ev.event_month == 1 %} selected{% endif %}>Jan</option>
+            <option value="2"{% if ev and ev.event_month == 2 %} selected{% endif %}>Feb</option>
+            <option value="3"{% if ev and ev.event_month == 3 %} selected{% endif %}>Mar</option>
+            <option value="4"{% if ev and ev.event_month == 4 %} selected{% endif %}>Apr</option>
+            <option value="5"{% if ev and ev.event_month == 5 %} selected{% endif %}>May</option>
+            <option value="6"{% if ev and ev.event_month == 6 %} selected{% endif %}>Jun</option>
+            <option value="7"{% if ev and ev.event_month == 7 %} selected{% endif %}>Jul</option>
+            <option value="8"{% if ev and ev.event_month == 8 %} selected{% endif %}>Aug</option>
+            <option value="9"{% if ev and ev.event_month == 9 %} selected{% endif %}>Sep</option>
+            <option value="10"{% if ev and ev.event_month == 10 %} selected{% endif %}>Oct</option>
+            <option value="11"{% if ev and ev.event_month == 11 %} selected{% endif %}>Nov</option>
+            <option value="12"{% if ev and ev.event_month == 12 %} selected{% endif %}>Dec</option>
+          </select>
         </div>
-        <div class="form-group" style="margin-bottom:0;width:4rem">
-          <input type="number" name="event_month" placeholder="Mo" min="1" max="12"
-                 value="{{ ev.event_month if ev and ev.event_month is not none else '' }}">
-        </div>
-        <div class="form-group" style="margin-bottom:0;width:4rem">
-          <input type="number" name="event_day" placeholder="Day" min="1" max="31"
+        <div class="form-group" style="margin-bottom:0;width:5rem">
+          <input type="number" name="event_day" placeholder="Day" min="1" max="31" step="1"
                  value="{{ ev.event_day if ev and ev.event_day is not none else '' }}">
+        </div>
+        <div class="form-group" style="margin-bottom:0;width:6rem">
+          <input type="number" name="event_year" placeholder="Year" min="-9999" max="9999" step="1"
+                 value="{{ ev.event_year if ev and ev.event_year is not none else '' }}">
         </div>
       </div>
       <details{% if ev and ev.event_hour is not none %} open{% endif %}>
         <summary style="font-size:var(--font-size-sm);color:var(--color-text-muted);cursor:pointer;user-select:none">Time</summary>
         <div style="display:flex;gap:var(--space-2);margin-top:var(--space-1)">
           <div class="form-group" style="margin-bottom:0;width:4rem">
-            <input type="number" name="event_hour" placeholder="HH" min="0" max="23"
+            <input type="number" name="event_hour" placeholder="HH" min="0" max="23" step="1"
                    value="{{ ev.event_hour if ev and ev.event_hour is not none else '' }}">
           </div>
           <div class="form-group" style="margin-bottom:0;width:4rem">
-            <input type="number" name="event_minute" placeholder="MM" min="0" max="59"
+            <input type="number" name="event_minute" placeholder="MM" min="0" max="59" step="1"
                    value="{{ ev.event_minute if ev and ev.event_minute is not none else '' }}">
           </div>
           <div class="form-group" style="margin-bottom:0;width:4rem">
-            <input type="number" name="event_second" placeholder="SS" min="0" max="59"
+            <input type="number" name="event_second" placeholder="SS" min="0" max="59" step="1"
                    value="{{ ev.event_second if ev and ev.event_second is not none else '' }}">
           </div>
         </div>

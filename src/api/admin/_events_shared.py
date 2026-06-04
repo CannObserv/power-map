@@ -13,6 +13,66 @@ from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 
+_MONTH_NAMES = [
+    "",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+]
+_MONTH_MAX_DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+
+def _is_leap_year(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def _validate_date_time(
+    year: int | None,
+    month: int | None,
+    day: int | None,
+    hour: int | None,
+    minute: int | None,
+    second: int | None,
+) -> str | None:
+    """Return an error string if any field is out of range or the date is calendar-invalid."""
+    if year is not None and not (-9999 <= year <= 9999):
+        return "Year must be between -9999 and 9999."
+    if month is not None and not (1 <= month <= 12):
+        return "Month must be between 1 and 12."
+    if day is not None and not (1 <= day <= 31):
+        return "Day must be between 1 and 31."
+    if hour is not None and not (0 <= hour <= 23):
+        return "Hour must be between 0 and 23."
+    if minute is not None and not (0 <= minute <= 59):
+        return "Minute must be between 0 and 59."
+    if second is not None and not (0 <= second <= 59):
+        return "Second must be between 0 and 59."
+
+    if month is not None and day is not None:
+        if year is not None:
+            max_day = _MONTH_MAX_DAYS[month]
+            if month == 2 and _is_leap_year(year):
+                max_day = 29
+            if day > max_day:
+                return f"Day {day} does not exist in {_MONTH_NAMES[month]} {year}."
+        else:
+            # Without year, Feb allows 29 (any leap year is possible)
+            max_day = 29 if month == 2 else _MONTH_MAX_DAYS[month]
+            if day > max_day:
+                return f"Day {day} does not exist in {_MONTH_NAMES[month]}."
+
+    return None
+
+
 _EVENT_FETCH_QUERY = """
 SELECT ee.id, ee.event_year, ee.event_month, ee.event_day,
        ee.event_hour, ee.event_minute, ee.event_second,
@@ -174,6 +234,15 @@ def make_events_router(
         minute_val = _parse_int(event_minute)
         second_val = _parse_int(event_second)
 
+        date_error = _validate_date_time(
+            year_val, month_val, day_val, hour_val, minute_val, second_val
+        )
+        if date_error:
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(request, entity_id, None, event_types, error=date_error)
+
         # Validate event type constraints
         etype_row = await db.fetchrow(
             "SELECT requires_year, requires_linked_entity FROM entity_event_types WHERE id=$1",
@@ -298,6 +367,15 @@ def make_events_router(
         hour_val = _parse_int(event_hour)
         minute_val = _parse_int(event_minute)
         second_val = _parse_int(event_second)
+
+        date_error = _validate_date_time(
+            year_val, month_val, day_val, hour_val, minute_val, second_val
+        )
+        if date_error:
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(request, entity_id, existing, event_types, error=date_error)
 
         # Validate event type constraints
         etype_row = await db.fetchrow(

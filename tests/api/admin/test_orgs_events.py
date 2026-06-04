@@ -255,3 +255,110 @@ async def test_event_delete_archived_succeeds(client, db_pool, org_and_event_typ
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("SELECT id FROM entity_events WHERE id=$1", eid)
     assert row is None
+
+
+# ---------------------------------------------------------------------------
+# Validation — date/time range and calendar accuracy
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field,value,expected_fragment",
+    [
+        ("event_day", "55", "Day must be between 1 and 31"),
+        ("event_hour", "25", "Hour must be between 0 and 23"),
+        ("event_minute", "60", "Minute must be between 0 and 59"),
+        ("event_second", "61", "Second must be between 0 and 59"),
+        ("event_year", "10000", "Year must be between"),
+    ],
+)
+async def test_event_create_range_validation(
+    client, org_and_event_type, field, value, expected_fragment
+):
+    oid, etid = org_and_event_type
+    data = {
+        "event_type_id": etid,
+        "event_year": "2021",
+        "event_month": "6",
+        "event_day": "15",
+        "event_hour": "10",
+        "event_minute": "30",
+        "event_second": "0",
+        "visibility": "public",
+    }
+    data[field] = value
+    r = client.post(f"/admin/orgs/{oid}/events/", headers=HTMX_HEADERS, data=data)
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert expected_fragment in r.text
+
+
+@pytest.mark.parametrize(
+    "month,day,year,expected_fragment",
+    [
+        ("2", "30", None, "does not exist in February"),
+        ("2", "29", "2023", "does not exist in February 2023"),
+        ("4", "31", None, "does not exist in April"),
+        ("11", "31", "2024", "does not exist in November 2024"),
+    ],
+)
+async def test_event_create_calendar_validation(
+    client, org_and_event_type, month, day, year, expected_fragment
+):
+    oid, etid = org_and_event_type
+    data = {
+        "event_type_id": etid,
+        "event_month": month,
+        "event_day": day,
+        "visibility": "public",
+    }
+    if year is not None:
+        data["event_year"] = year
+    r = client.post(f"/admin/orgs/{oid}/events/", headers=HTMX_HEADERS, data=data)
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert expected_fragment in r.text
+
+
+async def test_event_create_feb29_leap_year_succeeds(client, org_and_event_type, db_pool):
+    oid, etid = org_and_event_type
+    r = client.post(
+        f"/admin/orgs/{oid}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2024",
+            "event_month": "2",
+            "event_day": "29",
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" not in r.text
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM entity_events"
+            " WHERE entity_id=$1 AND entity_type='organization'"
+            " AND event_year=2024 AND event_month=2 AND event_day=29",
+            oid,
+        )
+
+
+async def test_event_edit_calendar_validation(client, org_with_event):
+    """Edit route also validates — confirm wiring."""
+    oid, etid, eid = org_with_event
+    r = client.post(
+        f"/admin/orgs/{oid}/events/{eid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2023",
+            "event_month": "2",
+            "event_day": "29",
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "does not exist in February 2023" in r.text
