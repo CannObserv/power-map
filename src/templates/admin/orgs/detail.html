@@ -121,7 +121,8 @@
             data-new-row-id="org-event-row-new"
             hx-get="/admin/orgs/{{ org.id }}/events/new-row/"
             hx-target="#org-events-table tbody"
-            hx-swap="afterbegin">+ Add event</button>
+            hx-swap="afterbegin"
+            hx-disabled-elt="this">+ Add event</button>
   </div>
   <div class="table-wrapper">
     <table id="org-events-table" class="data-table">

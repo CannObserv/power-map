@@ -6,7 +6,9 @@
  *   data-new-row-id="<tr-id>"         e.g. "org-event-row-new"
  *
  * Re-sync triggers:
- *   - htmx:afterSwap on the events table — covers Save (tbody re-render).
+ *   - htmx:afterSwap on document — covers Save (new-row outerHTML swap) and
+ *     tbody re-renders (archive/unarchive). Listening on document rather than
+ *     the table catches outerHTML swaps that fire on the <tr>, not the table.
  *   - powerMap:newEventRowClosed on document — fired by the new-event form's
  *     inline Cancel handler, which removes the row without an HTMX round-trip.
  */
@@ -20,7 +22,7 @@
     function sync() {
       btn.disabled = !!document.getElementById(newRowId);
     }
-    table.addEventListener('htmx:afterSwap', sync);
+    document.addEventListener('htmx:afterSwap', sync);
     document.addEventListener('powerMap:newEventRowClosed', sync);
     sync();
   }
