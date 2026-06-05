@@ -345,7 +345,8 @@ class ObservationResponse(BaseModel):
 
     disposition: str  # 'auto-attached', 'new', or 'rejected'
     entity_id: str | None = None  # None only when disposition == 'rejected'
-    entity_type: str | None = None  # 'person', 'organization', 'jurisdiction'; None when rejected
+    # 'person', 'organization', 'jurisdiction', 'role'; None when rejected
+    entity_type: str | None = None
 
 
 class JurisdictionObservationRequest(BaseModel):
@@ -610,3 +611,39 @@ class RoleObservationRequest(BaseModel):
         ):
             raise ValueError("established_on must be <= abolished_on")
         return self
+
+
+class RoleLink(BaseModel):
+    """A link attached to a role."""
+
+    id: str
+    url: str
+    link_type_id: str
+    link_type_slug: str
+    link_type_name: str
+
+
+class RoleContactMethod(BaseModel):
+    """A contact method attached to a role."""
+
+    id: str
+    contact_type: str
+    value: str
+
+
+class RoleAddress(BaseModel):
+    """An address attached to a role."""
+
+    id: str
+    address_id: str
+    address_type: str
+    raw_input: str | None = None
+    standardized: str | None = None
+
+
+class RoleDetail(RoleListItem):
+    """Full role record including links, contact methods, and addresses."""
+
+    links: list[RoleLink] = Field(default_factory=list)
+    contact_methods: list[RoleContactMethod] = Field(default_factory=list)
+    addresses: list[RoleAddress] = Field(default_factory=list)

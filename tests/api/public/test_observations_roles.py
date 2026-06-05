@@ -296,6 +296,34 @@ async def test_contact_method_written(client, role_write_key, obs_org, db):
     assert row is not None
 
 
+async def test_contact_method_written_on_auto_attached(client, role_write_key, obs_org, db):
+    raw, _ = role_write_key
+    title = _title()
+    base_payload = {
+        "organization_id": obs_org,
+        "title": title,
+        "contact_methods": [{"contact_type": "email", "value": "first@example.com"}],
+    }
+    r1 = _post(client, raw, base_payload)
+    assert r1.json()["disposition"] == "new"
+    rid = r1.json()["entity_id"]
+
+    r2 = _post(
+        client,
+        raw,
+        {
+            "organization_id": obs_org,
+            "title": title,
+            "contact_methods": [{"contact_type": "email", "value": "second@example.com"}],
+        },
+    )
+    assert r2.json()["disposition"] == "auto-attached"
+    count = await db.fetchval(
+        "SELECT COUNT(*) FROM contact_methods WHERE entity_type='role' AND entity_id=$1", rid
+    )
+    assert count == 2
+
+
 # ---------------------------------------------------------------------------
 # Attribute writes — addresses
 # ---------------------------------------------------------------------------
@@ -320,3 +348,55 @@ async def test_address_written(client, role_write_key, obs_org, db):
         rid,
     )
     assert row is not None
+
+
+async def test_address_written_on_auto_attached(client, role_write_key, obs_org, db):
+    raw, _ = role_write_key
+    title = _title()
+    r1 = _post(
+        client,
+        raw,
+        {
+            "organization_id": obs_org,
+            "title": title,
+            "addresses": [{"raw_input": "100 Main St"}],
+        },
+    )
+    assert r1.json()["disposition"] == "new"
+    rid = r1.json()["entity_id"]
+
+    r2 = _post(
+        client,
+        raw,
+        {
+            "organization_id": obs_org,
+            "title": title,
+            "addresses": [{"raw_input": "200 Oak Ave"}],
+        },
+    )
+    assert r2.json()["disposition"] == "auto-attached"
+    count = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_addresses WHERE entity_type='role' AND entity_id=$1", rid
+    )
+    assert count == 2
+
+
+# ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+
+
+def test_obs_date_order_validation(client, role_write_key):
+    """established_on after abolished_on → 422 from Pydantic model validator."""
+    raw, _ = role_write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "organization_id": "ignored",
+            "title": "irrelevant",
+            "established_on": "2025-06-01",
+            "abolished_on": "2024-01-01",
+        },
+    )
+    assert r.status_code == 422

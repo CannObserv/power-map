@@ -9,14 +9,13 @@ from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, require_api_key, require_scope
 from src.api.public.schemas import (
     ObservationResponse,
-    RoleListItem,
+    RoleDetail,
     RoleListResponse,
     RoleObservationRequest,
     make_etag,
 )
 from src.core.observation import (
     Disposition,
-    IdentifierConflict,
     ObservationRejected,
     resolve_role,
     write_addresses,
@@ -87,9 +86,44 @@ async def list_roles(
     }
 
 
+async def _fetch_role_arrays(role_id: str, db: Any) -> tuple:
+    """Fetch links, contact_methods, and addresses for a role."""
+    links = await db.fetch(
+        """
+        SELECT l.id, l.url, l.link_type_id,
+               lt.slug AS link_type_slug, lt.display_name AS link_type_name
+        FROM links l
+        JOIN link_types lt ON lt.id = l.link_type_id
+        WHERE l.entity_type = 'role' AND l.entity_id = $1 AND l.is_active = TRUE
+        ORDER BY lt.slug, l.url
+        """,
+        role_id,
+    )
+    contact_methods = await db.fetch(
+        """
+        SELECT id, contact_type, value
+        FROM contact_methods
+        WHERE entity_type = 'role' AND entity_id = $1
+        ORDER BY contact_type, value
+        """,
+        role_id,
+    )
+    addresses = await db.fetch(
+        """
+        SELECT ea.id, ea.address_id, ea.address_type, a.raw_input, a.standardized
+        FROM entity_addresses ea
+        JOIN addresses a ON a.id = ea.address_id
+        WHERE ea.entity_type = 'role' AND ea.entity_id = $1
+        ORDER BY ea.address_type
+        """,
+        role_id,
+    )
+    return links, contact_methods, addresses
+
+
 @router.get(
     "/{role_id}",
-    response_model=RoleListItem,
+    response_model=RoleDetail,
     operation_id="getRole",
 )
 async def get_role(
@@ -99,7 +133,7 @@ async def get_role(
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
-    """Return a single role record."""
+    """Return a full role record with links, contact methods, and addresses."""
     row = await db.fetchrow(
         """
         SELECT id, organization_id, title, notes, established_on, abolished_on,
@@ -125,7 +159,13 @@ async def get_role(
     for k, v in cache_headers.items():
         response.headers[k] = v
 
-    return _role_row_to_dict(row)
+    links, contact_methods, addresses = await _fetch_role_arrays(role_id, db)
+    return {
+        **_role_row_to_dict(row),
+        "links": [dict(r) for r in links],
+        "contact_methods": [dict(r) for r in contact_methods],
+        "addresses": [dict(r) for r in addresses],
+    }
 
 
 @router.post(
@@ -158,7 +198,6 @@ async def submit_role_observation(
             await write_addresses(db, role_id, "role", req.addresses)
     except (
         ObservationRejected,
-        IdentifierConflict,
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,
         asyncpg.UniqueViolationError,

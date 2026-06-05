@@ -177,6 +177,20 @@ async def test_detail_404_on_unknown(client, api_key):
     assert r.status_code == 404
 
 
+async def test_detail_includes_arrays(client, api_key, role_fixtures):
+    """Detail response includes links, contact_methods, and addresses keys."""
+    rid = role_fixtures["r1"]
+    r = client.get(f"{_LIST}/{rid}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    body = r.json()
+    assert "links" in body
+    assert "contact_methods" in body
+    assert "addresses" in body
+    assert isinstance(body["links"], list)
+    assert isinstance(body["contact_methods"], list)
+    assert isinstance(body["addresses"], list)
+
+
 async def test_detail_etag_304(client, api_key, role_fixtures):
     rid = role_fixtures["r1"]
     r1 = client.get(f"{_LIST}/{rid}", headers={"X-API-Key": api_key})

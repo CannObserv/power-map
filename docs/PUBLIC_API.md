@@ -277,7 +277,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/roles` | API key | Paginated list of roles, optionally filtered by org. |
-| `GET` | `/api/v1/roles/{id}` | API key | Single role record with ETag caching. |
+| `GET` | `/api/v1/roles/{id}` | API key | Full role record (links, contact methods, addresses) with ETag caching. |
 | `POST` | `/api/v1/roles/observations` | `observations:write` scope | Submit a role observation (match-or-create). |
 
 ### List — `GET /api/v1/roles`
@@ -292,6 +292,18 @@ Query parameters:
 | `offset` | 0 | |
 
 Response item fields: `id`, `organization_id`, `title`, `notes`, `established_on`, `abolished_on`, `archived_at`, `created_at`, `updated_at`.
+
+### Detail — `GET /api/v1/roles/{id}`
+
+Returns all list item fields plus:
+
+| Field | Description |
+|-------|-------------|
+| `links` | Array of `{id, url, link_type_id, link_type_slug, link_type_name}` |
+| `contact_methods` | Array of `{id, contact_type, value}` |
+| `addresses` | Array of `{id, address_id, address_type, raw_input, standardized}` |
+
+Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 
 ### Observation write — `POST /roles/observations`
 
