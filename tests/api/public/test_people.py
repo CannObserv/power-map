@@ -594,3 +594,77 @@ async def test_get_person_etag_changes_after_identifier_added(client, api_key, p
     assert r2.headers["etag"] != etag1
 
     await db.execute("DELETE FROM identifiers WHERE id=$1", tmp_id)
+
+
+@pytest.mark.integration
+async def test_get_person_etag_changes_after_event_inserted(client, api_key, person_fixture, db):
+    """Touch-parent trigger: inserting an entity_event bumps the person's updated_at."""
+    pid = person_fixture["person_id"]
+    birth_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='birth'")
+    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    etag1 = r1.headers["etag"]
+
+    await db.execute("SELECT pg_sleep(0.001)")
+    ev_id = generate_id()
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
+        " VALUES ($1,'person',$2,$3,1970)",
+        ev_id,
+        pid,
+        birth_id,
+    )
+    try:
+        r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+        assert r2.headers["etag"] != etag1
+    finally:
+        await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
+
+
+@pytest.mark.integration
+async def test_get_person_etag_changes_after_event_updated(client, api_key, person_fixture, db):
+    """Touch-parent trigger: updating an entity_event bumps the person's updated_at."""
+    pid = person_fixture["person_id"]
+    birth_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='birth'")
+    ev_id = generate_id()
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
+        " VALUES ($1,'person',$2,$3,1970)",
+        ev_id,
+        pid,
+        birth_id,
+    )
+    try:
+        r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+        etag1 = r1.headers["etag"]
+
+        await db.execute("SELECT pg_sleep(0.001)")
+        await db.execute("UPDATE entity_events SET event_year=1971 WHERE id=$1", ev_id)
+
+        r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+        assert r2.headers["etag"] != etag1
+    finally:
+        await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
+
+
+@pytest.mark.integration
+async def test_get_person_etag_changes_after_event_deleted(client, api_key, person_fixture, db):
+    """Touch-parent trigger: hard-deleting an entity_event bumps the person's updated_at."""
+    pid = person_fixture["person_id"]
+    birth_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='birth'")
+    ev_id = generate_id()
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
+        " VALUES ($1,'person',$2,$3,1970)",
+        ev_id,
+        pid,
+        birth_id,
+    )
+
+    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    etag1 = r1.headers["etag"]
+
+    await db.execute("SELECT pg_sleep(0.001)")
+    await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
+
+    r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    assert r2.headers["etag"] != etag1

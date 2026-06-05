@@ -590,3 +590,77 @@ async def test_get_org_etag_changes_after_identifier_added(client, api_key, org_
     assert r2.headers["etag"] != etag1
 
     await db.execute("DELETE FROM identifiers WHERE id=$1", tmp_id)
+
+
+@pytest.mark.integration
+async def test_get_org_etag_changes_after_event_inserted(client, api_key, org_fixture, db):
+    """Touch-parent trigger: inserting an entity_event bumps the org's updated_at."""
+    oid = org_fixture["org_id"]
+    founded_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='founded'")
+    r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    etag1 = r1.headers["etag"]
+
+    await db.execute("SELECT pg_sleep(0.001)")
+    ev_id = generate_id()
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
+        " VALUES ($1,'organization',$2,$3,1990)",
+        ev_id,
+        oid,
+        founded_id,
+    )
+    try:
+        r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+        assert r2.headers["etag"] != etag1
+    finally:
+        await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
+
+
+@pytest.mark.integration
+async def test_get_org_etag_changes_after_event_updated(client, api_key, org_fixture, db):
+    """Touch-parent trigger: updating an entity_event bumps the org's updated_at."""
+    oid = org_fixture["org_id"]
+    founded_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='founded'")
+    ev_id = generate_id()
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
+        " VALUES ($1,'organization',$2,$3,1990)",
+        ev_id,
+        oid,
+        founded_id,
+    )
+    try:
+        r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+        etag1 = r1.headers["etag"]
+
+        await db.execute("SELECT pg_sleep(0.001)")
+        await db.execute("UPDATE entity_events SET event_year=1991 WHERE id=$1", ev_id)
+
+        r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+        assert r2.headers["etag"] != etag1
+    finally:
+        await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
+
+
+@pytest.mark.integration
+async def test_get_org_etag_changes_after_event_deleted(client, api_key, org_fixture, db):
+    """Touch-parent trigger: hard-deleting an entity_event bumps the org's updated_at."""
+    oid = org_fixture["org_id"]
+    founded_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='founded'")
+    ev_id = generate_id()
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
+        " VALUES ($1,'organization',$2,$3,1990)",
+        ev_id,
+        oid,
+        founded_id,
+    )
+
+    r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    etag1 = r1.headers["etag"]
+
+    await db.execute("SELECT pg_sleep(0.001)")
+    await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
+
+    r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    assert r2.headers["etag"] != etag1
