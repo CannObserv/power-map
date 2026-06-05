@@ -278,3 +278,44 @@ async def test_changes_includes_roles(client, api_key, role_change_fixtures):
     assert len(role_items) == 1
     assert role_items[0]["entity_type"] == "role"
     assert role_items[0]["change_kind"] == "updated"
+
+
+# ---------------------------------------------------------------------------
+# Jurisdictions in the change feed
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def jurisdiction_change_fixtures(db):
+    """Seed a jurisdiction_type + jurisdiction; return IDs and sentinel timestamp."""
+    before = await db.fetchval("SELECT NOW()")
+    jtype_id = generate_id()
+    jid = generate_id()
+    await db.execute(
+        "INSERT INTO jurisdiction_types (id, slug, display_name) VALUES ($1,'test-jtype','Test')",
+        jtype_id,
+    )
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id)"
+        " VALUES ($1,'test-jfeed','Feed Jurisdiction',$2)",
+        jid,
+        jtype_id,
+    )
+    yield {"before": before, "jurisdiction_id": jid}
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+    await db.execute("DELETE FROM jurisdiction_types WHERE id=$1", jtype_id)
+
+
+async def test_changes_includes_jurisdictions(client, api_key, jurisdiction_change_fixtures):
+    since = jurisdiction_change_fixtures["before"].isoformat().replace("+00:00", "Z")
+    r = client.get(
+        "/api/v1/changes",
+        params={"since": since, "limit": 100},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200
+    items = r.json()["data"]
+    jitems = [i for i in items if i["entity_id"] == jurisdiction_change_fixtures["jurisdiction_id"]]
+    assert len(jitems) == 1
+    assert jitems[0]["entity_type"] == "jurisdiction"
+    assert jitems[0]["change_kind"] == "updated"
