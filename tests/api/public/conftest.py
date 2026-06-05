@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from src.api.deps import get_db
 from src.api.main import app
+from src.core.db import generate_id
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -36,3 +37,19 @@ def unit_client():
             yield c
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def link_type(db):
+    """Ensure a 'website' link type exists; reuse existing row if present."""
+    row = await db.fetchrow("SELECT id FROM link_types WHERE slug='website' LIMIT 1")
+    if row:
+        yield row["id"]
+        return
+    lt_id = generate_id()
+    await db.execute(
+        "INSERT INTO link_types (id, slug, display_name, is_social)"
+        " VALUES ($1,'website','Website',FALSE)",
+        lt_id,
+    )
+    yield lt_id

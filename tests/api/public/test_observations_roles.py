@@ -93,22 +93,6 @@ async def obs_org(db):
     await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
 
 
-@pytest_asyncio.fixture(loop_scope="session")
-async def link_type(db):
-    """Ensure a link type exists for link write tests."""
-    row = await db.fetchrow("SELECT id FROM link_types WHERE slug='website' LIMIT 1")
-    if row:
-        yield row["id"]
-        return
-    lt_id = generate_id()
-    await db.execute(
-        "INSERT INTO link_types (id, slug, display_name, is_social)"
-        " VALUES ($1,'website','Website',FALSE)",
-        lt_id,
-    )
-    yield lt_id
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

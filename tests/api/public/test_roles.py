@@ -42,22 +42,6 @@ async def api_key(db):
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def link_type(db):
-    """Ensure a link type exists for detail array tests."""
-    row = await db.fetchrow("SELECT id FROM link_types WHERE slug='website' LIMIT 1")
-    if row:
-        yield row["id"]
-        return
-    lt_id = generate_id()
-    await db.execute(
-        "INSERT INTO link_types (id, slug, display_name, is_social)"
-        " VALUES ($1,'website','Website',FALSE)",
-        lt_id,
-    )
-    yield lt_id
-
-
-@pytest_asyncio.fixture(loop_scope="session")
 async def role_fixtures(db, link_type):
     """Seed one org with two active roles and one archived role.
 
