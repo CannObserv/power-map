@@ -1528,7 +1528,7 @@ ALTER TABLE contact_methods DROP CONSTRAINT IF EXISTS contact_methods_entity_typ
 ALTER TABLE contact_methods ADD CONSTRAINT contact_methods_entity_type_check
     CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction'));
 
--- entity_addresses: add 'role' and 'role_assignment'.
+-- entity_addresses: restore 'role_assignment' (dropped by prior migration); keep 'role'.
 ALTER TABLE entity_addresses DROP CONSTRAINT IF EXISTS entity_addresses_entity_type_check;
 ALTER TABLE entity_addresses ADD CONSTRAINT entity_addresses_entity_type_check
     CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction'));

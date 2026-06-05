@@ -176,21 +176,30 @@ async def test_new_persisted(client, write_key, obs_entities, db):
     assert row["notes"] == "Test assignment notes"
 
 
-async def test_new_null_start_date(client, write_key, obs_entities):
-    """NULL start_date is a valid new assignment (unknown start)."""
+async def test_new_null_start_date(client, write_key, obs_entities, db):
+    """NULL start_date is accepted and creates a NEW assignment (unknown start)."""
     raw, _ = write_key
+    # Dedicated role so this test owns the NULL-start slot independently.
+    role_null = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'NullDate Role')",
+        role_null,
+        obs_entities["org_id"],
+    )
     r = _post(
         client,
         raw,
         {
             "person_id": obs_entities["person_id"],
-            "role_id": obs_entities["role_id"],
+            "role_id": role_null,
             "start_date": None,
             "is_current": True,
         },
     )
     assert r.status_code == 200
-    assert r.json()["disposition"] in ("new", "auto-attached")
+    assert r.json()["disposition"] == "new"
+    await db.execute("DELETE FROM role_assignments WHERE role_id=$1", role_null)
+    await db.execute("DELETE FROM roles WHERE id=$1", role_null)
 
 
 # ---------------------------------------------------------------------------
