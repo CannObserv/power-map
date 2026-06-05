@@ -42,8 +42,27 @@ async def api_key(db):
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def role_fixtures(db):
-    """Seed one org with two active roles and one archived role."""
+async def link_type(db):
+    """Ensure a link type exists for detail array tests."""
+    row = await db.fetchrow("SELECT id FROM link_types WHERE slug='website' LIMIT 1")
+    if row:
+        yield row["id"]
+        return
+    lt_id = generate_id()
+    await db.execute(
+        "INSERT INTO link_types (id, slug, display_name, is_social)"
+        " VALUES ($1,'website','Website',FALSE)",
+        lt_id,
+    )
+    yield lt_id
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def role_fixtures(db, link_type):
+    """Seed one org with two active roles and one archived role.
+
+    r1 has a seeded link, contact method, and address for detail-shape tests.
+    """
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
 
@@ -72,8 +91,50 @@ async def role_fixtures(db):
         "Treasurer",
     )
 
-    yield {"org_id": org_id, "r1": r1, "r2": r2, "r3_archived": r3}
+    # Seed related data on r1 for detail-shape assertions.
+    link_id = generate_id()
+    await db.execute(
+        "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+        " VALUES ($1,'role',$2,'https://chair.example.com',$3)",
+        link_id,
+        r1,
+        link_type,
+    )
+    cm_id = generate_id()
+    await db.execute(
+        "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+        " VALUES ($1,'role',$2,'email','chair@example.com')",
+        cm_id,
+        r1,
+    )
+    addr_id = generate_id()
+    ea_id = generate_id()
+    await db.execute(
+        "INSERT INTO addresses (id, raw_input, country) VALUES ($1,'1 Chair Lane','US')",
+        addr_id,
+    )
+    await db.execute(
+        "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type)"
+        " VALUES ($1,'role',$2,$3,'physical')",
+        ea_id,
+        r1,
+        addr_id,
+    )
 
+    yield {
+        "org_id": org_id,
+        "r1": r1,
+        "r2": r2,
+        "r3_archived": r3,
+        "r1_link_url": "https://chair.example.com",
+        "r1_cm_type": "email",
+        "r1_addr_type": "physical",
+    }
+
+    await db.execute("DELETE FROM entity_addresses WHERE entity_id=$1", r1)
+    await db.execute("DELETE FROM addresses WHERE id=$1", addr_id)
+    await db.execute("DELETE FROM contact_methods WHERE entity_id=$1 AND entity_type='role'", r1)
+    await db.execute("DELETE FROM links WHERE entity_id=$1 AND entity_type='role'", r1)
     await db.execute("DELETE FROM roles WHERE organization_id=$1", org_id)
     await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
 
@@ -178,17 +239,24 @@ async def test_detail_404_on_unknown(client, api_key):
 
 
 async def test_detail_includes_arrays(client, api_key, role_fixtures):
-    """Detail response includes links, contact_methods, and addresses keys."""
+    """Detail response includes populated links, contact_methods, and addresses."""
     rid = role_fixtures["r1"]
     r = client.get(f"{_LIST}/{rid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     body = r.json()
-    assert "links" in body
-    assert "contact_methods" in body
-    assert "addresses" in body
-    assert isinstance(body["links"], list)
-    assert isinstance(body["contact_methods"], list)
-    assert isinstance(body["addresses"], list)
+
+    assert len(body["links"]) == 1
+    assert body["links"][0]["url"] == role_fixtures["r1_link_url"]
+    assert body["links"][0]["link_type_slug"] == "website"
+    assert isinstance(body["links"][0]["is_active"], bool)
+
+    assert len(body["contact_methods"]) == 1
+    assert body["contact_methods"][0]["contact_type"] == role_fixtures["r1_cm_type"]
+    assert body["contact_methods"][0]["value"] == "chair@example.com"
+
+    assert len(body["addresses"]) == 1
+    assert body["addresses"][0]["address_type"] == role_fixtures["r1_addr_type"]
+    assert body["addresses"][0]["raw_input"] == "1 Chair Lane"
 
 
 async def test_detail_etag_304(client, api_key, role_fixtures):

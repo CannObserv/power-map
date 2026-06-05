@@ -299,9 +299,9 @@ Returns all list item fields plus:
 
 | Field | Description |
 |-------|-------------|
-| `links` | Array of `{id, url, link_type_id, link_type_slug, link_type_name}` |
+| `links` | Array of `{id, url, link_type_id, link_type_slug, link_type_name, is_active}` |
 | `contact_methods` | Array of `{id, contact_type, value}` |
-| `addresses` | Array of `{id, address_id, address_type, raw_input, standardized}` |
+| `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable)}` |
 
 Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 

@@ -90,11 +90,11 @@ async def _fetch_role_arrays(role_id: str, db: Any) -> tuple:
     """Fetch links, contact_methods, and addresses for a role."""
     links = await db.fetch(
         """
-        SELECT l.id, l.url, l.link_type_id,
+        SELECT l.id, l.url, l.link_type_id, l.is_active,
                lt.slug AS link_type_slug, lt.display_name AS link_type_name
         FROM links l
         JOIN link_types lt ON lt.id = l.link_type_id
-        WHERE l.entity_type = 'role' AND l.entity_id = $1 AND l.is_active = TRUE
+        WHERE l.entity_type = 'role' AND l.entity_id = $1
         ORDER BY lt.slug, l.url
         """,
         role_id,

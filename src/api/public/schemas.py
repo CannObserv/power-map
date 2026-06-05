@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_serializer, model_validator
 
+EntityType = Literal["person", "organization", "jurisdiction", "role"]
+
 
 def fmt_ts(v: datetime | None) -> str | None:
     """Serialize a UTC datetime to ISO 8601 with Z suffix."""
@@ -345,8 +347,7 @@ class ObservationResponse(BaseModel):
 
     disposition: str  # 'auto-attached', 'new', or 'rejected'
     entity_id: str | None = None  # None only when disposition == 'rejected'
-    # 'person', 'organization', 'jurisdiction', 'role'; None when rejected
-    entity_type: str | None = None
+    entity_type: EntityType | None = None  # None when rejected
 
 
 class JurisdictionObservationRequest(BaseModel):
@@ -435,7 +436,7 @@ class EntityEventsResponse(BaseModel):
 class ChangeItem(BaseModel):
     """A single entry in the change feed — updated or deleted entity."""
 
-    entity_type: Literal["person", "organization", "jurisdiction", "role"]
+    entity_type: EntityType
     entity_id: str
     changed_at: datetime
     change_kind: Literal["updated", "deleted"]
@@ -621,6 +622,7 @@ class RoleLink(BaseModel):
     link_type_id: str
     link_type_slug: str
     link_type_name: str
+    is_active: bool
 
 
 class RoleContactMethod(BaseModel):
