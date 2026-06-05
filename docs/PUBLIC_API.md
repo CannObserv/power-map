@@ -334,6 +334,72 @@ Match-or-create semantics. Roles are keyed by `(organization_id, lower(title))` 
 
 ---
 
+## Assignments
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/assignments` | API key | Paginated list of role assignments, optionally filtered. |
+| `GET` | `/api/v1/assignments/{id}` | API key | Full assignment record (links, contact methods, addresses) with ETag caching. |
+| `POST` | `/api/v1/assignments/observations` | `observations:write` scope | Submit an assignment observation (match-or-create). |
+
+### List — `GET /api/v1/assignments`
+
+Query parameters:
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `person_id` | (none) | Filter to assignments for this person ULID. |
+| `role_id` | (none) | Filter to assignments for this role ULID. |
+| `include_archived` | `false` | Include archived assignments (`archived_at` non-null). |
+| `limit` | 20 | 1–100 |
+| `offset` | 0 | |
+
+Response item fields: `id`, `person_id`, `role_id`, `is_current`, `start_date`, `end_date`, `notes`, `archived_at`, `created_at`, `updated_at`.
+
+### Detail — `GET /api/v1/assignments/{id}`
+
+Returns all list item fields plus:
+
+| Field | Description |
+|-------|-------------|
+| `links` | Array of `{id, url, link_type_id, link_type_slug, link_type_name, is_active}` |
+| `contact_methods` | Array of `{id, contact_type, value}` |
+| `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable)}` |
+
+Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
+
+### Observation write — `POST /assignments/observations`
+
+Match-or-create semantics. Assignments are keyed by `(person_id, role_id, start_date)` — `NULL` start_date is treated as a distinct known value (NULLS NOT DISTINCT), meaning "unknown start" is itself a unique slot.
+
+**Request fields:**
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `person_id` | always | ULID of the person. Must exist and be active; unknown/archived person → `rejected`. |
+| `role_id` | always | ULID of the role. Must exist and be active; unknown/archived role → `rejected`. |
+| `start_date` | optional | ISO 8601 date (nullable). `NULL` = unknown start date. Only written on NEW. |
+| `end_date` | optional | ISO 8601 date. Must be >= `start_date` when both set. Only written on NEW. |
+| `is_current` | optional | `false` by default. Cannot be `true` when `end_date` is also set. Only written on NEW. |
+| `notes` | optional | Free text. Only written on NEW. |
+| `links` | optional | List of `{url, link_type_id XOR link_type_slug}`. Written on both NEW and AUTO_ATTACHED (append-only). |
+| `contact_methods` | optional | List of `{contact_type, value}`. Written on both NEW and AUTO_ATTACHED (append-only). |
+| `addresses` | optional | List of `{raw_input, address_type}`. Written on both NEW and AUTO_ATTACHED (append-only). |
+
+**Disposition semantics:**
+
+| Disposition | Condition |
+|-------------|-----------|
+| `new` | No active assignment with this `(person_id, role_id, start_date)` found; assignment created |
+| `auto-attached` | Active assignment already exists; attribute writes still applied |
+| `rejected` | Person or role unknown/archived; `is_current` + `end_date` conflict; DB constraint violation |
+
+**Changes feed:** `role_assignment` entities appear in `GET /api/v1/changes` with `entity_type: "role_assignment"`.
+
+---
+
 ## Entity Events
 
 ### Endpoints

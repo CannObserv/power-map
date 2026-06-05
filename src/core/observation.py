@@ -696,3 +696,77 @@ async def write_entity_events(
             ev.visibility,
             key_id,
         )
+
+
+async def resolve_assignment(
+    conn,
+    person_id: str,
+    role_id: str,
+    start_date: date | None,
+    *,
+    end_date: date | None = None,
+    is_current: bool = False,
+    notes: str | None = None,
+) -> tuple[str, "Disposition"]:
+    """Match or create a role assignment by (person_id, role_id, start_date).
+
+    Returns (assignment_id, disposition).
+    disposition is AUTO_ATTACHED if an active (non-archived) match is found,
+    NEW if created, REJECTED if person_id or role_id does not exist.
+    """
+    person_exists = await conn.fetchval(
+        "SELECT 1 FROM people WHERE id=$1 AND archived_at IS NULL", person_id
+    )
+    if not person_exists:
+        logger.warning("resolve_assignment: unknown person_id=%r", person_id)
+        return "", Disposition.REJECTED
+
+    role_exists = await conn.fetchval(
+        "SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", role_id
+    )
+    if not role_exists:
+        logger.warning("resolve_assignment: unknown role_id=%r", role_id)
+        return "", Disposition.REJECTED
+
+    existing = await conn.fetchrow(
+        "SELECT id FROM role_assignments"
+        " WHERE person_id=$1 AND role_id=$2 AND start_date IS NOT DISTINCT FROM $3"
+        "   AND archived_at IS NULL",
+        person_id,
+        role_id,
+        start_date,
+    )
+    if existing:
+        return existing["id"], Disposition.AUTO_ATTACHED
+
+    assignment_id = generate_id()
+    try:
+        await conn.execute(
+            "INSERT INTO role_assignments"
+            " (id, person_id, role_id, start_date, end_date, is_current, notes)"
+            " VALUES ($1,$2,$3,$4,$5,$6,$7)",
+            assignment_id,
+            person_id,
+            role_id,
+            start_date,
+            end_date,
+            is_current,
+            notes,
+        )
+    except asyncpg.UniqueViolationError:
+        logger.warning(
+            "UniqueViolation creating role_assignment person=%r role=%r start=%r",
+            person_id,
+            role_id,
+            start_date,
+        )
+        return "", Disposition.REJECTED
+
+    logger.info(
+        "Created role_assignment id=%s person=%s role=%s start=%s",
+        assignment_id,
+        person_id,
+        role_id,
+        start_date,
+    )
+    return assignment_id, Disposition.NEW

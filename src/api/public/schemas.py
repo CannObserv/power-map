@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_serializer, model_validator
 
-EntityType = Literal["person", "organization", "jurisdiction", "role"]
+EntityType = Literal["person", "organization", "jurisdiction", "role", "role_assignment"]
 
 
 def fmt_ts(v: datetime | None) -> str | None:
@@ -649,3 +649,98 @@ class RoleDetail(RoleListItem):
     links: list[RoleLink] = Field(default_factory=list)
     contact_methods: list[RoleContactMethod] = Field(default_factory=list)
     addresses: list[RoleAddress] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Assignments
+# ---------------------------------------------------------------------------
+
+
+class AssignmentListItem(BaseModel):
+    """Single item in an assignment list response."""
+
+    id: str
+    person_id: str
+    role_id: str
+    is_current: bool
+    start_date: date | None = None
+    end_date: date | None = None
+    notes: str | None = None
+    archived_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("archived_at", "created_at", "updated_at")
+    def _serialize_ts(self, v: datetime | None) -> str | None:
+        return fmt_ts(v)
+
+
+class AssignmentListResponse(BaseModel):
+    """Paginated list of assignments."""
+
+    data: list[AssignmentListItem]
+    meta: SearchMeta
+
+
+class AssignmentLink(BaseModel):
+    """A link attached to a role assignment."""
+
+    id: str
+    url: str
+    link_type_id: str
+    link_type_slug: str
+    link_type_name: str
+    is_active: bool
+
+
+class AssignmentContactMethod(BaseModel):
+    """A contact method attached to a role assignment."""
+
+    id: str
+    contact_type: str
+    value: str
+
+
+class AssignmentAddress(BaseModel):
+    """An address attached to a role assignment."""
+
+    id: str
+    address_id: str
+    address_type: str
+    raw_input: str | None = None
+    standardized: str | None = None
+
+
+class AssignmentDetail(AssignmentListItem):
+    """Full assignment record including links, contact methods, and addresses."""
+
+    links: list[AssignmentLink] = Field(default_factory=list)
+    contact_methods: list[AssignmentContactMethod] = Field(default_factory=list)
+    addresses: list[AssignmentAddress] = Field(default_factory=list)
+
+
+class AssignmentObservationRequest(BaseModel):
+    """Payload for POST /api/v1/assignments/observations."""
+
+    person_id: str
+    role_id: str
+    start_date: date | None = None
+    end_date: date | None = None
+    is_current: bool = False
+    notes: str | None = None
+
+    links: list[ObservationLink] = Field(default_factory=list)
+    contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
+    addresses: list[ObservationAddress] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_constraints(self) -> "AssignmentObservationRequest":
+        if self.is_current and self.end_date is not None:
+            raise ValueError("is_current cannot be True when end_date is set")
+        if (
+            self.start_date is not None
+            and self.end_date is not None
+            and self.start_date > self.end_date
+        ):
+            raise ValueError("start_date must be <= end_date")
+        return self
