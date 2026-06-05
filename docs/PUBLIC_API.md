@@ -126,6 +126,17 @@ while True:
         break
 ```
 
+### Entity types
+
+| `entity_type` | Source table | Notes |
+|---|---|---|
+| `person` | `people` | |
+| `organization` | `organizations` | |
+| `jurisdiction` | `jurisdictions` | |
+| `role` | `roles` | |
+| `role_assignment` | `role_assignments` | |
+| `deleted` | `deleted_entities` | `change_kind` is always `"deleted"`; `archived_at` is always `null` |
+
 ### Implicit behaviors
 
 - **Inclusive boundary.** `since` uses `>=` semantics — the timestamp returned as `next_since` may appear again in the next page. Deduplicate by `entity_id` when processing consecutive pages.
