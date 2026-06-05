@@ -301,14 +301,17 @@ async def list_org_events(
             ee.event_year, ee.event_month, ee.event_day,
             ee.event_hour, ee.event_minute, ee.event_second,
             ee.event_at,
-            ee.event_place_text,
+            ee.event_place_text, ee.event_place_address_id,
             ee.linked_entity_type, ee.linked_entity_id,
             ee.notes, ee.visibility, ee.verified_at, ee.created_at,
             eet.id AS event_type_id,
             eet.slug AS event_type_slug,
-            eet.display_name AS event_type_display_name
+            eet.display_name AS event_type_display_name,
+            pa.city AS place_city, pa.region AS place_region,
+            pa.standardized AS place_standardized, pa.precision AS place_precision
         FROM entity_events ee
         JOIN entity_event_types eet ON eet.id = ee.event_type_id
+        LEFT JOIN addresses pa ON pa.id = ee.event_place_address_id
         WHERE ee.entity_id = $1
           AND ee.entity_type = 'organization'
           AND ee.visibility = 'public'

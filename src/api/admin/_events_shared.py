@@ -83,20 +83,28 @@ def _validate_date_time(
 _EVENT_FETCH_QUERY = """
 SELECT ee.id, ee.event_year, ee.event_month, ee.event_day,
        ee.event_hour, ee.event_minute, ee.event_second,
-       ee.event_place_text, ee.linked_entity_type, ee.linked_entity_id,
+       ee.event_place_text, ee.event_place_address_id,
+       ee.linked_entity_type, ee.linked_entity_id,
        ee.notes, ee.visibility, ee.archived_at,
-       eet.slug AS event_type_slug, eet.display_name AS event_type_name
+       eet.slug AS event_type_slug, eet.display_name AS event_type_name,
+       pa.city AS place_city, pa.region AS place_region,
+       pa.standardized AS place_standardized, pa.precision AS place_precision
 FROM entity_events ee
 JOIN entity_event_types eet ON eet.id = ee.event_type_id
+LEFT JOIN addresses pa ON pa.id = ee.event_place_address_id
 WHERE ee.entity_id = $1 AND ee.entity_type = $2
 ORDER BY ee.archived_at IS NOT NULL, ee.event_year DESC NULLS LAST, ee.created_at DESC
 """
 
 _EVENT_SINGLE_QUERY = """
-SELECT ee.*, eet.slug AS event_type_slug, eet.display_name AS event_type_name,
-       eet.requires_year, eet.requires_linked_entity
+SELECT ee.*,
+       eet.slug AS event_type_slug, eet.display_name AS event_type_name,
+       eet.requires_year, eet.requires_linked_entity,
+       pa.city AS place_city, pa.region AS place_region,
+       pa.standardized AS place_standardized, pa.precision AS place_precision
 FROM entity_events ee
 JOIN entity_event_types eet ON eet.id = ee.event_type_id
+LEFT JOIN addresses pa ON pa.id = ee.event_place_address_id
 WHERE ee.id = $1 AND ee.entity_id = $2 AND ee.entity_type = $3
 """
 
@@ -106,6 +114,31 @@ FROM entity_event_types
 WHERE applies_to = $1 OR applies_to = 'both'
 ORDER BY display_name
 """
+
+
+_ALLOWED_PLACE_PRECISIONS = {"city", "postal", "street"}
+
+
+async def _validate_event_place_address(
+    conn: asyncpg.Connection, raw_id: str
+) -> tuple[str | None, str | None]:
+    """Validate an address ID for use as event_place_address_id.
+
+    Returns (address_id, None) on success, (None, error_string) on failure.
+    Returns (None, None) when raw_id is blank (address linkage is optional).
+    """
+    aid = raw_id.strip()
+    if not aid:
+        return None, None
+    row = await conn.fetchrow("SELECT id, precision FROM addresses WHERE id=$1", aid)
+    if not row:
+        return None, "Address not found."
+    if row["precision"] is not None and row["precision"] not in _ALLOWED_PLACE_PRECISIONS:
+        return None, (
+            f"Address precision '{row['precision']}' is too low — "
+            "city, postal, or street precision required."
+        )
+    return aid, None
 
 
 async def fetch_entity_events(entity_id: str, entity_type: str, db: asyncpg.Connection) -> list:
@@ -224,6 +257,7 @@ def make_events_router(
         event_minute: str = Form(""),
         event_second: str = Form(""),
         event_place_text: str = Form(""),
+        event_place_address_id: str = Form(""),
         linked_entity_type: str = Form(""),
         linked_entity_id: str = Form(""),
         notes: str = Form(""),
@@ -280,6 +314,13 @@ def make_events_router(
                 error="Linked entity is required for this event type.",
             )
 
+        place_addr_id, addr_error = await _validate_event_place_address(db, event_place_address_id)
+        if addr_error:
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(request, entity_id, None, event_types, error=addr_error)
+
         eid = generate_id()
         linked_id = linked_entity_id.strip() or None
         linked_type = linked_entity_type.strip() or None if linked_id else None
@@ -288,9 +329,10 @@ def make_events_router(
                (id, entity_type, entity_id, event_type_id,
                 event_year, event_month, event_day,
                 event_hour, event_minute, event_second,
-                event_place_text, linked_entity_type, linked_entity_id,
+                event_place_text, event_place_address_id,
+                linked_entity_type, linked_entity_id,
                 notes, visibility)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)""",
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)""",
             eid,
             entity_type,
             entity_id,
@@ -302,6 +344,7 @@ def make_events_router(
             minute_val,
             second_val,
             event_place_text.strip() or None,
+            place_addr_id,
             linked_type,
             linked_id,
             notes.strip() or None,
@@ -358,6 +401,7 @@ def make_events_router(
         event_minute: str = Form(""),
         event_second: str = Form(""),
         event_place_text: str = Form(""),
+        event_place_address_id: str = Form(""),
         linked_entity_type: str = Form(""),
         linked_entity_id: str = Form(""),
         notes: str = Form(""),
@@ -414,6 +458,13 @@ def make_events_router(
                 error="Linked entity is required for this event type.",
             )
 
+        place_addr_id, addr_error = await _validate_event_place_address(db, event_place_address_id)
+        if addr_error:
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(request, entity_id, existing, event_types, error=addr_error)
+
         linked_id = linked_entity_id.strip() or None
         linked_type = linked_entity_type.strip() or None if linked_id else None
         await db.execute(
@@ -421,9 +472,10 @@ def make_events_router(
                event_type_id=$1,
                event_year=$2, event_month=$3, event_day=$4,
                event_hour=$5, event_minute=$6, event_second=$7,
-               event_place_text=$8, linked_entity_type=$9, linked_entity_id=$10,
-               notes=$11, visibility=$12
-               WHERE id=$13""",
+               event_place_text=$8, event_place_address_id=$9,
+               linked_entity_type=$10, linked_entity_id=$11,
+               notes=$12, visibility=$13
+               WHERE id=$14""",
             event_type_id,
             year_val,
             month_val,
@@ -432,6 +484,7 @@ def make_events_router(
             minute_val,
             second_val,
             event_place_text.strip() or None,
+            place_addr_id,
             linked_type,
             linked_id,
             notes.strip() or None,
