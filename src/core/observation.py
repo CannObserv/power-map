@@ -707,7 +707,7 @@ async def resolve_assignment(
     end_date: date | None = None,
     is_current: bool = False,
     notes: str | None = None,
-) -> tuple[str, "Disposition"]:
+) -> tuple[str, Disposition]:
     """Match or create a role assignment by (person_id, role_id, start_date).
 
     Returns (assignment_id, disposition).

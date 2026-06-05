@@ -57,7 +57,7 @@ while True:
 
 ## Caching — detail endpoints
 
-`GET /api/v1/orgs/{id}`, `GET /api/v1/people/{id}`, and `GET /api/v1/jurisdictions/{id}` return caching headers on every `200` response:
+Detail endpoints (`GET /api/v1/orgs/{id}`, `GET /api/v1/people/{id}`, `GET /api/v1/jurisdictions/{id}`, `GET /api/v1/roles/{id}`, `GET /api/v1/assignments/{id}`) return caching headers on every `200` response:
 
 | Header | Value |
 |--------|-------|
