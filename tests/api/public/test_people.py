@@ -601,6 +601,7 @@ async def test_get_person_etag_changes_after_event_inserted(client, api_key, per
     """Touch-parent trigger: inserting an entity_event bumps the person's updated_at."""
     pid = person_fixture["person_id"]
     birth_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='birth'")
+    assert birth_id is not None, "entity_event_types seed missing"
     r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
@@ -625,6 +626,7 @@ async def test_get_person_etag_changes_after_event_updated(client, api_key, pers
     """Touch-parent trigger: updating an entity_event bumps the person's updated_at."""
     pid = person_fixture["person_id"]
     birth_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='birth'")
+    assert birth_id is not None, "entity_event_types seed missing"
     ev_id = generate_id()
     await db.execute(
         "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
@@ -651,6 +653,7 @@ async def test_get_person_etag_changes_after_event_deleted(client, api_key, pers
     """Touch-parent trigger: hard-deleting an entity_event bumps the person's updated_at."""
     pid = person_fixture["person_id"]
     birth_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='birth'")
+    assert birth_id is not None, "entity_event_types seed missing"
     ev_id = generate_id()
     await db.execute(
         "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"

@@ -1008,34 +1008,6 @@ CREATE OR REPLACE TRIGGER trg_touch_entity_on_identifier_change
     AFTER INSERT OR UPDATE OR DELETE ON identifiers
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_identifier_change();
 
-CREATE OR REPLACE FUNCTION touch_parent_on_entity_event_change()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
-DECLARE
-    v_entity_type TEXT;
-    v_entity_id   TEXT;
-BEGIN
-    IF TG_OP = 'DELETE' THEN
-        v_entity_type := OLD.entity_type;
-        v_entity_id   := OLD.entity_id;
-    ELSE
-        v_entity_type := NEW.entity_type;
-        v_entity_id   := NEW.entity_id;
-    END IF;
-
-    IF v_entity_type = 'person' THEN
-        UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
-    ELSIF v_entity_type = 'organization' THEN
-        UPDATE organizations SET updated_at = NOW() WHERE id = v_entity_id;
-    END IF;
-
-    RETURN NULL;
-END;
-$$;
-
-CREATE OR REPLACE TRIGGER trg_touch_entity_on_event_change
-    AFTER INSERT OR UPDATE OR DELETE ON entity_events
-    FOR EACH ROW EXECUTE FUNCTION touch_parent_on_entity_event_change();
-
 -- =============================================================================
 -- Migration: urls/social_links/url_types/platforms → link_types/links
 -- Idempotent: checks table existence before operating. Safe to re-run.
@@ -1353,6 +1325,34 @@ CREATE INDEX IF NOT EXISTS idx_entity_events_entity_active
 CREATE OR REPLACE TRIGGER trg_updated_at_entity_events
     BEFORE UPDATE ON entity_events
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE FUNCTION touch_parent_on_entity_event_change()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_entity_type TEXT;
+    v_entity_id   TEXT;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_entity_type := OLD.entity_type;
+        v_entity_id   := OLD.entity_id;
+    ELSE
+        v_entity_type := NEW.entity_type;
+        v_entity_id   := NEW.entity_id;
+    END IF;
+
+    IF v_entity_type = 'person' THEN
+        UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'organization' THEN
+        UPDATE organizations SET updated_at = NOW() WHERE id = v_entity_id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_entity_on_event_change
+    AFTER INSERT OR UPDATE OR DELETE ON entity_events
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_on_entity_event_change();
 
 -- =============================================================================
 -- Ingestion Audit Tables

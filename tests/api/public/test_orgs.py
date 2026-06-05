@@ -597,6 +597,7 @@ async def test_get_org_etag_changes_after_event_inserted(client, api_key, org_fi
     """Touch-parent trigger: inserting an entity_event bumps the org's updated_at."""
     oid = org_fixture["org_id"]
     founded_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='founded'")
+    assert founded_id is not None, "entity_event_types seed missing"
     r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
@@ -621,6 +622,7 @@ async def test_get_org_etag_changes_after_event_updated(client, api_key, org_fix
     """Touch-parent trigger: updating an entity_event bumps the org's updated_at."""
     oid = org_fixture["org_id"]
     founded_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='founded'")
+    assert founded_id is not None, "entity_event_types seed missing"
     ev_id = generate_id()
     await db.execute(
         "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
@@ -647,6 +649,7 @@ async def test_get_org_etag_changes_after_event_deleted(client, api_key, org_fix
     """Touch-parent trigger: hard-deleting an entity_event bumps the org's updated_at."""
     oid = org_fixture["org_id"]
     founded_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='founded'")
+    assert founded_id is not None, "entity_event_types seed missing"
     ev_id = generate_id()
     await db.execute(
         "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
