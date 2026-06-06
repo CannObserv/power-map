@@ -134,6 +134,8 @@ async def test_list_person_events_returns_event_with_all_fields(
         assert d["minute"] is None
         assert d["second"] is None
         assert d["at"] is None
+
+        assert item["event_place_address"] is None
     finally:
         await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
 
@@ -318,3 +320,69 @@ def test_list_person_events_403_without_key(unit_client):
     """GET /api/v1/people/{id}/events without key returns 403."""
     response = unit_client.get("/api/v1/people/nonexistent-id/events")
     assert response.status_code == 403
+
+
+async def test_list_person_events_includes_event_place_address(client, api_key, person_fixture, db):
+    """event_place_address object is populated in GET response when an address is linked."""
+    birth_id = await _birth_type_id(db)
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO addresses (id, raw_input, city, region, country, standardized, precision)"
+        " VALUES ($1, 'Austin TX', 'Austin', 'TX', 'US', '1 Congress Ave, Austin, TX', 'city')",
+        aid,
+    )
+    event_id = generate_id()
+    await db.execute(
+        """
+        INSERT INTO entity_events
+            (id, entity_type, entity_id, event_type_id, event_year,
+             event_place_text, event_place_address_id, visibility)
+        VALUES ($1, 'person', $2, $3, 1975, 'Austin, TX', $4, 'public')
+        """,
+        event_id,
+        person_fixture,
+        birth_id,
+        aid,
+    )
+    try:
+        r = client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
+        assert r.status_code == 200
+        items = r.json()["data"]
+        item = next((e for e in items if e["id"] == event_id), None)
+        assert item is not None
+        addr = item["event_place_address"]
+        assert addr is not None
+        assert addr["id"] == aid
+        assert addr["city"] == "Austin"
+        assert addr["region"] == "TX"
+        assert addr["precision"] == "city"
+    finally:
+        await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
+        await db.execute("DELETE FROM addresses WHERE id=$1", aid)
+
+
+async def test_list_person_events_event_place_address_null_when_unlinked(
+    client, api_key, person_fixture, db
+):
+    """event_place_address is null in GET response when no address is linked."""
+    birth_id = await _birth_type_id(db)
+    event_id = generate_id()
+    await db.execute(
+        """
+        INSERT INTO entity_events
+            (id, entity_type, entity_id, event_type_id, event_year, visibility)
+        VALUES ($1, 'person', $2, $3, 1985, 'public')
+        """,
+        event_id,
+        person_fixture,
+        birth_id,
+    )
+    try:
+        r = client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
+        assert r.status_code == 200
+        items = r.json()["data"]
+        item = next((e for e in items if e["id"] == event_id), None)
+        assert item is not None
+        assert item["event_place_address"] is None
+    finally:
+        await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)

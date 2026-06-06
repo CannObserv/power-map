@@ -23,7 +23,15 @@
       —
     {% endif %}
   </td>
-  <td>{{ (ev.event_place_text or '')[:40] }}{% if ev.event_place_text and ev.event_place_text|length > 40 %}…{% endif %}</td>
+  <td>
+    {{ (ev.event_place_text or '')[:40] }}{% if ev.event_place_text and ev.event_place_text|length > 40 %}…{% endif %}
+    {% if ev.event_place_address_id %}
+    <div style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin-top:0.125rem">
+      {% if ev.place_city %}{{ ev.place_city }}{% if ev.place_region %}, {{ ev.place_region }}{% endif %}{% elif ev.place_region %}{{ ev.place_region }}{% endif %}
+      {% if ev.place_precision %}<span class="badge badge--inactive" style="margin-left:0.25rem">{{ ev.place_precision }}</span>{% endif %}
+    </div>
+    {% endif %}
+  </td>
   <td>
     {% if ev.linked_entity_type and ev.linked_entity_id %}
       <span class="badge badge--inactive">{{ ev.linked_entity_type }}</span>

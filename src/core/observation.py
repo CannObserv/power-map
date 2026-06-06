@@ -11,6 +11,7 @@ from src.core.logging import get_logger
 from src.core.normalizers.address import get_address_normalizer
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
+from src.core.types import EVENT_PLACE_PRECISIONS
 
 logger = get_logger(__name__)
 
@@ -645,6 +646,24 @@ async def write_entity_events(
         if etype["requires_linked_entity"] and not ev.linked_entity_id:
             raise ObservationRejected(f"Event type {event_type_id!r} requires linked_entity_id")
 
+        # Validate event_place_address_id when provided
+        place_addr_id = ev.event_place_address_id
+        if place_addr_id:
+            addr_row = await conn.fetchrow(
+                "SELECT id, precision FROM addresses WHERE id=$1", place_addr_id
+            )
+            if addr_row is None:
+                raise ObservationRejected(f"event_place_address_id {place_addr_id!r} not found")
+            # NULL precision = pre-geocoding / historical record — allowed intentionally.
+            if (
+                addr_row["precision"] is not None
+                and addr_row["precision"] not in EVENT_PLACE_PRECISIONS
+            ):  # noqa: E501
+                raise ObservationRejected(
+                    f"event_place_address_id {place_addr_id!r} has precision "
+                    f"'{addr_row['precision']}' — city, postal, or street required"
+                )
+
         # Dedup: same event type + same partial date + same linked_entity_id = skip
         existing = await conn.fetchrow(
             """SELECT id FROM entity_events
@@ -676,9 +695,10 @@ async def write_entity_events(
             """INSERT INTO entity_events
                (id, entity_type, entity_id, event_type_id,
                 event_year, event_month, event_day, event_hour, event_minute, event_second,
-                event_place_text, linked_entity_type, linked_entity_id,
+                event_place_text, event_place_address_id,
+                linked_entity_type, linked_entity_id,
                 notes, visibility, source_key_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)""",
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)""",
             generate_id(),
             entity_type,
             entity_id,
@@ -690,6 +710,7 @@ async def write_entity_events(
             ev.event_minute,
             ev.event_second,
             ev.event_place_text,
+            place_addr_id,
             ev.linked_entity_type,
             ev.linked_entity_id,
             ev.notes,

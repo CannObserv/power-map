@@ -407,3 +407,102 @@ async def test_linked_entity_type_without_id_is_422(client, evt_write_key):
         },
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Tests 13–15: event_place_address_id validation via observation write
+# ---------------------------------------------------------------------------
+
+
+async def test_event_place_address_id_not_found_is_rejected(client, evt_write_key):
+    """Submitting a non-existent event_place_address_id → disposition: rejected."""
+    raw, _ = evt_write_key
+    r = _post_people(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": _unique_id(),
+            "events": [
+                {
+                    "event_type_slug": "birth",
+                    "event_year": 1980,
+                    "event_place_address_id": "01NONEXISTENTADDRESSID00000",
+                }
+            ],
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "rejected"
+
+
+async def test_event_place_address_id_low_precision_is_rejected(client, evt_write_key, db):
+    """Address with region precision → disposition: rejected."""
+    raw, _ = evt_write_key
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO addresses (id, raw_input, region, country, precision)"
+        " VALUES ($1, 'Oregon', 'OR', 'US', 'region')",
+        aid,
+    )
+    try:
+        r = _post_people(
+            client,
+            raw,
+            {
+                "identifier_type": "person_wa_pdc",
+                "identifier_value": _unique_id(),
+                "events": [
+                    {
+                        "event_type_slug": "birth",
+                        "event_year": 1980,
+                        "event_place_address_id": aid,
+                    }
+                ],
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["disposition"] == "rejected"
+    finally:
+        await db.execute("DELETE FROM addresses WHERE id=$1", aid)
+
+
+async def test_event_place_address_id_written_to_db(client, evt_write_key, db):
+    """Valid city-precision address → event row has event_place_address_id set."""
+    raw, _ = evt_write_key
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO addresses (id, raw_input, city, region, country, standardized, precision)"
+        " VALUES ($1, 'Portland OR', 'Portland', 'OR', 'US', '1 Main St, Portland, OR', 'city')",
+        aid,
+    )
+    value = _unique_id()
+    try:
+        r = _post_people(
+            client,
+            raw,
+            {
+                "identifier_type": "person_wa_pdc",
+                "identifier_value": value,
+                "events": [
+                    {
+                        "event_type_slug": "birth",
+                        "event_year": 1980,
+                        "event_place_address_id": aid,
+                    }
+                ],
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["disposition"] != "rejected"
+        eid = body["entity_id"]
+
+        row = await db.fetchrow(
+            "SELECT event_place_address_id FROM entity_events WHERE entity_id=$1",
+            eid,
+        )
+        assert row is not None
+        assert row["event_place_address_id"] == aid
+    finally:
+        await db.execute("DELETE FROM addresses WHERE id=$1", aid)

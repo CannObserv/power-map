@@ -192,6 +192,6 @@ Enabled via `CREATE EXTENSION IF NOT EXISTS pg_trgm` in `apply_schema`. Required
 - `field_confidence` is append-only; query latest with `ORDER BY assessed_at DESC LIMIT 1`
 - `import_batches.file_hash` is unique; re-running with same files reuses the existing batch
 - Address standardization uses the external address-validator service when `ADDRESS_VALIDATOR_API_KEY` is set; falls back to local `usaddress` parsing otherwise
-- `addresses.precision` indicates the specificity tier of the geocoded result (`street`, `postal`, `city`, `region`, `country`; NULL = unset or pre-geocoding historical record)
+- `addresses.precision` indicates the specificity tier of the geocoded result (`street`, `postal`, `city`, `region`, `country`; NULL = unset or pre-geocoding historical record). Event place linkage (`entity_events.event_place_address_id`) requires city-level or finer (`city`, `postal`, `street`) — or NULL; `country`/`region` precision is rejected. See `EVENT_PLACE_PRECISIONS` in `src/core/types.py`.
 - `VALIDATE_ADDRESSES=true` (or `--validate-addresses` CLI flag) enables the `/validate` endpoint
 - `role_index` is pre-populated from the DB at pipeline startup (Pass 3) so re-runs are idempotent across batches

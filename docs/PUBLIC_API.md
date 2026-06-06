@@ -227,7 +227,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 | `contact_methods` | optional | List of `{contact_type, value}` — `contact_type` must be `email` or `phone` |
 | `addresses` | optional | List of `{raw_input, address_type}` — `address_type` must be `mailing` or `physical` |
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
-| `events` | optional | List of `{event_type_id XOR event_type_slug, event_year?, event_month?, event_day?, event_hour?, event_minute?, event_second?, event_place_text?, linked_entity_type?, linked_entity_id?, notes?, visibility?}`. See entity events section below. |
+| `events` | optional | List of `{event_type_id XOR event_type_slug, event_year?, event_month?, event_day?, event_hour?, event_minute?, event_second?, event_place_text?, event_place_address_id?, linked_entity_type?, linked_entity_id?, notes?, visibility?}`. See entity events section below. |
 
 **Disposition semantics:**
 
@@ -431,6 +431,7 @@ Standard paginated envelope. Each item:
 | `event_type` | object | `{id, slug, display_name}` — inline event type |
 | `date` | object | `{year, month, day, hour, minute, second, at}` — partial date; null fields = unknown precision. `at` is ISO 8601 Z (reserved — currently always null; future use for denormalized full-precision timestamps) |
 | `event_place_text` | string\|null | Freeform place name |
+| `event_place_address` | object\|null | Structured address linked to the event place: `{id, city, region, standardized, precision}`. Null when no address is linked. |
 | `linked_entity_type` | string\|null | `person` or `organization` |
 | `linked_entity_id` | string\|null | ULID of related entity |
 | `notes` | string\|null | |
@@ -453,6 +454,7 @@ When submitting a `POST /people/observations` or `POST /orgs/observations`, an o
 | `event_minute` | optional | 0–59; requires `event_hour` |
 | `event_second` | optional | 0–59; requires `event_minute` |
 | `event_place_text` | optional | Freeform place string (e.g. `Berlin, Germany`) |
+| `event_place_address_id` | optional | ULID of a linked `addresses` row. Must have city, postal, or street precision. Addresses with NULL precision (pre-geocoding records) are also accepted. Rejected if the ID does not exist or the precision is `country` or `region`. |
 | `linked_entity_type` | depends | Required when `requires_linked_entity: true` (e.g. `marriage`, `merged_with`). `person` or `organization` |
 | `linked_entity_id` | depends | ULID of linked entity; required alongside `linked_entity_type` |
 | `notes` | optional | Free text |

@@ -268,6 +268,7 @@ class ObservationEventItem(BaseModel):
     event_second: int | None = None
 
     event_place_text: str | None = None
+    event_place_address_id: str | None = None
     linked_entity_type: Literal["person", "organization"] | None = None
     linked_entity_id: str | None = None
     notes: str | None = None
@@ -407,6 +408,16 @@ class PartialDate(BaseModel):
     at: str | None = None  # ISO 8601 with Z suffix when event_at is populated
 
 
+class EventPlaceAddress(BaseModel):
+    """Structured address linked to an event place."""
+
+    id: str
+    city: str | None = None
+    region: str | None = None
+    standardized: str | None = None
+    precision: str | None = None
+
+
 class EntityEvent(BaseModel):
     """Single event item in a list response."""
 
@@ -414,6 +425,7 @@ class EntityEvent(BaseModel):
     event_type: EventTypeInline
     date: PartialDate
     event_place_text: str | None = None
+    event_place_address: EventPlaceAddress | None = None
     linked_entity_type: Literal["person", "organization"] | None = None
     linked_entity_id: str | None = None
     notes: str | None = None

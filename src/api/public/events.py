@@ -24,6 +24,17 @@ def row_to_event(r: asyncpg.Record) -> dict:
             "at": fmt_ts(r["event_at"]) if r["event_at"] else None,
         },
         "event_place_text": r["event_place_text"],
+        "event_place_address": (
+            {
+                "id": r["event_place_address_id"],
+                "city": r["place_city"],
+                "region": r["place_region"],
+                "standardized": r["place_standardized"],
+                "precision": r["place_precision"],
+            }
+            if r["event_place_address_id"]
+            else None
+        ),
         "linked_entity_type": r["linked_entity_type"],
         "linked_entity_id": r["linked_entity_id"],
         "notes": r["notes"],

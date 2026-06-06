@@ -366,6 +366,188 @@ async def test_event_edit_calendar_validation(client, org_with_event):
     assert "does not exist in February 2023" in r.text
 
 
+# ---------------------------------------------------------------------------
+# event_place_address_id linkage
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def address_city(db_pool):
+    """A street-precision address row for use across address-linkage tests."""
+    aid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO addresses"
+            " (id, raw_input, city, region, country, standardized, precision)"
+            " VALUES ($1, 'Seattle WA', 'Seattle', 'WA', 'US',"
+            " '123 Main St, Seattle, WA', 'street')",
+            aid,
+        )
+    yield aid
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def address_low_precision(db_pool):
+    """A region-precision address — below the city threshold."""
+    aid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO addresses (id, raw_input, region, country, precision)"
+            " VALUES ($1, 'Washington State', 'WA', 'US', 'region')",
+            aid,
+        )
+    yield aid
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
+
+
+async def test_event_create_links_address(client, org_and_event_type, address_city, db_pool):
+    oid, etid = org_and_event_type
+    r = client.post(
+        f"/admin/orgs/{oid}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2021",
+            "event_place_text": "Seattle",
+            "event_place_address_id": address_city,
+            "notes": "AddrLinkTest",
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" not in r.text
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT event_place_address_id FROM entity_events"
+            " WHERE entity_id=$1 AND notes='AddrLinkTest'",
+            oid,
+        )
+        await conn.execute(
+            "DELETE FROM entity_events WHERE entity_id=$1 AND notes='AddrLinkTest'", oid
+        )
+    assert row is not None
+    assert row["event_place_address_id"] == address_city
+
+
+async def test_event_create_address_not_found_returns_form_error(client, org_and_event_type):
+    oid, etid = org_and_event_type
+    r = client.post(
+        f"/admin/orgs/{oid}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_place_address_id": "nonexistent-address-id",
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "not found" in r.text.lower()
+
+
+async def test_event_create_address_low_precision_returns_form_error(
+    client, org_and_event_type, address_low_precision
+):
+    oid, etid = org_and_event_type
+    r = client.post(
+        f"/admin/orgs/{oid}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_place_address_id": address_low_precision,
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" in r.text
+    assert "precision" in r.text.lower()
+
+
+async def test_event_edit_links_address(client, org_with_event, address_city, db_pool):
+    oid, etid, eid = org_with_event
+    r = client.post(
+        f"/admin/orgs/{oid}/events/{eid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2020",
+            "event_place_address_id": address_city,
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "<form" not in r.text
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT event_place_address_id FROM entity_events WHERE id=$1", eid
+        )
+        await conn.execute("UPDATE entity_events SET event_place_address_id=NULL WHERE id=$1", eid)
+    assert row["event_place_address_id"] == address_city
+
+
+async def test_event_edit_clears_address(client, org_and_event_type, address_city, db_pool):
+    oid, etid = org_and_event_type
+    eid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO entity_events"
+            " (id, entity_type, entity_id, event_type_id, event_year,"
+            "  event_place_address_id, visibility)"
+            " VALUES ($1, 'organization', $2, $3, 2020, $4, 'public')",
+            eid,
+            oid,
+            etid,
+            address_city,
+        )
+
+    r = client.post(
+        f"/admin/orgs/{oid}/events/{eid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2020",
+            "event_place_address_id": "",
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT event_place_address_id FROM entity_events WHERE id=$1", eid
+        )
+        await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+    assert row["event_place_address_id"] is None
+
+
+async def test_event_read_row_shows_address_city(client, org_and_event_type, address_city, db_pool):
+    oid, etid = org_and_event_type
+    eid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO entity_events"
+            " (id, entity_type, entity_id, event_type_id, event_year,"
+            "  event_place_address_id, visibility)"
+            " VALUES ($1, 'organization', $2, $3, 2021, $4, 'public')",
+            eid,
+            oid,
+            etid,
+            address_city,
+        )
+
+    r = client.get(f"/admin/orgs/{oid}/events/{eid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "Seattle" in r.text
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+
+
 @pytest.mark.parametrize(
     "data_override,expected_fragment",
     [
