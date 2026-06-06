@@ -11,6 +11,7 @@ from src.core.logging import get_logger
 from src.core.normalizers.address import get_address_normalizer
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
+from src.core.types import EVENT_PLACE_PRECISIONS
 
 logger = get_logger(__name__)
 
@@ -653,8 +654,11 @@ async def write_entity_events(
             )
             if addr_row is None:
                 raise ObservationRejected(f"event_place_address_id {place_addr_id!r} not found")
-            _allowed = {"city", "postal", "street"}
-            if addr_row["precision"] is not None and addr_row["precision"] not in _allowed:
+            # NULL precision = pre-geocoding / historical record — allowed intentionally.
+            if (
+                addr_row["precision"] is not None
+                and addr_row["precision"] not in EVENT_PLACE_PRECISIONS
+            ):  # noqa: E501
                 raise ObservationRejected(
                     f"event_place_address_id {place_addr_id!r} has precision "
                     f"'{addr_row['precision']}' — city, postal, or street required"

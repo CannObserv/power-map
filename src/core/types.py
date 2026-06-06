@@ -52,3 +52,9 @@ PERSON_NAME_TYPES: tuple[PersonNameType, ...] = (
 # organization_names CHECK (src/core/schema.sql).
 OrgNameType = Literal["legal", "dba", "former"]
 ORG_NAME_TYPES: tuple[OrgNameType, ...] = ("legal", "dba", "former")
+
+# addresses.precision CHECK (src/core/schema.sql migration #170).
+# Subset allowed for event_place_address_id linkage — city-level or finer.
+# NULL precision is also accepted (pre-geocoding / historical records); only
+# a known low-precision value (country, region) is rejected.
+EVENT_PLACE_PRECISIONS: frozenset[str] = frozenset({"city", "postal", "street"})

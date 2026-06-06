@@ -10,6 +10,7 @@ from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
+from src.core.types import EVENT_PLACE_PRECISIONS
 
 templates = Jinja2Templates(directory="src/templates")
 
@@ -116,9 +117,6 @@ ORDER BY display_name
 """
 
 
-_ALLOWED_PLACE_PRECISIONS = {"city", "postal", "street"}
-
-
 async def _validate_event_place_address(
     conn: asyncpg.Connection, raw_id: str
 ) -> tuple[str | None, str | None]:
@@ -133,7 +131,9 @@ async def _validate_event_place_address(
     row = await conn.fetchrow("SELECT id, precision FROM addresses WHERE id=$1", aid)
     if not row:
         return None, "Address not found."
-    if row["precision"] is not None and row["precision"] not in _ALLOWED_PLACE_PRECISIONS:
+    # NULL precision = pre-geocoding / historical record — allowed intentionally.
+    # Only a known low-precision value (country, region) is rejected.
+    if row["precision"] is not None and row["precision"] not in EVENT_PLACE_PRECISIONS:
         return None, (
             f"Address precision '{row['precision']}' is too low — "
             "city, postal, or street precision required."
