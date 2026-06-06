@@ -134,6 +134,8 @@ async def test_list_person_events_returns_event_with_all_fields(
         assert d["minute"] is None
         assert d["second"] is None
         assert d["at"] is None
+
+        assert item["event_place_address"] is None
     finally:
         await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
 
