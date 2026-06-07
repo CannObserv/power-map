@@ -111,6 +111,19 @@ async def resolve_entity(
                 entity_identifier_type_id,
                 identifier_value,
             )
+            if entity_type == "jurisdiction" and identifier_type_slug != "jur_slug":
+                jur_slug_eit = await conn.fetchrow(
+                    "SELECT id FROM entity_identifier_types WHERE slug = 'jur_slug'"
+                )
+                if jur_slug_eit is not None:
+                    await conn.execute(
+                        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+                        " VALUES ($1, $2, $3, $4)",
+                        generate_id(),
+                        entity_id,
+                        jur_slug_eit["id"],
+                        create_data["slug"],
+                    )
     except asyncpg.UniqueViolationError:
         logger.warning(
             "UniqueViolation creating %s for identifier_type=%r value=%r",
