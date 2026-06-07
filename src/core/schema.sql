@@ -1142,6 +1142,7 @@ INSERT INTO jurisdiction_types (id, slug, display_name) VALUES
     ('01KT0HK3452TNDD2WM8E50ZTAW', 'city',                       'City'),
     ('01KT0HK3452TNDD2WM8E50ZTAX', 'legislative_district_upper', 'Legislative District (Upper)'),
     ('01KT0HK3452TNDD2WM8E50ZTAY', 'legislative_district_lower', 'Legislative District (Lower)'),
+    ('01KTG6F35E4PW9PJXJ88MHY0QB', 'legislative_district',       'Legislative District'),
     ('01KT0HK3452TNDD2WM8E50ZTAZ', 'congressional_district',     'Congressional District'),
     ('01KT0HK3452TNDD2WM8E50ZTB0', 'tribal',                     'Tribal'),
     ('01KT0HK3452TNDD2WM8E50ZTB1', 'territory',                  'Territory'),
