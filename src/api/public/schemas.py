@@ -387,6 +387,18 @@ class JurisdictionObservationRequest(BaseModel):
             raise ValueError("jurisdiction_valid_from must be <= jurisdiction_valid_until")
         return self
 
+    @model_validator(mode="after")
+    def _check_jur_slug_consistency(self) -> "JurisdictionObservationRequest":
+        if (
+            self.identifier_type == "jur_slug"
+            and self.jurisdiction_slug is not None
+            and self.identifier_value != self.jurisdiction_slug
+        ):
+            raise ValueError(
+                "identifier_value must equal jurisdiction_slug when identifier_type is 'jur_slug'"
+            )
+        return self
+
 
 class EventTypeInline(BaseModel):
     """Event type embedded in event list items."""

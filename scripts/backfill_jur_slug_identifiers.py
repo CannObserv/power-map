@@ -5,8 +5,8 @@ can match jurisdictions by slug. Jurisdictions created before this migration
 have no ``jur_slug`` identifier row; this script inserts one for each, using
 the slug already stored on the ``jurisdictions`` row.
 
-Idempotent — rows already bearing a ``jur_slug`` identifier are skipped via
-``ON CONFLICT DO NOTHING``.
+Idempotent — the ``WHERE NOT EXISTS`` query skips jurisdictions that already
+have a ``jur_slug`` identifier row.
 
 Usage:
     uv run python -m scripts.backfill_jur_slug_identifiers            # dry run
@@ -40,7 +40,6 @@ ORDER BY j.created_at
 _INSERT_SQL = """
 INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)
 VALUES ($1, $2, $3, $4)
-ON CONFLICT DO NOTHING
 """
 
 

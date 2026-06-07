@@ -542,3 +542,46 @@ async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(client, jur_write
 
     await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
     await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
+
+
+async def test_jur_slug_identifier_value_must_equal_jurisdiction_slug(client, jur_write_key):
+    """identifier_value != jurisdiction_slug when identifier_type=jur_slug → 422."""
+    raw, _ = jur_write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "jur_slug",
+            "identifier_value": "slug-a",
+            "jurisdiction_slug": "slug-b",
+            "jurisdiction_name": "Mismatch Test",
+            "jurisdiction_type_slug": "state",
+        },
+    )
+    assert r.status_code == 422
+
+
+async def test_jur_slug_identifier_value_equals_jurisdiction_slug_is_accepted(
+    client, jur_write_key, db
+):
+    """identifier_value == jurisdiction_slug when identifier_type=jur_slug → accepted."""
+    raw, _ = jur_write_key
+    suffix = os.urandom(4).hex()
+    slug = f"test-slug-match-{suffix}"
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "jur_slug",
+            "identifier_value": slug,
+            "jurisdiction_slug": slug,
+            "jurisdiction_name": f"Match Test {suffix}",
+            "jurisdiction_type_slug": "state",
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "new"
+
+    eid = r.json()["entity_id"]
+    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
