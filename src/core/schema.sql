@@ -1158,7 +1158,7 @@ ON CONFLICT (id) DO UPDATE SET
     display_name = EXCLUDED.display_name;
 
 INSERT INTO jurisdiction_relationship_types (id, slug, display_name, category, is_symmetric) VALUES
-    ('01KT0HK3452TNDD2WM8E50ZTB9', 'contains',         'Contains',          'spatial',    FALSE),
+    ('01KT0HK3452TNDD2WM8E50ZTB9', 'is_fully_contained_by', 'Is Fully Contained By', 'spatial', FALSE),
     ('01KT0HK3452TNDD2WM8E50ZTBA', 'borders',          'Borders',           'spatial',    TRUE),
     ('01KT0HK3452TNDD2WM8E50ZTBB', 'overlaps',         'Overlaps',          'spatial',    TRUE),
     ('01KT0HK3452TNDD2WM8E50ZTBC', 'governs',          'Governs',           'governance', FALSE),

@@ -50,8 +50,8 @@ async def jur_fixtures(db):
     leg_upper_type_id = await db.fetchval(
         "SELECT id FROM jurisdiction_types WHERE slug='legislative_district_upper'"
     )
-    contains_type_id = await db.fetchval(
-        "SELECT id FROM jurisdiction_relationship_types WHERE slug='contains'"
+    is_contained_by_type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_relationship_types WHERE slug='is_fully_contained_by'"
     )
     supersedes_type_id = await db.fetchval(
         "SELECT id FROM jurisdiction_relationship_types WHERE slug='supersedes'"
@@ -62,7 +62,7 @@ async def jur_fixtures(db):
     ld21_id = generate_id()
     old_ld21_id = generate_id()
     archived_id = generate_id()
-    rel_contains_id = generate_id()
+    rel_is_contained_by_id = generate_id()
     rel_supersedes_id = generate_id()
     identifier_id = generate_id()
 
@@ -107,16 +107,16 @@ async def jur_fixtures(db):
         state_type_id,
     )
 
-    # WA contains LD-21 (spatial)
+    # LD-21 is_fully_contained_by WA (spatial)
     await db.execute(
         """
         INSERT INTO jurisdiction_relationships (id, from_id, to_id, rel_type_id)
         VALUES ($1,$2,$3,$4)
         """,
-        rel_contains_id,
-        wa_id,
+        rel_is_contained_by_id,
         ld21_id,
-        contains_type_id,
+        wa_id,
+        is_contained_by_type_id,
     )
     # LD-21 supersedes old_LD-21 (lineage)
     await db.execute(
@@ -147,13 +147,13 @@ async def jur_fixtures(db):
         "ld21_id": ld21_id,
         "old_ld21_id": old_ld21_id,
         "archived_id": archived_id,
-        "rel_contains_id": rel_contains_id,
+        "rel_is_contained_by_id": rel_is_contained_by_id,
         "rel_supersedes_id": rel_supersedes_id,
     }
 
     await db.execute("DELETE FROM identifiers WHERE id=$1", identifier_id)
     await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", rel_supersedes_id)
-    await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", rel_contains_id)
+    await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", rel_is_contained_by_id)
     await db.execute(
         "DELETE FROM jurisdictions WHERE id = ANY($1::text[])",
         [wa_id, ld21_id, old_ld21_id, archived_id],
@@ -375,27 +375,27 @@ async def test_relationships_empty(client, jur_api_key, jur_fixtures):
 
 
 async def test_relationships_direction_from(client, jur_api_key, jur_fixtures):
-    """WA 'from' direction → contains edge to LD-21."""
+    """LD-21 'from' direction → is_fully_contained_by edge to WA."""
     r = client.get(
-        f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships?direction=from",
+        f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/relationships?direction=from",
         headers={"X-API-Key": jur_api_key},
     )
     assert r.status_code == 200
     rels = r.json()["data"]
     rel_ids = {rel["id"] for rel in rels}
-    assert jur_fixtures["rel_contains_id"] in rel_ids
+    assert jur_fixtures["rel_is_contained_by_id"] in rel_ids
 
 
 async def test_relationships_direction_to(client, jur_api_key, jur_fixtures):
-    """LD-21 'to' direction → contains edge from WA."""
+    """WA 'to' direction → is_fully_contained_by edge from LD-21."""
     r = client.get(
-        f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/relationships?direction=to",
+        f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships?direction=to",
         headers={"X-API-Key": jur_api_key},
     )
     assert r.status_code == 200
     rels = r.json()["data"]
     rel_ids = {rel["id"] for rel in rels}
-    assert jur_fixtures["rel_contains_id"] in rel_ids
+    assert jur_fixtures["rel_is_contained_by_id"] in rel_ids
 
 
 async def test_relationships_category_filter(client, jur_api_key, jur_fixtures):
@@ -412,12 +412,12 @@ async def test_relationships_category_filter(client, jur_api_key, jur_fixtures):
 
 async def test_relationships_rel_type_filter(client, jur_api_key, jur_fixtures):
     r = client.get(
-        f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships?rel_type=contains",
+        f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships?rel_type=is_fully_contained_by",
         headers={"X-API-Key": jur_api_key},
     )
     assert r.status_code == 200
     rels = r.json()["data"]
-    assert all(rel["rel_type"]["slug"] == "contains" for rel in rels)
+    assert all(rel["rel_type"]["slug"] == "is_fully_contained_by" for rel in rels)
 
 
 async def test_relationships_not_found_returns_404(client, jur_api_key):
@@ -430,7 +430,7 @@ async def test_relationships_not_found_returns_404(client, jur_api_key):
 
 async def test_relationships_response_shape(client, jur_api_key, jur_fixtures):
     r = client.get(
-        f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships?direction=from",
+        f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/relationships?direction=from",
         headers={"X-API-Key": jur_api_key},
     )
     assert r.status_code == 200
@@ -439,7 +439,7 @@ async def test_relationships_response_shape(client, jur_api_key, jur_fixtures):
     assert "from_id" in rel
     assert "to_id" in rel
     assert "rel_type" in rel
-    assert rel["rel_type"]["is_symmetric"] is False  # 'contains' is not symmetric
+    assert rel["rel_type"]["is_symmetric"] is False  # 'is_fully_contained_by' is not symmetric
 
 
 # ---------------------------------------------------------------------------
