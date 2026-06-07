@@ -1122,7 +1122,9 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     -- Jurisdiction identifiers (#168)
     ('01KT0HK3452TNDD2WM8E50ZTBM', 'jurisdiction',    'jur_ocd',       'OCD',        'Open Civic Data Identifier'),
     ('01KT0HK3452TNDD2WM8E50ZTBN', 'jurisdiction',    'jur_fips',      'FIPS',       'Census FIPS Code'),
-    ('01KT0HK3452TNDD2WM8E50ZTBP', 'jurisdiction',    'jur_iso3166_2', 'ISO 3166-2', 'ISO 3166-2 Subdivision Code')
+    ('01KT0HK3452TNDD2WM8E50ZTBP', 'jurisdiction',    'jur_iso3166_2', 'ISO 3166-2', 'ISO 3166-2 Subdivision Code'),
+    -- Jurisdiction slug identifier (#183)
+    ('01KT0HK3452TNDD2WM8E50ZTBQ', 'jurisdiction',    'jur_slug',      'Slug',       'Jurisdiction Slug')
 ON CONFLICT (id) DO UPDATE SET
     entity_type  = EXCLUDED.entity_type,
     slug         = EXCLUDED.slug,

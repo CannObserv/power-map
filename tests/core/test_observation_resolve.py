@@ -3,6 +3,8 @@
 Uses seeded entity_identifier_types from schema.sql:
   - 'person_wa_legislature_member_id'  (entity_type=person)
   - 'org_ubi'                          (entity_type=organization)
+  - 'jur_ocd'                          (entity_type=jurisdiction)
+  - 'jur_slug'                         (entity_type=jurisdiction)
 """
 
 import pytest
@@ -144,3 +146,76 @@ async def test_idempotent_second_call_returns_auto_attached(db):
     assert second_disp == Disposition.AUTO_ATTACHED
     assert second_id == first_id
     assert second_type == first_type
+
+
+# ---------------------------------------------------------------------------
+# jur_slug self-registration
+# ---------------------------------------------------------------------------
+
+
+async def test_new_jurisdiction_via_jur_ocd_auto_registers_jur_slug(db):
+    """NEW via jur_ocd → jur_slug identifier row auto-inserted with the jurisdiction slug value."""
+    suffix = generate_id()[:8].lower()
+    slug = f"test-jur-ocd-{suffix}"
+    create_data = {"slug": slug, "name": f"Test OCD {suffix}", "type_slug": "state"}
+
+    entity_id, entity_type, disposition = await resolve_entity(
+        db,
+        "jur_ocd",
+        f"ocd-division/country:us/test:{suffix}",
+        create_data=create_data,
+    )
+
+    assert disposition == Disposition.NEW
+    assert entity_type == "jurisdiction"
+
+    slug_row = await db.fetchrow(
+        """SELECT i.value FROM identifiers i
+           JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+           WHERE i.entity_id = $1 AND t.slug = 'jur_slug'""",
+        entity_id,
+    )
+    assert slug_row is not None, "jur_slug identifier was not auto-registered"
+    assert slug_row["value"] == slug
+
+
+async def test_new_jurisdiction_via_jur_slug_no_duplicate_identifier(db):
+    """NEW via jur_slug → exactly one jur_slug identifier row, not two."""
+    suffix = generate_id()[:8].lower()
+    slug = f"test-jur-slug-{suffix}"
+    create_data = {"slug": slug, "name": f"Test Slug {suffix}", "type_slug": "state"}
+
+    entity_id, entity_type, disposition = await resolve_entity(
+        db, "jur_slug", slug, create_data=create_data
+    )
+
+    assert disposition == Disposition.NEW
+    assert entity_type == "jurisdiction"
+
+    count = await db.fetchval(
+        """SELECT COUNT(*) FROM identifiers i
+           JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+           WHERE i.entity_id = $1 AND t.slug = 'jur_slug'""",
+        entity_id,
+    )
+    assert count == 1
+
+
+async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(db):
+    """Jurisdiction created via jur_ocd → subsequent resolve via jur_slug returns AUTO_ATTACHED."""
+    suffix = generate_id()[:8].lower()
+    slug = f"test-jur-attach-{suffix}"
+    create_data = {"slug": slug, "name": f"Test Attach {suffix}", "type_slug": "state"}
+
+    entity_id, _, first_disp = await resolve_entity(
+        db,
+        "jur_ocd",
+        f"ocd-division/country:us/test:{suffix}",
+        create_data=create_data,
+    )
+    assert first_disp == Disposition.NEW
+
+    attached_id, entity_type, disp = await resolve_entity(db, "jur_slug", slug)
+    assert disp == Disposition.AUTO_ATTACHED
+    assert attached_id == entity_id
+    assert entity_type == "jurisdiction"

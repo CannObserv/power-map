@@ -444,3 +444,101 @@ async def test_slug_collision_returns_rejected(client, jur_write_key, db):
 
     await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
     await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
+
+
+# ---------------------------------------------------------------------------
+# jur_slug identifier type
+# ---------------------------------------------------------------------------
+
+
+async def test_new_via_jur_slug_returns_new_disposition(client, jur_write_key, db):
+    """POST with identifier_type=jur_slug creates a new jurisdiction."""
+    raw, _ = jur_write_key
+    suffix = os.urandom(4).hex()
+    slug = f"test-slug-direct-{suffix}"
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "jur_slug",
+            "identifier_value": slug,
+            "jurisdiction_slug": slug,
+            "jurisdiction_name": f"Test Slug Direct {suffix}",
+            "jurisdiction_type_slug": "state",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "new"
+    assert body["entity_type"] == "jurisdiction"
+
+    row = await db.fetchrow("SELECT slug FROM jurisdictions WHERE id=$1", body["entity_id"])
+    assert row["slug"] == slug
+
+    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", body["entity_id"])
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", body["entity_id"])
+
+
+async def test_new_via_jur_ocd_auto_registers_jur_slug_identifier(client, jur_write_key, db):
+    """NEW via jur_ocd → jur_slug identifier row auto-inserted for cross-type matching."""
+    raw, _ = jur_write_key
+    suffix = os.urandom(4).hex()
+    slug = f"test-slug-reg-{suffix}"
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "jur_ocd",
+            "identifier_value": f"ocd-division/country:us/test:{suffix}",
+            "jurisdiction_slug": slug,
+            "jurisdiction_name": f"Test Slug Reg {suffix}",
+            "jurisdiction_type_slug": "state",
+        },
+    )
+    assert r.status_code == 200
+    eid = r.json()["entity_id"]
+
+    count = await db.fetchval(
+        """SELECT COUNT(*) FROM identifiers i
+           JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+           WHERE i.entity_id = $1 AND t.slug = 'jur_slug'""",
+        eid,
+    )
+    assert count == 1
+
+    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
+
+
+async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(client, jur_write_key, db):
+    """Jurisdiction created via jur_ocd → subsequent jur_slug observation AUTO_ATTACHes."""
+    raw, _ = jur_write_key
+    suffix = os.urandom(4).hex()
+    slug = f"test-slug-attach-{suffix}"
+
+    r1 = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "jur_ocd",
+            "identifier_value": f"ocd-division/country:us/test:{suffix}",
+            "jurisdiction_slug": slug,
+            "jurisdiction_name": f"Test Slug Attach {suffix}",
+            "jurisdiction_type_slug": "state",
+        },
+    )
+    assert r1.status_code == 200
+    assert r1.json()["disposition"] == "new"
+    eid = r1.json()["entity_id"]
+
+    r2 = _post(
+        client,
+        raw,
+        {"identifier_type": "jur_slug", "identifier_value": slug},
+    )
+    assert r2.status_code == 200
+    assert r2.json()["disposition"] == "auto-attached"
+    assert r2.json()["entity_id"] == eid
+
+    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
