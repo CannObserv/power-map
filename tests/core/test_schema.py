@@ -905,6 +905,15 @@ async def test_google_drive_link_type_seeded(db):
     assert row["is_social"] is False
 
 
+async def test_legislative_district_type_seeded(db):
+    """Generic legislative_district type must exist (shared upper/lower boundary states like WA)."""
+    row = await db.fetchrow(
+        "SELECT id, slug, display_name FROM jurisdiction_types WHERE slug = 'legislative_district'"
+    )
+    assert row is not None, "jurisdiction_type 'legislative_district' not seeded — check schema.sql"
+    assert row["display_name"] == "Legislative District"
+
+
 # ---------------------------------------------------------------------------
 # import_provenance: FK constraint
 # ---------------------------------------------------------------------------
