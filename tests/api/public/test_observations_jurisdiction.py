@@ -544,10 +544,12 @@ async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(client, jur_write
     await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
 
 
-async def test_jur_slug_identifier_value_must_equal_jurisdiction_slug(client, jur_write_key):
-    """identifier_value != jurisdiction_slug when identifier_type=jur_slug → 422."""
+async def test_jur_slug_identifier_value_jurisdiction_slug_consistency(client, jur_write_key, db):
+    """identifier_type=jur_slug: mismatch → 422; match → new."""
     raw, _ = jur_write_key
-    r = _post(
+
+    # Divergent values are rejected at the Pydantic layer.
+    r_bad = _post(
         client,
         raw,
         {
@@ -558,17 +560,12 @@ async def test_jur_slug_identifier_value_must_equal_jurisdiction_slug(client, ju
             "jurisdiction_type_slug": "state",
         },
     )
-    assert r.status_code == 422
+    assert r_bad.status_code == 422
 
-
-async def test_jur_slug_identifier_value_equals_jurisdiction_slug_is_accepted(
-    client, jur_write_key, db
-):
-    """identifier_value == jurisdiction_slug when identifier_type=jur_slug → accepted."""
-    raw, _ = jur_write_key
+    # Equal values are accepted.
     suffix = os.urandom(4).hex()
     slug = f"test-slug-match-{suffix}"
-    r = _post(
+    r_ok = _post(
         client,
         raw,
         {
@@ -579,9 +576,9 @@ async def test_jur_slug_identifier_value_equals_jurisdiction_slug_is_accepted(
             "jurisdiction_type_slug": "state",
         },
     )
-    assert r.status_code == 200
-    assert r.json()["disposition"] == "new"
+    assert r_ok.status_code == 200
+    assert r_ok.json()["disposition"] == "new"
 
-    eid = r.json()["entity_id"]
+    eid = r_ok.json()["entity_id"]
     await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
     await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)

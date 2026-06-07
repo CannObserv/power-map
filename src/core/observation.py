@@ -100,7 +100,7 @@ async def resolve_entity(
             return "", "", Disposition.REJECTED
         create_data = {**create_data, "type_id": type_row["id"]}
 
-    # Fetch jur_slug type id before the transaction (immutable seed table).
+    # Resolved once per call; entity_identifier_types is append-only after apply_schema.
     jur_slug_type_id: str | None = None
     if entity_type == "jurisdiction" and identifier_type_slug != "jur_slug":
         jur_slug_eit = await conn.fetchrow(
