@@ -100,6 +100,21 @@ async def resolve_entity(
             return "", "", Disposition.REJECTED
         create_data = {**create_data, "type_id": type_row["id"]}
 
+    # Fetch jur_slug type id before the transaction (immutable seed table).
+    jur_slug_type_id: str | None = None
+    if entity_type == "jurisdiction" and identifier_type_slug != "jur_slug":
+        jur_slug_eit = await conn.fetchrow(
+            "SELECT id FROM entity_identifier_types WHERE slug = 'jur_slug'"
+        )
+        if jur_slug_eit is None:
+            logger.warning(
+                "jur_slug identifier type not found — slug auto-registration skipped"
+                " for identifier_type=%r",
+                identifier_type_slug,
+            )
+        else:
+            jur_slug_type_id = jur_slug_eit["id"]
+
     try:
         async with conn.transaction():
             entity_id = await _create_entity(conn, entity_type, create_data=create_data)
@@ -111,19 +126,15 @@ async def resolve_entity(
                 entity_identifier_type_id,
                 identifier_value,
             )
-            if entity_type == "jurisdiction" and identifier_type_slug != "jur_slug":
-                jur_slug_eit = await conn.fetchrow(
-                    "SELECT id FROM entity_identifier_types WHERE slug = 'jur_slug'"
+            if jur_slug_type_id is not None:
+                await conn.execute(
+                    "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+                    " VALUES ($1, $2, $3, $4)",
+                    generate_id(),
+                    entity_id,
+                    jur_slug_type_id,
+                    create_data["slug"],
                 )
-                if jur_slug_eit is not None:
-                    await conn.execute(
-                        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
-                        " VALUES ($1, $2, $3, $4)",
-                        generate_id(),
-                        entity_id,
-                        jur_slug_eit["id"],
-                        create_data["slug"],
-                    )
     except asyncpg.UniqueViolationError:
         logger.warning(
             "UniqueViolation creating %s for identifier_type=%r value=%r",
