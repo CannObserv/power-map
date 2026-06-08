@@ -144,7 +144,11 @@ def test_detail_requires_api_key(client):
 
 
 async def test_list_returns_paginated_roles(client, api_key, role_fixtures):
-    r = client.get(_LIST, headers={"X-API-Key": api_key})
+    r = client.get(
+        _LIST,
+        params={"organization_id": role_fixtures["org_id"]},
+        headers={"X-API-Key": api_key},
+    )
     assert r.status_code == 200
     body = r.json()
     assert "data" in body
@@ -157,7 +161,11 @@ async def test_list_returns_paginated_roles(client, api_key, role_fixtures):
 
 
 async def test_list_shape(client, api_key, role_fixtures):
-    r = client.get(_LIST, headers={"X-API-Key": api_key})
+    r = client.get(
+        _LIST,
+        params={"organization_id": role_fixtures["org_id"]},
+        headers={"X-API-Key": api_key},
+    )
     item = next(i for i in r.json()["data"] if i["id"] == role_fixtures["r1"])
     assert item["organization_id"] == role_fixtures["org_id"]
     assert item["title"] == "Chair"
