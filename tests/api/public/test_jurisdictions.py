@@ -417,6 +417,7 @@ async def test_relationships_rel_type_filter(client, jur_api_key, jur_fixtures):
     )
     assert r.status_code == 200
     rels = r.json()["data"]
+    assert len(rels) >= 1
     assert all(rel["rel_type"]["slug"] == "is_fully_contained_by" for rel in rels)
 
 

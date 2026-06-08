@@ -14,6 +14,7 @@ import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import asyncpg
 
@@ -23,13 +24,13 @@ from src.core.logging import configure_logging, get_logger
 logger = get_logger(__name__)
 
 
-def load_seed_file(path: Path) -> dict:
+def load_seed_file(path: Path) -> dict[str, Any]:
     """Load and return the seed JSON (jurisdictions + relationships arrays)."""
     with path.open() as f:
         return json.load(f)
 
 
-async def upsert_jurisdictions(conn, rows: Iterator[dict]) -> int:
+async def upsert_jurisdictions(conn: asyncpg.Connection, rows: Iterator[dict]) -> int:
     """Upsert jurisdiction rows; also seed jur_slug identifier when missing.
 
     Returns the number of rows processed.
@@ -84,7 +85,7 @@ async def upsert_jurisdictions(conn, rows: Iterator[dict]) -> int:
     return count
 
 
-async def upsert_jurisdiction_relationships(conn, rows: Iterator[dict]) -> int:
+async def upsert_jurisdiction_relationships(conn: asyncpg.Connection, rows: Iterator[dict]) -> int:
     """Insert jurisdiction relationships that do not already exist.
 
     Returns the number of rows processed (not necessarily inserted — existing

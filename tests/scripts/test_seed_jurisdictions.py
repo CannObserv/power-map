@@ -62,14 +62,14 @@ def test_load_seed_file_relationship_shape(seed_file):
     assert {"subject_slug", "object_slug", "relationship_type"} <= set(rel)
 
 
-def test_load_seed_file_strips_comment_key(seed_file):
-    """_comment key is ignored — only jurisdictions + relationships matter."""
+def test_load_seed_file_extra_key_doesnt_break_parsing(seed_file):
+    """Extra keys (e.g. _comment) in the seed file don't corrupt the data."""
     with_comment = {**_MINIMAL_SEED, "_comment": "ignore me"}
     p = seed_file.parent / "with_comment.json"
     p.write_text(json.dumps(with_comment))
     data = load_seed_file(p)
-    assert "_comment" not in {"jurisdictions", "relationships"} or True
     assert len(data["jurisdictions"]) == 2
+    assert len(data["relationships"]) == 1
 
 
 def test_load_seed_file_actual_wa_file():

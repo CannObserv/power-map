@@ -217,6 +217,27 @@ Required after a fresh `apply_schema` on a brand-new DB. The FK on
 write fails until this script populates the lookup tables. `apply_schema`
 logs a WARNING when either lookup table is empty.
 
+## Seed jurisdictions from a pre-seed JSON file (idempotent)
+
+Prerequisite: `apply_schema` must be run first so the `jurisdiction_relationship_types` seed
+rows (including `is_fully_contained_by`) are present. Without it the script raises
+`ValueError: Unknown relationship type`.
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+# Dry run — show counts, no DB writes
+uv run "${env_args[@]}" python -m scripts.seed_jurisdictions data/cannabis_observer/2026_06_07-usa_wa-jurisdictions.json
+
+# Execute — upsert jurisdictions + relationships and commit
+uv run "${env_args[@]}" python -m scripts.seed_jurisdictions data/cannabis_observer/2026_06_07-usa_wa-jurisdictions.json --execute
+```
+
+Safe to re-run; upserts are idempotent.
+
 ## Tombstone cleanup (deleted_entities TTL)
 
 Rows in `deleted_entities` older than 90 days are safe to purge — sibling services should have invalidated their caches by then. Run manually or via cron:
