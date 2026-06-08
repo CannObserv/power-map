@@ -20,11 +20,7 @@ INTEGRATION_SKIP_REASON = (
     "TEST_DATABASE_URL not set — set it in .env (see docs/COMMANDS.md); skipping integration tests"
 )
 
-# Lookup/reference tables whose rows are shared across all tests and must not
-# be wiped (link_types, entity_identifier_types, entity_event_types,
-# jurisdiction_types, jurisdiction_relationship_types, bcp47_locales,
-# iso15924_scripts, api_key_scope_types).  Everything else is truncated at
-# session start so accumulated data from prior runs can't affect assertions.
+# Reference/lookup tables whose seed rows must survive the per-session truncation.
 _REFERENCE_TABLES = frozenset(
     {
         "link_types",
@@ -78,7 +74,8 @@ async def db_pool():
 
     Eliminates per-helper-call TCP handshake + asyncpg type-introspection
     overhead. Schema is applied once on first acquisition; downstream fixtures
-    reuse the prepared DB.
+    reuse the prepared DB. Data tables (everything except reference/lookup
+    tables) are truncated at session start to prevent cross-session accumulation.
 
     To consume this fixture from a test module, opt the module into session
     loop scope so the pool (bound to the session loop) is awaitable from tests:
