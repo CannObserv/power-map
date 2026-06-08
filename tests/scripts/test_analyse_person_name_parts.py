@@ -228,7 +228,8 @@ async def test_analysis_summary_buckets_by_confidence(db, tmp_path: Path):
     nid_cjk = await _seed(db, name="毛澤東", locale=None, script=None)  # skip (no script)
     nid_mrz = await _seed(db, name="Some MRZ", name_type="mrz")  # skip (name_type)
     out_path = tmp_path / "analysis.csv"
-    await run_analysis(db, output_path=out_path)
+    stats = await run_analysis(db, output_path=out_path)
+    assert stats.rows_analysed >= 4  # at minimum our four seeded rows
     rows = {r["id"]: r for r in csv.DictReader(io.StringIO(out_path.read_text()))}
     assert rows[nid_trivial]["confidence"] == "trivial"
     assert rows[nid_ambiguous]["confidence"] == "ambiguous"

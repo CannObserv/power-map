@@ -219,6 +219,11 @@ async def test_execute_skips_non_latin_rows_and_reports_them(db):
     assert result.locale_updated >= 1  # Jane Doe row at minimum
     assert result.script_updated >= 1
     assert any(sid == nid_cjk for sid, _ in result.skipped)
+    ok_row = await db.fetchrow(
+        "SELECT locale FROM person_names WHERE id=$1",
+        nid_ok,
+    )
+    assert ok_row["locale"] == "en-US"  # ASCII row correctly processed
     cjk_row = await db.fetchrow(
         "SELECT locale, script FROM person_names WHERE id=$1",
         nid_cjk,
@@ -283,10 +288,11 @@ async def test_execute_does_not_overwrite_already_set_locale(db):
     result = await run_backfill(db, dry_run=False)
     assert result.script_updated >= 1
     row = await db.fetchrow(
-        "SELECT locale FROM person_names WHERE id=$1",
+        "SELECT locale, script FROM person_names WHERE id=$1",
         nid,
     )
     assert row["locale"] == "en-US"  # pre-set locale unchanged
+    assert row["script"] == "Latn"  # script was populated
 
 
 @pytestmark_int
