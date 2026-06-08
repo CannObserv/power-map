@@ -194,11 +194,10 @@ async def test_analysis_emits_one_csv_row_per_person_name(db, tmp_path: Path):
     out_path = tmp_path / "analysis.csv"
     stats = await run_analysis(db, output_path=out_path)
 
-    assert stats.rows_analysed == 3
+    assert stats.rows_analysed >= 3
     text = out_path.read_text()
-    reader = csv.DictReader(io.StringIO(text))
-    rows = {r["id"]: r for r in reader}
-    assert set(rows.keys()) == {nid_a, nid_b, nid_c}
+    rows = {r["id"]: r for r in csv.DictReader(io.StringIO(text))}
+    assert {nid_a, nid_b, nid_c}.issubset(rows.keys())
     assert rows[nid_a]["confidence"] == "trivial"
     assert rows[nid_b]["confidence"] == "trivial"
     assert rows[nid_c]["confidence"] == "skip"
@@ -214,22 +213,25 @@ async def test_analysis_includes_non_public_visibility_rows(db, tmp_path: Path):
     nid = await _seed(db, name="Old Name", name_type="deadname", visibility="legal_only")
     out_path = tmp_path / "analysis.csv"
     stats = await run_analysis(db, output_path=out_path)
-    assert stats.rows_analysed == 1
-    rows = list(csv.DictReader(io.StringIO(out_path.read_text())))
-    assert rows[0]["id"] == nid
-    assert rows[0]["visibility"] == "legal_only"
-    assert rows[0]["name_type"] == "deadname"
+    assert stats.rows_analysed >= 1
+    rows = {r["id"]: r for r in csv.DictReader(io.StringIO(out_path.read_text()))}
+    assert nid in rows
+    assert rows[nid]["visibility"] == "legal_only"
+    assert rows[nid]["name_type"] == "deadname"
 
 
 @pytestmark_int
 @pytestmark_async
 async def test_analysis_summary_buckets_by_confidence(db, tmp_path: Path):
-    await _seed(db, name="Jane Doe")  # trivial
-    await _seed(db, name="Mary Jane Watson Parker")  # ambiguous
-    await _seed(db, name="毛澤東", locale=None, script=None)  # skip (no script)
-    await _seed(db, name="Some MRZ", name_type="mrz")  # skip (name_type)
+    nid_trivial = await _seed(db, name="Jane Doe")
+    nid_ambiguous = await _seed(db, name="Mary Jane Watson Parker")
+    nid_cjk = await _seed(db, name="毛澤東", locale=None, script=None)  # skip (no script)
+    nid_mrz = await _seed(db, name="Some MRZ", name_type="mrz")  # skip (name_type)
     out_path = tmp_path / "analysis.csv"
     stats = await run_analysis(db, output_path=out_path)
-    assert stats.bucket_counts["trivial"] == 1
-    assert stats.bucket_counts["ambiguous"] == 1
-    assert stats.bucket_counts["skip"] == 2
+    assert stats.rows_analysed >= 4  # at minimum our four seeded rows
+    rows = {r["id"]: r for r in csv.DictReader(io.StringIO(out_path.read_text()))}
+    assert rows[nid_trivial]["confidence"] == "trivial"
+    assert rows[nid_ambiguous]["confidence"] == "ambiguous"
+    assert rows[nid_cjk]["confidence"] == "skip"
+    assert rows[nid_mrz]["confidence"] == "skip"

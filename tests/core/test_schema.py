@@ -652,7 +652,7 @@ async def test_contact_method_invalid_entity_type_rejected(db):
                 " (id, entity_type, entity_id, contact_type, value)"
                 " VALUES ($1, $2, $3, 'email', 'x@example.com')",
                 generate_id(),
-                "role",  # not in ('organization', 'person', 'role_assignment')
+                "nonexistent_type",  # not in the CHECK constraint's allowed values
                 org_id,
             )
 
