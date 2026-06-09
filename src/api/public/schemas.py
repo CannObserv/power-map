@@ -127,6 +127,68 @@ class PersonDetail(PersonSearchResult):
 
     names: list[PersonName] = Field(default_factory=list)
     identifiers: list[PersonIdentifier] = Field(default_factory=list)
+    voice_embeddings_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Voice embeddings
+# ---------------------------------------------------------------------------
+
+
+class EmbeddingSource(BaseModel):
+    """Source provenance for a voice embedding observation."""
+
+    service: str
+    job_id: str
+    segment: int
+    recorded_at: datetime
+
+    @field_serializer("recorded_at")
+    def _serialize_recorded_at(self, v: datetime) -> str:
+        return fmt_ts(v)
+
+
+class EmbeddingWriteRequest(BaseModel):
+    """Request body for POST /api/v1/people/{id}/embeddings."""
+
+    model_id: str
+    embedding: list[float]
+    activity_ms: int = Field(ge=0)
+    audio_sample_rate_hz: int
+    source: EmbeddingSource
+
+
+class EmbeddingWriteResponse(BaseModel):
+    """Response for a successful embedding write (new or idempotent duplicate)."""
+
+    embedding_id: str
+    person_id: str
+    created_at: str
+
+
+class IdentifyRequest(BaseModel):
+    """Request body for POST /api/v1/people/identify."""
+
+    model_id: str
+    embedding: list[float]
+    top_k: int = 5
+
+
+class IdentifyMatch(BaseModel):
+    """A single candidate match returned by the identify endpoint."""
+
+    person_id: str
+    person_name: str | None
+    similarity: float
+    embedding_id: str
+    source_job_id: str
+    recorded_at: str
+
+
+class IdentifyResponse(BaseModel):
+    """Response envelope for POST /api/v1/people/identify."""
+
+    matches: list[IdentifyMatch]
 
 
 class LinkType(BaseModel):

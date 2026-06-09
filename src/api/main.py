@@ -14,6 +14,7 @@ from src.api.admin.assets import (
 )
 from src.api.admin.router import admin_router
 from src.api.public.router import router as public_router
+from src.core.embedding_registry import EmbeddingRegistry
 from src.core.logging import configure_logging
 
 configure_logging()
@@ -27,7 +28,11 @@ async def lifespan(app: FastAPI):
     """Create and close the asyncpg connection pool."""
     dsn = os.environ.get("DATABASE_URL")
     if dsn:
-        await db.create_pool(dsn)
+        pool = await db.create_pool(dsn)
+        async with pool.acquire() as conn:
+            app.state.embedding_registry = await EmbeddingRegistry.load(conn)
+    else:
+        app.state.embedding_registry = EmbeddingRegistry({})
     yield
     await db.close_pool()
 

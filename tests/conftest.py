@@ -31,6 +31,7 @@ _REFERENCE_TABLES = frozenset(
         "bcp47_locales",
         "iso15924_scripts",
         "api_key_scope_types",
+        "embedding_model_registry",
     }
 )
 

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from src.api.public.assignments import router as assignments_router
 from src.api.public.changes import router as changes_router
 from src.api.public.deps import require_api_key
+from src.api.public.embeddings import router as embeddings_router
 from src.api.public.entity_event_types import router as entity_event_types_router
 from src.api.public.jurisdictions import router as jurisdictions_router
 from src.api.public.link_types import router as link_types_router
@@ -15,6 +16,9 @@ from src.api.public.roles import router as roles_router
 router = APIRouter(prefix="/api/v1", tags=["public-api"])
 router.include_router(assignments_router)
 router.include_router(changes_router)
+# embeddings_router registered before people_router: /people/identify (static)
+# must be resolved before /people/{id} (dynamic) for POST routes.
+router.include_router(embeddings_router)
 router.include_router(entity_event_types_router)
 router.include_router(jurisdictions_router)
 router.include_router(link_types_router)

@@ -1563,3 +1563,100 @@ ALTER TABLE contact_methods ADD CONSTRAINT contact_methods_entity_type_check
 ALTER TABLE entity_addresses DROP CONSTRAINT IF EXISTS entity_addresses_entity_type_check;
 ALTER TABLE entity_addresses ADD CONSTRAINT entity_addresses_entity_type_check
     CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction'));
+
+-- =============================================================================
+-- Migration (#188): voice embeddings — pgvector, embedding model registry,
+--                   pyannote-community-1-embed table, new API scopes.
+-- =============================================================================
+
+-- Requires the postgresql-*-pgvector OS package and superuser to create the
+-- first time; idempotent on subsequent apply_schema runs.
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ---------------------------------------------------------------------------
+-- Embedding model registry
+-- ---------------------------------------------------------------------------
+
+DO $$ BEGIN
+    CREATE TYPE vector_metric AS ENUM ('cosine', 'l2', 'inner_product');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS embedding_model_registry (
+    model_id                  TEXT        PRIMARY KEY,
+    table_name                VARCHAR(63) NOT NULL UNIQUE,
+    dimension                 INT         NOT NULL,
+    metric                    vector_metric NOT NULL,
+    accepts_writes            BOOLEAN     NOT NULL DEFAULT true,
+    is_queryable              BOOLEAN     NOT NULL DEFAULT true,
+    is_default_for_enrollment BOOLEAN     NOT NULL DEFAULT false,
+    created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deprecated_at             TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS embedding_model_registry_default_enrollment_idx
+    ON embedding_model_registry (is_default_for_enrollment)
+    WHERE is_default_for_enrollment = true;
+
+INSERT INTO embedding_model_registry
+    (model_id, table_name, dimension, metric, is_default_for_enrollment)
+VALUES
+    ('pyannote-community-1-embed',
+     'person_embeddings_pyannote_community_1_embed',
+     192,
+     'cosine',
+     true)
+ON CONFLICT (model_id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- pyannote-community-1-embed embeddings table
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS person_embeddings_pyannote_community_1_embed (
+    id                   CHAR(26)    PRIMARY KEY,
+    person_id            CHAR(26)    NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+
+    embedding            vector(192) NOT NULL,
+    embedding_dim        INT         NOT NULL CHECK (embedding_dim = 192),
+
+    activity_ms          INT         NOT NULL CHECK (activity_ms >= 0),
+    audio_sample_rate_hz INT         NOT NULL,
+    source_service       TEXT        NOT NULL,
+    source_job_id        TEXT        NOT NULL,
+    source_segment       INT         NOT NULL,
+    recorded_at          TIMESTAMPTZ NOT NULL,
+
+    created_by_key_id    CHAR(26)    NOT NULL REFERENCES api_keys(id),
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    archived_at          TIMESTAMPTZ,
+    meta                 JSONB       NOT NULL DEFAULT '{}'::jsonb,
+
+    CONSTRAINT person_embeddings_pyannote_community_1_embed_source_unique
+        UNIQUE (source_service, source_job_id, source_segment, person_id)
+);
+
+CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_person_id_idx
+    ON person_embeddings_pyannote_community_1_embed (person_id)
+    WHERE archived_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_source_job_id_idx
+    ON person_embeddings_pyannote_community_1_embed (source_job_id);
+
+CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_hnsw
+    ON person_embeddings_pyannote_community_1_embed
+    USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64)
+    WHERE archived_at IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- New API scopes
+-- ---------------------------------------------------------------------------
+
+INSERT INTO api_key_scope_types (id, display_name, description) VALUES
+    ('voice_embeddings:write',
+     'Voice Embeddings: Write',
+     'Write voice embedding observations via POST /api/v1/people/{id}/embeddings'),
+    ('voice_embeddings:read',
+     'Voice Embeddings: Read',
+     'Query persons by voice embedding similarity via POST /api/v1/people/identify')
+ON CONFLICT (id) DO NOTHING;

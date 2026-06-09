@@ -227,7 +227,7 @@ async def get_person(
     for k, v in cache_headers.items():
         response.headers[k] = v
 
-    names, identifiers = await _fetch_detail_arrays(person_id, db)
+    names, identifiers, voice_count = await _fetch_detail_arrays(person_id, db)
 
     return {
         "id": row["id"],
@@ -235,6 +235,7 @@ async def get_person(
         "archived_at": row["archived_at"],
         "names": [dict(n) for n in names],
         "identifiers": [dict(i) for i in identifiers],
+        "voice_embeddings_count": voice_count,
     }
 
 
@@ -300,8 +301,8 @@ async def list_person_events(
     }
 
 
-async def _fetch_detail_arrays(person_id: str, db: Any) -> tuple[list[Any], list[Any]]:
-    """Fetch public name variants and identifiers for a person."""
+async def _fetch_detail_arrays(person_id: str, db: Any) -> tuple[list[Any], list[Any], int]:
+    """Fetch public name variants, identifiers, and active embedding count for a person."""
     names = await db.fetch(
         f"""
         SELECT id, name, name_type, locale, is_canonical
@@ -322,4 +323,15 @@ async def _fetch_detail_arrays(person_id: str, db: Any) -> tuple[list[Any], list
         """,
         person_id,
     )
-    return names, identifiers
+    voice_count: int = (
+        await db.fetchval(
+            """
+        SELECT COUNT(*)
+        FROM person_embeddings_pyannote_community_1_embed
+        WHERE person_id = $1 AND archived_at IS NULL
+        """,
+            person_id,
+        )
+        or 0
+    )
+    return names, identifiers, voice_count
