@@ -212,7 +212,7 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/people/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `include_archived`, `limit`, `offset`. |
-| `GET` | `/api/v1/people/{id}` | API key | Detail by ULID. Returns public name variants, identifiers, and `voice_embeddings_count`. ETag caching — see caching section above. |
+| `GET` | `/api/v1/people/{id}` | API key | Detail by ULID. Returns public name variants, identifiers, `voice_embeddings_count`, `created_at`, and `updated_at`. ETag caching — see caching section above. |
 | `GET` | `/api/v1/people/{id}/events` | API key | Paginated lifecycle events for a person. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. |
 | `POST` | `/api/v1/people/observations` | `observations:write` scope | Submit a person identity observation. |
 | `POST` | `/api/v1/people/identify` | `voice_embeddings:read` scope | Identify a person by voice embedding similarity. Returns top-k matches ordered by cosine similarity. Body: `{model_id, embedding, top_k?}`. Unknown model → empty matches; dimension mismatch → 422. |
@@ -258,7 +258,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/orgs/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `include_archived`, `limit`, `offset`. |
-| `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, and identifiers. ETag caching — see caching section above. |
+| `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, identifiers, `created_at`, and `updated_at`. ETag caching — see caching section above. |
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. |
 | `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
 

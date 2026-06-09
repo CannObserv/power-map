@@ -87,7 +87,7 @@ class OrgDetail(OrgSearchResult):
 
     @field_serializer("created_at", "updated_at")
     def _serialize_ts(self, v: datetime) -> str:
-        return fmt_ts(v)
+        return v.isoformat().replace("+00:00", "Z")
 
 
 class PersonSearchResult(BaseModel):
@@ -139,7 +139,7 @@ class PersonDetail(PersonSearchResult):
 
     @field_serializer("created_at", "updated_at")
     def _serialize_ts(self, v: datetime) -> str:
-        return fmt_ts(v)
+        return v.isoformat().replace("+00:00", "Z")
 
 
 # ---------------------------------------------------------------------------
