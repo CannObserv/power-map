@@ -16,7 +16,6 @@ from src.core.types import PERSON_NAME_TYPES
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}

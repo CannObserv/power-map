@@ -11,7 +11,6 @@ from src.core.db import generate_id
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 AUTH_HEADERS = {"X-ExeDev-UserID": "test-user", "X-ExeDev-Email": "test@example.com"}

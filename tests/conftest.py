@@ -78,13 +78,9 @@ async def db_pool():
     reuse the prepared DB. Data tables (everything except reference/lookup
     tables) are truncated at session start to prevent cross-session accumulation.
 
-    To consume this fixture from a test module, opt the module into session
-    loop scope so the pool (bound to the session loop) is awaitable from tests:
+    To consume this fixture from a test module, mark it as integration:
 
-        pytestmark = [
-            pytest.mark.integration,
-            pytest.mark.asyncio(loop_scope="session"),
-        ]
+        pytestmark = pytest.mark.integration
 
     Then have fixtures and tests accept ``db_pool`` and use
     ``async with db_pool.acquire() as conn:`` instead of

@@ -8,7 +8,7 @@ import pytest_asyncio
 
 from src.core.db import generate_id
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
+pytestmark = pytest.mark.integration
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +300,6 @@ async def test_list_org_events_404_when_org_not_found(client, api_key):
 
 
 @pytest.mark.integration
-@pytest.mark.asyncio(loop_scope="session")
 async def test_list_org_events_401_with_invalid_key(client):
     """GET /api/v1/orgs/{id}/events with invalid key returns 401."""
     response = client.get(

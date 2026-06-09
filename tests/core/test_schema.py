@@ -26,7 +26,6 @@ from src.core.types import PERSON_NAME_TYPES
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 

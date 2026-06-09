@@ -20,7 +20,6 @@ from scripts.migrate_person_name_parts import (
 from src.core.db import generate_id
 
 pytestmark = pytest.mark.integration
-pytestmark_async = pytest.mark.asyncio(loop_scope="session")
 
 
 # ---- Unit: CSV row parsing -------------------------------------------------
@@ -209,7 +208,6 @@ async def _fetch_parts(conn: asyncpg.Connection, name_id: str) -> dict | None:
 # ---- Migration behaviour ---------------------------------------------------
 
 
-@pytestmark_async
 async def test_migration_dry_run_does_not_write_parts(db, tmp_path):
     pid, nid = await _seed_name(db, name="Jane Doe")
     csv_path = _write_csv(tmp_path, [_csv_row(nid, pid)])
@@ -220,7 +218,6 @@ async def test_migration_dry_run_does_not_write_parts(db, tmp_path):
     assert parts is None  # rolled back
 
 
-@pytestmark_async
 async def test_migration_execute_inserts_parts_row(db, tmp_path):
     pid, nid = await _seed_name(db, name="Jane Doe")
     csv_path = _write_csv(tmp_path, [_csv_row(nid, pid)])
@@ -233,7 +230,6 @@ async def test_migration_execute_inserts_parts_row(db, tmp_path):
     assert parts["primary_identifier"] == "family"
 
 
-@pytestmark_async
 async def test_migration_skips_ambiguous_by_default(db, tmp_path):
     pid, nid = await _seed_name(db, name="Sean or Shawn Collins")
     csv_path = _write_csv(
@@ -256,7 +252,6 @@ async def test_migration_skips_ambiguous_by_default(db, tmp_path):
     assert parts is None
 
 
-@pytestmark_async
 async def test_migration_skips_skip_bucket(db, tmp_path):
     pid, nid = await _seed_name(db, name="JFK", name_type="initials")
     csv_path = _write_csv(
@@ -281,7 +276,6 @@ async def test_migration_skips_skip_bucket(db, tmp_path):
     assert parts is None
 
 
-@pytestmark_async
 async def test_migration_includes_ambiguous_when_filter_widens(db, tmp_path):
     """`--include-ambiguous` lets the operator commit reviewed ambiguous rows."""
     pid, nid = await _seed_name(db, name="Sean or Shawn Collins")
@@ -310,7 +304,6 @@ async def test_migration_includes_ambiguous_when_filter_widens(db, tmp_path):
     assert parts["additional_names"] == ["or", "Shawn"]
 
 
-@pytestmark_async
 async def test_migration_idempotent_re_run_replaces_in_place(db, tmp_path):
     """upsert_or_delete_parts is ON CONFLICT DO UPDATE — re-running just
     re-writes the same row, no duplicates."""
@@ -325,7 +318,6 @@ async def test_migration_idempotent_re_run_replaces_in_place(db, tmp_path):
     assert n_parts == 1
 
 
-@pytestmark_async
 async def test_migration_atomic_on_validation_error(db, tmp_path):
     """upsert_or_delete_parts validation errors abort the whole run."""
     pid_a, nid_a = await _seed_name(db, name="Alice")
@@ -344,7 +336,6 @@ async def test_migration_atomic_on_validation_error(db, tmp_path):
     assert await _fetch_parts(db, nid_a) is None  # rolled back
 
 
-@pytestmark_async
 async def test_migration_counts_buckets_for_summary(db, tmp_path):
     pid_t, nid_t = await _seed_name(db, name="Trivial")
     pid_a, nid_a = await _seed_name(db, name="Ambig")

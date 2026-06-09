@@ -33,7 +33,6 @@ from src.core.observation import (
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 

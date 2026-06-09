@@ -16,7 +16,6 @@ from src.api.main import app
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}

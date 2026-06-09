@@ -115,7 +115,6 @@ def test_csv_columns_includes_all_required_fields():
 
 
 pytestmark_int = pytest.mark.integration
-pytestmark_async = pytest.mark.asyncio(loop_scope="session")
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -183,7 +182,6 @@ async def _seed(
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_analysis_emits_one_csv_row_per_person_name(db, tmp_path: Path):
     nid_a = await _seed(db, name="Jane Doe")
     nid_b = await _seed(db, name="Hans van der Berg")
@@ -205,7 +203,6 @@ async def test_analysis_emits_one_csv_row_per_person_name(db, tmp_path: Path):
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_analysis_includes_non_public_visibility_rows(db, tmp_path: Path):
     """Decomposition is *allowed* on legal_only / hidden rows but must be
     flagged for separate review — the analyser includes them in the CSV
@@ -221,7 +218,6 @@ async def test_analysis_includes_non_public_visibility_rows(db, tmp_path: Path):
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_analysis_summary_buckets_by_confidence(db, tmp_path: Path):
     nid_trivial = await _seed(db, name="Jane Doe")
     nid_ambiguous = await _seed(db, name="Mary Jane Watson Parker")

@@ -8,7 +8,6 @@ from src.core.db import apply_schema, generate_id
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 

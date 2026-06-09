@@ -32,7 +32,6 @@ async def api_key(db):
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
 
-@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.integration
 async def test_link_types_with_valid_key_returns_200(client, api_key):
     """GET /api/v1/link-types with valid key returns 200."""
@@ -40,7 +39,6 @@ async def test_link_types_with_valid_key_returns_200(client, api_key):
     assert response.status_code == 200
 
 
-@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.integration
 async def test_link_types_response_has_data_list(client, api_key):
     """Response has `data` key with list of items."""
@@ -51,7 +49,6 @@ async def test_link_types_response_has_data_list(client, api_key):
     assert isinstance(body["data"], list)
 
 
-@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.integration
 async def test_link_types_items_have_required_fields(client, api_key):
     """Each item in data list has id, slug, display_name, is_social."""
@@ -73,7 +70,6 @@ def test_link_types_without_key_returns_403(unit_client):
     assert response.status_code == 403
 
 
-@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.integration
 async def test_link_types_with_invalid_key_returns_401(client):
     """GET /api/v1/link-types with invalid key returns 401."""

@@ -167,13 +167,14 @@ class EmbeddingWriteResponse(BaseModel):
 
 
 class EmbeddingArchiveResponse(BaseModel):
-    """Response for single soft-delete and restore.
-
-    ``archived_at`` is a Z-stamped ISO 8601 string when archived, None after restore.
-    """
+    """Response for single soft-delete and restore."""
 
     embedding_id: str
-    archived_at: str | None
+    archived_at: datetime | None
+
+    @field_serializer("archived_at")
+    def _serialize_archived_at(self, v: datetime | None) -> str | None:
+        return fmt_ts(v)
 
 
 class EmbeddingBatchArchiveResponse(BaseModel):
@@ -189,10 +190,14 @@ class EmbeddingListItem(BaseModel):
     model_id: str
     source_job_id: str
     source_segment: int
-    recorded_at: str
+    recorded_at: datetime
     activity_ms: int
-    archived_at: str | None
-    created_at: str
+    archived_at: datetime | None
+    created_at: datetime
+
+    @field_serializer("recorded_at", "created_at", "archived_at")
+    def _serialize_ts(self, v: datetime | None) -> str | None:
+        return fmt_ts(v)
 
 
 class EmbeddingListResponse(BaseModel):

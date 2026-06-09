@@ -128,7 +128,6 @@ def test_classify_locale_override_does_not_overwrite_already_set_locale():
 
 
 pytestmark_int = pytest.mark.integration
-pytestmark_async = pytest.mark.asyncio(loop_scope="session")
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -179,7 +178,6 @@ async def _seed_person_with_name(
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_dry_run_does_not_modify_db(db):
     _, nid = await _seed_person_with_name(db, name="Jane Doe")
     result = await run_backfill(db, dry_run=True)
@@ -195,7 +193,6 @@ async def test_dry_run_does_not_modify_db(db):
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_execute_writes_locale_and_script(db):
     _, nid = await _seed_person_with_name(db, name="Jane Doe")
     result = await run_backfill(db, dry_run=False)
@@ -211,7 +208,6 @@ async def test_execute_writes_locale_and_script(db):
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_execute_skips_non_latin_rows_and_reports_them(db):
     _, nid_ok = await _seed_person_with_name(db, name="Jane Doe")
     _, nid_cjk = await _seed_person_with_name(db, name="毛澤東")
@@ -233,7 +229,6 @@ async def test_execute_skips_non_latin_rows_and_reports_them(db):
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_execute_sets_script_on_latin_diacritic_rows_but_not_locale(db):
     _, nid = await _seed_person_with_name(db, name="Pedro García")
     result = await run_backfill(db, dry_run=False)
@@ -247,7 +242,6 @@ async def test_execute_sets_script_on_latin_diacritic_rows_but_not_locale(db):
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_execute_applies_locale_override_for_specific_row(db):
     """João's row gets locale='pt-BR' from the triage override map; the row
     next to it (also Latin-with-diacritics) only gets script='Latn'."""
@@ -281,7 +275,6 @@ async def test_execute_applies_locale_override_for_specific_row(db):
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_execute_does_not_overwrite_already_set_locale(db):
     _, nid = await _seed_person_with_name(db, name="Jane Doe", locale="en-US")
     # locale is set, script is not — only script should be updated on this row.
@@ -296,7 +289,6 @@ async def test_execute_does_not_overwrite_already_set_locale(db):
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_idempotent_second_run_is_a_no_op(db):
     await _seed_person_with_name(db, name="Jane Doe")
     first = await run_backfill(db, dry_run=False)
@@ -308,7 +300,6 @@ async def test_idempotent_second_run_is_a_no_op(db):
 
 
 @pytestmark_int
-@pytestmark_async
 async def test_preflight_aborts_when_lookup_tables_unseeded(db):
     """If 'en-US' is missing from bcp47_locales the backfill must refuse —
     otherwise the UPDATE would fail with a FK violation mid-batch."""

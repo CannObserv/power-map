@@ -9,7 +9,6 @@ from src.core.db import generate_id
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 

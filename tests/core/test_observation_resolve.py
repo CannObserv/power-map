@@ -15,7 +15,6 @@ from src.core.observation import Disposition, resolve_entity
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 

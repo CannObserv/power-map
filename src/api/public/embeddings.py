@@ -17,7 +17,7 @@ from src.api.public.schemas import (
     fmt_ts,
 )
 from src.core.db import generate_id
-from src.core.embedding_registry import EmbeddingRegistry
+from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
 
 router = APIRouter(prefix="/people", tags=["public-api"])
 
@@ -190,7 +190,7 @@ async def write_person_embedding(
     )
 
 
-def _require_model(model_id: str, registry: EmbeddingRegistry):
+def _require_model(model_id: str, registry: EmbeddingRegistry) -> ModelMeta:
     """Return ModelMeta or raise 422 for unknown model_id."""
     meta = registry.get(model_id)
     if meta is None:
@@ -237,7 +237,7 @@ async def soft_delete_embedding(
 
     return EmbeddingArchiveResponse(
         embedding_id=row["id"],
-        archived_at=fmt_ts(row["archived_at"]),
+        archived_at=row["archived_at"],
     )
 
 
@@ -257,9 +257,16 @@ async def batch_soft_delete_embeddings(
     """Batch soft-delete all active embeddings for ``person_id`` matching ``source_job_id``.
 
     Already-archived rows are skipped.  Returns ``archived_count`` (may be 0).
+    404 if the person does not exist or is archived.
     """
     meta = _require_model(model_id, registry)
     table = meta.table_name  # registry-controlled — not user input
+    person = await db.fetchrow(
+        "SELECT id, archived_at FROM people WHERE id = $1",
+        person_id,
+    )
+    if not person or person["archived_at"] is not None:
+        raise HTTPException(status_code=404, detail="Person not found")
 
     rows = await db.fetch(
         f"""
@@ -305,8 +312,9 @@ async def restore_embedding(
         raise HTTPException(status_code=409, detail="Embedding is already active")
 
     await db.execute(
-        f"UPDATE {table} SET archived_at = NULL WHERE id = $1",
+        f"UPDATE {table} SET archived_at = NULL WHERE id = $1 AND person_id = $2",
         embedding_id,
+        person_id,
     )
     return EmbeddingArchiveResponse(embedding_id=embedding_id, archived_at=None)
 
@@ -330,9 +338,16 @@ async def list_person_embeddings(
 
     By default returns only active (non-archived) rows.  Pass
     ``include_archived=true`` to include archived rows.
+    404 if the person does not exist or is archived.
     """
     meta = _require_model(model_id, registry)
     table = meta.table_name  # registry-controlled — not user input
+    person = await db.fetchrow(
+        "SELECT id, archived_at FROM people WHERE id = $1",
+        person_id,
+    )
+    if not person or person["archived_at"] is not None:
+        raise HTTPException(status_code=404, detail="Person not found")
 
     rows = await db.fetch(
         f"""
@@ -369,10 +384,10 @@ async def list_person_embeddings(
                 model_id=model_id,
                 source_job_id=r["source_job_id"],
                 source_segment=r["source_segment"],
-                recorded_at=fmt_ts(r["recorded_at"]),
+                recorded_at=r["recorded_at"],
                 activity_ms=r["activity_ms"],
-                archived_at=fmt_ts(r["archived_at"]),
-                created_at=fmt_ts(r["created_at"]),
+                archived_at=r["archived_at"],
+                created_at=r["created_at"],
             )
             for r in page
         ],

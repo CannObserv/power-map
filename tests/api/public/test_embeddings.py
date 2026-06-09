@@ -4,13 +4,10 @@ import hashlib
 import os
 import random
 
-import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
-
-pytestmark = [pytest.mark.asyncio(loop_scope="session")]
 
 _MODEL_ID = "pyannote-community-1-embed"
 _DIM = 192
@@ -620,6 +617,41 @@ async def test_delete_single_idempotent(client, db, write_key, archivable_embedd
 
 
 # ---------------------------------------------------------------------------
+# Scope tests — batch delete and restore
+# ---------------------------------------------------------------------------
+
+
+def test_batch_delete_requires_write_scope(client, read_key, two_people):
+    pid = two_people[0]
+    r = client.delete(
+        f"/api/v1/people/{pid}/embeddings",
+        params={"model_id": _MODEL_ID, "source_job_id": "any-job"},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 403
+
+
+def test_batch_delete_422_unknown_model(client, write_key, two_people):
+    pid = two_people[0]
+    r = client.delete(
+        f"/api/v1/people/{pid}/embeddings",
+        params={"model_id": "no-such-model", "source_job_id": "any-job"},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 422
+
+
+def test_restore_requires_write_scope(client, read_key, two_people):
+    pid = two_people[0]
+    r = client.post(
+        f"/api/v1/people/{pid}/embeddings/{generate_id()}/restore",
+        params={"model_id": _MODEL_ID},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # DELETE — batch by source_job_id
 # ---------------------------------------------------------------------------
 
@@ -754,3 +786,44 @@ async def test_list_include_archived_flag(client, db, read_key, seeded_embedding
         assert len(archived) >= 1
     finally:
         await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+
+
+# ---------------------------------------------------------------------------
+# Person-existence guard — list and batch delete
+# ---------------------------------------------------------------------------
+
+
+def test_list_404_unknown_person(client, read_key):
+    r = client.get(
+        f"/api/v1/people/{generate_id()}/embeddings",
+        params={"model_id": _MODEL_ID},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 404
+
+
+def test_list_404_archived_person(client, read_key, archived_person):
+    r = client.get(
+        f"/api/v1/people/{archived_person}/embeddings",
+        params={"model_id": _MODEL_ID},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 404
+
+
+def test_batch_delete_404_unknown_person(client, write_key):
+    r = client.delete(
+        f"/api/v1/people/{generate_id()}/embeddings",
+        params={"model_id": _MODEL_ID, "source_job_id": "any-job"},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 404
+
+
+def test_batch_delete_404_archived_person(client, write_key, archived_person):
+    r = client.delete(
+        f"/api/v1/people/{archived_person}/embeddings",
+        params={"model_id": _MODEL_ID, "source_job_id": "any-job"},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 404

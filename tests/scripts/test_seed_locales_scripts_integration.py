@@ -19,7 +19,6 @@ from scripts.seed_locales_scripts import (  # noqa: E402
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 

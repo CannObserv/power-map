@@ -14,7 +14,6 @@ ROLES_FIXTURE = Path("tests/fixtures/ingestion/roles_sample.csv")
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 

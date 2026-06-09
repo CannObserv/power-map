@@ -16,7 +16,6 @@ from scripts.seed_jurisdictions import (
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 _JUR_ROWS = [

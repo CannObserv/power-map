@@ -12,7 +12,6 @@ from src.core.types import ORG_NAME_TYPES, PERSON_NAME_TYPES
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.asyncio(loop_scope="session"),
 ]
 
 AUTH_HEADERS = {
