@@ -56,7 +56,7 @@ async def identify_person(
             f"model '{meta.model_id}' expected {meta.dimension}",
         )
 
-    table = meta.table_name
+    table = meta.table_name  # registry-controlled — not user input
     op = meta.operator
     vec = _vec_str(body.embedding)
 
@@ -133,7 +133,7 @@ async def write_person_embedding(
     if not person or person["archived_at"] is not None:
         raise HTTPException(status_code=404, detail="Person not found")
 
-    table = meta.table_name
+    table = meta.table_name  # registry-controlled — not user input
     new_id = generate_id()
     vec = _vec_str(body.embedding)
 

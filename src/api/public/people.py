@@ -336,6 +336,7 @@ async def _fetch_detail_arrays(
     for meta in registry.all():
         if meta.is_queryable:
             n = await db.fetchval(
+                # table_name is registry-controlled — not user input
                 f"SELECT COUNT(*) FROM {meta.table_name}"
                 " WHERE person_id = $1 AND archived_at IS NULL",
                 person_id,
