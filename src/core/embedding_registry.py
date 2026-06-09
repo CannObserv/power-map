@@ -40,9 +40,17 @@ class EmbeddingRegistry:
         """Return the model descriptor or None if unknown."""
         return self._models.get(model_id)
 
+    def all(self) -> list[ModelMeta]:
+        """Return all registered model descriptors."""
+        return list(self._models.values())
+
     @classmethod
     async def load(cls, db) -> "EmbeddingRegistry":
-        """Load all rows from ``embedding_model_registry`` into memory."""
+        """Load all rows from ``embedding_model_registry`` into memory.
+
+        Called once at app startup; requires a service restart to pick up
+        registry changes (new models, toggled flags, deprecations).
+        """
         rows = await db.fetch(
             "SELECT model_id, table_name, dimension, metric::text,"
             "       accepts_writes, is_queryable"

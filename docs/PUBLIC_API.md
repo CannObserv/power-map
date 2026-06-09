@@ -16,6 +16,12 @@ Keys are stored as SHA-256 hashes — the raw token is never persisted after iss
 
 Read endpoints are accessible with any valid key. Write endpoints require an additional per-key scope grant (e.g. `observations:write`). A key without the required scope receives a 403. Scope grants are managed by the maintainer via the admin dashboard.
 
+| Scope | Used by |
+|-------|---------|
+| `observations:write` | `POST /*/observations` endpoints |
+| `voice_embeddings:write` | `POST /api/v1/people/{id}/embeddings` |
+| `voice_embeddings:read` | `POST /api/v1/people/identify` — required even though this is a read-style operation, because it accepts and returns biometric data |
+
 ---
 
 ## Rate Limits
@@ -206,9 +212,11 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/people/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `include_archived`, `limit`, `offset`. |
-| `GET` | `/api/v1/people/{id}` | API key | Detail by ULID. Returns public name variants and identifiers. ETag caching — see caching section above. |
+| `GET` | `/api/v1/people/{id}` | API key | Detail by ULID. Returns public name variants, identifiers, and `voice_embeddings_count`. ETag caching — see caching section above. |
 | `GET` | `/api/v1/people/{id}/events` | API key | Paginated lifecycle events for a person. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. |
 | `POST` | `/api/v1/people/observations` | `observations:write` scope | Submit a person identity observation. |
+| `POST` | `/api/v1/people/identify` | `voice_embeddings:read` scope | Identify a person by voice embedding similarity. Returns top-k matches ordered by cosine similarity. Body: `{model_id, embedding, top_k?}`. Unknown model → empty matches; dimension mismatch → 422. |
+| `POST` | `/api/v1/people/{id}/embeddings` | `voice_embeddings:write` scope | Write a voice embedding observation for a person. Idempotent on `(source_service, source_job_id, source_segment, person_id)` — duplicate returns 200 with the original row's ID. 404 if person is unknown or archived; 422 on dimension mismatch or unknown/write-disabled model. |
 
 ### Observation write — `POST /people/observations`
 

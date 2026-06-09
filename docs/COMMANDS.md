@@ -3,6 +3,13 @@
 ## Setup
 
 ```bash
+# Install the pgvector PostgreSQL extension (required; adjust version to match your PostgreSQL)
+sudo apt-get install postgresql-16-pgvector
+
+# Enable the extension in each database (run as superuser; idempotent)
+psql -U postgres -d powermap      -c "CREATE EXTENSION IF NOT EXISTS vector"
+psql -U postgres -d powermap_test -c "CREATE EXTENSION IF NOT EXISTS vector"
+
 # Provision local PostgreSQL (idempotent; run once after cloning)
 bash scripts/setup-db.sh
 

@@ -145,7 +145,7 @@ class EmbeddingSource(BaseModel):
 
     @field_serializer("recorded_at")
     def _serialize_recorded_at(self, v: datetime) -> str:
-        return fmt_ts(v)
+        return v.isoformat().replace("+00:00", "Z")
 
 
 class EmbeddingWriteRequest(BaseModel):
@@ -154,7 +154,7 @@ class EmbeddingWriteRequest(BaseModel):
     model_id: str
     embedding: list[float]
     activity_ms: int = Field(ge=0)
-    audio_sample_rate_hz: int
+    audio_sample_rate_hz: int = Field(gt=0)
     source: EmbeddingSource
 
 

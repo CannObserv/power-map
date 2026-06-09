@@ -1620,7 +1620,7 @@ CREATE TABLE IF NOT EXISTS person_embeddings_pyannote_community_1_embed (
     embedding_dim        INT         NOT NULL CHECK (embedding_dim = 192),
 
     activity_ms          INT         NOT NULL CHECK (activity_ms >= 0),
-    audio_sample_rate_hz INT         NOT NULL,
+    audio_sample_rate_hz INT         NOT NULL CHECK (audio_sample_rate_hz > 0),
     source_service       TEXT        NOT NULL,
     source_job_id        TEXT        NOT NULL,
     source_segment       INT         NOT NULL,
@@ -1634,6 +1634,13 @@ CREATE TABLE IF NOT EXISTS person_embeddings_pyannote_community_1_embed (
     CONSTRAINT person_embeddings_pyannote_community_1_embed_source_unique
         UNIQUE (source_service, source_job_id, source_segment, person_id)
 );
+
+DO $$ BEGIN
+    ALTER TABLE person_embeddings_pyannote_community_1_embed
+        ADD CONSTRAINT person_embeddings_pyannote_community_1_embed_sample_rate_check
+        CHECK (audio_sample_rate_hz > 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_person_id_idx
     ON person_embeddings_pyannote_community_1_embed (person_id)

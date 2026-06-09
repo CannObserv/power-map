@@ -398,17 +398,14 @@ def test_identify_returns_top_k_matches(client, read_key, seeded_embeddings):
         assert "recorded_at" in m
 
 
-def test_identify_excludes_archived(client, db, read_key, write_key, two_people, seeded_embeddings):
+async def test_identify_excludes_archived(
+    client, db, read_key, write_key, two_people, seeded_embeddings
+):
     """Archived embeddings must not appear in identify results."""
     _, _, embedding_ids, query_vec = seeded_embeddings
-    # Archive all five seeded embeddings via direct DB update
-    import asyncio
-
-    asyncio.get_event_loop().run_until_complete(
-        db.execute(
-            f"UPDATE {_TABLE} SET archived_at = now() WHERE id = ANY($1::text[])",
-            embedding_ids,
-        )
+    await db.execute(
+        f"UPDATE {_TABLE} SET archived_at = now() WHERE id = ANY($1::text[])",
+        embedding_ids,
     )
     try:
         r = client.post(
@@ -419,11 +416,9 @@ def test_identify_excludes_archived(client, db, read_key, write_key, two_people,
         assert r.status_code == 200
         assert r.json()["matches"] == []
     finally:
-        asyncio.get_event_loop().run_until_complete(
-            db.execute(
-                f"UPDATE {_TABLE} SET archived_at = NULL WHERE id = ANY($1::text[])",
-                embedding_ids,
-            )
+        await db.execute(
+            f"UPDATE {_TABLE} SET archived_at = NULL WHERE id = ANY($1::text[])",
+            embedding_ids,
         )
 
 
