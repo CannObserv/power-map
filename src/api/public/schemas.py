@@ -166,7 +166,7 @@ class EmbeddingWriteResponse(BaseModel):
     created_at: datetime
 
     @field_serializer("created_at")
-    def _serialize_created_at(self, v: datetime) -> str:
+    def _serialize_created_at(self, v: datetime) -> str | None:
         return fmt_ts(v)
 
 
@@ -230,7 +230,7 @@ class IdentifyMatch(BaseModel):
     recorded_at: datetime
 
     @field_serializer("recorded_at")
-    def _serialize_recorded_at(self, v: datetime) -> str:
+    def _serialize_recorded_at(self, v: datetime) -> str | None:
         return fmt_ts(v)
 
 
