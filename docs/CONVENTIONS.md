@@ -11,7 +11,7 @@ Reference for public API, database, and ingestion patterns. For admin dashboard 
 - Response models: all routes must declare a Pydantic `response_model` (in `schemas.py`) and an explicit `operation_id`; `dict[str, Any]` return types are not allowed — OpenAPI schema must be fully typed
 - List endpoints: return `{"data": [...], "meta": {"limit", "offset", "count", "has_more"}}`; fetch `limit + 1` rows to compute `has_more` without a `COUNT(*)` query; return only `limit` rows in `data`
 - Single-resource endpoints: return the resource object directly (no envelope)
-- Timestamps: serialize with `_fmt_ts()` from `schemas.py` — ISO 8601 with `Z` suffix
+- Timestamps: use `datetime` fields in Pydantic response models + `@field_serializer` calling `fmt_ts()` from `schemas.py`; ISO 8601 with `Z` suffix; never pre-serialize as `str` in handlers
 - CORS: not required — the public API is server-to-server only (no browser callers)
 
 ---
@@ -25,8 +25,8 @@ Reference for public API, database, and ingestion patterns. For admin dashboard 
 - Email: validate via `EmailNormalizer` from `src.core.normalizers.email`
 - Integration tests (marked `integration`) require `TEST_DATABASE_URL` env var; `tests/conftest.py` redirects `DATABASE_URL` → `TEST_DATABASE_URL` and skips when absent — never runs against the production DB
 - Integration test fixtures share a session-scoped `db_pool` (`asyncpg.create_pool`) from `tests/conftest.py`; `apply_schema` runs once at session start. Fixtures and tests acquire via `async with db_pool.acquire() as conn:` — never `await asyncpg.connect(...)` per call. Reference recipe: `tests/api/admin/test_people_names.py`.
-  - Required markers in every consumer module: `pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]` at module level, and `@pytest_asyncio.fixture(loop_scope="session")` on every async fixture.
-  - Both `loop_scope="session"` markers are load-bearing: `db_pool` is bound to the session event loop. Omitting either raises `RuntimeError: ... attached to a different loop` at fixture setup.
+  - Required markers in every consumer module: `pytestmark = pytest.mark.integration` at module level, and `@pytest_asyncio.fixture(loop_scope="session")` on every async fixture.
+  - Fixture `loop_scope="session"` is load-bearing: `db_pool` is bound to the session event loop. The test-function asyncio mark is no longer needed — `asyncio_default_test_loop_scope = "session"` in `pyproject.toml` sets the default globally.
   - Sole exception: `tests/core/test_db.py` tests `src.core.db.get_pool()` / `create_pool()` lifecycle itself and intentionally owns its own connection.
   - Teardown for entities referenced by a polymorphic side table (e.g. `addresses` via `entity_addresses`): fetch the side-table's foreign-key ids before dropping the join rows, then delete the entity rows guarded by `NOT EXISTS` so a shared row can't FK-fail. Wrap the read+writes in a single `async with conn.transaction():` so a mid-teardown failure rolls back cleanly. Pair with a module-scoped autouse fixture that snapshots the entity table's rowcount before/after and asserts equality — catches leaks if someone later "simplifies" the teardown. Reference: `tests/api/admin/test_orgs_addresses.py` (#150).
 
