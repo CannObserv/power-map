@@ -163,7 +163,11 @@ class EmbeddingWriteResponse(BaseModel):
 
     embedding_id: str
     person_id: str
-    created_at: str
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def _serialize_created_at(self, v: datetime) -> str:
+        return fmt_ts(v)
 
 
 class EmbeddingArchiveResponse(BaseModel):
@@ -223,7 +227,11 @@ class IdentifyMatch(BaseModel):
     similarity: float
     embedding_id: str
     source_job_id: str
-    recorded_at: str
+    recorded_at: datetime
+
+    @field_serializer("recorded_at")
+    def _serialize_recorded_at(self, v: datetime) -> str:
+        return fmt_ts(v)
 
 
 class IdentifyResponse(BaseModel):

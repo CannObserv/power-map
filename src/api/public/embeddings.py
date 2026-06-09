@@ -11,10 +11,10 @@ from src.api.public.schemas import (
     EmbeddingListResponse,
     EmbeddingWriteRequest,
     EmbeddingWriteResponse,
+    IdentifyMatch,
     IdentifyRequest,
     IdentifyResponse,
     SearchMeta,
-    fmt_ts,
 )
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
@@ -85,14 +85,14 @@ async def identify_person(
 
     return IdentifyResponse(
         matches=[
-            {
-                "person_id": r["person_id"],
-                "person_name": r["person_name"],
-                "similarity": float(r["similarity"]),
-                "embedding_id": r["embedding_id"],
-                "source_job_id": r["source_job_id"],
-                "recorded_at": fmt_ts(r["recorded_at"]),
-            }
+            IdentifyMatch(
+                person_id=r["person_id"],
+                person_name=r["person_name"],
+                similarity=float(r["similarity"]),
+                embedding_id=r["embedding_id"],
+                source_job_id=r["source_job_id"],
+                recorded_at=r["recorded_at"],
+            )
             for r in rows
         ]
     )
@@ -186,7 +186,7 @@ async def write_person_embedding(
     return EmbeddingWriteResponse(
         embedding_id=row["id"],
         person_id=person_id,
-        created_at=fmt_ts(row["created_at"]),
+        created_at=row["created_at"],
     )
 
 
