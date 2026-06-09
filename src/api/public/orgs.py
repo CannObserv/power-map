@@ -241,6 +241,7 @@ async def get_org(
             o.id,
             o.parent_id,
             o.archived_at,
+            o.created_at,
             o.updated_at,
             n.name,
             a.acronym
@@ -271,6 +272,8 @@ async def get_org(
 
     return {
         **_org_row_to_dict(row),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
         "names": [dict(n) for n in names],
         "acronyms": [dict(a) for a in acronyms],
         "identifiers": [dict(i) for i in identifiers],

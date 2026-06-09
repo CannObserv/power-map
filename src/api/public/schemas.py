@@ -79,9 +79,15 @@ class OrgIdentifier(BaseModel):
 class OrgDetail(OrgSearchResult):
     """Full org record including name variants, acronyms, and identifiers."""
 
+    created_at: datetime
+    updated_at: datetime
     names: list[OrgName] = Field(default_factory=list)
     acronyms: list[OrgAcronym] = Field(default_factory=list)
     identifiers: list[OrgIdentifier] = Field(default_factory=list)
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_ts(self, v: datetime) -> str:
+        return fmt_ts(v)
 
 
 class PersonSearchResult(BaseModel):
@@ -125,9 +131,15 @@ class PersonIdentifier(BaseModel):
 class PersonDetail(PersonSearchResult):
     """Full person record including public name variants and identifiers."""
 
+    created_at: datetime
+    updated_at: datetime
     names: list[PersonName] = Field(default_factory=list)
     identifiers: list[PersonIdentifier] = Field(default_factory=list)
     voice_embeddings_count: int = 0
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_ts(self, v: datetime) -> str:
+        return fmt_ts(v)
 
 
 # ---------------------------------------------------------------------------

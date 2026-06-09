@@ -330,6 +330,29 @@ async def test_get_archived_org_still_returned(client, api_key, org_fixture, db)
     await db.execute("UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"])
 
 
+@pytest.mark.integration
+async def test_get_org_detail_timestamps(client, api_key, org_fixture):
+    """OrgDetail must expose created_at and updated_at with Z-suffix ISO 8601."""
+    oid = org_fixture["org_id"]
+    r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    data = r.json()
+    assert "created_at" in data, "created_at missing from OrgDetail"
+    assert "updated_at" in data, "updated_at missing from OrgDetail"
+    assert data["created_at"].endswith("Z"), f"created_at missing Z suffix: {data['created_at']}"
+    assert data["updated_at"].endswith("Z"), f"updated_at missing Z suffix: {data['updated_at']}"
+
+
+@pytest.mark.integration
+async def test_search_orgs_does_not_expose_timestamps(client, api_key, org_fixture):
+    """Search results must not include created_at or updated_at (detail-only fields)."""
+    r = _search(client, api_key, "Television")
+    assert r.status_code == 200
+    hit = next(o for o in r.json()["data"] if o["id"] == org_fixture["org_id"])
+    assert "created_at" not in hit
+    assert "updated_at" not in hit
+
+
 # ---------------------------------------------------------------------------
 # Search — identifier_type / identifier_value filter
 # ---------------------------------------------------------------------------

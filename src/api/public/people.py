@@ -211,7 +211,7 @@ async def get_person(
     """Return full person record with public name variants and identifiers."""
     row = await db.fetchrow(
         """
-        SELECT p.id, p.archived_at, p.updated_at, v.display_name
+        SELECT p.id, p.archived_at, p.created_at, p.updated_at, v.display_name
         FROM people p
         LEFT JOIN v_person_display_names v ON v.person_id = p.id
         WHERE p.id = $1
@@ -240,6 +240,8 @@ async def get_person(
         "id": row["id"],
         "display_name": row["display_name"],
         "archived_at": row["archived_at"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
         "names": [dict(n) for n in names],
         "identifiers": [dict(i) for i in identifiers],
         "voice_embeddings_count": voice_count,

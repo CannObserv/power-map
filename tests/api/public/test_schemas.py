@@ -128,15 +128,24 @@ def test_org_search_response_empty_data():
 # ---------------------------------------------------------------------------
 
 
+_TS = datetime(2024, 1, 1, tzinfo=UTC)
+
+
 def test_org_detail_inherits_archived_at_serializer():
-    dt = datetime(2024, 1, 1, tzinfo=UTC)
-    detail = OrgDetail(id="abc", archived_at=dt)
+    detail = OrgDetail(id="abc", archived_at=_TS, created_at=_TS, updated_at=_TS)
     dumped = detail.model_dump(mode="json")
     assert dumped["archived_at"].endswith("Z")
 
 
+def test_org_detail_timestamps_serialized_to_z():
+    detail = OrgDetail(id="abc", created_at=_TS, updated_at=_TS)
+    dumped = detail.model_dump(mode="json")
+    assert dumped["created_at"].endswith("Z")
+    assert dumped["updated_at"].endswith("Z")
+
+
 def test_org_detail_arrays_default_empty():
-    detail = OrgDetail(id="abc")
+    detail = OrgDetail(id="abc", created_at=_TS, updated_at=_TS)
     assert detail.names == []
     assert detail.acronyms == []
     assert detail.identifiers == []
@@ -150,6 +159,8 @@ def test_org_detail_full_record_shape():
         slug="fc",
         parent_id=None,
         archived_at=None,
+        created_at=_TS,
+        updated_at=_TS,
         names=[OrgName(id="n1", name="Foo Corp", name_type="legal", is_canonical=True)],
         acronyms=[OrgAcronym(id="a1", acronym="FC", is_canonical=True)],
         identifiers=[OrgIdentifier(id="i1", type_id="t1", type_slug="ein", value="12-3456789")],

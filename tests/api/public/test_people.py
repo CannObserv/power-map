@@ -343,6 +343,29 @@ async def test_get_archived_person_still_returned(client, api_key, person_fixtur
 
 
 @pytest.mark.integration
+async def test_get_person_detail_timestamps(client, api_key, person_fixture):
+    """PersonDetail must expose created_at and updated_at with Z-suffix ISO 8601."""
+    pid = person_fixture["person_id"]
+    r = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    data = r.json()
+    assert "created_at" in data, "created_at missing from PersonDetail"
+    assert "updated_at" in data, "updated_at missing from PersonDetail"
+    assert data["created_at"].endswith("Z"), f"created_at missing Z suffix: {data['created_at']}"
+    assert data["updated_at"].endswith("Z"), f"updated_at missing Z suffix: {data['updated_at']}"
+
+
+@pytest.mark.integration
+async def test_search_people_does_not_expose_timestamps(client, api_key, person_fixture):
+    """Search results must not include created_at or updated_at (detail-only fields)."""
+    r = _search(client, api_key, "Jane Elizabeth")
+    assert r.status_code == 200
+    hit = next(p for p in r.json()["data"] if p["id"] == person_fixture["person_id"])
+    assert "created_at" not in hit
+    assert "updated_at" not in hit
+
+
+@pytest.mark.integration
 async def test_get_person_detail_names_only_public(client, api_key, person_fixture):
     """Detail endpoint must not leak hidden or legal_only name variants."""
     pid = person_fixture["person_id"]
