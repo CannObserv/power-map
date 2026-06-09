@@ -166,6 +166,42 @@ class EmbeddingWriteResponse(BaseModel):
     created_at: str
 
 
+class EmbeddingArchiveResponse(BaseModel):
+    """Response for single soft-delete and restore.
+
+    ``archived_at`` is a Z-stamped ISO 8601 string when archived, None after restore.
+    """
+
+    embedding_id: str
+    archived_at: str | None
+
+
+class EmbeddingBatchArchiveResponse(BaseModel):
+    """Response for batch soft-delete by source_job_id."""
+
+    archived_count: int
+
+
+class EmbeddingListItem(BaseModel):
+    """Single row in an embedding listing response."""
+
+    embedding_id: str
+    model_id: str
+    source_job_id: str
+    source_segment: int
+    recorded_at: str
+    activity_ms: int
+    archived_at: str | None
+    created_at: str
+
+
+class EmbeddingListResponse(BaseModel):
+    """Paginated listing of voice embeddings for a person."""
+
+    data: list[EmbeddingListItem]
+    meta: SearchMeta
+
+
 class IdentifyRequest(BaseModel):
     """Request body for POST /api/v1/people/identify."""
 

@@ -477,3 +477,280 @@ def test_write_404_archived_person(client, write_key, archived_person):
         headers={"X-API-Key": write_key},
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Fixtures for soft-delete / restore tests
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def archivable_embedding(db, two_people, write_key, client):
+    """Single embedding for person[0] used by archive/restore tests.
+
+    Kept separate from seeded_embeddings so those tests can't interfere with
+    the identify / count tests.
+    """
+    pid = two_people[0]
+    r = client.post(
+        f"/api/v1/people/{pid}/embeddings",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": _rand_embedding(),
+            "activity_ms": 300,
+            "audio_sample_rate_hz": 16000,
+            "source": {
+                "service": "observo",
+                "job_id": "job_archivable",
+                "segment": 99,
+                "recorded_at": "2026-06-01T00:00:00Z",
+            },
+        },
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 200, r.text
+    eid = r.json()["embedding_id"]
+    yield pid, eid
+    await db.execute(f"DELETE FROM {_TABLE} WHERE id=$1", eid)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def batch_job_embeddings(db, two_people, write_key, client):
+    """Two embeddings sharing source_job_id='job_batch_test' for batch-delete tests."""
+    pid = two_people[0]
+    job_id = "job_batch_test"
+    eids: list[str] = []
+    for seg in range(2):
+        r = client.post(
+            f"/api/v1/people/{pid}/embeddings",
+            json={
+                "model_id": _MODEL_ID,
+                "embedding": _rand_embedding(),
+                "activity_ms": 400,
+                "audio_sample_rate_hz": 16000,
+                "source": {
+                    "service": "observo",
+                    "job_id": job_id,
+                    "segment": seg,
+                    "recorded_at": "2026-06-01T00:00:00Z",
+                },
+            },
+            headers={"X-API-Key": write_key},
+        )
+        assert r.status_code == 200, r.text
+        eids.append(r.json()["embedding_id"])
+    yield pid, job_id, eids
+    await db.execute(f"DELETE FROM {_TABLE} WHERE source_job_id=$1", job_id)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /{embedding_id} — single soft-delete
+# ---------------------------------------------------------------------------
+
+
+def test_delete_single_requires_write_scope(client, read_key, two_people):
+    pid = two_people[0]
+    r = client.delete(
+        f"/api/v1/people/{pid}/embeddings/{generate_id()}",
+        params={"model_id": _MODEL_ID},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 403
+
+
+def test_delete_single_422_unknown_model(client, write_key, two_people):
+    pid = two_people[0]
+    r = client.delete(
+        f"/api/v1/people/{pid}/embeddings/{generate_id()}",
+        params={"model_id": "no-such-model"},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 422
+
+
+def test_delete_single_404_unknown_embedding(client, write_key, two_people):
+    pid = two_people[0]
+    r = client.delete(
+        f"/api/v1/people/{pid}/embeddings/{generate_id()}",
+        params={"model_id": _MODEL_ID},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 404
+
+
+async def test_delete_single_archives_embedding(client, db, write_key, archivable_embedding):
+    pid, eid = archivable_embedding
+    await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+    try:
+        r = client.delete(
+            f"/api/v1/people/{pid}/embeddings/{eid}",
+            params={"model_id": _MODEL_ID},
+            headers={"X-API-Key": write_key},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["embedding_id"] == eid
+        assert data["archived_at"] is not None
+    finally:
+        await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+
+
+async def test_delete_single_idempotent(client, db, write_key, archivable_embedding):
+    """Re-deleting an already-archived embedding returns 200 with the same archived_at."""
+    pid, eid = archivable_embedding
+    await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
+    try:
+        first = client.delete(
+            f"/api/v1/people/{pid}/embeddings/{eid}",
+            params={"model_id": _MODEL_ID},
+            headers={"X-API-Key": write_key},
+        )
+        assert first.status_code == 200
+        first_ts = first.json()["archived_at"]
+
+        second = client.delete(
+            f"/api/v1/people/{pid}/embeddings/{eid}",
+            params={"model_id": _MODEL_ID},
+            headers={"X-API-Key": write_key},
+        )
+        assert second.status_code == 200
+        assert second.json()["archived_at"] == first_ts
+    finally:
+        await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+
+
+# ---------------------------------------------------------------------------
+# DELETE — batch by source_job_id
+# ---------------------------------------------------------------------------
+
+
+async def test_batch_delete_archives_by_job(client, db, write_key, batch_job_embeddings):
+    pid, job_id, eids = batch_job_embeddings
+    await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE source_job_id=$1", job_id)
+    try:
+        r = client.delete(
+            f"/api/v1/people/{pid}/embeddings",
+            params={"model_id": _MODEL_ID, "source_job_id": job_id},
+            headers={"X-API-Key": write_key},
+        )
+        assert r.status_code == 200
+        assert r.json()["archived_count"] == 2
+        rows = await db.fetch(f"SELECT archived_at FROM {_TABLE} WHERE id=ANY($1::text[])", eids)
+        assert all(row["archived_at"] is not None for row in rows)
+    finally:
+        await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE source_job_id=$1", job_id)
+
+
+def test_batch_delete_zero_when_no_matches(client, write_key, two_people):
+    pid = two_people[0]
+    r = client.delete(
+        f"/api/v1/people/{pid}/embeddings",
+        params={"model_id": _MODEL_ID, "source_job_id": "no-such-job-xyz"},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 200
+    assert r.json()["archived_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# POST /{embedding_id}/restore
+# ---------------------------------------------------------------------------
+
+
+def test_restore_404_unknown_embedding(client, write_key, two_people):
+    pid = two_people[0]
+    r = client.post(
+        f"/api/v1/people/{pid}/embeddings/{generate_id()}/restore",
+        params={"model_id": _MODEL_ID},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 404
+
+
+async def test_restore_reactivates_archived_embedding(client, db, write_key, archivable_embedding):
+    pid, eid = archivable_embedding
+    await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
+    try:
+        r = client.post(
+            f"/api/v1/people/{pid}/embeddings/{eid}/restore",
+            params={"model_id": _MODEL_ID},
+            headers={"X-API-Key": write_key},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["embedding_id"] == eid
+        assert data["archived_at"] is None
+    finally:
+        await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+
+
+async def test_restore_409_already_active(client, db, write_key, archivable_embedding):
+    pid, eid = archivable_embedding
+    await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+    r = client.post(
+        f"/api/v1/people/{pid}/embeddings/{eid}/restore",
+        params={"model_id": _MODEL_ID},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# GET /{person_id}/embeddings — listing
+# ---------------------------------------------------------------------------
+
+
+def test_list_requires_read_scope(client, unscoped_key, two_people):
+    pid = two_people[0]
+    r = client.get(
+        f"/api/v1/people/{pid}/embeddings",
+        params={"model_id": _MODEL_ID},
+        headers={"X-API-Key": unscoped_key},
+    )
+    assert r.status_code == 403
+
+
+def test_list_422_unknown_model(client, read_key, two_people):
+    pid = two_people[0]
+    r = client.get(
+        f"/api/v1/people/{pid}/embeddings",
+        params={"model_id": "no-such-model"},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+def test_list_active_only_by_default(client, read_key, seeded_embeddings):
+    pid0, _, _, _ = seeded_embeddings
+    r = client.get(
+        f"/api/v1/people/{pid0}/embeddings",
+        params={"model_id": _MODEL_ID},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "data" in body and "meta" in body
+    assert all(item["archived_at"] is None for item in body["data"])
+    assert body["meta"]["count"] >= 3
+
+
+async def test_list_include_archived_flag(client, db, read_key, seeded_embeddings):
+    pid0, _, embedding_ids, _ = seeded_embeddings
+    eid = embedding_ids[0]
+    await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
+    try:
+        r_active = client.get(
+            f"/api/v1/people/{pid0}/embeddings",
+            params={"model_id": _MODEL_ID},
+            headers={"X-API-Key": read_key},
+        )
+        r_all = client.get(
+            f"/api/v1/people/{pid0}/embeddings",
+            params={"model_id": _MODEL_ID, "include_archived": "true"},
+            headers={"X-API-Key": read_key},
+        )
+        assert r_all.json()["meta"]["count"] > r_active.json()["meta"]["count"]
+        archived = [item for item in r_all.json()["data"] if item["archived_at"] is not None]
+        assert len(archived) >= 1
+    finally:
+        await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
