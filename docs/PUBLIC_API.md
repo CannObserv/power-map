@@ -275,7 +275,7 @@ Returns the base search-result fields plus:
 | `created_at` | ISO 8601 UTC timestamp |
 | `updated_at` | ISO 8601 UTC timestamp |
 
-Supports ETag / `If-None-Match` conditional requests; 304 on cache hit. `updated_at` advances whenever any child table (names, acronyms, identifiers, affiliations) changes.
+Supports conditional requests. Every 200 response includes `ETag`, `Last-Modified`, `Cache-Control: no-cache`, and `Vary: X-API-Key` headers. Pass the ETag back as `If-None-Match` to receive 304 on cache hit. `updated_at` advances whenever any child table (names, acronyms, identifiers, affiliations) changes.
 
 ### Observation write — `POST /orgs/observations`
 

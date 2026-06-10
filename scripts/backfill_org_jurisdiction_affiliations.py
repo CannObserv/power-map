@@ -46,6 +46,10 @@ async def main(csv_path: str, execute: bool, has_header: bool) -> None:
             rows = list(reader)
 
         # Validate and resolve all rows before touching the DB.
+        # Note: exists-check runs outside the transaction (TOCTOU gap). A concurrent
+        # insert between here and the transaction could cause a DO NOTHING hit that
+        # isn't counted in `skipped`. Acceptable — this script is run offline with
+        # no concurrent writers expected.
         resolved = []
         for i, row in enumerate(rows, start=2 if has_header else 1):
             if len(row) != 3:
