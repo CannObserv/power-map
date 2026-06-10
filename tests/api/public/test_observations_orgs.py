@@ -380,3 +380,112 @@ async def test_missing_scope_returns_403(client, org_read_key):
         client, org_read_key, {"identifier_type": "org_ubi", "identifier_value": _unique_id()}
     )
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# jurisdiction_affiliations in observations
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def obs_jur_fixtures(db):
+    """Seed a jurisdiction for use in observation write tests."""
+    jtype_id = generate_id()
+    jur_id = generate_id()
+    await db.execute(
+        "INSERT INTO jurisdiction_types (id, slug, display_name) VALUES ($1,$2,$3)",
+        jtype_id,
+        f"test-jtype-{jtype_id[:8]}",
+        "State",
+    )
+    jur_slug = f"test-jur-obs-{jur_id[:8]}"
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jur_id,
+        jur_slug,
+        "Obs Test Jurisdiction",
+        jtype_id,
+    )
+    yield {"jur_id": jur_id}
+    await db.execute(
+        "DELETE FROM organization_jurisdiction_affiliations WHERE jurisdiction_id=$1", jur_id
+    )
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jur_id)
+    await db.execute("DELETE FROM jurisdiction_types WHERE id=$1", jtype_id)
+
+
+async def test_observation_creates_jurisdiction_affiliation(
+    client, org_write_key, db, obs_jur_fixtures
+):
+    jur_id = obs_jur_fixtures["jur_id"]
+    raw_key, _ = org_write_key
+    uid_val = _unique_id()
+
+    r = _post(
+        client,
+        raw_key,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": uid_val,
+            "jurisdiction_affiliations": [
+                {"jurisdiction_id": jur_id, "affiliation_type_slug": "governing"}
+            ],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] in ("new", "auto_attached")
+    entity_id = body["entity_id"]
+
+    row = await db.fetchrow(
+        """
+        SELECT a.organization_id, t.slug
+        FROM organization_jurisdiction_affiliations a
+        JOIN organization_jurisdiction_affiliation_types t ON t.id = a.affiliation_type_id
+        WHERE a.organization_id = $1 AND a.jurisdiction_id = $2
+        """,
+        entity_id,
+        jur_id,
+    )
+    assert row is not None
+    assert row["slug"] == "governing"
+
+
+async def test_observation_invalid_jurisdiction_id_returns_rejected(client, org_write_key, db):
+    raw_key, _ = org_write_key
+    r = _post(
+        client,
+        raw_key,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": _unique_id(),
+            "jurisdiction_affiliations": [
+                {
+                    "jurisdiction_id": "00000000000000000000000000",
+                    "affiliation_type_slug": "governing",
+                }
+            ],
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "rejected"
+
+
+async def test_observation_invalid_affiliation_type_returns_rejected(
+    client, org_write_key, db, obs_jur_fixtures
+):
+    jur_id = obs_jur_fixtures["jur_id"]
+    raw_key, _ = org_write_key
+    r = _post(
+        client,
+        raw_key,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": _unique_id(),
+            "jurisdiction_affiliations": [
+                {"jurisdiction_id": jur_id, "affiliation_type_slug": "nonexistent_type"}
+            ],
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "rejected"

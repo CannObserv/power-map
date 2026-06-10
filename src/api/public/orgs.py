@@ -30,6 +30,7 @@ from src.core.observation import (
     write_links,
     write_names,
     write_org_acronyms,
+    write_org_jurisdiction_affiliations,
     write_org_parent,
 )
 
@@ -81,6 +82,9 @@ async def submit_org_observation(
 
             await write_additional_identifiers(db, entity_id, request.additional_identifiers)
             await write_entity_events(db, entity_id, entity_type, auth.key_id, request.events)
+            await write_org_jurisdiction_affiliations(
+                db, entity_id, request.jurisdiction_affiliations
+            )
     except (
         ObservationRejected,
         IdentifierConflict,
@@ -121,6 +125,7 @@ async def search_orgs(
     limit: int = Query(default=10, ge=1),
     offset: int = Query(default=0, ge=0),
     include_archived: bool = Query(default=False),
+    jurisdiction: str | None = Query(default=None),
     id_filter: tuple[str | None, str | None] = Depends(identifier_filter),
     _: str = Depends(require_api_key),
     db=Depends(get_db),
@@ -129,6 +134,9 @@ async def search_orgs(
 
     When identifier_type and identifier_value are both supplied they take precedence
     over q and return at most one result with has_more always false.
+
+    When jurisdiction is supplied (slug or ULID), results are filtered to orgs with a
+    governing affiliation for that jurisdiction.
     """
     limit = min(limit, 50)
     id_type, id_value = id_filter
@@ -166,6 +174,9 @@ async def search_orgs(
                 "has_more": False,
             },
         }
+
+    if jurisdiction is not None:
+        return await _search_by_jurisdiction(db, jurisdiction, limit, offset, include_archived)
 
     if not q.strip():
         return {
@@ -211,6 +222,52 @@ async def search_orgs(
     has_more = len(rows) > limit
     page = rows[:limit]
 
+    return {
+        "data": [_org_row_to_dict(r) for r in page],
+        "meta": {
+            "limit": limit,
+            "offset": offset,
+            "count": len(page),
+            "has_more": has_more,
+        },
+    }
+
+
+async def _search_by_jurisdiction(
+    db: Any,
+    jurisdiction: str,
+    limit: int,
+    offset: int,
+    include_archived: bool,
+) -> dict[str, Any]:
+    """Return orgs with a governing affiliation for the given jurisdiction slug or ULID."""
+    rows = await db.fetch(
+        """
+        SELECT
+            o.id,
+            n.name,
+            a.acronym,
+            o.parent_id,
+            o.archived_at
+        FROM organizations o
+        JOIN organization_jurisdiction_affiliations aff ON aff.organization_id = o.id
+        JOIN organization_jurisdiction_affiliation_types at_ ON at_.id = aff.affiliation_type_id
+        JOIN jurisdictions j ON j.id = aff.jurisdiction_id
+        LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
+        LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
+        WHERE at_.slug = 'governing'
+          AND (j.id = $1 OR j.slug = $1)
+          AND ($2 OR o.archived_at IS NULL)
+        ORDER BY n.name NULLS LAST
+        LIMIT $3 OFFSET $4
+        """,
+        jurisdiction,
+        include_archived,
+        limit + 1,
+        offset,
+    )
+    has_more = len(rows) > limit
+    page = rows[:limit]
     return {
         "data": [_org_row_to_dict(r) for r in page],
         "meta": {
@@ -268,7 +325,7 @@ async def get_org(
     for k, v in cache_headers.items():
         response.headers[k] = v
 
-    names, acronyms, identifiers = await _fetch_detail_arrays(org_id, db)
+    names, acronyms, identifiers, affiliations = await _fetch_detail_arrays(org_id, db)
 
     return {
         **_org_row_to_dict(row),
@@ -277,6 +334,17 @@ async def get_org(
         "names": [dict(n) for n in names],
         "acronyms": [dict(a) for a in acronyms],
         "identifiers": [dict(i) for i in identifiers],
+        "jurisdiction_affiliations": [
+            {
+                "jurisdiction_id": r["jurisdiction_id"],
+                "affiliation_type": {
+                    "id": r["affiliation_type_id"],
+                    "slug": r["affiliation_type_slug"],
+                    "display_name": r["affiliation_type_display_name"],
+                },
+            }
+            for r in affiliations
+        ],
     }
 
 
@@ -343,7 +411,7 @@ async def list_org_events(
 
 
 async def _fetch_detail_arrays(org_id: str, db: Any) -> tuple:
-    """Fetch names, acronyms, and identifiers for an org."""
+    """Fetch names, acronyms, identifiers, and jurisdiction affiliations for an org."""
     names = await db.fetch(
         """
         SELECT id, name, name_type, is_canonical
@@ -372,4 +440,18 @@ async def _fetch_detail_arrays(org_id: str, db: Any) -> tuple:
         """,
         org_id,
     )
-    return names, acronyms, identifiers
+    affiliations = await db.fetch(
+        """
+        SELECT
+            aff.jurisdiction_id,
+            at_.id  AS affiliation_type_id,
+            at_.slug AS affiliation_type_slug,
+            at_.display_name AS affiliation_type_display_name
+        FROM organization_jurisdiction_affiliations aff
+        JOIN organization_jurisdiction_affiliation_types at_ ON at_.id = aff.affiliation_type_id
+        WHERE aff.organization_id = $1
+        ORDER BY at_.slug, aff.jurisdiction_id
+        """,
+        org_id,
+    )
+    return names, acronyms, identifiers, affiliations

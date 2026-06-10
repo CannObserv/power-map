@@ -4,8 +4,10 @@ from datetime import UTC, datetime
 
 from src.api.public.schemas import (
     OrgAcronym,
+    OrgAffiliationType,
     OrgDetail,
     OrgIdentifier,
+    OrgJurisdictionAffiliation,
     OrgName,
     OrgSearchResponse,
     OrgSearchResult,
@@ -169,3 +171,36 @@ def test_org_detail_full_record_shape():
     assert dumped["names"][0]["name_type"] == "legal"
     assert dumped["acronyms"][0]["is_canonical"] is True
     assert dumped["identifiers"][0]["type_slug"] == "ein"
+
+
+# ---------------------------------------------------------------------------
+# OrgJurisdictionAffiliation / OrgAffiliationType
+# ---------------------------------------------------------------------------
+
+
+def test_org_detail_jurisdiction_affiliations_default_empty():
+    detail = OrgDetail(id="abc", created_at=_TS, updated_at=_TS)
+    assert detail.jurisdiction_affiliations == []
+
+
+def test_org_detail_jurisdiction_affiliations_shape():
+    aff_type = OrgAffiliationType(id="t1", slug="governing", display_name="is governed by")
+    aff = OrgJurisdictionAffiliation(jurisdiction_id="jid1", affiliation_type=aff_type)
+    detail = OrgDetail(
+        id="abc",
+        created_at=_TS,
+        updated_at=_TS,
+        jurisdiction_affiliations=[aff],
+    )
+    dumped = detail.model_dump(mode="json")
+    affs = dumped["jurisdiction_affiliations"]
+    assert len(affs) == 1
+    assert affs[0]["jurisdiction_id"] == "jid1"
+    assert affs[0]["affiliation_type"]["slug"] == "governing"
+    assert affs[0]["affiliation_type"]["display_name"] == "is governed by"
+
+
+def test_org_affiliation_type_fields():
+    t = OrgAffiliationType(id="x", slug="registered", display_name="is registered in")
+    assert t.slug == "registered"
+    assert t.display_name == "is registered in"

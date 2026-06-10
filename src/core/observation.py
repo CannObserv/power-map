@@ -535,6 +535,39 @@ async def write_org_parent(conn, organization_id: str, parent_id: str) -> None:
     )
 
 
+async def write_org_jurisdiction_affiliations(
+    conn, organization_id: str, affiliations: list
+) -> None:
+    """Insert org-jurisdiction affiliation rows (idempotent).
+
+    Raises ObservationRejected if an affiliation_type_slug is not found.
+    FK violations on jurisdiction_id propagate as asyncpg.ForeignKeyViolationError.
+    """
+    if not affiliations:
+        return
+    for aff in affiliations:
+        type_id = await conn.fetchval(
+            "SELECT id FROM organization_jurisdiction_affiliation_types WHERE slug = $1",
+            aff.affiliation_type_slug,
+        )
+        if type_id is None:
+            raise ObservationRejected(
+                f"Unknown affiliation_type_slug: {aff.affiliation_type_slug!r}"
+            )
+        await conn.execute(
+            """
+            INSERT INTO organization_jurisdiction_affiliations
+                (id, organization_id, jurisdiction_id, affiliation_type_id)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (organization_id, jurisdiction_id, affiliation_type_id) DO NOTHING
+            """,
+            generate_id(),
+            organization_id,
+            aff.jurisdiction_id,
+            type_id,
+        )
+
+
 async def write_pronouns(conn, person_id: str, pronouns: str) -> None:
     """Set people.personal_pronouns if currently NULL (write-if-null)."""
     await conn.execute(

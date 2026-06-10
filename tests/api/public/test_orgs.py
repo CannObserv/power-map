@@ -688,3 +688,172 @@ async def test_get_org_etag_changes_after_event_deleted(client, api_key, org_fix
 
     r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1
+
+
+# ---------------------------------------------------------------------------
+# jurisdiction_affiliations on GET /orgs/{id} and GET /orgs/search?jurisdiction=
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def jur_affiliation_fixtures(db, org_fixture):
+    """Seed a jurisdiction + governing affiliation for the test org."""
+    jtype_id = generate_id()
+    jur_id = generate_id()
+    aff_id = generate_id()
+    org_id = org_fixture["org_id"]
+
+    await db.execute(
+        "INSERT INTO jurisdiction_types (id, slug, display_name) VALUES ($1,$2,$3)",
+        jtype_id,
+        f"test-jtype-{jtype_id[:8]}",
+        "State",
+    )
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jur_id,
+        f"test-jur-{jur_id[:8]}",
+        "Test State",
+        jtype_id,
+    )
+    at_row = await db.fetchrow(
+        "SELECT id FROM organization_jurisdiction_affiliation_types WHERE slug='governing'"
+    )
+    assert at_row is not None
+    await db.execute(
+        "INSERT INTO organization_jurisdiction_affiliations"
+        " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+        " VALUES ($1,$2,$3,$4)",
+        aff_id,
+        org_id,
+        jur_id,
+        at_row["id"],
+    )
+    yield {"org_id": org_id, "jur_id": jur_id, "jur_slug": f"test-jur-{jur_id[:8]}"}
+    await db.execute("DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jur_id)
+    await db.execute("DELETE FROM jurisdiction_types WHERE id=$1", jtype_id)
+
+
+@pytest.mark.integration
+async def test_get_org_detail_includes_jurisdiction_affiliations(
+    client, api_key, jur_affiliation_fixtures
+):
+    org_id = jur_affiliation_fixtures["org_id"]
+    jur_id = jur_affiliation_fixtures["jur_id"]
+
+    r = client.get(f"/api/v1/orgs/{org_id}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    body = r.json()
+    assert "jurisdiction_affiliations" in body
+    affs = body["jurisdiction_affiliations"]
+    assert len(affs) == 1
+    assert affs[0]["jurisdiction_id"] == jur_id
+    assert affs[0]["affiliation_type"]["slug"] == "governing"
+    assert affs[0]["affiliation_type"]["display_name"] == "is governed by"
+
+
+@pytest.mark.integration
+async def test_get_org_detail_no_affiliations_returns_empty_array(client, api_key, org_fixture, db):
+    # Use a fresh org with no affiliations
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    try:
+        r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+        assert r.status_code == 200
+        assert r.json()["jurisdiction_affiliations"] == []
+    finally:
+        await db.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+
+@pytest.mark.integration
+async def test_search_jurisdiction_filter_by_slug(client, api_key, jur_affiliation_fixtures):
+    slug = jur_affiliation_fixtures["jur_slug"]
+    org_id = jur_affiliation_fixtures["org_id"]
+
+    r = client.get(
+        "/api/v1/orgs/search",
+        params={"jurisdiction": slug},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200
+    ids = [item["id"] for item in r.json()["data"]]
+    assert org_id in ids
+
+
+@pytest.mark.integration
+async def test_search_jurisdiction_filter_by_ulid(client, api_key, jur_affiliation_fixtures):
+    jur_id = jur_affiliation_fixtures["jur_id"]
+    org_id = jur_affiliation_fixtures["org_id"]
+
+    r = client.get(
+        "/api/v1/orgs/search",
+        params={"jurisdiction": jur_id},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200
+    ids = [item["id"] for item in r.json()["data"]]
+    assert org_id in ids
+
+
+@pytest.mark.integration
+async def test_search_jurisdiction_filter_unknown_slug_returns_empty(client, api_key):
+    r = client.get(
+        "/api/v1/orgs/search",
+        params={"jurisdiction": "no-such-jurisdiction"},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200
+    assert r.json()["data"] == []
+
+
+@pytest.mark.integration
+async def test_search_jurisdiction_filter_registered_type_not_default(
+    client, api_key, db, org_fixture
+):
+    """?jurisdiction= defaults to governing type — registered affiliation must NOT match."""
+    jtype_id = generate_id()
+    jur_id = generate_id()
+    aff_id = generate_id()
+    org_id = org_fixture["org_id"]
+
+    await db.execute(
+        "INSERT INTO jurisdiction_types (id, slug, display_name) VALUES ($1,$2,$3)",
+        jtype_id,
+        f"test-jtype-{jtype_id[:8]}",
+        "State",
+    )
+    jur_slug = f"test-reg-{jur_id[:8]}"
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jur_id,
+        jur_slug,
+        "Registered State",
+        jtype_id,
+    )
+    at_row = await db.fetchrow(
+        "SELECT id FROM organization_jurisdiction_affiliation_types WHERE slug='registered'"
+    )
+    assert at_row is not None
+    await db.execute(
+        "INSERT INTO organization_jurisdiction_affiliations"
+        " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+        " VALUES ($1,$2,$3,$4)",
+        aff_id,
+        org_id,
+        jur_id,
+        at_row["id"],
+    )
+    try:
+        r = client.get(
+            "/api/v1/orgs/search",
+            params={"jurisdiction": jur_slug},
+            headers={"X-API-Key": api_key},
+        )
+        assert r.status_code == 200
+        ids = [item["id"] for item in r.json()["data"]]
+        assert org_id not in ids
+    finally:
+        await db.execute("DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id)
+        await db.execute("DELETE FROM jurisdictions WHERE id=$1", jur_id)
+        await db.execute("DELETE FROM jurisdiction_types WHERE id=$1", jtype_id)

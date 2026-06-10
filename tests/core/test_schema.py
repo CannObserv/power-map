@@ -1194,3 +1194,222 @@ async def test_archived_assignment_does_not_block_same_start_date(db):
         person_id,
         role_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# organization_jurisdiction_affiliations
+# ---------------------------------------------------------------------------
+
+
+async def _jur_type(conn: asyncpg.Connection) -> str:
+    jtid = generate_id()
+    await conn.execute(
+        "INSERT INTO jurisdiction_types (id, slug, display_name) VALUES ($1, $2, $3)",
+        jtid,
+        f"test-jtype-{jtid[:8]}",
+        "Test Type",
+    )
+    return jtid
+
+
+async def _jurisdiction(conn: asyncpg.Connection, jur_type_id: str) -> str:
+    jid = generate_id()
+    await conn.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1, $2, $3, $4)",
+        jid,
+        f"test-jur-{jid[:8]}",
+        "Test Jurisdiction",
+        jur_type_id,
+    )
+    return jid
+
+
+async def _affiliation_type_id(conn: asyncpg.Connection, slug: str = "governing") -> str:
+    row = await conn.fetchrow(
+        "SELECT id FROM organization_jurisdiction_affiliation_types WHERE slug = $1", slug
+    )
+    assert row is not None, f"affiliation_type '{slug}' not seeded — check schema.sql"
+    return row["id"]
+
+
+async def test_affiliation_type_governing_seeded(db):
+    row = await db.fetchrow(
+        "SELECT id, slug, display_name"
+        " FROM organization_jurisdiction_affiliation_types WHERE slug = 'governing'"
+    )
+    assert row is not None
+    assert row["display_name"] == "is governed by"
+
+
+async def test_affiliation_type_registered_seeded(db):
+    row = await db.fetchrow(
+        "SELECT id, slug, display_name"
+        " FROM organization_jurisdiction_affiliation_types WHERE slug = 'registered'"
+    )
+    assert row is not None
+    assert row["display_name"] == "is registered in"
+
+
+async def test_affiliation_insert_valid(db):
+    org_id = await _org(db)
+    jt_id = await _jur_type(db)
+    jur_id = await _jurisdiction(db, jt_id)
+    at_id = await _affiliation_type_id(db)
+    await db.execute(
+        "INSERT INTO organization_jurisdiction_affiliations"
+        " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        org_id,
+        jur_id,
+        at_id,
+    )
+    count = await db.fetchval(
+        "SELECT count(*) FROM organization_jurisdiction_affiliations WHERE organization_id = $1",
+        org_id,
+    )
+    assert count == 1
+
+
+async def test_affiliation_invalid_org_rejected(db):
+    jt_id = await _jur_type(db)
+    jur_id = await _jurisdiction(db, jt_id)
+    at_id = await _affiliation_type_id(db)
+    with pytest.raises(asyncpg.ForeignKeyViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_jurisdiction_affiliations"
+                " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+                " VALUES ($1, $2, $3, $4)",
+                generate_id(),
+                "00000000000000000000000000",
+                jur_id,
+                at_id,
+            )
+
+
+async def test_affiliation_invalid_jurisdiction_rejected(db):
+    org_id = await _org(db)
+    at_id = await _affiliation_type_id(db)
+    with pytest.raises(asyncpg.ForeignKeyViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_jurisdiction_affiliations"
+                " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+                " VALUES ($1, $2, $3, $4)",
+                generate_id(),
+                org_id,
+                "00000000000000000000000000",
+                at_id,
+            )
+
+
+async def test_affiliation_invalid_type_rejected(db):
+    org_id = await _org(db)
+    jt_id = await _jur_type(db)
+    jur_id = await _jurisdiction(db, jt_id)
+    with pytest.raises(asyncpg.ForeignKeyViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_jurisdiction_affiliations"
+                " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+                " VALUES ($1, $2, $3, $4)",
+                generate_id(),
+                org_id,
+                jur_id,
+                "00000000000000000000000000",
+            )
+
+
+async def test_affiliation_duplicate_triple_rejected(db):
+    org_id = await _org(db)
+    jt_id = await _jur_type(db)
+    jur_id = await _jurisdiction(db, jt_id)
+    at_id = await _affiliation_type_id(db)
+    await db.execute(
+        "INSERT INTO organization_jurisdiction_affiliations"
+        " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        org_id,
+        jur_id,
+        at_id,
+    )
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_jurisdiction_affiliations"
+                " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+                " VALUES ($1, $2, $3, $4)",
+                generate_id(),
+                org_id,
+                jur_id,
+                at_id,
+            )
+
+
+async def test_affiliation_same_org_two_types_accepted(db):
+    org_id = await _org(db)
+    jt_id = await _jur_type(db)
+    jur_id = await _jurisdiction(db, jt_id)
+    governing_id = await _affiliation_type_id(db, "governing")
+    registered_id = await _affiliation_type_id(db, "registered")
+    for at_id in (governing_id, registered_id):
+        await db.execute(
+            "INSERT INTO organization_jurisdiction_affiliations"
+            " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+            " VALUES ($1, $2, $3, $4)",
+            generate_id(),
+            org_id,
+            jur_id,
+            at_id,
+        )
+    count = await db.fetchval(
+        "SELECT count(*) FROM organization_jurisdiction_affiliations WHERE organization_id = $1",
+        org_id,
+    )
+    assert count == 2
+
+
+async def test_affiliation_insert_touches_org_updated_at(db):
+    # INSERT with explicitly old updated_at — BEFORE UPDATE trigger doesn't fire on INSERT,
+    # so the sentinel sticks. Affiliation INSERT then fires touch_parent_org (AFTER INSERT),
+    # which UPDATEs organizations → set_updated_at (BEFORE UPDATE) advances it to NOW().
+    org_id = generate_id()
+    await db.execute(
+        "INSERT INTO organizations (id, updated_at) VALUES ($1, '2000-01-01'::timestamptz)",
+        org_id,
+    )
+    old = await db.fetchval("SELECT updated_at FROM organizations WHERE id = $1", org_id)
+    assert old.year == 2000
+
+    jt_id = await _jur_type(db)
+    jur_id = await _jurisdiction(db, jt_id)
+    at_id = await _affiliation_type_id(db)
+    await db.execute(
+        "INSERT INTO organization_jurisdiction_affiliations"
+        " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        org_id,
+        jur_id,
+        at_id,
+    )
+    new = await db.fetchval("SELECT updated_at FROM organizations WHERE id = $1", org_id)
+    assert new.year > 2000
+
+
+async def test_affiliation_trigger_covers_delete_event(db):
+    """Trigger must be registered for DELETE events (tgtype bit 8 per pg_trigger)."""
+    row = await db.fetchrow(
+        """
+        SELECT tgname
+        FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        WHERE c.relname = 'organization_jurisdiction_affiliations'
+          AND t.tgname = 'trg_touch_org_on_affiliation_change'
+          AND (t.tgtype & 8) > 0
+          AND t.tgenabled != 'D'
+        """
+    )
+    assert row is not None, "trg_touch_org_on_affiliation_change not registered for DELETE"

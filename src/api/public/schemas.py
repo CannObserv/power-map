@@ -76,14 +76,30 @@ class OrgIdentifier(BaseModel):
     value: str
 
 
+class OrgAffiliationType(BaseModel):
+    """A type of org-jurisdiction affiliation from the lookup table."""
+
+    id: str
+    slug: str
+    display_name: str
+
+
+class OrgJurisdictionAffiliation(BaseModel):
+    """A single typed association between an org and a jurisdiction."""
+
+    jurisdiction_id: str
+    affiliation_type: OrgAffiliationType
+
+
 class OrgDetail(OrgSearchResult):
-    """Full org record including name variants, acronyms, and identifiers."""
+    """Full org record including name variants, acronyms, identifiers, and affiliations."""
 
     created_at: datetime
     updated_at: datetime
     names: list[OrgName] = Field(default_factory=list)
     acronyms: list[OrgAcronym] = Field(default_factory=list)
     identifiers: list[OrgIdentifier] = Field(default_factory=list)
+    jurisdiction_affiliations: list[OrgJurisdictionAffiliation] = Field(default_factory=list)
 
     @field_serializer("created_at", "updated_at")
     def _serialize_ts(self, v: datetime) -> str:
@@ -434,6 +450,13 @@ class PeopleObservationRequest(BaseModel):
     events: list[ObservationEventItem] = Field(default_factory=list)
 
 
+class ObservationJurisdictionAffiliation(BaseModel):
+    """A jurisdiction affiliation claim in an observation payload."""
+
+    jurisdiction_id: str
+    affiliation_type_slug: str
+
+
 class OrganizationObservationRequest(BaseModel):
     """Payload for POST /api/v1/orgs/observations."""
 
@@ -449,6 +472,9 @@ class OrganizationObservationRequest(BaseModel):
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
     addresses: list[ObservationAddress] = Field(default_factory=list)
     additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
+    jurisdiction_affiliations: list[ObservationJurisdictionAffiliation] = Field(
+        default_factory=list
+    )
     events: list[ObservationEventItem] = Field(default_factory=list)
 
     @model_validator(mode="after")

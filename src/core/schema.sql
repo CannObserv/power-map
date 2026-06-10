@@ -138,6 +138,16 @@ CREATE TABLE IF NOT EXISTS entity_addresses (
 CREATE INDEX IF NOT EXISTS idx_entity_addresses_entity
     ON entity_addresses(entity_type, entity_id);
 
+-- Typed association between an organization and a jurisdiction.
+-- display_name is a verb phrase for SVO rendering:
+--   "{org} {display_name} {jurisdiction}" → "WA Legislature is governed by Washington State"
+CREATE TABLE IF NOT EXISTS organization_jurisdiction_affiliation_types (
+    id           TEXT        PRIMARY KEY,
+    slug         TEXT        NOT NULL UNIQUE,
+    display_name TEXT        NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- =============================================================================
 -- Core Entities
 -- =============================================================================
@@ -194,6 +204,25 @@ LEFT JOIN organization_names n
 LEFT JOIN organization_acronyms a
     ON a.organization_id = o.id AND a.is_canonical = TRUE
 ;
+
+CREATE TABLE IF NOT EXISTS organization_jurisdiction_affiliations (
+    id                   TEXT        PRIMARY KEY,
+    organization_id      TEXT        NOT NULL REFERENCES organizations(id),
+    jurisdiction_id      TEXT        NOT NULL REFERENCES jurisdictions(id),
+    affiliation_type_id  TEXT        NOT NULL
+                                     REFERENCES organization_jurisdiction_affiliation_types(id),
+    notes                TEXT,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_org_jur_affiliation
+    ON organization_jurisdiction_affiliations(organization_id, jurisdiction_id, affiliation_type_id);
+
+CREATE INDEX IF NOT EXISTS idx_org_jur_affiliations_org
+    ON organization_jurisdiction_affiliations(organization_id);
+
+CREATE INDEX IF NOT EXISTS idx_org_jur_affiliations_jur
+    ON organization_jurisdiction_affiliations(jurisdiction_id);
 
 CREATE TABLE IF NOT EXISTS people (
     id                TEXT        PRIMARY KEY,
@@ -958,6 +987,10 @@ CREATE OR REPLACE TRIGGER trg_touch_org_on_acronym_change
     AFTER INSERT OR UPDATE OR DELETE ON organization_acronyms
     FOR EACH ROW EXECUTE FUNCTION touch_parent_org();
 
+CREATE OR REPLACE TRIGGER trg_touch_org_on_affiliation_change
+    AFTER INSERT OR UPDATE OR DELETE ON organization_jurisdiction_affiliations
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_org();
+
 CREATE OR REPLACE FUNCTION touch_parent_person()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
@@ -1667,3 +1700,14 @@ INSERT INTO api_key_scope_types (id, display_name, description) VALUES
      'Voice Embeddings: Read',
      'Query persons by voice embedding similarity via POST /api/v1/people/identify')
 ON CONFLICT (id) DO NOTHING;
+
+-- =============================================================================
+-- Migration (#194): organization_jurisdiction_affiliation_types seed
+-- =============================================================================
+
+INSERT INTO organization_jurisdiction_affiliation_types (id, slug, display_name) VALUES
+    ('01KW0000000000000000000001', 'governing',  'is governed by'),
+    ('01KW0000000000000000000002', 'registered', 'is registered in')
+ON CONFLICT (id) DO UPDATE SET
+    slug         = EXCLUDED.slug,
+    display_name = EXCLUDED.display_name;
