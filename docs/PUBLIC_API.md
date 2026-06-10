@@ -262,6 +262,21 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. |
 | `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
 
+### Detail — `GET /api/v1/orgs/{id}`
+
+Returns the base search-result fields plus:
+
+| Field | Description |
+|-------|-------------|
+| `names` | Array of `{id, name, name_type, is_canonical}` |
+| `acronyms` | Array of `{id, acronym, is_canonical}` |
+| `identifiers` | Array of `{id, type_id, type_slug, value}` |
+| `jurisdiction_affiliations` | Array of `{jurisdiction_id, affiliation_type: {id, slug, display_name}}`. Empty array when no affiliations exist. |
+| `created_at` | ISO 8601 UTC timestamp |
+| `updated_at` | ISO 8601 UTC timestamp |
+
+Supports ETag / `If-None-Match` conditional requests; 304 on cache hit. `updated_at` advances whenever any child table (names, acronyms, identifiers, affiliations) changes.
+
 ### Observation write — `POST /orgs/observations`
 
 Upserts an organization by identifier using the same match-or-create semantics as the other observation write endpoints.

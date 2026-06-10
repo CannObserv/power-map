@@ -35,62 +35,73 @@ async def main(csv_path: str, execute: bool, has_header: bool) -> None:
     database_url = os.environ["DATABASE_URL"]
     conn = await asyncpg.connect(database_url)
     try:
+        inserted = 0
+        skipped = 0
+        errors = 0
+
         with open(csv_path, newline="") as fh:
             reader = csv.reader(fh)
             if has_header:
                 next(reader)
+            rows = list(reader)
 
-            inserted = 0
-            skipped = 0
-            errors = 0
+        # Validate and resolve all rows before touching the DB.
+        resolved = []
+        for i, row in enumerate(rows, start=2 if has_header else 1):
+            if len(row) != 3:
+                logger.error("row %d: expected 3 columns, got %d — skipping", i, len(row))
+                errors += 1
+                continue
 
-            for i, row in enumerate(reader, start=2 if has_header else 1):
-                if len(row) != 3:
-                    logger.error("row %d: expected 3 columns, got %d — skipping", i, len(row))
-                    errors += 1
-                    continue
+            org_id, jur_ref, aff_type_slug = [c.strip() for c in row]
 
-                org_id, jur_ref, aff_type_slug = [c.strip() for c in row]
+            # Resolve jurisdiction by ULID or slug.
+            jur_id = await conn.fetchval(
+                "SELECT id FROM jurisdictions WHERE id=$1 OR slug=$1", jur_ref
+            )
+            if jur_id is None:
+                logger.error("row %d: jurisdiction not found: %r", i, jur_ref)
+                errors += 1
+                continue
 
-                # Resolve jurisdiction by ULID or slug.
-                jur_id = await conn.fetchval(
-                    "SELECT id FROM jurisdictions WHERE id=$1 OR slug=$1", jur_ref
-                )
-                if jur_id is None:
-                    logger.error("row %d: jurisdiction not found: %r", i, jur_ref)
-                    errors += 1
-                    continue
+            type_id = await conn.fetchval(
+                "SELECT id FROM organization_jurisdiction_affiliation_types WHERE slug=$1",
+                aff_type_slug,
+            )
+            if type_id is None:
+                logger.error("row %d: unknown affiliation_type_slug: %r", i, aff_type_slug)
+                errors += 1
+                continue
 
-                type_id = await conn.fetchval(
-                    "SELECT id FROM organization_jurisdiction_affiliation_types WHERE slug=$1",
-                    aff_type_slug,
-                )
-                if type_id is None:
-                    logger.error("row %d: unknown affiliation_type_slug: %r", i, aff_type_slug)
-                    errors += 1
-                    continue
-
-                exists = await conn.fetchval(
-                    """
-                    SELECT 1 FROM organization_jurisdiction_affiliations
-                    WHERE organization_id=$1 AND jurisdiction_id=$2 AND affiliation_type_id=$3
-                    """,
+            exists = await conn.fetchval(
+                """
+                SELECT 1 FROM organization_jurisdiction_affiliations
+                WHERE organization_id=$1 AND jurisdiction_id=$2 AND affiliation_type_id=$3
+                """,
+                org_id,
+                jur_id,
+                type_id,
+            )
+            if exists:
+                logger.info(
+                    "row %d: already exists org=%s jur=%s type=%s — skip",
+                    i,
                     org_id,
                     jur_id,
-                    type_id,
+                    aff_type_slug,
                 )
-                if exists:
-                    logger.info(
-                        "row %d: already exists org=%s jur=%s type=%s — skip",
-                        i,
-                        org_id,
-                        jur_id,
-                        aff_type_slug,
-                    )
-                    skipped += 1
-                    continue
+                skipped += 1
+                continue
 
-                if execute:
+            resolved.append((org_id, jur_id, type_id, aff_type_slug))
+
+        if errors:
+            logger.error("aborting: %d validation error(s) before any writes", errors)
+            sys.exit(1)
+
+        if execute:
+            async with conn.transaction():
+                for org_id, jur_id, type_id, aff_type_slug in resolved:
                     await conn.execute(
                         """
                         INSERT INTO organization_jurisdiction_affiliations
@@ -105,24 +116,20 @@ async def main(csv_path: str, execute: bool, has_header: bool) -> None:
                         type_id,
                     )
                     logger.info("inserted: org=%s jur=%s type=%s", org_id, jur_id, aff_type_slug)
-                else:
-                    logger.info(
-                        "dry-run: would insert org=%s jur=%s type=%s",
-                        org_id,
-                        jur_id,
-                        aff_type_slug,
-                    )
+                    inserted += 1
+        else:
+            for org_id, jur_id, type_id, aff_type_slug in resolved:
+                logger.info(
+                    "dry-run: would insert org=%s jur=%s type=%s", org_id, jur_id, aff_type_slug
+                )
                 inserted += 1
 
         logger.info(
-            "done: %d %s, %d skipped, %d errors",
+            "done: %d %s, %d skipped",
             inserted,
             "inserted" if execute else "would insert",
             skipped,
-            errors,
         )
-        if errors:
-            sys.exit(1)
     finally:
         await conn.close()
 

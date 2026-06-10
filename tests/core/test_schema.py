@@ -1202,6 +1202,7 @@ async def test_archived_assignment_does_not_block_same_start_date(db):
 
 
 async def _jur_type(conn: asyncpg.Connection) -> str:
+    # No explicit cleanup — db fixture rolls back every test via tr.rollback().
     jtid = generate_id()
     await conn.execute(
         "INSERT INTO jurisdiction_types (id, slug, display_name) VALUES ($1, $2, $3)",
@@ -1213,6 +1214,7 @@ async def _jur_type(conn: asyncpg.Connection) -> str:
 
 
 async def _jurisdiction(conn: asyncpg.Connection, jur_type_id: str) -> str:
+    # No explicit cleanup — db fixture rolls back every test via tr.rollback().
     jid = generate_id()
     await conn.execute(
         "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1, $2, $3, $4)",

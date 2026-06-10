@@ -211,7 +211,6 @@ CREATE TABLE IF NOT EXISTS organization_jurisdiction_affiliations (
     jurisdiction_id      TEXT        NOT NULL REFERENCES jurisdictions(id),
     affiliation_type_id  TEXT        NOT NULL
                                      REFERENCES organization_jurisdiction_affiliation_types(id),
-    notes                TEXT,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

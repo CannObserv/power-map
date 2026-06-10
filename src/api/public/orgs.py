@@ -132,11 +132,10 @@ async def search_orgs(
 ) -> Any:
     """Search organizations by name, acronym, or name variant.
 
-    When identifier_type and identifier_value are both supplied they take precedence
-    over q and return at most one result with has_more always false.
-
-    When jurisdiction is supplied (slug or ULID), results are filtered to orgs with a
-    governing affiliation for that jurisdiction.
+    Parameter precedence (first match wins, others ignored):
+    1. identifier_type + identifier_value — returns at most one result, has_more=false.
+    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q ignored.
+    3. q — full-text search across names and acronyms.
     """
     limit = min(limit, 50)
     id_type, id_value = id_filter

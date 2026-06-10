@@ -434,7 +434,7 @@ async def test_observation_creates_jurisdiction_affiliation(
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["disposition"] in ("new", "auto_attached")
+    assert body["disposition"] == "new"  # fresh unique identifier always creates
     entity_id = body["entity_id"]
 
     row = await db.fetchrow(
