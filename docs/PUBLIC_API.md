@@ -42,7 +42,8 @@ The `/docs` spec documents the `q`, `limit`, `offset`, `include_archived`, `iden
 
 - **`count` is the page count, not the total.** `meta.count` is the number of items returned in this response. No total-dataset-size field exists.
 - **`limit` is server-clamped to 50.** Values above 50 are silently reduced; the cap is enforced in code, not in schema validation, so the OpenAPI spec shows no upper bound.
-- **Empty `q` short-circuits.** When `q` is absent or whitespace-only, the endpoint returns an empty result set immediately — no DB query is issued. A non-empty `q` is required for meaningful results.
+- **Empty `q` short-circuits (q-only path).** When `q` is absent or whitespace-only and `jurisdiction` is not provided, the endpoint returns an empty result set immediately — no DB query is issued. A non-empty `q` is required for meaningful results on this path.
+- **`jurisdiction` returns results with an empty `q`.** When `jurisdiction` is provided, omitting or blanking `q` returns the full jurisdiction-scoped cohort. `q` acts as an additional name filter on top of the jurisdiction scope, not as a precondition for the query to execute.
 - **`identifier_type` + `identifier_value` take precedence over `q`.** When both are supplied, they perform an exact identifier lookup and return at most one result with `has_more: false`; `q`, `limit`, and `offset` are accepted but have no effect.
 - **`include_archived: false` is a silent filter.** Archived entities are excluded by default with no signal in the response that a matching archived record exists. Pass `include_archived=true` to include them.
 

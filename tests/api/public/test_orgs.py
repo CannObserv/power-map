@@ -809,20 +809,52 @@ async def test_search_jurisdiction_filter_unknown_slug_returns_empty(client, api
 
 @pytest.mark.integration
 async def test_search_q_with_jurisdiction_filters_by_name(
-    client, api_key, jur_affiliation_fixtures
+    client, api_key, jur_affiliation_fixtures, db
 ):
-    """q + jurisdiction must intersect: only jurisdiction-scoped orgs whose name matches q."""
+    """q narrows within jurisdiction: matching org included, non-matching org excluded."""
     slug = jur_affiliation_fixtures["jur_slug"]
+    jur_id = jur_affiliation_fixtures["jur_id"]
     org_id = jur_affiliation_fixtures["org_id"]
 
-    r = client.get(
-        "/api/v1/orgs/search",
-        params={"q": "Television", "jurisdiction": slug},
-        headers={"X-API-Key": api_key},
+    # Second org in the same jurisdiction — name does NOT contain "Television"
+    other_id = generate_id()
+    other_name_id = generate_id()
+    other_aff_id = generate_id()
+    at_row = await db.fetchrow(
+        "SELECT id FROM organization_jurisdiction_affiliation_types WHERE slug='governing'"
     )
-    assert r.status_code == 200
-    ids = [item["id"] for item in r.json()["data"]]
-    assert org_id in ids
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", other_id)
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
+        " VALUES ($1,$2,'Council of Agriculture','legal',TRUE)",
+        other_name_id,
+        other_id,
+    )
+    await db.execute(
+        "INSERT INTO organization_jurisdiction_affiliations"
+        " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+        " VALUES ($1,$2,$3,$4)",
+        other_aff_id,
+        other_id,
+        jur_id,
+        at_row["id"],
+    )
+    try:
+        r = client.get(
+            "/api/v1/orgs/search",
+            params={"q": "Television", "jurisdiction": slug},
+            headers={"X-API-Key": api_key},
+        )
+        assert r.status_code == 200
+        ids = [item["id"] for item in r.json()["data"]]
+        assert org_id in ids
+        assert other_id not in ids
+    finally:
+        await db.execute(
+            "DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", other_aff_id
+        )
+        await db.execute("DELETE FROM organization_names WHERE id=$1", other_name_id)
+        await db.execute("DELETE FROM organizations WHERE id=$1", other_id)
 
 
 @pytest.mark.integration

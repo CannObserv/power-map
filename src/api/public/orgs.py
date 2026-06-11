@@ -264,7 +264,7 @@ async def _search_by_jurisdiction(
         WHERE at_.slug = 'governing'
           AND (j.id = $1 OR j.slug = $1)
           AND ($2 OR o.archived_at IS NULL)
-          AND ($5 = '' OR (
+          AND ($5::text IS NULL OR (
               n.name ILIKE $5
               OR a.acronym ILIKE $5
               OR EXISTS (
@@ -274,7 +274,7 @@ async def _search_by_jurisdiction(
           ))
         ORDER BY
             CASE
-                WHEN $5 = '' THEN 0
+                WHEN $5::text IS NULL THEN 0
                 WHEN n.name ILIKE $5 THEN 0
                 WHEN a.acronym ILIKE $5 THEN 1
                 ELSE 2
@@ -286,7 +286,7 @@ async def _search_by_jurisdiction(
         include_archived,
         limit + 1,
         offset,
-        f"%{q}%" if q else "",
+        f"%{q}%" if q else None,
     )
     has_more = len(rows) > limit
     page = rows[:limit]
