@@ -88,7 +88,8 @@ def make_identifiers_router(
         """Return empty identifier form row."""
         await _get_entity_or_404(entity_id, db)
         ident_types = await db.fetch(
-            "SELECT * FROM entity_identifier_types WHERE entity_type=$1 ORDER BY display_name",
+            "SELECT * FROM entity_identifier_types"
+            " WHERE entity_type=$1 AND NOT is_internal ORDER BY display_name",
             entity_type,
         )
         return templates.TemplateResponse(
@@ -150,7 +151,8 @@ def make_identifiers_router(
         """Return identifier edit form row."""
         row = await _get_identifier_or_404(ident_id, entity_id, db)
         ident_types = await db.fetch(
-            "SELECT * FROM entity_identifier_types WHERE entity_type=$1 ORDER BY display_name",
+            "SELECT * FROM entity_identifier_types"
+            " WHERE entity_type=$1 AND NOT is_internal ORDER BY display_name",
             entity_type,
         )
         return templates.TemplateResponse(

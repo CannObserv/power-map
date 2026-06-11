@@ -346,14 +346,19 @@ Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 
 ### Observation write — `POST /roles/observations`
 
-Match-or-create semantics. Roles are keyed by `(organization_id, lower(title))` — no external identifier type is needed.
+Two mutually exclusive resolution modes:
+
+- **Standard** — match or create by `(organization_id, lower(title))`. No external identifier type needed.
+- **PM-native** — attach to a known role by its PM ULID. Supply `identifier_type="pm_role_id"` + `identifier_value=<role ULID>`. Never creates; returns `rejected` if the ULID is unknown or archived.
 
 **Request fields:**
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `organization_id` | always | ULID of the owning organization. Must exist and be active; unknown/archived org → `rejected`. |
-| `title` | always | Role title. Case-insensitive match against existing roles in the same org. |
+| `identifier_type` | PM-native mode | Must be `"pm_role_id"` when supplied. Mutually exclusive with `organization_id`/`title`. |
+| `identifier_value` | PM-native mode | Role ULID. Required when `identifier_type` is present. |
+| `organization_id` | standard mode | ULID of the owning organization. Must exist and be active; unknown/archived org → `rejected`. |
+| `title` | standard mode | Role title. Case-insensitive match against existing roles in the same org. |
 | `notes` | optional | Free text. Only written on NEW. |
 | `established_on` | optional | ISO 8601 date. Only written on NEW. |
 | `abolished_on` | optional | ISO 8601 date. Only written on NEW. Must be >= `established_on` if both supplied. |
@@ -365,9 +370,9 @@ Match-or-create semantics. Roles are keyed by `(organization_id, lower(title))` 
 
 | Disposition | Condition |
 |-------------|-----------|
-| `new` | No active role with this `(org_id, lower(title))` found; role created |
-| `auto-attached` | Active role already exists; attribute writes still applied |
-| `rejected` | Organization unknown or archived; DB constraint violation |
+| `new` | No active role with this `(org_id, lower(title))` found; role created (standard mode only) |
+| `auto-attached` | Active role already exists (standard) or known ULID supplied (PM-native); attribute writes still applied |
+| `rejected` | Organization unknown or archived; unknown/archived ULID (PM-native); DB constraint violation |
 
 **Note:** `notes`, `established_on`, and `abolished_on` are only written on NEW disposition. They are intentionally not updated on AUTO_ATTACHED to preserve first-submitter authority over these core role fields.
 
@@ -411,14 +416,19 @@ Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 
 ### Observation write — `POST /assignments/observations`
 
-Match-or-create semantics. Assignments are keyed by `(person_id, role_id, start_date)` — `NULL` start_date is treated as a distinct known value (NULLS NOT DISTINCT), meaning "unknown start" is itself a unique slot.
+Two mutually exclusive resolution modes:
+
+- **Standard** — match or create by `(person_id, role_id, start_date)`. `NULL` start_date is a distinct known value (NULLS NOT DISTINCT), meaning "unknown start" is itself a unique slot.
+- **PM-native** — attach to a known assignment by its PM ULID. Supply `identifier_type="pm_assignment_id"` + `identifier_value=<assignment ULID>`. Never creates; returns `rejected` if the ULID is unknown or archived.
 
 **Request fields:**
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `person_id` | always | ULID of the person. Must exist and be active; unknown/archived person → `rejected`. |
-| `role_id` | always | ULID of the role. Must exist and be active; unknown/archived role → `rejected`. |
+| `identifier_type` | PM-native mode | Must be `"pm_assignment_id"` when supplied. Mutually exclusive with `person_id`/`role_id`. |
+| `identifier_value` | PM-native mode | Assignment ULID. Required when `identifier_type` is present. |
+| `person_id` | standard mode | ULID of the person. Must exist and be active; unknown/archived person → `rejected`. |
+| `role_id` | standard mode | ULID of the role. Must exist and be active; unknown/archived role → `rejected`. |
 | `start_date` | optional | ISO 8601 date (nullable). `NULL` = unknown start date. Only written on NEW. |
 | `end_date` | optional | ISO 8601 date. Must be >= `start_date` when both set. Only written on NEW. |
 | `is_current` | optional | `false` by default. Cannot be `true` when `end_date` is also set. Only written on NEW. |
@@ -431,9 +441,9 @@ Match-or-create semantics. Assignments are keyed by `(person_id, role_id, start_
 
 | Disposition | Condition |
 |-------------|-----------|
-| `new` | No active assignment with this `(person_id, role_id, start_date)` found; assignment created |
-| `auto-attached` | Active assignment already exists; attribute writes still applied |
-| `rejected` | Person or role unknown/archived; `is_current` + `end_date` conflict; DB constraint violation |
+| `new` | No active assignment with this `(person_id, role_id, start_date)` found; assignment created (standard mode only) |
+| `auto-attached` | Active assignment already exists (standard) or known ULID supplied (PM-native); attribute writes still applied |
+| `rejected` | Person or role unknown/archived; unknown/archived ULID (PM-native); `is_current` + `end_date` conflict; DB constraint violation |
 
 **Changes feed:** `role_assignment` entities appear in `GET /api/v1/changes` with `entity_type: "role_assignment"`.
 

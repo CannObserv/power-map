@@ -73,7 +73,6 @@ async def resolve_entity(
         logger.warning("Unknown identifier_type_slug=%r", identifier_type_slug)
         return "", "", Disposition.REJECTED
 
-    entity_identifier_type_id = eit["id"]
     entity_type = eit["entity_type"]
 
     if eit["is_internal"]:
@@ -85,6 +84,7 @@ async def resolve_entity(
             return "", "", Disposition.REJECTED
         return entity_id, entity_type, Disposition.AUTO_ATTACHED
 
+    entity_identifier_type_id = eit["id"]
     existing = await conn.fetchrow(
         "SELECT entity_id FROM identifiers WHERE entity_identifier_type_id = $1 AND value = $2",
         entity_identifier_type_id,

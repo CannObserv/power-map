@@ -548,3 +548,10 @@ async def test_pm_assignment_id_rejected_on_unknown_ulid(client, write_key):
     )
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
+
+
+def test_pm_assignment_id_requires_identifier_value(client, write_key):
+    """identifier_type=pm_assignment_id without identifier_value → 422."""
+    raw, _ = write_key
+    r = _post(client, raw, {"identifier_type": "pm_assignment_id"})
+    assert r.status_code == 422
