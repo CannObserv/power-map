@@ -608,6 +608,66 @@ async def test_identifier_type_edit_row_post(client, db):
         await db.execute("DELETE FROM entity_identifier_types WHERE id=$1", iid)
 
 
+async def test_identifier_type_edit_row_get_shows_jurisdiction_option(client, db):
+    """Edit form must include 'jurisdiction' as a selectable entity_type option.
+
+    Regression for #200: template previously omitted jurisdiction, so editing a
+    jurisdiction row would silently corrupt its entity_type to 'organization'.
+    """
+    iid = generate_id()
+    await db.execute(
+        "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        iid,
+        "Jur ID",
+        f"jur-id-{iid}",
+        "Jurisdiction Full",
+        "jurisdiction",
+    )
+    try:
+        response = client.get(
+            f"/admin/settings/identifier-types/{iid}/edit-row/", headers=AUTH_HEADERS
+        )
+        assert response.status_code == 200
+        assert 'value="jurisdiction"' in response.text
+        assert 'value="jurisdiction" selected' in response.text
+    finally:
+        await db.execute("DELETE FROM entity_identifier_types WHERE id=$1", iid)
+
+
+async def test_identifier_type_edit_row_post_jurisdiction_round_trips(client, db):
+    """POST edit-row with entity_type=jurisdiction persists correctly.
+
+    Regression for #200: verifies the UPDATE handler accepts and stores 'jurisdiction'.
+    """
+    iid = generate_id()
+    await db.execute(
+        "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        iid,
+        "Jur RT",
+        f"jur-rt-{iid}",
+        "Jur RT Full",
+        "organization",
+    )
+    try:
+        response = client.post(
+            f"/admin/settings/identifier-types/{iid}/edit-row/",
+            headers=AUTH_HEADERS,
+            data={
+                "display_name": "Jur RT",
+                "slug": f"jur-rt-{iid}",
+                "full_name": "Jur RT Full",
+                "entity_type": "jurisdiction",
+            },
+        )
+        assert response.status_code == 200
+        row = await db.fetchrow("SELECT entity_type FROM entity_identifier_types WHERE id=$1", iid)
+        assert row["entity_type"] == "jurisdiction"
+    finally:
+        await db.execute("DELETE FROM entity_identifier_types WHERE id=$1", iid)
+
+
 async def test_delete_identifier_type(client, db):
     iid = generate_id()
     await db.execute(
