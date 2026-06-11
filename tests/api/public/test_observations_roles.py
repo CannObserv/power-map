@@ -383,3 +383,48 @@ def test_obs_date_order_validation(client, role_write_key):
         },
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# PM-native identifier (#198)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def pm_target_role(db, obs_org):
+    """An existing role for pm_role_id tests."""
+    role_id = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,$3)",
+        role_id,
+        obs_org,
+        "PM Target Role",
+    )
+    yield role_id
+    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
+
+
+async def test_pm_role_id_auto_attached(client, role_write_key, pm_target_role):
+    """identifier_type=pm_role_id targets an existing role by PM ULID → auto-attached."""
+    raw, _ = role_write_key
+    r = _post(client, raw, {"identifier_type": "pm_role_id", "identifier_value": pm_target_role})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["entity_id"] == pm_target_role
+    assert body["entity_type"] == "role"
+
+
+async def test_pm_role_id_rejected_on_unknown_ulid(client, role_write_key):
+    """identifier_type=pm_role_id with unknown ULID → rejected."""
+    raw, _ = role_write_key
+    r = _post(client, raw, {"identifier_type": "pm_role_id", "identifier_value": generate_id()})
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "rejected"
+
+
+def test_pm_role_id_requires_identifier_value(client, role_write_key):
+    """identifier_type=pm_role_id without identifier_value → 422."""
+    raw, _ = role_write_key
+    r = _post(client, raw, {"identifier_type": "pm_role_id"})
+    assert r.status_code == 422

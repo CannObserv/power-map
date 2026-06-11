@@ -178,18 +178,27 @@ async def submit_role_observation(
     auth: AuthedKey = Depends(require_scope("observations:write")),
     db=Depends(get_db),
 ) -> ObservationResponse:
-    """Submit a role observation; match by (organization_id, title) or create."""
-    role_id, disposition = await resolve_role(
-        db,
-        req.organization_id,
-        req.title,
-        notes=req.notes,
-        established_on=req.established_on,
-        abolished_on=req.abolished_on,
-    )
-
-    if disposition is Disposition.REJECTED:
-        return _REJECTED_OBS
+    """Submit a role observation; match by (organization_id, title) or by pm_role_id."""
+    if req.identifier_type == "pm_role_id":
+        row = await db.fetchrow(
+            "SELECT id FROM roles WHERE id=$1 AND archived_at IS NULL",
+            req.identifier_value,
+        )
+        if row is None:
+            return _REJECTED_OBS
+        role_id = row["id"]
+        disposition = Disposition.AUTO_ATTACHED
+    else:
+        role_id, disposition = await resolve_role(
+            db,
+            req.organization_id,
+            req.title,
+            notes=req.notes,
+            established_on=req.established_on,
+            abolished_on=req.abolished_on,
+        )
+        if disposition is Disposition.REJECTED:
+            return _REJECTED_OBS
 
     try:
         async with db.transaction():

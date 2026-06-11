@@ -89,7 +89,7 @@ async def _fetch_identifiers(jurisdiction_id: str, db: Any) -> list[dict]:
         SELECT i.id, i.entity_identifier_type_id AS type_id, t.slug AS type_slug, i.value
         FROM identifiers i
         JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
-        WHERE i.entity_id = $1 AND t.entity_type = 'jurisdiction'
+        WHERE i.entity_id = $1 AND t.entity_type = 'jurisdiction' AND NOT t.is_internal
         ORDER BY t.slug, i.value
         """,
         jurisdiction_id,

@@ -5,13 +5,22 @@ Uses seeded entity_identifier_types from schema.sql:
   - 'org_ubi'                          (entity_type=organization)
   - 'jur_ocd'                          (entity_type=jurisdiction)
   - 'jur_slug'                         (entity_type=jurisdiction)
+  - 'pm_org_id'                        (entity_type=organization, is_internal=True)
+  - 'pm_person_id'                     (entity_type=person, is_internal=True)
+  - 'pm_jur_id'                        (entity_type=jurisdiction, is_internal=True)
+  - 'pm_assignment_id'                 (entity_type=role_assignment, is_internal=True)
 """
 
 import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
-from src.core.observation import Disposition, resolve_entity
+from src.core.observation import (
+    Disposition,
+    ObservationRejected,
+    resolve_entity,
+    write_additional_identifiers,
+)
 
 pytestmark = [
     pytest.mark.integration,
@@ -218,3 +227,104 @@ async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(db):
     assert disp == Disposition.AUTO_ATTACHED
     assert attached_id == entity_id
     assert entity_type == "jurisdiction"
+
+
+# ---------------------------------------------------------------------------
+# PM-native internal identifier types (#198)
+# ---------------------------------------------------------------------------
+
+
+async def test_pm_org_id_auto_attached(db):
+    """pm_org_id resolves directly to an existing org without going through identifiers table."""
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+
+    entity_id, entity_type, disp = await resolve_entity(db, "pm_org_id", org_id)
+
+    assert disp == Disposition.AUTO_ATTACHED
+    assert entity_id == org_id
+    assert entity_type == "organization"
+
+
+async def test_pm_org_id_rejected_when_not_found(db):
+    """pm_org_id with an unknown ULID → REJECTED; never creates a new entity."""
+    bogus = generate_id()
+
+    entity_id, entity_type, disp = await resolve_entity(db, "pm_org_id", bogus)
+
+    assert disp == Disposition.REJECTED
+    assert entity_id == ""
+    assert entity_type == ""
+
+
+async def test_pm_person_id_auto_attached(db):
+    """pm_person_id resolves directly to an existing person."""
+    person_id = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+
+    entity_id, entity_type, disp = await resolve_entity(db, "pm_person_id", person_id)
+
+    assert disp == Disposition.AUTO_ATTACHED
+    assert entity_id == person_id
+    assert entity_type == "person"
+
+
+async def test_pm_jur_id_auto_attached(db):
+    """pm_jur_id resolves directly to an existing jurisdiction."""
+    type_row = await db.fetchrow("SELECT id FROM jurisdiction_types WHERE slug='state'")
+    jur_id = generate_id()
+    slug = f"test-pm-jur-{jur_id[:8].lower()}"
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jur_id,
+        slug,
+        "Test PM Jurisdiction",
+        type_row["id"],
+    )
+
+    entity_id, entity_type, disp = await resolve_entity(db, "pm_jur_id", jur_id)
+
+    assert disp == Disposition.AUTO_ATTACHED
+    assert entity_id == jur_id
+    assert entity_type == "jurisdiction"
+
+
+async def test_pm_assignment_id_auto_attached(db):
+    """pm_assignment_id resolves directly to an existing role_assignment."""
+    person_id = generate_id()
+    org_id = generate_id()
+    role_id = generate_id()
+    asgn_id = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,$3)",
+        role_id,
+        org_id,
+        "PM Test Role",
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1,$2,$3)",
+        asgn_id,
+        person_id,
+        role_id,
+    )
+
+    entity_id, entity_type, disp = await resolve_entity(db, "pm_assignment_id", asgn_id)
+
+    assert disp == Disposition.AUTO_ATTACHED
+    assert entity_id == asgn_id
+    assert entity_type == "role_assignment"
+
+
+async def test_write_additional_identifiers_rejects_internal_type(db):
+    """write_additional_identifiers raises ObservationRejected for internal pm_* types."""
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+
+    class _Item:
+        identifier_type_slug = "pm_org_id"
+        identifier_value = generate_id()
+
+    with pytest.raises(ObservationRejected, match="[Ii]nternal"):
+        await write_additional_identifiers(db, org_id, [_Item()])

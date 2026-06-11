@@ -489,3 +489,52 @@ async def test_observation_invalid_affiliation_type_returns_rejected(
     )
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
+
+
+# ---------------------------------------------------------------------------
+# PM-native identifier (#198)
+# ---------------------------------------------------------------------------
+
+
+async def test_pm_org_id_auto_attached_on_existing_org(client, org_write_key, db):
+    """identifier_type=pm_org_id targets an existing org by PM ULID → auto-attached."""
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+
+    raw, _ = org_write_key
+    r = _post(client, raw, {"identifier_type": "pm_org_id", "identifier_value": org_id})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["entity_id"] == org_id
+    assert body["entity_type"] == "organization"
+
+
+async def test_pm_org_id_rejected_on_unknown_ulid(client, org_write_key):
+    """identifier_type=pm_org_id with unknown ULID → rejected (never creates entity)."""
+    raw, _ = org_write_key
+    r = _post(client, raw, {"identifier_type": "pm_org_id", "identifier_value": generate_id()})
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "rejected"
+
+
+async def test_pm_org_id_suppressed_in_detail_response(client, org_write_key, org_read_key, db):
+    """pm_org_id identifier rows are not surfaced by GET /orgs/{id}."""
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+
+    pm_type = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug='pm_org_id'")
+    assert pm_type is not None, "pm_org_id type not seeded — run apply_schema"
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1,$2,$3,$4)",
+        generate_id(),
+        org_id,
+        pm_type["id"],
+        org_id,
+    )
+
+    r = client.get(f"/api/v1/orgs/{org_id}", headers={"X-API-Key": org_read_key})
+    assert r.status_code == 200
+    slugs = [i["type_slug"] for i in r.json()["identifiers"]]
+    assert "pm_org_id" not in slugs

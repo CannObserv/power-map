@@ -763,10 +763,19 @@ class RoleListResponse(BaseModel):
 
 
 class RoleObservationRequest(BaseModel):
-    """Payload for POST /api/v1/roles/observations."""
+    """Payload for POST /api/v1/roles/observations.
 
-    organization_id: str
-    title: str
+    Two resolution modes (mutually exclusive):
+      - Standard:  organization_id + title (match or create by org+title)
+      - PM-native: identifier_type="pm_role_id" + identifier_value=<role ULID>
+                   (attach to known role; never creates; organization_id/title not required)
+    """
+
+    identifier_type: str | None = None
+    identifier_value: str | None = None
+
+    organization_id: str | None = None
+    title: str | None = None
 
     notes: str | None = None
     established_on: date | None = None
@@ -775,6 +784,20 @@ class RoleObservationRequest(BaseModel):
     links: list[ObservationLink] = Field(default_factory=list)
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
     addresses: list[ObservationAddress] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_resolution_mode(self) -> "RoleObservationRequest":
+        if self.identifier_type is not None:
+            if self.identifier_type != "pm_role_id":
+                raise ValueError("identifier_type must be 'pm_role_id' when supplied")
+            if not self.identifier_value:
+                raise ValueError("identifier_value is required when identifier_type is supplied")
+        else:
+            if not self.organization_id or not self.title:
+                raise ValueError(
+                    "organization_id and title are required when identifier_type is absent"
+                )
+        return self
 
     @model_validator(mode="after")
     def _check_date_order(self) -> "RoleObservationRequest":
@@ -893,10 +916,19 @@ class AssignmentDetail(AssignmentListItem):
 
 
 class AssignmentObservationRequest(BaseModel):
-    """Payload for POST /api/v1/assignments/observations."""
+    """Payload for POST /api/v1/assignments/observations.
 
-    person_id: str
-    role_id: str
+    Two resolution modes (mutually exclusive):
+      - Standard:  person_id + role_id (match or create by person+role+start_date)
+      - PM-native: identifier_type="pm_assignment_id" + identifier_value=<assignment ULID>
+                   (attach to known assignment; never creates; person_id/role_id not required)
+    """
+
+    identifier_type: str | None = None
+    identifier_value: str | None = None
+
+    person_id: str | None = None
+    role_id: str | None = None
     start_date: date | None = None
     end_date: date | None = None
     is_current: bool = False
@@ -905,6 +937,20 @@ class AssignmentObservationRequest(BaseModel):
     links: list[ObservationLink] = Field(default_factory=list)
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
     addresses: list[ObservationAddress] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_resolution_mode(self) -> "AssignmentObservationRequest":
+        if self.identifier_type is not None:
+            if self.identifier_type != "pm_assignment_id":
+                raise ValueError("identifier_type must be 'pm_assignment_id' when supplied")
+            if not self.identifier_value:
+                raise ValueError("identifier_value is required when identifier_type is supplied")
+        else:
+            if not self.person_id or not self.role_id:
+                raise ValueError(
+                    "person_id and role_id are required when identifier_type is absent"
+                )
+        return self
 
     @model_validator(mode="after")
     def _check_constraints(self) -> "AssignmentObservationRequest":

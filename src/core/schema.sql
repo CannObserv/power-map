@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS entity_identifier_types (
     slug         TEXT        NOT NULL UNIQUE,
     display_name TEXT        NOT NULL,           -- short: "UBI", "SSN", "WA PDC"
     full_name    TEXT        NOT NULL,           -- long:  "Washington Unified Business Identifier"
+    is_internal  BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -1142,26 +1143,46 @@ DO $$ BEGIN
     END IF;
 END $$;
 
-INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name) VALUES
-    ('01KKZ3WGJSZF0F96SMYC000AVP', 'organization',    'org_ubi',       'UBI',    'Washington Unified Business Identifier'),
-    ('01KKZ3WGJSZF0F96SMYC000AVQ', 'organization',    'org_wslcb',     'WSLCB',  'WA State Liquor and Cannabis Board License'),
-    ('01KKZ3WGJSZF0F96SMYC000AVR', 'organization',    'org_wa_pdc',    'WA PDC', 'Washington State Public Disclosure Commission'),
-    ('01KKZ3WGJSZF0F96SMYC000AVS', 'person',          'person_wa_pdc', 'WA PDC', 'Washington State Public Disclosure Commission'),
-    ('01KKZ3WGJSZF0F96SMYC000AVT', 'person',          'person_ssn',    'SSN',    'United States Social Security Number'),
-    ('01KKZ3WGJSZF0F96SMYC000AVV', 'role_assignment', 'role_wa_pdc',   'WA PDC', 'Washington State Public Disclosure Commission'),
-    ('01KKZ3WGJSZF0F96SMYC000AVW', 'person',          'person_wa_legislature_member_id',  'WA Legislature', 'Washington State Legislature Member ID'),
-    ('01KKZ3WGJSZF0F96SMYC000AVX', 'organization',    'org_wa_legislature_committee_id',  'WA Legislature', 'Washington State Legislature Committee ID'),
+-- Add is_internal column to existing DBs (#198).
+-- Fresh DBs already have it from the CREATE TABLE above.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = 'entity_identifier_types'
+          AND column_name  = 'is_internal'
+    ) THEN
+        ALTER TABLE entity_identifier_types
+            ADD COLUMN is_internal BOOLEAN NOT NULL DEFAULT FALSE;
+    END IF;
+END $$;
+
+INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name, is_internal) VALUES
+    ('01KKZ3WGJSZF0F96SMYC000AVP', 'organization',    'org_ubi',       'UBI',    'Washington Unified Business Identifier',                   FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVQ', 'organization',    'org_wslcb',     'WSLCB',  'WA State Liquor and Cannabis Board License',               FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVR', 'organization',    'org_wa_pdc',    'WA PDC', 'Washington State Public Disclosure Commission',            FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVS', 'person',          'person_wa_pdc', 'WA PDC', 'Washington State Public Disclosure Commission',            FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVT', 'person',          'person_ssn',    'SSN',    'United States Social Security Number',                     FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVV', 'role_assignment', 'role_wa_pdc',   'WA PDC', 'Washington State Public Disclosure Commission',            FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVW', 'person',          'person_wa_legislature_member_id',  'WA Legislature', 'Washington State Legislature Member ID',        FALSE),
+    ('01KKZ3WGJSZF0F96SMYC000AVX', 'organization',    'org_wa_legislature_committee_id',  'WA Legislature', 'Washington State Legislature Committee ID',     FALSE),
     -- Jurisdiction identifiers (#168)
-    ('01KT0HK3452TNDD2WM8E50ZTBM', 'jurisdiction',    'jur_ocd',       'OCD',        'Open Civic Data Identifier'),
-    ('01KT0HK3452TNDD2WM8E50ZTBN', 'jurisdiction',    'jur_fips',      'FIPS',       'Census FIPS Code'),
-    ('01KT0HK3452TNDD2WM8E50ZTBP', 'jurisdiction',    'jur_iso3166_2', 'ISO 3166-2', 'ISO 3166-2 Subdivision Code'),
+    ('01KT0HK3452TNDD2WM8E50ZTBM', 'jurisdiction',    'jur_ocd',       'OCD',        'Open Civic Data Identifier',       FALSE),
+    ('01KT0HK3452TNDD2WM8E50ZTBN', 'jurisdiction',    'jur_fips',      'FIPS',       'Census FIPS Code',                 FALSE),
+    ('01KT0HK3452TNDD2WM8E50ZTBP', 'jurisdiction',    'jur_iso3166_2', 'ISO 3166-2', 'ISO 3166-2 Subdivision Code',      FALSE),
     -- Jurisdiction slug identifier (#183)
-    ('01KT0HK3452TNDD2WM8E50ZTBQ', 'jurisdiction',    'jur_slug',      'Slug',       'Jurisdiction Slug')
+    ('01KT0HK3452TNDD2WM8E50ZTBQ', 'jurisdiction',    'jur_slug',      'Slug',       'Jurisdiction Slug',                FALSE),
+    -- PM-native internal identifiers (#198): resolve directly by PM ULID, never NEW
+    ('01KTVHGATRG3WEN9NXATTA2RA9', 'organization',    'pm_org_id',        'PM Org',        'Power Map Organization ID',             TRUE),
+    ('01KTVHGATRG3WEN9NXATTA2RAA', 'person',          'pm_person_id',     'PM Person',     'Power Map Person ID',                   TRUE),
+    ('01KTVHGATRG3WEN9NXATTA2RAB', 'jurisdiction',    'pm_jur_id',        'PM Jur',        'Power Map Jurisdiction ID',             TRUE),
+    ('01KTVHGATRG3WEN9NXATTA2RAC', 'role_assignment', 'pm_assignment_id', 'PM Assignment', 'Power Map Role Assignment ID',          TRUE)
 ON CONFLICT (id) DO UPDATE SET
     entity_type  = EXCLUDED.entity_type,
     slug         = EXCLUDED.slug,
     display_name = EXCLUDED.display_name,
-    full_name    = EXCLUDED.full_name;
+    full_name    = EXCLUDED.full_name,
+    is_internal  = EXCLUDED.is_internal;
 
 -- =============================================================================
 -- Jurisdiction Seed Data (#168)

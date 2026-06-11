@@ -66,7 +66,7 @@ async def resolve_entity(
     Raises nothing — REJECTED is returned, not raised.
     """
     eit = await conn.fetchrow(
-        "SELECT id, entity_type FROM entity_identifier_types WHERE slug = $1",
+        "SELECT id, entity_type, is_internal FROM entity_identifier_types WHERE slug = $1",
         identifier_type_slug,
     )
     if eit is None:
@@ -75,6 +75,15 @@ async def resolve_entity(
 
     entity_identifier_type_id = eit["id"]
     entity_type = eit["entity_type"]
+
+    if eit["is_internal"]:
+        # PM-native lookup: bypass identifiers table, query entity row directly.
+        # Never NEW — a pm_* type cannot create entities.
+        entity_id = await _lookup_entity_by_pm_id(conn, entity_type, identifier_value)
+        if entity_id is None:
+            logger.warning("pm-internal resolve: %s id=%r not found", entity_type, identifier_value)
+            return "", "", Disposition.REJECTED
+        return entity_id, entity_type, Disposition.AUTO_ATTACHED
 
     existing = await conn.fetchrow(
         "SELECT entity_id FROM identifiers WHERE entity_identifier_type_id = $1 AND value = $2",
@@ -151,6 +160,25 @@ async def resolve_entity(
         identifier_value,
     )
     return entity_id, entity_type, Disposition.NEW
+
+
+_ENTITY_TABLE = {
+    "organization": "organizations",
+    "person": "people",
+    "jurisdiction": "jurisdictions",
+    "role_assignment": "role_assignments",
+}
+
+
+async def _lookup_entity_by_pm_id(conn, entity_type: str, entity_id: str) -> str | None:
+    """Return entity_id if the row exists and is not archived, else None."""
+    table = _ENTITY_TABLE.get(entity_type)
+    if table is None:
+        return None
+    return await conn.fetchval(
+        f"SELECT id FROM {table} WHERE id=$1 AND archived_at IS NULL",  # noqa: S608
+        entity_id,
+    )
 
 
 async def _create_entity(conn, entity_type: str, *, create_data: dict | None = None) -> str:
@@ -631,9 +659,15 @@ async def write_additional_identifiers(conn, entity_id: str, additional_identifi
     for item in additional_identifiers:
         slug = item.identifier_type_slug
         value = item.identifier_value
-        eit = await conn.fetchrow("SELECT id FROM entity_identifier_types WHERE slug=$1", slug)
+        eit = await conn.fetchrow(
+            "SELECT id, is_internal FROM entity_identifier_types WHERE slug=$1", slug
+        )
         if eit is None:
             raise ObservationRejected(f"Unknown identifier_type_slug: {slug!r}")
+        if eit["is_internal"]:
+            raise ObservationRejected(
+                f"Internal identifier type {slug!r} cannot be assigned via observations"
+            )
         eit_id = eit["id"]
         existing = await conn.fetchrow(
             "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",

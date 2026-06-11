@@ -482,3 +482,69 @@ async def test_changes_includes_role_assignments(client, changes_api_key, asgn_c
     assert len(asgn_items) == 1
     assert asgn_items[0]["entity_type"] == "role_assignment"
     assert asgn_items[0]["change_kind"] == "updated"
+
+
+# ---------------------------------------------------------------------------
+# PM-native identifier (#198)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def pm_target_assignment(db):
+    """Isolated org/person/role/assignment for pm_assignment_id tests."""
+    person_id = generate_id()
+    org_id = generate_id()
+    role_id = generate_id()
+    asgn_id = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,$3)",
+        role_id,
+        org_id,
+        "PM Test Role",
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1,$2,$3)",
+        asgn_id,
+        person_id,
+        role_id,
+    )
+    yield asgn_id
+    await db.execute("DELETE FROM role_assignments WHERE id=$1", asgn_id)
+    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
+    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+    await db.execute("DELETE FROM people WHERE id=$1", person_id)
+
+
+async def test_pm_assignment_id_auto_attached(client, write_key, pm_target_assignment):
+    """pm_assignment_id targets an existing assignment by PM ULID → auto-attached."""
+    raw, _ = write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": pm_target_assignment,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["entity_id"] == pm_target_assignment
+    assert body["entity_type"] == "role_assignment"
+
+
+async def test_pm_assignment_id_rejected_on_unknown_ulid(client, write_key):
+    """identifier_type=pm_assignment_id with unknown ULID → rejected."""
+    raw, _ = write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": generate_id(),
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "rejected"

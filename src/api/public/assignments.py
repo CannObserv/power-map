@@ -18,6 +18,7 @@ from src.core.observation import (
     Disposition,
     ObservationRejected,
     resolve_assignment,
+    resolve_entity,
     write_addresses,
     write_contact_methods,
     write_links,
@@ -182,19 +183,28 @@ async def submit_assignment_observation(
     _=Depends(require_scope("observations:write")),
     db=Depends(get_db),
 ) -> ObservationResponse:
-    """Submit an assignment observation; match by (person_id, role_id, start_date) or create."""
-    assignment_id, disposition = await resolve_assignment(
-        db,
-        req.person_id,
-        req.role_id,
-        req.start_date,
-        end_date=req.end_date,
-        is_current=req.is_current,
-        notes=req.notes,
-    )
+    """Submit an assignment observation.
 
-    if disposition is Disposition.REJECTED:
-        return _REJECTED_OBS
+    Resolves by (person_id, role_id, start_date) or by pm_assignment_id.
+    """
+    if req.identifier_type == "pm_assignment_id":
+        assignment_id, _, disposition = await resolve_entity(
+            db, "pm_assignment_id", req.identifier_value
+        )
+        if disposition is Disposition.REJECTED:
+            return _REJECTED_OBS
+    else:
+        assignment_id, disposition = await resolve_assignment(
+            db,
+            req.person_id,
+            req.role_id,
+            req.start_date,
+            end_date=req.end_date,
+            is_current=req.is_current,
+            notes=req.notes,
+        )
+        if disposition is Disposition.REJECTED:
+            return _REJECTED_OBS
 
     try:
         async with db.transaction():
