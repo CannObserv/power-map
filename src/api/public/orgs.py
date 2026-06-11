@@ -134,8 +134,9 @@ async def search_orgs(
 
     Parameter precedence (first match wins, others ignored):
     1. identifier_type + identifier_value — returns at most one result, has_more=false.
-    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q ignored.
-    3. q — full-text search across names and acronyms.
+    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further
+       narrows by name when provided.
+    3. q alone — substring search across names and acronyms.
     """
     limit = min(limit, 50)
     id_type, id_value = id_filter
@@ -175,7 +176,9 @@ async def search_orgs(
         }
 
     if jurisdiction is not None:
-        return await _search_by_jurisdiction(db, jurisdiction, limit, offset, include_archived)
+        return await _search_by_jurisdiction(
+            db, jurisdiction, q.strip(), limit, offset, include_archived
+        )
 
     if not q.strip():
         return {
@@ -235,11 +238,15 @@ async def search_orgs(
 async def _search_by_jurisdiction(
     db: Any,
     jurisdiction: str,
+    q: str,
     limit: int,
     offset: int,
     include_archived: bool,
 ) -> dict[str, Any]:
-    """Return orgs with a governing affiliation for the given jurisdiction slug or ULID."""
+    """Return orgs with a governing affiliation for the given jurisdiction slug or ULID.
+
+    When q is non-empty, further narrows by substring match on names and acronyms.
+    """
     rows = await db.fetch(
         """
         SELECT
@@ -257,13 +264,29 @@ async def _search_by_jurisdiction(
         WHERE at_.slug = 'governing'
           AND (j.id = $1 OR j.slug = $1)
           AND ($2 OR o.archived_at IS NULL)
-        ORDER BY n.name NULLS LAST
+          AND ($5 = '' OR (
+              n.name ILIKE $5
+              OR a.acronym ILIKE $5
+              OR EXISTS (
+                  SELECT 1 FROM organization_names v
+                  WHERE v.organization_id = o.id AND v.name ILIKE $5
+              )
+          ))
+        ORDER BY
+            CASE
+                WHEN $5 = '' THEN 0
+                WHEN n.name ILIKE $5 THEN 0
+                WHEN a.acronym ILIKE $5 THEN 1
+                ELSE 2
+            END,
+            n.name NULLS LAST
         LIMIT $3 OFFSET $4
         """,
         jurisdiction,
         include_archived,
         limit + 1,
         offset,
+        f"%{q}%" if q else "",
     )
     has_more = len(rows) > limit
     page = rows[:limit]

@@ -808,6 +808,58 @@ async def test_search_jurisdiction_filter_unknown_slug_returns_empty(client, api
 
 
 @pytest.mark.integration
+async def test_search_q_with_jurisdiction_filters_by_name(
+    client, api_key, jur_affiliation_fixtures
+):
+    """q + jurisdiction must intersect: only jurisdiction-scoped orgs whose name matches q."""
+    slug = jur_affiliation_fixtures["jur_slug"]
+    org_id = jur_affiliation_fixtures["org_id"]
+
+    r = client.get(
+        "/api/v1/orgs/search",
+        params={"q": "Television", "jurisdiction": slug},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200
+    ids = [item["id"] for item in r.json()["data"]]
+    assert org_id in ids
+
+
+@pytest.mark.integration
+async def test_search_q_with_jurisdiction_excludes_nonmatching_name(
+    client, api_key, jur_affiliation_fixtures
+):
+    """q + jurisdiction: a q that matches no name in the jurisdiction returns an empty result."""
+    slug = jur_affiliation_fixtures["jur_slug"]
+
+    r = client.get(
+        "/api/v1/orgs/search",
+        params={"q": "zzznotreal", "jurisdiction": slug},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200
+    assert r.json()["data"] == []
+
+
+@pytest.mark.integration
+async def test_search_jurisdiction_with_empty_q_returns_affiliation_scoped(
+    client, api_key, jur_affiliation_fixtures
+):
+    """Empty q + jurisdiction: all jurisdiction-scoped orgs returned (regression guard)."""
+    slug = jur_affiliation_fixtures["jur_slug"]
+    org_id = jur_affiliation_fixtures["org_id"]
+
+    r = client.get(
+        "/api/v1/orgs/search",
+        params={"q": "", "jurisdiction": slug},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200
+    ids = [item["id"] for item in r.json()["data"]]
+    assert org_id in ids
+
+
+@pytest.mark.integration
 async def test_search_jurisdiction_filter_registered_type_not_default(
     client, api_key, db, org_fixture
 ):
