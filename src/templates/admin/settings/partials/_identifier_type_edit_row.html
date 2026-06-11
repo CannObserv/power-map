@@ -25,7 +25,7 @@
       </div>
       <div class="form-group" style="margin-bottom:0;min-width:9rem">
         <select name="entity_type" required>
-          {% for et in ('organization', 'person', 'role_assignment', 'jurisdiction') %}
+          {% for et in entity_types %}
           <option value="{{ et }}"{% if eit and eit.entity_type == et %} selected{% endif %}>{{ et }}</option>
           {% endfor %}
         </select>

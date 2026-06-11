@@ -20,6 +20,8 @@ from src.core.db import generate_id
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/settings/identifier-types", tags=["admin-settings-identifier-types"])
 
+VALID_ENTITY_TYPES: tuple[str, ...] = ("organization", "person", "role_assignment", "jurisdiction")
+
 
 async def _fetch_identifier_types(db) -> list:
     return await db.fetch(
@@ -69,7 +71,7 @@ async def identifier_type_new_row(
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_identifier_type_edit_row.html",
-        {"eit": None},
+        {"eit": None, "entity_types": VALID_ENTITY_TYPES},
     )
 
 
@@ -89,6 +91,11 @@ async def identifier_type_create(
         raise HTTPException(status_code=422, detail="slug is required")
     if not full_name_val:
         raise HTTPException(status_code=422, detail="full_name is required")
+    if entity_type not in VALID_ENTITY_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"entity_type must be one of: {', '.join(VALID_ENTITY_TYPES)}",
+        )
     iid = generate_id()
     await db.execute(
         "INSERT INTO entity_identifier_types"
@@ -126,7 +133,7 @@ async def identifier_type_edit_row_get(
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_identifier_type_edit_row.html",
-        {"eit": eit},
+        {"eit": eit, "entity_types": VALID_ENTITY_TYPES},
     )
 
 
@@ -147,6 +154,11 @@ async def identifier_type_edit_row_post(
         raise HTTPException(status_code=422, detail="slug is required")
     if not full_name_val:
         raise HTTPException(status_code=422, detail="full_name is required")
+    if entity_type not in VALID_ENTITY_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"entity_type must be one of: {', '.join(VALID_ENTITY_TYPES)}",
+        )
     existing = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE id=$1", item_id)
     if not existing:
         raise HTTPException(status_code=404)

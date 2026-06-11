@@ -395,7 +395,8 @@ async def test_identifier_type_new_row(client):
     response = client.get("/admin/settings/identifier-types/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "display_name" in response.text
-    assert "entity_type" in response.text
+    for et in ("organization", "person", "role_assignment", "jurisdiction"):
+        assert f'value="{et}"' in response.text
 
 
 async def test_create_identifier_type_non_htmx_redirects(client, db):
@@ -609,11 +610,7 @@ async def test_identifier_type_edit_row_post(client, db):
 
 
 async def test_identifier_type_edit_row_get_shows_jurisdiction_option(client, db):
-    """Edit form must include 'jurisdiction' as a selectable entity_type option.
-
-    Regression for #200: template previously omitted jurisdiction, so editing a
-    jurisdiction row would silently corrupt its entity_type to 'organization'.
-    """
+    """Edit form must include 'jurisdiction' as a selected option (regression for #200)."""
     iid = generate_id()
     await db.execute(
         "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
@@ -636,10 +633,7 @@ async def test_identifier_type_edit_row_get_shows_jurisdiction_option(client, db
 
 
 async def test_identifier_type_edit_row_post_jurisdiction_round_trips(client, db):
-    """POST edit-row with entity_type=jurisdiction persists correctly.
-
-    Regression for #200: verifies the UPDATE handler accepts and stores 'jurisdiction'.
-    """
+    """POST edit-row with entity_type=jurisdiction must persist correctly (regression for #200)."""
     iid = generate_id()
     await db.execute(
         "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
