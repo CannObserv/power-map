@@ -1701,6 +1701,47 @@ INSERT INTO api_key_scope_types (id, display_name, description) VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
+-- Migration (#197): pyannote-community-1-embed dimensionality fix 192 → 256
+--
+-- The upstream pyannote/speaker-diarization-community-1 pipeline (whisperx
+-- 3.8.5) emits 256-D embeddings; the registry was seeded at 192-D, rejecting
+-- every write since #188 shipped.  Zero 192-D rows exist in the live table.
+-- =============================================================================
+
+-- Drop HNSW index first — pgvector requires this before ALTER COLUMN TYPE
+DROP INDEX IF EXISTS person_embeddings_pyannote_community_1_embed_hnsw;
+
+-- Drop the 192-D check constraint (auto-name truncated to 63 chars by PG)
+DO $$ BEGIN
+    ALTER TABLE person_embeddings_pyannote_community_1_embed
+        DROP CONSTRAINT person_embeddings_pyannote_community_1_embe_embedding_dim_check;
+EXCEPTION WHEN undefined_object THEN NULL;
+END $$;
+
+-- Change vector column type (safe: no rows exist)
+ALTER TABLE person_embeddings_pyannote_community_1_embed
+    ALTER COLUMN embedding TYPE vector(256);
+
+-- New check constraint with a controlled short name
+DO $$ BEGIN
+    ALTER TABLE person_embeddings_pyannote_community_1_embed
+        ADD CONSTRAINT pep_community1_embed_dim_check CHECK (embedding_dim = 256);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Bump registry row (INSERT … ON CONFLICT DO NOTHING already ran; use UPDATE)
+UPDATE embedding_model_registry
+    SET dimension = 256
+    WHERE model_id = 'pyannote-community-1-embed';
+
+-- Recreate HNSW index for 256-D cosine
+CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_hnsw
+    ON person_embeddings_pyannote_community_1_embed
+    USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64)
+    WHERE archived_at IS NULL;
+
+-- =============================================================================
 -- Migration (#194): organization_jurisdiction_affiliation_types seed
 -- =============================================================================
 
