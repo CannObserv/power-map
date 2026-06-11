@@ -16,11 +16,10 @@ from src.api.admin.deps import (
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.people_dups import get_person_dup_count
 from src.core.db import generate_id
+from src.core.types import VALID_ENTITY_TYPES
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/settings/identifier-types", tags=["admin-settings-identifier-types"])
-
-VALID_ENTITY_TYPES: tuple[str, ...] = ("organization", "person", "role_assignment", "jurisdiction")
 
 
 async def _fetch_identifier_types(db) -> list:

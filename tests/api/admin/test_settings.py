@@ -662,6 +662,51 @@ async def test_identifier_type_edit_row_post_jurisdiction_round_trips(client, db
         await db.execute("DELETE FROM entity_identifier_types WHERE id=$1", iid)
 
 
+async def test_create_identifier_type_invalid_entity_type_returns_422(client):
+    """CREATE with an unrecognised entity_type must return 422 before hitting the DB."""
+    response = client.post(
+        "/admin/settings/identifier-types/",
+        headers=AUTH_HEADERS,
+        data={
+            "display_name": "Bad",
+            "slug": "bad-et",
+            "full_name": "Bad Full",
+            "entity_type": "role",
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_identifier_type_edit_row_post_invalid_entity_type_returns_422(client, db):
+    """UPDATE with an unrecognised entity_type must return 422 before hitting the DB."""
+    iid = generate_id()
+    await db.execute(
+        "INSERT INTO entity_identifier_types (id, display_name, slug, full_name, entity_type)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        iid,
+        "Bad ET",
+        f"bad-et-{iid}",
+        "Bad ET Full",
+        "organization",
+    )
+    try:
+        response = client.post(
+            f"/admin/settings/identifier-types/{iid}/edit-row/",
+            headers=AUTH_HEADERS,
+            data={
+                "display_name": "Bad ET",
+                "slug": f"bad-et-{iid}",
+                "full_name": "Bad ET Full",
+                "entity_type": "role",
+            },
+        )
+        assert response.status_code == 422
+        row = await db.fetchrow("SELECT entity_type FROM entity_identifier_types WHERE id=$1", iid)
+        assert row["entity_type"] == "organization"
+    finally:
+        await db.execute("DELETE FROM entity_identifier_types WHERE id=$1", iid)
+
+
 async def test_delete_identifier_type(client, db):
     iid = generate_id()
     await db.execute(

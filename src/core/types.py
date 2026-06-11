@@ -53,6 +53,15 @@ PERSON_NAME_TYPES: tuple[PersonNameType, ...] = (
 OrgNameType = Literal["legal", "dba", "former"]
 ORG_NAME_TYPES: tuple[OrgNameType, ...] = ("legal", "dba", "former")
 
+# entity_identifier_types.entity_type CHECK (src/core/schema.sql).
+EntityType = Literal["organization", "person", "role_assignment", "jurisdiction"]
+VALID_ENTITY_TYPES: tuple[EntityType, ...] = (
+    "organization",
+    "person",
+    "role_assignment",
+    "jurisdiction",
+)
+
 # addresses.precision CHECK (src/core/schema.sql migration #170).
 # Subset allowed for event_place_address_id linkage — city-level or finer.
 # NULL precision is also accepted (pre-geocoding / historical records); only
