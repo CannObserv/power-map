@@ -1635,7 +1635,7 @@ INSERT INTO embedding_model_registry
 VALUES
     ('pyannote-community-1-embed',
      'person_embeddings_pyannote_community_1_embed',
-     192,
+     192,  -- corrected to 256 by migration #197
      'cosine',
      true)
 ON CONFLICT (model_id) DO NOTHING;
@@ -1648,8 +1648,8 @@ CREATE TABLE IF NOT EXISTS person_embeddings_pyannote_community_1_embed (
     id                   CHAR(26)    PRIMARY KEY,
     person_id            CHAR(26)    NOT NULL REFERENCES people(id) ON DELETE CASCADE,
 
-    embedding            vector(192) NOT NULL,
-    embedding_dim        INT         NOT NULL CHECK (embedding_dim = 192),
+    embedding            vector(192) NOT NULL,  -- corrected to vector(256) by migration #197
+    embedding_dim        INT         NOT NULL CHECK (embedding_dim = 192),  -- check corrected to 256 by migration #197
 
     activity_ms          INT         NOT NULL CHECK (activity_ms >= 0),
     audio_sample_rate_hz INT         NOT NULL CHECK (audio_sample_rate_hz > 0),
@@ -1701,6 +1701,17 @@ INSERT INTO api_key_scope_types (id, display_name, description) VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
+-- Migration (#194): organization_jurisdiction_affiliation_types seed
+-- =============================================================================
+
+INSERT INTO organization_jurisdiction_affiliation_types (id, slug, display_name) VALUES
+    ('01KW0000000000000000000001', 'governing',  'is governed by'),
+    ('01KW0000000000000000000002', 'registered', 'is registered in')
+ON CONFLICT (id) DO UPDATE SET
+    slug         = EXCLUDED.slug,
+    display_name = EXCLUDED.display_name;
+
+-- =============================================================================
 -- Migration (#197): pyannote-community-1-embed dimensionality fix 192 → 256
 --
 -- The upstream pyannote/speaker-diarization-community-1 pipeline (whisperx
@@ -1740,14 +1751,3 @@ CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_hnsw
     USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 64)
     WHERE archived_at IS NULL;
-
--- =============================================================================
--- Migration (#194): organization_jurisdiction_affiliation_types seed
--- =============================================================================
-
-INSERT INTO organization_jurisdiction_affiliation_types (id, slug, display_name) VALUES
-    ('01KW0000000000000000000001', 'governing',  'is governed by'),
-    ('01KW0000000000000000000002', 'registered', 'is registered in')
-ON CONFLICT (id) DO UPDATE SET
-    slug         = EXCLUDED.slug,
-    display_name = EXCLUDED.display_name;
