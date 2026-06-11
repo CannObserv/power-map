@@ -10,7 +10,7 @@ from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
 
 _MODEL_ID = "pyannote-community-1-embed"
-_DIM = 192
+_DIM = 256
 _TABLE = "person_embeddings_pyannote_community_1_embed"
 
 _FAKE_META = ModelMeta(
