@@ -1,7 +1,7 @@
 ---
 title: FTS search infrastructure — orgs, people, roles, jurisdictions (#201)
 date: 2026-06-13
-status: draft
+status: approved
 supersedes: docs/plans/2026-06-13-fts-search-infrastructure-design.md
 ---
 
