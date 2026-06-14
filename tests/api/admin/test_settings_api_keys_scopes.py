@@ -110,6 +110,7 @@ async def test_delete_button_clears_scopes_row(client, user_and_key):
     r = client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert "hx-on::after-request" in r.text
+    assert f"getElementById('api-key-scopes-{kid}')" in r.text
 
 
 # ---------------------------------------------------------------------------
