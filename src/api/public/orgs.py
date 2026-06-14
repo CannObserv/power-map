@@ -198,27 +198,17 @@ async def search_orgs(
         FROM organizations o
         LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
         LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
-        WHERE ($4 OR o.archived_at IS NULL)
-          AND (
-              n.name ILIKE $1
-              OR a.acronym ILIKE $1
-              OR EXISTS (
-                  SELECT 1 FROM organization_names v
-                  WHERE v.organization_id = o.id AND v.name ILIKE $1
-              )
-          )
+        WHERE ($3 OR o.archived_at IS NULL)
+          AND o.search_tsv @@ plainto_tsquery('pm_simple', $1)
         ORDER BY
-            CASE WHEN n.name ILIKE $1 THEN 0
-                 WHEN a.acronym ILIKE $1 THEN 1
-                 ELSE 2
-            END,
+            ts_rank(o.search_tsv, plainto_tsquery('pm_simple', $1)) DESC,
             n.name NULLS LAST
-        LIMIT $2 OFFSET $3
+        LIMIT $2 OFFSET $4
         """,
-        f"%{q}%",
+        q.strip(),
         limit + 1,
-        offset,
         include_archived,
+        offset,
     )
 
     has_more = len(rows) > limit
@@ -264,21 +254,9 @@ async def _search_by_jurisdiction(
         WHERE at_.slug = 'governing'
           AND (j.id = $1 OR j.slug = $1)
           AND ($2 OR o.archived_at IS NULL)
-          AND ($5::text IS NULL OR (
-              n.name ILIKE $5
-              OR a.acronym ILIKE $5
-              OR EXISTS (
-                  SELECT 1 FROM organization_names v
-                  WHERE v.organization_id = o.id AND v.name ILIKE $5
-              )
-          ))
+          AND ($5::text IS NULL OR o.search_tsv @@ plainto_tsquery('pm_simple', $5))
         ORDER BY
-            CASE
-                WHEN $5::text IS NULL THEN 0
-                WHEN n.name ILIKE $5 THEN 0
-                WHEN a.acronym ILIKE $5 THEN 1
-                ELSE 2
-            END,
+            ts_rank(o.search_tsv, plainto_tsquery('pm_simple', $5)) DESC NULLS LAST,
             n.name NULLS LAST
         LIMIT $3 OFFSET $4
         """,
@@ -286,7 +264,7 @@ async def _search_by_jurisdiction(
         include_archived,
         limit + 1,
         offset,
-        f"%{q}%" if q else None,
+        q.strip() if q else None,
     )
     has_more = len(rows) > limit
     page = rows[:limit]

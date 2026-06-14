@@ -6,7 +6,6 @@ people list query — preventing the query from drifting between the two
 sites the way it nearly did when #137 first shipped.
 """
 
-from src.api.admin.deps import escape_like
 from src.api.admin.pagination import pagination_context
 
 
@@ -28,8 +27,8 @@ async def query_people_rows(
     elif status == "archived":
         conditions.append("p.archived_at IS NOT NULL")
     if q:
-        params.append(f"%{escape_like(q)}%")
-        conditions.append(f"n.display_name ILIKE ${len(params)} ESCAPE '\\'")
+        params.append(q)
+        conditions.append(f"p.search_tsv @@ plainto_tsquery('pm_unaccent_simple', ${len(params)})")
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     count = await db.fetchval(
