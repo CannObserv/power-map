@@ -15,7 +15,7 @@
             hx-get="/admin/settings/api-keys/{{ key.id }}/detail/"
             hx-target="#api-key-scopes-{{ key.id }}"
             hx-swap="outerHTML"
-            hx-on::before-request="document.querySelectorAll('[id^=api-key-scopes-]').forEach(function(el){if(el.id!=='api-key-scopes-{{ key.id }}'){el.innerHTML=''}})">Scopes</button>
+            hx-on::before-request="document.querySelectorAll('[id^=&quot;api-key-scopes-&quot;]').forEach(function(el){if(el.id!=='api-key-scopes-{{ key.id }}'){el.innerHTML=''}})">Scopes</button>
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Delete API key {{ key.label }}"
             hx-delete="/admin/settings/api-keys/{{ key.id }}/"
@@ -23,7 +23,8 @@
             hx-swap="outerHTML"
             hx-confirm="Delete key '{{ key.label }}'? This cannot be undone."
             data-confirm-title="Delete API key?"
-            data-confirm-label="Delete">Delete</button>
+            data-confirm-label="Delete"
+            hx-on::after-request="if(event.detail.successful){var s=document.getElementById('api-key-scopes-{{ key.id }}');if(s)s.remove()}">Delete</button>
   </td>
 </tr>
 <tr id="api-key-scopes-{{ key.id }}"></tr>

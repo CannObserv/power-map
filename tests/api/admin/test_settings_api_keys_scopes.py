@@ -84,7 +84,7 @@ async def test_detail_panel_has_close_button(client, user_and_key):
     _, kid = user_and_key
     r = client.get(f"/admin/settings/api-keys/{kid}/detail/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert "Close" in r.text
+    assert ">Close<" in r.text
 
 
 async def test_read_row_scopes_placeholder_is_tr(client, user_and_key):
@@ -102,6 +102,14 @@ async def test_scopes_button_closes_other_panels(client, user_and_key):
     r = client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert "hx-on::before-request" in r.text
+
+
+async def test_delete_button_clears_scopes_row(client, user_and_key):
+    """Delete button must clean up its sibling scopes <tr> via hx-on::after-request."""
+    _, kid = user_and_key
+    r = client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "hx-on::after-request" in r.text
 
 
 # ---------------------------------------------------------------------------
