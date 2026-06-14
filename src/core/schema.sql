@@ -1830,6 +1830,8 @@ DECLARE v_id TEXT;
 BEGIN
     v_id := COALESCE(NEW.organization_id, OLD.organization_id);
     UPDATE organizations SET search_tsv = (
+        -- Two independent LEFT JOINs produce a names × acronyms Cartesian product;
+        -- DISTINCT inside each string_agg deduplicates before building the tsvector.
         SELECT
             setweight(to_tsvector('pm_simple', COALESCE(string_agg(DISTINCT n.name,    ' '), '')), 'A') ||
             setweight(to_tsvector('pm_simple', COALESCE(string_agg(DISTINCT a.acronym, ' '), '')), 'B') ||

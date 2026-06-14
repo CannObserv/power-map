@@ -68,9 +68,8 @@ async def orgs_list(
     count_params = params[:]
 
     count = await db.fetchval(
-        f"""SELECT count(DISTINCT o.id)
+        f"""SELECT count(o.id)
             FROM organizations o
-            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
             {where}""",
         *count_params,
     )

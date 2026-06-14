@@ -32,9 +32,8 @@ async def query_people_rows(
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     count = await db.fetchval(
-        f"""SELECT count(DISTINCT p.id)
+        f"""SELECT count(p.id)
             FROM people p
-            LEFT JOIN v_person_display_names n ON n.person_id = p.id
             {where}""",
         *params,
     )

@@ -62,10 +62,9 @@ async def roles_list(
     count_params = params[:]
 
     count = await db.fetchval(
-        f"""SELECT count(DISTINCT r.id)
+        f"""SELECT count(r.id)
             FROM roles r
             JOIN organizations o ON o.id = r.organization_id
-            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
             {where}""",
         *count_params,
     )

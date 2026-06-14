@@ -195,13 +195,14 @@ async def search_orgs(
             a.acronym,
             o.parent_id,
             o.archived_at
-        FROM organizations o
+        FROM (SELECT plainto_tsquery('pm_simple', $1) AS tsq) _q,
+             organizations o
         LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
         LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
         WHERE ($3 OR o.archived_at IS NULL)
-          AND o.search_tsv @@ plainto_tsquery('pm_simple', $1)
+          AND o.search_tsv @@ _q.tsq
         ORDER BY
-            ts_rank(o.search_tsv, plainto_tsquery('pm_simple', $1)) DESC,
+            ts_rank(o.search_tsv, _q.tsq) DESC,
             n.name NULLS LAST
         LIMIT $2 OFFSET $4
         """,
