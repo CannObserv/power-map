@@ -238,6 +238,9 @@ async def _search_by_jurisdiction(
 
     When q is non-empty, further narrows by substring match on names and acronyms.
     """
+    # $5 is nullable (q omitted → NULL); a lateral subquery would need an extra guard,
+    # so plainto_tsquery is called twice instead. Both calls return NULL when $5 is NULL,
+    # which is safe: the WHERE short-circuits via IS NULL and ORDER BY ranks as NULL LAST.
     rows = await db.fetch(
         """
         SELECT
