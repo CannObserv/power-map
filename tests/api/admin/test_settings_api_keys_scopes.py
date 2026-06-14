@@ -68,6 +68,43 @@ async def _has_scope(db_pool, key_id: str, scope_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# GET detail — HTML structure (issue #192)
+# ---------------------------------------------------------------------------
+
+
+async def test_detail_panel_renders_as_table_row(client, user_and_key):
+    """Scopes panel must be a <tr>, not a <div>, to remain valid inside <tbody>."""
+    _, kid = user_and_key
+    r = client.get(f"/admin/settings/api-keys/{kid}/detail/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert r.text.strip().startswith("<tr")
+
+
+async def test_detail_panel_has_close_button(client, user_and_key):
+    _, kid = user_and_key
+    r = client.get(f"/admin/settings/api-keys/{kid}/detail/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert "Close" in r.text
+
+
+async def test_read_row_scopes_placeholder_is_tr(client, user_and_key):
+    """Empty scopes placeholder in the key row must be a <tr>, not a <div>."""
+    _, kid = user_and_key
+    r = client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert f'<tr id="api-key-scopes-{kid}"' in r.text
+    assert f'<div id="api-key-scopes-{kid}"' not in r.text
+
+
+async def test_scopes_button_closes_other_panels(client, user_and_key):
+    """Scopes button must include hx-on::before-request to collapse sibling panels."""
+    _, kid = user_and_key
+    r = client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "hx-on::before-request" in r.text
+
+
+# ---------------------------------------------------------------------------
 # GET detail
 # ---------------------------------------------------------------------------
 
