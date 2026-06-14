@@ -150,32 +150,24 @@ async def search_people(
         }
 
     rows = await db.fetch(
-        f"""
+        """
         SELECT
             p.id,
             v.display_name,
             p.archived_at
         FROM people p
         LEFT JOIN v_person_display_names v ON v.person_id = p.id
-        WHERE ($4 OR p.archived_at IS NULL)
-          AND (
-              v.display_name ILIKE $1
-              OR EXISTS (
-                  SELECT 1 FROM person_names pn
-                  WHERE pn.person_id = p.id
-                    AND pn.name ILIKE $1
-                    AND {visible_names_filter("pn")}
-              )
-          )
+        WHERE ($3 OR p.archived_at IS NULL)
+          AND p.search_tsv @@ plainto_tsquery('pm_unaccent_simple', $1)
         ORDER BY
-            CASE WHEN v.display_name ILIKE $1 THEN 0 ELSE 1 END,
+            ts_rank(p.search_tsv, plainto_tsquery('pm_unaccent_simple', $1)) DESC,
             v.display_name NULLS LAST
-        LIMIT $2 OFFSET $3
+        LIMIT $2 OFFSET $4
         """,
-        f"%{q}%",
+        q.strip(),
         limit + 1,
-        offset,
         include_archived,
+        offset,
     )
 
     has_more = len(rows) > limit

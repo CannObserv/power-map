@@ -109,12 +109,12 @@ async def ra_list(
         conditions.append("ra.archived_at IS NOT NULL")
 
     if q:
-        params.append(f"%{q}%")
+        params.append(q)
         idx = len(params)
         conditions.append(
-            f"(pn.display_name ILIKE ${idx}"
-            f" OR r.title ILIKE ${idx}"
-            f" OR dn.display_name ILIKE ${idx})"
+            f"(p.search_tsv @@ plainto_tsquery('pm_unaccent_simple', ${idx})"
+            f" OR r.search_tsv @@ plainto_tsquery('pm_simple', ${idx})"
+            f" OR o.search_tsv @@ plainto_tsquery('pm_simple', ${idx}))"
         )
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""

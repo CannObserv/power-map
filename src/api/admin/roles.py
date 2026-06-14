@@ -27,14 +27,6 @@ _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
 }
 
 
-def _like(s: str) -> str:
-    """Escape LIKE special characters and wrap with wildcards.
-
-    Use with ``ILIKE $N ESCAPE '\\'`` in queries.
-    """
-    return f"%{escape_like(s)}%"
-
-
 @router.get("/")
 async def roles_list(
     request: Request,
@@ -59,12 +51,12 @@ async def roles_list(
         conditions.append("r.archived_at IS NOT NULL")
 
     if q:
-        params.append(_like(q))
-        conditions.append(f"r.title ILIKE ${len(params)} ESCAPE '\\'")
+        params.append(q)
+        conditions.append(f"r.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
 
     if org_q:
-        params.append(_like(org_q))
-        conditions.append(f"dn.display_name ILIKE ${len(params)} ESCAPE '\\'")
+        params.append(org_q)
+        conditions.append(f"o.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]

@@ -61,8 +61,8 @@ async def orgs_list(
         conditions.append("o.archived_at IS NOT NULL")
 
     if q:
-        params.append(f"%{escape_like(q)}%")
-        conditions.append(f"dn.display_name ILIKE ${len(params)} ESCAPE '\\'")
+        params.append(q)
+        conditions.append(f"o.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     count_params = params[:]

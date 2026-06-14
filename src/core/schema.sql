@@ -1772,3 +1772,286 @@ CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_hnsw
     USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 64)
     WHERE archived_at IS NULL;
+
+-- =============================================================================
+-- Migration (#201): FTS search infrastructure
+-- Adds pm_simple / pm_unaccent_simple TS configs, search_tsv columns on
+-- organizations, people, roles, and jurisdictions, maintaining GIN indexes,
+-- and trigram GIN indexes on name columns for admin typeaheads.
+-- =============================================================================
+
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
+-- ---------------------------------------------------------------------------
+-- Text search configurations
+-- ---------------------------------------------------------------------------
+
+DO $$ BEGIN
+    CREATE TEXT SEARCH CONFIGURATION pm_simple (COPY = simple);
+EXCEPTION WHEN unique_violation OR duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TEXT SEARCH DICTIONARY pm_unaccent (
+        TEMPLATE = unaccent,
+        RULES    = 'unaccent'
+    );
+EXCEPTION WHEN unique_violation OR duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TEXT SEARCH CONFIGURATION pm_unaccent_simple (COPY = simple);
+EXCEPTION WHEN unique_violation OR duplicate_object THEN NULL;
+END $$;
+
+-- Wire unaccent into pm_unaccent_simple for word tokens.
+-- Idempotent: ALTER MAPPING replaces any existing mapping for these token types.
+ALTER TEXT SEARCH CONFIGURATION pm_unaccent_simple
+    ALTER MAPPING FOR hword, hword_part, word
+    WITH pm_unaccent, simple;
+
+-- ---------------------------------------------------------------------------
+-- organizations.search_tsv
+-- ---------------------------------------------------------------------------
+
+DO $$ BEGIN
+    ALTER TABLE organizations ADD COLUMN search_tsv tsvector;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_organizations_search_tsv
+    ON organizations USING GIN (search_tsv);
+
+-- Shared refresh function for child-table triggers (organization_names,
+-- organization_acronyms). Uses NEW.organization_id / OLD.organization_id.
+CREATE OR REPLACE FUNCTION fn_refresh_org_search_tsv_from_child()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE v_id TEXT;
+BEGIN
+    v_id := COALESCE(NEW.organization_id, OLD.organization_id);
+    UPDATE organizations SET search_tsv = (
+        SELECT
+            setweight(to_tsvector('pm_simple', COALESCE(string_agg(DISTINCT n.name,    ' '), '')), 'A') ||
+            setweight(to_tsvector('pm_simple', COALESCE(string_agg(DISTINCT a.acronym, ' '), '')), 'B') ||
+            setweight(to_tsvector('pm_simple', COALESCE(o.notes, '')),                             'C')
+        FROM organizations o
+        LEFT JOIN organization_names    n ON n.organization_id = o.id
+        LEFT JOIN organization_acronyms a ON a.organization_id = o.id
+        WHERE o.id = v_id
+        GROUP BY o.id, o.notes
+    ) WHERE id = v_id;
+    RETURN NULL;
+END;
+$$;
+
+-- Refresh triggered by notes change on the org row itself. Uses NEW.id.
+CREATE OR REPLACE FUNCTION fn_refresh_org_search_tsv_from_org()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE organizations SET search_tsv = (
+        SELECT
+            setweight(to_tsvector('pm_simple', COALESCE(string_agg(DISTINCT n.name,    ' '), '')), 'A') ||
+            setweight(to_tsvector('pm_simple', COALESCE(string_agg(DISTINCT a.acronym, ' '), '')), 'B') ||
+            setweight(to_tsvector('pm_simple', COALESCE(NEW.notes, '')),                           'C')
+        FROM organizations o
+        LEFT JOIN organization_names    n ON n.organization_id = o.id
+        LEFT JOIN organization_acronyms a ON a.organization_id = o.id
+        WHERE o.id = NEW.id
+        GROUP BY o.id
+    ) WHERE id = NEW.id;
+    RETURN NULL;
+END;
+$$;
+
+DO $$ BEGIN
+    CREATE TRIGGER trg_org_names_search_tsv
+        AFTER INSERT OR UPDATE OR DELETE ON organization_names
+        FOR EACH ROW EXECUTE FUNCTION fn_refresh_org_search_tsv_from_child();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TRIGGER trg_org_acronyms_search_tsv
+        AFTER INSERT OR UPDATE OR DELETE ON organization_acronyms
+        FOR EACH ROW EXECUTE FUNCTION fn_refresh_org_search_tsv_from_child();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TRIGGER trg_org_notes_search_tsv
+        AFTER UPDATE OF notes ON organizations
+        FOR EACH ROW EXECUTE FUNCTION fn_refresh_org_search_tsv_from_org();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Backfill existing org rows.
+UPDATE organizations o SET search_tsv = (
+    SELECT
+        setweight(to_tsvector('pm_simple', COALESCE(string_agg(DISTINCT n.name,    ' '), '')), 'A') ||
+        setweight(to_tsvector('pm_simple', COALESCE(string_agg(DISTINCT a.acronym, ' '), '')), 'B') ||
+        setweight(to_tsvector('pm_simple', COALESCE(o2.notes, '')),                            'C')
+    FROM organizations o2
+    LEFT JOIN organization_names    n ON n.organization_id = o2.id
+    LEFT JOIN organization_acronyms a ON a.organization_id = o2.id
+    WHERE o2.id = o.id
+    GROUP BY o2.id, o2.notes
+)
+WHERE search_tsv IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- people.search_tsv
+-- ---------------------------------------------------------------------------
+
+DO $$ BEGIN
+    ALTER TABLE people ADD COLUMN search_tsv tsvector;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_people_search_tsv
+    ON people USING GIN (search_tsv);
+
+CREATE OR REPLACE FUNCTION fn_refresh_person_search_tsv_from_child()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE v_id TEXT;
+BEGIN
+    v_id := COALESCE(NEW.person_id, OLD.person_id);
+    UPDATE people SET search_tsv = (
+        SELECT
+            setweight(to_tsvector('pm_unaccent_simple', COALESCE(string_agg(pn.name, ' '), '')), 'A') ||
+            setweight(to_tsvector('pm_unaccent_simple', COALESCE(p.notes, '')),                  'C')
+        FROM people p
+        LEFT JOIN person_names pn ON pn.person_id = p.id AND pn.visibility = 'public'
+        WHERE p.id = v_id
+        GROUP BY p.id, p.notes
+    ) WHERE id = v_id;
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_refresh_person_search_tsv_from_person()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE people SET search_tsv = (
+        SELECT
+            setweight(to_tsvector('pm_unaccent_simple', COALESCE(string_agg(pn.name, ' '), '')), 'A') ||
+            setweight(to_tsvector('pm_unaccent_simple', COALESCE(NEW.notes, '')),                'C')
+        FROM people p
+        LEFT JOIN person_names pn ON pn.person_id = p.id AND pn.visibility = 'public'
+        WHERE p.id = NEW.id
+        GROUP BY p.id
+    ) WHERE id = NEW.id;
+    RETURN NULL;
+END;
+$$;
+
+DO $$ BEGIN
+    CREATE TRIGGER trg_person_names_search_tsv
+        AFTER INSERT OR UPDATE OR DELETE ON person_names
+        FOR EACH ROW EXECUTE FUNCTION fn_refresh_person_search_tsv_from_child();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TRIGGER trg_person_notes_search_tsv
+        AFTER UPDATE OF notes ON people
+        FOR EACH ROW EXECUTE FUNCTION fn_refresh_person_search_tsv_from_person();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Backfill existing person rows.
+UPDATE people p SET search_tsv = (
+    SELECT
+        setweight(to_tsvector('pm_unaccent_simple', COALESCE(string_agg(pn.name, ' '), '')), 'A') ||
+        setweight(to_tsvector('pm_unaccent_simple', COALESCE(p2.notes, '')),                 'C')
+    FROM people p2
+    LEFT JOIN person_names pn ON pn.person_id = p2.id AND pn.visibility = 'public'
+    WHERE p2.id = p.id
+    GROUP BY p2.id, p2.notes
+)
+WHERE search_tsv IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- roles.search_tsv  (Pattern A — single-table BEFORE trigger)
+-- ---------------------------------------------------------------------------
+
+DO $$ BEGIN
+    ALTER TABLE roles ADD COLUMN search_tsv tsvector;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_roles_search_tsv
+    ON roles USING GIN (search_tsv);
+
+CREATE OR REPLACE FUNCTION fn_roles_search_tsv()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.search_tsv :=
+        setweight(to_tsvector('pm_simple', COALESCE(NEW.title, '')), 'A') ||
+        setweight(to_tsvector('pm_simple', COALESCE(NEW.notes, '')), 'B');
+    RETURN NEW;
+END;
+$$;
+
+DO $$ BEGIN
+    CREATE TRIGGER trg_roles_search_tsv
+        BEFORE INSERT OR UPDATE OF title, notes ON roles
+        FOR EACH ROW EXECUTE FUNCTION fn_roles_search_tsv();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Backfill existing role rows.
+UPDATE roles SET search_tsv =
+    setweight(to_tsvector('pm_simple', COALESCE(title, '')), 'A') ||
+    setweight(to_tsvector('pm_simple', COALESCE(notes, '')), 'B')
+WHERE search_tsv IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- jurisdictions.search_tsv  (Pattern A — single-table BEFORE trigger)
+-- ---------------------------------------------------------------------------
+
+DO $$ BEGIN
+    ALTER TABLE jurisdictions ADD COLUMN search_tsv tsvector;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_jurisdictions_search_tsv
+    ON jurisdictions USING GIN (search_tsv);
+
+CREATE OR REPLACE FUNCTION fn_jurisdictions_search_tsv()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.search_tsv :=
+        setweight(to_tsvector('pm_simple', COALESCE(NEW.name,  '')), 'A') ||
+        setweight(to_tsvector('pm_simple', COALESCE(NEW.slug,  '')), 'B') ||
+        setweight(to_tsvector('pm_simple', COALESCE(NEW.notes, '')), 'C');
+    RETURN NEW;
+END;
+$$;
+
+DO $$ BEGIN
+    CREATE TRIGGER trg_jurisdictions_search_tsv
+        BEFORE INSERT OR UPDATE OF name, slug, notes ON jurisdictions
+        FOR EACH ROW EXECUTE FUNCTION fn_jurisdictions_search_tsv();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Backfill existing jurisdiction rows.
+UPDATE jurisdictions SET search_tsv =
+    setweight(to_tsvector('pm_simple', COALESCE(name,  '')), 'A') ||
+    setweight(to_tsvector('pm_simple', COALESCE(slug,  '')), 'B') ||
+    setweight(to_tsvector('pm_simple', COALESCE(notes, '')), 'C')
+WHERE search_tsv IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- Trigram GIN indexes for admin typeaheads (keep ILIKE behaviour)
+-- ---------------------------------------------------------------------------
+
+CREATE INDEX IF NOT EXISTS idx_org_names_name_trgm
+    ON organization_names USING GIN (lower(name) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_person_names_name_trgm
+    ON person_names USING GIN (lower(name) gin_trgm_ops)
+    WHERE visibility = 'public';
+
+CREATE INDEX IF NOT EXISTS idx_roles_title_trgm
+    ON roles USING GIN (lower(title) gin_trgm_ops);
