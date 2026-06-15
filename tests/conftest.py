@@ -4,8 +4,10 @@ Redirects DATABASE_URL to TEST_DATABASE_URL when the latter is set, so that
 integration tests never touch the production database when run with the
 standard `.env` file loaded.
 
-If TEST_DATABASE_URL is absent, all integration-marked tests are skipped rather
-than falling through to the production DATABASE_URL.
+If TEST_DATABASE_URL is absent, all integration-marked tests are skipped.
+The db_pool fixture hard-fails (not skips) when TEST_DATABASE_URL is unset —
+this is a last-resort guard to prevent accidental production DB truncation if
+a test requests db_pool without the integration marker.
 """
 
 import os
@@ -86,11 +88,18 @@ async def db_pool():
     Then have fixtures and tests accept ``db_pool`` and use
     ``async with db_pool.acquire() as conn:`` instead of
     ``await asyncpg.connect(...)``.
+
+    Hard-fails (not skips) when TEST_DATABASE_URL is unset — last-resort
+    guard against accidental production DB truncation when a test requests
+    this fixture without the integration marker.
     """
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    pool = await asyncpg.create_pool(dsn)
+    test_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_url:
+        pytest.fail(
+            "db_pool requires TEST_DATABASE_URL — refusing to operate on a non-test database. "
+            "Set TEST_DATABASE_URL in .env (see docs/COMMANDS.md)."
+        )
+    pool = await asyncpg.create_pool(test_url)
     try:
         async with pool.acquire() as conn:
             await apply_schema(conn)

@@ -95,6 +95,11 @@ Single VM; port split:
 
 **All development work must be done in a git worktree** — never edit the main checkout directly. `brainstorming` is the entry point that triggers worktree setup via `using-git-worktrees`. After teardown, run `git worktree prune`.
 
+**Worktree `.env` setup (required after creation):** The `.env` file is gitignored and not copied into worktrees automatically. Without it, `TEST_DATABASE_URL` is absent and `db_pool` will hard-fail to prevent production DB access. After `worktree-create.sh`, always symlink it:
+```bash
+ln -s "$(git rev-parse --show-toplevel)/.env" <worktree-path>/.env
+```
+
 exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 
 | Situation | Action |
