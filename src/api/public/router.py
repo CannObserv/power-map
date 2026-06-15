@@ -12,10 +12,14 @@ from src.api.public.link_types import router as link_types_router
 from src.api.public.orgs import router as orgs_router
 from src.api.public.people import router as people_router
 from src.api.public.roles import router as roles_router
+from src.api.public.subscriptions import router as subscriptions_router
 
 router = APIRouter(prefix="/api/v1", tags=["public-api"])
 router.include_router(assignments_router)
 router.include_router(changes_router)
+# subscriptions_router before changes_router in registration order; static paths
+# (/subscriptions) must not be shadowed by dynamic routes in other routers.
+router.include_router(subscriptions_router)
 # embeddings_router registered before people_router: /people/identify (static)
 # must be resolved before /people/{id} (dynamic) for POST routes.
 router.include_router(embeddings_router)
