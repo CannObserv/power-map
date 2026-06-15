@@ -97,6 +97,7 @@ Before receiving events from the change feed, a key must subscribe to the entiti
 | `POST` | `/api/v1/subscriptions` | `subscriptions:write` scope | Bulk-register entity IDs. Idempotent — already-subscribed IDs are counted, not errored. Unknown IDs returned in `not_found`. |
 | `DELETE` | `/api/v1/subscriptions/{entity_id}` | `subscriptions:write` scope | Remove one subscription. 404 if not subscribed. |
 | `DELETE` | `/api/v1/subscriptions` | `subscriptions:write` scope | Bulk-remove subscriptions. Silently ignores unknown IDs. |
+| `GET` | `/api/v1/subscriptions/discover` | API key | Graph-traversal discovery of entities to subscribe to. |
 
 ### POST /subscriptions — request
 
@@ -136,6 +137,54 @@ Pass the JSON body via an HTTP DELETE with `Content-Type: application/json`:
 ```
 
 Returns `204 No Content`. Unrecognized IDs are silently ignored.
+
+### GET /subscriptions/discover — graph traversal
+
+Traverses the PM entity graph from a root jurisdiction or organization and returns candidate entities to subscribe to. The client inspects results and POSTs selected IDs to `/subscriptions`.
+
+**Parameters:**
+
+| Parameter | Required | Notes |
+|-----------|----------|-------|
+| `root_type` | yes | `jurisdiction` or `organization` |
+| `root_id` | yes | ULID or slug |
+| `follow` | no | Comma-separated traversal steps (see below). Default empty = root entity only. |
+| `limit` | no | Max 500, default 100 |
+| `offset` | no | Default 0 |
+
+**`follow` values** (applied in the order listed; each step requires prerequisites):
+
+| Value | Traversal | Prerequisite |
+|-------|-----------|--------------|
+| `lineage` | Jurisdiction → connected jurisdictions via `lineage`-category edges (recursive) | `root_type=jurisdiction` |
+| `affiliated_orgs` | Jurisdictions in scope → orgs with `governing` affiliation | Jurisdiction in scope |
+| `org_children` | Orgs in scope → child orgs via `parent_id` (recursive) | Organization in scope |
+| `roles` | Orgs in scope → their roles | Organization in scope |
+| `assignments` | Roles in scope → role_assignments | `roles` must precede |
+| `people` | Assignments in scope → persons | `assignments` must precede |
+
+Prerequisite violations → `422`. Example: `affiliated_orgs` before any jurisdiction is in scope.
+
+**Response item:**
+
+```json
+{
+  "entity_type": "organization",
+  "entity_id": "01JXXX...",
+  "display_name": "WA Senate",
+  "hops_from_root": 2
+}
+```
+
+Root entity is always included at `hops_from_root: 0`. `hops_from_root` counts traversal steps from the root, not graph depth within a step.
+
+**USA-WA setup example:**
+
+```
+GET /api/v1/subscriptions/discover
+  ?root_type=jurisdiction&root_id=usa-wa
+  &follow=lineage,affiliated_orgs,org_children,roles,assignments,people
+```
 
 ---
 
