@@ -85,15 +85,71 @@ Path-versioned (`/api/v1/`). Breaking changes introduce a new prefix (`/api/v2/`
 
 ---
 
+## Subscriptions
+
+Before receiving events from the change feed, a key must subscribe to the entities it cares about.
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/subscriptions` | API key | List subscriptions for the calling key. Params: `entity_type` (filter), `limit` (max 500, default 50), `offset`. |
+| `POST` | `/api/v1/subscriptions` | `subscriptions:write` scope | Bulk-register entity IDs. Idempotent — already-subscribed IDs are counted, not errored. Unknown IDs returned in `not_found`. |
+| `DELETE` | `/api/v1/subscriptions/{entity_id}` | `subscriptions:write` scope | Remove one subscription. 404 if not subscribed. |
+| `DELETE` | `/api/v1/subscriptions` | `subscriptions:write` scope | Bulk-remove subscriptions. Silently ignores unknown IDs. |
+
+### POST /subscriptions — request
+
+```json
+{ "entity_ids": ["01JVBN...", "01JVBP..."] }
+```
+
+### POST /subscriptions — response
+
+```json
+{
+  "registered": 2,
+  "already_subscribed": 0,
+  "not_found": []
+}
+```
+
+`not_found` lists IDs that don't resolve to any live or deleted entity. The rest of the batch still applies.
+
+### GET /subscriptions — response shape
+
+```json
+{
+  "data": [
+    { "entity_id": "01JVBN...", "entity_type": "person", "created_at": "2025-06-01T12:00:00.000000Z" }
+  ],
+  "meta": { "limit": 50, "offset": 0, "count": 1, "has_more": false }
+}
+```
+
+### Bulk DELETE — request
+
+Pass the JSON body via an HTTP DELETE with `Content-Type: application/json`:
+
+```json
+{ "entity_ids": ["01JVBN...", "01JVBP..."] }
+```
+
+Returns `204 No Content`. Unrecognized IDs are silently ignored.
+
+---
+
 ## Change Feed
 
-`GET /api/v1/changes` returns a time-ordered feed of entity mutations for sibling-service cache invalidation.
+`GET /api/v1/changes` returns a subscription-filtered, outbox-ordered feed of entity mutations for sibling-service cache invalidation.
+
+**Only events for entities the calling key has explicitly subscribed to are returned.** A key with no subscriptions receives an empty feed. Use `POST /api/v1/subscriptions` to register entities before polling.
 
 ### Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `since` | ISO 8601 timestamp | required | Return events at or after this timestamp |
+| `after` | integer ≥ 0 | required | Outbox cursor (exclusive). Pass `0` to start from the beginning. |
 | `limit` | integer 1–1000 | 50 | Max items per page |
 
 ### Response shape
@@ -102,38 +158,42 @@ Path-versioned (`/api/v1/`). Breaking changes introduce a new prefix (`/api/v2/`
 {
   "data": [
     {
+      "seq_id": 4217,
       "entity_type": "person",
       "entity_id": "01JVBN...",
       "changed_at": "2025-06-01T12:00:00.000000Z",
-      "change_kind": "updated",
-      "archived_at": null
+      "change_kind": "updated"
     }
   ],
   "meta": {
     "limit": 50,
     "count": 1,
     "has_more": false,
-    "next_since": "2025-06-01T12:00:00.000000Z"
+    "next_after": 4217
   }
 }
 ```
 
 `change_kind` is `"updated"` for live or archived entities and `"deleted"` for hard-deleted or merged entities.
 
+`seq_id` is a monotonically increasing integer from the outbox log (`BIGSERIAL`). It is stable and gapless per subscription set.
+
 ### Polling pattern
 
-Pass `meta.next_since` from the previous response as `since` on the next poll:
+Pass `meta.next_after` from the previous response as `after` on the next poll:
 
 ```python
-since = "2025-01-01T00:00:00.000000Z"
+after = 0  # start from the beginning; persist this value between runs
 while True:
-    resp = client.get("/api/v1/changes", params={"since": since})
+    resp = client.get("/api/v1/changes", params={"after": after})
     page = resp.json()
     process(page["data"])
-    since = page["meta"]["next_since"]
+    after = page["meta"]["next_after"]
     if not page["meta"]["has_more"]:
         break
 ```
+
+`next_after` is the `seq_id` of the last item returned, or echoes `after` when the page is empty. Because the cursor is exclusive (`>`), no deduplication is needed across pages.
 
 ### Entity types
 
@@ -144,13 +204,15 @@ while True:
 | `jurisdiction` | `jurisdictions` | |
 | `role` | `roles` | |
 | `role_assignment` | `role_assignments` | |
-| `deleted` | `deleted_entities` | `change_kind` is always `"deleted"`; `archived_at` is always `null` |
+| `person` / `organization` / … | `deleted_entities` | `change_kind` is always `"deleted"` |
 
 ### Implicit behaviors
 
-- **Inclusive boundary.** `since` uses `>=` semantics — the timestamp returned as `next_since` may appear again in the next page. Deduplicate by `entity_id` when processing consecutive pages.
+- **Exclusive cursor.** `after` uses `>` semantics — `next_after` will never appear again in the next page.
+- **Subscription-filtered.** Events for entities not in the subscription set are never returned, regardless of cursor.
+- **Backfill note.** Subscribing to an entity does not retroactively surface past events. Start polling from `after=0` after subscribing to receive all historical outbox entries for that entity.
 - **Deleted entities.** Hard deletes and merges write a tombstone to an internal `deleted_entities` table (TTL ≈ 90 days). After the TTL, `GET /api/v1/people/{id}` or `/orgs/{id}` returning 404 is the fallback signal that an entity was removed.
-- **Order.** Results are ordered by `changed_at ASC, entity_id ASC`. Within a single timestamp, order is deterministic but arbitrary.
+- **Order.** Results are ordered by outbox `seq_id ASC` — strictly monotonic, no ties.
 - **No total count.** `meta.count` is the page count, not a dataset total.
 
 ---
