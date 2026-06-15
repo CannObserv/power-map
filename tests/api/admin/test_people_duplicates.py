@@ -515,3 +515,62 @@ async def test_merge_notes_skipped_preserves_winner_notes(client, person_pair, d
     async with db_pool.acquire() as conn:
         notes = await conn.fetchval("SELECT notes FROM people WHERE id=$1", id_a)
     assert notes == "Winner only."
+
+
+# ── Links deduplication ──────────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_pair_with_shared_link(db_pool):
+    """Two people both carrying the same (url, link_type_id) link; yield (winner_id, loser_id)."""
+    winner_id, loser_id = generate_id(), generate_id()
+
+    async with db_pool.acquire() as conn:
+        link_type_id = await conn.fetchval("SELECT id FROM link_types LIMIT 1")
+        for pid, name in [
+            (winner_id, "Alice Mergetest"),
+            (loser_id, "Alicia Mergetest"),
+        ]:
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+            await conn.execute(
+                "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(),
+                pid,
+                name,
+            )
+            await conn.execute(
+                "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+                " VALUES ($1, 'person', $2, $3, $4)",
+                generate_id(),
+                pid,
+                "https://example.com/shared-profile",
+                link_type_id,
+            )
+
+    yield winner_id, loser_id
+
+    async with db_pool.acquire() as conn:
+        for pid in [winner_id, loser_id]:
+            await conn.execute("DELETE FROM links WHERE entity_type='person' AND entity_id=$1", pid)
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_merge_deduplicates_shared_link(client, person_pair_with_shared_link, db_pool):
+    """Merging two people who share a link URL must not 500 on uq_links_entity_url."""
+    winner_id, loser_id = person_pair_with_shared_link
+
+    resp = client.post(
+        f"/admin/people/{winner_id}/merge/{loser_id}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert resp.status_code in (200, 303), f"Expected 2xx/303, got {resp.status_code}: {resp.text}"
+
+    async with db_pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT count(*) FROM links WHERE entity_type='person' AND entity_id=$1",
+            winner_id,
+        )
+    assert count == 1
