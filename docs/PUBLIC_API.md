@@ -166,18 +166,25 @@ Traverses the PM entity graph from a root jurisdiction or organization and retur
 
 Prerequisite violations → `422`. Example: `affiliated_orgs` before any jurisdiction is in scope.
 
-**Response item:**
+**Response shape:**
 
 ```json
 {
-  "entity_type": "organization",
-  "entity_id": "01JXXX...",
-  "display_name": "WA Senate",
-  "hops_from_root": 2
+  "data": [
+    {
+      "entity_type": "organization",
+      "entity_id": "01JXXX...",
+      "display_name": "WA Senate",
+      "hops_from_root": 2
+    }
+  ],
+  "meta": { "limit": 100, "offset": 0, "count": 1, "has_more": false, "truncated": false }
 }
 ```
 
 Root entity is always included at `hops_from_root: 0`. `hops_from_root` counts traversal steps from the root, not graph depth within a step.
+
+`meta.truncated: true` means the traversal hit the server-side entity cap (5,000) before completing all `follow` steps. Use a narrower `follow` chain, a smaller root, or filter results before subscribing.
 
 **USA-WA setup example:**
 

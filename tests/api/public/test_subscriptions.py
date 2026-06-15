@@ -264,6 +264,27 @@ def test_subscriptions_post_requires_scope(client, readonly_api_key, sub_entitie
     assert r.status_code == 403
 
 
+def test_subscriptions_post_entity_ids_max_length(client, sub_api_key):
+    """POST with >500 entity_ids → 422 (Pydantic max_length list constraint)."""
+    r = client.post(
+        "/api/v1/subscriptions",
+        json={"entity_ids": [generate_id() for _ in range(501)]},
+        headers={"X-API-Key": sub_api_key["raw_key"]},
+    )
+    assert r.status_code == 422
+
+
+def test_subscriptions_delete_bulk_entity_ids_max_length(client, sub_api_key):
+    """Bulk DELETE with >500 entity_ids → 422 (Pydantic max_length list constraint)."""
+    r = client.request(
+        "DELETE",
+        "/api/v1/subscriptions",
+        json={"entity_ids": [generate_id() for _ in range(501)]},
+        headers={"X-API-Key": sub_api_key["raw_key"]},
+    )
+    assert r.status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # DELETE /api/v1/subscriptions/{entity_id}
 # ---------------------------------------------------------------------------

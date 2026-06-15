@@ -326,8 +326,11 @@ async def discover_subscriptions(
 
 
 # Batch-resolves entity_type for a set of entity_ids across all tables + deleted tombstones.
+# DISTINCT ON (entity_id) guards against data-integrity anomalies where an entity_id could
+# theoretically appear in more than one source (e.g., both a live table and deleted_entities).
 _BATCH_RESOLVE_ENTITY_TYPE = """
-SELECT entity_type, entity_id FROM (
+SELECT DISTINCT ON (entity_id) entity_type, entity_id
+FROM (
     SELECT 'person'          AS entity_type, id AS entity_id
     FROM people WHERE id = ANY($1::text[])
     UNION ALL
@@ -346,6 +349,7 @@ SELECT entity_type, entity_id FROM (
     SELECT entity_type, entity_id
     FROM deleted_entities WHERE entity_id = ANY($1::text[])
 ) t
+ORDER BY entity_id
 """
 
 
