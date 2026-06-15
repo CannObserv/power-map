@@ -449,7 +449,7 @@ def test_discover_full_chain_from_jurisdiction(client, disc_api_key, disc_graph)
 
 
 def test_discover_response_has_display_name(client, disc_api_key, disc_graph):
-    """Each item has a non-null display_name string."""
+    """Each item includes the display_name key."""
     r = client.get(
         "/api/v1/subscriptions/discover",
         params={
@@ -461,11 +461,41 @@ def test_discover_response_has_display_name(client, disc_api_key, disc_graph):
     )
     assert r.status_code == 200
     for item in r.json()["data"]:
-        assert isinstance(item.get("display_name"), (str, type(None)))
+        assert "display_name" in item
+
+
+def test_discover_jurisdiction_display_name_is_string(client, disc_api_key, disc_graph):
+    """Jurisdiction display_name is the jurisdictions.name value (NOT NULL column)."""
+    r = client.get(
+        "/api/v1/subscriptions/discover",
+        params={"root_type": "jurisdiction", "root_id": disc_graph["root_jur_id"], "follow": ""},
+        headers={"X-API-Key": disc_api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    item = r.json()["data"][0]
+    assert item["display_name"] == "Disc Root Jurisdiction"
+
+
+def test_discover_role_display_name_is_string(client, disc_api_key, disc_graph):
+    """Role display_name is the roles.title value (NOT NULL column)."""
+    r = client.get(
+        "/api/v1/subscriptions/discover",
+        params={
+            "root_type": "organization",
+            "root_id": disc_graph["root_org_id"],
+            "follow": "roles",
+            "limit": 100,
+        },
+        headers={"X-API-Key": disc_api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    role_item = next(i for i in data if i["entity_id"] == disc_graph["role_id"])
+    assert role_item["display_name"] == "Disc Test Role"
 
 
 def test_discover_meta_structure(client, disc_api_key, disc_graph):
-    """meta contains limit, offset, count, has_more."""
+    """meta contains limit, offset, count, has_more, truncated."""
     r = client.get(
         "/api/v1/subscriptions/discover",
         params={
@@ -482,6 +512,7 @@ def test_discover_meta_structure(client, disc_api_key, disc_graph):
     assert "offset" in meta
     assert "count" in meta
     assert "has_more" in meta
+    assert meta["truncated"] is False
 
 
 def test_discover_pagination(client, disc_api_key, disc_graph):

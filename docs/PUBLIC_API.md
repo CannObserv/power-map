@@ -19,6 +19,7 @@ Read endpoints are accessible with any valid key. Write endpoints require an add
 | Scope | Used by |
 |-------|---------|
 | `observations:write` | `POST /*/observations` endpoints |
+| `subscriptions:write` | `POST /api/v1/subscriptions`, `DELETE /api/v1/subscriptions`, `DELETE /api/v1/subscriptions/{entity_id}` |
 | `voice_embeddings:write` | `POST /api/v1/people/{id}/embeddings`, `DELETE /api/v1/people/{id}/embeddings/{eid}`, `DELETE /api/v1/people/{id}/embeddings`, `POST /api/v1/people/{id}/embeddings/{eid}/restore` |
 | `voice_embeddings:read` | `POST /api/v1/people/identify`, `GET /api/v1/people/{id}/embeddings` — required for all biometric data reads |
 
@@ -157,7 +158,7 @@ Traverses the PM entity graph from a root jurisdiction or organization and retur
 | Value | Traversal | Prerequisite |
 |-------|-----------|--------------|
 | `lineage` | Jurisdiction → connected jurisdictions via `lineage`-category edges (recursive) | `root_type=jurisdiction` |
-| `affiliated_orgs` | Jurisdictions in scope → orgs with `governing` affiliation | Jurisdiction in scope |
+| `affiliated_orgs` | Jurisdictions in scope → orgs with `governing` affiliation (only; `registered` and other types are excluded) | Jurisdiction in scope |
 | `org_children` | Orgs in scope → child orgs via `parent_id` (recursive) | Organization in scope |
 | `roles` | Orgs in scope → their roles | Organization in scope |
 | `assignments` | Roles in scope → role_assignments | `roles` must precede |
@@ -259,7 +260,7 @@ while True:
 
 - **Exclusive cursor.** `after` uses `>` semantics — `next_after` will never appear again in the next page.
 - **Subscription-filtered.** Events for entities not in the subscription set are never returned, regardless of cursor.
-- **Backfill note.** Subscribing to an entity does not retroactively surface past events. Start polling from `after=0` after subscribing to receive all historical outbox entries for that entity.
+- **Backfill note.** The outbox retains all events since trigger installation. To receive historical events for a newly subscribed entity, poll from `after=0` — the subscription filter applies at query time, so all past outbox entries for that entity are returned.
 - **Deleted entities.** Hard deletes and merges write a tombstone to an internal `deleted_entities` table (TTL ≈ 90 days). After the TTL, `GET /api/v1/people/{id}` or `/orgs/{id}` returning 404 is the fallback signal that an entity was removed.
 - **Order.** Results are ordered by outbox `seq_id ASC` — strictly monotonic, no ties.
 - **No total count.** `meta.count` is the page count, not a dataset total.

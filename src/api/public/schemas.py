@@ -672,7 +672,7 @@ class SubscriptionListResponse(BaseModel):
 class SubscriptionRegisterRequest(BaseModel):
     """Request body for POST /api/v1/subscriptions."""
 
-    entity_ids: list[str]
+    entity_ids: list[str] = Field(..., max_length=500)
 
 
 class SubscriptionRegisterResponse(BaseModel):
@@ -686,7 +686,7 @@ class SubscriptionRegisterResponse(BaseModel):
 class SubscriptionBulkDeleteRequest(BaseModel):
     """Request body for DELETE /api/v1/subscriptions (bulk)."""
 
-    entity_ids: list[str]
+    entity_ids: list[str] = Field(..., max_length=500)
 
 
 class DiscoveryItem(BaseModel):
@@ -705,6 +705,7 @@ class DiscoveryMeta(BaseModel):
     offset: int
     count: int
     has_more: bool
+    truncated: bool = False
 
 
 class DiscoveryResponse(BaseModel):

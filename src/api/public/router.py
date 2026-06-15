@@ -17,8 +17,8 @@ from src.api.public.subscriptions import router as subscriptions_router
 router = APIRouter(prefix="/api/v1", tags=["public-api"])
 router.include_router(assignments_router)
 router.include_router(changes_router)
-# subscriptions_router before changes_router in registration order; static paths
-# (/subscriptions) must not be shadowed by dynamic routes in other routers.
+# Within subscriptions_router, GET /subscriptions/discover is defined before
+# DELETE /subscriptions/{entity_id} so FastAPI does not match 'discover' as entity_id.
 router.include_router(subscriptions_router)
 # embeddings_router registered before people_router: /people/identify (static)
 # must be resolved before /people/{id} (dynamic) for POST routes.

@@ -120,10 +120,18 @@ async def _fetch_display_names(db, items: list[dict]) -> dict[str, str | None]:
     return names
 
 
-async def _traverse(db, root_type: str, root_id: str, steps: list[str]) -> list[dict]:
-    """Run graph traversal; return ordered list of {entity_type, entity_id, hops_from_root}."""
+_TRAVERSE_MAX_ITEMS = 5_000
+
+
+async def _traverse(db, root_type: str, root_id: str, steps: list[str]) -> tuple[list[dict], bool]:
+    """Run graph traversal; return (results, truncated).
+
+    results: ordered list of {entity_type, entity_id, hops_from_root}.
+    Stops accumulating once _TRAVERSE_MAX_ITEMS is reached; truncated=True signals the caller.
+    """
     results: list[dict] = [{"entity_type": root_type, "entity_id": root_id, "hops_from_root": 0}]
     seen: set[str] = {root_id}
+    truncated = False
 
     for hop, step in enumerate(steps, start=1):
         new_ids: list[str] = []
@@ -228,12 +236,17 @@ async def _traverse(db, root_type: str, root_id: str, steps: list[str]) -> list[
 
         for eid in new_ids:
             if eid not in seen:
+                if len(results) >= _TRAVERSE_MAX_ITEMS:
+                    truncated = True
+                    break
                 results.append(
                     {"entity_type": entity_type, "entity_id": eid, "hops_from_root": hop}
                 )
                 seen.add(eid)
+        if truncated:
+            break
 
-    return results
+    return results, truncated
 
 
 @router.get(
@@ -248,8 +261,14 @@ async def discover_subscriptions(
         str,
         Query(
             description=(
-                "Comma-separated traversal steps: lineage, affiliated_orgs, org_children,"
-                " roles, assignments, people"
+                "Comma-separated traversal steps (applied in order): "
+                "lineage — jurisdiction lineage edges (recursive); "
+                "affiliated_orgs — orgs with 'governing' affiliation for in-scope jurisdictions; "
+                "org_children — child orgs via parent_id (recursive); "
+                "roles — roles owned by in-scope orgs; "
+                "assignments — role_assignments for in-scope roles; "
+                "people — persons via in-scope assignments. "
+                "Each step has prerequisites; a violation returns 422."
             )
         ),
     ] = "",
@@ -278,7 +297,7 @@ async def discover_subscriptions(
         raise HTTPException(status_code=404, detail=f"{root_type} not found")
 
     resolved_id = root_row["id"]
-    all_items = await _traverse(db, root_type, resolved_id, steps)
+    all_items, truncated = await _traverse(db, root_type, resolved_id, steps)
 
     total = len(all_items)
     page = all_items[offset : offset + limit]
@@ -301,26 +320,32 @@ async def discover_subscriptions(
             offset=offset,
             count=len(page),
             has_more=has_more,
+            truncated=truncated,
         ),
     )
 
 
-# Resolves entity_type for a given entity_id across all entity tables + deleted tombstones.
-_RESOLVE_ENTITY_TYPE = """
-SELECT entity_type FROM (
-    SELECT 'person'          AS entity_type FROM people           WHERE id = $1
+# Batch-resolves entity_type for a set of entity_ids across all tables + deleted tombstones.
+_BATCH_RESOLVE_ENTITY_TYPE = """
+SELECT entity_type, entity_id FROM (
+    SELECT 'person'          AS entity_type, id AS entity_id
+    FROM people WHERE id = ANY($1::text[])
     UNION ALL
-    SELECT 'organization'    AS entity_type FROM organizations    WHERE id = $1
+    SELECT 'organization'    AS entity_type, id AS entity_id
+    FROM organizations WHERE id = ANY($1::text[])
     UNION ALL
-    SELECT 'jurisdiction'    AS entity_type FROM jurisdictions    WHERE id = $1
+    SELECT 'jurisdiction'    AS entity_type, id AS entity_id
+    FROM jurisdictions WHERE id = ANY($1::text[])
     UNION ALL
-    SELECT 'role'            AS entity_type FROM roles            WHERE id = $1
+    SELECT 'role'            AS entity_type, id AS entity_id
+    FROM roles WHERE id = ANY($1::text[])
     UNION ALL
-    SELECT 'role_assignment' AS entity_type FROM role_assignments WHERE id = $1
+    SELECT 'role_assignment' AS entity_type, id AS entity_id
+    FROM role_assignments WHERE id = ANY($1::text[])
     UNION ALL
-    SELECT entity_type                      FROM deleted_entities WHERE entity_id = $1
+    SELECT entity_type, entity_id
+    FROM deleted_entities WHERE entity_id = ANY($1::text[])
 ) t
-LIMIT 1
 """
 
 
@@ -396,34 +421,34 @@ async def register_subscriptions(
 
     Idempotent — already-subscribed IDs are counted separately, not errored.
     Unknown entity IDs are listed in ``not_found``; the rest of the batch still applies.
+    The entire batch is applied atomically.
     """
-    registered = 0
-    already_subscribed = 0
-    not_found: list[str] = []
+    async with db.transaction():
+        # Single round-trip to resolve all entity types.
+        rows = await db.fetch(_BATCH_RESOLVE_ENTITY_TYPE, body.entity_ids)
+        found: dict[str, str] = {r["entity_id"]: r["entity_type"] for r in rows}
+        not_found = [eid for eid in body.entity_ids if eid not in found]
 
-    for entity_id in body.entity_ids:
-        type_row = await db.fetchrow(_RESOLVE_ENTITY_TYPE, entity_id)
-        if type_row is None:
-            not_found.append(entity_id)
-            continue
-
-        entity_type = type_row["entity_type"]
-        existing = await db.fetchrow(
-            "SELECT 1 FROM api_key_entity_subscriptions WHERE api_key_id = $1 AND entity_id = $2",
-            auth.key_id,
-            entity_id,
-        )
-        if existing:
-            already_subscribed += 1
-        else:
-            await db.execute(
-                "INSERT INTO api_key_entity_subscriptions"
-                " (api_key_id, entity_id, entity_type) VALUES ($1,$2,$3)",
-                auth.key_id,
-                entity_id,
-                entity_type,
+        if not found:
+            return SubscriptionRegisterResponse(
+                registered=0, already_subscribed=0, not_found=not_found
             )
-            registered += 1
+
+        found_ids = list(found.keys())
+        found_types = [found[eid] for eid in found_ids]
+        result = await db.execute(
+            """
+            INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)
+            SELECT $1, r.entity_id, r.entity_type
+            FROM unnest($2::text[], $3::text[]) AS r(entity_id, entity_type)
+            ON CONFLICT (api_key_id, entity_id) DO NOTHING
+            """,
+            auth.key_id,
+            found_ids,
+            found_types,
+        )
+        registered = int(result.split()[-1])
+        already_subscribed = len(found) - registered
 
     return SubscriptionRegisterResponse(
         registered=registered,
