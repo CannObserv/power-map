@@ -9,6 +9,8 @@ from src.api.public.schemas import (
     EmbeddingBatchArchiveResponse,
     EmbeddingListItem,
     EmbeddingListResponse,
+    EmbeddingPatchRequest,
+    EmbeddingPatchResponse,
     EmbeddingWriteRequest,
     EmbeddingWriteResponse,
     IdentifyMatch,
@@ -113,7 +115,9 @@ async def write_person_embedding(
     """Write a voice embedding observation for a person.
 
     Idempotent on the (source_service, source_job_id, source_segment, person_id)
-    unique constraint — a duplicate write returns 200 with the existing row's id.
+    unique constraint — a duplicate write against an *active* row returns 200 with
+    the existing row's id.  409 if the conflicting row is archived (restore or
+    change the provenance key first).
     404 if the person does not exist or is archived.
     422 on dimension mismatch or unknown/write-disabled model.
     """
@@ -168,7 +172,7 @@ async def write_person_embedding(
     )
 
     if row is None:
-        # Duplicate — fetch the existing row
+        # Conflict — fetch the active existing row only
         row = await db.fetchrow(
             f"""
             SELECT id, created_at FROM {table}
@@ -176,12 +180,23 @@ async def write_person_embedding(
               AND source_job_id  = $2
               AND source_segment = $3
               AND person_id      = $4
+              AND archived_at IS NULL
             """,
             body.source.service,
             body.source.job_id,
             body.source.segment,
             person_id,
         )
+        if row is None:
+            # The only matching row is archived — the slot is occupied but inactive
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "An archived embedding with this provenance already exists. "
+                    "Restore it before reusing this provenance key, or use "
+                    "PATCH to correct its metadata."
+                ),
+            )
 
     return EmbeddingWriteResponse(
         embedding_id=row["id"],
@@ -199,6 +214,83 @@ def _require_model(model_id: str, registry: EmbeddingRegistry) -> ModelMeta:
             detail=f"Unknown embedding model '{model_id}'",
         )
     return meta
+
+
+@router.patch(
+    "/{person_id}/embeddings/{embedding_id}",
+    response_model=EmbeddingPatchResponse,
+    operation_id="patchPersonEmbedding",
+)
+async def patch_person_embedding(
+    person_id: str,
+    embedding_id: str,
+    body: EmbeddingPatchRequest,
+    model_id: str = Query(...),
+    _auth: AuthedKey = Depends(require_scope("voice_embeddings:write")),
+    db=Depends(get_db),
+    registry: EmbeddingRegistry = Depends(_get_registry),
+) -> EmbeddingPatchResponse:
+    """Update mutable metadata fields on an active voice embedding.
+
+    Only ``activity_ms``, ``audio_sample_rate_hz``, and ``recorded_at`` are
+    patchable.  The embedding vector, ``model_id``, and provenance key fields
+    (``source_service``, ``source_job_id``, ``source_segment``) are identity
+    and cannot be changed.
+
+    404 if the embedding is not found.
+    409 if the embedding is archived (restore it first).
+    422 for unknown model or if no fields are provided.
+    """
+    meta = _require_model(model_id, registry)
+    table = meta.table_name  # registry-controlled — not user input
+
+    updates: dict[str, object] = {}
+    if body.activity_ms is not None:
+        updates["activity_ms"] = body.activity_ms
+    if body.audio_sample_rate_hz is not None:
+        updates["audio_sample_rate_hz"] = body.audio_sample_rate_hz
+    if body.recorded_at is not None:
+        updates["recorded_at"] = body.recorded_at
+
+    if not updates:
+        raise HTTPException(status_code=422, detail="At least one field must be provided")
+
+    existing = await db.fetchrow(
+        f"SELECT id, archived_at FROM {table} WHERE id = $1 AND person_id = $2",
+        embedding_id,
+        person_id,
+    )
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Embedding not found")
+    if existing["archived_at"] is not None:
+        raise HTTPException(
+            status_code=409, detail="Embedding is archived; restore it before patching"
+        )
+
+    cols = list(updates.keys())
+    vals = list(updates.values())
+    set_clause = ", ".join(f"{col} = ${i + 3}" for i, col in enumerate(cols))
+
+    row = await db.fetchrow(
+        f"""
+        UPDATE {table}
+           SET {set_clause}
+         WHERE id = $1 AND person_id = $2
+         RETURNING id, person_id, activity_ms, audio_sample_rate_hz, recorded_at, created_at
+        """,
+        embedding_id,
+        person_id,
+        *vals,
+    )
+
+    return EmbeddingPatchResponse(
+        embedding_id=row["id"],
+        person_id=row["person_id"],
+        activity_ms=row["activity_ms"],
+        audio_sample_rate_hz=row["audio_sample_rate_hz"],
+        recorded_at=row["recorded_at"],
+        created_at=row["created_at"],
+    )
 
 
 @router.delete(

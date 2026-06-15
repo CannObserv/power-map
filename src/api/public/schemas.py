@@ -198,6 +198,34 @@ class EmbeddingWriteResponse(BaseModel):
         return fmt_ts(v)
 
 
+class EmbeddingPatchRequest(BaseModel):
+    """Mutable metadata fields for PATCH /people/{id}/embeddings/{embedding_id}.
+
+    At least one field must be provided.  The embedding vector, model_id, and
+    provenance key fields (source_service, source_job_id, source_segment) are
+    identity — not patchable here.
+    """
+
+    activity_ms: int | None = Field(default=None, ge=0)
+    audio_sample_rate_hz: int | None = Field(default=None, gt=0)
+    recorded_at: datetime | None = None
+
+
+class EmbeddingPatchResponse(BaseModel):
+    """Response for a successful PATCH — returns all mutable fields after update."""
+
+    embedding_id: str
+    person_id: str
+    activity_ms: int
+    audio_sample_rate_hz: int
+    recorded_at: datetime
+    created_at: datetime
+
+    @field_serializer("recorded_at", "created_at")
+    def _serialize_ts(self, v: datetime) -> str:
+        return fmt_ts(v)
+
+
 class EmbeddingArchiveResponse(BaseModel):
     """Response for single soft-delete and restore."""
 

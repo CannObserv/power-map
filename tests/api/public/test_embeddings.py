@@ -827,3 +827,181 @@ def test_batch_delete_404_archived_person(client, write_key, archived_person):
         headers={"X-API-Key": write_key},
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Latent bug — POST on archived slot must not silently return archived row id
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def patchable_embedding(db, two_people, write_key, client):
+    """Active embedding for PATCH metadata tests (audio_sample_rate_hz=44100 initially)."""
+    pid = two_people[0]
+    r = client.post(
+        f"/api/v1/people/{pid}/embeddings",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": _rand_embedding(),
+            "activity_ms": 500,
+            "audio_sample_rate_hz": 44100,
+            "source": {
+                "service": "observo",
+                "job_id": "job_patchable",
+                "segment": 77,
+                "recorded_at": "2026-06-01T00:00:00.000000Z",
+            },
+        },
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 200, r.text
+    eid = r.json()["embedding_id"]
+    yield pid, eid
+    await db.execute(f"DELETE FROM {_TABLE} WHERE id=$1", eid)
+
+
+async def test_write_on_archived_slot_returns_409(client, db, write_key, patchable_embedding):
+    """POST with same provenance key as an archived row must 409, not return the archived row."""
+    pid, eid = patchable_embedding
+    await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
+    try:
+        r = client.post(
+            f"/api/v1/people/{pid}/embeddings",
+            json={
+                "model_id": _MODEL_ID,
+                "embedding": _rand_embedding(),
+                "activity_ms": 500,
+                "audio_sample_rate_hz": 48000,
+                "source": {
+                    "service": "observo",
+                    "job_id": "job_patchable",
+                    "segment": 77,
+                    "recorded_at": "2026-06-01T00:00:00Z",
+                },
+            },
+            headers={"X-API-Key": write_key},
+        )
+        assert r.status_code == 409
+        assert "archived" in r.json()["detail"].lower()
+    finally:
+        await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+
+
+# ---------------------------------------------------------------------------
+# PATCH /{person_id}/embeddings/{embedding_id} — metadata update
+# ---------------------------------------------------------------------------
+
+
+def test_patch_requires_write_scope(client, read_key, two_people):
+    pid = two_people[0]
+    r = client.patch(
+        f"/api/v1/people/{pid}/embeddings/{generate_id()}",
+        params={"model_id": _MODEL_ID},
+        json={"audio_sample_rate_hz": 48000},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 403
+
+
+def test_patch_422_unknown_model(client, write_key, two_people):
+    pid = two_people[0]
+    r = client.patch(
+        f"/api/v1/people/{pid}/embeddings/{generate_id()}",
+        params={"model_id": "no-such-model"},
+        json={"audio_sample_rate_hz": 48000},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 422
+
+
+def test_patch_422_empty_body(client, write_key, patchable_embedding):
+    pid, eid = patchable_embedding
+    r = client.patch(
+        f"/api/v1/people/{pid}/embeddings/{eid}",
+        params={"model_id": _MODEL_ID},
+        json={},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 422
+
+
+def test_patch_404_unknown_embedding(client, write_key, two_people):
+    pid = two_people[0]
+    r = client.patch(
+        f"/api/v1/people/{pid}/embeddings/{generate_id()}",
+        params={"model_id": _MODEL_ID},
+        json={"audio_sample_rate_hz": 48000},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 404
+
+
+async def test_patch_409_archived(client, db, write_key, patchable_embedding):
+    pid, eid = patchable_embedding
+    await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
+    try:
+        r = client.patch(
+            f"/api/v1/people/{pid}/embeddings/{eid}",
+            params={"model_id": _MODEL_ID},
+            json={"audio_sample_rate_hz": 48000},
+            headers={"X-API-Key": write_key},
+        )
+        assert r.status_code == 409
+    finally:
+        await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+
+
+def test_patch_updates_audio_sample_rate(client, write_key, patchable_embedding):
+    pid, eid = patchable_embedding
+    r = client.patch(
+        f"/api/v1/people/{pid}/embeddings/{eid}",
+        params={"model_id": _MODEL_ID},
+        json={"audio_sample_rate_hz": 48000},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["embedding_id"] == eid
+    assert data["person_id"] == pid
+    assert data["audio_sample_rate_hz"] == 48000
+    assert isinstance(data["activity_ms"], int)  # untouched, but present
+
+
+def test_patch_updates_activity_ms(client, write_key, patchable_embedding):
+    pid, eid = patchable_embedding
+    r = client.patch(
+        f"/api/v1/people/{pid}/embeddings/{eid}",
+        params={"model_id": _MODEL_ID},
+        json={"activity_ms": 750},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 200
+    assert r.json()["activity_ms"] == 750
+
+
+def test_patch_updates_recorded_at(client, write_key, patchable_embedding):
+    pid, eid = patchable_embedding
+    # Use non-zero microseconds so isoformat() preserves the fractional part
+    new_ts = "2026-06-15T10:00:00.123456Z"
+    r = client.patch(
+        f"/api/v1/people/{pid}/embeddings/{eid}",
+        params={"model_id": _MODEL_ID},
+        json={"recorded_at": new_ts},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 200
+    assert r.json()["recorded_at"] == new_ts
+
+
+def test_patch_multi_field(client, write_key, patchable_embedding):
+    pid, eid = patchable_embedding
+    r = client.patch(
+        f"/api/v1/people/{pid}/embeddings/{eid}",
+        params={"model_id": _MODEL_ID},
+        json={"activity_ms": 100, "audio_sample_rate_hz": 8000},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["activity_ms"] == 100
+    assert data["audio_sample_rate_hz"] == 8000
