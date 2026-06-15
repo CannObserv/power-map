@@ -437,18 +437,19 @@ async def changes_api_key(db):
         raw_key[:8],
         key_hash,
     )
-    yield raw_key
+    yield {"raw_key": raw_key, "key_id": kid}
     await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def asgn_change_fixtures(db):
-    before = await db.fetchval("SELECT NOW()")
+async def asgn_change_fixtures(db, changes_api_key):
+    before_seq = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
     person_id = generate_id()
     org_id = generate_id()
     role_id = generate_id()
     asgn_id = generate_id()
+    kid = changes_api_key["key_id"]
     await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
     await db.execute(
@@ -462,7 +463,18 @@ async def asgn_change_fixtures(db):
         person_id,
         role_id,
     )
-    yield {"before": before, "asgn_id": asgn_id}
+    await db.execute(
+        "INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)"
+        " VALUES ($1,$2,'role_assignment')",
+        kid,
+        asgn_id,
+    )
+    yield {"before_seq": before_seq, "asgn_id": asgn_id}
+    await db.execute(
+        "DELETE FROM api_key_entity_subscriptions WHERE api_key_id=$1 AND entity_id=$2",
+        kid,
+        asgn_id,
+    )
     await db.execute("DELETE FROM role_assignments WHERE id=$1", asgn_id)
     await db.execute("DELETE FROM roles WHERE id=$1", role_id)
     await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
@@ -470,16 +482,15 @@ async def asgn_change_fixtures(db):
 
 
 async def test_changes_includes_role_assignments(client, changes_api_key, asgn_change_fixtures):
-    since = asgn_change_fixtures["before"].isoformat().replace("+00:00", "Z")
     r = client.get(
         _CHANGES,
-        params={"since": since, "limit": 100},
-        headers={"X-API-Key": changes_api_key},
+        params={"after": asgn_change_fixtures["before_seq"], "limit": 100},
+        headers={"X-API-Key": changes_api_key["raw_key"]},
     )
     assert r.status_code == 200
     items = r.json()["data"]
     asgn_items = [i for i in items if i["entity_id"] == asgn_change_fixtures["asgn_id"]]
-    assert len(asgn_items) == 1
+    assert len(asgn_items) >= 1
     assert asgn_items[0]["entity_type"] == "role_assignment"
     assert asgn_items[0]["change_kind"] == "updated"
 

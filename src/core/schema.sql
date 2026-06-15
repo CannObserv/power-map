@@ -1766,6 +1766,127 @@ UPDATE embedding_model_registry
     SET dimension = 256
     WHERE model_id = 'pyannote-community-1-embed';
 
+-- =============================================================================
+-- Migration (#203): outbox log + per-key entity subscription filter on /changes
+--
+-- Replaces the timestamp-cursor polling pattern with:
+--   1. entity_changes — append-only outbox with BIGSERIAL cursor
+--   2. api_key_entity_subscriptions — explicit per-key entity allowlist
+--
+-- Breaking changes:
+--   - /changes ?since= replaced by ?after= (integer seq_id, > exclusive)
+--   - /changes always filtered by subscription set; empty set → empty feed
+-- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- Outbox log
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS entity_changes (
+    id           BIGSERIAL    PRIMARY KEY,
+    entity_type  TEXT         NOT NULL
+                              CHECK (entity_type IN
+                                ('person', 'organization', 'jurisdiction',
+                                 'role', 'role_assignment')),
+    entity_id    TEXT         NOT NULL,
+    change_kind  TEXT         NOT NULL
+                              CHECK (change_kind IN ('updated', 'deleted')),
+    changed_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- Supports the subscription-join query: entity_id lookup within id range.
+CREATE INDEX IF NOT EXISTS idx_entity_changes_entity
+    ON entity_changes (entity_id, id);
+
+-- ---------------------------------------------------------------------------
+-- Trigger function: fire on INSERT OR UPDATE of entity tables → outbox row
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION fn_record_entity_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO entity_changes (entity_type, entity_id, change_kind)
+    VALUES (
+        CASE TG_TABLE_NAME
+            WHEN 'people'            THEN 'person'
+            WHEN 'organizations'     THEN 'organization'
+            WHEN 'jurisdictions'     THEN 'jurisdiction'
+            WHEN 'roles'             THEN 'role'
+            WHEN 'role_assignments'  THEN 'role_assignment'
+        END,
+        NEW.id,
+        'updated'
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_entity_changes_people
+    AFTER INSERT OR UPDATE ON people
+    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
+
+CREATE OR REPLACE TRIGGER trg_entity_changes_organizations
+    AFTER INSERT OR UPDATE ON organizations
+    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
+
+CREATE OR REPLACE TRIGGER trg_entity_changes_jurisdictions
+    AFTER INSERT OR UPDATE ON jurisdictions
+    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
+
+CREATE OR REPLACE TRIGGER trg_entity_changes_roles
+    AFTER INSERT OR UPDATE ON roles
+    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
+
+CREATE OR REPLACE TRIGGER trg_entity_changes_role_assignments
+    AFTER INSERT OR UPDATE ON role_assignments
+    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
+
+-- ---------------------------------------------------------------------------
+-- Trigger function: deleted_entities INSERT → outbox tombstone row
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION fn_record_deleted_entity_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO entity_changes (entity_type, entity_id, change_kind)
+    VALUES (NEW.entity_type, NEW.entity_id, 'deleted');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_entity_changes_deleted
+    AFTER INSERT ON deleted_entities
+    FOR EACH ROW EXECUTE FUNCTION fn_record_deleted_entity_change();
+
+-- ---------------------------------------------------------------------------
+-- Subscription allowlist
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS api_key_entity_subscriptions (
+    api_key_id   TEXT         NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+    entity_id    TEXT         NOT NULL,
+    entity_type  TEXT         NOT NULL
+                              CHECK (entity_type IN
+                                ('person', 'organization', 'jurisdiction',
+                                 'role', 'role_assignment')),
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (api_key_id, entity_id)
+);
+
+-- Supports the subscription-join query from the changes endpoint.
+CREATE INDEX IF NOT EXISTS idx_sub_entity
+    ON api_key_entity_subscriptions (entity_id, api_key_id);
+
+-- ---------------------------------------------------------------------------
+-- New scope: subscriptions:write
+-- ---------------------------------------------------------------------------
+
+INSERT INTO api_key_scope_types (id, display_name, description) VALUES
+    ('subscriptions:write',
+     'Subscriptions: Write',
+     'Manage entity subscriptions via POST/DELETE /api/v1/subscriptions')
+ON CONFLICT (id) DO NOTHING;
+
 -- Recreate HNSW index for 256-D cosine
 CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_hnsw
     ON person_embeddings_pyannote_community_1_embed

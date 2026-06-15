@@ -47,6 +47,15 @@ async def require_api_key(
     return row["user_id"]
 
 
+async def require_key(
+    raw_key: str | None = Depends(api_key_header),
+    db=Depends(get_db),
+) -> AuthedKey:
+    """Validate X-API-Key; return AuthedKey (user_id + key_id) without scope check."""
+    row = await _resolve_api_key(raw_key, db)
+    return AuthedKey(user_id=row["user_id"], key_id=row["id"])
+
+
 def require_scope(scope_id: str):
     """Return a FastAPI dependency that requires the given scope on the API key.
 

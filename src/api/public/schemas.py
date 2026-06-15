@@ -609,14 +609,14 @@ class EntityEventsResponse(BaseModel):
 class ChangeItem(BaseModel):
     """A single entry in the change feed — updated or deleted entity."""
 
+    seq_id: int
     entity_type: EntityType
     entity_id: str
     changed_at: datetime
     change_kind: Literal["updated", "deleted"]
-    archived_at: datetime | None = None
 
-    @field_serializer("changed_at", "archived_at")
-    def _serialize_ts(self, v: datetime | None) -> str | None:
+    @field_serializer("changed_at")
+    def _serialize_ts(self, v: datetime) -> str:
         return fmt_ts(v)
 
 
@@ -626,7 +626,7 @@ class ChangeMeta(BaseModel):
     limit: int
     count: int
     has_more: bool
-    next_since: str  # ISO 8601 Z — pass as ?since= on the next poll
+    next_after: int  # outbox seq_id — pass as ?after= on the next poll
 
 
 class ChangeFeedResponse(BaseModel):
@@ -634,6 +634,85 @@ class ChangeFeedResponse(BaseModel):
 
     data: list[ChangeItem]
     meta: ChangeMeta
+
+
+# ---------------------------------------------------------------------------
+# Subscription schemas (#203)
+# ---------------------------------------------------------------------------
+
+
+class SubscriptionItem(BaseModel):
+    """A single subscription row returned by GET /api/v1/subscriptions."""
+
+    entity_id: str
+    entity_type: EntityType
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def _serialize_ts(self, v: datetime) -> str:
+        return fmt_ts(v)
+
+
+class SubscriptionListMeta(BaseModel):
+    """Pagination metadata for subscription list."""
+
+    limit: int
+    offset: int
+    count: int
+    has_more: bool
+
+
+class SubscriptionListResponse(BaseModel):
+    """Response envelope for GET /api/v1/subscriptions."""
+
+    data: list[SubscriptionItem]
+    meta: SubscriptionListMeta
+
+
+class SubscriptionRegisterRequest(BaseModel):
+    """Request body for POST /api/v1/subscriptions."""
+
+    entity_ids: list[str] = Field(..., max_length=500)
+
+
+class SubscriptionRegisterResponse(BaseModel):
+    """Response for POST /api/v1/subscriptions."""
+
+    registered: int
+    already_subscribed: int
+    not_found: list[str]
+
+
+class SubscriptionBulkDeleteRequest(BaseModel):
+    """Request body for DELETE /api/v1/subscriptions (bulk)."""
+
+    entity_ids: list[str] = Field(..., max_length=500)
+
+
+class DiscoveryItem(BaseModel):
+    """Single entity returned by GET /api/v1/subscriptions/discover."""
+
+    entity_type: EntityType
+    entity_id: str
+    display_name: str | None = None
+    hops_from_root: int
+
+
+class DiscoveryMeta(BaseModel):
+    """Pagination meta for discovery response."""
+
+    limit: int
+    offset: int
+    count: int
+    has_more: bool
+    truncated: bool = False
+
+
+class DiscoveryResponse(BaseModel):
+    """Response for GET /api/v1/subscriptions/discover."""
+
+    data: list[DiscoveryItem]
+    meta: DiscoveryMeta
 
 
 # ---------------------------------------------------------------------------

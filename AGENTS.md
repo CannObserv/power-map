@@ -64,7 +64,7 @@ Full conventions → `docs/STYLE.md §32`
 
 Full conventions → `docs/CONVENTIONS.md`
 
-- Auth: `X-API-Key` → `require_api_key` dep (read); `require_scope("scope:id")` dep (write) from `src.api.public.deps`; 403 on missing/insufficient scope, 401 on invalid key
+- Auth deps (all from `src.api.public.deps`): `require_api_key` (read-only, returns `user_id`); `require_key` (returns `AuthedKey(user_id, key_id)` — use when handler needs the key_id, e.g. subscription join); `require_scope("scope:id")` (write, enforces scope); 403 on missing/insufficient scope or absent header, 401 on invalid key
 - All routes: Pydantic `response_model` + `operation_id`; no `dict[str, Any]` returns
 - Lists: `{"data": [...], "meta": {"limit", "offset", "count", "has_more"}}`; fetch `limit+1` rows for `has_more`
 - Timestamps: `datetime` fields in response models + `@field_serializer` calling `fmt_ts()` from `schemas.py`; ISO 8601 with `Z` suffix; never pre-serialize as `str` in handlers
