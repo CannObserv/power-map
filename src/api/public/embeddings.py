@@ -252,9 +252,6 @@ async def patch_person_embedding(
     if body.recorded_at is not None:
         updates["recorded_at"] = body.recorded_at
 
-    if not updates:
-        raise HTTPException(status_code=422, detail="At least one field must be provided")
-
     existing = await db.fetchrow(
         f"SELECT id, archived_at FROM {table} WHERE id = $1 AND person_id = $2",
         embedding_id,
@@ -275,13 +272,18 @@ async def patch_person_embedding(
         f"""
         UPDATE {table}
            SET {set_clause}
-         WHERE id = $1 AND person_id = $2
+         WHERE id = $1 AND person_id = $2 AND archived_at IS NULL
          RETURNING id, person_id, activity_ms, audio_sample_rate_hz, recorded_at, created_at
         """,
         embedding_id,
         person_id,
         *vals,
     )
+    if row is None:
+        # Archived between the pre-check SELECT and the UPDATE (concurrent archive)
+        raise HTTPException(
+            status_code=409, detail="Embedding is archived; restore it before patching"
+        )
 
     return EmbeddingPatchResponse(
         embedding_id=row["id"],

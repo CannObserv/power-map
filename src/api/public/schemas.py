@@ -210,6 +210,16 @@ class EmbeddingPatchRequest(BaseModel):
     audio_sample_rate_hz: int | None = Field(default=None, gt=0)
     recorded_at: datetime | None = None
 
+    @model_validator(mode="after")
+    def _require_at_least_one_field(self) -> "EmbeddingPatchRequest":
+        if (
+            self.activity_ms is None
+            and self.audio_sample_rate_hz is None
+            and self.recorded_at is None
+        ):
+            raise ValueError("at least one field must be provided")
+        return self
+
 
 class EmbeddingPatchResponse(BaseModel):
     """Response for a successful PATCH — returns all mutable fields after update."""
@@ -222,7 +232,7 @@ class EmbeddingPatchResponse(BaseModel):
     created_at: datetime
 
     @field_serializer("recorded_at", "created_at")
-    def _serialize_ts(self, v: datetime) -> str:
+    def _serialize_ts(self, v: datetime) -> str | None:
         return fmt_ts(v)
 
 
