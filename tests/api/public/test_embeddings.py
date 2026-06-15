@@ -4,10 +4,13 @@ import hashlib
 import os
 import random
 
+import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
+
+pytestmark = pytest.mark.integration
 
 _MODEL_ID = "pyannote-community-1-embed"
 _DIM = 256

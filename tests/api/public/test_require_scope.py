@@ -11,6 +11,8 @@ from src.api.main import app
 from src.api.public.deps import require_scope
 from src.core.db import generate_id
 
+pytestmark = pytest.mark.integration
+
 
 # At module level, after imports — registered once per process
 @app.get("/api/v1/_test/require_scope", dependencies=[Depends(require_scope("observations:write"))])

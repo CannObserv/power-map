@@ -8,6 +8,8 @@ import pytest_asyncio
 
 from src.core.db import generate_id
 
+pytestmark = pytest.mark.integration
+
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def api_key(db):
