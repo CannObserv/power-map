@@ -689,6 +689,31 @@ class SubscriptionBulkDeleteRequest(BaseModel):
     entity_ids: list[str]
 
 
+class DiscoveryItem(BaseModel):
+    """Single entity returned by GET /api/v1/subscriptions/discover."""
+
+    entity_type: EntityType
+    entity_id: str
+    display_name: str | None = None
+    hops_from_root: int
+
+
+class DiscoveryMeta(BaseModel):
+    """Pagination meta for discovery response."""
+
+    limit: int
+    offset: int
+    count: int
+    has_more: bool
+
+
+class DiscoveryResponse(BaseModel):
+    """Response for GET /api/v1/subscriptions/discover."""
+
+    data: list[DiscoveryItem]
+    meta: DiscoveryMeta
+
+
 # ---------------------------------------------------------------------------
 # Jurisdiction schemas (#168)
 # ---------------------------------------------------------------------------
