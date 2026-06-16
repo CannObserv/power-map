@@ -636,3 +636,66 @@ async def test_merge_with_safeguard_migrates_assignments_from_unsubmitted_pairs(
             for oid in [id_a, id_b]:
                 await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
                 await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+
+# ── Links deduplication ──────────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def org_pair_with_shared_link(db_pool):
+    """Two orgs both carrying the same (url, link_type_id) link; yield (winner_id, loser_id)."""
+    winner_id, loser_id = generate_id(), generate_id()
+
+    async with db_pool.acquire() as conn:
+        link_type_id = await conn.fetchval("SELECT id FROM link_types ORDER BY id LIMIT 1")
+        for oid, name in [
+            (winner_id, "Acme Corp Mergetest"),
+            (loser_id, "Acme Corporation Mergetest"),
+        ]:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(),
+                oid,
+                name,
+            )
+            await conn.execute(
+                "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+                " VALUES ($1, 'organization', $2, $3, $4)",
+                generate_id(),
+                oid,
+                "https://example.com/shared-org-profile",
+                link_type_id,
+            )
+
+    yield winner_id, loser_id
+
+    # Merge hard-deletes the loser and reassigns its links/names to the winner,
+    # so the loser teardown steps below are no-ops after a successful merge.
+    async with db_pool.acquire() as conn:
+        for oid in [winner_id, loser_id]:
+            await conn.execute(
+                "DELETE FROM links WHERE entity_type='organization' AND entity_id=$1", oid
+            )
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+
+async def test_org_merge_deduplicates_shared_link(client, org_pair_with_shared_link, db_pool):
+    """Merging two orgs that share a link URL must not 500 on uq_links_entity_url."""
+    winner_id, loser_id = org_pair_with_shared_link
+
+    resp = client.post(
+        f"/admin/orgs/{winner_id}/merge/{loser_id}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert resp.status_code in (200, 303), f"Expected 2xx/303, got {resp.status_code}: {resp.text}"
+
+    async with db_pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT count(*) FROM links WHERE entity_type='organization' AND entity_id=$1",
+            winner_id,
+        )
+    assert count == 1

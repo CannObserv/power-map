@@ -526,7 +526,7 @@ async def person_pair_with_shared_link(db_pool):
     winner_id, loser_id = generate_id(), generate_id()
 
     async with db_pool.acquire() as conn:
-        link_type_id = await conn.fetchval("SELECT id FROM link_types LIMIT 1")
+        link_type_id = await conn.fetchval("SELECT id FROM link_types ORDER BY id LIMIT 1")
         for pid, name in [
             (winner_id, "Alice Mergetest"),
             (loser_id, "Alicia Mergetest"),
@@ -550,6 +550,8 @@ async def person_pair_with_shared_link(db_pool):
 
     yield winner_id, loser_id
 
+    # Merge hard-deletes the loser and reassigns its links/names to the winner,
+    # so the loser teardown steps below are no-ops after a successful merge.
     async with db_pool.acquire() as conn:
         for pid in [winner_id, loser_id]:
             await conn.execute("DELETE FROM links WHERE entity_type='person' AND entity_id=$1", pid)
