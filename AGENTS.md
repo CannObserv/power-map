@@ -95,7 +95,7 @@ Single VM; port split:
 
 **All development work must be done in a git worktree** — never edit the main checkout directly. `brainstorming` is the entry point that triggers worktree setup via `using-git-worktrees`. After teardown, run `git worktree prune`.
 
-**Worktree `.env` setup (required after creation):** The `.env` file is gitignored and not copied into worktrees automatically. Without it, `TEST_DATABASE_URL` is absent and `db_pool` will hard-fail to prevent production DB access. After `worktree-create.sh`, always symlink it:
+**Worktree `.env` setup (required after creation):** The `.env` file is gitignored and not copied into worktrees automatically. `TEST_DATABASE_URL` now lives in `/etc/power-map/.env` (written by `scripts/write-db-secrets.sh`), but the repo `.env` is still needed for `GH_TOKEN`. After `worktree-create.sh`, always symlink it:
 ```bash
 ln -s "$(git rev-parse --show-toplevel)/.env" <worktree-path>/.env
 ```
@@ -114,8 +114,8 @@ Full command reference: `docs/COMMANDS.md`
 
 | File | Owner | Contents |
 |---|---|---|
-| `/etc/power-map/.env` | root:exedev (640) | `DATABASE_URL`, `ADDRESS_VALIDATOR_API_KEY`, `ADDRESS_VALIDATOR_RUN_VALIDATION`, `ADDRESS_VALIDATOR_BASE_URL` (optional; defaults to `https://address-validator.exe.xyz:8000`; override to point at dev server on port 8001) |
-| `.env` (repo, gitignored) | developer | `GH_TOKEN`, `TEST_DATABASE_URL` |
+| `/etc/power-map/.env` | root:exedev (640) | `DATABASE_URL`, `MIGRATIONS_DATABASE_URL`, `TEST_DATABASE_URL`, `ADDRESS_VALIDATOR_API_KEY`, `ADDRESS_VALIDATOR_RUN_VALIDATION`, `ADDRESS_VALIDATOR_BASE_URL` (optional; defaults to `https://address-validator.exe.xyz:8000`; override to point at dev server on port 8001) |
+| `.env` (repo, gitignored) | developer | `GH_TOKEN` |
 
 Load both via uv's dotenv parser (gated on existence — uv errors hard on a missing `--env-file`):
 ```bash

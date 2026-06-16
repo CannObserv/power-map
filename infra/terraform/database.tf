@@ -1,10 +1,10 @@
 resource "digitalocean_database_cluster" "power_map" {
-  name       = "co-pm-db-1"
-  engine     = "pg"
-  version    = "16"
-  size       = var.cluster_size
-  region     = var.region
-  node_count = 1
+  name                 = "co-pm-db-1"
+  engine               = "pg"
+  version              = "16"
+  size                 = var.cluster_size
+  region               = var.region
+  node_count           = 1
   private_network_uuid = digitalocean_vpc.power_map.id
 }
 

@@ -91,5 +91,10 @@ EOF
 sudo chmod 640 "$ENV_FILE"
 sudo chown root:exedev "$ENV_FILE"
 
+
+# ── 7. Smoke-test the written DSNs ────────────────────────────────────────────
+echo "==> Verifying connections"
+psql "$DATABASE_URL"      -c "SELECT 1" > /dev/null && echo "    OK: DATABASE_URL"
+psql "$TEST_DATABASE_URL" -c "SELECT 1" > /dev/null && echo "    OK: TEST_DATABASE_URL"
+
 echo "==> Done"
-echo "    Verify: sudo cat $ENV_FILE"

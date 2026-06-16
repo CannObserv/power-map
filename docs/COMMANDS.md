@@ -3,16 +3,6 @@
 ## Setup
 
 ```bash
-# Install the pgvector PostgreSQL extension (required; adjust version to match your PostgreSQL)
-sudo apt-get install postgresql-16-pgvector
-
-# Enable the extension in each database (run as superuser; idempotent)
-psql -U postgres -d powermap      -c "CREATE EXTENSION IF NOT EXISTS vector"
-psql -U postgres -d powermap_test -c "CREATE EXTENSION IF NOT EXISTS vector"
-
-# Provision local PostgreSQL (idempotent; run once after cloning)
-bash scripts/setup-db.sh
-
 # Install Python dependencies (creates .venv automatically)
 uv sync
 
@@ -22,6 +12,8 @@ npm install
 # Install git pre-commit hooks (runs ruff, pytest, ESLint, Prettier, vitest on every commit)
 uv run pre-commit install
 ```
+
+Database is on DO managed PostgreSQL — see § Provisioning for first-time setup. (`scripts/setup-db.sh` provisions local postgres only; use it for offline dev or CI without DO access.)
 
 First-time setup: create `/etc/power-map/.env` (640, root:exedev) with production secrets before running any command that needs `DATABASE_URL` — see AGENTS.md § Environment Variables for the required contents.
 
@@ -40,8 +32,55 @@ Later files win on conflicting keys.
 
 | File | Contents |
 |---|---|
-| `/etc/power-map/.env` (640, root:exedev) | `DATABASE_URL`, `ADDRESS_VALIDATOR_API_KEY`, `ADDRESS_VALIDATOR_RUN_VALIDATION` |
-| `.env` (repo, gitignored) | `GH_TOKEN`, `TEST_DATABASE_URL` |
+| `/etc/power-map/.env` (640, root:exedev) | `DATABASE_URL`, `MIGRATIONS_DATABASE_URL`, `TEST_DATABASE_URL`, `ADDRESS_VALIDATOR_API_KEY`, `ADDRESS_VALIDATOR_RUN_VALIDATION` |
+| `.env` (repo, gitignored) | `GH_TOKEN` |
+
+## Provisioning
+
+One-time setup for the DO managed PostgreSQL cluster (`co-pm-db-1`, sfo3). State is stored in the `co-pm-spaces-1` DO Spaces bucket.
+
+### Prerequisites
+
+- `terraform` ≥1.9 installed (see <https://developer.hashicorp.com/terraform/install>)
+- `infra/terraform/terraform.tfvars` — DO personal access token + IP allowlist (gitignored; see AGENTS.md § Environment Variables)
+- `infra/terraform/backend.hcl` — DO Spaces access key + secret (gitignored)
+- `jq`, `psql`, `python3` on PATH (used by `write-db-secrets.sh`)
+
+### First-time provisioning
+
+```bash
+# 1. Initialise Terraform with the Spaces backend (run once per checkout)
+terraform -chdir=infra/terraform init -backend-config=infra/terraform/backend.hcl
+
+# 2. Preview — confirm 8 resources: vpc, cluster, 2 databases, 3 users, firewall
+terraform -chdir=infra/terraform plan
+
+# 3. Apply (~5 min; cluster creation dominates)
+terraform -chdir=infra/terraform apply
+
+# 4. Write credentials to /etc/power-map/.env and apply schema-level grants
+bash scripts/write-db-secrets.sh
+
+# 5. Apply schema as migrations user (idempotent)
+bash scripts/sync-schema-to-do.sh
+
+# 6. Seed BCP 47 / ISO 15924 lookup tables (once per fresh DB)
+uv run --group seed scripts/seed_locales_scripts.py
+```
+
+### Re-running after infrastructure changes
+
+```bash
+terraform -chdir=infra/terraform apply
+bash scripts/write-db-secrets.sh   # if credentials changed
+```
+
+### Credential files (gitignored)
+
+| File | Contents |
+|---|---|
+| `infra/terraform/terraform.tfvars` | `do_token`, `allowed_external_ips` |
+| `infra/terraform/backend.hcl` | `access_key`, `secret_key` (DO Spaces) |
 
 ## Service Management
 

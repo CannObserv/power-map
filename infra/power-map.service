@@ -1,6 +1,6 @@
 [Unit]
 Description=power-map API
-After=network.target postgresql.service
+After=network.target
 
 [Service]
 User=exedev
