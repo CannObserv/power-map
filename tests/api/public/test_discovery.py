@@ -478,6 +478,7 @@ def test_discover_full_chain_from_jurisdiction(client, disc_api_key, disc_graph)
     ids = {item["entity_id"] for item in data}
     assert disc_graph["root_jur_id"] in ids
     assert disc_graph["child_jur_id"] in ids
+    assert disc_graph["spatial_child_jur_id"] in ids
     assert disc_graph["root_org_id"] in ids
     assert disc_graph["child_org_id"] in ids
     assert disc_graph["role_id"] in ids

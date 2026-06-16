@@ -150,6 +150,7 @@ async def _traverse(db, root_type: str, root_id: str, steps: list[str]) -> tuple
                         JOIN jurisdiction_relationships jr
                             ON jr.from_id = lin.id OR jr.to_id = lin.id
                         JOIN jurisdiction_relationship_types jrt
+                            -- spatial + lineage only; governance/functional excluded
                             ON jrt.id = jr.rel_type_id AND jrt.category IN ('lineage', 'spatial')
                         JOIN jurisdictions j2
                             ON j2.id = CASE WHEN jr.from_id = lin.id
@@ -262,7 +263,7 @@ async def discover_subscriptions(
         Query(
             description=(
                 "Comma-separated traversal steps (applied in order): "
-                "lineage — jurisdiction lineage edges (recursive); "
+                "lineage — jurisdiction lineage and spatial-containment edges (recursive); "
                 "affiliated_orgs — orgs with 'governing' affiliation for in-scope jurisdictions; "
                 "org_children — child orgs via parent_id (recursive); "
                 "roles — roles owned by in-scope orgs; "
