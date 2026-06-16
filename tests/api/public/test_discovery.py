@@ -77,7 +77,7 @@ async def disc_graph(db):
         jtype_id,
     )
 
-    # lineage edge: root supersedes child (uses seeded 'supersedes' type)
+    # lineage edge: root supersedes child (uses seeded 'supersedes' type, category='lineage')
     lineage_type_id = await db.fetchval(
         "SELECT id FROM jurisdiction_relationship_types WHERE slug='supersedes'"
     )
@@ -88,6 +88,28 @@ async def disc_graph(db):
         root_jur_id,
         child_jur_id,
         lineage_type_id,
+    )
+
+    # spatial containment edge for the spatial-lineage test below
+    spatial_child_jur_id = generate_id()
+    spatial_jur_rel_id = generate_id()
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        spatial_child_jur_id,
+        "disc-spatial-child-jur",
+        "Disc Spatial Child Jurisdiction",
+        jtype_id,
+    )
+    spatial_type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_relationship_types WHERE slug='is_fully_contained_by'"
+    )
+    await db.execute(
+        "INSERT INTO jurisdiction_relationships (id, from_id, to_id, rel_type_id)"
+        " VALUES ($1,$2,$3,$4)",
+        spatial_jur_rel_id,
+        spatial_child_jur_id,
+        root_jur_id,
+        spatial_type_id,
     )
 
     # organization
@@ -126,6 +148,7 @@ async def disc_graph(db):
     yield {
         "root_jur_id": root_jur_id,
         "child_jur_id": child_jur_id,
+        "spatial_child_jur_id": spatial_child_jur_id,
         "root_org_id": root_org_id,
         "child_org_id": child_org_id,
         "role_id": role_id,
@@ -140,7 +163,9 @@ async def disc_graph(db):
     await db.execute("UPDATE organizations SET parent_id=NULL WHERE id=$1", child_org_id)
     await db.execute("DELETE FROM organizations WHERE id=$1", child_org_id)
     await db.execute("DELETE FROM organizations WHERE id=$1", root_org_id)
+    await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", spatial_jur_rel_id)
     await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", jur_rel_id)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", spatial_child_jur_id)
     await db.execute("DELETE FROM jurisdictions WHERE id=$1", child_jur_id)
     await db.execute("DELETE FROM jurisdictions WHERE id=$1", root_jur_id)
     await db.execute("DELETE FROM jurisdiction_types WHERE id=$1", jtype_id)
@@ -228,6 +253,23 @@ def test_discover_lineage_finds_connected_jurisdiction(client, disc_api_key, dis
     child = next(i for i in data if i["entity_id"] == disc_graph["child_jur_id"])
     assert child["hops_from_root"] == 1
     assert child["entity_type"] == "jurisdiction"
+
+
+def test_discover_lineage_finds_spatial_containment_child(client, disc_api_key, disc_graph):
+    """lineage step traverses spatial containment (is_fully_contained_by) edges."""
+    r = client.get(
+        "/api/v1/subscriptions/discover",
+        params={
+            "root_type": "jurisdiction",
+            "root_id": disc_graph["root_jur_id"],
+            "follow": "lineage",
+            "limit": 100,
+        },
+        headers={"X-API-Key": disc_api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    ids = {item["entity_id"] for item in r.json()["data"]}
+    assert disc_graph["spatial_child_jur_id"] in ids
 
 
 def test_discover_lineage_invalid_for_org_root(client, disc_api_key, disc_graph):

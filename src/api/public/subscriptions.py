@@ -150,7 +150,7 @@ async def _traverse(db, root_type: str, root_id: str, steps: list[str]) -> tuple
                         JOIN jurisdiction_relationships jr
                             ON jr.from_id = lin.id OR jr.to_id = lin.id
                         JOIN jurisdiction_relationship_types jrt
-                            ON jrt.id = jr.rel_type_id AND jrt.category = 'lineage'
+                            ON jrt.id = jr.rel_type_id AND jrt.category IN ('lineage', 'spatial')
                         JOIN jurisdictions j2
                             ON j2.id = CASE WHEN jr.from_id = lin.id
                                             THEN jr.to_id ELSE jr.from_id END
