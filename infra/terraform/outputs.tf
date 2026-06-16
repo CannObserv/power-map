@@ -1,6 +1,12 @@
 # DSNs are constructed by scripts/write-db-secrets.sh using these components,
 # which allows proper URL-encoding of generated passwords.
 
+output "doadmin_uri" {
+  description = "Full doadmin connection URI (used by write-db-secrets.sh to apply schema-level grants)"
+  value       = digitalocean_database_cluster.power_map.uri
+  sensitive   = true
+}
+
 output "db_host" {
   description = "Database cluster public hostname"
   value       = digitalocean_database_cluster.power_map.host
