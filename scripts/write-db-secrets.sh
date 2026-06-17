@@ -94,7 +94,7 @@ fi
     printf 'DATABASE_URL=%s\n' "${DATABASE_URL}"
     printf 'MIGRATIONS_DATABASE_URL=%s\n' "${MIGRATIONS_DATABASE_URL}"
     printf 'TEST_DATABASE_URL=%s\n' "${TEST_DATABASE_URL}"
-    [[ -n "$PRESERVED" ]] && printf '%s\n' "$PRESERVED"
+    if [[ -n "$PRESERVED" ]]; then printf '%s\n' "$PRESERVED"; fi
 } | sudo tee "$ENV_FILE" > /dev/null
 sudo chmod 640 "$ENV_FILE"
 sudo chown root:exedev "$ENV_FILE"
