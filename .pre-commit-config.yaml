@@ -49,3 +49,10 @@ repos:
         entry: scripts/check_version_sync.sh
         pass_filenames: false
         files: ^(pyproject\.toml|package\.json)$
+
+      - id: terraform-fmt
+        name: terraform fmt (check)
+        language: system
+        entry: terraform fmt -check -recursive infra/terraform/
+        pass_filenames: false
+        files: \.tf$
