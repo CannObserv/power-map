@@ -61,11 +61,17 @@ terraform -chdir=infra/terraform apply
 # 4. Write credentials to /etc/power-map/.env and apply schema-level grants
 bash scripts/write-db-secrets.sh
 
-# 5. Apply schema as migrations user (idempotent)
+# 5. Install extensions + apply schema to test DB
 bash scripts/sync-schema-to-do.sh
 
-# 6. Seed BCP 47 / ISO 15924 lookup tables (once per fresh DB)
+# 6. Dump local postgres → restore production DB + verify row counts
+#    Run before cutover while local postgres is still running
+bash scripts/sync-data-to-do.sh
+
+# 7. Seed BCP 47 / ISO 15924 lookup tables (once per fresh DB)
 uv run --group seed scripts/seed_locales_scripts.py
+
+# 8. Cutover — see docs/RUNBOOK_DB_MIGRATION.md for the maintenance window steps
 ```
 
 ### Re-running after infrastructure changes
