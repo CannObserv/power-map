@@ -56,31 +56,32 @@ pg_restore \
 # ── 3. Row count verification ─────────────────────────────────────────────────
 echo "==> Verifying row counts"
 
+row_counts_exact() {
+    local conn="$1" sudo_prefix="${2:-}"
+    # Build and execute a UNION ALL COUNT(*) query for all public user tables.
+    # Two psql calls: one to generate the SQL, one to run it.
+    local sql
+    sql=$($sudo_prefix psql "$conn" -tA -c \
+        "SELECT string_agg(
+             'SELECT ' || quote_literal(tablename) || ', COUNT(*) FROM ' || quote_ident(tablename),
+             ' UNION ALL '
+             ORDER BY tablename
+         ) FROM pg_tables WHERE schemaname = 'public';")
+    $sudo_prefix psql "$conn" -tA -c "$sql" \
+        | sed 's/|/=/' \
+        | awk -F= '$2 > 0'
+}
+
 row_counts_local() {
     if [[ -n "$LOCAL_DSN" ]]; then
-        psql "$LOCAL_DSN" -tA -c "ANALYZE;" > /dev/null
-        psql "$LOCAL_DSN" -tA -c \
-            "SELECT relname || '=' || n_live_tup
-             FROM pg_stat_user_tables
-             WHERE n_live_tup > 0
-             ORDER BY relname;"
+        row_counts_exact "$LOCAL_DSN"
     else
-        sudo -u postgres psql -d "$LOCAL_DB_NAME" -tA -c "ANALYZE;" > /dev/null
-        sudo -u postgres psql -d "$LOCAL_DB_NAME" -tA -c \
-            "SELECT relname || '=' || n_live_tup
-             FROM pg_stat_user_tables
-             WHERE n_live_tup > 0
-             ORDER BY relname;"
+        row_counts_exact "$LOCAL_DB_NAME" "sudo -u postgres"
     fi
 }
 
 row_counts_do() {
-    psql "$MIGRATIONS_DATABASE_URL" -tA -c "ANALYZE;" > /dev/null
-    psql "$MIGRATIONS_DATABASE_URL" -tA -c \
-        "SELECT relname || '=' || n_live_tup
-         FROM pg_stat_user_tables
-         WHERE n_live_tup > 0
-         ORDER BY relname;"
+    row_counts_exact "$MIGRATIONS_DATABASE_URL"
 }
 
 LOCAL_COUNTS=$(row_counts_local)

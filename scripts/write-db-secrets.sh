@@ -82,12 +82,20 @@ GRANT USAGE, CREATE ON SCHEMA public TO ${TEST_USER};
 SQL
 
 # ── 6. Write /etc/power-map/.env ──────────────────────────────────────────────
+# Preserve non-DSN keys (ADDRESS_VALIDATOR_*, etc.) from the existing file so
+# a re-run after terraform apply doesn't silently drop credentials this script
+# doesn't own.
 echo "==> Writing $ENV_FILE"
-sudo tee "$ENV_FILE" > /dev/null <<EOF
-DATABASE_URL=${DATABASE_URL}
-MIGRATIONS_DATABASE_URL=${MIGRATIONS_DATABASE_URL}
-TEST_DATABASE_URL=${TEST_DATABASE_URL}
-EOF
+PRESERVED=""
+if sudo test -f "$ENV_FILE"; then
+    PRESERVED=$(sudo grep -v -E "^(DATABASE_URL|MIGRATIONS_DATABASE_URL|TEST_DATABASE_URL)=" "$ENV_FILE" || true)
+fi
+{
+    printf 'DATABASE_URL=%s\n' "${DATABASE_URL}"
+    printf 'MIGRATIONS_DATABASE_URL=%s\n' "${MIGRATIONS_DATABASE_URL}"
+    printf 'TEST_DATABASE_URL=%s\n' "${TEST_DATABASE_URL}"
+    [[ -n "$PRESERVED" ]] && printf '%s\n' "$PRESERVED"
+} | sudo tee "$ENV_FILE" > /dev/null
 sudo chmod 640 "$ENV_FILE"
 sudo chown root:exedev "$ENV_FILE"
 
