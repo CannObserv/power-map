@@ -15,7 +15,7 @@ uv run pre-commit install
 
 Database is on DO managed PostgreSQL — see § Provisioning for first-time setup. (`scripts/setup-db.sh` provisions local postgres only; use it for offline dev or CI without DO access.)
 
-First-time setup: create `/etc/power-map/.env` (640, root:exedev) with production secrets before running any command that needs `DATABASE_URL` — see AGENTS.md § Environment Variables for the required contents.
+The `/etc/power-map/.env` file is created by `bash scripts/write-db-secrets.sh` as part of the provisioning flow (§ Provisioning step 4).
 
 ## Environment
 
@@ -50,7 +50,7 @@ One-time setup for the DO managed PostgreSQL cluster (`co-pm-db-1`, sfo3). State
 
 ```bash
 # 1. Initialise Terraform with the Spaces backend (run once per checkout)
-terraform -chdir=infra/terraform init -backend-config=infra/terraform/backend.hcl
+terraform -chdir=infra/terraform init -backend-config=backend.hcl
 
 # 2. Preview — confirm 8 resources: vpc, cluster, 2 databases, 3 users, firewall
 terraform -chdir=infra/terraform plan
