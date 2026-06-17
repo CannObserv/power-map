@@ -42,6 +42,7 @@ def test_entities_landing_has_org_dup_badge_slot(client):
     response = client.get("/admin/entities/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'hx-get="/admin/_dup-badge/orgs/?variant=card"' in response.text
+    assert 'hx-swap="innerHTML"' in response.text
     assert "org_dup_count" not in response.text
 
 
@@ -50,6 +51,7 @@ def test_entities_landing_has_person_dup_badge_slot(client):
     response = client.get("/admin/entities/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'hx-get="/admin/_dup-badge/people/?variant=card"' in response.text
+    assert 'hx-swap="innerHTML"' in response.text
     assert "person_dup_count" not in response.text
 
 

@@ -147,3 +147,8 @@ def test_rejects_non_htmx_request(client):
 def test_unknown_type_returns_404(client):
     resp = client.get("/admin/_dup-badge/invalid/?variant=card", headers=HTMX_HEADERS)
     assert resp.status_code == 404
+
+
+def test_unknown_variant_returns_400(client):
+    resp = client.get("/admin/_dup-badge/people/?variant=invalid", headers=HTMX_HEADERS)
+    assert resp.status_code == 400

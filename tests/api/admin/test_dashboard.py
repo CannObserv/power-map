@@ -84,6 +84,7 @@ def test_dashboard_has_org_dup_badge_slot(client):
     resp = client.get("/admin/", headers=AUTH_HEADERS)
     assert resp.status_code == 200
     assert 'hx-get="/admin/_dup-badge/orgs/?variant=card"' in resp.text
+    assert 'hx-swap="innerHTML"' in resp.text
     assert "org_dup_count" not in resp.text
 
 
@@ -92,6 +93,7 @@ def test_dashboard_has_person_dup_badge_slot(client):
     resp = client.get("/admin/", headers=AUTH_HEADERS)
     assert resp.status_code == 200
     assert 'hx-get="/admin/_dup-badge/people/?variant=card"' in resp.text
+    assert 'hx-swap="innerHTML"' in resp.text
     assert "person_dup_count" not in resp.text
 
 

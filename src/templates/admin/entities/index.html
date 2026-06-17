@@ -17,7 +17,7 @@
     </p>
     <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
       <a href="/admin/people/" class="btn btn--sm btn--secondary">Manage →</a>
-      <span hx-get="/admin/_dup-badge/people/?variant=card" hx-trigger="load, refreshDupBadge from:body" hx-swap="outerHTML"></span>
+      <span hx-get="/admin/_dup-badge/people/?variant=card" hx-trigger="load, refreshDupBadge from:body" hx-swap="innerHTML"></span>
     </div>
   </div>
 
@@ -32,7 +32,7 @@
     </p>
     <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
       <a href="/admin/orgs/" class="btn btn--sm btn--secondary">Manage →</a>
-      <span hx-get="/admin/_dup-badge/orgs/?variant=card" hx-trigger="load, refreshDupBadge from:body" hx-swap="outerHTML"></span>
+      <span hx-get="/admin/_dup-badge/orgs/?variant=card" hx-trigger="load, refreshDupBadge from:body" hx-swap="innerHTML"></span>
     </div>
   </div>
 

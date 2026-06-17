@@ -16,7 +16,7 @@
     <a href="/admin/people/new/" class="btn btn--primary">+ Add person</a>
   </div>
 </div>
-<div hx-get="/admin/_dup-badge/people/?variant=banner" hx-trigger="load, refreshDupBadge from:body" hx-swap="outerHTML"></div>
+<div hx-get="/admin/_dup-badge/people/?variant=banner" hx-trigger="load, refreshDupBadge from:body" hx-swap="innerHTML"></div>
 <div class="filter-card">
   <input type="search" name="q" value="{{ q }}" placeholder="Search by name…"
          aria-label="Search people" class="filter-card__search"

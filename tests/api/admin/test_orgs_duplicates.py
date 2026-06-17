@@ -87,6 +87,7 @@ async def test_orgs_list_has_dup_banner_slot(client, org_pair):
     response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'hx-get="/admin/_dup-badge/orgs/?variant=banner"' in response.text
+    assert 'hx-swap="innerHTML"' in response.text
 
 
 async def test_org_merge_htmx_emits_refresh_dup_badge(client, org_pair):

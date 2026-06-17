@@ -81,6 +81,7 @@ async def test_people_list_has_dup_banner_slot(client, person_pair):
     response = client.get("/admin/people/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'hx-get="/admin/_dup-badge/people/?variant=banner"' in response.text
+    assert 'hx-swap="innerHTML"' in response.text
 
 
 # ── Duplicates review screen ─────────────────────────────────────────────────
@@ -388,6 +389,19 @@ async def test_merge_htmx_sends_hx_trigger_flash(client, person_pair):
     assert "Jonathan Smithfield" in payload["showFlash"]["body"]
     assert f"/admin/people/{id_a}/" in payload["showFlash"]["body"]
     assert "hx-swap-oob" not in response.text
+
+
+async def test_merge_htmx_emits_refresh_dup_badge(client, person_pair):
+    """HTMX merge response (dup-page branch) must include refreshDupBadge in HX-Trigger."""
+    id_a, id_b = person_pair
+    response = client.post(
+        f"/admin/people/{id_a}/merge/{id_b}/",
+        headers=HTMX_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
+    assert "refreshDupBadge" in trigger
 
 
 @pytest_asyncio.fixture(loop_scope="session")
