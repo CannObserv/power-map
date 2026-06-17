@@ -42,3 +42,11 @@ tmp/
 # Claude Code runtime artifacts
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+
+# Terraform
+infra/terraform/.terraform/
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.backup
+infra/terraform/terraform.tfvars
+infra/terraform/backend.hcl
+infra/terraform/crash.log

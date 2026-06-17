@@ -7,6 +7,7 @@ from typing import get_args
 
 import asyncpg
 import pytest
+import pytest_asyncio
 
 import src.core.db as db_module
 from src.core.db import _warn_if_lookup_tables_unseeded, apply_schema, generate_id
@@ -65,7 +66,7 @@ def test_generate_id_timestamp_nondecreasing():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="session")
 async def db_conn():
     dsn = os.environ.get("TEST_DATABASE_URL")
     if not dsn:

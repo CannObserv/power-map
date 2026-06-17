@@ -40,7 +40,9 @@ async def create_pool(dsn: str | None = None) -> asyncpg.Pool:
     """
     global _pool
     resolved_dsn = dsn or os.environ["DATABASE_URL"]
-    _pool = await asyncpg.create_pool(resolved_dsn)
+    min_size = int(os.environ.get("DB_POOL_MIN_SIZE", "2"))
+    max_size = int(os.environ.get("DB_POOL_MAX_SIZE", "5"))
+    _pool = await asyncpg.create_pool(resolved_dsn, min_size=min_size, max_size=max_size)
     logger.info("database pool created")
     return _pool
 
