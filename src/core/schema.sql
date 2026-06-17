@@ -206,24 +206,6 @@ LEFT JOIN organization_acronyms a
     ON a.organization_id = o.id AND a.is_canonical = TRUE
 ;
 
-CREATE TABLE IF NOT EXISTS organization_jurisdiction_affiliations (
-    id                   TEXT        PRIMARY KEY,
-    organization_id      TEXT        NOT NULL REFERENCES organizations(id),
-    jurisdiction_id      TEXT        NOT NULL REFERENCES jurisdictions(id),
-    affiliation_type_id  TEXT        NOT NULL
-                                     REFERENCES organization_jurisdiction_affiliation_types(id),
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_org_jur_affiliation
-    ON organization_jurisdiction_affiliations(organization_id, jurisdiction_id, affiliation_type_id);
-
-CREATE INDEX IF NOT EXISTS idx_org_jur_affiliations_org
-    ON organization_jurisdiction_affiliations(organization_id);
-
-CREATE INDEX IF NOT EXISTS idx_org_jur_affiliations_jur
-    ON organization_jurisdiction_affiliations(jurisdiction_id);
-
 CREATE TABLE IF NOT EXISTS people (
     id                TEXT        PRIMARY KEY,
     personal_pronouns TEXT,
@@ -424,6 +406,25 @@ SELECT j.id   AS jurisdiction_id,
        j.name AS display_name,
        j.slug
 FROM jurisdictions j;
+
+-- Placed here (after jurisdictions) because of the FK to jurisdictions(id).
+CREATE TABLE IF NOT EXISTS organization_jurisdiction_affiliations (
+    id                   TEXT        PRIMARY KEY,
+    organization_id      TEXT        NOT NULL REFERENCES organizations(id),
+    jurisdiction_id      TEXT        NOT NULL REFERENCES jurisdictions(id),
+    affiliation_type_id  TEXT        NOT NULL
+                                     REFERENCES organization_jurisdiction_affiliation_types(id),
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_org_jur_affiliation
+    ON organization_jurisdiction_affiliations(organization_id, jurisdiction_id, affiliation_type_id);
+
+CREATE INDEX IF NOT EXISTS idx_org_jur_affiliations_org
+    ON organization_jurisdiction_affiliations(organization_id);
+
+CREATE INDEX IF NOT EXISTS idx_org_jur_affiliations_jur
+    ON organization_jurisdiction_affiliations(jurisdiction_id);
 
 -- =============================================================================
 -- Polymorphic Tables
