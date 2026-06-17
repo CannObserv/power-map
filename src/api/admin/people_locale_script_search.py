@@ -42,7 +42,7 @@ async def locale_search(
         rows = await db.fetch(
             "SELECT code, display_name FROM bcp47_locales"
             " WHERE code ILIKE $1 ESCAPE '\\' OR display_name ILIKE $1 ESCAPE '\\'"
-            " ORDER BY code ASC"
+            ' ORDER BY code COLLATE "C" ASC'
             " LIMIT $2",
             pattern,
             limit,
@@ -71,7 +71,7 @@ async def script_search(
         rows = await db.fetch(
             "SELECT code, name FROM iso15924_scripts"
             " WHERE code ILIKE $1 ESCAPE '\\' OR name ILIKE $1 ESCAPE '\\'"
-            " ORDER BY code ASC"
+            ' ORDER BY code COLLATE "C" ASC'
             " LIMIT $2",
             pattern,
             limit,
