@@ -77,6 +77,14 @@ async def main():
 asyncio.run(main())
 "
 
+# ── 5. Seed lookup tables on test database ───────────────────────────────────
+# bcp47_locales and iso15924_scripts must be populated for integration tests
+# that write to person_names.locale / .script (FK-validated) and for tests
+# that assert the "both seeded → no warning" branch in db.py.
+echo "==> Seeding lookup tables on co_pm_db_test"
+TEST_DATABASE_URL=$(grep -E "^TEST_DATABASE_URL=" /etc/power-map/.env | cut -d= -f2-)
+DATABASE_URL="$TEST_DATABASE_URL" uv run --group seed scripts/seed_locales_scripts.py
+
 echo "==> Done"
 echo "    Production schema: run sync-data-to-do.sh next"
 echo "    Seed lookup tables after cutover: uv run --group seed scripts/seed_locales_scripts.py"
