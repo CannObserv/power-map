@@ -76,10 +76,11 @@ async def person_pair(db_pool):
 # ── List screen ─────────────────────────────────────────────────────────────
 
 
-async def test_people_list_shows_duplicate_banner(client, person_pair):
+async def test_people_list_has_dup_banner_slot(client, person_pair):
+    """People list page has the async HTMX slot for the dup banner, not an inline count."""
     response = client.get("/admin/people/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert "possible duplicate" in response.text.lower()
+    assert 'hx-get="/admin/_dup-badge/people/?variant=banner"' in response.text
 
 
 # ── Duplicates review screen ─────────────────────────────────────────────────
@@ -138,6 +139,22 @@ async def test_dismiss_htmx_sends_hx_trigger_flash(client, person_pair):
     payload = json.loads(response.headers["HX-Trigger"])
     assert payload["showFlash"]["level"] == "info"
     assert "hx-swap-oob" not in response.text
+
+
+async def test_dismiss_htmx_emits_refresh_dup_badge(client, person_pair):
+    """HTMX dismiss response must include refreshDupBadge in HX-Trigger."""
+    id_a, id_b = person_pair
+    response = client.post(
+        f"/admin/people/{id_a}/dismiss-duplicate/{id_b}/",
+        headers=HTMX_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
+    assert "refreshDupBadge" in trigger
+
+
+# ── Merge ─────────────────────────────────────────────────────────────────────
 
 
 # ── Sidebar badge on non-list pages ──────────────────────────────────────────

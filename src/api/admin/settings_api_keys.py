@@ -15,8 +15,6 @@ from src.api.admin.deps import (
     is_htmx,
     provision_app_user,
 )
-from src.api.admin.org_dups import get_org_dup_count
-from src.api.admin.people_dups import get_person_dup_count
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -36,12 +34,10 @@ def generate_api_key() -> tuple[str, str, str]:
     return raw_key, key_hash, key_prefix
 
 
-def _base_ctx(user, org_dup_count, person_dup_count):
+def _base_ctx(user):
     return {
         "user": user,
         "active_section": "settings_api_keys",
-        "org_dup_count": org_dup_count,
-        "person_dup_count": person_dup_count,
     }
 
 
@@ -50,8 +46,6 @@ async def api_keys_list(
     request: Request,
     user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     keys = await db.fetch(
         "SELECT id, label, key_prefix, created_at, last_used_at"
@@ -61,7 +55,7 @@ async def api_keys_list(
     return templates.TemplateResponse(
         request,
         "admin/settings/api_keys.html",
-        {**_base_ctx(user, org_dup_count, person_dup_count), "keys": keys},
+        {**_base_ctx(user), "keys": keys},
     )
 
 

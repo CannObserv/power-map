@@ -15,9 +15,7 @@ from src.api.admin.deps import (
     is_htmx,
     resolve_query_flash,
 )
-from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
-from src.api.admin.people_dups import get_person_dup_count
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -95,8 +93,6 @@ async def ra_list(
     flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List role assignments with search and status filter."""
 
@@ -152,8 +148,6 @@ async def ra_list(
         "status": status,
         "page_size": page_size,
         "total": count,
-        "org_dup_count": org_dup_count,
-        "person_dup_count": person_dup_count,
         "flash_msg": flash_msg,
         **pctx,
     }
@@ -170,8 +164,6 @@ async def ra_new_form(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """New role assignment form."""
     people = await _fetch_people(db)
@@ -185,8 +177,6 @@ async def ra_new_form(
             "people": people,
             "roles": roles,
             "error": None,
-            "org_dup_count": org_dup_count,
-            "person_dup_count": person_dup_count,
         },
     )
 
@@ -202,8 +192,6 @@ async def ra_create(
     notes: str = Form(""),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Create a new role assignment."""
 
@@ -243,8 +231,6 @@ async def ra_create(
                 "form_start_date": start_date,
                 "form_end_date": end_date,
                 "form_notes": notes,
-                "org_dup_count": org_dup_count,
-                "person_dup_count": person_dup_count,
             },
             status_code=200,
         )
@@ -259,8 +245,6 @@ async def ra_detail(
     flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Role assignment detail view."""
 
@@ -275,8 +259,6 @@ async def ra_detail(
             "active_section": "role_assignments",
             "ra": ra,
             "flash_msg": flash_msg,
-            "org_dup_count": org_dup_count,
-            "person_dup_count": person_dup_count,
         },
         headers=resp_headers,
     )

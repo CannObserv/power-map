@@ -13,8 +13,6 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
 )
-from src.api.admin.org_dups import get_org_dup_count
-from src.api.admin.people_dups import get_person_dup_count
 from src.core.db import generate_id
 from src.core.types import VALID_ENTITY_TYPES
 
@@ -34,12 +32,10 @@ async def _fetch_identifier_types(db) -> list:
     )
 
 
-def _base_ctx(user, org_dup_count, person_dup_count, active_section: str = "settings"):
+def _base_ctx(user, active_section: str = "settings"):
     return {
         "user": user,
         "active_section": active_section,
-        "org_dup_count": org_dup_count,
-        "person_dup_count": person_dup_count,
     }
 
 
@@ -48,15 +44,13 @@ async def identifier_types_page(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     rows = await _fetch_identifier_types(db)
     return templates.TemplateResponse(
         request,
         "admin/settings/identifier_types.html",
         {
-            **_base_ctx(user, org_dup_count, person_dup_count, "settings_identifier_types"),
+            **_base_ctx(user, "settings_identifier_types"),
             "rows": rows,
         },  # noqa: E501
     )

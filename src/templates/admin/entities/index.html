@@ -17,9 +17,7 @@
     </p>
     <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
       <a href="/admin/people/" class="btn btn--sm btn--secondary">Manage →</a>
-      {% if person_dup_count %}
-      <a href="/admin/people/duplicates/" class="btn btn--sm btn--ghost" style="color:var(--color-warning)">{{ person_dup_count }} duplicate{% if person_dup_count != 1 %}s{% endif %} →</a>
-      {% endif %}
+      <span hx-get="/admin/_dup-badge/people/?variant=card" hx-trigger="load, refreshDupBadge from:body" hx-swap="outerHTML"></span>
     </div>
   </div>
 
@@ -34,9 +32,7 @@
     </p>
     <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
       <a href="/admin/orgs/" class="btn btn--sm btn--secondary">Manage →</a>
-      {% if org_dup_count %}
-      <a href="/admin/orgs/duplicates/" class="btn btn--sm btn--ghost" style="color:var(--color-warning)">{{ org_dup_count }} duplicate{% if org_dup_count != 1 %}s{% endif %} →</a>
-      {% endif %}
+      <span hx-get="/admin/_dup-badge/orgs/?variant=card" hx-trigger="load, refreshDupBadge from:body" hx-swap="outerHTML"></span>
     </div>
   </div>
 

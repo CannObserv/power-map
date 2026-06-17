@@ -16,9 +16,7 @@ from src.api.admin.deps import (
     is_htmx,
     resolve_query_flash,
 )
-from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
-from src.api.admin.people_dups import get_person_dup_count
 from src.core.db import generate_id
 from src.core.logging import get_logger
 
@@ -45,8 +43,6 @@ async def orgs_list(
     flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List organizations with search and status filter."""
 
@@ -99,8 +95,6 @@ async def orgs_list(
         "status": status,
         "page_size": page_size,
         "total": count,
-        "org_dup_count": org_dup_count,
-        "person_dup_count": person_dup_count,
         "flash_msg": flash_msg,
         **pctx,
     }
@@ -123,8 +117,6 @@ async def org_new_form(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """New organization form."""
     parents = await _fetch_parents(db)
@@ -139,8 +131,6 @@ async def org_new_form(
             "canonical_name": "",
             "canonical_acronym": "",
             "org_notes": "",
-            "org_dup_count": org_dup_count,
-            "person_dup_count": person_dup_count,
             "errors": {},
         },
     )
@@ -156,8 +146,6 @@ async def org_create(
     notes: str = Form(""),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """Create a new organization."""
     if not name.strip():
@@ -173,8 +161,6 @@ async def org_create(
                 "canonical_name": name,
                 "canonical_acronym": acronym,
                 "org_notes": notes,
-                "org_dup_count": org_dup_count,
-                "person_dup_count": person_dup_count,
                 "errors": {"name": "Name is required"},
             },
             status_code=422,
@@ -419,8 +405,6 @@ async def org_detail(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
     flash: str | None = Query(None),
 ):
     """Organization detail view."""
@@ -530,8 +514,6 @@ async def org_detail(
             "roles": roles,
             "events": events,
             "parent": parent,
-            "org_dup_count": org_dup_count,
-            "person_dup_count": person_dup_count,
             "flash_msg": flash_msg,
         },
         headers=resp_headers,

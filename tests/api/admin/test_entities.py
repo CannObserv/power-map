@@ -3,8 +3,6 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.admin.org_dups import get_org_dup_count
-from src.api.admin.people_dups import get_person_dup_count
 from src.api.main import app
 
 pytestmark = pytest.mark.integration
@@ -19,24 +17,6 @@ AUTH_HEADERS = {
 def client():
     with TestClient(app) as c:
         yield c
-
-
-@pytest.fixture
-def client_no_dups():
-    """Client with org_dup_count forced to 0 via dependency override."""
-    app.dependency_overrides[get_org_dup_count] = lambda: 0
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def client_with_dups():
-    """Client with org_dup_count forced to 3 via dependency override."""
-    app.dependency_overrides[get_org_dup_count] = lambda: 3
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 # --- Landing page ---
@@ -57,19 +37,20 @@ def test_entities_landing_redirects_unauthenticated(client):
     assert "/__exe.dev/login" in response.headers["location"]
 
 
-def test_entities_landing_dup_link_hidden_when_zero(client_no_dups):
-    """Duplicates link not rendered in card area when org_dup_count is 0."""
-    response = client_no_dups.get("/admin/entities/", headers=AUTH_HEADERS)
+def test_entities_landing_has_org_dup_badge_slot(client):
+    """Org dup badge loaded async; page must contain the HTMX slot, not an inline count."""
+    response = client.get("/admin/entities/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert "duplicate →" not in response.text
+    assert 'hx-get="/admin/_dup-badge/orgs/?variant=card"' in response.text
+    assert "org_dup_count" not in response.text
 
 
-def test_entities_landing_dup_link_shown_when_nonzero(client_with_dups):
-    """Duplicates link rendered with count when org_dup_count > 0."""
-    response = client_with_dups.get("/admin/entities/", headers=AUTH_HEADERS)
+def test_entities_landing_has_person_dup_badge_slot(client):
+    """Person dup badge loaded async; page must contain the HTMX slot, not an inline count."""
+    response = client.get("/admin/entities/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert "/admin/orgs/duplicates/" in response.text
-    assert "3 duplicate" in response.text
+    assert 'hx-get="/admin/_dup-badge/people/?variant=card"' in response.text
+    assert "person_dup_count" not in response.text
 
 
 # --- Sidebar section-link ---
@@ -80,40 +61,3 @@ def test_entities_sidebar_link_renders(client):
     response = client.get("/admin/entities/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'class="admin-sidebar__section-link" href="/admin/entities/"' in response.text
-
-
-# --- People duplicates ---
-
-
-@pytest.fixture
-def client_with_person_dups():
-    """Client with person_dup_count forced to 5 via dependency override."""
-    app.dependency_overrides[get_person_dup_count] = lambda: 5
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def client_no_person_dups():
-    """Client with person_dup_count forced to 0 via dependency override."""
-    app.dependency_overrides[get_person_dup_count] = lambda: 0
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
-
-
-def test_entities_people_dup_link_shown_when_nonzero(client_with_person_dups):
-    """People duplicates link rendered with count in card when person_dup_count > 0."""
-    response = client_with_person_dups.get("/admin/entities/", headers=AUTH_HEADERS)
-    assert response.status_code == 200
-    assert "/admin/people/duplicates/" in response.text
-    assert "5 duplicate" in response.text
-
-
-def test_entities_people_dup_link_hidden_when_zero(client_no_person_dups):
-    """People duplicates link not rendered in card when person_dup_count is 0."""
-    response = client_no_person_dups.get("/admin/entities/", headers=AUTH_HEADERS)
-    assert response.status_code == 200
-    # orgs link absent too (both zero), so generic check suffices
-    assert "/admin/people/duplicates/" not in response.text

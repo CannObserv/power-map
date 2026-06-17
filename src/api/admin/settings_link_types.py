@@ -13,8 +13,6 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
 )
-from src.api.admin.org_dups import get_org_dup_count
-from src.api.admin.people_dups import get_person_dup_count
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -43,12 +41,10 @@ async def _fetch_link_types(db, is_social: bool) -> list:
     )
 
 
-def _base_ctx(user, org_dup_count, person_dup_count, active_section: str = "settings"):
+def _base_ctx(user, active_section: str = "settings"):
     return {
         "user": user,
         "active_section": active_section,
-        "org_dup_count": org_dup_count,
-        "person_dup_count": person_dup_count,
     }
 
 
@@ -57,8 +53,6 @@ async def link_types_page(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     general = await _fetch_link_types(db, False)
     social = await _fetch_link_types(db, True)
@@ -66,7 +60,7 @@ async def link_types_page(
         request,
         "admin/settings/link_types.html",
         {
-            **_base_ctx(user, org_dup_count, person_dup_count, "settings_link_types"),
+            **_base_ctx(user, "settings_link_types"),
             "general": general,
             "social": social,
         },  # noqa: E501

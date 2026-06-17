@@ -330,20 +330,26 @@ def test_orgs_region_has_single_pagination_call():
     assert REGION_HTML.count("pagination(") == 1
 
 
-def test_orgs_list_dup_notice_precedes_filter_card():
-    """Dup notice must appear above the filter card in list.html (not inside
-    #orgs-list-region), so dismissing it survives HTMX filter changes."""
-    notice_pos = LIST_HTML.index("org_dup_count")
+def test_orgs_list_dup_slot_precedes_filter_card():
+    """Dup banner slot must appear above the filter card in list.html (not inside
+    #orgs-list-region), so the banner survives HTMX filter changes."""
+    slot_pos = LIST_HTML.index('hx-get="/admin/_dup-badge/orgs/?variant=banner"')
     filter_pos = LIST_HTML.index('class="filter-card"')
-    assert notice_pos < filter_pos, "org_dup_count notice must precede the filter card in list.html"
+    assert slot_pos < filter_pos, "dup banner slot must precede the filter card in list.html"
+
+
+def test_orgs_list_has_no_inline_dup_count():
+    """Inline org_dup_count removed; list.html must not contain the old template variable."""
+    assert "org_dup_count" not in LIST_HTML
 
 
 def test_orgs_region_has_no_dup_notice():
-    """Dup notice moved to list.html; must not reappear in _region.html.
+    """Dup notice must not appear in _region.html.
 
-    If it were in _region.html, every HTMX filter change would restore the
+    If it were there, every HTMX filter change would restore the
     banner even after the user dismissed it.
     """
+    assert "_dup-badge/orgs/" not in REGION_HTML
     assert "org_dup_count" not in REGION_HTML
 
 

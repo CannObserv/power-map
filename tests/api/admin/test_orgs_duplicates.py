@@ -82,10 +82,37 @@ async def test_duplicates_list_shows_pair(client, org_pair):
     assert "Alberta Gaming" in response.text
 
 
-async def test_orgs_list_shows_duplicate_banner(client, org_pair):
+async def test_orgs_list_has_dup_banner_slot(client, org_pair):
+    """Orgs list page has the async HTMX slot for the dup banner, not an inline count."""
     response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert "possible duplicate" in response.text.lower()
+    assert 'hx-get="/admin/_dup-badge/orgs/?variant=banner"' in response.text
+
+
+async def test_org_merge_htmx_emits_refresh_dup_badge(client, org_pair):
+    """HTMX merge response must include refreshDupBadge in HX-Trigger."""
+    id_a, id_b = org_pair
+    response = client.post(
+        f"/admin/orgs/{id_a}/merge/{id_b}/",
+        headers=HTMX_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
+    assert "refreshDupBadge" in trigger
+
+
+async def test_org_dismiss_htmx_emits_refresh_dup_badge(client, org_pair):
+    """HTMX dismiss response must include refreshDupBadge in HX-Trigger."""
+    id_a, id_b = org_pair
+    response = client.post(
+        f"/admin/orgs/{id_a}/dismiss-duplicate/{id_b}/",
+        headers=HTMX_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
+    assert "refreshDupBadge" in trigger
 
 
 async def test_merge_hard_deletes_loser(client, org_pair, db_pool):
