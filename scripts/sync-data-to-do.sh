@@ -58,12 +58,14 @@ echo "==> Verifying row counts"
 
 row_counts_local() {
     if [[ -n "$LOCAL_DSN" ]]; then
+        psql "$LOCAL_DSN" -tA -c "ANALYZE;" > /dev/null
         psql "$LOCAL_DSN" -tA -c \
             "SELECT relname || '=' || n_live_tup
              FROM pg_stat_user_tables
              WHERE n_live_tup > 0
              ORDER BY relname;"
     else
+        sudo -u postgres psql -d "$LOCAL_DB_NAME" -tA -c "ANALYZE;" > /dev/null
         sudo -u postgres psql -d "$LOCAL_DB_NAME" -tA -c \
             "SELECT relname || '=' || n_live_tup
              FROM pg_stat_user_tables
@@ -73,6 +75,7 @@ row_counts_local() {
 }
 
 row_counts_do() {
+    psql "$MIGRATIONS_DATABASE_URL" -tA -c "ANALYZE;" > /dev/null
     psql "$MIGRATIONS_DATABASE_URL" -tA -c \
         "SELECT relname || '=' || n_live_tup
          FROM pg_stat_user_tables
