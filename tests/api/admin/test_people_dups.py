@@ -10,9 +10,6 @@ from src.api.admin.people_dups import (
     invalidate_dup_count_cache,
 )
 
-_FUTURE = datetime.now(UTC) + timedelta(seconds=300)
-_PAST = datetime.now(UTC) - timedelta(seconds=1)
-
 
 def _make_db_miss(similarity_count: int = 5) -> MagicMock:
     """DB mock: cache row absent; fetchval returns similarity_count."""
@@ -26,7 +23,9 @@ def _make_db_miss(similarity_count: int = 5) -> MagicMock:
 def _make_db_hit(cached_count: int = 3) -> MagicMock:
     """DB mock: valid (non-expired) cache row present."""
     db = MagicMock()
-    db.fetchrow = AsyncMock(return_value={"count": cached_count, "expires_at": _FUTURE})
+    db.fetchrow = AsyncMock(
+        return_value={"count": cached_count, "expires_at": datetime.now(UTC) + timedelta(hours=1)}
+    )
     db.fetchval = AsyncMock()
     db.execute = AsyncMock()
     return db
@@ -35,7 +34,9 @@ def _make_db_hit(cached_count: int = 3) -> MagicMock:
 def _make_db_expired(similarity_count: int = 7) -> MagicMock:
     """DB mock: cache row present but expired; fetchval returns similarity_count."""
     db = MagicMock()
-    db.fetchrow = AsyncMock(return_value={"count": 99, "expires_at": _PAST})
+    db.fetchrow = AsyncMock(
+        return_value={"count": 99, "expires_at": datetime.now(UTC) - timedelta(hours=1)}
+    )
     db.fetchval = AsyncMock(return_value=similarity_count)
     db.execute = AsyncMock()
     return db
@@ -111,13 +112,23 @@ class TestGetPersonDupCount:
         assert result == 6
         db.fetchval.assert_not_awaited()
 
-    async def test_returns_zero_on_db_error(self):
+    async def test_returns_zero_on_fetchrow_error(self):
         db = MagicMock()
         db.fetchrow = AsyncMock(side_effect=Exception("pg_trgm not installed"))
         result = await get_person_dup_count(db=db)
         assert result == 0
 
-    async def test_error_does_not_upsert(self):
+    async def test_returns_zero_on_fetchval_error(self):
+        """Cache miss followed by failing similarity query returns 0, does not upsert."""
+        db = MagicMock()
+        db.fetchrow = AsyncMock(return_value=None)
+        db.fetchval = AsyncMock(side_effect=Exception("similarity() unavailable"))
+        db.execute = AsyncMock()
+        result = await get_person_dup_count(db=db)
+        assert result == 0
+        db.execute.assert_not_awaited()
+
+    async def test_fetchrow_error_does_not_upsert(self):
         db = MagicMock()
         db.fetchrow = AsyncMock(side_effect=Exception("oops"))
         db.execute = AsyncMock()
