@@ -108,6 +108,27 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now power-map
 ```
 
+## Deploy (after merging to main on the VM)
+
+Schema is applied automatically on every `systemctl restart` via `ExecStartPre=bash scripts/apply-schema.sh`.
+A bare restart is sufficient for both code-only and schema changes.
+
+```bash
+git pull                              # pull merged commits
+sudo systemctl restart power-map     # applies schema then starts server
+sudo journalctl -u power-map -f      # watch startup; schema errors surface here
+```
+
+To apply schema without restarting (e.g. after a manual `git pull` mid-session):
+
+```bash
+bash scripts/apply-schema.sh
+```
+
+**Note:** `apply-schema.sh` uses `MIGRATIONS_DATABASE_URL` (DDL privileges). `systemctl restart`
+loads this from `EnvironmentFile=/etc/power-map/.env` automatically; standalone invocation
+requires the env file to be sourced or `/etc/power-map/.env` to be present.
+
 ## Development
 
 Dev server runs on port 8001 with `--reload`. Always run from a git worktree — never the main checkout.
