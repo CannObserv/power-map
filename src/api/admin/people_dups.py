@@ -12,10 +12,14 @@ logger = get_logger(__name__)
 CANDIDATE_WHERE = """
     FROM people a
     JOIN people b ON b.id > a.id
-    JOIN v_person_display_names dn_a ON dn_a.person_id = a.id
-    JOIN v_person_display_names dn_b ON dn_b.person_id = b.id
+    JOIN person_names dn_a
+        ON dn_a.person_id = a.id
+       AND dn_a.is_canonical = TRUE AND dn_a.visibility = 'public'
+    JOIN person_names dn_b
+        ON dn_b.person_id = b.id
+       AND dn_b.is_canonical = TRUE AND dn_b.visibility = 'public'
     WHERE a.archived_at IS NULL AND b.archived_at IS NULL
-      AND similarity(dn_a.display_name, dn_b.display_name) > 0.85
+      AND similarity(dn_a.name, dn_b.name) > 0.85
       AND NOT EXISTS (
           SELECT 1 FROM duplicate_dismissals
           WHERE entity_type = 'person'

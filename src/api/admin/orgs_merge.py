@@ -29,9 +29,9 @@ async def _fetch_duplicate_pairs(db) -> list:
     try:
         return await db.fetch(
             f"""SELECT
-                a.id AS a_id, dn_a.display_name AS a_name, a.created_at AS a_created,
-                b.id AS b_id, dn_b.display_name AS b_name, b.created_at AS b_created,
-                similarity(dn_a.display_name, dn_b.display_name) AS score,
+                a.id AS a_id, dn_a.name AS a_name, a.created_at AS a_created,
+                b.id AS b_id, dn_b.name AS b_name, b.created_at AS b_created,
+                similarity(dn_a.name, dn_b.name) AS score,
                 (SELECT count(*) FROM roles
                  WHERE organization_id = a.id AND archived_at IS NULL) AS a_roles,
                 (SELECT count(*) FROM roles

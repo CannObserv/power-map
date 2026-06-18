@@ -2181,6 +2181,18 @@ CREATE INDEX IF NOT EXISTS idx_roles_title_trgm
     ON roles USING GIN (lower(title) gin_trgm_ops);
 
 -- ---------------------------------------------------------------------------
+-- Trigram GiST indexes for similarity() dup-detection joins
+-- GIN (above) accelerates ILIKE/@@; GiST is needed for similarity() scans.
+-- ---------------------------------------------------------------------------
+
+CREATE INDEX IF NOT EXISTS idx_org_names_name_gist_trgm
+    ON organization_names USING GIST (name gist_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_person_names_name_gist_trgm
+    ON person_names USING GIST (name gist_trgm_ops)
+    WHERE visibility = 'public';
+
+-- ---------------------------------------------------------------------------
 -- Shared dup-count cache (multi-worker safe)
 -- ---------------------------------------------------------------------------
 

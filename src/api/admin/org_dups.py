@@ -12,10 +12,12 @@ logger = get_logger(__name__)
 CANDIDATE_WHERE = """
     FROM organizations a
     JOIN organizations b ON b.id > a.id
-    JOIN v_org_display_names dn_a ON dn_a.organization_id = a.id
-    JOIN v_org_display_names dn_b ON dn_b.organization_id = b.id
+    JOIN organization_names dn_a
+        ON dn_a.organization_id = a.id AND dn_a.is_canonical = TRUE
+    JOIN organization_names dn_b
+        ON dn_b.organization_id = b.id AND dn_b.is_canonical = TRUE
     WHERE a.archived_at IS NULL AND b.archived_at IS NULL
-      AND similarity(dn_a.display_name, dn_b.display_name) > 0.85
+      AND similarity(dn_a.name, dn_b.name) > 0.85
       AND NOT EXISTS (
           SELECT 1 FROM duplicate_dismissals
           WHERE entity_type = 'organization'
