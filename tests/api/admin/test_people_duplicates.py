@@ -6,7 +6,6 @@ import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 
-from src.api.admin.people_dups import get_person_dup_count
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -19,15 +18,6 @@ AUTH_HEADERS = {
     "X-ExeDev-Email": "admin@test.com",
 }
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
-
-
-@pytest.fixture
-def client_with_person_dups():
-    """Client with person_dup_count forced to 3 via dependency override."""
-    app.dependency_overrides[get_person_dup_count] = lambda: 3
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -153,9 +143,6 @@ async def test_dismiss_htmx_emits_refresh_dup_badge(client, person_pair):
     assert response.status_code == 200
     trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
     assert "refreshDupBadge" in trigger
-
-
-# ── Merge ─────────────────────────────────────────────────────────────────────
 
 
 # ── Sidebar badge on non-list pages ──────────────────────────────────────────

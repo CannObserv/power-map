@@ -152,3 +152,45 @@ def test_unknown_type_returns_404(client):
 def test_unknown_variant_returns_400(client):
     resp = client.get("/admin/_dup-badge/people/?variant=invalid", headers=HTMX_HEADERS)
     assert resp.status_code == 400
+
+
+def test_missing_variant_returns_422(client):
+    resp = client.get("/admin/_dup-badge/people/", headers=HTMX_HEADERS)
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Isolation: each endpoint must not invoke the other entity's count dep
+# ---------------------------------------------------------------------------
+
+
+def test_people_badge_does_not_call_org_dup_count(client):
+    """People badge must not invoke get_org_dup_count; split routes enforce this."""
+
+    def _raise():
+        raise AssertionError("get_org_dup_count must not be called for people badge")
+
+    app.dependency_overrides[get_person_dup_count] = lambda: 2
+    app.dependency_overrides[get_org_dup_count] = _raise
+    try:
+        resp = client.get("/admin/_dup-badge/people/?variant=card", headers=HTMX_HEADERS)
+    finally:
+        app.dependency_overrides.pop(get_person_dup_count, None)
+        app.dependency_overrides.pop(get_org_dup_count, None)
+    assert resp.status_code == 200
+
+
+def test_orgs_badge_does_not_call_person_dup_count(client):
+    """Orgs badge must not invoke get_person_dup_count; split routes enforce this."""
+
+    def _raise():
+        raise AssertionError("get_person_dup_count must not be called for orgs badge")
+
+    app.dependency_overrides[get_org_dup_count] = lambda: 5
+    app.dependency_overrides[get_person_dup_count] = _raise
+    try:
+        resp = client.get("/admin/_dup-badge/orgs/?variant=card", headers=HTMX_HEADERS)
+    finally:
+        app.dependency_overrides.pop(get_org_dup_count, None)
+        app.dependency_overrides.pop(get_person_dup_count, None)
+    assert resp.status_code == 200
