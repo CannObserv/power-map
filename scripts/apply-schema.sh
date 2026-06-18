@@ -11,18 +11,20 @@
 
 set -euo pipefail
 
-: "${MIGRATIONS_DATABASE_URL:?MIGRATIONS_DATABASE_URL not set — source /etc/power-map/.env}"
-
 env_args=()
 [ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
 [ -f .env ]                && env_args+=(--env-file .env)
 
 uv run "${env_args[@]}" python - <<'PY'
-import asyncio, asyncpg, os
+import asyncio, asyncpg, os, sys
 from src.core.db import apply_schema
 
+url = os.environ.get("MIGRATIONS_DATABASE_URL")
+if not url:
+    sys.exit("MIGRATIONS_DATABASE_URL not set — check /etc/power-map/.env")
+
 async def main():
-    conn = await asyncpg.connect(os.environ["MIGRATIONS_DATABASE_URL"])
+    conn = await asyncpg.connect(url)
     try:
         await apply_schema(conn)
     finally:
