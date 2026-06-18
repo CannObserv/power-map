@@ -320,7 +320,7 @@ async def _execute_merge(
             " ON CONFLICT DO NOTHING",
             loser_id,
         )
-    invalidate_dup_count_cache()
+    await invalidate_dup_count_cache(db)
     return dropped_assignments
 
 
@@ -447,7 +447,7 @@ async def org_dismiss_duplicate(
         b,
         user.email,
     )
-    invalidate_dup_count_cache()
+    await invalidate_dup_count_cache(db)
     if is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         ctx = {

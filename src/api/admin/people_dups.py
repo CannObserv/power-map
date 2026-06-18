@@ -1,6 +1,6 @@
-"""People-duplicate detection: SQL, TTL cache, and FastAPI dependency."""
+"""People-duplicate detection: SQL, DB-backed TTL cache, and FastAPI dependency."""
 
-import time
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends
 
@@ -23,25 +23,41 @@ CANDIDATE_WHERE = """
       )
 """
 
-_DUP_COUNT_TTL = 300.0  # seconds
-# Process-local cache — not shared across gunicorn workers; counts may lag by
-# up to 5 min per worker under multi-process deployments.
-_dup_count_cache: dict[str, int | float] = {"value": 0, "expires": 0.0}
+_DUP_COUNT_TTL = timedelta(seconds=300)
+_ENTITY_TYPE = "person"
 
 
-def invalidate_dup_count_cache() -> None:
+async def invalidate_dup_count_cache(db) -> None:
     """Expire the cached duplicate count so the next request re-queries."""
-    _dup_count_cache["expires"] = 0.0
+    await db.execute(
+        "UPDATE dup_count_cache SET expires_at = now() - interval '1 second'"
+        " WHERE entity_type = $1",
+        _ENTITY_TYPE,
+    )
 
 
 async def count_person_duplicates(db) -> int:
-    """Return count of non-dismissed near-duplicate person pairs (TTL-cached, 5 min)."""
-    now = time.monotonic()
-    if now < _dup_count_cache["expires"]:
-        return _dup_count_cache["value"]
+    """Return count of non-dismissed near-duplicate person pairs (DB-TTL-cached, 5 min).
+
+    Cache is shared across all workers via the dup_count_cache table.
+    On miss or expiry: computes the O(n²) similarity join and upserts the result.
+    """
+    row = await db.fetchrow(
+        "SELECT count, expires_at FROM dup_count_cache WHERE entity_type = $1",
+        _ENTITY_TYPE,
+    )
+    if row and row["expires_at"] > datetime.now(UTC):
+        return row["count"]
     count = await db.fetchval(f"SELECT count(*) {CANDIDATE_WHERE}")
-    _dup_count_cache["value"] = count
-    _dup_count_cache["expires"] = now + _DUP_COUNT_TTL
+    await db.execute(
+        """INSERT INTO dup_count_cache (entity_type, count, expires_at)
+           VALUES ($1, $2, now() + $3)
+           ON CONFLICT (entity_type) DO UPDATE
+             SET count = excluded.count, expires_at = excluded.expires_at""",
+        _ENTITY_TYPE,
+        count,
+        _DUP_COUNT_TTL,
+    )
     return count
 
 
