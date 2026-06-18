@@ -2179,3 +2179,13 @@ CREATE INDEX IF NOT EXISTS idx_person_names_name_trgm
 
 CREATE INDEX IF NOT EXISTS idx_roles_title_trgm
     ON roles USING GIN (lower(title) gin_trgm_ops);
+
+-- ---------------------------------------------------------------------------
+-- Shared dup-count cache (multi-worker safe)
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS dup_count_cache (
+    entity_type  TEXT        PRIMARY KEY,  -- 'organization' | 'person'
+    count        INT         NOT NULL,
+    expires_at   TIMESTAMPTZ NOT NULL
+);

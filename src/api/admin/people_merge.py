@@ -128,7 +128,7 @@ async def merge_person_into(
 
     Caller MUST own the surrounding transaction; this function executes
     flat SQL inside it (acquires `FOR UPDATE` locks first). Caller is also
-    responsible for `invalidate_person_dup_count_cache()` after commit.
+    responsible for `await invalidate_person_dup_count_cache(db)` after commit.
 
     Args:
         db: an asyncpg Connection or pool acquire — must support
@@ -344,7 +344,7 @@ async def person_merge(
         except PersonNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Person not found") from exc
 
-    invalidate_person_dup_count_cache()
+    await invalidate_person_dup_count_cache(db)
 
     if is_htmx(request):
         body = (
@@ -413,7 +413,7 @@ async def person_dismiss_duplicate(
         b,
         user.email,
     )
-    invalidate_person_dup_count_cache()
+    await invalidate_person_dup_count_cache(db)
     if is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         ctx = {
