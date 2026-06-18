@@ -16,10 +16,8 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
 )
-from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.people_dups import (
     CANDIDATE_WHERE,
-    get_person_dup_count,
 )
 from src.api.admin.people_dups import (
     invalidate_dup_count_cache as invalidate_person_dup_count_cache,
@@ -97,8 +95,6 @@ async def people_duplicates(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List near-duplicate person pairs for review."""
     pairs = await _fetch_duplicate_pairs(db)
@@ -106,8 +102,6 @@ async def people_duplicates(
         "user": user,
         "active_section": "people_duplicates",
         "pairs": pairs,
-        "org_dup_count": org_dup_count,
-        "person_dup_count": person_dup_count,
     }
     return templates.TemplateResponse(
         request,
@@ -380,7 +374,7 @@ async def person_merge(
                 request,
                 "admin/people/_region.html",
                 ctx,
-                headers=flash_trigger("success", body),
+                headers=flash_trigger("success", body, extra={"refreshDupBadge": True}),
             )
         # Duplicates-review-screen branch (existing).
         pairs = await _fetch_duplicate_pairs(db)
@@ -393,7 +387,7 @@ async def person_merge(
             request,
             "admin/people/_duplicates_region.html",
             ctx,
-            headers=flash_trigger("success", body),
+            headers=flash_trigger("success", body, extra={"refreshDupBadge": True}),
         )
     return RedirectResponse("/admin/people/duplicates/", status_code=303)
 
@@ -431,6 +425,8 @@ async def person_dismiss_duplicate(
             request,
             "admin/people/_duplicates_region.html",
             ctx,
-            headers=flash_trigger("info", "Pair marked as not a duplicate."),
+            headers=flash_trigger(
+                "info", "Pair marked as not a duplicate.", extra={"refreshDupBadge": True}
+            ),
         )
     return RedirectResponse("/admin/people/duplicates/", status_code=303)

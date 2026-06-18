@@ -6,7 +6,6 @@ import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 
-from src.api.admin.people_dups import get_person_dup_count
 from src.api.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
@@ -80,26 +79,22 @@ async def test_dashboard_shows_counts(client, seeded_counts):
     assert len(counts) == 5, f"Expected 5 count boxes, found: {counts}"
 
 
-async def test_dashboard_person_dup_badge_shown(client):
-    """Person dup count badge appears when get_person_dup_count returns > 0."""
-    app.dependency_overrides[get_person_dup_count] = lambda: 7
-    try:
-        resp = client.get("/admin/", headers=AUTH_HEADERS)
-    finally:
-        app.dependency_overrides.pop(get_person_dup_count, None)
+def test_dashboard_has_org_dup_badge_slot(client):
+    """Org dup badge loaded async; dashboard must contain the HTMX slot, not inline count."""
+    resp = client.get("/admin/", headers=AUTH_HEADERS)
     assert resp.status_code == 200
-    assert "7 duplicates" in resp.text
+    assert 'hx-get="/admin/_dup-badge/orgs/?variant=card"' in resp.text
+    assert 'hx-swap="innerHTML"' in resp.text
+    assert "org_dup_count" not in resp.text
 
 
-async def test_dashboard_person_dup_badge_hidden_when_zero(client):
-    """Person dup count badge is absent when get_person_dup_count returns 0."""
-    app.dependency_overrides[get_person_dup_count] = lambda: 0
-    try:
-        resp = client.get("/admin/", headers=AUTH_HEADERS)
-    finally:
-        app.dependency_overrides.pop(get_person_dup_count, None)
+def test_dashboard_has_person_dup_badge_slot(client):
+    """Person dup badge loaded async; dashboard must contain the HTMX slot, not inline count."""
+    resp = client.get("/admin/", headers=AUTH_HEADERS)
     assert resp.status_code == 200
-    assert "people/duplicates" not in resp.text
+    assert 'hx-get="/admin/_dup-badge/people/?variant=card"' in resp.text
+    assert 'hx-swap="innerHTML"' in resp.text
+    assert "person_dup_count" not in resp.text
 
 
 async def test_dashboard_routes_db_through_get_db_dep(client):

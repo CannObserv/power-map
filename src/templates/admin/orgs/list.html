@@ -10,12 +10,7 @@
   <h1>Organizations</h1>
   <a href="/admin/orgs/new/" class="btn btn--primary">+ Add organization</a>
 </div>
-{% if org_dup_count %}
-<div class="alert alert--notice" style="margin-bottom:var(--space-4);display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)">
-  <span>{{ org_dup_count }} possible duplicate organization{{ 's' if org_dup_count != 1 else '' }} — <a href="/admin/orgs/duplicates/">Review</a></span>
-  <button class="flash__close" aria-label="Dismiss" onclick="this.parentElement.remove()">×</button>
-</div>
-{% endif %}
+<div hx-get="/admin/_dup-badge/orgs/?variant=banner" hx-trigger="load, refreshDupBadge from:body" hx-swap="innerHTML"></div>
 <div class="filter-card">
   <input type="search" name="q" value="{{ q }}" placeholder="Search by name…"
          aria-label="Search organizations" class="filter-card__search"

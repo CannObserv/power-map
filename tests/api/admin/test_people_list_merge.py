@@ -205,6 +205,19 @@ async def test_merge_with_list_target_sends_flash(client, person_pair):
     assert "Xyzzy McMergeCandidate" in payload["showFlash"]["body"]
 
 
+async def test_merge_with_list_target_emits_refresh_dup_badge(client, person_pair):
+    """List-flow merge response must include refreshDupBadge in HX-Trigger."""
+    id_a, id_b = person_pair
+    response = client.post(
+        f"/admin/people/{id_a}/merge/{id_b}/",
+        headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/people/"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    trigger = json.loads(response.headers.get("HX-Trigger", "{}"))
+    assert "refreshDupBadge" in trigger
+
+
 # ── Filter-state preservation via HX-Current-URL ─────────────────────────────
 
 

@@ -16,10 +16,8 @@ from src.api.admin.deps import (
 )
 from src.api.admin.org_dups import (
     CANDIDATE_WHERE,
-    get_org_dup_count,
     invalidate_dup_count_cache,
 )
-from src.api.admin.people_dups import get_person_dup_count
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -331,8 +329,6 @@ async def orgs_duplicates(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List near-duplicate organization pairs for review."""
     pairs = await _fetch_duplicate_pairs(db)
@@ -340,8 +336,6 @@ async def orgs_duplicates(
         "user": user,
         "active_section": "orgs_duplicates",
         "pairs": pairs,
-        "org_dup_count": org_dup_count,
-        "person_dup_count": person_dup_count,
     }
     template = (
         "admin/orgs/_duplicates_region.html" if is_htmx(request) else "admin/orgs/duplicates.html"
@@ -383,7 +377,7 @@ async def org_merge(
             request,
             "admin/orgs/_duplicates_region.html",
             ctx,
-            headers=flash_trigger("success", body),
+            headers=flash_trigger("success", body, extra={"refreshDupBadge": True}),
         )
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
 
@@ -465,7 +459,9 @@ async def org_dismiss_duplicate(
             request,
             "admin/orgs/_duplicates_region.html",
             ctx,
-            headers=flash_trigger("info", "Pair marked as not a duplicate."),
+            headers=flash_trigger(
+                "info", "Pair marked as not a duplicate.", extra={"refreshDupBadge": True}
+            ),
         )
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
 

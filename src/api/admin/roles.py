@@ -13,9 +13,7 @@ from src.api.admin.deps import (
     is_htmx,
     resolve_query_flash,
 )
-from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.pagination import pagination_context
-from src.api.admin.people_dups import get_person_dup_count
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.core.db import generate_id
 
@@ -37,8 +35,6 @@ async def roles_list(
     page_size: int = Query(50, ge=10, le=500),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """List roles with title/org search and status filter."""
 
@@ -95,8 +91,6 @@ async def roles_list(
         "status": status,
         "page_size": page_size,
         "total": count,
-        "org_dup_count": org_dup_count,
-        "person_dup_count": person_dup_count,
         **pctx,
     }
     template = (
@@ -112,8 +106,6 @@ async def role_new_form(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
 ):
     """New role form."""
     orgs = await db.fetch(
@@ -130,8 +122,6 @@ async def role_new_form(
             "active_section": "roles",
             "role": None,
             "orgs": orgs,
-            "org_dup_count": org_dup_count,
-            "person_dup_count": person_dup_count,
         },
     )
 
@@ -190,8 +180,6 @@ async def role_detail(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-    org_dup_count: int = Depends(get_org_dup_count),
-    person_dup_count: int = Depends(get_person_dup_count),
     flash: str | None = Query(None),
 ):
     """Role detail view."""
@@ -220,8 +208,6 @@ async def role_detail(
             "role": role,
             "role_id": role_id,
             "assignments": assignments,
-            "org_dup_count": org_dup_count,
-            "person_dup_count": person_dup_count,
             "flash_msg": flash_msg,
         },
         headers=resp_headers,

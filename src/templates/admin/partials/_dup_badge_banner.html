@@ -1,0 +1,4 @@
+{% if count %}<div id="{{ entity_type }}-dup-banner" class="alert alert--notice" style="margin-bottom:var(--space-4);display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)">
+  <span>{{ count }} possible duplicate {{ 'person' if entity_type == 'people' else 'organization' }}{{ 's' if count != 1 else '' }} — <a href="{{ duplicates_url }}">Review</a></span>
+  <button class="flash__close" aria-label="Dismiss" onclick="this.parentElement.remove()">×</button>
+</div>{% endif %}

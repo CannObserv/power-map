@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 
 from src.api.admin import activity as activity_module
 from src.api.admin import dashboard as dashboard_module
+from src.api.admin import dup_badges as dup_badges_module
 from src.api.admin import entities as entities_module
 from src.api.admin import imports as imports_module
 from src.api.admin import orgs as orgs_module
@@ -41,6 +42,7 @@ from src.api.admin import settings_link_types as settings_link_types_module
 templates = Jinja2Templates(directory="src/templates")
 admin_router = APIRouter(prefix="/admin")
 
+admin_router.include_router(dup_badges_module.router)
 admin_router.include_router(dashboard_module.router)
 admin_router.include_router(entities_module.router)
 admin_router.include_router(imports_module.router)
