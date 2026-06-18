@@ -11,7 +11,12 @@ pytestmark = [
 @pytest_asyncio.fixture(loop_scope="session")
 async def db(db_pool):
     async with db_pool.acquire() as conn:
-        yield conn
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 @pytest.mark.parametrize(

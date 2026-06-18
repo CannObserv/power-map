@@ -28,16 +28,39 @@ async def _fetch_duplicate_pairs(db) -> list:
     """Return near-duplicate org pairs; empty list if pg_trgm not installed."""
     try:
         return await db.fetch(
-            f"""SELECT
-                a.id AS a_id, dn_a.name AS a_name, a.created_at AS a_created,
-                b.id AS b_id, dn_b.name AS b_name, b.created_at AS b_created,
-                similarity(dn_a.name, dn_b.name) AS score,
-                (SELECT count(*) FROM roles
-                 WHERE organization_id = a.id AND archived_at IS NULL) AS a_roles,
-                (SELECT count(*) FROM roles
-                 WHERE organization_id = b.id AND archived_at IS NULL) AS b_roles
-            {CANDIDATE_WHERE}
-            ORDER BY score DESC"""
+            f"""WITH cands AS (
+                SELECT
+                    a.id AS a_id, dn_a.name AS a_name_raw, a.created_at AS a_created,
+                    b.id AS b_id, dn_b.name AS b_name_raw, b.created_at AS b_created,
+                    similarity(dn_a.name, dn_b.name) AS score,
+                    (SELECT count(*) FROM roles
+                     WHERE organization_id = a.id AND archived_at IS NULL) AS a_roles,
+                    (SELECT count(*) FROM roles
+                     WHERE organization_id = b.id AND archived_at IS NULL) AS b_roles
+                {CANDIDATE_WHERE}
+            )
+            SELECT
+                cands.a_id,
+                COALESCE(
+                    cands.a_name_raw || ' (' || acr_a.acronym || ')',
+                    cands.a_name_raw
+                ) AS a_name,
+                cands.a_created,
+                cands.b_id,
+                COALESCE(
+                    cands.b_name_raw || ' (' || acr_b.acronym || ')',
+                    cands.b_name_raw
+                ) AS b_name,
+                cands.b_created,
+                cands.score,
+                cands.a_roles,
+                cands.b_roles
+            FROM cands
+            LEFT JOIN organization_acronyms acr_a
+                ON acr_a.organization_id = cands.a_id AND acr_a.is_canonical = TRUE
+            LEFT JOIN organization_acronyms acr_b
+                ON acr_b.organization_id = cands.b_id AND acr_b.is_canonical = TRUE
+            ORDER BY cands.score DESC"""
         )
     except asyncpg.exceptions.UndefinedFunctionError:
         return []

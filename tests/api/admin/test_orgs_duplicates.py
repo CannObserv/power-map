@@ -710,6 +710,59 @@ async def org_pair_with_shared_link(db_pool):
             await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
 
 
+@pytest_asyncio.fixture(loop_scope="session")
+async def org_pair_with_acronym(db_pool):
+    """Near-duplicate orgs where one has a canonical acronym; yields (id_a, id_b)."""
+    id_a, id_b = generate_id(), generate_id()
+    if id_a > id_b:
+        id_a, id_b = id_b, id_a
+
+    async with db_pool.acquire() as conn:
+        for oid, name in [
+            (id_a, "Cannabis Regulatory Agency of Ontario"),
+            (id_b, "Cannabis Regulatory Agency Ontario"),
+        ]:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(),
+                oid,
+                name,
+            )
+        # Give id_a a canonical acronym
+        await conn.execute(
+            "INSERT INTO organization_acronyms"
+            " (id, organization_id, acronym, is_canonical)"
+            " VALUES ($1, $2, 'CRAO', TRUE)",
+            generate_id(),
+            id_a,
+        )
+
+    yield id_a, id_b
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_a_id=$1 OR entity_b_id=$1"
+            " OR entity_a_id=$2 OR entity_b_id=$2",
+            id_a,
+            id_b,
+        )
+        for oid in [id_a, id_b]:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id=$1", oid)
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+
+async def test_duplicates_list_shows_acronym_for_org_with_acronym(client, org_pair_with_acronym):
+    """Org with a canonical acronym must show 'Name (ACRONYM)' on the dups review page."""
+    response = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "CRAO" in response.text
+
+
 async def test_org_merge_deduplicates_shared_link(client, org_pair_with_shared_link, db_pool):
     """Merging two orgs that share a link URL must not 500 on uq_links_entity_url."""
     winner_id, loser_id = org_pair_with_shared_link
