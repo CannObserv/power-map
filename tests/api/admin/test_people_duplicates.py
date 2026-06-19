@@ -771,10 +771,11 @@ async def person_pair_legal_only_match(db_pool):
     """Person A has a legal_only name that matches B's canonical; should be detected.
 
     legal_only names participate in dup detection (only 'hidden' is excluded).
+    Names are distinct from person_pair_hidden_match to avoid cross-fixture pairs.
 
-    A canonical: "John Adams"    (no similarity with B canonical)
-    A legal_only: "Jane Miller"  (exact match with B canonical, visibility='legal_only')
-    B canonical:  "Jane Miller"
+    A canonical: "Peter Wimsey"     (no similarity with B canonical)
+    A legal_only: "Harriet Vane"    (exact match with B canonical, visibility='legal_only')
+    B canonical:  "Harriet Vane"
     """
     id_a, id_b = generate_id(), generate_id()
     if id_a > id_b:
@@ -785,19 +786,19 @@ async def person_pair_legal_only_match(db_pool):
             await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
         await conn.execute(
             "INSERT INTO person_names (id, person_id, name, is_canonical)"
-            " VALUES ($1, $2, 'John Adams', TRUE)",
+            " VALUES ($1, $2, 'Peter Wimsey', TRUE)",
             generate_id(),
             id_a,
         )
         await conn.execute(
             "INSERT INTO person_names (id, person_id, name, is_canonical, visibility)"
-            " VALUES ($1, $2, 'Jane Miller', FALSE, 'legal_only')",
+            " VALUES ($1, $2, 'Harriet Vane', FALSE, 'legal_only')",
             generate_id(),
             id_a,
         )
         await conn.execute(
             "INSERT INTO person_names (id, person_id, name, is_canonical)"
-            " VALUES ($1, $2, 'Jane Miller', TRUE)",
+            " VALUES ($1, $2, 'Harriet Vane', TRUE)",
             generate_id(),
             id_b,
         )

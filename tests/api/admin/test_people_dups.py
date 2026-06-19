@@ -90,9 +90,7 @@ class TestCountPersonDuplicates:
         db = _make_db_miss(1)
         await count_person_duplicates(db)
         sql = db.fetchval.await_args[0][0]
-        assert "DISTINCT" in sql.upper()
-        assert "a.id" in sql
-        assert "b.id" in sql
+        assert "FROM (SELECT DISTINCT a.id, b.id" in sql
 
 
 class TestInvalidateDupCountCache:
