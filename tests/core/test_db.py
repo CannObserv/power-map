@@ -4,13 +4,20 @@ import logging
 import os
 import re
 from typing import get_args
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
 import pytest_asyncio
 
 import src.core.db as db_module
-from src.core.db import _warn_if_lookup_tables_unseeded, apply_schema, generate_id
+from src.core.db import (
+    _is_non_unique_create_index,
+    _parse_schema_statements,
+    _warn_if_lookup_tables_unseeded,
+    apply_schema,
+    generate_id,
+)
 from src.core.types import PersonNameVisibility
 
 # ---------------------------------------------------------------------------
@@ -157,3 +164,228 @@ async def test_warn_silent_when_both_lookup_tables_seeded(db_conn, caplog):
         and ("bcp47_locales" in r.getMessage() or "iso15924_scripts" in r.getMessage())
     ]
     assert not lookup_warnings, f"unexpected warning(s): {lookup_warnings}"
+
+
+# ---------------------------------------------------------------------------
+# _parse_schema_statements — unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_parse_schema_statements_basic():
+    sql = "CREATE TABLE foo (id INT);\nCREATE INDEX idx_foo ON foo (id);"
+    stmts = _parse_schema_statements(sql)
+    assert len(stmts) == 2
+    assert "CREATE TABLE" in stmts[0]
+    assert "CREATE INDEX" in stmts[1]
+
+
+def test_parse_schema_statements_dollar_quote():
+    """Semicolons inside dollar-quoted bodies must not split the statement."""
+    sql = "DO $$ BEGIN RAISE NOTICE 'hi;there'; END $$;\nCREATE TABLE t (id INT);"
+    stmts = _parse_schema_statements(sql)
+    assert len(stmts) == 2
+    assert stmts[0].startswith("DO $$")
+    assert "CREATE TABLE" in stmts[1]
+
+
+def test_parse_schema_statements_skips_empty():
+    sql = "CREATE TABLE t (id INT);;\n  ;\nCREATE INDEX idx ON t (id);"
+    stmts = _parse_schema_statements(sql)
+    assert len(stmts) == 2
+
+
+def test_parse_schema_statements_semicolon_in_line_comment():
+    """A semicolon inside a -- comment must not split the statement."""
+    sql = "-- slug is unique; see docs\nCREATE TABLE t (id INT);\nCREATE INDEX idx ON t (id);"
+    stmts = _parse_schema_statements(sql)
+    assert len(stmts) == 2
+    assert "CREATE TABLE" in stmts[0]
+    assert "CREATE INDEX" in stmts[1]
+
+
+def test_parse_schema_statements_semicolon_in_string_literal():
+    """A semicolon inside a single-quoted string must not split the statement."""
+    sql = "INSERT INTO t (v) VALUES ('a;b');\nCREATE INDEX idx ON t (v);"
+    stmts = _parse_schema_statements(sql)
+    assert len(stmts) == 2
+    assert "INSERT" in stmts[0]
+
+
+def test_parse_schema_statements_named_dollar_tag():
+    sql = "DO $body$ BEGIN NULL; END $body$;\nCREATE TABLE t2 (id INT);"
+    stmts = _parse_schema_statements(sql)
+    assert len(stmts) == 2
+    assert stmts[0].startswith("DO $body$")
+
+
+# ---------------------------------------------------------------------------
+# _is_non_unique_create_index — unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_is_non_unique_create_index_plain():
+    assert _is_non_unique_create_index("CREATE INDEX idx_foo ON t (c)")
+
+
+def test_is_non_unique_create_index_if_not_exists():
+    assert _is_non_unique_create_index("CREATE INDEX IF NOT EXISTS idx_foo ON t (c)")
+
+
+def test_is_non_unique_create_index_rejects_unique():
+    assert not _is_non_unique_create_index("CREATE UNIQUE INDEX uq_foo ON t (c)")
+
+
+def test_is_non_unique_create_index_rejects_table():
+    assert not _is_non_unique_create_index("CREATE TABLE foo (id INT)")
+
+
+def test_is_non_unique_create_index_rejects_trigger():
+    assert not _is_non_unique_create_index("CREATE TRIGGER trg AFTER INSERT ON t ...")
+
+
+def test_is_non_unique_create_index_case_insensitive():
+    assert _is_non_unique_create_index("create index idx_lower ON t (c)")
+
+
+# ---------------------------------------------------------------------------
+# apply_schema — concurrent index behaviour (unit, via mock)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_apply_schema_sends_concurrently_for_non_unique_indexes():
+    """Non-unique CREATE INDEX statements must be rewritten with CONCURRENTLY.
+
+    Phase 1 is one batched execute call (transactional DDL joined).
+    Phase 2 calls are one-per-index, each containing CONCURRENTLY.
+    """
+    sql = (
+        "CREATE TABLE t (id INT);\n"
+        "CREATE UNIQUE INDEX uq_t ON t (id);\n"
+        "CREATE INDEX IF NOT EXISTS idx_t ON t (id);"
+    )
+    captured: list[str] = []
+
+    class FakeTx:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    mock_conn = MagicMock()
+    mock_conn.transaction.return_value = FakeTx()
+    mock_conn.execute = AsyncMock(side_effect=lambda stmt: captured.append(stmt))
+    mock_conn.fetchval = AsyncMock(return_value=1)  # lookup tables "seeded"
+
+    with patch.object(db_module, "SCHEMA_PATH") as mock_path:
+        mock_path.read_text.return_value = sql
+        await apply_schema(mock_conn)
+
+    # Phase 2 execute calls: individual statements, each CREATE INDEX CONCURRENTLY
+    # Phase 1 is a single batch call (joined string); find phase-2 calls by being
+    # shorter (one statement each, not containing newlines joining multiple stmts).
+    # Simpler: any call that is purely a single CREATE INDEX statement.
+    phase2_calls = [
+        s for s in captured if re.match(r"\s*CREATE INDEX CONCURRENTLY\b", s, re.IGNORECASE)
+    ]
+    assert phase2_calls, "expected at least one CREATE INDEX CONCURRENTLY call in phase 2"
+
+    # UNIQUE INDEX must not appear in any phase-2 call
+    for stmt in phase2_calls:
+        assert "UNIQUE" not in stmt.upper(), f"UNIQUE INDEX must not appear in phase-2: {stmt!r}"
+
+
+@pytest.mark.asyncio
+async def test_apply_schema_unique_index_stays_in_transaction():
+    """UNIQUE INDEX stays in the transactional batch; non-unique goes CONCURRENTLY after."""
+    sql = (
+        "CREATE TABLE t (id INT);\n"
+        "CREATE UNIQUE INDEX uq_t ON t (id);\n"
+        "CREATE INDEX idx_t ON t (id);"
+    )
+    phase1_sql: list[str] = []
+    phase2_calls: list[str] = []
+    in_transaction = False
+
+    class FakeTx:
+        async def __aenter__(self):
+            nonlocal in_transaction
+            in_transaction = True
+            return self
+
+        async def __aexit__(self, *_):
+            nonlocal in_transaction
+            in_transaction = False
+
+    async def capture_execute(stmt: str) -> None:
+        if in_transaction:
+            phase1_sql.append(stmt)
+        else:
+            phase2_calls.append(stmt)
+
+    mock_conn = MagicMock()
+    mock_conn.transaction.return_value = FakeTx()
+    mock_conn.execute = AsyncMock(side_effect=capture_execute)
+    mock_conn.fetchval = AsyncMock(return_value=1)
+
+    with patch.object(db_module, "SCHEMA_PATH") as mock_path:
+        mock_path.read_text.return_value = sql
+        await apply_schema(mock_conn)
+
+    # Phase 1: one batched call containing the UNIQUE INDEX
+    assert len(phase1_sql) == 1, "Phase 1 must be a single batched execute call"
+    assert "UNIQUE" in phase1_sql[0].upper(), "UNIQUE INDEX must be in the phase-1 batch"
+
+    # Phase 2: non-unique index, with CONCURRENTLY, no UNIQUE
+    assert phase2_calls, "expected phase-2 calls for non-unique CREATE INDEX"
+    assert not any("UNIQUE" in s.upper() for s in phase2_calls), (
+        "UNIQUE INDEX must not appear in phase-2"
+    )
+    assert all("CONCURRENTLY" in s.upper() for s in phase2_calls), (
+        "all phase-2 CREATE INDEX calls must contain CONCURRENTLY"
+    )
+
+
+# ---------------------------------------------------------------------------
+# apply_schema — concurrent index on non-empty table (integration)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_apply_schema_concurrent_index_on_non_empty_table():
+    """CONCURRENTLY index build succeeds with existing rows and is idempotent."""
+    dsn = os.environ.get("TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("TEST_DATABASE_URL not set")
+
+    conn = await asyncpg.connect(dsn)
+    try:
+        # Scratch table + index — isolated from schema.sql to avoid side effects
+        await conn.execute("DROP TABLE IF EXISTS _test_concurrent_idx_target")
+        await conn.execute(
+            "CREATE TABLE _test_concurrent_idx_target (id SERIAL PRIMARY KEY, val INT)"
+        )
+        await conn.execute(
+            "INSERT INTO _test_concurrent_idx_target (val) SELECT g FROM generate_series(1, 100) g"
+        )
+
+        # Simulate the concurrent-index phase directly
+        await conn.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS _test_concurrent_idx"
+            " ON _test_concurrent_idx_target (val)"
+        )
+
+        exists = await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = '_test_concurrent_idx')"
+        )
+        assert exists, "index not found in pg_indexes after CONCURRENTLY build"
+
+        # Idempotency — second call must not raise
+        await conn.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS _test_concurrent_idx"
+            " ON _test_concurrent_idx_target (val)"
+        )
+    finally:
+        await conn.execute("DROP TABLE IF EXISTS _test_concurrent_idx_target")
+        await conn.close()
