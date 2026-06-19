@@ -277,6 +277,7 @@ async def test_apply_schema_sends_concurrently_for_non_unique_indexes():
     mock_conn.transaction.return_value = FakeTx()
     mock_conn.execute = AsyncMock(side_effect=lambda stmt: captured.append(stmt))
     mock_conn.fetchval = AsyncMock(return_value=1)  # lookup tables "seeded"
+    mock_conn.is_in_transaction.return_value = False
 
     with patch.object(db_module, "SCHEMA_PATH") as mock_path:
         mock_path.read_text.return_value = sql
@@ -328,6 +329,7 @@ async def test_apply_schema_unique_index_stays_in_transaction():
     mock_conn.transaction.return_value = FakeTx()
     mock_conn.execute = AsyncMock(side_effect=capture_execute)
     mock_conn.fetchval = AsyncMock(return_value=1)
+    mock_conn.is_in_transaction.return_value = False
 
     with patch.object(db_module, "SCHEMA_PATH") as mock_path:
         mock_path.read_text.return_value = sql
@@ -345,6 +347,44 @@ async def test_apply_schema_unique_index_stays_in_transaction():
     assert all("CONCURRENTLY" in s.upper() for s in phase2_calls), (
         "all phase-2 CREATE INDEX calls must contain CONCURRENTLY"
     )
+
+
+@pytest.mark.asyncio
+async def test_apply_schema_falls_back_when_inside_transaction():
+    """When conn is already in a transaction, Phase 2 uses plain CREATE INDEX (no CONCURRENTLY)."""
+    sql = "CREATE TABLE t (id INT);\nCREATE INDEX idx_t ON t (id);"
+    phase2_calls: list[str] = []
+    in_transaction = False
+
+    class FakeTx:
+        async def __aenter__(self):
+            nonlocal in_transaction
+            in_transaction = True
+            return self
+
+        async def __aexit__(self, *_):
+            nonlocal in_transaction
+            in_transaction = False
+
+    async def capture_execute(stmt: str) -> None:
+        if not in_transaction:
+            phase2_calls.append(stmt)
+
+    mock_conn = MagicMock()
+    mock_conn.transaction.return_value = FakeTx()
+    mock_conn.execute = AsyncMock(side_effect=capture_execute)
+    mock_conn.fetchval = AsyncMock(return_value=1)
+    mock_conn.is_in_transaction.return_value = True  # simulate pre-existing outer transaction
+
+    with patch.object(db_module, "SCHEMA_PATH") as mock_path:
+        mock_path.read_text.return_value = sql
+        await apply_schema(mock_conn)
+
+    assert phase2_calls, "expected a phase-2 call"
+    for stmt in phase2_calls:
+        assert "CONCURRENTLY" not in stmt.upper(), (
+            f"must not use CONCURRENTLY inside a transaction: {stmt!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

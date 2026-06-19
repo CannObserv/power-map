@@ -180,7 +180,10 @@ async def apply_schema(conn: asyncpg.Connection) -> None:
     ``IF NOT EXISTS`` semantics are preserved — already-present indexes are
     skipped without error.  If a concurrent build fails the database is still
     structurally sound; re-running ``apply_schema`` retries only the missing
-    indexes.
+    indexes.  When called on a connection that is already inside an active
+    transaction (e.g., test fixtures), Phase 2 falls back to plain
+    ``CREATE INDEX`` — ``IF NOT EXISTS`` makes it a no-op for any index that
+    already exists.
 
     The BCP 47 / ISO 15924 lookup tables (``bcp47_locales``,
     ``iso15924_scripts``) are created but left empty here — seeding them
@@ -203,16 +206,22 @@ async def apply_schema(conn: asyncpg.Connection) -> None:
     async with conn.transaction():
         await conn.execute(";\n".join(transactional))
 
-    # Phase 2: non-unique indexes outside any transaction (CONCURRENTLY).
+    # Phase 2: non-unique indexes.
+    # CONCURRENTLY requires the connection to be outside any transaction block.
+    # When called inside an existing transaction (e.g., test fixtures that wrap
+    # the connection in a rollback), fall back to plain CREATE INDEX — indexes
+    # are already present in that case so IF NOT EXISTS makes it a no-op.
+    use_concurrently = not conn.is_in_transaction()
     for stmt in concurrent:
-        concurrent_stmt = re.sub(
-            r"\bCREATE\s+INDEX\b",
-            "CREATE INDEX CONCURRENTLY",
-            stmt,
-            count=1,
-            flags=re.IGNORECASE,
-        )
-        await conn.execute(concurrent_stmt)
+        if use_concurrently:
+            stmt = re.sub(
+                r"\bCREATE\s+INDEX\b",
+                "CREATE INDEX CONCURRENTLY",
+                stmt,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        await conn.execute(stmt)
 
     await _warn_if_lookup_tables_unseeded(conn)
 
