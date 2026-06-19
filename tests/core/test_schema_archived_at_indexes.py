@@ -36,11 +36,11 @@ async def test_archived_at_partial_index_exists(db, table, index_name):
         FROM pg_indexes
         WHERE tablename = $1
           AND indexname = $2
+          AND indexdef ILIKE '%archived_at is null%'
         """,
         table,
         index_name,
     )
-    assert row is not None, f"missing partial index {index_name} on {table}"
-    assert "archived_at IS NULL" in row["indexdef"], (
-        f"index {index_name} on {table} must be partial WHERE archived_at IS NULL"
+    assert row is not None, (
+        f"missing partial index {index_name} on {table} WHERE archived_at IS NULL"
     )
