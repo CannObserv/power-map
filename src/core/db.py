@@ -214,9 +214,20 @@ async def apply_schema(conn: asyncpg.Connection) -> None:
     use_concurrently = not conn.is_in_transaction()
     for stmt in concurrent:
         if use_concurrently:
+            # Negative lookahead guards against doubling if the source statement
+            # already carries CONCURRENTLY (e.g. a future schema.sql edit).
             stmt = re.sub(
-                r"\bCREATE\s+INDEX\b",
+                r"\bCREATE\s+INDEX(?!\s+CONCURRENTLY)\b",
                 "CREATE INDEX CONCURRENTLY",
+                stmt,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        else:
+            # Strip CONCURRENTLY when falling back inside a transaction.
+            stmt = re.sub(
+                r"\bCREATE\s+INDEX\s+CONCURRENTLY\b",
+                "CREATE INDEX",
                 stmt,
                 count=1,
                 flags=re.IGNORECASE,

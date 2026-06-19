@@ -247,6 +247,11 @@ def test_is_non_unique_create_index_case_insensitive():
     assert _is_non_unique_create_index("create index idx_lower ON t (c)")
 
 
+def test_is_non_unique_create_index_already_concurrently():
+    """CREATE INDEX CONCURRENTLY is still a non-unique index — must route to Phase 2."""
+    assert _is_non_unique_create_index("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx ON t (c)")
+
+
 # ---------------------------------------------------------------------------
 # apply_schema — concurrent index behaviour (unit, via mock)
 # ---------------------------------------------------------------------------
@@ -351,8 +356,16 @@ async def test_apply_schema_unique_index_stays_in_transaction():
 
 @pytest.mark.asyncio
 async def test_apply_schema_falls_back_when_inside_transaction():
-    """When conn is already in a transaction, Phase 2 uses plain CREATE INDEX (no CONCURRENTLY)."""
-    sql = "CREATE TABLE t (id INT);\nCREATE INDEX idx_t ON t (id);"
+    """When conn is already in a transaction, Phase 2 uses plain CREATE INDEX.
+
+    Covers both plain CREATE INDEX (must stay plain) and CREATE INDEX CONCURRENTLY
+    already in the source (must have CONCURRENTLY stripped — finding #4 guard).
+    """
+    sql = (
+        "CREATE TABLE t (id INT);\n"
+        "CREATE INDEX idx_t ON t (id);\n"
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t2 ON t (id);"
+    )
     phase2_calls: list[str] = []
     in_transaction = False
 
@@ -380,11 +393,47 @@ async def test_apply_schema_falls_back_when_inside_transaction():
         mock_path.read_text.return_value = sql
         await apply_schema(mock_conn)
 
-    assert phase2_calls, "expected a phase-2 call"
+    assert len(phase2_calls) == 2, f"expected 2 phase-2 calls, got {phase2_calls}"
     for stmt in phase2_calls:
         assert "CONCURRENTLY" not in stmt.upper(), (
             f"must not use CONCURRENTLY inside a transaction: {stmt!r}"
         )
+
+
+@pytest.mark.asyncio
+async def test_apply_schema_no_concurrently_doubling():
+    """Phase 2 must not produce CREATE INDEX CONCURRENTLY CONCURRENTLY.
+
+    Guards against re.sub doubling if schema.sql ever contains CREATE INDEX CONCURRENTLY
+    directly (finding #1 guard).
+    """
+    sql = "CREATE TABLE t (id INT);\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t ON t (id);"
+    captured: list[str] = []
+
+    class FakeTx:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+    mock_conn = MagicMock()
+    mock_conn.transaction.return_value = FakeTx()
+    mock_conn.execute = AsyncMock(side_effect=lambda stmt: captured.append(stmt))
+    mock_conn.fetchval = AsyncMock(return_value=1)
+    mock_conn.is_in_transaction.return_value = False
+
+    with patch.object(db_module, "SCHEMA_PATH") as mock_path:
+        mock_path.read_text.return_value = sql
+        await apply_schema(mock_conn)
+
+    phase2_calls = [s for s in captured if "CONCURRENTLY" in s.upper()]
+    assert phase2_calls, "expected at least one CONCURRENTLY call"
+    for stmt in phase2_calls:
+        upper = stmt.upper()
+        first = upper.find("CONCURRENTLY")
+        second = upper.find("CONCURRENTLY", first + 1)
+        assert second == -1, f"CONCURRENTLY appears twice in phase-2 stmt: {stmt!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +448,8 @@ async def test_apply_schema_concurrent_index_on_non_empty_table():
     if not dsn:
         pytest.skip("TEST_DATABASE_URL not set")
 
+    # Raw connection required: CONCURRENTLY cannot run inside a transaction, so the
+    # db_conn session fixture (which wraps in a rollback transaction) cannot be used.
     conn = await asyncpg.connect(dsn)
     try:
         # Scratch table + index — isolated from schema.sql to avoid side effects
