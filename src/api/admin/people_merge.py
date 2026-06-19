@@ -75,15 +75,18 @@ async def _fetch_duplicate_pairs(db) -> list:
     """Return near-duplicate person pairs; empty list if pg_trgm not installed."""
     try:
         return await db.fetch(
-            f"""SELECT
-                a.id AS a_id, dn_a.name AS a_name, a.created_at AS a_created,
-                b.id AS b_id, dn_b.name AS b_name, b.created_at AS b_created,
-                similarity(dn_a.name, dn_b.name) AS score,
-                (SELECT count(*) FROM role_assignments
-                 WHERE person_id = a.id AND archived_at IS NULL) AS a_roles,
-                (SELECT count(*) FROM role_assignments
-                 WHERE person_id = b.id AND archived_at IS NULL) AS b_roles
-            {CANDIDATE_WHERE}
+            f"""SELECT * FROM (
+                SELECT DISTINCT ON (a.id, b.id)
+                    a.id AS a_id, dn_a.name AS a_name, a.created_at AS a_created,
+                    b.id AS b_id, dn_b.name AS b_name, b.created_at AS b_created,
+                    similarity(dn_a.name, dn_b.name) AS score,
+                    (SELECT count(*) FROM role_assignments
+                     WHERE person_id = a.id AND archived_at IS NULL) AS a_roles,
+                    (SELECT count(*) FROM role_assignments
+                     WHERE person_id = b.id AND archived_at IS NULL) AS b_roles
+                {CANDIDATE_WHERE}
+                ORDER BY a.id, b.id, similarity(dn_a.name, dn_b.name) DESC
+            ) sub
             ORDER BY score DESC"""
         )
     except asyncpg.exceptions.UndefinedFunctionError:

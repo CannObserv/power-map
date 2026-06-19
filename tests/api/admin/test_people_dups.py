@@ -85,6 +85,15 @@ class TestCountPersonDuplicates:
         await count_person_duplicates(db)
         assert "person" in str(db.execute.await_args)
 
+    async def test_count_query_uses_distinct_for_pair_deduplication(self):
+        """SQL must wrap DISTINCT a.id, b.id to avoid count inflation from multi-name joins."""
+        db = _make_db_miss(1)
+        await count_person_duplicates(db)
+        sql = db.fetchval.await_args[0][0]
+        assert "DISTINCT" in sql.upper()
+        assert "a.id" in sql
+        assert "b.id" in sql
+
 
 class TestInvalidateDupCountCache:
     async def test_executes_db_update(self):

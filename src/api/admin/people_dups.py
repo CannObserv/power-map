@@ -14,10 +14,10 @@ CANDIDATE_WHERE = """
     JOIN people b ON b.id > a.id
     JOIN person_names dn_a
         ON dn_a.person_id = a.id
-       AND dn_a.is_canonical = TRUE AND dn_a.visibility = 'public'
+       AND dn_a.visibility != 'hidden'
     JOIN person_names dn_b
         ON dn_b.person_id = b.id
-       AND dn_b.is_canonical = TRUE AND dn_b.visibility = 'public'
+       AND dn_b.visibility != 'hidden'
     WHERE a.archived_at IS NULL AND b.archived_at IS NULL
       AND similarity(dn_a.name, dn_b.name) > 0.85
       AND NOT EXISTS (
@@ -52,7 +52,9 @@ async def count_person_duplicates(db) -> int:
     )
     if row and row["expires_at"] > datetime.now(UTC):
         return row["count"]
-    count = await db.fetchval(f"SELECT count(*) {CANDIDATE_WHERE}")
+    count = await db.fetchval(
+        f"SELECT count(*) FROM (SELECT DISTINCT a.id, b.id {CANDIDATE_WHERE}) sub"
+    )
     await db.execute(
         """INSERT INTO dup_count_cache (entity_type, count, expires_at)
            VALUES ($1, $2, now() + $3)

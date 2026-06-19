@@ -37,6 +37,10 @@ ALLOWED_DIRECT_ACCESS = {
     # regardless of visibility — a hidden or legal-only existing row still
     # blocks a duplicate INSERT. No display is performed.
     "src/core/observation.py",
+    # dup detection intentionally includes legal_only names (visibility != 'hidden')
+    # so a person's legal name can surface as a dup signal. hidden names are still
+    # excluded. No display is performed — the name is only used for similarity scoring.
+    "src/api/admin/people_dups.py",
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

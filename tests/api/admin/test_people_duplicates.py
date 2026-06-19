@@ -594,3 +594,232 @@ async def test_merge_deduplicates_shared_link(client, person_pair_with_shared_li
             winner_id,
         )
     assert count == 1
+
+
+# ── All-names dup detection ───────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_pair_alternate_match(db_pool):
+    """Person A has a non-canonical public alternate that matches B's canonical.
+
+    A canonical: "Jordan Fitzgerald Marsh"  (similarity ~0.46 vs B canonical — no match)
+    A alternate: "Jordan Marsh"             (similarity 1.0 vs B canonical — match)
+    B canonical: "Jordan Marsh"
+    """
+    id_a, id_b = generate_id(), generate_id()
+    if id_a > id_b:
+        id_a, id_b = id_b, id_a
+
+    async with db_pool.acquire() as conn:
+        for pid in [id_a, id_b]:
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Jordan Fitzgerald Marsh', TRUE)",
+            generate_id(),
+            id_a,
+        )
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Jordan Marsh', FALSE)",
+            generate_id(),
+            id_a,
+        )
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Jordan Marsh', TRUE)",
+            generate_id(),
+            id_b,
+        )
+
+    yield id_a, id_b
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_a_id=$1 OR entity_b_id=$1"
+            " OR entity_a_id=$2 OR entity_b_id=$2",
+            id_a,
+            id_b,
+        )
+        for pid in [id_a, id_b]:
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_alternate_name_match_detected(client, person_pair_alternate_match):
+    """Pair where only an alternate name matches the other canonical must be surfaced."""
+    id_a, id_b = person_pair_alternate_match
+    response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert f"/admin/people/{id_a}/merge/{id_b}/" in response.text
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_pair_multi_name(db_pool):
+    """Both people carry two public names that all cross-match above 0.85.
+
+    Without DISTINCT the query returns 4 rows for this single pair.
+    Names are deliberately distinct from other fixtures to avoid cross-fixture pair detection.
+    A canonical: "Tiberius Blackwood",    A alternate: "Tiberius Blackwood Jr"
+    B canonical: "Tiberius Blackwood",    B alternate: "Tiberius Blackwood Jr"
+    """
+    id_a, id_b = generate_id(), generate_id()
+    if id_a > id_b:
+        id_a, id_b = id_b, id_a
+
+    async with db_pool.acquire() as conn:
+        for pid in [id_a, id_b]:
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+            await conn.execute(
+                "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Tiberius Blackwood', TRUE)",
+                generate_id(),
+                pid,
+            )
+            await conn.execute(
+                "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Tiberius Blackwood Jr', FALSE)",
+                generate_id(),
+                pid,
+            )
+
+    yield id_a, id_b
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_a_id=$1 OR entity_b_id=$1"
+            " OR entity_a_id=$2 OR entity_b_id=$2",
+            id_a,
+            id_b,
+        )
+        for pid in [id_a, id_b]:
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_multi_name_pair_appears_once(client, person_pair_multi_name):
+    """Pair with multiple matching name combinations must appear exactly once in the list."""
+    id_a, id_b = person_pair_multi_name
+    response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    # Each pair card renders this merge URL exactly once; count > 1 means duplicate rows
+    assert response.text.count(f"/admin/people/{id_a}/merge/{id_b}/") == 1
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_pair_hidden_match(db_pool):
+    """Person A has a hidden name that matches B's canonical; should not be detected.
+
+    A canonical: "John Adams"   (no similarity with B canonical)
+    A hidden:    "Jane Miller"  (exact match with B canonical, but visibility='hidden')
+    B canonical: "Jane Miller"
+    """
+    id_a, id_b = generate_id(), generate_id()
+    if id_a > id_b:
+        id_a, id_b = id_b, id_a
+
+    async with db_pool.acquire() as conn:
+        for pid in [id_a, id_b]:
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical)"
+            " VALUES ($1, $2, 'John Adams', TRUE)",
+            generate_id(),
+            id_a,
+        )
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical, visibility)"
+            " VALUES ($1, $2, 'Jane Miller', FALSE, 'hidden')",
+            generate_id(),
+            id_a,
+        )
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Jane Miller', TRUE)",
+            generate_id(),
+            id_b,
+        )
+
+    yield id_a, id_b
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_a_id=$1 OR entity_b_id=$1"
+            " OR entity_a_id=$2 OR entity_b_id=$2",
+            id_a,
+            id_b,
+        )
+        for pid in [id_a, id_b]:
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_hidden_name_not_detected(client, person_pair_hidden_match):
+    """Match via a hidden name must not surface the pair."""
+    id_a, id_b = person_pair_hidden_match
+    response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert f"/admin/people/{id_a}/merge/{id_b}/" not in response.text
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_pair_legal_only_match(db_pool):
+    """Person A has a legal_only name that matches B's canonical; should be detected.
+
+    legal_only names participate in dup detection (only 'hidden' is excluded).
+
+    A canonical: "John Adams"    (no similarity with B canonical)
+    A legal_only: "Jane Miller"  (exact match with B canonical, visibility='legal_only')
+    B canonical:  "Jane Miller"
+    """
+    id_a, id_b = generate_id(), generate_id()
+    if id_a > id_b:
+        id_a, id_b = id_b, id_a
+
+    async with db_pool.acquire() as conn:
+        for pid in [id_a, id_b]:
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical)"
+            " VALUES ($1, $2, 'John Adams', TRUE)",
+            generate_id(),
+            id_a,
+        )
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical, visibility)"
+            " VALUES ($1, $2, 'Jane Miller', FALSE, 'legal_only')",
+            generate_id(),
+            id_a,
+        )
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Jane Miller', TRUE)",
+            generate_id(),
+            id_b,
+        )
+
+    yield id_a, id_b
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_a_id=$1 OR entity_b_id=$1"
+            " OR entity_a_id=$2 OR entity_b_id=$2",
+            id_a,
+            id_b,
+        )
+        for pid in [id_a, id_b]:
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_legal_only_name_detected(client, person_pair_legal_only_match):
+    """Match via a legal_only name must surface the pair."""
+    id_a, id_b = person_pair_legal_only_match
+    response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert f"/admin/people/{id_a}/merge/{id_b}/" in response.text

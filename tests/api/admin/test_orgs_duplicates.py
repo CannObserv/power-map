@@ -780,3 +780,115 @@ async def test_org_merge_deduplicates_shared_link(client, org_pair_with_shared_l
             winner_id,
         )
     assert count == 1
+
+
+# ── All-names dup detection ───────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def org_pair_alternate_match(db_pool):
+    """Org A has a non-canonical alternate that matches B's canonical.
+
+    A canonical: "Acme Consolidated Corporation"  (no similarity with B canonical)
+    A alternate: "Acme Corp"                      (exact match with B canonical)
+    B canonical: "Acme Corp"
+    """
+    id_a, id_b = generate_id(), generate_id()
+    if id_a > id_b:
+        id_a, id_b = id_b, id_a
+
+    async with db_pool.acquire() as conn:
+        for oid in [id_a, id_b]:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await conn.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Acme Consolidated Corporation', TRUE)",
+            generate_id(),
+            id_a,
+        )
+        await conn.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Acme Corp', FALSE)",
+            generate_id(),
+            id_a,
+        )
+        await conn.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Acme Corp', TRUE)",
+            generate_id(),
+            id_b,
+        )
+
+    yield id_a, id_b
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_a_id=$1 OR entity_b_id=$1"
+            " OR entity_a_id=$2 OR entity_b_id=$2",
+            id_a,
+            id_b,
+        )
+        for oid in [id_a, id_b]:
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+
+async def test_org_alternate_name_match_detected(client, org_pair_alternate_match):
+    """Pair where only an alternate name matches the other canonical must be surfaced."""
+    id_a, id_b = org_pair_alternate_match
+    response = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert f"/admin/orgs/{id_a}/merge-preview/{id_b}/" in response.text
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def org_pair_multi_name(db_pool):
+    """Both orgs carry two names that all cross-match above 0.85.
+
+    Without DISTINCT the query returns 4 rows for this single pair.
+    A canonical: "Alberta Gaming Commission",  A alternate: "Alberta Gaming Liquor Commission"
+    B canonical: "Alberta Gaming Commission",  B alternate: "Alberta Gaming Liquor Commission"
+    """
+    id_a, id_b = generate_id(), generate_id()
+    if id_a > id_b:
+        id_a, id_b = id_b, id_a
+
+    async with db_pool.acquire() as conn:
+        for oid in [id_a, id_b]:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Alberta Gaming Commission', TRUE)",
+                generate_id(),
+                oid,
+            )
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, 'Alberta Gaming Liquor Commission', FALSE)",
+                generate_id(),
+                oid,
+            )
+
+    yield id_a, id_b
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM duplicate_dismissals"
+            " WHERE entity_a_id=$1 OR entity_b_id=$1"
+            " OR entity_a_id=$2 OR entity_b_id=$2",
+            id_a,
+            id_b,
+        )
+        for oid in [id_a, id_b]:
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+
+async def test_org_multi_name_pair_appears_once(client, org_pair_multi_name):
+    """Pair with multiple matching name combinations must appear exactly once in the list."""
+    id_a, id_b = org_pair_multi_name
+    response = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    # 2 per card (Keep A param + Keep B param); value > 2 indicates duplicate pair rows
+    assert response.text.count(f"/admin/orgs/{id_a}/merge-preview/{id_b}/") == 2

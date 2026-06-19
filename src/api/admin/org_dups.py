@@ -13,9 +13,9 @@ CANDIDATE_WHERE = """
     FROM organizations a
     JOIN organizations b ON b.id > a.id
     JOIN organization_names dn_a
-        ON dn_a.organization_id = a.id AND dn_a.is_canonical = TRUE
+        ON dn_a.organization_id = a.id
     JOIN organization_names dn_b
-        ON dn_b.organization_id = b.id AND dn_b.is_canonical = TRUE
+        ON dn_b.organization_id = b.id
     WHERE a.archived_at IS NULL AND b.archived_at IS NULL
       AND similarity(dn_a.name, dn_b.name) > 0.85
       AND NOT EXISTS (
@@ -50,7 +50,9 @@ async def count_org_duplicates(db) -> int:
     )
     if row and row["expires_at"] > datetime.now(UTC):
         return row["count"]
-    count = await db.fetchval(f"SELECT count(*) {CANDIDATE_WHERE}")
+    count = await db.fetchval(
+        f"SELECT count(*) FROM (SELECT DISTINCT a.id, b.id {CANDIDATE_WHERE}) sub"
+    )
     await db.execute(
         """INSERT INTO dup_count_cache (entity_type, count, expires_at)
            VALUES ($1, $2, now() + $3)
