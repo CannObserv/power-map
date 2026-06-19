@@ -14,6 +14,7 @@ from src.api.public.schemas import (
     ObservationLink,
     ObservationName,
     ObservationNameParts,
+    ObservationOrgName,
     ObservationRoleAssignment,
 )
 from src.core.db import generate_id
@@ -128,14 +129,49 @@ async def test_write_names_parts_written_on_new_row(db, person_id, api_key_id):
 
 
 async def test_write_names_organization(db, org_id, api_key_id):
-    name = ObservationName(name="Acme Corp", name_type="legal")
+    name = ObservationOrgName(name="Acme Corp", name_type="legal")
     await write_names(db, org_id, "organization", api_key_id, [name])
     rows = await db.fetch(
-        "SELECT name, source_key_id FROM organization_names WHERE organization_id=$1", org_id
+        "SELECT name, source_key_id, is_canonical FROM organization_names WHERE organization_id=$1",
+        org_id,
     )
     assert len(rows) == 1
     assert rows[0]["name"] == "Acme Corp"
     assert rows[0]["source_key_id"] == api_key_id
+    assert rows[0]["is_canonical"] is True
+
+
+async def test_write_names_org_multi_name_list_promotes_first(db, api_key_id):
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    names = [
+        ObservationOrgName(name="WA Joint Committee on Education", name_type="legal"),
+        ObservationOrgName(name="Joint Ed Committee", name_type="dba"),
+    ]
+    await write_names(db, oid, "organization", api_key_id, names)
+    rows = await db.fetch(
+        "SELECT is_canonical FROM organization_names WHERE organization_id=$1 ORDER BY created_at",
+        oid,
+    )
+    assert len(rows) == 2
+    assert rows[0]["is_canonical"] is True
+    assert rows[1]["is_canonical"] is False
+
+
+async def test_write_names_org_second_name_not_canonical(db, api_key_id):
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    first = ObservationOrgName(name="Senate Finance Committee", name_type="legal")
+    await write_names(db, oid, "organization", api_key_id, [first])
+    second = ObservationOrgName(name="Finance Committee", name_type="dba")
+    await write_names(db, oid, "organization", api_key_id, [second])
+    rows = await db.fetch(
+        "SELECT is_canonical FROM organization_names WHERE organization_id=$1 ORDER BY created_at",
+        oid,
+    )
+    assert len(rows) == 2
+    assert rows[0]["is_canonical"] is True
+    assert rows[1]["is_canonical"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +313,7 @@ async def test_write_org_acronyms_appends(db, org_id):
     )
     assert len(rows) == 1
     assert rows[0]["acronym"] == "ACME"
-    assert rows[0]["is_canonical"] is False
+    assert rows[0]["is_canonical"] is True
 
 
 async def test_write_org_acronyms_duplicate_noop(db, org_id):
@@ -285,6 +321,21 @@ async def test_write_org_acronyms_duplicate_noop(db, org_id):
     await write_org_acronyms(db, org_id, ["ACME"])
     rows = await db.fetch("SELECT id FROM organization_acronyms WHERE organization_id=$1", org_id)
     assert len(rows) == 1
+
+
+async def test_write_org_acronyms_second_not_canonical(db):
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await write_org_acronyms(db, oid, ["WLEG"])
+    await write_org_acronyms(db, oid, ["WA-LEG"])
+    rows = await db.fetch(
+        "SELECT acronym, is_canonical FROM organization_acronyms"
+        " WHERE organization_id=$1 ORDER BY created_at",
+        oid,
+    )
+    assert len(rows) == 2
+    assert rows[0]["is_canonical"] is True
+    assert rows[1]["is_canonical"] is False
 
 
 # ---------------------------------------------------------------------------

@@ -382,6 +382,13 @@ class ObservationName(BaseModel):
     parts: ObservationNameParts | None = None  # upstream-supplied structure only
 
 
+class ObservationOrgName(BaseModel):
+    """A name claim included in an org observation."""
+
+    name: str
+    name_type: Literal["legal", "dba", "former"] = "legal"
+
+
 class ObservationLink(BaseModel):
     """A web URL claim included in an observation."""
 
@@ -501,7 +508,7 @@ class OrganizationObservationRequest(BaseModel):
     identifier_type: str
     identifier_value: str
 
-    names: list[ObservationName] = Field(default_factory=list)
+    names: list[ObservationOrgName] = Field(default_factory=list)
     org_acronyms: list[str] = Field(default_factory=list)
     organization_parent_id: str | None = None
     organization_parent_name: str | None = None

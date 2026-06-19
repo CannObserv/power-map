@@ -1,10 +1,15 @@
 """Core observation service: identifier-based entity match or create + per-surface writers."""
 
 import json
+from collections.abc import Sequence
 from datetime import date
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 import asyncpg
+
+if TYPE_CHECKING:
+    from src.api.public.schemas import ObservationName, ObservationOrgName
 
 from src.core.db import generate_id
 from src.core.logging import get_logger
@@ -222,7 +227,7 @@ async def write_names(
     entity_id: str,
     entity_type: str,
     api_key_id: str,
-    names: list,
+    names: "Sequence[ObservationName] | Sequence[ObservationOrgName]",
 ) -> None:
     """Write name claims to person_names or organization_names.
 
@@ -273,16 +278,32 @@ async def write_names(
             )
             if existing:
                 continue
-            await conn.execute(
-                "INSERT INTO organization_names"
-                " (id, organization_id, name, name_type, source_key_id)"
-                " VALUES ($1, $2, $3, $4, $5)",
-                generate_id(),
-                entity_id,
-                n.name,
-                n.name_type,
-                api_key_id,
-            )
+            try:
+                async with conn.transaction():
+                    await conn.execute(
+                        "INSERT INTO organization_names"
+                        " (id, organization_id, name, name_type, source_key_id, is_canonical)"
+                        " VALUES ($1, $2, $3, $4, $5,"
+                        "   NOT EXISTS (SELECT 1 FROM organization_names"
+                        "               WHERE organization_id = $2 AND is_canonical = TRUE))",
+                        generate_id(),
+                        entity_id,
+                        n.name,
+                        n.name_type,
+                        api_key_id,
+                    )
+            except asyncpg.exceptions.UniqueViolationError:
+                # Concurrent write promoted a different name first; insert without canonical.
+                await conn.execute(
+                    "INSERT INTO organization_names"
+                    " (id, organization_id, name, name_type, source_key_id)"
+                    " VALUES ($1, $2, $3, $4, $5)",
+                    generate_id(),
+                    entity_id,
+                    n.name,
+                    n.name_type,
+                    api_key_id,
+                )
     elif entity_type == "jurisdiction":
         pass  # jurisdiction name lives on the row; no names table
     else:
@@ -464,7 +485,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
 
 
 async def write_org_acronyms(conn, organization_id: str, acronyms: list[str]) -> None:
-    """Append acronyms. Dedup on exact string. Never sets is_canonical."""
+    """Append acronyms. Dedup on exact string. Auto-promotes first to canonical."""
     for acronym in acronyms:
         existing = await conn.fetchrow(
             "SELECT id FROM organization_acronyms WHERE organization_id=$1 AND acronym=$2",
@@ -473,13 +494,26 @@ async def write_org_acronyms(conn, organization_id: str, acronyms: list[str]) ->
         )
         if existing:
             continue
-        await conn.execute(
-            "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
-            " VALUES ($1, $2, $3, FALSE)",
-            generate_id(),
-            organization_id,
-            acronym,
-        )
+        try:
+            async with conn.transaction():
+                await conn.execute(
+                    "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+                    " VALUES ($1, $2, $3,"
+                    "   NOT EXISTS (SELECT 1 FROM organization_acronyms"
+                    "               WHERE organization_id = $2 AND is_canonical = TRUE))",
+                    generate_id(),
+                    organization_id,
+                    acronym,
+                )
+        except asyncpg.exceptions.UniqueViolationError:
+            # Concurrent write promoted a different acronym first; insert without canonical.
+            await conn.execute(
+                "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+                " VALUES ($1, $2, $3, FALSE)",
+                generate_id(),
+                organization_id,
+                acronym,
+            )
 
 
 async def resolve_role(

@@ -410,8 +410,8 @@ Upserts an organization by identifier using the same match-or-create semantics a
 |-------|----------|-------|
 | `identifier_type` | always | Must be a registered organization identifier type slug (e.g. `org_ubi`) |
 | `identifier_value` | always | Value for the identifier |
-| `names` | optional | List of `{name, name_type}`. Exact-match dedup. |
-| `org_acronyms` | optional | List of acronym strings. Written with `is_canonical=false`; exact-match dedup. |
+| `names` | optional | List of `{name, name_type}` — `name_type` must be `legal`, `dba`, or `former` (default `legal`). Exact-match dedup. The first name written for an org with no existing canonical name is auto-promoted to `is_canonical=true`; subsequent names are not. |
+| `org_acronyms` | optional | List of acronym strings. Exact-match dedup. The first acronym written for an org with no existing canonical acronym is auto-promoted to `is_canonical=true`. |
 | `organization_parent_id` | optional | ULID of the parent org. Mutually exclusive with `organization_parent_name` and `organization_parent_acronym` — supply at most one. |
 | `organization_parent_name` | optional | Canonical name of the parent org. Resolves to a single active org; rejected if zero or multiple matches. |
 | `organization_parent_acronym` | optional | Canonical acronym of the parent org. Resolves to a single active org; rejected if zero or multiple matches. |
