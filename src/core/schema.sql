@@ -2197,9 +2197,7 @@ CREATE INDEX IF NOT EXISTS idx_person_names_name_gist_trgm
 --
 -- Used by dashboard/entities COUNT(*) subqueries and list-page filters.
 -- Partial: only active rows are indexed; archiving a row removes it.
--- Applied without CONCURRENTLY (schema.sql runs inside a transaction).
--- TODO #220: apply_schema should create non-unique indexes CONCURRENTLY
--- outside the transaction to avoid the write-lock during index build.
+-- apply_schema creates these CONCURRENTLY (outside the transaction).
 -- ---------------------------------------------------------------------------
 
 CREATE INDEX IF NOT EXISTS idx_people_archived_at
