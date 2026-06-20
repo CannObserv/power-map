@@ -355,7 +355,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 |-------|----------|-------|
 | `identifier_type` | always | Must be a registered person identifier type slug (e.g. `person_wa_pdc`) |
 | `identifier_value` | always | Value for the identifier |
-| `names` | optional | List of `{name, name_type}` — `name_type` must be a valid name type (e.g. `legal`, `preferred`). Exact-match dedup: re-submitting the same name is a no-op. |
+| `names` | optional | List of `{name, name_type, is_canonical?}` — `name_type` must be a valid name type (e.g. `legal`, `preferred`); `is_canonical` defaults to `false`. Exact-match dedup: re-submitting the same name is a no-op. Canonical is scoped per `(person, name_type)` slot — a person may have one canonical `legal` and a separate canonical `preferred`. Set `is_canonical: true` on at most one entry per request to promote that name; the hint is ignored if a canonical already exists for that name's slot (never displaces). At most one entry per request may carry `is_canonical: true` (422 otherwise). |
 | `personal_pronouns` | optional | Free-text pronouns string (e.g. `they/them`). Written only if the field is currently null; ignored if already set. |
 | `role_assignments` | optional | List of `{role_id, start_date?, end_date?}`. Exact-match dedup on `(person_id, role_id, start_date, end_date)`. |
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
@@ -410,8 +410,8 @@ Upserts an organization by identifier using the same match-or-create semantics a
 |-------|----------|-------|
 | `identifier_type` | always | Must be a registered organization identifier type slug (e.g. `org_ubi`) |
 | `identifier_value` | always | Value for the identifier |
-| `names` | optional | List of `{name, name_type}` — `name_type` must be `legal`, `dba`, or `former` (default `legal`). Exact-match dedup. The first name written for an org with no existing canonical name is auto-promoted to `is_canonical=true`; subsequent names are not. |
-| `org_acronyms` | optional | List of acronym strings. Exact-match dedup. The first acronym written for an org with no existing canonical acronym is auto-promoted to `is_canonical=true`. |
+| `names` | optional | List of `{name, name_type, is_canonical?}` — `name_type` must be `legal`, `dba`, or `former` (default `legal`); `is_canonical` defaults to `false`. Exact-match dedup. Set `is_canonical: true` on at most one entry to designate it as the canonical name (422 otherwise); when no entry carries the hint the first name written for an org with no existing canonical is auto-promoted. The hint is ignored if a canonical already exists (never displaces). |
+| `org_acronyms` | optional | List of `{acronym, is_canonical?}` — `is_canonical` defaults to `false`. Exact-match dedup. Set `is_canonical: true` on at most one entry to designate it as canonical (422 otherwise); when no entry carries the hint the first acronym written for an org with no existing canonical is auto-promoted. The hint is ignored if a canonical already exists (never displaces). |
 | `organization_parent_id` | optional | ULID of the parent org. Mutually exclusive with `organization_parent_name` and `organization_parent_acronym` — supply at most one. |
 | `organization_parent_name` | optional | Canonical name of the parent org. Resolves to a single active org; rejected if zero or multiple matches. |
 | `organization_parent_acronym` | optional | Canonical acronym of the parent org. Resolves to a single active org; rejected if zero or multiple matches. |

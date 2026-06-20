@@ -288,7 +288,7 @@ async def write_names(
             )
             if existing:
                 continue
-            # eligible_for_canonical: True when this name should try to claim canonical.
+            # eligible=True → this name may try to claim canonical via NOT EXISTS.
             # When a hint is present, only the hinted name is eligible.
             # When no hint, every name is eligible (first insert wins via NOT EXISTS).
             eligible = (canonical_hint is None) or (n.name == canonical_hint)
