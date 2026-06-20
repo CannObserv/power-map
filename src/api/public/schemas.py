@@ -346,7 +346,7 @@ class EntityEventTypesResponse(BaseModel):
     data: list[EntityEventType]
 
 
-class ObservationNameParts(BaseModel):
+class ObservationPersonNameParts(BaseModel):
     """Structured name parts supplied by upstream source (pre-parsed, not auto-decomposed)."""
 
     given_names: list[str] = Field(default_factory=list)
@@ -357,8 +357,12 @@ class ObservationNameParts(BaseModel):
     primary_identifier: Literal["family", "given", "patronymic", "mononym"] | None = None
 
 
-class ObservationName(BaseModel):
-    """A name claim included in an observation."""
+# Backwards-compatible alias — existing callers may import the old name.
+ObservationNameParts = ObservationPersonNameParts
+
+
+class ObservationPersonName(BaseModel):
+    """A name claim included in a person observation."""
 
     name: str
     name_type: Literal[
@@ -379,7 +383,12 @@ class ObservationName(BaseModel):
     locale: str | None = None  # BCP 47
     script: str | None = None  # ISO 15924
     sort_as: str | None = None
-    parts: ObservationNameParts | None = None  # upstream-supplied structure only
+    parts: ObservationPersonNameParts | None = None  # upstream-supplied structure only
+    is_canonical: bool = False
+
+
+# Backwards-compatible alias.
+ObservationName = ObservationPersonName
 
 
 class ObservationOrgName(BaseModel):
@@ -387,6 +396,14 @@ class ObservationOrgName(BaseModel):
 
     name: str
     name_type: Literal["legal", "dba", "former"] = "legal"
+    is_canonical: bool = False
+
+
+class ObservationAcronym(BaseModel):
+    """An acronym claim included in an org observation."""
+
+    acronym: str
+    is_canonical: bool = False
 
 
 class ObservationLink(BaseModel):
@@ -485,7 +502,7 @@ class PeopleObservationRequest(BaseModel):
     identifier_type: str
     identifier_value: str
 
-    names: list[ObservationName] = Field(default_factory=list)
+    names: list[ObservationPersonName] = Field(default_factory=list)
     personal_pronouns: str | None = None
     role_assignments: list[ObservationRoleAssignment] = Field(default_factory=list)
     links: list[ObservationLink] = Field(default_factory=list)
@@ -493,6 +510,12 @@ class PeopleObservationRequest(BaseModel):
     addresses: list[ObservationAddress] = Field(default_factory=list)
     additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
     events: list[ObservationEventItem] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _single_canonical_name(self) -> "PeopleObservationRequest":
+        if sum(1 for n in self.names if n.is_canonical) > 1:
+            raise ValueError("At most one name per request may have is_canonical=True")
+        return self
 
 
 class ObservationJurisdictionAffiliation(BaseModel):
@@ -509,7 +532,7 @@ class OrganizationObservationRequest(BaseModel):
     identifier_value: str
 
     names: list[ObservationOrgName] = Field(default_factory=list)
-    org_acronyms: list[str] = Field(default_factory=list)
+    org_acronyms: list[ObservationAcronym] = Field(default_factory=list)
     organization_parent_id: str | None = None
     organization_parent_name: str | None = None
     organization_parent_acronym: str | None = None
@@ -534,6 +557,18 @@ class OrganizationObservationRequest(BaseModel):
                 "Specify at most one of organization_parent_id, "
                 "organization_parent_name, organization_parent_acronym"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _single_canonical_name(self) -> "OrganizationObservationRequest":
+        if sum(1 for n in self.names if n.is_canonical) > 1:
+            raise ValueError("At most one name per request may have is_canonical=True")
+        return self
+
+    @model_validator(mode="after")
+    def _single_canonical_acronym(self) -> "OrganizationObservationRequest":
+        if sum(1 for a in self.org_acronyms if a.is_canonical) > 1:
+            raise ValueError("At most one acronym per request may have is_canonical=True")
         return self
 
 

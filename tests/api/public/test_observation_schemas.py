@@ -4,10 +4,13 @@ import pytest
 from pydantic import ValidationError
 
 from src.api.public.schemas import (
+    ObservationAcronym,
     ObservationAddress,
     ObservationContactMethod,
     ObservationLink,
-    ObservationNameParts,
+    ObservationOrgName,
+    ObservationPersonName,
+    ObservationPersonNameParts,
     ObservationResponse,
     OrganizationObservationRequest,
     PeopleObservationRequest,
@@ -57,7 +60,7 @@ def test_observation_response_rejected_entity_id_none():
 
 
 # ---------------------------------------------------------------------------
-# ObservationContactMethod / ObservationAddress / ObservationNameParts
+# ObservationContactMethod / ObservationAddress / ObservationPersonNameParts
 # ---------------------------------------------------------------------------
 
 
@@ -73,7 +76,53 @@ def test_address_invalid_type_rejected():
 
 def test_name_parts_invalid_primary_identifier_rejected():
     with pytest.raises(ValidationError):
-        ObservationNameParts(primary_identifier="nickname")
+        ObservationPersonNameParts(primary_identifier="nickname")
+
+
+# ---------------------------------------------------------------------------
+# ObservationPersonName
+# ---------------------------------------------------------------------------
+
+
+def test_observation_person_name_is_canonical_defaults_false():
+    n = ObservationPersonName(name="Jane Doe", name_type="legal")
+    assert n.is_canonical is False
+
+
+def test_observation_person_name_is_canonical_true():
+    n = ObservationPersonName(name="Jane Doe", name_type="legal", is_canonical=True)
+    assert n.is_canonical is True
+
+
+# ---------------------------------------------------------------------------
+# ObservationOrgName
+# ---------------------------------------------------------------------------
+
+
+def test_observation_org_name_is_canonical_defaults_false():
+    n = ObservationOrgName(name="Acme Corp", name_type="legal")
+    assert n.is_canonical is False
+
+
+def test_observation_org_name_is_canonical_true():
+    n = ObservationOrgName(name="Acme Corp", name_type="legal", is_canonical=True)
+    assert n.is_canonical is True
+
+
+# ---------------------------------------------------------------------------
+# ObservationAcronym
+# ---------------------------------------------------------------------------
+
+
+def test_observation_acronym_defaults():
+    a = ObservationAcronym(acronym="ACME")
+    assert a.acronym == "ACME"
+    assert a.is_canonical is False
+
+
+def test_observation_acronym_canonical():
+    a = ObservationAcronym(acronym="ACME", is_canonical=True)
+    assert a.is_canonical is True
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +148,31 @@ def test_people_request_no_org_fields():
     assert not hasattr(PeopleObservationRequest.model_fields, "organization_parent_id")
 
 
+def test_people_request_single_canonical_name_ok():
+    req = PeopleObservationRequest(
+        identifier_type="person_wa_pdc",
+        identifier_value="12345",
+        names=[
+            ObservationPersonName(name="Jane Doe", name_type="legal", is_canonical=True),
+            ObservationPersonName(name="Jane", name_type="preferred"),
+        ],
+    )
+    assert req.names[0].is_canonical is True
+    assert req.names[1].is_canonical is False
+
+
+def test_people_request_multiple_canonical_names_raises():
+    with pytest.raises(ValidationError):
+        PeopleObservationRequest(
+            identifier_type="person_wa_pdc",
+            identifier_value="12345",
+            names=[
+                ObservationPersonName(name="Jane Doe", name_type="legal", is_canonical=True),
+                ObservationPersonName(name="Jane", name_type="preferred", is_canonical=True),
+            ],
+        )
+
+
 # ---------------------------------------------------------------------------
 # OrganizationObservationRequest
 # ---------------------------------------------------------------------------
@@ -112,6 +186,17 @@ def test_org_request_minimal_ok():
     assert req.identifier_type == "org_ubi"
     assert req.org_acronyms == []
     assert req.organization_parent_id is None
+
+
+def test_org_request_acronyms_are_observation_acronym_objects():
+    req = OrganizationObservationRequest(
+        identifier_type="org_ubi",
+        identifier_value="999",
+        org_acronyms=[ObservationAcronym(acronym="ACME")],
+    )
+    assert len(req.org_acronyms) == 1
+    assert req.org_acronyms[0].acronym == "ACME"
+    assert req.org_acronyms[0].is_canonical is False
 
 
 def test_org_request_xor_parent_two_fields_raises():
@@ -139,3 +224,53 @@ def test_org_request_no_person_fields():
     """OrganizationObservationRequest has no person-specific fields."""
     assert "personal_pronouns" not in OrganizationObservationRequest.model_fields
     assert "role_assignments" not in OrganizationObservationRequest.model_fields
+
+
+def test_org_request_single_canonical_name_ok():
+    req = OrganizationObservationRequest(
+        identifier_type="org_ubi",
+        identifier_value="999",
+        names=[
+            ObservationOrgName(name="Acme Corp", name_type="legal", is_canonical=True),
+            ObservationOrgName(name="Acme", name_type="dba"),
+        ],
+    )
+    assert req.names[0].is_canonical is True
+    assert req.names[1].is_canonical is False
+
+
+def test_org_request_multiple_canonical_names_raises():
+    with pytest.raises(ValidationError):
+        OrganizationObservationRequest(
+            identifier_type="org_ubi",
+            identifier_value="999",
+            names=[
+                ObservationOrgName(name="Acme Corp", name_type="legal", is_canonical=True),
+                ObservationOrgName(name="Acme", name_type="dba", is_canonical=True),
+            ],
+        )
+
+
+def test_org_request_single_canonical_acronym_ok():
+    req = OrganizationObservationRequest(
+        identifier_type="org_ubi",
+        identifier_value="999",
+        org_acronyms=[
+            ObservationAcronym(acronym="ACME", is_canonical=True),
+            ObservationAcronym(acronym="ACM"),
+        ],
+    )
+    assert req.org_acronyms[0].is_canonical is True
+    assert req.org_acronyms[1].is_canonical is False
+
+
+def test_org_request_multiple_canonical_acronyms_raises():
+    with pytest.raises(ValidationError):
+        OrganizationObservationRequest(
+            identifier_type="org_ubi",
+            identifier_value="999",
+            org_acronyms=[
+                ObservationAcronym(acronym="ACME", is_canonical=True),
+                ObservationAcronym(acronym="ACM", is_canonical=True),
+            ],
+        )

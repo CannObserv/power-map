@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import asyncpg
 
 if TYPE_CHECKING:
-    from src.api.public.schemas import ObservationName, ObservationOrgName
+    from src.api.public.schemas import ObservationAcronym, ObservationOrgName, ObservationPersonName
 
 from src.core.db import generate_id
 from src.core.logging import get_logger
@@ -227,7 +227,7 @@ async def write_names(
     entity_id: str,
     entity_type: str,
     api_key_id: str,
-    names: "Sequence[ObservationName] | Sequence[ObservationOrgName]",
+    names: "Sequence[ObservationPersonName] | Sequence[ObservationOrgName]",
 ) -> None:
     """Write name claims to person_names or organization_names.
 
@@ -236,6 +236,8 @@ async def write_names(
       - visibility='public' (person_names only)
       - source_key_id = api_key_id on new name rows
       - parts: write on new name row; on existing row write only if parts row absent
+      - is_canonical hint: honoured only if no canonical already exists for that
+        (person_id, name_type) slot (person) or the whole org; never displaces.
     """
     if entity_type == "person":
         for n in names:
@@ -254,8 +256,12 @@ async def write_names(
                     await conn.execute(
                         "INSERT INTO person_names"
                         " (id, person_id, name, name_type, locale, script, sort_as,"
-                        "  visibility, source_key_id)"
-                        " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8)",
+                        "  visibility, source_key_id, is_canonical)"
+                        " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8,"
+                        "   ($9 AND NOT EXISTS ("
+                        "     SELECT 1 FROM person_names"
+                        "     WHERE person_id = $2 AND name_type = $4 AND is_canonical = TRUE"
+                        "   )))",
                         name_id,
                         entity_id,
                         n.name,
@@ -264,12 +270,16 @@ async def write_names(
                         n.script,
                         n.sort_as,
                         api_key_id,
+                        n.is_canonical,
                     )
                     if n.parts is not None:
                         await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
             if n.parts is not None and not is_new:
                 await _write_person_name_parts(conn, name_id, n.parts, is_new=False)
     elif entity_type == "organization":
+        # If any name carries the canonical hint, only that name is eligible for promotion.
+        # Otherwise fall through to first-wins auto-promotion (NOT EXISTS guard).
+        canonical_hint = next((n.name for n in names if n.is_canonical), None)
         for n in names:
             existing = await conn.fetchrow(
                 "SELECT id FROM organization_names WHERE organization_id=$1 AND name=$2",
@@ -278,19 +288,24 @@ async def write_names(
             )
             if existing:
                 continue
+            # eligible_for_canonical: True when this name should try to claim canonical.
+            # When a hint is present, only the hinted name is eligible.
+            # When no hint, every name is eligible (first insert wins via NOT EXISTS).
+            eligible = (canonical_hint is None) or (n.name == canonical_hint)
             try:
                 async with conn.transaction():
                     await conn.execute(
                         "INSERT INTO organization_names"
                         " (id, organization_id, name, name_type, source_key_id, is_canonical)"
                         " VALUES ($1, $2, $3, $4, $5,"
-                        "   NOT EXISTS (SELECT 1 FROM organization_names"
-                        "               WHERE organization_id = $2 AND is_canonical = TRUE))",
+                        "   ($6 AND NOT EXISTS (SELECT 1 FROM organization_names"
+                        "               WHERE organization_id = $2 AND is_canonical = TRUE)))",
                         generate_id(),
                         entity_id,
                         n.name,
                         n.name_type,
                         api_key_id,
+                        eligible,
                     )
             except asyncpg.exceptions.UniqueViolationError:
                 # Concurrent write promoted a different name first; insert without canonical.
@@ -484,26 +499,36 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
             )
 
 
-async def write_org_acronyms(conn, organization_id: str, acronyms: list[str]) -> None:
-    """Append acronyms. Dedup on exact string. Auto-promotes first to canonical."""
-    for acronym in acronyms:
+async def write_org_acronyms(
+    conn, organization_id: str, acronyms: "list[ObservationAcronym]"
+) -> None:
+    """Append acronyms. Dedup on exact string. Auto-promotes first to canonical.
+
+    If any entry carries is_canonical=True, only that entry is eligible for
+    promotion; all others land as non-canonical.  When no hint is given, the
+    first new acronym wins (NOT EXISTS guard), matching prior behaviour.
+    """
+    canonical_hint = next((a.acronym for a in acronyms if a.is_canonical), None)
+    for a in acronyms:
         existing = await conn.fetchrow(
             "SELECT id FROM organization_acronyms WHERE organization_id=$1 AND acronym=$2",
             organization_id,
-            acronym,
+            a.acronym,
         )
         if existing:
             continue
+        eligible = (canonical_hint is None) or (a.acronym == canonical_hint)
         try:
             async with conn.transaction():
                 await conn.execute(
                     "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
                     " VALUES ($1, $2, $3,"
-                    "   NOT EXISTS (SELECT 1 FROM organization_acronyms"
-                    "               WHERE organization_id = $2 AND is_canonical = TRUE))",
+                    "   ($4 AND NOT EXISTS (SELECT 1 FROM organization_acronyms"
+                    "               WHERE organization_id = $2 AND is_canonical = TRUE)))",
                     generate_id(),
                     organization_id,
-                    acronym,
+                    a.acronym,
+                    eligible,
                 )
         except asyncpg.exceptions.UniqueViolationError:
             # Concurrent write promoted a different acronym first; insert without canonical.
@@ -512,7 +537,7 @@ async def write_org_acronyms(conn, organization_id: str, acronyms: list[str]) ->
                 " VALUES ($1, $2, $3, FALSE)",
                 generate_id(),
                 organization_id,
-                acronym,
+                a.acronym,
             )
 
 
