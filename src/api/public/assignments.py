@@ -16,7 +16,6 @@ from src.api.public.schemas import (
 )
 from src.core.observation import (
     Disposition,
-    ObservationRejected,
     resolve_assignment,
     resolve_entity,
     write_addresses,
@@ -192,7 +191,7 @@ async def submit_assignment_observation(
         if disposition is Disposition.REJECTED:
             return ObservationResponse(disposition="rejected", reason=reason)
     else:
-        assignment_id, disposition = await resolve_assignment(
+        assignment_id, disposition, reason = await resolve_assignment(
             db,
             req.person_id,
             req.role_id,
@@ -202,15 +201,13 @@ async def submit_assignment_observation(
             notes=req.notes,
         )
         if disposition is Disposition.REJECTED:
-            return ObservationResponse(disposition="rejected", reason="assignment_resolve_failed")
+            return ObservationResponse(disposition="rejected", reason=reason)
 
     try:
         async with db.transaction():
             await write_links(db, assignment_id, "role_assignment", req.links)
             await write_contact_methods(db, assignment_id, "role_assignment", req.contact_methods)
             await write_addresses(db, assignment_id, "role_assignment", req.addresses)
-    except ObservationRejected as exc:
-        return ObservationResponse(disposition="rejected", reason=exc.detail)
     except (
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,

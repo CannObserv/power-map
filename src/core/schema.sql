@@ -1174,8 +1174,8 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     -- Jurisdiction slug identifier (#183)
     ('01KT0HK3452TNDD2WM8E50ZTBQ', 'jurisdiction',    'jur_slug',      'Slug',       'Jurisdiction Slug',                FALSE),
     -- WA legislature org identifier types (#225)
-    ('01KVJWW7YCKYMY4ZEEZWPKZT5H', 'organization', 'org_wa_legislature_chamber', 'WA Chamber',     'Washington State Legislature Chamber', FALSE),
-    ('01KVJWW7YCKYMY4ZEEZWPKZT5J', 'organization', 'org_wa_legislature',         'WA Legislature', 'Washington State Legislature',        FALSE),
+    ('01KVJWW7YCKYMY4ZEEZWPKZT5H', 'organization',    'org_wa_legislature_chamber', 'WA Chamber',     'Washington State Legislature Chamber', FALSE),
+    ('01KVJWW7YCKYMY4ZEEZWPKZT5J', 'organization',    'org_wa_legislature',         'WA Legislature', 'Washington State Legislature',        FALSE),
     -- PM-native internal identifiers (#198): resolve directly by PM ULID, never NEW
     ('01KTVHGATRG3WEN9NXATTA2RA9', 'organization',    'pm_org_id',        'PM Org',        'Power Map Organization ID',             TRUE),
     ('01KTVHGATRG3WEN9NXATTA2RAA', 'person',          'pm_person_id',     'PM Person',     'Power Map Person ID',                   TRUE),

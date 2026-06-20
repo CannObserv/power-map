@@ -555,19 +555,20 @@ async def resolve_role(
     notes: str | None = None,
     established_on: date | None = None,
     abolished_on: date | None = None,
-) -> tuple[str, Disposition]:
+) -> tuple[str, Disposition, str | None]:
     """Match or create a role by (organization_id, lower(title)).
 
-    Returns (role_id, disposition).
+    Returns (role_id, disposition, reason).
     disposition is AUTO_ATTACHED if an active (non-archived) match is found,
     NEW if created, REJECTED if the organization_id does not exist.
+    reason is a human-readable string on REJECTED, None otherwise.
     """
     org_exists = await conn.fetchval(
         "SELECT 1 FROM organizations WHERE id=$1 AND archived_at IS NULL", organization_id
     )
     if not org_exists:
         logger.warning("resolve_role: unknown organization_id=%r", organization_id)
-        return "", Disposition.REJECTED
+        return "", Disposition.REJECTED, f"org_not_found: {organization_id!r}"
 
     existing = await conn.fetchrow(
         "SELECT id FROM roles WHERE organization_id=$1 AND lower(title)=lower($2)"
@@ -576,7 +577,7 @@ async def resolve_role(
         title,
     )
     if existing:
-        return existing["id"], Disposition.AUTO_ATTACHED
+        return existing["id"], Disposition.AUTO_ATTACHED, None
 
     role_id = generate_id()
     await conn.execute(
@@ -590,7 +591,7 @@ async def resolve_role(
         abolished_on,
     )
     logger.info("Created role id=%s org=%s title=%r", role_id, organization_id, title)
-    return role_id, Disposition.NEW
+    return role_id, Disposition.NEW, None
 
 
 async def write_role_assignments(conn, person_id: str, role_assignments: list) -> None:
@@ -884,26 +885,27 @@ async def resolve_assignment(
     end_date: date | None = None,
     is_current: bool = False,
     notes: str | None = None,
-) -> tuple[str, Disposition]:
+) -> tuple[str, Disposition, str | None]:
     """Match or create a role assignment by (person_id, role_id, start_date).
 
-    Returns (assignment_id, disposition).
+    Returns (assignment_id, disposition, reason).
     disposition is AUTO_ATTACHED if an active (non-archived) match is found,
     NEW if created, REJECTED if person_id or role_id does not exist.
+    reason is a human-readable string on REJECTED, None otherwise.
     """
     person_exists = await conn.fetchval(
         "SELECT 1 FROM people WHERE id=$1 AND archived_at IS NULL", person_id
     )
     if not person_exists:
         logger.warning("resolve_assignment: unknown person_id=%r", person_id)
-        return "", Disposition.REJECTED
+        return "", Disposition.REJECTED, f"person_not_found: {person_id!r}"
 
     role_exists = await conn.fetchval(
         "SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", role_id
     )
     if not role_exists:
         logger.warning("resolve_assignment: unknown role_id=%r", role_id)
-        return "", Disposition.REJECTED
+        return "", Disposition.REJECTED, f"role_not_found: {role_id!r}"
 
     existing = await conn.fetchrow(
         "SELECT id FROM role_assignments"
@@ -914,7 +916,7 @@ async def resolve_assignment(
         start_date,
     )
     if existing:
-        return existing["id"], Disposition.AUTO_ATTACHED
+        return existing["id"], Disposition.AUTO_ATTACHED, None
 
     assignment_id = generate_id()
     try:
@@ -937,7 +939,7 @@ async def resolve_assignment(
             role_id,
             start_date,
         )
-        return "", Disposition.REJECTED
+        return "", Disposition.REJECTED, "unique_violation"
 
     logger.info(
         "Created role_assignment id=%s person=%s role=%s start=%s",
@@ -946,4 +948,4 @@ async def resolve_assignment(
         role_id,
         start_date,
     )
-    return assignment_id, Disposition.NEW
+    return assignment_id, Disposition.NEW, None

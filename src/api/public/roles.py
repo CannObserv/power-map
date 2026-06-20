@@ -16,7 +16,6 @@ from src.api.public.schemas import (
 )
 from src.core.observation import (
     Disposition,
-    ObservationRejected,
     resolve_role,
     write_addresses,
     write_contact_methods,
@@ -189,7 +188,7 @@ async def submit_role_observation(
         role_id = row["id"]
         disposition = Disposition.AUTO_ATTACHED
     else:
-        role_id, disposition = await resolve_role(
+        role_id, disposition, reason = await resolve_role(
             db,
             req.organization_id,
             req.title,
@@ -198,15 +197,13 @@ async def submit_role_observation(
             abolished_on=req.abolished_on,
         )
         if disposition is Disposition.REJECTED:
-            return ObservationResponse(disposition="rejected", reason="role_resolve_failed")
+            return ObservationResponse(disposition="rejected", reason=reason)
 
     try:
         async with db.transaction():
             await write_links(db, role_id, "role", req.links)
             await write_contact_methods(db, role_id, "role", req.contact_methods)
             await write_addresses(db, role_id, "role", req.addresses)
-    except ObservationRejected as exc:
-        return ObservationResponse(disposition="rejected", reason=exc.detail)
     except (
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,

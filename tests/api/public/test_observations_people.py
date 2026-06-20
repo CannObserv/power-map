@@ -414,3 +414,19 @@ async def test_missing_scope_returns_403(client, ppl_read_key):
         {"identifier_type": "person_wa_pdc", "identifier_value": _unique_id()},
     )
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# #225 — reason field on rejected observations
+# ---------------------------------------------------------------------------
+
+
+async def test_rejected_unknown_type_includes_reason(client, ppl_write_key):
+    """Unknown identifier type rejection must include a reason string."""
+    raw, _ = ppl_write_key
+    r = _post(client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] is not None
+    assert "zzz_nonexistent_xyz" in body["reason"]

@@ -581,3 +581,19 @@ async def test_jur_slug_identifier_value_jurisdiction_slug_consistency(client, j
     eid = r_ok.json()["entity_id"]
     await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
     await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
+
+
+# ---------------------------------------------------------------------------
+# #225 — reason field on rejected observations
+# ---------------------------------------------------------------------------
+
+
+async def test_rejected_unknown_type_includes_reason(client, jur_write_key):
+    """Unknown identifier type rejection must include a reason string."""
+    raw, _ = jur_write_key
+    r = _post(client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] is not None
+    assert "zzz_nonexistent_xyz" in body["reason"]

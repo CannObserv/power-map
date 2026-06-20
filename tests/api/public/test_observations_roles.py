@@ -428,3 +428,20 @@ def test_pm_role_id_requires_identifier_value(client, role_write_key):
     raw, _ = role_write_key
     r = _post(client, raw, {"identifier_type": "pm_role_id"})
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# #225 — reason field on rejected observations
+# ---------------------------------------------------------------------------
+
+
+async def test_rejected_unknown_org_includes_reason(client, role_write_key):
+    """Unknown organization_id rejection must include a reason string."""
+    raw, _ = role_write_key
+    unknown_org_id = generate_id()
+    r = _post(client, raw, {"organization_id": unknown_org_id, "title": "Test Role"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] is not None
+    assert "org_not_found" in body["reason"]

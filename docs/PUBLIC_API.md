@@ -274,6 +274,21 @@ while True:
 
 ---
 
+## Observation writes — shared behavior
+
+All `POST /*/observations` endpoints return an `ObservationResponse` with three fields:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `disposition` | `string` | `"new"`, `"auto-attached"`, or `"rejected"` |
+| `entity_id` | `string \| null` | ULID of the matched or created entity; `null` on `rejected` |
+| `entity_type` | `string \| null` | Entity type string; `null` on `rejected` |
+| `reason` | `string \| null` | Human-readable rejection cause; `null` on non-rejected responses |
+
+**`reason` is a diagnostic aid, not a stable API contract.** Its format (e.g. `"unknown_identifier_type: 'org_wa_legislature_chamber'"`) may change across releases. Do not pattern-match on specific reason strings in production code; use it for logging and debugging only.
+
+---
+
 ## Jurisdictions
 
 ### Endpoints

@@ -566,3 +566,24 @@ def test_pm_assignment_id_requires_identifier_value(client, write_key):
     raw, _ = write_key
     r = _post(client, raw, {"identifier_type": "pm_assignment_id"})
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# #225 — reason field on rejected observations
+# ---------------------------------------------------------------------------
+
+
+async def test_rejected_unknown_person_includes_reason(client, write_key, obs_entities):
+    """Unknown person_id rejection must include a reason string."""
+    raw, _ = write_key
+    unknown_person_id = generate_id()
+    r = _post(
+        client,
+        raw,
+        {"person_id": unknown_person_id, "role_id": obs_entities["role_id"]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] is not None
+    assert "person_not_found" in body["reason"]
