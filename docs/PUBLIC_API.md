@@ -372,6 +372,8 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 | `auto-attached` | Identifier already known; existing entity returned |
 | `rejected` | Unknown identifier type; identifier belongs to a non-person entity; DB constraint violation |
 
+**When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Scheduler"`, `"Committee Office"`, `"Main Switchboard"`. Omit it for generic personal numbers where the value alone is self-explanatory.
+
 ---
 
 ## Organizations
@@ -429,6 +431,8 @@ Upserts an organization by identifier using the same match-or-create semantics a
 | `new` | Identifier not seen before; organization created |
 | `auto-attached` | Identifier already known; existing entity returned |
 | `rejected` | Unknown identifier type; identifier belongs to a non-organization entity; ambiguous parent lookup (0 or 2+ matches); DB constraint violation |
+
+**When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Main Office"`, `"Committee Hotline"`, `"Press Inquiries"`. Omit it when the value alone is self-explanatory.
 
 ---
 
