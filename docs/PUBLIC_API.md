@@ -304,7 +304,7 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 | `jurisdiction_valid_until` | NEW only | ISO 8601 date — validity-axis end; must be ≥ `valid_from` if both supplied. Ignored on AUTO_ATTACHED. |
 | `jurisdiction_notes` | NEW only | Free-text notes. Ignored on AUTO_ATTACHED. |
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
-| `contact_methods` | optional | List of `{contact_type, value}` — `contact_type` must be `email` or `phone` |
+| `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label (e.g. `"Main Office"`, `"Committee Hotline"`) |
 | `addresses` | optional | List of `{raw_input, address_type}` — `address_type` must be `mailing` or `physical` |
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
 
@@ -359,7 +359,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 | `personal_pronouns` | optional | Free-text pronouns string (e.g. `they/them`). Written only if the field is currently null; ignored if already set. |
 | `role_assignments` | optional | List of `{role_id, start_date?, end_date?}`. Exact-match dedup on `(person_id, role_id, start_date, end_date)`. |
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
-| `contact_methods` | optional | List of `{contact_type, value}` — `contact_type` must be `email` or `phone` |
+| `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label (e.g. `"Main Office"`, `"Committee Hotline"`) |
 | `addresses` | optional | List of `{raw_input, address_type}` — `address_type` must be `mailing` or `physical` |
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
 | `events` | optional | List of `{event_type_id XOR event_type_slug, event_year?, event_month?, event_day?, event_hour?, event_minute?, event_second?, event_place_text?, event_place_address_id?, linked_entity_type?, linked_entity_id?, notes?, visibility?}`. See entity events section below. |
@@ -416,7 +416,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 | `organization_parent_name` | optional | Canonical name of the parent org. Resolves to a single active org; rejected if zero or multiple matches. |
 | `organization_parent_acronym` | optional | Canonical acronym of the parent org. Resolves to a single active org; rejected if zero or multiple matches. |
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
-| `contact_methods` | optional | List of `{contact_type, value}` — `contact_type` must be `email` or `phone` |
+| `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label (e.g. `"Main Office"`, `"Committee Hotline"`) |
 | `addresses` | optional | List of `{raw_input, address_type}` — `address_type` must be `mailing` or `physical` |
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
 | `jurisdiction_affiliations` | optional | List of `{jurisdiction_id, affiliation_type_slug}` — typed org-to-jurisdiction associations. `affiliation_type_slug` must match a value in `organization_jurisdiction_affiliation_types` (seeded values: `governing`, `registered`). Idempotent (duplicate rows silently ignored). Invalid `jurisdiction_id` or unknown `affiliation_type_slug` → `rejected`. |
@@ -462,7 +462,7 @@ Returns all list item fields plus:
 | Field | Description |
 |-------|-------------|
 | `links` | Array of `{id, url, link_type_id, link_type_slug, link_type_name, is_active}` |
-| `contact_methods` | Array of `{id, contact_type, value}` |
+| `contact_methods` | Array of `{id, contact_type, value, display_label (nullable)}` |
 | `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable)}` |
 
 Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
@@ -486,7 +486,7 @@ Two mutually exclusive resolution modes:
 | `established_on` | optional | ISO 8601 date. Only written on NEW. |
 | `abolished_on` | optional | ISO 8601 date. Only written on NEW. Must be >= `established_on` if both supplied. |
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}`. Written on both NEW and AUTO_ATTACHED (append-only). |
-| `contact_methods` | optional | List of `{contact_type, value}`. Written on both NEW and AUTO_ATTACHED (append-only). |
+| `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label. Written on both NEW and AUTO_ATTACHED (append-only). |
 | `addresses` | optional | List of `{raw_input, address_type}`. Written on both NEW and AUTO_ATTACHED (append-only). |
 
 **Disposition semantics:**
@@ -532,7 +532,7 @@ Returns all list item fields plus:
 | Field | Description |
 |-------|-------------|
 | `links` | Array of `{id, url, link_type_id, link_type_slug, link_type_name, is_active}` |
-| `contact_methods` | Array of `{id, contact_type, value}` |
+| `contact_methods` | Array of `{id, contact_type, value, display_label (nullable)}` |
 | `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable)}` |
 
 Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
@@ -557,7 +557,7 @@ Two mutually exclusive resolution modes:
 | `is_current` | optional | `false` by default. Cannot be `true` when `end_date` is also set. Only written on NEW. |
 | `notes` | optional | Free text. Only written on NEW. |
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}`. Written on both NEW and AUTO_ATTACHED (append-only). |
-| `contact_methods` | optional | List of `{contact_type, value}`. Written on both NEW and AUTO_ATTACHED (append-only). |
+| `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label. Written on both NEW and AUTO_ATTACHED (append-only). |
 | `addresses` | optional | List of `{raw_input, address_type}`. Written on both NEW and AUTO_ATTACHED (append-only). |
 
 **Disposition semantics:**

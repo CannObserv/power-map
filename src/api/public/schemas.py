@@ -986,6 +986,7 @@ class RoleContactMethod(BaseModel):
     id: str
     contact_type: str
     value: str
+    display_label: str | None = None
 
 
 class RoleAddress(BaseModel):
@@ -1054,6 +1055,7 @@ class AssignmentContactMethod(BaseModel):
     id: str
     contact_type: str
     value: str
+    display_label: str | None = None
 
 
 class AssignmentAddress(BaseModel):

@@ -103,8 +103,9 @@ async def assignment_fixtures(db, link_type):
     )
     cm_id = generate_id()
     await db.execute(
-        "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
-        " VALUES ($1,'role_assignment',$2,'email','a1@example.com')",
+        "INSERT INTO contact_methods"
+        " (id, entity_type, entity_id, contact_type, value, display_label)"
+        " VALUES ($1,'role_assignment',$2,'email','a1@example.com','Legislator Direct')",
         cm_id,
         a1,
     )
@@ -288,6 +289,54 @@ def test_detail_includes_contact_method(client, api_key, assignment_fixtures):
     cms = r.json()["contact_methods"]
     assert len(cms) == 1
     assert cms[0]["value"] == "a1@example.com"
+
+
+def test_detail_contact_method_includes_display_label(client, api_key, assignment_fixtures):
+    """display_label is returned in the contact_methods array."""
+    r = client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
+    cm = r.json()["contact_methods"][0]
+    assert "display_label" in cm
+    assert cm["display_label"] == "Legislator Direct"
+
+
+async def test_detail_contact_method_display_label_null_when_unset(client, api_key, db):
+    """display_label is null (not absent) when not set on the contact method."""
+    org_id = generate_id()
+    role_id = generate_id()
+    person_id = generate_id()
+    assignment_id = generate_id()
+    cm_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,$3)",
+        role_id,
+        org_id,
+        "Unlabelled Role",
+    )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1,$2,$3)",
+        assignment_id,
+        person_id,
+        role_id,
+    )
+    await db.execute(
+        "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+        " VALUES ($1,'role_assignment',$2,'phone','+12065550101')",
+        cm_id,
+        assignment_id,
+    )
+    try:
+        r = client.get(f"{_LIST}/{assignment_id}", headers={"X-API-Key": api_key})
+        cm = r.json()["contact_methods"][0]
+        assert "display_label" in cm
+        assert cm["display_label"] is None
+    finally:
+        await db.execute("DELETE FROM contact_methods WHERE id=$1", cm_id)
+        await db.execute("DELETE FROM role_assignments WHERE id=$1", assignment_id)
+        await db.execute("DELETE FROM people WHERE id=$1", person_id)
+        await db.execute("DELETE FROM roles WHERE id=$1", role_id)
+        await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
 
 
 def test_detail_includes_address(client, api_key, assignment_fixtures):

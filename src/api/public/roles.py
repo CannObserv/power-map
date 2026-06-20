@@ -101,7 +101,7 @@ async def _fetch_role_arrays(role_id: str, db: Any) -> tuple:
     )
     contact_methods = await db.fetch(
         """
-        SELECT id, contact_type, value
+        SELECT id, contact_type, value, display_label
         FROM contact_methods
         WHERE entity_type = 'role' AND entity_id = $1
         ORDER BY contact_type, value
