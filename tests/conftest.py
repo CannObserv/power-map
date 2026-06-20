@@ -60,6 +60,10 @@ def pytest_configure(config):
     test_url = os.environ.get("TEST_DATABASE_URL")
     if test_url:
         os.environ["DATABASE_URL"] = test_url
+    # Keep app pools small so the full integration suite doesn't exhaust
+    # available DB connections (issue #226).
+    os.environ.setdefault("DB_POOL_MIN_SIZE", "1")
+    os.environ.setdefault("DB_POOL_MAX_SIZE", "2")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -99,7 +103,7 @@ async def db_pool():
             "db_pool requires TEST_DATABASE_URL — refusing to operate on a non-test database. "
             "Set TEST_DATABASE_URL in .env (see docs/COMMANDS.md)."
         )
-    pool = await asyncpg.create_pool(test_url)
+    pool = await asyncpg.create_pool(test_url, min_size=1, max_size=2)
     try:
         async with pool.acquire() as conn:
             await apply_schema(conn)
