@@ -314,7 +314,7 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 |-------------|-----------|
 | `new` | Identifier not seen before; jurisdiction created |
 | `auto-attached` | Identifier already known; existing entity returned |
-| `rejected` | Unknown identifier type; identifier belongs to a non-jurisdiction entity; required NEW fields missing; invalid `jurisdiction_type_slug`; slug collision with a different entity |
+| `rejected` | Unknown identifier type; identifier belongs to a non-jurisdiction entity; required NEW fields missing; invalid `jurisdiction_type_slug`; slug collision with a different entity. A human-readable `reason` string is always present on rejected responses. |
 
 ### Implicit behaviors
 
@@ -370,7 +370,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 |-------------|-----------|
 | `new` | Identifier not seen before; person created |
 | `auto-attached` | Identifier already known; existing entity returned |
-| `rejected` | Unknown identifier type; identifier belongs to a non-person entity; DB constraint violation |
+| `rejected` | Unknown identifier type; identifier belongs to a non-person entity; DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Scheduler"`, `"Committee Office"`, `"Main Switchboard"`. Omit it for generic personal numbers where the value alone is self-explanatory.
 
@@ -410,7 +410,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `identifier_type` | always | Must be a registered organization identifier type slug (e.g. `org_ubi`) |
+| `identifier_type` | always | Must be a registered organization identifier type slug (e.g. `org_ubi`, `org_wa_legislature`, `org_wa_legislature_chamber`) |
 | `identifier_value` | always | Value for the identifier |
 | `names` | optional | List of `{name, name_type, is_canonical?}` — `name_type` must be `legal`, `dba`, or `former` (default `legal`); `is_canonical` defaults to `false`. Exact-match dedup. Set `is_canonical: true` on at most one entry to designate it as the canonical name (422 otherwise); when no entry carries the hint the first name written for an org with no existing canonical is auto-promoted. The hint is ignored if a canonical already exists (never displaces). |
 | `org_acronyms` | optional | List of `{acronym, is_canonical?}` — `is_canonical` defaults to `false`. Exact-match dedup. Set `is_canonical: true` on at most one entry to designate it as canonical (422 otherwise); when no entry carries the hint the first acronym written for an org with no existing canonical is auto-promoted. The hint is ignored if a canonical already exists (never displaces). |
@@ -430,7 +430,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 |-------------|-----------|
 | `new` | Identifier not seen before; organization created |
 | `auto-attached` | Identifier already known; existing entity returned |
-| `rejected` | Unknown identifier type; identifier belongs to a non-organization entity; ambiguous parent lookup (0 or 2+ matches); DB constraint violation |
+| `rejected` | Unknown identifier type; identifier belongs to a non-organization entity; ambiguous parent lookup (0 or 2+ matches); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Main Office"`, `"Committee Hotline"`, `"Press Inquiries"`. Omit it when the value alone is self-explanatory.
 
@@ -499,7 +499,7 @@ Two mutually exclusive resolution modes:
 |-------------|-----------|
 | `new` | No active role with this `(org_id, lower(title))` found; role created (standard mode only) |
 | `auto-attached` | Active role already exists (standard) or known ULID supplied (PM-native); attribute writes still applied |
-| `rejected` | Organization unknown or archived; unknown/archived ULID (PM-native); DB constraint violation |
+| `rejected` | Organization unknown or archived; unknown/archived ULID (PM-native); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **Note:** `notes`, `established_on`, and `abolished_on` are only written on NEW disposition. They are intentionally not updated on AUTO_ATTACHED to preserve first-submitter authority over these core role fields.
 
@@ -570,7 +570,7 @@ Two mutually exclusive resolution modes:
 |-------------|-----------|
 | `new` | No active assignment with this `(person_id, role_id, start_date)` found; assignment created (standard mode only) |
 | `auto-attached` | Active assignment already exists (standard) or known ULID supplied (PM-native); attribute writes still applied |
-| `rejected` | Person or role unknown/archived; unknown/archived ULID (PM-native); `is_current` + `end_date` conflict; DB constraint violation |
+| `rejected` | Person or role unknown/archived; unknown/archived ULID (PM-native); `is_current` + `end_date` conflict; DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **Changes feed:** `role_assignment` entities appear in `GET /api/v1/changes` with `entity_type: "role_assignment"`.
 

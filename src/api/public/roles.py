@@ -25,8 +25,6 @@ from src.core.observation import (
 
 router = APIRouter(prefix="/roles", tags=["public-api"])
 
-_REJECTED_OBS = ObservationResponse(disposition="rejected", entity_id=None, entity_type=None)
-
 
 def _role_row_to_dict(r: Any) -> dict[str, Any]:
     return {
@@ -185,7 +183,9 @@ async def submit_role_observation(
             req.identifier_value,
         )
         if row is None:
-            return _REJECTED_OBS
+            return ObservationResponse(
+                disposition="rejected", reason=f"pm_id_not_found: {req.identifier_value!r}"
+            )
         role_id = row["id"]
         disposition = Disposition.AUTO_ATTACHED
     else:
@@ -198,20 +198,21 @@ async def submit_role_observation(
             abolished_on=req.abolished_on,
         )
         if disposition is Disposition.REJECTED:
-            return _REJECTED_OBS
+            return ObservationResponse(disposition="rejected", reason="role_resolve_failed")
 
     try:
         async with db.transaction():
             await write_links(db, role_id, "role", req.links)
             await write_contact_methods(db, role_id, "role", req.contact_methods)
             await write_addresses(db, role_id, "role", req.addresses)
+    except ObservationRejected as exc:
+        return ObservationResponse(disposition="rejected", reason=exc.detail)
     except (
-        ObservationRejected,
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,
         asyncpg.UniqueViolationError,
     ):
-        return _REJECTED_OBS
+        return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
 
     return ObservationResponse(
         disposition=disposition.value,

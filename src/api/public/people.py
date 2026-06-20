@@ -35,8 +35,6 @@ from src.core.observation import (
 
 router = APIRouter(prefix="/people", tags=["public-api"])
 
-_REJECTED_OBS = ObservationResponse(disposition="rejected", entity_id=None, entity_type=None)
-
 
 def _get_registry(request: Request) -> EmbeddingRegistry:
     """Return the startup-loaded embedding model registry from app state."""
@@ -54,14 +52,17 @@ async def submit_people_observation(
     db=Depends(get_db),
 ) -> ObservationResponse:
     """Submit a person identity observation; attach to existing person or create a new one."""
-    entity_id, entity_type, disposition = await resolve_entity(
+    entity_id, entity_type, disposition, reason = await resolve_entity(
         db, request.identifier_type, request.identifier_value
     )
 
     if disposition is Disposition.REJECTED:
-        return _REJECTED_OBS
+        return ObservationResponse(disposition="rejected", reason=reason)
     if entity_type != "person":
-        return _REJECTED_OBS
+        return ObservationResponse(
+            disposition="rejected",
+            reason=f"entity_type_mismatch: {entity_type!r}",
+        )
 
     try:
         async with db.transaction():
@@ -74,14 +75,19 @@ async def submit_people_observation(
                 await write_pronouns(db, entity_id, request.personal_pronouns)
             await write_additional_identifiers(db, entity_id, request.additional_identifiers)
             await write_entity_events(db, entity_id, entity_type, auth.key_id, request.events)
+    except ObservationRejected as exc:
+        return ObservationResponse(disposition="rejected", reason=exc.detail)
+    except IdentifierConflict as exc:
+        return ObservationResponse(
+            disposition="rejected",
+            reason=f"identifier_conflict: {exc.identifier_type_slug!r}",
+        )
     except (
-        ObservationRejected,
-        IdentifierConflict,
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,
         asyncpg.UniqueViolationError,
     ):
-        return _REJECTED_OBS
+        return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
 
     return ObservationResponse(
         disposition=disposition.value,

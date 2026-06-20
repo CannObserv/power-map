@@ -578,6 +578,7 @@ class ObservationResponse(BaseModel):
     disposition: str  # 'auto-attached', 'new', or 'rejected'
     entity_id: str | None = None  # None only when disposition == 'rejected'
     entity_type: EntityType | None = None  # None when rejected
+    reason: str | None = None  # human-readable rejection cause; None on non-rejected
 
 
 class JurisdictionObservationRequest(BaseModel):

@@ -57,10 +57,10 @@ async def resolve_entity(
     identifier_value: str,
     *,
     create_data: dict | None = None,
-) -> tuple[str, str, Disposition]:
+) -> tuple[str, str, Disposition, str | None]:
     """Find or create the entity identified by the given identifier.
 
-    Returns (entity_id, entity_type, disposition).
+    Returns (entity_id, entity_type, disposition, reason).
 
     disposition is:
       - AUTO_ATTACHED  if an existing identifier row was found
@@ -68,6 +68,7 @@ async def resolve_entity(
       - REJECTED       if the identifier_type_slug is unknown, or if the entity
                        type requires create_data for NEW and none was provided
 
+    reason is a human-readable string on REJECTED, None otherwise.
     Raises nothing — REJECTED is returned, not raised.
     """
     eit = await conn.fetchrow(
@@ -76,7 +77,7 @@ async def resolve_entity(
     )
     if eit is None:
         logger.warning("Unknown identifier_type_slug=%r", identifier_type_slug)
-        return "", "", Disposition.REJECTED
+        return "", "", Disposition.REJECTED, f"unknown_identifier_type: {identifier_type_slug!r}"
 
     entity_type = eit["entity_type"]
 
@@ -86,8 +87,8 @@ async def resolve_entity(
         entity_id = await _lookup_entity_by_pm_id(conn, entity_type, identifier_value)
         if entity_id is None:
             logger.warning("pm-internal resolve: %s id=%r not found", entity_type, identifier_value)
-            return "", "", Disposition.REJECTED
-        return entity_id, entity_type, Disposition.AUTO_ATTACHED
+            return "", "", Disposition.REJECTED, f"pm_id_not_found: {identifier_value!r}"
+        return entity_id, entity_type, Disposition.AUTO_ATTACHED, None
 
     entity_identifier_type_id = eit["id"]
     existing = await conn.fetchrow(
@@ -96,7 +97,7 @@ async def resolve_entity(
         identifier_value,
     )
     if existing:
-        return existing["entity_id"], entity_type, Disposition.AUTO_ATTACHED
+        return existing["entity_id"], entity_type, Disposition.AUTO_ATTACHED, None
 
     if entity_type == "jurisdiction":
         if not create_data:
@@ -104,14 +105,19 @@ async def resolve_entity(
                 "Jurisdiction NEW disposition requires create_data; identifier_type=%r",
                 identifier_type_slug,
             )
-            return "", "", Disposition.REJECTED
+            return "", "", Disposition.REJECTED, "jurisdiction_new_requires_create_data"
         # Pre-validate type_slug outside the transaction so we can return REJECTED cleanly.
         type_row = await conn.fetchrow(
             "SELECT id FROM jurisdiction_types WHERE slug=$1", create_data["type_slug"]
         )
         if type_row is None:
             logger.warning("Unknown jurisdiction_type_slug=%r", create_data["type_slug"])
-            return "", "", Disposition.REJECTED
+            return (
+                "",
+                "",
+                Disposition.REJECTED,
+                f"unknown_jurisdiction_type: {create_data['type_slug']!r}",
+            )
         create_data = {**create_data, "type_id": type_row["id"]}
 
     # Resolved once per call; entity_identifier_types is append-only after apply_schema.
@@ -156,7 +162,7 @@ async def resolve_entity(
             identifier_type_slug,
             identifier_value,
         )
-        return "", "", Disposition.REJECTED
+        return "", "", Disposition.REJECTED, "unique_violation"
     logger.info(
         "Created %s entity_id=%s for identifier_type=%s value=%r",
         entity_type,
@@ -164,7 +170,7 @@ async def resolve_entity(
         identifier_type_slug,
         identifier_value,
     )
-    return entity_id, entity_type, Disposition.NEW
+    return entity_id, entity_type, Disposition.NEW, None
 
 
 _ENTITY_TABLE = {

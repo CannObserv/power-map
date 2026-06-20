@@ -26,8 +26,6 @@ from src.core.observation import (
 
 router = APIRouter(prefix="/assignments", tags=["public-api"])
 
-_REJECTED_OBS = ObservationResponse(disposition="rejected", entity_id=None, entity_type=None)
-
 
 def _row_to_dict(r: Any) -> dict[str, Any]:
     return {
@@ -188,11 +186,11 @@ async def submit_assignment_observation(
     Resolves by (person_id, role_id, start_date) or by pm_assignment_id.
     """
     if req.identifier_type == "pm_assignment_id":
-        assignment_id, _, disposition = await resolve_entity(
+        assignment_id, _, disposition, reason = await resolve_entity(
             db, "pm_assignment_id", req.identifier_value
         )
         if disposition is Disposition.REJECTED:
-            return _REJECTED_OBS
+            return ObservationResponse(disposition="rejected", reason=reason)
     else:
         assignment_id, disposition = await resolve_assignment(
             db,
@@ -204,20 +202,21 @@ async def submit_assignment_observation(
             notes=req.notes,
         )
         if disposition is Disposition.REJECTED:
-            return _REJECTED_OBS
+            return ObservationResponse(disposition="rejected", reason="assignment_resolve_failed")
 
     try:
         async with db.transaction():
             await write_links(db, assignment_id, "role_assignment", req.links)
             await write_contact_methods(db, assignment_id, "role_assignment", req.contact_methods)
             await write_addresses(db, assignment_id, "role_assignment", req.addresses)
+    except ObservationRejected as exc:
+        return ObservationResponse(disposition="rejected", reason=exc.detail)
     except (
-        ObservationRejected,
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,
         asyncpg.UniqueViolationError,
     ):
-        return _REJECTED_OBS
+        return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
 
     return ObservationResponse(
         disposition=disposition.value,

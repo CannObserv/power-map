@@ -538,3 +538,83 @@ async def test_pm_org_id_suppressed_in_detail_response(client, org_write_key, or
     assert r.status_code == 200
     slugs = [i["type_slug"] for i in r.json()["identifiers"]]
     assert "pm_org_id" not in slugs
+
+
+# ---------------------------------------------------------------------------
+# #225 — WA legislature identifier types
+# ---------------------------------------------------------------------------
+
+
+async def test_org_wa_legislature_chamber_accepted(client, org_write_key):
+    """org_wa_legislature_chamber must be registered and accept org observations."""
+    raw, _ = org_write_key
+    r = _post(
+        client,
+        raw,
+        {"identifier_type": "org_wa_legislature_chamber", "identifier_value": "house"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] in ("new", "auto-attached")
+    assert body["entity_type"] == "organization"
+
+
+async def test_org_wa_legislature_accepted(client, org_write_key):
+    """org_wa_legislature must be registered and accept org observations."""
+    raw, _ = org_write_key
+    r = _post(
+        client,
+        raw,
+        {"identifier_type": "org_wa_legislature", "identifier_value": "usa_wa_legislature"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] in ("new", "auto-attached")
+    assert body["entity_type"] == "organization"
+
+
+# ---------------------------------------------------------------------------
+# #225 — reason field on rejected observations
+# ---------------------------------------------------------------------------
+
+
+async def test_rejected_unknown_type_includes_reason(client, org_write_key):
+    """Unknown identifier type rejection must include a reason string."""
+    raw, _ = org_write_key
+    r = _post(client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] is not None
+    assert "zzz_nonexistent_xyz" in body["reason"]
+
+
+async def test_rejected_wrong_entity_type_includes_reason(client, org_write_key):
+    """Wrong-entity-type rejection must include a reason string."""
+    raw, _ = org_write_key
+    r = _post(client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": "v"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] is not None
+
+
+async def test_rejected_unknown_additional_identifier_includes_reason(client, org_write_key):
+    """Unknown additional identifier type must surface a reason."""
+    raw, _ = org_write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": _unique_id(),
+            "additional_identifiers": [
+                {"identifier_type_slug": "zzz_bad_slug", "identifier_value": "x"}
+            ],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] is not None
+    assert "zzz_bad_slug" in body["reason"]

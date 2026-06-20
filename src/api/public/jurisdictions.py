@@ -393,8 +393,6 @@ async def get_jurisdiction_lineage(
 # POST /jurisdictions/observations
 # ---------------------------------------------------------------------------
 
-_REJECTED_OBS = ObservationResponse(disposition="rejected", entity_id=None, entity_type=None)
-
 
 @router.post(
     "/observations",
@@ -422,7 +420,7 @@ async def submit_jurisdiction_observation(
             "notes": request.jurisdiction_notes,
         }
 
-    entity_id, entity_type, disposition = await resolve_entity(
+    entity_id, entity_type, disposition, reason = await resolve_entity(
         db,
         request.identifier_type,
         request.identifier_value,
@@ -430,9 +428,12 @@ async def submit_jurisdiction_observation(
     )
 
     if disposition is Disposition.REJECTED:
-        return _REJECTED_OBS
+        return ObservationResponse(disposition="rejected", reason=reason)
     if entity_type != "jurisdiction":
-        return _REJECTED_OBS
+        return ObservationResponse(
+            disposition="rejected",
+            reason=f"entity_type_mismatch: {entity_type!r}",
+        )
 
     try:
         async with db.transaction():
@@ -440,14 +441,19 @@ async def submit_jurisdiction_observation(
             await write_contact_methods(db, entity_id, entity_type, request.contact_methods)
             await write_addresses(db, entity_id, entity_type, request.addresses)
             await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+    except ObservationRejected as exc:
+        return ObservationResponse(disposition="rejected", reason=exc.detail)
+    except IdentifierConflict as exc:
+        return ObservationResponse(
+            disposition="rejected",
+            reason=f"identifier_conflict: {exc.identifier_type_slug!r}",
+        )
     except (
-        ObservationRejected,
-        IdentifierConflict,
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,
         asyncpg.UniqueViolationError,
     ):
-        return _REJECTED_OBS
+        return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
 
     return ObservationResponse(
         disposition=disposition.value,
