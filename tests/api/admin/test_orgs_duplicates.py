@@ -892,3 +892,123 @@ async def test_org_multi_name_pair_appears_once(client, org_pair_multi_name):
     assert response.status_code == 200
     # 2 per card (Keep A param + Keep B param); value > 2 indicates duplicate pair rows
     assert response.text.count(f"/admin/orgs/{id_a}/merge-preview/{id_b}/") == 2
+
+
+# ---------------------------------------------------------------------------
+# Jurisdiction affiliation reassignment
+# ---------------------------------------------------------------------------
+
+_GOVERNING_TYPE_ID = "01KW0000000000000000000001"
+_STATE_JTYPE_ID = "01KT0HK3452TNDD2WM8E50ZTAT"
+
+
+async def _make_org(conn, name: str) -> str:
+    oid = generate_id()
+    await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await conn.execute(
+        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        oid,
+        name,
+    )
+    return oid
+
+
+async def _make_jur(conn) -> str:
+    jid = generate_id()
+    await conn.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1, $2, $3, $4)",
+        jid,
+        f"test-jur-merge-{jid}",
+        f"Merge Test Jurisdiction {jid}",
+        _STATE_JTYPE_ID,
+    )
+    return jid
+
+
+async def _add_affiliation(conn, org_id: str, jur_id: str) -> None:
+    await conn.execute(
+        "INSERT INTO organization_jurisdiction_affiliations"
+        " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        org_id,
+        jur_id,
+        _GOVERNING_TYPE_ID,
+    )
+
+
+async def test_merge_reassigns_unique_jurisdiction_affiliations(client, db_pool):
+    """Loser's jurisdiction affiliation is transferred to winner when winner has none."""
+    async with db_pool.acquire() as conn:
+        winner_id = await _make_org(conn, "Winner Org Jur Test")
+        loser_id = await _make_org(conn, "Loser Org Jur Test")
+        jur_id = await _make_jur(conn)
+        await _add_affiliation(conn, loser_id, jur_id)
+
+    try:
+        response = client.post(
+            f"/admin/orgs/{winner_id}/merge/{loser_id}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT count(*) FROM organization_jurisdiction_affiliations"
+                " WHERE organization_id=$1 AND jurisdiction_id=$2",
+                winner_id,
+                jur_id,
+            )
+        assert count == 1
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM organization_jurisdiction_affiliations WHERE organization_id=$1",
+                winner_id,
+            )
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", winner_id)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", winner_id)
+            await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jur_id)
+
+
+async def test_merge_deduplicates_shared_jurisdiction_affiliation(client, db_pool):
+    """Shared affiliation (same jur + type) on both orgs produces exactly one row on winner."""
+    async with db_pool.acquire() as conn:
+        winner_id = await _make_org(conn, "Winner Org Jur Dedup Test")
+        loser_id = await _make_org(conn, "Loser Org Jur Dedup Test")
+        jur_shared = await _make_jur(conn)
+        jur_unique = await _make_jur(conn)
+        # Both orgs share jur_shared; loser alone has jur_unique
+        await _add_affiliation(conn, winner_id, jur_shared)
+        await _add_affiliation(conn, loser_id, jur_shared)
+        await _add_affiliation(conn, loser_id, jur_unique)
+
+    try:
+        response = client.post(
+            f"/admin/orgs/{winner_id}/merge/{loser_id}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT jurisdiction_id FROM organization_jurisdiction_affiliations"
+                " WHERE organization_id=$1",
+                winner_id,
+            )
+        jur_ids = {r["jurisdiction_id"] for r in rows}
+        assert jur_ids == {jur_shared, jur_unique}
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM organization_jurisdiction_affiliations WHERE organization_id=$1",
+                winner_id,
+            )
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", winner_id)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", winner_id)
+            for jid in (jur_shared, jur_unique):
+                await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jid)

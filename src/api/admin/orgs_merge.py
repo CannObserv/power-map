@@ -142,6 +142,24 @@ async def _execute_merge(
             winner_id,
             loser_id,
         )
+        # jurisdiction affiliations: dedup then reassign to winner.
+        await db.execute(
+            """DELETE FROM organization_jurisdiction_affiliations
+               WHERE organization_id=$1
+                 AND (jurisdiction_id, affiliation_type_id) IN (
+                     SELECT jurisdiction_id, affiliation_type_id
+                     FROM organization_jurisdiction_affiliations
+                     WHERE organization_id=$2
+                 )""",
+            loser_id,
+            winner_id,
+        )
+        await db.execute(
+            "UPDATE organization_jurisdiction_affiliations"
+            " SET organization_id=$1 WHERE organization_id=$2",
+            winner_id,
+            loser_id,
+        )
 
         if keep_name_ids is not None:
             if keep_name_ids:
@@ -255,24 +273,6 @@ async def _execute_merge(
 
         await db.execute(
             "UPDATE roles SET organization_id=$1 WHERE organization_id=$2",
-            winner_id,
-            loser_id,
-        )
-        # jurisdiction affiliations: dedup then reassign to winner.
-        await db.execute(
-            """DELETE FROM organization_jurisdiction_affiliations
-               WHERE organization_id=$1
-                 AND (jurisdiction_id, affiliation_type_id) IN (
-                     SELECT jurisdiction_id, affiliation_type_id
-                     FROM organization_jurisdiction_affiliations
-                     WHERE organization_id=$2
-                 )""",
-            loser_id,
-            winner_id,
-        )
-        await db.execute(
-            "UPDATE organization_jurisdiction_affiliations"
-            " SET organization_id=$1 WHERE organization_id=$2",
             winner_id,
             loser_id,
         )
