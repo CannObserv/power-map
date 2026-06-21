@@ -832,13 +832,17 @@ async def test_alternate_name_match_shows_canonical_name(client, person_pair_alt
     response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert f'/admin/people/{id_a}/">Jordan Fitzgerald Marsh' in response.text
+    assert f'/admin/people/{id_b}/">Jordan Marsh' in response.text
 
 
 async def test_alternate_name_match_shows_matched_via_public(client, person_pair_alternate_match):
     """Dup card shows 'matched via:' secondary line for a public alternate match."""
+    id_a, _id_b = person_pair_alternate_match
     response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert "matched via: Jordan Marsh" in response.text
+    section_start = response.text.find(f'/admin/people/{id_a}/">')
+    assert section_start != -1
+    assert "matched via: Jordan Marsh" in response.text[section_start : section_start + 300]
 
 
 async def test_legal_only_name_match_does_not_show_matched_via(

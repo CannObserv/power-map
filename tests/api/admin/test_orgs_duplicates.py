@@ -848,13 +848,17 @@ async def test_org_alternate_name_match_shows_canonical_name(client, org_pair_al
     response = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert f'/admin/orgs/{id_a}/">Acme Consolidated Corporation' in response.text
+    assert f'/admin/orgs/{id_b}/">Acme Corp' in response.text
 
 
 async def test_org_alternate_name_match_shows_matched_via(client, org_pair_alternate_match):
     """Dup card must show 'matched via:' secondary line when the matching name is non-canonical."""
+    id_a, _id_b = org_pair_alternate_match
     response = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert "matched via: Acme Corp" in response.text
+    section_start = response.text.find(f'/admin/orgs/{id_a}/">')
+    assert section_start != -1
+    assert "matched via: Acme Corp" in response.text[section_start : section_start + 300]
 
 
 @pytest_asyncio.fixture(loop_scope="session")
