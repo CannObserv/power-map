@@ -60,8 +60,9 @@ def pytest_configure(config):
     test_url = os.environ.get("TEST_DATABASE_URL")
     if test_url:
         os.environ["DATABASE_URL"] = test_url
-    # Keep app pools small so the full integration suite doesn't exhaust
-    # available DB connections (issue #226).
+    # Cap the app-level pool (created by TestClient lifespan) at two connections
+    # so the full suite doesn't exhaust DO DB slots (issue #226).
+    # The test db_pool fixture passes explicit min/max and ignores these.
     os.environ.setdefault("DB_POOL_MIN_SIZE", "1")
     os.environ.setdefault("DB_POOL_MAX_SIZE", "2")
 

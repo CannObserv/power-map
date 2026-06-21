@@ -27,4 +27,4 @@ async def test_db_pool_uses_test_safe_connection_sizes(db_pool):
     triggers TooManyConnectionsError (issue #226).
     """
     assert db_pool.get_min_size() <= 2
-    assert db_pool.get_max_size() <= 3
+    assert db_pool.get_max_size() <= 2
