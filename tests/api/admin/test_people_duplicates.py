@@ -828,9 +828,10 @@ async def test_legal_only_name_detected(client, person_pair_legal_only_match):
 
 async def test_alternate_name_match_shows_canonical_name(client, person_pair_alternate_match):
     """Dup card must show canonical name ('Jordan Fitzgerald Marsh'), not the matched alternate."""
+    id_a, id_b = person_pair_alternate_match
     response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert "Jordan Fitzgerald Marsh" in response.text
+    assert f'/admin/people/{id_a}/">Jordan Fitzgerald Marsh' in response.text
 
 
 async def test_alternate_name_match_shows_matched_via_public(client, person_pair_alternate_match):

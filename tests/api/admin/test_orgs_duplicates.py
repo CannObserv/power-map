@@ -844,9 +844,10 @@ async def test_org_alternate_name_match_detected(client, org_pair_alternate_matc
 
 async def test_org_alternate_name_match_shows_canonical_name(client, org_pair_alternate_match):
     """Dup card must show canonical name for each org, not the alternate that drove the match."""
+    id_a, id_b = org_pair_alternate_match
     response = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert "Acme Consolidated Corporation" in response.text
+    assert f'/admin/orgs/{id_a}/">Acme Consolidated Corporation' in response.text
 
 
 async def test_org_alternate_name_match_shows_matched_via(client, org_pair_alternate_match):
