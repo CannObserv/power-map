@@ -75,10 +75,34 @@ async def _fetch_duplicate_pairs(db) -> list:
     """Return near-duplicate person pairs; empty list if pg_trgm not installed."""
     try:
         return await db.fetch(
-            f"""SELECT * FROM (
+            f"""SELECT
+                sub.a_id,
+                COALESCE(vdn_a.display_name, sub.a_match_name) AS a_name,
+                sub.a_match_name,
+                sub.a_match_is_canonical,
+                sub.a_match_visibility,
+                sub.a_created,
+                sub.b_id,
+                COALESCE(vdn_b.display_name, sub.b_match_name) AS b_name,
+                sub.b_match_name,
+                sub.b_match_is_canonical,
+                sub.b_match_visibility,
+                sub.b_created,
+                sub.score,
+                sub.a_roles,
+                sub.b_roles
+            FROM (
                 SELECT DISTINCT ON (a.id, b.id)
-                    a.id AS a_id, dn_a.name AS a_name, a.created_at AS a_created,
-                    b.id AS b_id, dn_b.name AS b_name, b.created_at AS b_created,
+                    a.id AS a_id,
+                    dn_a.name AS a_match_name,
+                    dn_a.is_canonical AS a_match_is_canonical,
+                    dn_a.visibility AS a_match_visibility,
+                    a.created_at AS a_created,
+                    b.id AS b_id,
+                    dn_b.name AS b_match_name,
+                    dn_b.is_canonical AS b_match_is_canonical,
+                    dn_b.visibility AS b_match_visibility,
+                    b.created_at AS b_created,
                     similarity(dn_a.name, dn_b.name) AS score,
                     (SELECT count(*) FROM role_assignments
                      WHERE person_id = a.id AND archived_at IS NULL) AS a_roles,
@@ -87,6 +111,8 @@ async def _fetch_duplicate_pairs(db) -> list:
                 {CANDIDATE_WHERE}
                 ORDER BY a.id, b.id, similarity(dn_a.name, dn_b.name) DESC
             ) sub
+            LEFT JOIN v_person_display_names vdn_a ON vdn_a.person_id = sub.a_id
+            LEFT JOIN v_person_display_names vdn_b ON vdn_b.person_id = sub.b_id
             ORDER BY score DESC"""
         )
     except asyncpg.exceptions.UndefinedFunctionError:
