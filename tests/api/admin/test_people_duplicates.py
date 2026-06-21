@@ -824,3 +824,32 @@ async def test_legal_only_name_detected(client, person_pair_legal_only_match):
     response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert f"/admin/people/{id_a}/merge/{id_b}/" in response.text
+
+
+async def test_alternate_name_match_shows_canonical_name(client, person_pair_alternate_match):
+    """Dup card must show canonical name ('Jordan Fitzgerald Marsh'), not the matched alternate."""
+    id_a, id_b = person_pair_alternate_match
+    response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert f'/admin/people/{id_a}/">Jordan Fitzgerald Marsh' in response.text
+    assert f'/admin/people/{id_b}/">Jordan Marsh' in response.text
+
+
+async def test_alternate_name_match_shows_matched_via_public(client, person_pair_alternate_match):
+    """Dup card shows 'matched via:' secondary line for a public alternate match."""
+    id_a, _id_b = person_pair_alternate_match
+    response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    section_start = response.text.find(f'/admin/people/{id_a}/">')
+    assert section_start != -1
+    assert "matched via: Jordan Marsh" in response.text[section_start : section_start + 300]
+
+
+async def test_legal_only_name_match_does_not_show_matched_via(
+    client, person_pair_legal_only_match
+):
+    """Dup card must NOT reveal a legal_only matched name in 'matched via:' secondary line."""
+    response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Peter Wimsey" in response.text
+    assert "matched via: Harriet Vane" not in response.text

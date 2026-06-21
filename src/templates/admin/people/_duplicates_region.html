@@ -14,12 +14,18 @@
     {% for p in pairs %}
     <tr>
       <td>
-        <a href="/admin/people/{{ p.a_id }}/">{{ p.a_name }}</a><br>
-        <small style="color:var(--color-text-muted)">{{ p.a_created.strftime('%Y-%m-%d') }} · {{ p.a_roles }} assignment{{ 's' if p.a_roles != 1 else '' }}</small>
+        <a href="/admin/people/{{ p.a_id }}/">{{ p.a_name }}</a>
+        {% if not p.a_match_is_canonical and p.a_match_visibility == 'public' and p.a_name != p.a_match_name %}
+        <br><small style="color:var(--color-text-muted)">matched via: {{ p.a_match_name }}</small>
+        {% endif %}
+        <br><small style="color:var(--color-text-muted)">{{ p.a_created.strftime('%Y-%m-%d') }} · {{ p.a_roles }} assignment{{ 's' if p.a_roles != 1 else '' }}</small>
       </td>
       <td>
-        <a href="/admin/people/{{ p.b_id }}/">{{ p.b_name }}</a><br>
-        <small style="color:var(--color-text-muted)">{{ p.b_created.strftime('%Y-%m-%d') }} · {{ p.b_roles }} assignment{{ 's' if p.b_roles != 1 else '' }}</small>
+        <a href="/admin/people/{{ p.b_id }}/">{{ p.b_name }}</a>
+        {% if not p.b_match_is_canonical and p.b_match_visibility == 'public' and p.b_name != p.b_match_name %}
+        <br><small style="color:var(--color-text-muted)">matched via: {{ p.b_match_name }}</small>
+        {% endif %}
+        <br><small style="color:var(--color-text-muted)">{{ p.b_created.strftime('%Y-%m-%d') }} · {{ p.b_roles }} assignment{{ 's' if p.b_roles != 1 else '' }}</small>
       </td>
       <td>{{ "%.0f%%"|format(p.score * 100) }}</td>
       <td class="dup-actions">

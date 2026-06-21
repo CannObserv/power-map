@@ -842,6 +842,25 @@ async def test_org_alternate_name_match_detected(client, org_pair_alternate_matc
     assert f"/admin/orgs/{id_a}/merge-preview/{id_b}/" in response.text
 
 
+async def test_org_alternate_name_match_shows_canonical_name(client, org_pair_alternate_match):
+    """Dup card must show canonical name for each org, not the alternate that drove the match."""
+    id_a, id_b = org_pair_alternate_match
+    response = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert f'/admin/orgs/{id_a}/">Acme Consolidated Corporation' in response.text
+    assert f'/admin/orgs/{id_b}/">Acme Corp' in response.text
+
+
+async def test_org_alternate_name_match_shows_matched_via(client, org_pair_alternate_match):
+    """Dup card must show 'matched via:' secondary line when the matching name is non-canonical."""
+    id_a, _id_b = org_pair_alternate_match
+    response = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    section_start = response.text.find(f'/admin/orgs/{id_a}/">')
+    assert section_start != -1
+    assert "matched via: Acme Corp" in response.text[section_start : section_start + 300]
+
+
 @pytest_asyncio.fixture(loop_scope="session")
 async def org_pair_multi_name(db_pool):
     """Both orgs carry two names that all cross-match above 0.85.
