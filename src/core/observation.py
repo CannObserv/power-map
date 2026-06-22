@@ -390,6 +390,34 @@ async def write_links(conn, entity_id: str, entity_type: str, links: list) -> No
             link.url,
             link_type_id,
         )
+        await _record_entity_change(conn, entity_type, entity_id)
+
+
+async def _record_entity_change(conn, entity_type: str, entity_id: str) -> None:
+    """Append an 'updated' outbox row; callers own any surrounding transaction."""
+    await conn.execute(
+        "INSERT INTO entity_changes (entity_type, entity_id, change_kind)"
+        " VALUES ($1, $2, 'updated')",
+        entity_type,
+        entity_id,
+    )
+
+
+async def _null_fill_metadata(
+    conn, entity_type: str, entity_id: str, table: str, col: str, pk_val: str, value: str
+) -> None:
+    """Fill col in table where pk_val row has NULL, atomically with an entity_changes row.
+
+    table/col are caller-controlled string constants, not user input.
+    """
+    async with conn.transaction():
+        updated = await conn.fetchval(
+            f"UPDATE {table} SET {col}=$1 WHERE id=$2 AND {col} IS NULL RETURNING id",
+            value,
+            pk_val,
+        )
+        if updated:
+            await _record_entity_change(conn, entity_type, entity_id)
 
 
 async def write_contact_methods(
@@ -421,18 +449,30 @@ async def write_contact_methods(
             normalized,
         )
         if existing:
+            if cm.display_label:
+                await _null_fill_metadata(
+                    conn,
+                    entity_type,
+                    entity_id,
+                    "contact_methods",
+                    "display_label",
+                    existing["id"],
+                    cm.display_label,
+                )
             continue
-        await conn.execute(
-            "INSERT INTO contact_methods"
-            " (id, entity_type, entity_id, contact_type, value, display_label)"
-            " VALUES ($1, $2, $3, $4, $5, $6)",
-            generate_id(),
-            entity_type,
-            entity_id,
-            cm.contact_type,
-            normalized,
-            cm.display_label,
-        )
+        async with conn.transaction():
+            await conn.execute(
+                "INSERT INTO contact_methods"
+                " (id, entity_type, entity_id, contact_type, value, display_label)"
+                " VALUES ($1, $2, $3, $4, $5, $6)",
+                generate_id(),
+                entity_type,
+                entity_id,
+                cm.contact_type,
+                normalized,
+                cm.display_label or None,
+            )
+            await _record_entity_change(conn, entity_type, entity_id)
 
 
 async def write_addresses(conn, entity_id: str, entity_type: str, addresses: list) -> None:
@@ -469,6 +509,16 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
             dedup_form,
         )
         if existing:
+            if addr.display_name:
+                await _null_fill_metadata(
+                    conn,
+                    entity_type,
+                    entity_id,
+                    "entity_addresses",
+                    "display_name",
+                    existing["id"],
+                    addr.display_name,
+                )
             continue
         components_val = v.get("components")
         components_str = json.dumps(components_val) if components_val else None
@@ -501,8 +551,9 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
                 entity_id,
                 aid,
                 addr.address_type,
-                addr.display_name,
+                addr.display_name or None,
             )
+            await _record_entity_change(conn, entity_type, entity_id)
 
 
 async def write_org_acronyms(

@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_serializer, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 EntityType = Literal["person", "organization", "jurisdiction", "role", "role_assignment"]
 
@@ -431,6 +431,11 @@ class ObservationContactMethod(BaseModel):
     value: str  # raw value — normalized before storage
     display_label: str | None = None
 
+    @field_validator("display_label", mode="before")
+    @classmethod
+    def _normalize_display_label(cls, v: object) -> object:
+        return v or None
+
 
 class ObservationAddress(BaseModel):
     """An address claim included in an observation."""
@@ -438,6 +443,11 @@ class ObservationAddress(BaseModel):
     raw_input: str
     address_type: Literal["mailing", "physical", "other"] = "other"
     display_name: str | None = None  # optional label, e.g. "Seattle Office"
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def _normalize_display_name(cls, v: object) -> object:
+        return v or None
 
 
 class ObservationRoleAssignment(BaseModel):

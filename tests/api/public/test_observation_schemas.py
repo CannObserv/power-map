@@ -69,9 +69,29 @@ def test_contact_method_invalid_type_rejected():
         ObservationContactMethod(contact_type="fax", value="12345")
 
 
+def test_contact_method_empty_display_label_normalized_to_none():
+    cm = ObservationContactMethod(contact_type="phone", value="555-1234", display_label="")
+    assert cm.display_label is None
+
+
+def test_contact_method_nonempty_display_label_preserved():
+    cm = ObservationContactMethod(contact_type="phone", value="555-1234", display_label="Main")
+    assert cm.display_label == "Main"
+
+
 def test_address_invalid_type_rejected():
     with pytest.raises(ValidationError):
         ObservationAddress(raw_input="123 Main St", address_type="postal")
+
+
+def test_address_empty_display_name_normalized_to_none():
+    addr = ObservationAddress(raw_input="123 Main St", display_name="")
+    assert addr.display_name is None
+
+
+def test_address_nonempty_display_name_preserved():
+    addr = ObservationAddress(raw_input="123 Main St", display_name="HQ")
+    assert addr.display_name == "HQ"
 
 
 def test_name_parts_invalid_primary_identifier_rejected():

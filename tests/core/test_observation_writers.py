@@ -19,6 +19,7 @@ from src.api.public.schemas import (
     ObservationRoleAssignment,
 )
 from src.core.db import generate_id
+from src.core.normalizers import address as addr_mod
 from src.core.observation import (
     IdentifierConflict,
     ObservationRejected,
@@ -305,6 +306,21 @@ async def test_write_links_by_id(db, person_id):
     assert rows[0]["link_type_id"] == lt["id"]
 
 
+async def test_write_links_insert_writes_entity_changes(db):
+    """Initial INSERT of a link writes an entity_changes row."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    link = ObservationLink(url="https://example.com/new", link_type_slug="website")
+    await write_links(db, pid, "person", [link])
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    assert after - before == 1
+
+
 # ---------------------------------------------------------------------------
 # write_contact_methods
 # ---------------------------------------------------------------------------
@@ -350,6 +366,134 @@ async def test_write_contact_methods_email(db, person_id):
     assert rows[0]["value"].endswith("@example.com")
 
 
+async def test_write_contact_methods_insert_writes_entity_changes(db):
+    """Initial INSERT of a contact method writes an entity_changes row."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    cm = ObservationContactMethod(contact_type="phone", value="(206) 555-0100")
+    await write_contact_methods(db, pid, "person", [cm])
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    assert after - before == 1
+
+
+async def test_write_contact_methods_null_fill_updates_label(db):
+    """display_label NULL-filled from re-observation; entity_changes row written."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    cm1 = ObservationContactMethod(contact_type="phone", value="(206) 555-0101")
+    await write_contact_methods(db, pid, "person", [cm1])
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    cm2 = ObservationContactMethod(
+        contact_type="phone", value="(206) 555-0101", display_label="Main"
+    )
+    await write_contact_methods(db, pid, "person", [cm2])
+    row = await db.fetchrow(
+        "SELECT display_label FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
+        pid,
+    )
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    assert row["display_label"] == "Main"
+    assert after - before == 1
+
+
+async def test_write_contact_methods_existing_label_not_overwritten(db):
+    """Non-NULL display_label is not overwritten; no entity_changes row written."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    cm1 = ObservationContactMethod(
+        contact_type="phone", value="(206) 555-0102", display_label="Office"
+    )
+    await write_contact_methods(db, pid, "person", [cm1])
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    cm2 = ObservationContactMethod(
+        contact_type="phone", value="(206) 555-0102", display_label="Mobile"
+    )
+    await write_contact_methods(db, pid, "person", [cm2])
+    row = await db.fetchrow(
+        "SELECT display_label FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
+        pid,
+    )
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    assert row["display_label"] == "Office"
+    assert after - before == 0
+
+
+async def test_write_contact_methods_null_fill_idempotent(db):
+    """Second re-observation after label already filled → no new entity_changes."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    cm1 = ObservationContactMethod(contact_type="phone", value="(206) 555-0103")
+    await write_contact_methods(db, pid, "person", [cm1])
+    cm2 = ObservationContactMethod(contact_type="phone", value="(206) 555-0103", display_label="WA")
+    await write_contact_methods(db, pid, "person", [cm2])
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    await write_contact_methods(db, pid, "person", [cm2])
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    assert after - before == 0
+
+
+async def test_write_contact_methods_empty_string_label_skipped(db):
+    """Empty string display_label is not written; no entity_changes row emitted."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    cm1 = ObservationContactMethod(contact_type="phone", value="(206) 555-0104")
+    await write_contact_methods(db, pid, "person", [cm1])
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    cm2 = ObservationContactMethod(contact_type="phone", value="(206) 555-0104", display_label="")
+    await write_contact_methods(db, pid, "person", [cm2])
+    row = await db.fetchrow(
+        "SELECT display_label FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
+        pid,
+    )
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
+    )
+    assert row["display_label"] is None
+    assert after - before == 0
+
+
+async def test_write_contact_methods_initial_empty_string_stored_as_null(db):
+    """Initial INSERT with display_label='' stores NULL so future NULL-fill can land."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    cm1 = ObservationContactMethod(contact_type="phone", value="(206) 555-0105", display_label="")
+    await write_contact_methods(db, pid, "person", [cm1])
+    row = await db.fetchrow(
+        "SELECT display_label FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
+        pid,
+    )
+    assert row["display_label"] is None
+    # Confirm a subsequent real label can fill the slot
+    cm2 = ObservationContactMethod(
+        contact_type="phone", value="(206) 555-0105", display_label="Main"
+    )
+    await write_contact_methods(db, pid, "person", [cm2])
+    row2 = await db.fetchrow(
+        "SELECT display_label FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
+        pid,
+    )
+    assert row2["display_label"] == "Main"
+
+
 # ---------------------------------------------------------------------------
 # write_addresses
 # ---------------------------------------------------------------------------
@@ -359,36 +503,231 @@ async def test_write_addresses_basic(db, org_id, monkeypatch):
     """write_addresses inserts an address row and an entity_addresses join."""
     # Disable external validator → falls back to LocalAddressNormalizer (usaddress)
     monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    from src.core.normalizers import address as addr_mod
-
     addr_mod._reset_normalizer()
-    addr = ObservationAddress(raw_input="123 Main St, Seattle, WA 98101", address_type="mailing")
-    await write_addresses(db, org_id, "organization", [addr])
-    rows = await db.fetch(
-        "SELECT ea.address_type, a.raw_input FROM entity_addresses ea"
-        " JOIN addresses a ON a.id = ea.address_id"
-        " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
-        org_id,
-    )
-    assert len(rows) == 1
-    assert rows[0]["address_type"] == "mailing"
-    addr_mod._reset_normalizer()
+    try:
+        addr = ObservationAddress(
+            raw_input="123 Main St, Seattle, WA 98101", address_type="mailing"
+        )
+        await write_addresses(db, org_id, "organization", [addr])
+        rows = await db.fetch(
+            "SELECT ea.address_type, a.raw_input FROM entity_addresses ea"
+            " JOIN addresses a ON a.id = ea.address_id"
+            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+            org_id,
+        )
+        assert len(rows) == 1
+        assert rows[0]["address_type"] == "mailing"
+    finally:
+        addr_mod._reset_normalizer()
 
 
 async def test_write_addresses_duplicate_noop(db, org_id, monkeypatch):
     monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    from src.core.normalizers import address as addr_mod
+    addr_mod._reset_normalizer()
+    try:
+        addr = ObservationAddress(
+            raw_input="123 Main St, Seattle, WA 98101", address_type="mailing"
+        )
+        await write_addresses(db, org_id, "organization", [addr])
+        await write_addresses(db, org_id, "organization", [addr])
+        rows = await db.fetch(
+            "SELECT id FROM entity_addresses WHERE entity_type='organization' AND entity_id=$1",
+            org_id,
+        )
+        assert len(rows) == 1
+    finally:
+        addr_mod._reset_normalizer()
 
+
+async def test_write_addresses_insert_writes_entity_changes(db, monkeypatch):
+    """Initial INSERT of an address writes an entity_changes row."""
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
     addr_mod._reset_normalizer()
-    addr = ObservationAddress(raw_input="123 Main St, Seattle, WA 98101", address_type="mailing")
-    await write_addresses(db, org_id, "organization", [addr])
-    await write_addresses(db, org_id, "organization", [addr])
-    rows = await db.fetch(
-        "SELECT id FROM entity_addresses WHERE entity_type='organization' AND entity_id=$1",
-        org_id,
-    )
-    assert len(rows) == 1
+    try:
+        oid = generate_id()
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        before = await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+            oid,
+        )
+        addr = ObservationAddress(
+            raw_input="456 Pine St, Seattle, WA 98101", address_type="physical"
+        )
+        await write_addresses(db, oid, "organization", [addr])
+        after = await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+            oid,
+        )
+        assert after - before == 1
+    finally:
+        addr_mod._reset_normalizer()
+
+
+async def test_write_addresses_null_fill_updates_display_name(db, monkeypatch):
+    """display_name NULL-filled from re-observation; entity_changes row written."""
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
     addr_mod._reset_normalizer()
+    try:
+        oid = generate_id()
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        addr1 = ObservationAddress(
+            raw_input="789 Oak Ave, Seattle, WA 98101", address_type="mailing"
+        )
+        await write_addresses(db, oid, "organization", [addr1])
+        before = await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+            oid,
+        )
+        addr2 = ObservationAddress(
+            raw_input="789 Oak Ave, Seattle, WA 98101", address_type="mailing", display_name="HQ"
+        )
+        await write_addresses(db, oid, "organization", [addr2])
+        row = await db.fetchrow(
+            "SELECT ea.display_name FROM entity_addresses ea"
+            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+            oid,
+        )
+        after = await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+            oid,
+        )
+        assert row["display_name"] == "HQ"
+        assert after - before == 1
+    finally:
+        addr_mod._reset_normalizer()
+
+
+async def test_write_addresses_existing_display_name_not_overwritten(db, monkeypatch):
+    """Non-NULL display_name is not overwritten; no entity_changes row written."""
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
+    addr_mod._reset_normalizer()
+    try:
+        oid = generate_id()
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        addr1 = ObservationAddress(
+            raw_input="321 Elm St, Seattle, WA 98101", address_type="mailing", display_name="Branch"
+        )
+        await write_addresses(db, oid, "organization", [addr1])
+        before = await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+            oid,
+        )
+        addr2 = ObservationAddress(
+            raw_input="321 Elm St, Seattle, WA 98101", address_type="mailing", display_name="HQ"
+        )
+        await write_addresses(db, oid, "organization", [addr2])
+        row = await db.fetchrow(
+            "SELECT ea.display_name FROM entity_addresses ea"
+            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+            oid,
+        )
+        after = await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+            oid,
+        )
+        assert row["display_name"] == "Branch"
+        assert after - before == 0
+    finally:
+        addr_mod._reset_normalizer()
+
+
+async def test_write_addresses_null_fill_idempotent(db, monkeypatch):
+    """Second re-observation after display_name already filled → no new entity_changes."""
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
+    addr_mod._reset_normalizer()
+    try:
+        oid = generate_id()
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        addr1 = ObservationAddress(
+            raw_input="654 Maple Dr, Seattle, WA 98101", address_type="other"
+        )
+        await write_addresses(db, oid, "organization", [addr1])
+        addr2 = ObservationAddress(
+            raw_input="654 Maple Dr, Seattle, WA 98101", address_type="other", display_name="Annex"
+        )
+        await write_addresses(db, oid, "organization", [addr2])
+        before = await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+            oid,
+        )
+        await write_addresses(db, oid, "organization", [addr2])
+        after = await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+            oid,
+        )
+        assert after - before == 0
+    finally:
+        addr_mod._reset_normalizer()
+
+
+async def test_write_addresses_empty_string_display_name_skipped(db, monkeypatch):
+    """Empty string display_name is not written; no entity_changes row emitted."""
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
+    addr_mod._reset_normalizer()
+    try:
+        oid = generate_id()
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        addr1 = ObservationAddress(
+            raw_input="987 Cedar Rd, Seattle, WA 98101", address_type="mailing"
+        )
+        await write_addresses(db, oid, "organization", [addr1])
+        before = await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+            oid,
+        )
+        addr2 = ObservationAddress(
+            raw_input="987 Cedar Rd, Seattle, WA 98101", address_type="mailing", display_name=""
+        )
+        await write_addresses(db, oid, "organization", [addr2])
+        row = await db.fetchrow(
+            "SELECT ea.display_name FROM entity_addresses ea"
+            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+            oid,
+        )
+        after = await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+            oid,
+        )
+        assert row["display_name"] is None
+        assert after - before == 0
+    finally:
+        addr_mod._reset_normalizer()
+
+
+async def test_write_addresses_initial_empty_string_stored_as_null(db, monkeypatch):
+    """Initial INSERT with display_name='' stores NULL so future NULL-fill can land."""
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
+    addr_mod._reset_normalizer()
+    try:
+        oid = generate_id()
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        addr1 = ObservationAddress(
+            raw_input="111 Test Ave, Seattle, WA 98101",
+            address_type="mailing",
+            display_name="",
+        )
+        await write_addresses(db, oid, "organization", [addr1])
+        row = await db.fetchrow(
+            "SELECT ea.display_name FROM entity_addresses ea"
+            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+            oid,
+        )
+        assert row["display_name"] is None
+        # Confirm a subsequent real label can fill the slot
+        addr2 = ObservationAddress(
+            raw_input="111 Test Ave, Seattle, WA 98101",
+            address_type="mailing",
+            display_name="HQ",
+        )
+        await write_addresses(db, oid, "organization", [addr2])
+        row2 = await db.fetchrow(
+            "SELECT ea.display_name FROM entity_addresses ea"
+            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+            oid,
+        )
+        assert row2["display_name"] == "HQ"
+    finally:
+        addr_mod._reset_normalizer()
 
 
 # ---------------------------------------------------------------------------
