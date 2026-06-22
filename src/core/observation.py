@@ -381,16 +381,17 @@ async def write_links(conn, entity_id: str, entity_type: str, links: list) -> No
         )
         if existing:
             continue
-        await conn.execute(
-            "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
-            " VALUES ($1, $2, $3, $4, $5)",
-            generate_id(),
-            entity_type,
-            entity_id,
-            link.url,
-            link_type_id,
-        )
-        await _record_entity_change(conn, entity_type, entity_id)
+        async with conn.transaction():
+            await conn.execute(
+                "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+                " VALUES ($1, $2, $3, $4, $5)",
+                generate_id(),
+                entity_type,
+                entity_id,
+                link.url,
+                link_type_id,
+            )
+            await _record_entity_change(conn, entity_type, entity_id)
 
 
 async def _record_entity_change(conn, entity_type: str, entity_id: str) -> None:
@@ -470,7 +471,7 @@ async def write_contact_methods(
                 entity_id,
                 cm.contact_type,
                 normalized,
-                cm.display_label or None,
+                cm.display_label,
             )
             await _record_entity_change(conn, entity_type, entity_id)
 
@@ -551,7 +552,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
                 entity_id,
                 aid,
                 addr.address_type,
-                addr.display_name or None,
+                addr.display_name,
             )
             await _record_entity_change(conn, entity_type, entity_id)
 
