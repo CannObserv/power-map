@@ -1076,12 +1076,13 @@ async def test_merge_reassigns_unique_contact_methods(client, db_pool):
         assert count == 1
     finally:
         async with db_pool.acquire() as conn:
-            await conn.execute(
-                "DELETE FROM contact_methods WHERE entity_type='organization' AND entity_id=$1",
-                winner_id,
-            )
-            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", winner_id)
-            await conn.execute("DELETE FROM organizations WHERE id=$1", winner_id)
+            for oid in (winner_id, loser_id):
+                await conn.execute(
+                    "DELETE FROM contact_methods WHERE entity_type='organization' AND entity_id=$1",
+                    oid,
+                )
+                await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+                await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
 
 
 async def test_merge_deduplicates_shared_contact_method(client, db_pool):
@@ -1113,9 +1114,10 @@ async def test_merge_deduplicates_shared_contact_method(client, db_pool):
         assert {r["value"] for r in rows} == {"+13605550100", "+13605550200"}
     finally:
         async with db_pool.acquire() as conn:
-            await conn.execute(
-                "DELETE FROM contact_methods WHERE entity_type='organization' AND entity_id=$1",
-                winner_id,
-            )
-            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", winner_id)
-            await conn.execute("DELETE FROM organizations WHERE id=$1", winner_id)
+            for oid in (winner_id, loser_id):
+                await conn.execute(
+                    "DELETE FROM contact_methods WHERE entity_type='organization' AND entity_id=$1",
+                    oid,
+                )
+                await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+                await conn.execute("DELETE FROM organizations WHERE id=$1", oid)

@@ -278,7 +278,20 @@ async def _execute_merge(
             winner_id,
             loser_id,
         )
-        # contact_methods: drop loser's duplicates (same type+value already on winner).
+        # Dedup: remove loser rows where winner already has the same logical record.
+        # Each table that follows in the bulk reassign loop needs a corresponding dedup
+        # DELETE here; omitting one silently produces duplicate rows after merge.
+        # entity_addresses: deduplicates by address_id FK only; #232 tracks normalised-form dedup.
+        await db.execute(
+            """DELETE FROM entity_addresses
+               WHERE entity_type='organization' AND entity_id=$1
+                 AND (address_id, address_type) IN (
+                     SELECT address_id, address_type FROM entity_addresses
+                     WHERE entity_type='organization' AND entity_id=$2
+                 )""",
+            loser_id,
+            winner_id,
+        )
         await db.execute(
             """DELETE FROM contact_methods
                WHERE entity_type='organization' AND entity_id=$1
@@ -289,7 +302,6 @@ async def _execute_merge(
             loser_id,
             winner_id,
         )
-        # links: drop loser's duplicates (same url+link_type already on winner) before reassigning.
         await db.execute(
             """DELETE FROM links
                WHERE entity_type='organization' AND entity_id=$1
@@ -301,6 +313,7 @@ async def _execute_merge(
             winner_id,
         )
 
+        # Reassign: bulk-move all remaining loser rows to winner.
         for table in (
             "entity_addresses",
             "contact_methods",
