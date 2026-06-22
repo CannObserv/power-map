@@ -1031,3 +1031,91 @@ async def test_merge_deduplicates_shared_jurisdiction_affiliation(client, db_poo
             await conn.execute("DELETE FROM organizations WHERE id=$1", winner_id)
             for jid in (jur_shared, jur_unique):
                 await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+
+
+# ---------------------------------------------------------------------------
+# contact_methods dedup during merge
+# ---------------------------------------------------------------------------
+
+
+async def _add_contact_method(conn, org_id: str, value: str, label: str | None = None) -> str:
+    cm_id = generate_id()
+    await conn.execute(
+        "INSERT INTO contact_methods"
+        " (id, entity_type, entity_id, contact_type, value, display_label)"
+        " VALUES ($1, 'organization', $2, 'phone', $3, $4)",
+        cm_id,
+        org_id,
+        value,
+        label,
+    )
+    return cm_id
+
+
+async def test_merge_reassigns_unique_contact_methods(client, db_pool):
+    """Loser's contact method not on winner is transferred after merge."""
+    async with db_pool.acquire() as conn:
+        winner_id = await _make_org(conn, "Winner Org CM Test")
+        loser_id = await _make_org(conn, "Loser Org CM Test")
+        await _add_contact_method(conn, loser_id, "+13605550001")
+
+    try:
+        response = client.post(
+            f"/admin/orgs/{winner_id}/merge/{loser_id}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT count(*) FROM contact_methods"
+                " WHERE entity_type='organization' AND entity_id=$1",
+                winner_id,
+            )
+        assert count == 1
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM contact_methods WHERE entity_type='organization' AND entity_id=$1",
+                winner_id,
+            )
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", winner_id)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", winner_id)
+
+
+async def test_merge_deduplicates_shared_contact_method(client, db_pool):
+    """Shared contact (same type+value) on both orgs yields exactly one row on winner."""
+    async with db_pool.acquire() as conn:
+        winner_id = await _make_org(conn, "Winner Org CM Dedup Test")
+        loser_id = await _make_org(conn, "Loser Org CM Dedup Test")
+        # Both share the same phone; loser also has a unique one
+        await _add_contact_method(conn, winner_id, "+13605550100")
+        await _add_contact_method(conn, loser_id, "+13605550100")
+        await _add_contact_method(conn, loser_id, "+13605550200")
+
+    try:
+        response = client.post(
+            f"/admin/orgs/{winner_id}/merge/{loser_id}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT value FROM contact_methods"
+                " WHERE entity_type='organization' AND entity_id=$1",
+                winner_id,
+            )
+        # Must be exactly 2 rows — shared number not double-inserted
+        assert len(rows) == 2
+        assert {r["value"] for r in rows} == {"+13605550100", "+13605550200"}
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM contact_methods WHERE entity_type='organization' AND entity_id=$1",
+                winner_id,
+            )
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", winner_id)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", winner_id)

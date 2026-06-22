@@ -278,6 +278,17 @@ async def _execute_merge(
             winner_id,
             loser_id,
         )
+        # contact_methods: drop loser's duplicates (same type+value already on winner).
+        await db.execute(
+            """DELETE FROM contact_methods
+               WHERE entity_type='organization' AND entity_id=$1
+                 AND (contact_type, value) IN (
+                     SELECT contact_type, value FROM contact_methods
+                     WHERE entity_type='organization' AND entity_id=$2
+                 )""",
+            loser_id,
+            winner_id,
+        )
         # links: drop loser's duplicates (same url+link_type already on winner) before reassigning.
         await db.execute(
             """DELETE FROM links

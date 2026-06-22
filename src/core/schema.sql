@@ -2224,3 +2224,22 @@ CREATE TABLE IF NOT EXISTS dup_count_cache (
     count        INT         NOT NULL,
     expires_at   TIMESTAMPTZ NOT NULL
 );
+
+-- ---------------------------------------------------------------------------
+-- Unique constraint: contact_methods (entity_type, entity_id, contact_type, value)
+--
+-- Prevents merge bugs from silently producing duplicate rows.
+-- Clean up any pre-existing duplicates (keep oldest row) before adding.
+-- ---------------------------------------------------------------------------
+
+DELETE FROM contact_methods a USING contact_methods b
+WHERE a.id > b.id
+  AND a.entity_type = b.entity_type
+  AND a.entity_id   = b.entity_id
+  AND a.contact_type = b.contact_type
+  AND a.value       = b.value;
+
+ALTER TABLE contact_methods DROP CONSTRAINT IF EXISTS contact_methods_entity_contact_uniq;
+ALTER TABLE contact_methods
+    ADD CONSTRAINT contact_methods_entity_contact_uniq
+    UNIQUE (entity_type, entity_id, contact_type, value);
