@@ -281,7 +281,7 @@ async def _execute_merge(
         # Dedup: remove loser rows where winner already has the same logical record.
         # Each table that follows in the bulk reassign loop needs a corresponding dedup
         # DELETE here; omitting one silently produces duplicate rows after merge.
-        # entity_addresses: deduplicates by address_id FK only; #232 tracks normalised-form dedup.
+        # entity_addresses: FK-level dedup only; normalised-form dedup lives in write_addresses().
         await db.execute(
             """DELETE FROM entity_addresses
                WHERE entity_type='organization' AND entity_id=$1

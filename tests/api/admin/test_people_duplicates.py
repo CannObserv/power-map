@@ -853,3 +853,153 @@ async def test_legal_only_name_match_does_not_show_matched_via(
     assert response.status_code == 200
     assert "Peter Wimsey" in response.text
     assert "matched via: Harriet Vane" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# entity_addresses dedup during merge (#232)
+# ---------------------------------------------------------------------------
+
+
+async def _make_person(conn, name: str) -> str:
+    pid = generate_id()
+    await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await conn.execute(
+        "INSERT INTO person_names (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        pid,
+        name,
+    )
+    return pid
+
+
+async def _add_person_address(
+    conn, person_id: str, raw_input: str, address_type: str = "mailing"
+) -> tuple[str, str]:
+    """Insert addresses + entity_addresses; return (address_id, entity_address_id)."""
+    aid = generate_id()
+    eaid = generate_id()
+    await conn.execute(
+        "INSERT INTO addresses (id, raw_input, country) VALUES ($1, $2, 'US')",
+        aid,
+        raw_input,
+    )
+    await conn.execute(
+        "INSERT INTO entity_addresses"
+        " (id, entity_type, entity_id, address_id, address_type)"
+        " VALUES ($1, 'person', $2, $3, $4)",
+        eaid,
+        person_id,
+        aid,
+        address_type,
+    )
+    return aid, eaid
+
+
+async def test_merge_reassigns_unique_person_address(client, db_pool):
+    """Loser's address not on winner is transferred to winner after merge."""
+    async with db_pool.acquire() as conn:
+        winner_id = await _make_person(conn, "Winner Person Addr Test")
+        loser_id = await _make_person(conn, "Loser Person Addr Test")
+        aid, _eaid = await _add_person_address(conn, loser_id, "100 Unique St")
+
+    try:
+        response = client.post(
+            f"/admin/people/{winner_id}/merge/{loser_id}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT count(*) FROM entity_addresses WHERE entity_type='person' AND entity_id=$1",
+                winner_id,
+            )
+        assert count == 1
+    finally:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT address_id FROM entity_addresses"
+                " WHERE entity_type='person' AND entity_id=$1",
+                winner_id,
+            )
+            await conn.execute(
+                "DELETE FROM entity_addresses WHERE entity_type='person' AND entity_id=$1",
+                winner_id,
+            )
+            if rows:
+                await conn.execute(
+                    "DELETE FROM addresses WHERE id = ANY($1::text[])",
+                    [r["address_id"] for r in rows],
+                )
+            for pid in (winner_id, loser_id):
+                await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+                await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_merge_deduplicates_shared_person_address(client, db_pool):
+    """Shared address (same address_id + type) on both people yields one row on winner."""
+    async with db_pool.acquire() as conn:
+        winner_id = await _make_person(conn, "Winner Person Addr Dedup Test")
+        loser_id = await _make_person(conn, "Loser Person Addr Dedup Test")
+        # One address_id shared by both; loser also has a unique one.
+        shared_aid = generate_id()
+        await conn.execute(
+            "INSERT INTO addresses (id, raw_input, country) VALUES ($1, '100 Shared Ave', 'US')",
+            shared_aid,
+        )
+        for pid in (winner_id, loser_id):
+            await conn.execute(
+                "INSERT INTO entity_addresses"
+                " (id, entity_type, entity_id, address_id, address_type)"
+                " VALUES ($1, 'person', $2, $3, 'mailing')",
+                generate_id(),
+                pid,
+                shared_aid,
+            )
+        unique_aid = generate_id()
+        await conn.execute(
+            "INSERT INTO addresses (id, raw_input, country) VALUES ($1, '200 Unique Rd', 'US')",
+            unique_aid,
+        )
+        await conn.execute(
+            "INSERT INTO entity_addresses"
+            " (id, entity_type, entity_id, address_id, address_type)"
+            " VALUES ($1, 'person', $2, $3, 'physical')",
+            generate_id(),
+            loser_id,
+            unique_aid,
+        )
+
+    try:
+        response = client.post(
+            f"/admin/people/{winner_id}/merge/{loser_id}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT address_id, address_type FROM entity_addresses"
+                " WHERE entity_type='person' AND entity_id=$1",
+                winner_id,
+            )
+        # Exactly 2: shared (mailing) deduplicated to one + unique (physical).
+        assert len(rows) == 2
+        addr_ids = {r["address_id"] for r in rows}
+        assert shared_aid in addr_ids
+        assert unique_aid in addr_ids
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM entity_addresses WHERE entity_type='person' AND entity_id=$1",
+                winner_id,
+            )
+            await conn.execute(
+                "DELETE FROM addresses WHERE id = ANY($1::text[])",
+                [shared_aid, unique_aid],
+            )
+            for pid in (winner_id, loser_id):
+                await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+                await conn.execute("DELETE FROM people WHERE id=$1", pid)

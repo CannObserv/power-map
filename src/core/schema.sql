@@ -2243,3 +2243,24 @@ ALTER TABLE contact_methods DROP CONSTRAINT IF EXISTS contact_methods_entity_con
 ALTER TABLE contact_methods
     ADD CONSTRAINT contact_methods_entity_contact_uniq
     UNIQUE (entity_type, entity_id, contact_type, value);
+
+-- ---------------------------------------------------------------------------
+-- Unique constraint: entity_addresses (entity_type, entity_id, address_type, address_id)
+--
+-- Closes the FK-level duplicate hole produced by merge. Normalised-form dedup
+-- (same physical address, different addresses rows) is handled at write time by
+-- write_addresses() via COALESCE(standardized, raw_input); this constraint
+-- catches exact-FK duplicates that _execute_merge could produce.
+-- ---------------------------------------------------------------------------
+
+DELETE FROM entity_addresses a USING entity_addresses b
+WHERE a.id > b.id
+  AND a.entity_type  = b.entity_type
+  AND a.entity_id    = b.entity_id
+  AND a.address_type = b.address_type
+  AND a.address_id   = b.address_id;
+
+ALTER TABLE entity_addresses DROP CONSTRAINT IF EXISTS entity_addresses_entity_addr_uniq;
+ALTER TABLE entity_addresses
+    ADD CONSTRAINT entity_addresses_entity_addr_uniq
+    UNIQUE (entity_type, entity_id, address_type, address_id);
