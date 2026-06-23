@@ -168,7 +168,7 @@ async def test_org_acronym_created(client, org_write_key, db):
         {
             "identifier_type": "org_ubi",
             "identifier_value": value,
-            "org_acronyms": ["TSO"],
+            "org_acronyms": [{"acronym": "TSO", "is_canonical": False}],
         },
     )
     assert r.status_code == 200
@@ -179,7 +179,7 @@ async def test_org_acronym_created(client, org_write_key, db):
         eid,
     )
     assert row is not None
-    assert row["is_canonical"] is False
+    assert row["is_canonical"] is True
 
 
 async def test_org_acronym_no_duplicate(client, org_write_key, db):
@@ -188,7 +188,7 @@ async def test_org_acronym_no_duplicate(client, org_write_key, db):
     payload = {
         "identifier_type": "org_ubi",
         "identifier_value": value,
-        "org_acronyms": ["NDO"],
+        "org_acronyms": [{"acronym": "NDO", "is_canonical": False}],
     }
     r1 = _post(client, raw, payload)
     assert r1.status_code == 200

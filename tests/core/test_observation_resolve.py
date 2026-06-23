@@ -70,7 +70,7 @@ async def test_auto_attached_returns_existing_entity(db):
         "WA-LEGISLATOR-001",
     )
 
-    entity_id, entity_type, disposition = await resolve_entity(
+    entity_id, entity_type, disposition, _ = await resolve_entity(
         db, "person_wa_legislature_member_id", "WA-LEGISLATOR-001"
     )
 
@@ -81,7 +81,7 @@ async def test_auto_attached_returns_existing_entity(db):
 
 async def test_new_person_creates_rows(db):
     """Unknown identifier value for person slug → NEW, creates people + identifiers rows."""
-    entity_id, entity_type, disposition = await resolve_entity(
+    entity_id, entity_type, disposition, _ = await resolve_entity(
         db, "person_wa_legislature_member_id", "WA-LEGISLATOR-NEW-999"
     )
 
@@ -109,7 +109,7 @@ async def test_new_person_creates_rows(db):
 
 async def test_new_organization_creates_rows(db):
     """Unknown identifier value for org slug → NEW, creates organizations + identifiers rows."""
-    entity_id, entity_type, disposition = await resolve_entity(db, "org_ubi", "UBI-TEST-88888")
+    entity_id, entity_type, disposition, _ = await resolve_entity(db, "org_ubi", "UBI-TEST-88888")
 
     assert disposition == Disposition.NEW
     assert entity_type == "organization"
@@ -132,7 +132,7 @@ async def test_new_organization_creates_rows(db):
 
 async def test_rejected_unknown_slug(db):
     """Unknown identifier_type_slug → REJECTED, returns empty strings."""
-    entity_id, entity_type, disposition = await resolve_entity(
+    entity_id, entity_type, disposition, _ = await resolve_entity(
         db, "nonexistent_slug_xyz", "ANY-VALUE"
     )
 
@@ -143,12 +143,12 @@ async def test_rejected_unknown_slug(db):
 
 async def test_idempotent_second_call_returns_auto_attached(db):
     """Two calls with same inputs → second call returns AUTO_ATTACHED with same entity_id."""
-    first_id, first_type, first_disp = await resolve_entity(
+    first_id, first_type, first_disp, _ = await resolve_entity(
         db, "person_wa_legislature_member_id", "WA-LEGISLATOR-IDEM-42"
     )
     assert first_disp == Disposition.NEW
 
-    second_id, second_type, second_disp = await resolve_entity(
+    second_id, second_type, second_disp, _ = await resolve_entity(
         db, "person_wa_legislature_member_id", "WA-LEGISLATOR-IDEM-42"
     )
     assert second_disp == Disposition.AUTO_ATTACHED
@@ -167,7 +167,7 @@ async def test_new_jurisdiction_via_jur_ocd_auto_registers_jur_slug(db):
     slug = f"test-jur-ocd-{suffix}"
     create_data = {"slug": slug, "name": f"Test OCD {suffix}", "type_slug": "state"}
 
-    entity_id, entity_type, disposition = await resolve_entity(
+    entity_id, entity_type, disposition, _ = await resolve_entity(
         db,
         "jur_ocd",
         f"ocd-division/country:us/test:{suffix}",
@@ -193,7 +193,7 @@ async def test_new_jurisdiction_via_jur_slug_no_duplicate_identifier(db):
     slug = f"test-jur-slug-{suffix}"
     create_data = {"slug": slug, "name": f"Test Slug {suffix}", "type_slug": "state"}
 
-    entity_id, entity_type, disposition = await resolve_entity(
+    entity_id, entity_type, disposition, _ = await resolve_entity(
         db, "jur_slug", slug, create_data=create_data
     )
 
@@ -215,7 +215,7 @@ async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(db):
     slug = f"test-jur-attach-{suffix}"
     create_data = {"slug": slug, "name": f"Test Attach {suffix}", "type_slug": "state"}
 
-    entity_id, _, first_disp = await resolve_entity(
+    entity_id, _, first_disp, _ = await resolve_entity(
         db,
         "jur_ocd",
         f"ocd-division/country:us/test:{suffix}",
@@ -223,7 +223,7 @@ async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(db):
     )
     assert first_disp == Disposition.NEW
 
-    attached_id, entity_type, disp = await resolve_entity(db, "jur_slug", slug)
+    attached_id, entity_type, disp, _ = await resolve_entity(db, "jur_slug", slug)
     assert disp == Disposition.AUTO_ATTACHED
     assert attached_id == entity_id
     assert entity_type == "jurisdiction"
@@ -239,7 +239,7 @@ async def test_pm_org_id_auto_attached(db):
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
 
-    entity_id, entity_type, disp = await resolve_entity(db, "pm_org_id", org_id)
+    entity_id, entity_type, disp, _ = await resolve_entity(db, "pm_org_id", org_id)
 
     assert disp == Disposition.AUTO_ATTACHED
     assert entity_id == org_id
@@ -250,7 +250,7 @@ async def test_pm_org_id_rejected_when_not_found(db):
     """pm_org_id with an unknown ULID → REJECTED; never creates a new entity."""
     bogus = generate_id()
 
-    entity_id, entity_type, disp = await resolve_entity(db, "pm_org_id", bogus)
+    entity_id, entity_type, disp, _ = await resolve_entity(db, "pm_org_id", bogus)
 
     assert disp == Disposition.REJECTED
     assert entity_id == ""
@@ -262,7 +262,7 @@ async def test_pm_person_id_auto_attached(db):
     person_id = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
 
-    entity_id, entity_type, disp = await resolve_entity(db, "pm_person_id", person_id)
+    entity_id, entity_type, disp, _ = await resolve_entity(db, "pm_person_id", person_id)
 
     assert disp == Disposition.AUTO_ATTACHED
     assert entity_id == person_id
@@ -282,7 +282,7 @@ async def test_pm_jur_id_auto_attached(db):
         type_row["id"],
     )
 
-    entity_id, entity_type, disp = await resolve_entity(db, "pm_jur_id", jur_id)
+    entity_id, entity_type, disp, _ = await resolve_entity(db, "pm_jur_id", jur_id)
 
     assert disp == Disposition.AUTO_ATTACHED
     assert entity_id == jur_id
@@ -310,7 +310,7 @@ async def test_pm_assignment_id_auto_attached(db):
         role_id,
     )
 
-    entity_id, entity_type, disp = await resolve_entity(db, "pm_assignment_id", asgn_id)
+    entity_id, entity_type, disp, _ = await resolve_entity(db, "pm_assignment_id", asgn_id)
 
     assert disp == Disposition.AUTO_ATTACHED
     assert entity_id == asgn_id
