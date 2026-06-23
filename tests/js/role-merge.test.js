@@ -446,3 +446,83 @@ describe('merge button disabled state', () => {
     expect(wrap.style.cursor).toBe('not-allowed');
   });
 });
+
+// ---------------------------------------------------------------------------
+// hx-boost survival (#237)
+//
+// role-merge.js is loaded site-wide from base.html. It must bind to the roles
+// table even when that table is absent at script-eval time and arrives later
+// via a boosted navigation (htmx:load) — and binding must be idempotent so
+// repeated htmx:load events (every partial swap fires one) don't stack
+// listeners or corrupt state.
+// ---------------------------------------------------------------------------
+
+function rolesTableMarkup({ orgId = 'org-1', numRoles = 3 } = {}) {
+  const rows = Array.from({ length: numRoles }, (_, i) => {
+    const n = i + 1;
+    return `<tr data-title="Role ${n}" data-role-id="role-${n}">
+      <td class="merge-col"><input type="checkbox" name="merge-select" value="role-${n}"></td>
+      <td>Role ${n}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <input id="roles-filter" type="search">
+    <table id="roles-table" data-org-id="${orgId}">
+      <thead><tr><th class="merge-col">Sel</th><th>Title</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <span id="roles-merge-btn-wrap" style="display:inline-block"><button id="roles-merge-btn" class="btn btn--secondary">Merge</button></span>
+    <div id="roles-merge-bar" style="display:none">
+      <span class="merge-bar__label">Merge roles:</span>
+      <button class="merge-bar__keep-a" type="button"></button>
+      <button class="merge-bar__keep-b" type="button"></button>
+    </div>
+  `;
+}
+
+describe('hx-boost survival (#237)', () => {
+  // Eval on a page with NO roles table (e.g. the dashboard), as happens when
+  // the script loads site-wide before the user navigates to org detail.
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    eval(scriptCode);
+  });
+
+  it('binds the roles table delivered by a boosted navigation', () => {
+    document.body.innerHTML = rolesTableMarkup();
+    document.dispatchEvent(new Event('htmx:load', { bubbles: true }));
+
+    const btn = document.getElementById('roles-merge-btn');
+    btn.click();
+    expect(document.getElementById('roles-table').dataset.mergeMode).toBe('true');
+  });
+
+  it('marks the table bound so repeated htmx:load does not re-bind', () => {
+    document.body.innerHTML = rolesTableMarkup();
+    document.dispatchEvent(new Event('htmx:load', { bubbles: true }));
+    const table = document.getElementById('roles-table');
+    expect(table.dataset.mergeBound).toBe('1');
+
+    // A second htmx:load (every partial swap fires one) must be a no-op: enter
+    // merge mode, fire htmx:load again, and the single bound click listener
+    // must still toggle exactly once (no double-bind flipping it back).
+    document.getElementById('roles-merge-btn').click();
+    expect(table.dataset.mergeMode).toBe('true');
+    document.dispatchEvent(new Event('htmx:load', { bubbles: true }));
+    document.getElementById('roles-merge-btn').click();
+    expect(table.dataset.mergeMode).toBeUndefined();
+  });
+
+  it('exits merge mode on showFlash for a boosted-in table', () => {
+    document.body.innerHTML = rolesTableMarkup();
+    document.dispatchEvent(new Event('htmx:load', { bubbles: true }));
+    const table = document.getElementById('roles-table');
+    document.getElementById('roles-merge-btn').click();
+    expect(table.dataset.mergeMode).toBe('true');
+
+    // A successful merge dispatches showFlash; the once-bound listener resolves
+    // the current table and exits merge mode.
+    document.dispatchEvent(new CustomEvent('showFlash', { bubbles: true }));
+    expect(table.dataset.mergeMode).toBeUndefined();
+  });
+});

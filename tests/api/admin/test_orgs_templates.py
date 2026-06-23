@@ -13,6 +13,7 @@ Tests cover:
 import re
 from pathlib import Path
 
+import pytest
 from jinja2 import Environment, FileSystemLoader
 
 from src.core.types import ORG_NAME_TYPES
@@ -23,6 +24,7 @@ PARENT_READ = Path("src/templates/admin/orgs/partials/_parent_read.html").read_t
 SEARCH_RESULTS = Path("src/templates/admin/orgs/partials/_search_results.html").read_text()
 BASE_HTML = Path("src/templates/admin/base.html").read_text()
 DETAIL_HTML = Path("src/templates/admin/orgs/detail.html").read_text()
+PERSON_DETAIL_HTML = Path("src/templates/admin/people/detail.html").read_text()
 ACTIVE_TOGGLE = Path("src/templates/admin/orgs/partials/_active_toggle.html").read_text()
 NOTES_FORM = Path("src/templates/admin/orgs/partials/_notes_form.html").read_text()
 LIST_HTML = Path("src/templates/admin/orgs/list.html").read_text()
@@ -213,27 +215,62 @@ def test_base_flash_js_is_in_head():
 
 
 # ---------------------------------------------------------------------------
-# org-detail.js loaded in detail template via extra_head block
+# Detail-page interaction scripts must load site-wide via base.html <head>.
+#
+# Regression guard for #237. hx-boost (admin-layout) strips the <head> from
+# boosted navigation responses (htmx makeFragment drops <head>…</head>), so a
+# script placed only in a detail template's {% block extra_head %} NEVER
+# executes when the page is reached by clicking a link — its document
+# listeners are never registered. Loading these in base.html's <head> means
+# they run once on the first full page load and persist across every boosted
+# swap, exactly like flash.js. Each script is defensive (no-ops when its
+# elements are absent), so loading it on every admin page is safe.
 # ---------------------------------------------------------------------------
 
+# Scripts that were previously trapped in detail-page extra_head blocks.
+_SITEWIDE_DETAIL_SCRIPTS = [
+    "org-detail.js",  # updateOrgHeader listener
+    "person-detail.js",  # updatePersonHeader listener
+    "role-merge.js",  # roles-table merge mode
+    "event-add-guard.js",  # +Add event button guard
+]
 
-def test_detail_html_loads_org_detail_js():
-    """org-detail.js must be loaded — it holds the updateOrgHeader listener."""
-    assert "org-detail.js" in DETAIL_HTML
+
+@pytest.mark.parametrize("script", _SITEWIDE_DETAIL_SCRIPTS)
+def test_base_loads_detail_script_site_wide(script):
+    """Must load in base.html so the listener registers before any boosted nav.
+
+    If it lives only in a detail template's extra_head, hx-boost strips it and
+    the live-update / guard behavior silently dies (#237)."""
+    assert script in BASE_HTML, f"{script} must be loaded in base.html (site-wide)"
 
 
-def test_detail_html_org_detail_js_has_defer():
+@pytest.mark.parametrize("script", _SITEWIDE_DETAIL_SCRIPTS)
+def test_base_detail_script_in_head(script):
+    """Must be in <head> — body scripts re-execute on every hx-boost navigation,
+    duplicating document.addEventListener registrations."""
+    head = BASE_HTML.split("</head>")[0]
+    assert script in head, f"{script} must be in <head> to survive hx-boost"
+
+
+@pytest.mark.parametrize("script", _SITEWIDE_DETAIL_SCRIPTS)
+def test_base_detail_script_has_defer(script):
     """Must use defer so the script runs after DOM parse and HTMX is available."""
-    scripts = re.findall(r"<script\b[^>]*org-detail\.js[^>]*>", DETAIL_HTML)
-    assert scripts, "org-detail.js script tag not found in detail.html"
-    assert all("defer" in s for s in scripts), "org-detail.js script tag must have defer"
+    tags = re.findall(rf"<script\b[^>]*{re.escape(script)}[^>]*>", BASE_HTML)
+    assert tags, f"{script} script tag not found in base.html"
+    assert all("defer" in s for s in tags), f"{script} script tag must have defer"
 
 
-def test_detail_html_org_detail_js_in_extra_head_block():
-    """org-detail.js must be in the extra_head block, which renders inside <head>.
-    Scripts in <head> are never re-executed by hx-boost; body scripts are."""
-    block_content = DETAIL_HTML.split("{% block extra_head %}")[1].split("{% endblock %}")[0]
-    assert "org-detail.js" in block_content, "org-detail.js must be inside {% block extra_head %}"
+@pytest.mark.parametrize("script", _SITEWIDE_DETAIL_SCRIPTS)
+def test_detail_templates_do_not_reload_sitewide_scripts(script):
+    """Detail templates must NOT re-load these in a <script> tag — that
+    double-loads them on the initial full render and re-runs their top-level
+    code. (Bare filename mentions in comments are fine; only script tags count.)"""
+    pat = re.compile(rf"<script\b[^>]*{re.escape(script)}")
+    assert not pat.search(DETAIL_HTML), f"{script} must not be re-declared in orgs/detail.html"
+    assert not pat.search(PERSON_DETAIL_HTML), (
+        f"{script} must not be re-declared in people/detail.html"
+    )
 
 
 # ---------------------------------------------------------------------------

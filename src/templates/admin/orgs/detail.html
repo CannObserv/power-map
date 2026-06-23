@@ -7,11 +7,8 @@
   <a href="/admin/orgs/">Organizations</a><span class="breadcrumb__sep">›</span>
   <span id="breadcrumb-current">{{ display_name or org.id }}</span>
 {% endblock %}
-{% block extra_head %}
-  <script src="/static/admin/org-detail.js?v={{ asset_version }}" defer></script>
-  <script src="/static/admin/role-merge.js?v={{ asset_version }}" defer></script>
-  <script src="/static/admin/event-add-guard.js?v={{ asset_version }}" defer></script>
-{% endblock %}
+{# org-detail.js, role-merge.js, event-add-guard.js are loaded site-wide from
+   base.html (#237) — declaring them here too would double-load on full render. #}
 {% block content %}
 <div class="page-header">
   <div>

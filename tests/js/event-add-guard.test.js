@@ -103,17 +103,51 @@ describe('event-add-guard', () => {
     expect(btn().disabled).toBe(true);
   });
 
-  it('does not initialize when the events table is absent', () => {
-    // Remove the table so the guard's null-check bails before attaching.
-    document.getElementById('org-events-table').remove();
-    // Reset listeners by re-evaling with a fresh button.
+  it('registers document listeners even when the events table is absent', () => {
+    // The guard is loaded site-wide from base.html (#237), so it runs on pages
+    // with no events table. It must still register its document listeners up
+    // front — otherwise it could never activate when a boosted navigation later
+    // swaps a table in. sync() is defensive, so dispatching events is a safe
+    // no-op when no button/table is present.
+    document.body.innerHTML = ''; // no button, no table
     for (const [type, fn] of addSpy.mock.calls) {
       document.removeEventListener(type, fn);
     }
     addSpy.mockClear();
     eval(scriptCode);
-    // No listeners attached.
-    expect(addSpy.mock.calls.length).toBe(0);
+    const types = addSpy.mock.calls.map(([t]) => t);
+    expect(types).toContain('htmx:afterSwap');
+    expect(types).toContain('htmx:load');
+    expect(types).toContain('powerMap:newEventRowClosed');
+    // Dispatching does not throw with nothing on the page.
+    expect(() => {
+      document.dispatchEvent(new Event('htmx:afterSwap', { bubbles: true }));
+      document.dispatchEvent(new Event('htmx:load', { bubbles: true }));
+    }).not.toThrow();
+  });
+
+  it('activates after a boosted navigation swaps the button in (htmx:load)', () => {
+    // Simulate the regression scenario: the script loaded on a page WITHOUT the
+    // events button (e.g. dashboard), then hx-boost swaps in the detail page.
+    document.body.innerHTML = '';
+    for (const [type, fn] of addSpy.mock.calls) {
+      document.removeEventListener(type, fn);
+    }
+    addSpy.mockClear();
+    eval(scriptCode);
+
+    // Boosted nav renders the detail page (button + an unsaved new-event row).
+    document.body.innerHTML = `
+      <button id="add-event-btn" type="button"
+              data-events-table="org-events-table"
+              data-new-row-id="org-event-row-new">+ Add event</button>
+      <table id="org-events-table"><tbody>
+        <tr id="org-event-row-new"><td>new</td></tr>
+      </tbody></table>
+    `;
+    document.dispatchEvent(new Event('htmx:load', { bubbles: true }));
+    // The once-registered listener re-resolved the button and disabled it.
+    expect(btn().disabled).toBe(true);
   });
 
   it('powerMap:newEventRowClosed sync is idempotent', () => {

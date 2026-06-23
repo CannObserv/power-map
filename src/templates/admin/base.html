@@ -20,6 +20,14 @@
   <script src="/static/admin/admin-modal.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/flash.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/typeahead-combobox.js?v={{ asset_version }}" defer></script>
+  {# Detail-page interaction scripts — loaded site-wide so their document
+     listeners register on the first full page load and survive hx-boost
+     navigations, which strip the <head> from boosted responses (#237). Each
+     is defensive (no-ops when its target elements are absent). #}
+  <script src="/static/admin/org-detail.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/person-detail.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/role-merge.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/event-add-guard.js?v={{ asset_version }}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
