@@ -6,6 +6,8 @@ of round-trips regardless of how many queryable models the registry holds.
 
 from unittest.mock import AsyncMock
 
+import pytest
+
 from src.api.public.people import _fetch_detail_arrays
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
 
@@ -22,31 +24,28 @@ def _meta(model_id: str, table_name: str) -> ModelMeta:
     )
 
 
-async def test_fetch_detail_arrays_single_round_trip_regardless_of_model_count():
+@pytest.mark.parametrize("n_models", [1, 3, 5])
+async def test_fetch_detail_arrays_single_round_trip_regardless_of_model_count(n_models):
     """Embedding counts collapse into one query — never one-per-model."""
     db = AsyncMock()
     db.fetch.return_value = []
 
     registry = EmbeddingRegistry(
-        {
-            "m1": _meta("m1", "person_embeddings_m1"),
-            "m2": _meta("m2", "person_embeddings_m2"),
-            "m3": _meta("m3", "person_embeddings_m3"),
-        }
+        {f"m{i}": _meta(f"m{i}", f"person_embeddings_m{i}") for i in range(n_models)}
     )
 
     await _fetch_detail_arrays("pid", db, registry)
 
     # names + identifiers + exactly one consolidated count query = 3 fetches,
-    # independent of the 3 queryable models. A regression to the per-model
-    # loop would bump this (or reintroduce fetchval calls) and fail here.
+    # independent of how many queryable models exist. A regression to the
+    # per-model loop would bump this (or reintroduce fetchval calls) and fail here.
     assert db.fetch.call_count == 3
     db.fetchval.assert_not_called()
 
     count_sql = db.fetch.call_args_list[-1].args[0]
-    assert count_sql.count("UNION ALL") == 2
-    for table in ("person_embeddings_m1", "person_embeddings_m2", "person_embeddings_m3"):
-        assert table in count_sql
+    assert count_sql.count("UNION ALL") == n_models - 1
+    for i in range(n_models):
+        assert f"person_embeddings_m{i}" in count_sql
 
 
 async def test_fetch_detail_arrays_no_count_query_when_no_queryable_models():
