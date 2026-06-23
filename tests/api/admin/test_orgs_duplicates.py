@@ -1207,6 +1207,7 @@ async def test_org_merge_entity_changes_records_merged_into(client, db_pool):
                 oid,
                 name,
             )
+        # must follow org/name inserts — their 'updated' events must be below this cursor
         before_seq = await conn.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
 
     try:

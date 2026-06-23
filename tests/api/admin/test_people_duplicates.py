@@ -1095,6 +1095,7 @@ async def test_person_merge_entity_changes_records_merged_into(client, db_pool):
     async with db_pool.acquire() as conn:
         winner_id = await _make_person(conn, "Merged-Into Winner Person")
         loser_id = await _make_person(conn, "Merged-Into Loser Person")
+        # must follow _make_person calls — their 'updated' events must be below this cursor
         before_seq = await conn.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
 
     try:

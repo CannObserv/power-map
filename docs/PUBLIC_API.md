@@ -242,7 +242,7 @@ GET /api/v1/subscriptions/discover
 
 `change_kind` is `"updated"` for live or archived entities and `"deleted"` for hard-deleted or merged entities.
 
-`merged_into` is `null` for genuine deletes and for all `"updated"` events. When `change_kind` is `"deleted"` and the entity was merged rather than hard-deleted, `merged_into` contains the winner entity's id — the subscriber should re-anchor its reference to that id rather than retiring the entity locally.
+`merged_into` is `null` for genuine deletes and for all `"updated"` events. When `change_kind` is `"deleted"` and the entity was merged rather than hard-deleted, `merged_into` contains the id of the winner entity of the same type — the subscriber should re-anchor its reference to that id rather than retiring the entity locally.
 
 `seq_id` is a monotonically increasing integer from the outbox log (`BIGSERIAL`). It is stable and gapless per subscription set.
 
