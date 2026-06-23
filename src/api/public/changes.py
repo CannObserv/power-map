@@ -11,7 +11,7 @@ from src.api.public.schemas import ChangeFeedResponse, ChangeItem, ChangeMeta
 router = APIRouter()
 
 _QUERY = """
-SELECT ec.id, ec.entity_type, ec.entity_id, ec.change_kind, ec.changed_at
+SELECT ec.id, ec.entity_type, ec.entity_id, ec.change_kind, ec.changed_at, ec.merged_into
 FROM entity_changes ec
 JOIN api_key_entity_subscriptions s
     ON s.entity_id = ec.entity_id
@@ -56,6 +56,7 @@ async def get_changes(
             entity_id=row["entity_id"],
             change_kind=row["change_kind"],
             changed_at=row["changed_at"],
+            merged_into=row["merged_into"],
         )
         for row in rows
     ]

@@ -705,6 +705,7 @@ class ChangeItem(BaseModel):
     entity_id: str
     changed_at: datetime
     change_kind: Literal["updated", "deleted"]
+    merged_into: str | None = None
 
     @field_serializer("changed_at")
     def _serialize_ts(self, v: datetime) -> str:

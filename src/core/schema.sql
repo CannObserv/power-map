@@ -2264,3 +2264,21 @@ ALTER TABLE entity_addresses DROP CONSTRAINT IF EXISTS entity_addresses_entity_a
 ALTER TABLE entity_addresses
     ADD CONSTRAINT entity_addresses_entity_addr_uniq
     UNIQUE (entity_type, entity_id, address_type, address_id);
+
+-- Migration (#235): carry merged_into (winner id) on merge tombstones.
+-- NULL = genuine delete; non-NULL = merged into winner.
+
+ALTER TABLE deleted_entities
+    ADD COLUMN IF NOT EXISTS merged_into TEXT NULL;
+
+ALTER TABLE entity_changes
+    ADD COLUMN IF NOT EXISTS merged_into TEXT NULL;
+
+CREATE OR REPLACE FUNCTION fn_record_deleted_entity_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO entity_changes (entity_type, entity_id, change_kind, merged_into)
+    VALUES (NEW.entity_type, NEW.entity_id, 'deleted', NEW.merged_into);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;

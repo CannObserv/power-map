@@ -1193,6 +1193,48 @@ async def test_merge_reassigns_unique_org_address(client, db_pool):
                 await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
 
 
+async def test_org_merge_entity_changes_records_merged_into(client, db_pool):
+    """POST merge writes a deleted entity_changes row with merged_into=winner_id."""
+    winner_id, loser_id = generate_id(), generate_id()
+
+    async with db_pool.acquire() as conn:
+        for oid, name in [(winner_id, "Merged-Into Winner"), (loser_id, "Merged-Into Loser")]:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(),
+                oid,
+                name,
+            )
+        before_seq = await conn.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+
+    try:
+        response = client.post(
+            f"/admin/orgs/{winner_id}/merge/{loser_id}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT change_kind, merged_into FROM entity_changes"
+                " WHERE entity_id=$1 AND id > $2"
+                " ORDER BY id DESC LIMIT 1",
+                loser_id,
+                before_seq,
+            )
+        assert row is not None
+        assert row["change_kind"] == "deleted"
+        assert row["merged_into"] == winner_id
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM entity_changes WHERE entity_id=$1", loser_id)
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", winner_id)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", winner_id)
+
+
 async def test_merge_deduplicates_shared_org_address(client, db_pool):
     """Shared address (same address_id + type) on both orgs yields one row on winner."""
     async with db_pool.acquire() as conn:

@@ -401,3 +401,82 @@ def test_changes_includes_jurisdictions(client, api_key, jurisdiction_change_fix
     assert len(jitems) >= 1
     assert jitems[0]["entity_type"] == "jurisdiction"
     assert jitems[0]["change_kind"] == "updated"
+
+
+# ---------------------------------------------------------------------------
+# merged_into field (#235)
+# ---------------------------------------------------------------------------
+
+
+def test_changes_genuine_delete_has_null_merged_into(client, api_key, change_fixtures):
+    """A genuine deletion (not a merge) has merged_into=null in the change feed."""
+    r = client.get(
+        "/api/v1/changes",
+        params={"after": change_fixtures["before_seq"], "limit": 100},
+        headers={"X-API-Key": api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    deleted = [
+        item
+        for item in r.json()["data"]
+        if item["entity_id"] == change_fixtures["deleted_person_id"]
+    ]
+    assert len(deleted) == 1
+    assert deleted[0]["change_kind"] == "deleted"
+    assert deleted[0]["merged_into"] is None
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def merge_change_fixtures(db, api_key):
+    """Two orgs merged via deleted_entities with merged_into set; loser subscribed."""
+    before_seq = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+    winner_id = generate_id()
+    loser_id = generate_id()
+    kid = api_key["key_id"]
+
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", winner_id)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", loser_id)
+    await db.execute(
+        "INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)"
+        " VALUES ($1,$2,'organization')",
+        kid,
+        loser_id,
+    )
+
+    # Simulate the merge tombstone with winner pointer (requires schema change to land first).
+    await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
+    await db.execute(
+        "INSERT INTO deleted_entities (entity_type, entity_id, merged_into)"
+        " VALUES ('organization', $1, $2) ON CONFLICT DO NOTHING",
+        loser_id,
+        winner_id,
+    )
+
+    yield {"before_seq": before_seq, "winner_id": winner_id, "loser_id": loser_id}
+
+    await db.execute(
+        "DELETE FROM api_key_entity_subscriptions WHERE api_key_id=$1 AND entity_id=$2",
+        kid,
+        loser_id,
+    )
+    await db.execute("DELETE FROM deleted_entities WHERE entity_id=$1", loser_id)
+    await db.execute("DELETE FROM entity_changes WHERE entity_id=$1", loser_id)
+    await db.execute("DELETE FROM organizations WHERE id=$1", winner_id)
+
+
+def test_changes_merge_delete_carries_merged_into(client, api_key, merge_change_fixtures):
+    """Merge tombstone carries merged_into=winner_id in the change feed."""
+    r = client.get(
+        "/api/v1/changes",
+        params={"after": merge_change_fixtures["before_seq"], "limit": 100},
+        headers={"X-API-Key": api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    deleted = [
+        item
+        for item in r.json()["data"]
+        if item["entity_id"] == merge_change_fixtures["loser_id"]
+        and item["change_kind"] == "deleted"
+    ]
+    assert len(deleted) == 1
+    assert deleted[0]["merged_into"] == merge_change_fixtures["winner_id"]
