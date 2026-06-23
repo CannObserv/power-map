@@ -2,7 +2,8 @@
 
 Loaded once at app startup from the ``embedding_model_registry`` table and
 stored in ``app.state.embedding_registry``.  Route handlers access it via the
-``get_embedding_registry`` FastAPI dependency, which can be overridden in tests.
+``_get_registry`` FastAPI dependency (defined per public router module), which
+can be overridden in tests via ``app.dependency_overrides``.
 """
 
 from dataclasses import dataclass

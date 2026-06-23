@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 
 from src.api.main import app
+from src.api.public.people import _get_registry
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
 
@@ -448,7 +449,13 @@ def test_person_detail_voice_count_zero_for_no_embeddings(client, read_key, two_
 
 
 def test_person_detail_voice_count_sums_across_models(client, read_key, seeded_embeddings):
-    """voice_embeddings_count sums counts from all queryable models regardless of count."""
+    """voice_embeddings_count sums counts from all queryable models.
+
+    Both registry entries point at the same physical table (_TABLE) — a
+    same-table proxy, since only one real embeddings table exists. The DB-free
+    multi-table coverage lives in tests/api/public/test_people_detail_arrays.py.
+    pid0 has 3 rows in _TABLE, so the dual registry counts it twice → 3 + 3 = 6.
+    """
     pid0, _, _, _ = seeded_embeddings
 
     second_meta = ModelMeta(
@@ -462,15 +469,13 @@ def test_person_detail_voice_count_sums_across_models(client, read_key, seeded_e
     )
     dual = EmbeddingRegistry({_MODEL_ID: _FAKE_META, "second-test-model": second_meta})
 
-    saved = app.state.embedding_registry
-    app.state.embedding_registry = dual
+    app.dependency_overrides[_get_registry] = lambda: dual
     try:
         r = client.get(f"/api/v1/people/{pid0}", headers={"X-API-Key": read_key})
     finally:
-        app.state.embedding_registry = saved
+        app.dependency_overrides.pop(_get_registry, None)
 
     assert r.status_code == 200
-    # pid0 has 3 rows in _TABLE; dual registry queries the same table twice → 3+3=6
     assert r.json()["voice_embeddings_count"] == 6
 
 
