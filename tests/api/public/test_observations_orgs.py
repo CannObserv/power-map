@@ -179,6 +179,7 @@ async def test_org_acronym_created(client, org_write_key, db):
         eid,
     )
     assert row is not None
+    # first acronym is auto-promoted to canonical when no is_canonical=True hint is given
     assert row["is_canonical"] is True
 
 
@@ -202,6 +203,68 @@ async def test_org_acronym_no_duplicate(client, org_write_key, db):
         eid,
     )
     assert count == 1
+
+
+async def test_org_acronym_explicit_canonical_hint(client, org_write_key, db):
+    """Explicit is_canonical=True on one acronym → only that one is canonical; others are not."""
+    raw, _ = org_write_key
+    value = _unique_id()
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": value,
+            "org_acronyms": [
+                {"acronym": "PRIMARY", "is_canonical": True},
+                {"acronym": "SECONDARY", "is_canonical": False},
+            ],
+        },
+    )
+    assert r.status_code == 200
+    eid = r.json()["entity_id"]
+
+    q = "SELECT is_canonical FROM organization_acronyms WHERE organization_id=$1 AND acronym=$2"
+    primary = await db.fetchrow(q, eid, "PRIMARY")
+    secondary = await db.fetchrow(q, eid, "SECONDARY")
+    assert primary is not None and primary["is_canonical"] is True
+    assert secondary is not None and secondary["is_canonical"] is False
+
+
+async def test_org_second_acronym_not_canonical(client, org_write_key, db):
+    """Second acronym added after canonical already exists stays non-canonical."""
+    raw, _ = org_write_key
+    value = _unique_id()
+    # First observation — auto-promotes "FIRST" to canonical.
+    r1 = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": value,
+            "org_acronyms": [{"acronym": "FIRST", "is_canonical": False}],
+        },
+    )
+    assert r1.status_code == 200
+    eid = r1.json()["entity_id"]
+
+    # Second observation — "SECOND" cannot claim canonical; one already exists.
+    r2 = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": value,
+            "org_acronyms": [{"acronym": "SECOND", "is_canonical": False}],
+        },
+    )
+    assert r2.status_code == 200
+
+    q = "SELECT is_canonical FROM organization_acronyms WHERE organization_id=$1 AND acronym=$2"
+    first = await db.fetchrow(q, eid, "FIRST")
+    second = await db.fetchrow(q, eid, "SECOND")
+    assert first is not None and first["is_canonical"] is True
+    assert second is not None and second["is_canonical"] is False
 
 
 # ---------------------------------------------------------------------------
