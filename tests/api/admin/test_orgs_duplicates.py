@@ -1231,6 +1231,10 @@ async def test_org_merge_entity_changes_records_merged_into(client, db_pool):
     finally:
         async with db_pool.acquire() as conn:
             await conn.execute("DELETE FROM entity_changes WHERE entity_id=$1", loser_id)
+            await conn.execute(
+                "DELETE FROM deleted_entities WHERE entity_type='organization' AND entity_id=$1",
+                loser_id,
+            )
             await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", winner_id)
             await conn.execute("DELETE FROM organizations WHERE id=$1", winner_id)
 

@@ -2274,6 +2274,11 @@ ALTER TABLE deleted_entities
 ALTER TABLE entity_changes
     ADD COLUMN IF NOT EXISTS merged_into TEXT NULL;
 
+ALTER TABLE entity_changes DROP CONSTRAINT IF EXISTS entity_changes_merged_into_kind_ck;
+ALTER TABLE entity_changes
+    ADD CONSTRAINT entity_changes_merged_into_kind_ck
+    CHECK (merged_into IS NULL OR change_kind = 'deleted');
+
 CREATE OR REPLACE FUNCTION fn_record_deleted_entity_change()
 RETURNS TRIGGER AS $$
 BEGIN

@@ -221,13 +221,21 @@ GET /api/v1/subscriptions/discover
       "changed_at": "2025-06-01T12:00:00.000000Z",
       "change_kind": "updated",
       "merged_into": null
+    },
+    {
+      "seq_id": 4301,
+      "entity_type": "organization",
+      "entity_id": "01JXCC...",
+      "changed_at": "2025-06-02T09:15:00.000000Z",
+      "change_kind": "deleted",
+      "merged_into": "01JXCD..."
     }
   ],
   "meta": {
     "limit": 50,
-    "count": 1,
+    "count": 2,
     "has_more": false,
-    "next_after": 4217
+    "next_after": 4301
   }
 }
 ```
