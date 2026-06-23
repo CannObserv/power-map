@@ -333,14 +333,15 @@ async def _fetch_detail_arrays(
         """,
         person_id,
     )
-    voice_count = 0
-    for meta in registry.all():
-        if meta.is_queryable:
-            n = await db.fetchval(
-                # table_name is registry-controlled — not user input
-                f"SELECT COUNT(*) FROM {meta.table_name}"
-                " WHERE person_id = $1 AND archived_at IS NULL",
-                person_id,
-            )
-            voice_count += n or 0
+    queryable = [m for m in registry.all() if m.is_queryable]
+    if not queryable:
+        voice_count = 0
+    else:
+        # table_name values are registry-controlled — not user input
+        union_sql = " UNION ALL ".join(
+            f"SELECT COUNT(*) AS n FROM {m.table_name} WHERE person_id = $1 AND archived_at IS NULL"
+            for m in queryable
+        )
+        rows = await db.fetch(union_sql, person_id)
+        voice_count = sum(r["n"] for r in rows)
     return names, identifiers, voice_count

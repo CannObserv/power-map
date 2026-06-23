@@ -7,6 +7,7 @@ import random
 import pytest
 import pytest_asyncio
 
+from src.api.main import app
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
 
@@ -444,6 +445,33 @@ def test_person_detail_voice_count_zero_for_no_embeddings(client, read_key, two_
     r = client.get(f"/api/v1/people/{pid0}", headers={"X-API-Key": read_key})
     assert r.status_code == 200
     assert isinstance(r.json()["voice_embeddings_count"], int)
+
+
+def test_person_detail_voice_count_sums_across_models(client, read_key, seeded_embeddings):
+    """voice_embeddings_count sums counts from all queryable models regardless of count."""
+    pid0, _, _, _ = seeded_embeddings
+
+    second_meta = ModelMeta(
+        model_id="second-test-model",
+        table_name=_TABLE,
+        dimension=_DIM,
+        metric="cosine",
+        accepts_writes=False,
+        is_queryable=True,
+        operator="<=>",
+    )
+    dual = EmbeddingRegistry({_MODEL_ID: _FAKE_META, "second-test-model": second_meta})
+
+    saved = app.state.embedding_registry
+    app.state.embedding_registry = dual
+    try:
+        r = client.get(f"/api/v1/people/{pid0}", headers={"X-API-Key": read_key})
+    finally:
+        app.state.embedding_registry = saved
+
+    assert r.status_code == 200
+    # pid0 has 3 rows in _TABLE; dual registry queries the same table twice → 3+3=6
+    assert r.json()["voice_embeddings_count"] == 6
 
 
 # ---------------------------------------------------------------------------
