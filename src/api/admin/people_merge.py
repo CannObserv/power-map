@@ -274,6 +274,18 @@ async def merge_person_into(
         winner_id,
     )
 
+    # contact_methods: drop loser rows where winner already has same contact_type+value.
+    await db.execute(
+        """DELETE FROM contact_methods
+           WHERE entity_type='person' AND entity_id=$1
+             AND (contact_type, value) IN (
+                 SELECT contact_type, value FROM contact_methods
+                 WHERE entity_type='person' AND entity_id=$2
+             )""",
+        loser_id,
+        winner_id,
+    )
+
     # Polymorphic entity tables.
     for table in (
         "contact_methods",

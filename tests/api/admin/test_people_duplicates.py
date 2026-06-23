@@ -1003,3 +1003,88 @@ async def test_merge_deduplicates_shared_person_address(client, db_pool):
             for pid in (winner_id, loser_id):
                 await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
                 await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+# ---------------------------------------------------------------------------
+# contact_methods dedup during merge (#232 CR follow-up)
+# ---------------------------------------------------------------------------
+
+
+async def _add_person_contact(conn, person_id: str, value: str) -> str:
+    cm_id = generate_id()
+    await conn.execute(
+        "INSERT INTO contact_methods"
+        " (id, entity_type, entity_id, contact_type, value)"
+        " VALUES ($1, 'person', $2, 'phone', $3)",
+        cm_id,
+        person_id,
+        value,
+    )
+    return cm_id
+
+
+async def test_merge_reassigns_unique_person_contact(client, db_pool):
+    """Loser's contact method not on winner is transferred after merge."""
+    async with db_pool.acquire() as conn:
+        winner_id = await _make_person(conn, "Winner Person CM Test")
+        loser_id = await _make_person(conn, "Loser Person CM Test")
+        await _add_person_contact(conn, loser_id, "+13605550001")
+
+    try:
+        response = client.post(
+            f"/admin/people/{winner_id}/merge/{loser_id}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT count(*) FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
+                winner_id,
+            )
+        assert count == 1
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
+                winner_id,
+            )
+            for pid in (winner_id, loser_id):
+                await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+                await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_merge_deduplicates_shared_person_contact(client, db_pool):
+    """Shared contact (same type+value) on both people yields exactly one row on winner."""
+    async with db_pool.acquire() as conn:
+        winner_id = await _make_person(conn, "Winner Person CM Dedup Test")
+        loser_id = await _make_person(conn, "Loser Person CM Dedup Test")
+        await _add_person_contact(conn, winner_id, "+13605550100")
+        await _add_person_contact(conn, loser_id, "+13605550100")
+        await _add_person_contact(conn, loser_id, "+13605550200")
+
+    try:
+        response = client.post(
+            f"/admin/people/{winner_id}/merge/{loser_id}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT value FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
+                winner_id,
+            )
+        assert len(rows) == 2
+        assert {r["value"] for r in rows} == {"+13605550100", "+13605550200"}
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
+                winner_id,
+            )
+            for pid in (winner_id, loser_id):
+                await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+                await conn.execute("DELETE FROM people WHERE id=$1", pid)
