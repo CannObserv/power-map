@@ -233,6 +233,11 @@ _SITEWIDE_DETAIL_SCRIPTS = [
     "person-detail.js",  # updatePersonHeader listener
     "role-merge.js",  # roles-table merge mode
     "event-add-guard.js",  # +Add event button guard
+    "person-name-deadname-confirm.js",  # deadname save confirmation
+    "person-name-parts-reorder.js",  # parts editor reorder arrows
+    "person-name-parts-cardstack.js",  # parts editor add/remove
+    "person-name-row-typeahead.js",  # per-row locale/script/reading typeaheads
+    "person-detail-add-name-guard.js",  # +Add name button guard
 ]
 
 

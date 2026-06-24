@@ -7,16 +7,9 @@
   <a href="/admin/people/">People</a><span class="breadcrumb__sep">›</span>
   <span id="breadcrumb-current">{{ display_name or person.id }}</span>
 {% endblock %}
-{# person-detail.js and event-add-guard.js are loaded site-wide from base.html
-   (#237). The person-name-* scripts below have the same hx-boost defect but are
-   out of scope for #237 — tracked separately. #}
-{% block extra_head %}
-  <script src="/static/admin/person-name-deadname-confirm.js?v={{ asset_version }}" defer></script>
-  <script src="/static/admin/person-name-parts-reorder.js?v={{ asset_version }}" defer></script>
-  <script src="/static/admin/person-name-parts-cardstack.js?v={{ asset_version }}" defer></script>
-  <script src="/static/admin/person-name-row-typeahead.js?v={{ asset_version }}" defer></script>
-  <script src="/static/admin/person-detail-add-name-guard.js?v={{ asset_version }}" defer></script>
-{% endblock %}
+{# All person-detail interaction scripts are loaded site-wide from base.html
+   (#237) — hx-boost strips the <head> from boosted responses, so an extra_head
+   script never runs when the page is reached by clicking a link. #}
 {% block content %}
 <div class="page-header">
   <div>

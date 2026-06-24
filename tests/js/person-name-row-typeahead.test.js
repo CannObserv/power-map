@@ -118,6 +118,21 @@ describe('person-name-row-typeahead', () => {
     expect(initStub).toHaveBeenCalledTimes(3);
   });
 
+  it('wires rows delivered by a boosted navigation (#237)', () => {
+    // Loaded site-wide from base.html, the script evals on a page with no
+    // person rows (e.g. the dashboard). hx-boost then swaps in the person
+    // detail page, firing htmx:afterSwap — the persistent document listener
+    // must discover and wire the freshly-swapped rows.
+    document.body.innerHTML = '';
+    eval(scriptCode);
+    expect(initStub).not.toHaveBeenCalled();
+
+    buildRow('nid_boost', 'legal');
+    document.dispatchEvent(new Event('htmx:afterSwap'));
+    expect(initStub).toHaveBeenCalledTimes(3);
+    expect(document.querySelector('[data-uid="nid_boost"]').dataset.typeaheadInited).toBe('1');
+  });
+
   it('skips rows missing data-uid', () => {
     document.body.innerHTML = `
       <table id="names-table"><tbody>

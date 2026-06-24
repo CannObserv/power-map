@@ -7,32 +7,35 @@
  * was meant to prevent. This script keeps `btn.disabled` synced against
  * the presence of `#name-row-new` so a duplicate Add can't fire.
  *
- * Re-sync triggers:
- *   - htmx:afterSwap on `#names-table` — covers Save (tbody re-render)
- *     and Edit→Cancel (read-row outerHTML swap). Listening on the table
- *     itself, not document body, avoids handling unrelated swaps from
- *     other regions of the page.
- *   - powerMap:newNameRowClosed on document — fired by the new-name
- *     form's inline Cancel handler in `_name_form_row.html`, which
- *     removes the row directly without an HTMX round-trip. Page-wide
- *     custom events follow the same `document`-targeted convention as
- *     page-wide htmx:afterSwap listeners elsewhere in this module.
+ * Loaded site-wide from base.html <head> (#237). hx-boost strips the <head>
+ * from boosted navigation responses, so a script that bound to #names-table
+ * at load would never run when the person detail page is reached by clicking
+ * a link. Instead the document-level listeners are registered once, up front,
+ * and sync() re-resolves the button on every call — a no-op on pages without
+ * an add-name button, activating once a boosted navigation swaps one in.
+ *
+ * Re-sync triggers (all on document, registered once):
+ *   - htmx:afterSwap — covers Save (tbody re-render) and Edit→Cancel
+ *     (read-row outerHTML swap). Document-scoped (like event-add-guard.js):
+ *     #name-row-new is unique page-wide, so a global id check is correct and
+ *     reacting to unrelated swaps is a harmless idempotent re-check.
+ *   - htmx:load — covers the boosted navigation that first renders the button.
+ *   - powerMap:newNameRowClosed — fired by the new-name form's inline Cancel
+ *     handler in `_name_form_row.html`, which removes the row without an HTMX
+ *     round-trip.
  */
 (function () {
-  function init() {
+  function sync() {
     var btn = document.getElementById('add-name-btn');
-    var table = document.getElementById('names-table');
-    if (!btn || !table) return;
-    function sync() {
-      btn.disabled = !!document.getElementById('name-row-new');
-    }
-    table.addEventListener('htmx:afterSwap', sync);
-    document.addEventListener('powerMap:newNameRowClosed', sync);
-    sync();
+    if (!btn) return;
+    btn.disabled = !!document.getElementById('name-row-new');
   }
+  document.addEventListener('htmx:afterSwap', sync);
+  document.addEventListener('htmx:load', sync);
+  document.addEventListener('powerMap:newNameRowClosed', sync);
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', sync);
   } else {
-    init();
+    sync();
   }
 })();

@@ -95,25 +95,42 @@ describe('person-detail-add-name-guard', () => {
     expect(btn().disabled).toBe(false);
   });
 
-  it('does NOT re-sync on htmx:afterSwap fired in a sibling region', () => {
-    // The listener is scoped to #names-table. A bubbling swap event in
-    // a sibling region (here: #other-region, alongside #names-table
-    // under <body>) bubbles up via body → document — never through the
-    // table. This pins down the scoping intent: only swaps that pass
-    // through #names-table trigger sync().
+  it('syncs on htmx:afterSwap from any region (document-scoped, #237)', () => {
+    // Loaded site-wide from base.html, the guard listens on document (not the
+    // table) so it survives hx-boost and so outerHTML row swaps that fire on a
+    // <tr> are caught. #name-row-new is unique page-wide, so a global id check
+    // is correct — reacting to any swap is a harmless idempotent re-check.
     expect(btn().disabled).toBe(false);
-    // Build a sibling region (not nested under #names-table) and add a
-    // stray name-row-new inside it.
     var sibling = document.createElement('div');
     sibling.id = 'other-region';
     sibling.innerHTML = '<span id="name-row-new"></span>';
     document.body.appendChild(sibling);
-    // Fire htmx:afterSwap from the sibling — the event bubbles upward
-    // through body and document, not laterally into #names-table.
     sibling.dispatchEvent(new Event('htmx:afterSwap', { bubbles: true }));
-    // Button is still enabled because the table-scoped listener never
-    // saw the event.
-    expect(btn().disabled).toBe(false);
+    // The document-scoped listener sees the (page-unique) new-row id and
+    // disables the button.
+    expect(btn().disabled).toBe(true);
+  });
+
+  it('activates after a boosted navigation swaps the button in (htmx:load)', () => {
+    // Regression scenario (#237): the guard loads on a page WITHOUT the
+    // add-name button (e.g. dashboard), then hx-boost swaps in the person
+    // detail page. The once-registered htmx:load listener must re-resolve the
+    // button and sync it.
+    document.body.innerHTML = '';
+    for (const [type, fn] of addSpy.mock.calls) {
+      document.removeEventListener(type, fn);
+    }
+    addSpy.mockClear();
+    eval(scriptCode);
+
+    document.body.innerHTML = `
+      <button id="add-name-btn" type="button">+ Add name</button>
+      <table id="names-table"><tbody>
+        <tr id="name-row-new"><td>new</td></tr>
+      </tbody></table>
+    `;
+    document.dispatchEvent(new Event('htmx:load', { bubbles: true }));
+    expect(btn().disabled).toBe(true);
   });
 
   it('powerMap:newNameRowClosed sync is idempotent', () => {

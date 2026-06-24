@@ -8,6 +8,8 @@ from src.core.types import PERSON_NAME_TYPES
 FORM_ROW = Path("src/templates/admin/people/partials/_name_form_row.html").read_text()
 READ_ROW = Path("src/templates/admin/people/partials/_name_row.html").read_text()
 DETAIL = Path("src/templates/admin/people/detail.html").read_text()
+# Person-name editor scripts moved to base.html so they survive hx-boost (#237).
+BASE = Path("src/templates/admin/base.html").read_text()
 # Issue #127: metadata fields (visibility / locale / script / sort_as /
 # reading_of_id) now live in their own partial, included into both the
 # new-name inline form (`_name_form_row.html`) and the existing-row
@@ -138,14 +140,15 @@ def test_read_row_renders_visibility_badge_for_non_public():
 
 
 def test_detail_loads_deadname_confirm_script():
-    """Phase 2a Task 4: deadname-confirm JS must be served on person detail."""
-    assert "person-name-deadname-confirm.js" in DETAIL
+    """Phase 2a Task 4: deadname-confirm JS must be served. Loaded site-wide
+    from base.html so hx-boost doesn't strip it (#237)."""
+    assert "person-name-deadname-confirm.js" in BASE
 
 
 def test_detail_deadname_confirm_script_is_deferred():
     """Defer ensures the script runs after DOM parse — required for safe scan."""
     # Allow versioned src; the defer attr should appear on the same script tag.
-    block = DETAIL.split("person-name-deadname-confirm.js")[1].split(">")[0]
+    block = BASE.split("person-name-deadname-confirm.js")[1].split(">")[0]
     assert "defer" in block
 
 
@@ -666,11 +669,8 @@ def test_read_row_skips_parts_subtitle_when_absent():
 
 
 def test_detail_loads_parts_cardstack_script():
-    """Issue #127: detail page loads the CardStack JS."""
-    from pathlib import Path
-
-    DETAIL = Path("src/templates/admin/people/detail.html").read_text()
-    assert "person-name-parts-cardstack.js" in DETAIL
+    """Issue #127: the CardStack JS is loaded. Site-wide via base.html (#237)."""
+    assert "person-name-parts-cardstack.js" in BASE
 
 
 def test_detail_parts_cardstack_script_is_deferred():
@@ -680,12 +680,7 @@ def test_detail_parts_cardstack_script_is_deferred():
     ``?v={{ asset_version }}`` populated at app startup. The assertion now
     matches the new template form rather than the literal ``?v=1``.
     """
-    from pathlib import Path
-
-    DETAIL = Path("src/templates/admin/people/detail.html").read_text()
-    assert (
-        'src="/static/admin/person-name-parts-cardstack.js?v={{ asset_version }}" defer' in DETAIL
-    )
+    assert 'src="/static/admin/person-name-parts-cardstack.js?v={{ asset_version }}" defer' in BASE
 
 
 # ---------------------------------------------------------------------------
@@ -1172,9 +1167,10 @@ def test_primary_identifier_help_text_above_control():
 # inline onclick dispatches the powerMap:newNameRowClosed event).
 #
 # Round-2 CR: extracted from inline `<script>` into
-# `src/static/admin/person-detail-add-name-guard.js` so the listener can
-# scope to `#names-table` (avoiding unrelated body-level swaps) and so a
-# CSP-tightening pass doesn't have to special-case the inline script.
+# `src/static/admin/person-detail-add-name-guard.js` so a CSP-tightening pass
+# doesn't have to special-case the inline script. #237 then moved it to a
+# site-wide load (base.html) with document-scoped listeners so it survives
+# hx-boost; #name-row-new is page-unique, so a global id check is correct.
 
 
 ADD_NAME_GUARD_JS = Path("src/static/admin/person-detail-add-name-guard.js").read_text()
@@ -1186,16 +1182,19 @@ def test_detail_add_name_button_has_id():
 
 
 def test_detail_loads_add_name_guard_script():
-    """Detail page must load the extracted +Add guard script."""
-    assert "person-detail-add-name-guard.js" in DETAIL
+    """The +Add guard script must load. Site-wide via base.html so it survives
+    hx-boost (#237)."""
+    assert "person-detail-add-name-guard.js" in BASE
 
 
-def test_add_name_guard_script_uses_names_table_listener():
-    """Listener must be scoped to #names-table, not document body — keeps
-    sync() from running on every unrelated swap on the page."""
-    assert "getElementById('names-table')" in ADD_NAME_GUARD_JS
-    # No body-level htmx:afterSwap listener — only the names-table one.
-    assert "document.body.addEventListener('htmx:afterSwap'" not in ADD_NAME_GUARD_JS
+def test_add_name_guard_script_uses_document_listeners():
+    """Loaded site-wide (#237), the guard registers document-level listeners
+    once and re-resolves the button in sync(), so it survives hx-boost and
+    activates when a boosted navigation swaps the button in. #name-row-new is
+    page-unique, so a document-scoped check is correct."""
+    assert "document.addEventListener('htmx:afterSwap'" in ADD_NAME_GUARD_JS
+    assert "document.addEventListener('htmx:load'" in ADD_NAME_GUARD_JS
+    assert "getElementById('add-name-btn')" in ADD_NAME_GUARD_JS
 
 
 def test_add_name_guard_script_handles_new_row_close_event():
@@ -1362,11 +1361,8 @@ def test_reorder_arrow_buttons_use_type_button():
 
 
 def test_detail_loads_reorder_script():
-    """Detail page loads the reorder JS alongside cardstack JS."""
-    from pathlib import Path
-
-    DETAIL = Path("src/templates/admin/people/detail.html").read_text()
-    assert 'src="/static/admin/person-name-parts-reorder.js?v={{ asset_version }}" defer' in DETAIL
+    """The reorder JS is loaded alongside cardstack JS. Site-wide via base.html (#237)."""
+    assert 'src="/static/admin/person-name-parts-reorder.js?v={{ asset_version }}" defer' in BASE
 
 
 # ---------------------------------------------------------------------------
