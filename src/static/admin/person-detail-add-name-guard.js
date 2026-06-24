@@ -27,7 +27,8 @@
 (function () {
   function sync() {
     var btn = document.getElementById('add-name-btn');
-    if (!btn) return;
+    var table = document.getElementById('names-table');
+    if (!btn || !table) return;
     btn.disabled = !!document.getElementById('name-row-new');
   }
   document.addEventListener('htmx:afterSwap', sync);

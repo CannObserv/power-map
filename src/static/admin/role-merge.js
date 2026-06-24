@@ -16,6 +16,12 @@
  *     across navigations.
  */
 (function () {
+  // Exit-merge-mode hook for the current roles table, set by init(). There is
+  // only ever one roles table mounted, so "last init wins" is correct; the
+  // page-wide showFlash listener (below) calls this rather than reaching for an
+  // expando on the DOM node.
+  var activeExit = null;
+
   function init() {
     var table = document.getElementById('roles-table');
     var mergeBtn = document.getElementById('roles-merge-btn');
@@ -219,21 +225,21 @@
     // Re-evaluate button state after any tbody swap (role added or merged)
     table.addEventListener('htmx:afterSwap', syncMergeBtn);
 
-    // Expose the exit hook for the page-wide showFlash listener (bound once,
-    // below). Re-resolving it per dispatch keeps the listener pointed at the
-    // current table after a boosted navigation replaces the element.
-    table.__exitMergeMode = exitMergeMode;
+    // Point the page-wide showFlash listener (bound once, below) at this
+    // table's exit. A boosted navigation that mounts a new table re-runs
+    // init() and reassigns activeExit to the new closure.
+    activeExit = exitMergeMode;
 
     syncMergeBtn();
   }
 
   // Exit merge mode after a successful merge (HTMX swap replaces tbody and
   // dispatches showFlash). Registered exactly once for the page lifetime;
-  // delegates to whichever roles table is currently mounted.
+  // delegates to the currently-mounted roles table via activeExit.
   document.addEventListener('showFlash', function () {
     var table = document.getElementById('roles-table');
-    if (table && table.dataset.mergeMode === 'true' && table.__exitMergeMode) {
-      table.__exitMergeMode();
+    if (table && table.dataset.mergeMode === 'true' && activeExit) {
+      activeExit();
     }
   });
 
