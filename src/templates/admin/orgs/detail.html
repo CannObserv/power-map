@@ -30,6 +30,7 @@
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="name-row-new"
               hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
+              hx-disabled-elt="this"
               hx-target="#names-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add name</button>
@@ -52,6 +53,7 @@
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="acronym-row-new"
               hx-get="/admin/orgs/{{ org.id }}/acronyms/new-row/"
+              hx-disabled-elt="this"
               hx-target="#acronyms-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add acronym</button>
@@ -93,6 +95,7 @@
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="child-row-new"
               hx-get="/admin/orgs/{{ org.id }}/children/new-row/"
+              hx-disabled-elt="this"
               hx-target="#children-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add child</button>
@@ -146,6 +149,7 @@
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="email-row-new"
               hx-get="/admin/orgs/{{ org.id }}/contacts/new-row/?contact_type=email"
+              hx-disabled-elt="this"
               hx-target="#emails-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add email</button>
@@ -168,6 +172,7 @@
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="phone-row-new"
               hx-get="/admin/orgs/{{ org.id }}/contacts/new-row/?contact_type=phone"
+              hx-disabled-elt="this"
               hx-target="#phones-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add phone</button>
@@ -190,6 +195,7 @@
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="address-row-new"
               hx-get="/admin/orgs/{{ org.id }}/addresses/new-row/"
+              hx-disabled-elt="this"
               hx-target="#addresses-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add location</button>
@@ -216,6 +222,7 @@
     <button class="btn btn--sm btn--secondary"
             data-new-row-id="link-row-new"
             hx-get="/admin/orgs/{{ org.id }}/links/new-row/"
+            hx-disabled-elt="this"
             hx-target="#links-table tbody"
             hx-swap="afterbegin"
             type="button">+ Add link</button>
@@ -240,6 +247,7 @@
     <button class="btn btn--sm btn--secondary"
             data-new-row-id="identifier-row-new"
             hx-get="/admin/orgs/{{ org.id }}/identifiers/new-row/"
+            hx-disabled-elt="this"
             hx-target="#identifiers-table tbody"
             hx-swap="afterbegin"
             type="button">+ Add identifier</button>
@@ -267,6 +275,7 @@
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="role-row-new"
               hx-get="/admin/orgs/{{ org.id }}/roles/new-row/"
+              hx-disabled-elt="this"
               hx-target="#roles-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add role</button>

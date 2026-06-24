@@ -20,6 +20,7 @@
   <button class="btn btn--sm btn--secondary"
           data-new-row-id="api-key-row-new"
           hx-get="/admin/settings/api-keys/new-row/"
+          hx-disabled-elt="this"
           hx-target="#api-keys-body"
           hx-swap="afterbegin">+ Generate new key</button>
 </div>

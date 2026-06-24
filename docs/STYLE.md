@@ -1910,6 +1910,7 @@ Rules:
 - Matching `aria-controls` and `initTypeaheadCombobox` arguments get the same suffix.
 - `name=` attributes stay unchanged so form submission posts the right field.
 - Callers can omit `row_key` for the standard inline-add row; pass `row_key=<entity.id>` (or any unique-on-the-page string) for edit drawers and other multi-row contexts.
+- The standard inline-add row renders `id="<entity>-row-new"` (the `'new'` default). Its "+ Add" button opts into the duplicate-row guard via `data-new-row-id="<entity>-row-new"` (+ `hx-disabled-elt="this"`), and the new-row Cancel dispatches `powerMap:newRowClosed` — see §32 ("+ Add duplicate-row guard"). Wire both when adding a new multi-instance partial.
 
 ### Singleton-only partials
 
