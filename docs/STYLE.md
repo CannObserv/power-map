@@ -903,7 +903,7 @@ Follow these steps whenever a new entity detail page needs its `<h1>`, breadcrum
 1. **JS file** — create `src/static/admin/{entity}-detail.js` listening for `update{Entity}Header` (camelCase, e.g. `updatePersonHeader`).
 2. **`deps.py`** — add `{entity}_header_extra(entity_id, db)`: query the display-name view, fall back to `entity_id`, return `{"update{Entity}Header": {"display": display}}`.
 3. **Mutation routes** — on every route that can change the canonical name, pass `extra=await {entity}_header_extra(entity_id, db)` to `flash_trigger()`.
-4. **Detail template** — load the JS in `{% block extra_head %}` with `defer`.
+4. **`base.html`** — load the JS in `base.html`'s `<head>` with `defer` (NOT the detail template's `extra_head`, which hx-boost strips on boosted navigation — see "hx-boost re-execution"). The listener is global and idempotent, so loading it site-wide is safe.
 5. **Tests** — add 5 structural tests in `test_js.py` (file exists, event key, `page-heading`, `breadcrumb-current`, `document.title`). See §30 for the checklist.
 
 ---
@@ -1500,7 +1500,7 @@ Full reference for the live header sync pattern introduced in §17. Follow this 
 - [ ] `src/static/admin/{entity}-detail.js` — event listener
 - [ ] `{entity}_header_extra()` in `src/api/admin/deps.py`
 - [ ] `extra=` argument on all name-mutation routes
-- [ ] `{% block extra_head %}` in the detail template
+- [ ] `<script src defer>` in `base.html`'s `<head>` (NOT the detail template's `extra_head` — hx-boost strips it)
 - [ ] 5 structural tests in `tests/api/admin/test_js.py`
 
 ### JS file (`src/static/admin/{entity}-detail.js`)
@@ -1544,15 +1544,15 @@ headers=flash_trigger(
 
 Pass `extra=` on every route that creates, edits, or deletes a name row — including deletes (the display name may change after a deletion removes the canonical).
 
-### Detail template
+### Script loading (`base.html`)
+
+Load the listener site-wide from `base.html`'s `<head>` — never a detail template's `extra_head`, which hx-boost strips on boosted navigation (#237):
 
 ```html
-{% block extra_head %}
-  <script src="/static/admin/{entity}-detail.js?v=1" defer></script>
-{% endblock %}
+<script src="/static/admin/{entity}-detail.js?v={{ asset_version }}" defer></script>
 ```
 
-The `?v=1` cache-bust parameter must be incremented when the JS file changes.
+`?v={{ asset_version }}` is the commit-hash cache-bust injected at startup; no manual increment needed.
 
 ### Structural tests (`test_js.py`)
 
@@ -1712,13 +1712,21 @@ Always include a `RedirectResponse` fallback on mutation routes for graceful deg
 
 ### hx-boost re-execution
 
-HTMX re-runs all `<script src>` tags found in `<body>` on every boosted navigation. Scripts with persistent `document.addEventListener` calls must live in `<head>` (`admin-modal.js`, `flash.js`, `dark-mode.js`).
+`hx-boost="true"` on `admin-layout` makes navigation a boosted swap: htmx fetches the full page, then **discards the response `<head>` entirely** (its fragment parser strips `<head>…</head>`) and swaps only the `<body>` plus `<title>`. Two consequences:
 
-For unavoidable inline body scripts: `document.removeEventListener(evt, document.__pmKey); document.__pmKey = fn; document.addEventListener(evt, document.__pmKey)` — see `base.html` `aria-busy` and `__pmNavKeydown` as examples.
+- **Body `<script src>` tags re-run on every boosted navigation.** A persistent `document.addEventListener` in `<body>` accumulates duplicate listeners. For unavoidable inline body scripts use the replace-then-add idiom: `document.removeEventListener(evt, document.__pmKey); document.__pmKey = fn; document.addEventListener(evt, document.__pmKey)` — see `base.html` `aria-busy` and `__pmNavKeydown`.
+- **Head `<script>` tags in a _detail template's_ `extra_head` never run when the page is reached via a boosted link** — they are stripped with the rest of `<head>`. They execute only on a full (non-boosted) page load.
 
-### Page-specific head scripts
+So any script that must run on (or register listeners for) a detail page reached by clicking an in-app link belongs in **`base.html`'s `<head>`**, which loads once on the first full page load and persists across every boosted swap. Scripts loaded this way today: `htmx`, `dark-mode.js`, `admin-modal.js`, `flash.js`, `typeahead-combobox.js`, and the detail-interaction scripts (`org-detail.js`, `person-detail.js`, `role-merge.js`, `event-add-guard.js`, and the `person-name-*` editor scripts). See #237.
 
-Use `{% block extra_head %}{% endblock %}` (defined in `base.html`) to inject `<script src defer>` from a detail template. Scripts in `<head>` are never re-executed by hx-boost; `defer` ensures they run after DOM parse and HTMX is available. Extract inline scripts to files in `src/static/admin/` — no inline `<script>` blocks in this block.
+### Page-specific scripts
+
+Detail pages once injected their scripts via `{% block extra_head %}`. **Do not** — `extra_head` renders inside `<head>`, which hx-boost strips from boosted-navigation responses, so the script silently never runs when the page is reached by clicking a link (#237). Instead:
+
+- **Persistent listeners, or any behavior needed on a boost-reached detail page** → load from `base.html`'s `<head>` with `defer`. Because it now loads on every admin page, make the script defensive (no-op when its target elements are absent); if it binds per-element, make it idempotent and re-bind on `htmx:load` (the boosted-swap signal) without double-binding.
+- Extract inline scripts to files in `src/static/admin/` — no inline `<script>` blocks.
+
+`{% block extra_head %}{% endblock %}` remains available for `<link>` / meta tags or page-specific assets whose effect need not survive a boosted navigation.
 
 ### Flash notifications
 

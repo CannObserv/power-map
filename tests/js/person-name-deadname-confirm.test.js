@@ -59,6 +59,26 @@ function changeSelect(select, value) {
 }
 
 describe('person-name-deadname-confirm', () => {
+  it('wires a form delivered by a boosted navigation (#237)', () => {
+    // Loaded site-wide from base.html, the script evals on a page with no
+    // person-name form (e.g. the dashboard). hx-boost then swaps in the person
+    // detail page, firing htmx:afterSwap — the persistent document rescan must
+    // pre-set hx-confirm on a deadname form already present in the swap.
+    document.body.innerHTML = '';
+    eval(scriptCode);
+    document.body.innerHTML = `
+      <form id="pn-form" hx-post="/admin/people/p1/names/">
+        <select name="name_type">
+          <option value="legal">legal</option>
+          <option value="deadname">deadname</option>
+        </select>
+      </form>
+    `;
+    document.querySelector('select[name="name_type"]').value = 'deadname';
+    document.dispatchEvent(new Event('htmx:afterSwap'));
+    expect(document.getElementById('pn-form').hasAttribute('hx-confirm')).toBe(true);
+  });
+
   it('does not set hx-confirm when name_type is non-deadname on load', () => {
     const { form } = buildForm({ initial: 'legal' });
     expect(form.hasAttribute('hx-confirm')).toBe(false);

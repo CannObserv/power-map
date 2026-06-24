@@ -59,6 +59,23 @@ function setupDOM(initialCards = 0) {
 }
 
 describe('person-name-parts-cardstack', () => {
+  it('wires a stack delivered by a boosted navigation (#237)', () => {
+    // Loaded site-wide from base.html, the script evals on a page with no
+    // parts editor. hx-boost then swaps in the person detail page, firing
+    // htmx:afterSwap — the persistent document rescan must run initAll on the
+    // freshly-swapped stack and disable Add at the cap.
+    document.body.innerHTML = '';
+    eval(SRC);
+    document.body.innerHTML = `
+      <form><fieldset>
+        <div data-cardstack="given_names" data-cardstack-cap="2">${cardHTML('given_names', 2)}</div>
+        <button type="button" data-cardstack-add="given_names">+ Add</button>
+      </fieldset></form>`;
+    document.dispatchEvent(new Event('htmx:afterSwap'));
+    // 2 cards at cap 2 → Add disabled by initAll's syncAddBtn.
+    expect(document.querySelector('[data-cardstack-add="given_names"]').disabled).toBe(true);
+  });
+
   it('Add appends a new empty card', () => {
     setupDOM(1);
     const addBtn = document.querySelector('[data-cardstack-add="given_names"]');

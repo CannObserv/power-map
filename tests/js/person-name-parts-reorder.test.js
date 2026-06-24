@@ -88,6 +88,27 @@ function reorderButtons(field, direction) {
 }
 
 describe('person-name-parts-reorder', () => {
+  it('syncs a stack delivered by a boosted navigation (#237)', () => {
+    // Loaded site-wide from base.html, the script evals on a page with no
+    // parts editor. hx-boost then swaps in the person detail page, firing
+    // htmx:afterSwap — the persistent document rescan must run syncAll and fix
+    // the boundary arrows (top ↑ / bottom ↓ disabled).
+    document.body.innerHTML = '';
+    eval(REORDER_SRC);
+    document.body.innerHTML = `
+      <form><fieldset>
+        <div data-cardstack="given_names" data-cardstack-cap="5">${cardHTML('given_names', 3)}</div>
+      </fieldset></form>`;
+    // Force every arrow enabled so the assertion proves syncAll ran, not the
+    // static server markup.
+    document.querySelectorAll('[data-cardstack-reorder]').forEach((b) => (b.disabled = false));
+    document.dispatchEvent(new Event('htmx:afterSwap'));
+    const cards = document.querySelectorAll('[data-cardstack-card="given_names"]');
+    expect(cards[0].querySelector('[data-cardstack-reorder="up"]').disabled).toBe(true);
+    expect(cards[2].querySelector('[data-cardstack-reorder="down"]').disabled).toBe(true);
+    expect(cards[1].querySelector('[data-cardstack-reorder="up"]').disabled).toBe(false);
+  });
+
   it('Click ↑ on second card swaps with first', () => {
     setupDOM(3);
     const ups = reorderButtons('given_names', 'up');
