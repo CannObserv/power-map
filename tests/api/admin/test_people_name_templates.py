@@ -1163,48 +1163,48 @@ def test_primary_identifier_help_text_above_control():
 # `<tr id="name-row-new">`, reintroducing the same id-collision class the
 # per-row namespacing was meant to prevent (both rows would share the
 # `_uid="new"` suffix). Disable the button while a new-row exists; re-enable
-# on Save (htmx:afterSwap on the table) or Cancel (the new-name form's
-# inline onclick dispatches the powerMap:newNameRowClosed event).
+# on Save (htmx:afterSwap) or Cancel (the new-name form's inline onclick
+# dispatches the powerMap:newRowClosed event).
 #
-# Round-2 CR: extracted from inline `<script>` into
-# `src/static/admin/person-detail-add-name-guard.js` so a CSP-tightening pass
-# doesn't have to special-case the inline script. #237 then moved it to a
-# site-wide load (base.html) with document-scoped listeners so it survives
-# hx-boost; #name-row-new is page-unique, so a global id check is correct.
+# #238 generalized the per-feature guard (person-detail-add-name-guard.js,
+# event-add-guard.js) into one site-wide `src/static/admin/add-row-guard.js`:
+# every "+ Add" button opts in with `data-new-row-id="<tr-id>"` and is disabled
+# while that row exists. Document-scoped listeners survive hx-boost (#237); each
+# `<entity>-row-new` is page-unique, so a global id check is correct.
 
 
-ADD_NAME_GUARD_JS = Path("src/static/admin/person-detail-add-name-guard.js").read_text()
+ADD_ROW_GUARD_JS = Path("src/static/admin/add-row-guard.js").read_text()
 
 
-def test_detail_add_name_button_has_id():
-    """Stable id needed so the guard script can find the button."""
-    assert 'id="add-name-btn"' in DETAIL
+def test_detail_add_name_button_opts_into_guard():
+    """The button opts into the generic guard via data-new-row-id (#238)."""
+    assert 'data-new-row-id="name-row-new"' in DETAIL
 
 
-def test_detail_loads_add_name_guard_script():
-    """The +Add guard script must load. Site-wide via base.html so it survives
-    hx-boost (#237)."""
-    assert "person-detail-add-name-guard.js" in BASE
+def test_detail_loads_add_row_guard_script():
+    """The generic +Add guard script must load. Site-wide via base.html so it
+    survives hx-boost (#237)."""
+    assert "add-row-guard.js" in BASE
 
 
-def test_add_name_guard_script_uses_document_listeners():
+def test_add_row_guard_script_uses_document_listeners():
     """Loaded site-wide (#237), the guard registers document-level listeners
-    once and re-resolves the button in sync(), so it survives hx-boost and
-    activates when a boosted navigation swaps the button in. #name-row-new is
-    page-unique, so a document-scoped check is correct."""
-    assert "document.addEventListener('htmx:afterSwap'" in ADD_NAME_GUARD_JS
-    assert "document.addEventListener('htmx:load'" in ADD_NAME_GUARD_JS
-    assert "getElementById('add-name-btn')" in ADD_NAME_GUARD_JS
+    once and re-resolves buttons in sync() by scanning button[data-new-row-id],
+    so it survives hx-boost and activates when a boosted navigation swaps a
+    button in. Each <entity>-row-new is page-unique, so a document-scoped check
+    is correct."""
+    assert "document.addEventListener('htmx:afterSwap'" in ADD_ROW_GUARD_JS
+    assert "document.addEventListener('htmx:load'" in ADD_ROW_GUARD_JS
+    assert "button[data-new-row-id]" in ADD_ROW_GUARD_JS
 
 
-def test_add_name_guard_script_handles_new_row_close_event():
-    """The custom event from the new-name Cancel re-enables the button."""
-    assert "powerMap:newNameRowClosed" in ADD_NAME_GUARD_JS
-    assert "name-row-new" in ADD_NAME_GUARD_JS
+def test_add_row_guard_script_handles_new_row_close_event():
+    """The custom event from each new-row Cancel re-enables its button."""
+    assert "powerMap:newRowClosed" in ADD_ROW_GUARD_JS
 
 
 def test_new_name_form_cancel_dispatches_close_event():
-    """The inline-Cancel for new-name forms must dispatch the custom
+    """The inline-Cancel for new-name forms must dispatch the shared close
     event so the + Add name button can re-enable itself."""
     from jinja2 import Environment, FileSystemLoader
 
@@ -1213,7 +1213,7 @@ def test_new_name_form_cancel_dispatches_close_event():
         n=None, parts=None, person_id="pid_x"
     )
     # Cancel for the new-name branch removes the row and signals the page.
-    assert "powerMap:newNameRowClosed" in out
+    assert "powerMap:newRowClosed" in out
     # The existing-row Cancel uses hx-get, not onclick; not affected.
 
 
@@ -1242,7 +1242,7 @@ def test_existing_row_cancel_unchanged():
     assert "/names/nid_x/read-row/" in out
     # And its branch should not carry the new-row dispatch.
     cancel_segment = out.split("Cancel</button>")[0].split("Save</button>")[1]
-    assert "powerMap:newNameRowClosed" not in cancel_segment
+    assert "powerMap:newRowClosed" not in cancel_segment
 
 
 def test_cardstack_inputs_wrapped_in_form_group():

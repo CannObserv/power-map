@@ -27,7 +27,10 @@
   <script src="/static/admin/org-detail.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/person-detail.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/role-merge.js?v={{ asset_version }}" defer></script>
-  <script src="/static/admin/event-add-guard.js?v={{ asset_version }}" defer></script>
+  {# Generic "+ Add" duplicate-row guard (#238) — disables each button carrying
+     data-new-row-id while its unsaved new-row is on the page. Replaces the
+     per-feature event-add-guard.js / person-detail-add-name-guard.js. #}
+  <script src="/static/admin/add-row-guard.js?v={{ asset_version }}" defer></script>
   {# Person detail name-editor scripts — same site-wide rationale (#237). All
      are document-delegated or boost-safe; defensive on pages without a person
      name editor. #}
@@ -35,7 +38,6 @@
   <script src="/static/admin/person-name-parts-reorder.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/person-name-parts-cardstack.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/person-name-row-typeahead.js?v={{ asset_version }}" defer></script>
-  <script src="/static/admin/person-detail-add-name-guard.js?v={{ asset_version }}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body>

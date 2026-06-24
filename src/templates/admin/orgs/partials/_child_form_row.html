@@ -27,7 +27,7 @@
       <div style="display:flex;gap:var(--space-2);white-space:nowrap">
         <button type="submit" class="btn btn--sm btn--primary">Add</button>
         <button type="button" class="btn btn--sm btn--secondary"
-                onclick="this.closest('tr').remove()">Cancel</button>
+                onclick="this.closest('tr').remove(); document.dispatchEvent(new CustomEvent('powerMap:newRowClosed'));">Cancel</button>
       </div>
     </form>
     <script>

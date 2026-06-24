@@ -7,7 +7,7 @@
   <a href="/admin/orgs/">Organizations</a><span class="breadcrumb__sep">›</span>
   <span id="breadcrumb-current">{{ display_name or org.id }}</span>
 {% endblock %}
-{# org-detail.js, role-merge.js, event-add-guard.js are loaded site-wide from
+{# org-detail.js, role-merge.js, add-row-guard.js are loaded site-wide from
    base.html (#237) — declaring them here too would double-load on full render. #}
 {% block content %}
 <div class="page-header">
@@ -28,6 +28,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
       <h3 class="field-group-label">Names</h3>
       <button class="btn btn--sm btn--secondary"
+              data-new-row-id="name-row-new"
               hx-get="/admin/orgs/{{ org.id }}/names/new-row/"
               hx-target="#names-table tbody"
               hx-swap="afterbegin"
@@ -49,6 +50,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
       <h3 class="field-group-label">Acronyms</h3>
       <button class="btn btn--sm btn--secondary"
+              data-new-row-id="acronym-row-new"
               hx-get="/admin/orgs/{{ org.id }}/acronyms/new-row/"
               hx-target="#acronyms-table tbody"
               hx-swap="afterbegin"
@@ -89,6 +91,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
       <h3 class="field-group-label">Child Organizations</h3>
       <button class="btn btn--sm btn--secondary"
+              data-new-row-id="child-row-new"
               hx-get="/admin/orgs/{{ org.id }}/children/new-row/"
               hx-target="#children-table tbody"
               hx-swap="afterbegin"
@@ -113,8 +116,7 @@
 <section class="entity-section">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h2>Events</h2>
-    <button id="add-event-btn" type="button" class="btn btn--sm btn--secondary"
-            data-events-table="org-events-table"
+    <button type="button" class="btn btn--sm btn--secondary"
             data-new-row-id="org-event-row-new"
             hx-get="/admin/orgs/{{ org.id }}/events/new-row/"
             hx-target="#org-events-table tbody"
@@ -142,6 +144,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 var(--space-3)">
       <h3 class="field-group-label">Email Addresses</h3>
       <button class="btn btn--sm btn--secondary"
+              data-new-row-id="email-row-new"
               hx-get="/admin/orgs/{{ org.id }}/contacts/new-row/?contact_type=email"
               hx-target="#emails-table tbody"
               hx-swap="afterbegin"
@@ -163,6 +166,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
       <h3 class="field-group-label">Phone Numbers</h3>
       <button class="btn btn--sm btn--secondary"
+              data-new-row-id="phone-row-new"
               hx-get="/admin/orgs/{{ org.id }}/contacts/new-row/?contact_type=phone"
               hx-target="#phones-table tbody"
               hx-swap="afterbegin"
@@ -184,6 +188,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
       <h3 class="field-group-label">Locations</h3>
       <button class="btn btn--sm btn--secondary"
+              data-new-row-id="address-row-new"
               hx-get="/admin/orgs/{{ org.id }}/addresses/new-row/"
               hx-target="#addresses-table tbody"
               hx-swap="afterbegin"
@@ -209,6 +214,7 @@
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h2>Links</h2>
     <button class="btn btn--sm btn--secondary"
+            data-new-row-id="link-row-new"
             hx-get="/admin/orgs/{{ org.id }}/links/new-row/"
             hx-target="#links-table tbody"
             hx-swap="afterbegin"
@@ -232,6 +238,7 @@
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h2>Identifiers</h2>
     <button class="btn btn--sm btn--secondary"
+            data-new-row-id="identifier-row-new"
             hx-get="/admin/orgs/{{ org.id }}/identifiers/new-row/"
             hx-target="#identifiers-table tbody"
             hx-swap="afterbegin"
@@ -258,6 +265,7 @@
     <div style="display:flex;gap:var(--space-2)">
       <span id="roles-merge-btn-wrap" style="display:inline-block"><button id="roles-merge-btn" class="btn btn--sm btn--secondary" type="button">Merge</button></span>
       <button class="btn btn--sm btn--secondary"
+              data-new-row-id="role-row-new"
               hx-get="/admin/orgs/{{ org.id }}/roles/new-row/"
               hx-target="#roles-table tbody"
               hx-swap="afterbegin"

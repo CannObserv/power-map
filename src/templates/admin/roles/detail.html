@@ -45,6 +45,7 @@
     <h2 style="margin:0">Assignments</h2>
     {% if not role.archived_at %}
     <button class="btn btn--sm btn--secondary"
+            data-new-row-id="assignment-row-new"
             hx-get="/admin/roles/{{ role.id }}/assignments/new-row/"
             hx-target="#assignments-table tbody"
             hx-swap="afterbegin"

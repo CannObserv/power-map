@@ -43,11 +43,10 @@
           {% endif %}
         {% endif %}
         {% if not person.archived_at %}
-        {# Issue #131: disable-while-unsaved-new-row guard wired by
-           `person-detail-add-name-guard.js`. The button needs the stable
-           `add-name-btn` id; the script handles the sync. #}
-        <button id="add-name-btn"
-                class="btn btn--sm btn--secondary"
+        {# Issue #131/#238: disable-while-unsaved-new-row guard wired by the
+           site-wide `add-row-guard.js`; the button opts in via data-new-row-id. #}
+        <button class="btn btn--sm btn--secondary"
+                data-new-row-id="name-row-new"
                 hx-get="/admin/people/{{ person.id }}/names/new-row/"
                 hx-target="#names-table tbody"
                 hx-swap="afterbegin"
@@ -84,8 +83,7 @@
 <section class="entity-section">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h2>Events</h2>
-    <button id="add-event-btn" type="button" class="btn btn--sm btn--secondary"
-            data-events-table="person-events-table"
+    <button type="button" class="btn btn--sm btn--secondary"
             data-new-row-id="person-event-row-new"
             hx-get="/admin/people/{{ person.id }}/events/new-row/"
             hx-target="#person-events-table tbody"
@@ -120,6 +118,7 @@
       <h3 class="field-group-label">Email Addresses</h3>
       {% if not person.archived_at %}
       <button class="btn btn--sm btn--secondary"
+              data-new-row-id="email-row-new"
               hx-get="/admin/people/{{ person.id }}/contacts/new-row/?contact_type=email"
               hx-target="#emails-table tbody"
               hx-swap="afterbegin"
@@ -144,6 +143,7 @@
       <h3 class="field-group-label">Phone Numbers</h3>
       {% if not person.archived_at %}
       <button class="btn btn--sm btn--secondary"
+              data-new-row-id="phone-row-new"
               hx-get="/admin/people/{{ person.id }}/contacts/new-row/?contact_type=phone"
               hx-target="#phones-table tbody"
               hx-swap="afterbegin"
@@ -168,6 +168,7 @@
       <h3 class="field-group-label">Locations</h3>
       {% if not person.archived_at %}
       <button class="btn btn--sm btn--secondary"
+              data-new-row-id="address-row-new"
               hx-get="/admin/people/{{ person.id }}/addresses/new-row/"
               hx-target="#addresses-table tbody"
               hx-swap="afterbegin"
@@ -196,6 +197,7 @@
     <h2>Links</h2>
     {% if not person.archived_at %}
     <button class="btn btn--sm btn--secondary"
+            data-new-row-id="link-row-new"
             hx-get="/admin/people/{{ person.id }}/links/new-row/"
             hx-target="#links-table tbody"
             hx-swap="afterbegin"
@@ -222,6 +224,7 @@
     <h2>Identifiers</h2>
     {% if not person.archived_at %}
     <button class="btn btn--sm btn--secondary"
+            data-new-row-id="identifier-row-new"
             hx-get="/admin/people/{{ person.id }}/identifiers/new-row/"
             hx-target="#identifiers-table tbody"
             hx-swap="afterbegin"
@@ -248,6 +251,7 @@
     <h2>Role Assignments</h2>
     {% if not person.archived_at %}
     <button class="btn btn--sm btn--secondary"
+            data-new-row-id="person-assignment-row-new"
             hx-get="/admin/people/{{ person.id }}/assignments/new-row/"
             hx-target="#person-assignments-table tbody"
             hx-swap="afterbegin"

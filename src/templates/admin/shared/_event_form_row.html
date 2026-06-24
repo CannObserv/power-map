@@ -112,7 +112,7 @@
                 hx-target="#{{ _ev_row_prefix }}-{{ ev.id }}"
                 hx-swap="outerHTML"
                 {% else %}
-                onclick="this.closest('tr').remove(); document.dispatchEvent(new CustomEvent('powerMap:newEventRowClosed'));"
+                onclick="this.closest('tr').remove(); document.dispatchEvent(new CustomEvent('powerMap:newRowClosed'));"
                 {% endif %}>Cancel</button>
       </div>
     </form>

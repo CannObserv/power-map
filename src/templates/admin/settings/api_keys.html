@@ -18,6 +18,7 @@
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
   <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">Your Keys</h2>
   <button class="btn btn--sm btn--secondary"
+          data-new-row-id="api-key-row-new"
           hx-get="/admin/settings/api-keys/new-row/"
           hx-target="#api-keys-body"
           hx-swap="afterbegin">+ Generate new key</button>
