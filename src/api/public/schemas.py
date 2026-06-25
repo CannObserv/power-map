@@ -57,6 +57,11 @@ class OrgName(BaseModel):
     name: str
     name_type: str
     is_canonical: bool
+    # Real-world validity (#239). YYYY-MM-DD; null start = unknown lower bound,
+    # null end = still in effect. Consumers filter this list by date to resolve
+    # "which name was in effect when".
+    effective_start: date | None = None
+    effective_end: date | None = None
 
 
 class OrgAcronym(BaseModel):

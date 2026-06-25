@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+from datetime import date
 
 import pytest
 import pytest_asyncio
@@ -310,6 +311,35 @@ async def test_get_org_by_id_full_record(client, api_key, org_fixture):
     assert eid["type_id"] == org_fixture["eid_type_id"]
     assert eid["type_slug"] == "wa_sos"
     assert eid["value"] == "12345"
+
+
+@pytest.mark.integration
+async def test_get_org_name_effective_dates_exposed(client, api_key, org_fixture, db):
+    """Name items expose effective_start/effective_end as YYYY-MM-DD; NULL end stays null (#239)."""
+    oid = org_fixture["org_id"]
+    # Former name: closed interval. Canonical name: open-ended (ongoing).
+    await db.execute(
+        "UPDATE organization_names SET effective_start=$1, effective_end=$2 WHERE id=$3",
+        date(2019, 1, 1),
+        date(2023, 1, 9),
+        org_fixture["former_id"],
+    )
+    await db.execute(
+        "UPDATE organization_names SET effective_start=$1 WHERE id=$2",
+        date(2023, 1, 9),
+        org_fixture["name_id"],
+    )
+    r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    by_id = {n["id"]: n for n in r.json()["names"]}
+
+    former = by_id[org_fixture["former_id"]]
+    assert former["effective_start"] == "2019-01-01"
+    assert former["effective_end"] == "2023-01-09"
+
+    current = by_id[org_fixture["name_id"]]
+    assert current["effective_start"] == "2023-01-09"
+    assert current["effective_end"] is None
 
 
 @pytest.mark.integration

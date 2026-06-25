@@ -424,7 +424,7 @@ async def _fetch_detail_arrays(org_id: str, db: Any) -> tuple:
     """Fetch names, acronyms, identifiers, and jurisdiction affiliations for an org."""
     names = await db.fetch(
         """
-        SELECT id, name, name_type, is_canonical
+        SELECT id, name, name_type, is_canonical, effective_start, effective_end
         FROM organization_names
         WHERE organization_id = $1
         ORDER BY is_canonical DESC, name_type, name
