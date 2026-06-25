@@ -266,6 +266,64 @@ async def test_write_names_org_canonical_hint_no_displace(db, api_key_id):
     assert rows[1]["is_canonical"] is False
 
 
+async def test_write_names_org_stores_effective_dates(db, api_key_id):
+    """Effective dates on an observation name are persisted on the new row (#239)."""
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    name = ObservationOrgName(
+        name="Committee on Old Government",
+        name_type="former",
+        effective_start=date(2019, 1, 1),
+        effective_end=date(2023, 1, 9),
+    )
+    await write_names(db, oid, "organization", api_key_id, [name])
+    row = await db.fetchrow(
+        "SELECT effective_start, effective_end FROM organization_names"
+        " WHERE organization_id=$1 AND name=$2",
+        oid,
+        "Committee on Old Government",
+    )
+    assert row["effective_start"] == date(2019, 1, 1)
+    assert row["effective_end"] == date(2023, 1, 9)
+
+
+async def test_write_names_org_effective_dates_noop_on_existing(db, api_key_id):
+    """Append-only: re-observing an existing name with dates does not mutate it (#239)."""
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await write_names(
+        db,
+        oid,
+        "organization",
+        api_key_id,
+        [ObservationOrgName(name="Stable Name", name_type="legal")],
+    )
+    # Same name re-sent with dates — must not touch the existing (NULL/NULL) row.
+    await write_names(
+        db,
+        oid,
+        "organization",
+        api_key_id,
+        [
+            ObservationOrgName(
+                name="Stable Name",
+                name_type="legal",
+                effective_start=date(2020, 1, 1),
+                effective_end=date(2021, 1, 1),
+            )
+        ],
+    )
+    rows = await db.fetch(
+        "SELECT effective_start, effective_end FROM organization_names"
+        " WHERE organization_id=$1 AND name=$2",
+        oid,
+        "Stable Name",
+    )
+    assert len(rows) == 1
+    assert rows[0]["effective_start"] is None
+    assert rows[0]["effective_end"] is None
+
+
 # ---------------------------------------------------------------------------
 # write_links
 # ---------------------------------------------------------------------------

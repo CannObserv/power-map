@@ -397,6 +397,12 @@ class ObservationOrgName(BaseModel):
     name: str
     name_type: Literal["legal", "dba", "former"] = "legal"
     is_canonical: bool = False
+    # Real-world validity (#239). Stored only on a newly inserted name row;
+    # ingestion is append-only, so dates sent for an already-present name are a
+    # no-op (curate name-timeline transitions in admin). NULL start = unknown
+    # lower bound, NULL end = still in effect.
+    effective_start: date | None = None
+    effective_end: date | None = None
 
 
 class ObservationAcronym(BaseModel):

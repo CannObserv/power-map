@@ -302,28 +302,34 @@ async def write_names(
                 async with conn.transaction():
                     await conn.execute(
                         "INSERT INTO organization_names"
-                        " (id, organization_id, name, name_type, source_key_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5,"
-                        "   ($6 AND NOT EXISTS (SELECT 1 FROM organization_names"
+                        " (id, organization_id, name, name_type, source_key_id,"
+                        "  effective_start, effective_end, is_canonical)"
+                        " VALUES ($1, $2, $3, $4, $5, $6, $7,"
+                        "   ($8 AND NOT EXISTS (SELECT 1 FROM organization_names"
                         "               WHERE organization_id = $2 AND is_canonical = TRUE)))",
                         generate_id(),
                         entity_id,
                         n.name,
                         n.name_type,
                         api_key_id,
+                        n.effective_start,
+                        n.effective_end,
                         eligible,
                     )
             except asyncpg.exceptions.UniqueViolationError:
                 # Concurrent write promoted a different name first; insert without canonical.
                 await conn.execute(
                     "INSERT INTO organization_names"
-                    " (id, organization_id, name, name_type, source_key_id)"
-                    " VALUES ($1, $2, $3, $4, $5)",
+                    " (id, organization_id, name, name_type, source_key_id,"
+                    "  effective_start, effective_end)"
+                    " VALUES ($1, $2, $3, $4, $5, $6, $7)",
                     generate_id(),
                     entity_id,
                     n.name,
                     n.name_type,
                     api_key_id,
+                    n.effective_start,
+                    n.effective_end,
                 )
     elif entity_type == "jurisdiction":
         pass  # jurisdiction name lives on the row; no names table
