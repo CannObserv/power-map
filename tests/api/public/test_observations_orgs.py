@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+from datetime import date
 
 import pytest
 import pytest_asyncio
@@ -157,6 +158,60 @@ async def test_rejected_on_wrong_entity_type(client, org_write_key):
 # ---------------------------------------------------------------------------
 # Org acronym
 # ---------------------------------------------------------------------------
+
+
+async def test_observation_stores_effective_dates(client, org_write_key, db):
+    """A name observation carrying effective dates persists them on the new row (#239)."""
+    raw, _ = org_write_key
+    value = _unique_id()
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": value,
+            "names": [
+                {
+                    "name": "Committee on Old Government",
+                    "name_type": "former",
+                    "effective_start": "2019-01-01",
+                    "effective_end": "2023-01-09",
+                }
+            ],
+        },
+    )
+    assert r.status_code == 200
+    eid = r.json()["entity_id"]
+    row = await db.fetchrow(
+        "SELECT effective_start, effective_end FROM organization_names"
+        " WHERE organization_id=$1 AND name='Committee on Old Government'",
+        eid,
+    )
+    assert row is not None
+    assert row["effective_start"] == date(2019, 1, 1)
+    assert row["effective_end"] == date(2023, 1, 9)
+
+
+async def test_observation_reversed_effective_dates_rejected(client, org_write_key):
+    """effective_start > effective_end is rejected at the request boundary (422), not silently."""
+    raw, _ = org_write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": _unique_id(),
+            "names": [
+                {
+                    "name": "Backwards Interval",
+                    "name_type": "former",
+                    "effective_start": "2023-01-09",
+                    "effective_end": "2019-01-01",
+                }
+            ],
+        },
+    )
+    assert r.status_code == 422
 
 
 async def test_org_acronym_created(client, org_write_key, db):

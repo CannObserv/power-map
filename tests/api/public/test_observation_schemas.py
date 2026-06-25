@@ -1,5 +1,7 @@
 """Unit tests for observation request/response schemas."""
 
+from datetime import date
+
 import pytest
 from pydantic import ValidationError
 
@@ -127,6 +129,29 @@ def test_observation_org_name_is_canonical_defaults_false():
 def test_observation_org_name_is_canonical_true():
     n = ObservationOrgName(name="Acme Corp", name_type="legal", is_canonical=True)
     assert n.is_canonical is True
+
+
+def test_observation_org_name_accepts_effective_dates():
+    n = ObservationOrgName(
+        name="Committee on Old Government",
+        name_type="former",
+        effective_start=date(2019, 1, 1),
+        effective_end=date(2023, 1, 9),
+    )
+    assert n.effective_start == date(2019, 1, 1)
+    assert n.effective_end == date(2023, 1, 9)
+
+
+def test_observation_org_name_rejects_reversed_effective_dates():
+    """effective_start > effective_end is rejected at the request boundary (#239),
+    mirroring RoleObservationRequest._check_date_order."""
+    with pytest.raises(ValidationError):
+        ObservationOrgName(
+            name="Backwards Interval",
+            name_type="former",
+            effective_start=date(2023, 1, 9),
+            effective_end=date(2019, 1, 1),
+        )
 
 
 # ---------------------------------------------------------------------------

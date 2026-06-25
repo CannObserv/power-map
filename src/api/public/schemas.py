@@ -409,6 +409,16 @@ class ObservationOrgName(BaseModel):
     effective_start: date | None = None
     effective_end: date | None = None
 
+    @model_validator(mode="after")
+    def _check_effective_date_order(self) -> "ObservationOrgName":
+        if (
+            self.effective_start is not None
+            and self.effective_end is not None
+            and self.effective_start > self.effective_end
+        ):
+            raise ValueError("effective_start must be <= effective_end")
+        return self
+
 
 class ObservationAcronym(BaseModel):
     """An acronym claim included in an org observation."""
