@@ -594,6 +594,40 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+-- organization_names real-world effective-date timeline (#239). Lets PM answer
+-- "which name was in effect when". NULL effective_start = unknown lower bound
+-- (treat as -infinity); NULL effective_end = still in effect (treat as +infinity).
+-- Orthogonal to is_canonical (display pointer) and name_type (kind of name).
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='organization_names' AND column_name='effective_start'
+    ) THEN
+        ALTER TABLE organization_names ADD COLUMN effective_start DATE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='organization_names' AND column_name='effective_end'
+    ) THEN
+        ALTER TABLE organization_names ADD COLUMN effective_end DATE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name='organization_names'
+          AND constraint_name='chk_org_name_effective_date_order'
+    ) THEN
+        ALTER TABLE organization_names ADD CONSTRAINT chk_org_name_effective_date_order
+            CHECK (effective_start IS NULL OR effective_end IS NULL
+                   OR effective_start <= effective_end);
+    END IF;
+END $$;
+
 -- =============================================================================
 -- Schema evolution: person_names i18n columns (issue #121, Phase 1)
 -- One DO block per column, matching the archived_at migration pattern.

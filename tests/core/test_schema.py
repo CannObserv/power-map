@@ -16,6 +16,7 @@ the tables empty.
 """
 
 import json
+from datetime import date
 
 import asyncpg
 import pytest
@@ -255,6 +256,70 @@ async def test_org_name_valid_name_types_accepted(db):
             f"Name ({name_type})",
             name_type,
         )
+
+
+# ---------------------------------------------------------------------------
+# organization_names: effective_start / effective_end (#239)
+# ---------------------------------------------------------------------------
+
+
+async def test_org_name_effective_dates_accepted(db):
+    """A closed interval, an open-ended interval, and a NULL/NULL legacy row
+    are all valid effective-date shapes."""
+    org_id = await _org(db)  # _org's seed row has NULL/NULL effective dates
+
+    # Closed interval (a retired name): start <= end.
+    await db.execute(
+        "INSERT INTO organization_names"
+        " (id, organization_id, name, name_type, effective_start, effective_end)"
+        " VALUES ($1, $2, $3, 'former', $4, $5)",
+        generate_id(),
+        org_id,
+        "Committee on Old Government",
+        date(2019, 1, 1),
+        date(2023, 1, 9),
+    )
+    # Open-ended interval (the current name): start set, end NULL = ongoing.
+    await db.execute(
+        "INSERT INTO organization_names"
+        " (id, organization_id, name, name_type, effective_start, effective_end)"
+        " VALUES ($1, $2, $3, 'legal', $4, NULL)",
+        generate_id(),
+        org_id,
+        "Committee on Renamed State Government",
+        date(2023, 1, 9),
+    )
+
+    rows = await db.fetch(
+        "SELECT effective_start, effective_end FROM organization_names"
+        " WHERE organization_id=$1 ORDER BY effective_start NULLS FIRST",
+        org_id,
+    )
+    assert len(rows) == 3
+    assert rows[0]["effective_start"] is None and rows[0]["effective_end"] is None
+    assert rows[1]["effective_start"] == date(2019, 1, 1)
+    assert rows[1]["effective_end"] == date(2023, 1, 9)
+    assert rows[2]["effective_start"] == date(2023, 1, 9)
+    assert rows[2]["effective_end"] is None
+
+
+async def test_org_name_effective_start_after_end_rejected(db):
+    """effective_start > effective_end must violate the CHECK constraint."""
+    org_id = await _org(db)
+
+    with pytest.raises(asyncpg.CheckViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type,"
+                "  effective_start, effective_end)"
+                " VALUES ($1, $2, $3, 'former', $4, $5)",
+                generate_id(),
+                org_id,
+                "Backwards Interval",
+                date(2023, 1, 9),
+                date(2019, 1, 1),
+            )
 
 
 # ---------------------------------------------------------------------------
