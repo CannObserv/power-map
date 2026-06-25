@@ -47,7 +47,7 @@
     <button class="btn btn--sm btn--secondary"
             data-new-row-id="assignment-row-new"
             hx-get="/admin/roles/{{ role.id }}/assignments/new-row/"
-            hx-disabled-elt="this"
+            hx-sync="this:drop"
             hx-target="#assignments-table tbody"
             hx-swap="afterbegin"
             type="button">+ Add assignment</button>

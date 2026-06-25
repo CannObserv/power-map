@@ -48,7 +48,7 @@
         <button class="btn btn--sm btn--secondary"
                 data-new-row-id="name-row-new"
                 hx-get="/admin/people/{{ person.id }}/names/new-row/"
-                hx-disabled-elt="this"
+                hx-sync="this:drop"
                 hx-target="#names-table tbody"
                 hx-swap="afterbegin"
                 type="button">+ Add name</button>
@@ -89,7 +89,7 @@
             hx-get="/admin/people/{{ person.id }}/events/new-row/"
             hx-target="#person-events-table tbody"
             hx-swap="afterbegin"
-            hx-disabled-elt="this">+ Add event</button>
+            hx-sync="this:drop">+ Add event</button>
   </div>
   <div class="table-wrapper">
     <table id="person-events-table" class="data-table">
@@ -121,7 +121,7 @@
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="email-row-new"
               hx-get="/admin/people/{{ person.id }}/contacts/new-row/?contact_type=email"
-              hx-disabled-elt="this"
+              hx-sync="this:drop"
               hx-target="#emails-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add email</button>
@@ -147,7 +147,7 @@
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="phone-row-new"
               hx-get="/admin/people/{{ person.id }}/contacts/new-row/?contact_type=phone"
-              hx-disabled-elt="this"
+              hx-sync="this:drop"
               hx-target="#phones-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add phone</button>
@@ -173,7 +173,7 @@
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="address-row-new"
               hx-get="/admin/people/{{ person.id }}/addresses/new-row/"
-              hx-disabled-elt="this"
+              hx-sync="this:drop"
               hx-target="#addresses-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add location</button>
@@ -203,7 +203,7 @@
     <button class="btn btn--sm btn--secondary"
             data-new-row-id="link-row-new"
             hx-get="/admin/people/{{ person.id }}/links/new-row/"
-            hx-disabled-elt="this"
+            hx-sync="this:drop"
             hx-target="#links-table tbody"
             hx-swap="afterbegin"
             type="button">+ Add link</button>
@@ -231,7 +231,7 @@
     <button class="btn btn--sm btn--secondary"
             data-new-row-id="identifier-row-new"
             hx-get="/admin/people/{{ person.id }}/identifiers/new-row/"
-            hx-disabled-elt="this"
+            hx-sync="this:drop"
             hx-target="#identifiers-table tbody"
             hx-swap="afterbegin"
             type="button">+ Add identifier</button>
@@ -259,7 +259,7 @@
     <button class="btn btn--sm btn--secondary"
             data-new-row-id="person-assignment-row-new"
             hx-get="/admin/people/{{ person.id }}/assignments/new-row/"
-            hx-disabled-elt="this"
+            hx-sync="this:drop"
             hx-target="#person-assignments-table tbody"
             hx-swap="afterbegin"
             type="button">+ Add assignment</button>

@@ -15,7 +15,7 @@
     <button class="btn btn--sm btn--secondary"
             data-new-row-id="link-type-row-new"
             hx-get="/admin/settings/link-types/general/new-row/"
-            hx-disabled-elt="this"
+            hx-sync="this:drop"
             hx-target="#general-link-types-body"
             hx-swap="afterbegin">+ Add</button>
   </div>
@@ -48,7 +48,7 @@
     <button class="btn btn--sm btn--secondary"
             data-new-row-id="link-type-row-new"
             hx-get="/admin/settings/link-types/social/new-row/"
-            hx-disabled-elt="this"
+            hx-sync="this:drop"
             hx-target="#social-link-types-body"
             hx-swap="afterbegin">+ Add</button>
   </div>

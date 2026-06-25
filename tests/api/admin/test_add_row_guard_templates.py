@@ -6,11 +6,17 @@ the template contract the JS relies on, which the synthetic-DOM JS tests cannot
 see:
 
   * every "+ Add" button opts into the guard via `data-new-row-id`;
-  * every guarded button also carries `hx-disabled-elt="this"` so a fast
-    double-click can't fire a second request before the first row's swap
-    disables the button (CR #238 — the JS guard alone leaves that window open);
+  * every guarded button also carries `hx-sync="this:drop"` so a fast
+    double-click can't fire a *second* request before the first row's swap
+    disables the button (the JS guard only fires on that first afterSwap, so it
+    can't see the in-flight window);
   * every new-row inline Cancel dispatches `powerMap:newRowClosed` so the guard
     re-enables the button on a client-side row removal (no HTMX round-trip).
+
+`hx-sync` (request-lifecycle dedup) and the JS guard (the `disabled` UI
+invariant) own separate concerns and never both write `disabled` — see #238 CR.
+`hx-disabled-elt` was rejected for this because htmx re-enables it after the
+swap, clobbering the guard's disable.
 """
 
 import re
@@ -97,16 +103,22 @@ def test_add_buttons_opt_into_guard(template, row_ids):
 
 
 @pytest.mark.parametrize("template", [t for t, _ in ADD_BUTTON_WIRING])
-def test_guarded_buttons_disable_during_request(template):
-    """Every guarded "+ Add" button also carries hx-disabled-elt="this" so htmx
-    disables it for the in-flight request — closing the fast-double-click window
-    the JS guard (which only fires on the first row's afterSwap) leaves open."""
+def test_guarded_buttons_drop_inflight_duplicate_request(template):
+    """Every guarded "+ Add" button carries hx-sync="this:drop" so htmx drops a
+    second request fired while the first is in flight — closing the
+    fast-double-click window the JS guard (which only fires on the first row's
+    afterSwap) can't see. Unlike hx-disabled-elt, hx-sync never writes
+    `disabled`, so the guard stays its sole owner (#238 CR)."""
     html = (TEMPLATES / template).read_text()
     guarded = [t for t in _BUTTON_OPEN_TAG.findall(html) if "data-new-row-id" in t]
     assert guarded, f"{template}: expected at least one guarded + Add button"
     for tag in guarded:
-        assert 'hx-disabled-elt="this"' in tag, (
-            f"{template}: a guarded + Add button is missing hx-disabled-elt"
+        assert 'hx-sync="this:drop"' in tag, (
+            f"{template}: a guarded + Add button is missing hx-sync"
+        )
+        assert "hx-disabled-elt" not in tag, (
+            f"{template}: guarded + Add button must not use hx-disabled-elt "
+            "(htmx re-enables it after the swap, clobbering the guard's disable)"
         )
 
 
