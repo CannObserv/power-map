@@ -154,6 +154,18 @@ def test_observation_org_name_rejects_reversed_effective_dates():
         )
 
 
+def test_observation_org_name_accepts_equal_effective_dates():
+    """Boundary: a single-day interval (start == end) is valid — guards the
+    validator against a `>` → `>=` regression (#239)."""
+    n = ObservationOrgName(
+        name="One Day Committee",
+        name_type="former",
+        effective_start=date(2023, 1, 9),
+        effective_end=date(2023, 1, 9),
+    )
+    assert n.effective_start == n.effective_end == date(2023, 1, 9)
+
+
 # ---------------------------------------------------------------------------
 # ObservationAcronym
 # ---------------------------------------------------------------------------

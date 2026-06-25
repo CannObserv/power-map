@@ -322,6 +322,22 @@ async def test_org_name_effective_start_after_end_rejected(db):
             )
 
 
+async def test_org_name_effective_equal_dates_accepted(db):
+    """Boundary: a single-day interval (start == end) satisfies the CHECK —
+    guards chk_org_name_effective_date_order against a `<=` → `<` regression."""
+    org_id = await _org(db)
+
+    await db.execute(
+        "INSERT INTO organization_names"
+        " (id, organization_id, name, name_type, effective_start, effective_end)"
+        " VALUES ($1, $2, $3, 'former', $4, $4)",
+        generate_id(),
+        org_id,
+        "One Day Committee",
+        date(2023, 1, 9),
+    )
+
+
 # ---------------------------------------------------------------------------
 # organization_acronyms: uq_org_canonical_acronym
 # ---------------------------------------------------------------------------
