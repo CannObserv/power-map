@@ -37,12 +37,12 @@
     </div>
     <div class="table-wrapper">
       <table id="names-table" class="data-table" style="table-layout:fixed">
-        <thead><tr><th scope="col">Name</th><th scope="col" style="text-align:right;width:5rem">Type</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"></th></tr></thead>
+        <thead><tr><th scope="col">Name</th><th scope="col" style="text-align:right;width:5rem">Type</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="text-align:right;width:11rem">Effective</th><th scope="col" style="width:9rem"></th></tr></thead>
         <tbody>
           {% for n in names %}
           {% include "admin/orgs/partials/_name_row.html" %}
           {% else %}
-          <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
+          <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
           {% endfor %}
         </tbody>
       </table>

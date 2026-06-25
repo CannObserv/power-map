@@ -51,4 +51,5 @@ router = make_names_router(
     ),
     last_identity_409_msg="Cannot remove the only name: no canonical acronym exists.",
     header_extra=org_header_extra,
+    supports_effective_dates=True,
 )

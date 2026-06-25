@@ -1,6 +1,7 @@
 """Shared factory for entity names CRUD routers (orgs and people)."""
 
 from collections.abc import Awaitable, Callable
+from datetime import date
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -48,6 +49,30 @@ def _normalise_optional_str(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
+
+
+# Sentinel-ish: raised to signal a malformed effective-date Form value so the
+# handler can surface a 422 / flash instead of bubbling a raw ValueError 500.
+class _DateParseError(Exception):
+    """A non-empty effective-date Form field was not a valid ISO date."""
+
+
+def _parse_optional_date(value: str | None) -> date | None:
+    """Parse an optional ``<input type=date>`` Form value to a ``date``.
+
+    Empty / whitespace-only → None (clears the column). A malformed
+    non-empty value raises ``_DateParseError`` (browsers send YYYY-MM-DD,
+    so this only guards raw/scripted POSTs).
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    try:
+        return date.fromisoformat(stripped)
+    except ValueError as exc:
+        raise _DateParseError(str(exc)) from exc
 
 
 def _form_error_response(
@@ -118,6 +143,7 @@ def make_names_router(
     last_identity_409_msg: str,
     header_extra: Callable[[str, object], Awaitable[dict]],
     supports_person_metadata: bool = False,
+    supports_effective_dates: bool = False,
 ) -> APIRouter:
     """Return a configured names APIRouter for the given entity type.
 
@@ -177,6 +203,13 @@ def make_names_router(
         person-specifically (not ``supports_metadata``) because the
         True branch hard-codes person schema; a third entity type with
         metadata would need a richer abstraction, not a second caller.
+    supports_effective_dates:
+        Org-specific gate (#239). When True the router accepts the
+        ``effective_start`` / ``effective_end`` Form fields and writes them
+        to ``organization_names`` (form-as-source-of-truth, empty → NULL).
+        False (default) for ``person_names``, which has no effective-date
+        columns. Independent of ``supports_person_metadata`` so the two
+        entity types stay decoupled.
     """
     router = APIRouter(prefix=prefix, tags=tags)
 
@@ -226,12 +259,19 @@ def make_names_router(
         script: str | None = None,
         sort_as: str | None = None,
         reading_of_id: str | None = None,
+        effective_start: date | None = None,
+        effective_end: date | None = None,
     ) -> None:
         """Insert a name row. Optional metadata columns are included only
         when non-None so the DB default / triggers handle the omitted case.
+        Effective dates (org-only) are written verbatim when the router
+        supports them — NULL is a valid, intended value.
         """
         cols = ["id", entity_fk, "name", "name_type", "is_canonical"]
         vals: list[object] = [nid, entity_id, name, name_type, is_canonical]
+        if supports_effective_dates:
+            cols += ["effective_start", "effective_end"]
+            vals += [effective_start, effective_end]
         for col, val in _metadata_pairs(vis, locale, script, sort_as, reading_of_id):
             if val is None:
                 continue
@@ -256,6 +296,8 @@ def make_names_router(
         sort_as: str | None = None,
         reading_of_id: str | None = None,
         write_metadata: bool = False,
+        effective_start: date | None = None,
+        effective_end: date | None = None,
     ) -> None:
         """Update a name row.
 
@@ -267,6 +309,10 @@ def make_names_router(
 
         Org-side calls (write_metadata=False) leave the metadata columns
         untouched, preserving the legacy schema where they don't exist.
+
+        Effective dates (org-only, gated by ``supports_effective_dates``)
+        are SET unconditionally — including NULL — so the form clears a
+        previously-set date.
         """
         sets = ["name=$1", "name_type=$2", "is_canonical=$3"]
         vals: list[object] = [name, name_type, is_canonical]
@@ -282,6 +328,11 @@ def make_names_router(
                     continue
                 vals.append(val)
                 sets.append(f"{col}=${len(vals)}")
+        if supports_effective_dates:
+            vals.append(effective_start)
+            sets.append(f"effective_start=${len(vals)}")
+            vals.append(effective_end)
+            sets.append(f"effective_end=${len(vals)}")
         vals.append(name_id)
         await db.execute(
             f"UPDATE {names_table} SET {', '.join(sets)} WHERE id=${len(vals)}",
@@ -419,6 +470,9 @@ def make_names_router(
         script: str | None = Form(None),
         sort_as: str | None = Form(None),
         reading_of_id: str | None = Form(None),
+        # Effective dates — only consumed when supports_effective_dates=True (#239, org).
+        effective_start: str | None = Form(None),
+        effective_end: str | None = Form(None),
         # Parts fields — only consumed when supports_person_metadata=True (#127).
         # Accepted on create for handler symmetry with edit-row; the current
         # admin UI only renders the parts editor for existing rows (parts
@@ -457,6 +511,15 @@ def make_names_router(
             )
             if err is not None:
                 return _form_error_response(err, request)
+        try:
+            es = _parse_optional_date(effective_start) if supports_effective_dates else None
+            ee = _parse_optional_date(effective_end) if supports_effective_dates else None
+        except _DateParseError as exc:
+            return _form_error_response(
+                "Effective dates must be valid calendar dates (YYYY-MM-DD).",
+                request,
+                from_exc=exc,
+            )
         nid = generate_id()
         try:
             async with db.transaction():
@@ -478,6 +541,8 @@ def make_names_router(
                     script=scr,
                     sort_as=sa,
                     reading_of_id=rof,
+                    effective_start=es,
+                    effective_end=ee,
                 )
                 # Skip the parts helper entirely on create when no parts
                 # fields were submitted: the just-inserted name has no
@@ -511,6 +576,14 @@ def make_names_router(
                 request,
                 from_exc=exc,
             )
+        except asyncpg.CheckViolationError as exc:
+            if exc.constraint_name == "chk_org_name_effective_date_order":
+                return _form_error_response(
+                    "Effective start must be on or before effective end.",
+                    request,
+                    from_exc=exc,
+                )
+            raise
         except _PartsValidationError as exc:
             # Transaction already rolled back by the `async with` exit on raise —
             # both the name insert and any partial parts write are undone.
@@ -611,6 +684,9 @@ def make_names_router(
         script: str | None = Form(None),
         sort_as: str | None = Form(None),
         reading_of_id: str | None = Form(None),
+        # Effective dates — only consumed when supports_effective_dates=True (#239, org).
+        effective_start: str | None = Form(None),
+        effective_end: str | None = Form(None),
         # Parts fields — only consumed when supports_person_metadata=True (#127).
         given_names: list[str] = Form([]),
         family_names: list[str] = Form([]),
@@ -652,6 +728,15 @@ def make_names_router(
             )
             if err is not None:
                 return _form_error_response(err, request)
+        try:
+            es = _parse_optional_date(effective_start) if supports_effective_dates else None
+            ee = _parse_optional_date(effective_end) if supports_effective_dates else None
+        except _DateParseError as exc:
+            return _form_error_response(
+                "Effective dates must be valid calendar dates (YYYY-MM-DD).",
+                request,
+                from_exc=exc,
+            )
         if is_canonical != "true" and existing["is_canonical"]:
             # Guard runs outside the transaction intentionally: a concurrent promotion
             # (another request canonicalizing a different name) would make this check
@@ -694,6 +779,8 @@ def make_names_router(
                     sort_as=sa,
                     reading_of_id=rof,
                     write_metadata=supports_person_metadata,
+                    effective_start=es,
+                    effective_end=ee,
                 )
                 if supports_person_metadata:
                     parts_err = await upsert_or_delete_parts(
@@ -715,6 +802,14 @@ def make_names_router(
                 request,
                 from_exc=exc,
             )
+        except asyncpg.CheckViolationError as exc:
+            if exc.constraint_name == "chk_org_name_effective_date_order":
+                return _form_error_response(
+                    "Effective start must be on or before effective end.",
+                    request,
+                    from_exc=exc,
+                )
+            raise
         except _PartsValidationError as exc:
             # Transaction already rolled back by the `async with` exit on raise —
             # both the name update and any partial parts write are undone.

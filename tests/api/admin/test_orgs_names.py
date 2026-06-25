@@ -1,6 +1,7 @@
 """Integration tests for org names CRUD."""
 
 import json
+from datetime import date
 
 import pytest
 import pytest_asyncio
@@ -407,3 +408,130 @@ async def test_name_edit_non_canonical_row_can_stay_non_canonical(client, org_an
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+
+
+# ---------------------------------------------------------------------------
+# effective_start / effective_end (#239)
+# ---------------------------------------------------------------------------
+
+
+async def _fetch_effective(pool, oid: str, name: str):
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT effective_start, effective_end FROM organization_names"
+            " WHERE organization_id=$1 AND name=$2",
+            oid,
+            name,
+        )
+    return (row["effective_start"], row["effective_end"]) if row else None
+
+
+async def test_name_create_stores_effective_dates(client, org_and_name, db_pool):
+    """Creating a name with effective dates persists them on the new row."""
+    oid, _ = org_and_name
+    r = client.post(
+        f"/admin/orgs/{oid}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Committee on Old Government",
+            "name_type": "former",
+            "is_canonical": "",
+            "effective_start": "2019-01-01",
+            "effective_end": "2023-01-09",
+        },
+    )
+    assert r.status_code == 200
+    assert await _fetch_effective(db_pool, oid, "Committee on Old Government") == (
+        date(2019, 1, 1),
+        date(2023, 1, 9),
+    )
+
+
+async def test_name_edit_sets_and_clears_effective_dates(client, org_and_name, db_pool):
+    """Edit treats the form as source of truth: sets dates, then clears to NULL."""
+    oid, nid = org_and_name
+    # Set an open-ended interval (start only).
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Original Name",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "effective_start": "2023-01-09",
+            "effective_end": "",
+        },
+    )
+    assert r.status_code == 200
+    assert await _fetch_effective(db_pool, oid, "Original Name") == (date(2023, 1, 9), None)
+
+    # Empty inputs clear both back to NULL.
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Original Name",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "effective_start": "",
+            "effective_end": "",
+        },
+    )
+    assert r.status_code == 200
+    assert await _fetch_effective(db_pool, oid, "Original Name") == (None, None)
+
+
+async def test_name_create_start_after_end_flashes_error(client, org_and_name, db_pool):
+    """effective_start > effective_end is rejected with a flash, no row created."""
+    oid, _ = org_and_name
+    r = client.post(
+        f"/admin/orgs/{oid}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Backwards Interval",
+            "name_type": "former",
+            "is_canonical": "",
+            "effective_start": "2023-01-09",
+            "effective_end": "2019-01-01",
+        },
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert await _fetch_effective(db_pool, oid, "Backwards Interval") is None
+
+
+async def test_name_edit_row_renders_effective_date_inputs(client, org_and_name, db_pool):
+    """The org name edit form exposes effective_start/effective_end inputs, pre-filled."""
+    oid, nid = org_and_name
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE organization_names SET effective_start=$1, effective_end=$2 WHERE id=$3",
+            date(2019, 1, 1),
+            date(2023, 1, 9),
+            nid,
+        )
+    r = client.get(f"/admin/orgs/{oid}/names/{nid}/edit-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'name="effective_start"' in r.text
+    assert 'name="effective_end"' in r.text
+    assert "2019-01-01" in r.text
+    assert "2023-01-09" in r.text
+
+
+async def test_name_read_row_shows_effective_range(client, org_and_name):
+    """After a mutation the rendered read row surfaces the effective date range."""
+    oid, nid = org_and_name
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Original Name",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "effective_start": "2023-01-09",
+            "effective_end": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "2023-01-09" in r.text
