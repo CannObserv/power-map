@@ -535,3 +535,63 @@ async def test_name_read_row_shows_effective_range(client, org_and_name):
     )
     assert r.status_code == 200
     assert "2023-01-09" in r.text
+
+
+async def test_name_edit_start_after_end_flashes_error(client, org_and_name, db_pool):
+    """Edit path: effective_start > effective_end → flash error, row unchanged (#239 CR)."""
+    oid, nid = org_and_name
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Original Name",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "effective_start": "2023-01-09",
+            "effective_end": "2019-01-01",
+        },
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert await _fetch_effective(db_pool, oid, "Original Name") == (None, None)
+
+
+async def test_name_create_invalid_date_flashes_error(client, org_and_name, db_pool):
+    """Create path: a malformed effective date → flash error, no row created (#239 CR)."""
+    oid, _ = org_and_name
+    r = client.post(
+        f"/admin/orgs/{oid}/names/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Bad Date Name",
+            "name_type": "former",
+            "is_canonical": "",
+            "effective_start": "not-a-date",
+            "effective_end": "",
+        },
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert await _fetch_effective(db_pool, oid, "Bad Date Name") is None
+
+
+async def test_name_edit_invalid_date_flashes_error(client, org_and_name, db_pool):
+    """Edit path: a malformed effective date → flash error, row unchanged (#239 CR)."""
+    oid, nid = org_and_name
+    r = client.post(
+        f"/admin/orgs/{oid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Original Name",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "effective_start": "not-a-date",
+            "effective_end": "",
+        },
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "error"
+    assert await _fetch_effective(db_pool, oid, "Original Name") == (None, None)
