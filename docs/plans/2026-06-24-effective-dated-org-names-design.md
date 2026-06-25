@@ -154,6 +154,25 @@ hard DB guard — that would fight the append-only ingestion contract.
 - A dedicated `?as_of=D` query endpoint.
 - All usa-wa-side code (separate repo / issue: CannObserv/usa-wa#40).
 
+## Reassessment (post-#238 rebase, 2026-06-25)
+
+Branch rebased onto main after #238 landed. Findings, all confirming the design:
+
+- **#238 is pure admin HTMX UX** (generalized the "+ Add" in-flight guard into one
+  `add-row-guard.js`; touched `_name_form_row.html`). No conflict with the
+  schema / ingestion / read-path work; only the admin step builds on the new
+  guard wiring (untouched by adding form fields).
+- **Broadcast: no gap.** A name-row change already emits a change-feed event —
+  `trg_touch_org_on_name_change` bumps `organizations.updated_at`, which fires
+  `trg_entity_changes_organizations` → an `entity_changes` `'updated'` row. So
+  the "change feed unchanged" claim holds; consumers re-fetch and get the dates.
+  (`data/ENTITY_STATES.md` §3's trigger list omits this transitive touch-parent
+  path; PM behavior is correct.)
+- **Admin uses the existing precedent.** `make_names_router` already gates
+  person-only columns via `supports_person_metadata`; effective dates ride a
+  parallel `supports_effective_dates` flag (org-only), keeping person forms
+  untouched.
+
 ## Implementation Order (suggested)
 
 1. Schema: add columns + CHECK (idempotent block) + test.

@@ -419,7 +419,7 @@ Returns the base search-result fields plus:
 
 | Field | Description |
 |-------|-------------|
-| `names` | Array of `{id, name, name_type, is_canonical}` |
+| `names` | Array of `{id, name, name_type, is_canonical, effective_start, effective_end}`. `effective_start`/`effective_end` are `YYYY-MM-DD` or `null` — the name's real-world validity (null start = unknown lower bound, null end = still in effect). Filter this array by date to resolve which name was in effect at a given time. |
 | `acronyms` | Array of `{id, acronym, is_canonical}` |
 | `identifiers` | Array of `{id, type_id, type_slug, value}` |
 | `jurisdiction_affiliations` | Array of `{jurisdiction_id, affiliation_type: {id, slug, display_name}}`. Empty array when no affiliations exist. |
@@ -427,6 +427,10 @@ Returns the base search-result fields plus:
 | `updated_at` | ISO 8601 UTC timestamp |
 
 Supports conditional requests. Every 200 response includes `ETag`, `Last-Modified`, `Cache-Control: no-cache`, and `Vary: X-API-Key` headers. Pass the ETag back as `If-None-Match` to receive 304 on cache hit. `updated_at` advances whenever any child table (names, acronyms, identifiers, affiliations) changes.
+
+### Renames and the name timeline
+
+A rename is modeled as **one durable organization**, never a fork. The organization's external identifier (e.g. `org_wa_legislature_committee_id`) stays anchored to the same record for the entity's entire life — **one WSL Id = one committee** is a stable invariant; consumers should treat the identifier as the durable anchor and the name as following it. On rename, the prior name is retained as a `former` name and a new canonical name is added; both carry `effective_start`/`effective_end`, so a consumer resolves "which name was in effect when" by filtering the `names` array by date — no separate as-of endpoint. Name-timeline transitions (closing the old interval, promoting the new canonical) are curated in Power-Map; the observation feed is append-only and never displaces a canonical name. Any name or date change advances the org's `updated_at` and emits an `updated` change-feed event, so subscribers re-fetch and pick up the new dates.
 
 ### Observation write — `POST /orgs/observations`
 
@@ -438,7 +442,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 |-------|----------|-------|
 | `identifier_type` | always | Must be a registered organization identifier type slug (e.g. `org_ubi`, `org_wa_legislature`, `org_wa_legislature_chamber`) |
 | `identifier_value` | always | Value for the identifier |
-| `names` | optional | List of `{name, name_type, is_canonical?}` — `name_type` must be `legal`, `dba`, or `former` (default `legal`); `is_canonical` defaults to `false`. Exact-match dedup. Set `is_canonical: true` on at most one entry to designate it as the canonical name (422 otherwise); when no entry carries the hint the first name written for an org with no existing canonical is auto-promoted. The hint is ignored if a canonical already exists (never displaces). |
+| `names` | optional | List of `{name, name_type, is_canonical?, effective_start?, effective_end?}` — `name_type` must be `legal`, `dba`, or `former` (default `legal`); `is_canonical` defaults to `false`. Exact-match dedup. Set `is_canonical: true` on at most one entry to designate it as the canonical name (422 otherwise); when no entry carries the hint the first name written for an org with no existing canonical is auto-promoted. The hint is ignored if a canonical already exists (never displaces). `effective_start`/`effective_end` (`YYYY-MM-DD`) are stored **only on a newly written name row**; dates sent for an already-present name are a no-op — name-timeline transitions are curated in Power-Map, not driven by the feed. |
 | `org_acronyms` | optional | List of `{acronym, is_canonical?}` — `is_canonical` defaults to `false`. Exact-match dedup. Set `is_canonical: true` on at most one entry to designate it as canonical (422 otherwise); when no entry carries the hint the first acronym written for an org with no existing canonical is auto-promoted. The hint is ignored if a canonical already exists (never displaces). |
 | `organization_parent_id` | optional | ULID of the parent org. Mutually exclusive with `organization_parent_name` and `organization_parent_acronym` — supply at most one. |
 | `organization_parent_name` | optional | Canonical name of the parent org. Resolves to a single active org; rejected if zero or multiple matches. |

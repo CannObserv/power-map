@@ -1746,8 +1746,13 @@ On any mutation route that may change an org's canonical name or acronym, pass `
 
 Person-name CRUD shares its router factory with org-name CRUD via `make_names_router` in `src.api.admin._names_shared`. The factory accepts `supports_person_metadata: bool = False`:
 
-- `org_names`: leaves the default (`False`) — `organization_names` has no metadata columns.
+- `org_names`: leaves the default (`False`) — `organization_names` has no person metadata columns.
 - `people_names`: passes `supports_person_metadata=True` — accepts `visibility`, `locale`, `script`, `sort_as` Form fields on create/edit and persists them.
+
+A second, independent gate `supports_effective_dates: bool = False` (#239) controls the org name-validity timeline:
+
+- `org_names`: passes `supports_effective_dates=True` — the create/edit form accepts `effective_start` / `effective_end` date inputs and writes them to `organization_names` (form-as-source-of-truth: an empty input clears the column to NULL). `_parse_optional_date` converts empty strings to None; a malformed value raises `_DateParseError` → 422/flash. The DB `chk_org_name_effective_date_order` CHECK is caught (`asyncpg.CheckViolationError`, `constraint_name` match) and surfaced as a friendly flash rather than a 500. The org name read row shows the effective range and the names table has an `Effective` column (colspan 5).
+- `people_names`: leaves the default (`False`) — `person_names` has no effective-date columns; person forms are unaffected. Kept separate from `supports_person_metadata` so the two entity types stay decoupled.
 
 Validation layering:
 
