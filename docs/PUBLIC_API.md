@@ -409,7 +409,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/orgs/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `jurisdiction` (slug or ULID — filters to orgs with a `governing` affiliation for that jurisdiction), `include_archived`, `limit`, `offset`. |
-| `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, identifiers, jurisdiction affiliations, `created_at`, and `updated_at`. ETag caching — see caching section above. |
+| `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, identifiers, jurisdiction affiliations, `active`, `created_at`, and `updated_at`. ETag caching — see caching section above. |
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. |
 | `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
 
@@ -423,6 +423,7 @@ Returns the base search-result fields plus:
 | `acronyms` | Array of `{id, acronym, is_canonical}` |
 | `identifiers` | Array of `{id, type_id, type_slug, value}` |
 | `jurisdiction_affiliations` | Array of `{jurisdiction_id, affiliation_type: {id, slug, display_name}}`. Empty array when no affiliations exist. |
+| `active` | Boolean. Orgs-only domain axis: operationally live (`true`) vs. dissolved/defunct (`false`). **Orthogonal to `archived_at`** — an org can be `active` and archived, or inactive and not archived. Detail-only; not surfaced in search results. |
 | `created_at` | ISO 8601 UTC timestamp |
 | `updated_at` | ISO 8601 UTC timestamp |
 
@@ -453,6 +454,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
 | `jurisdiction_affiliations` | optional | List of `{jurisdiction_id, affiliation_type_slug}` — typed org-to-jurisdiction associations. `affiliation_type_slug` must match a value in `organization_jurisdiction_affiliation_types` (seeded values: `governing`, `registered`). Idempotent (duplicate rows silently ignored). Invalid `jurisdiction_id` or unknown `affiliation_type_slug` → `rejected`. |
 | `events` | optional | List of event claims — same shape as for `POST /people/observations`. See entity events section below. |
+| `active` | optional | Boolean. Sets the orgs-only `active` axis (operationally live vs. dissolved/defunct). **Omitted or `null` ⇒ the flag is left unchanged**; an explicit bool asserts it. Setting `active` on an **archived** org is rejected (`reason: active_on_archived_org`) — archiving is an admin lifecycle gate, so an archived row is not a valid observation target. A redundant assertion (value already matches) is a true no-op and emits no change-feed event. |
 
 **Disposition semantics:**
 
@@ -460,7 +462,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 |-------------|-----------|
 | `new` | Identifier not seen before; organization created |
 | `auto-attached` | Identifier already known; existing entity returned |
-| `rejected` | Unknown identifier type; identifier belongs to a non-organization entity; ambiguous parent lookup (0 or 2+ matches); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
+| `rejected` | Unknown identifier type; identifier belongs to a non-organization entity; ambiguous parent lookup (0 or 2+ matches); `active` asserted on an archived org (`reason: active_on_archived_org`); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Main Office"`, `"Committee Hotline"`, `"Press Inquiries"`. Omit it when the value alone is self-explanatory.
 

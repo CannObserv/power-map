@@ -153,6 +153,18 @@ def test_org_detail_arrays_default_empty():
     assert detail.identifiers == []
 
 
+def test_org_detail_active_defaults_true():
+    """active (#240) is detail-only and defaults to True (matches DB default)."""
+    detail = OrgDetail(id="abc", created_at=_TS, updated_at=_TS)
+    assert detail.active is True
+    assert detail.model_dump(mode="json")["active"] is True
+
+
+def test_org_detail_active_round_trips_false():
+    detail = OrgDetail(id="abc", active=False, created_at=_TS, updated_at=_TS)
+    assert detail.model_dump(mode="json")["active"] is False
+
+
 def test_org_detail_full_record_shape():
     detail = OrgDetail(
         id="abc",

@@ -99,6 +99,9 @@ class OrgJurisdictionAffiliation(BaseModel):
 class OrgDetail(OrgSearchResult):
     """Full org record including name variants, acronyms, identifiers, and affiliations."""
 
+    # Orgs-only domain axis (#240): operationally live vs. dissolved/defunct.
+    # Orthogonal to archived_at. Detail-only — not surfaced in search results.
+    active: bool = True
     created_at: datetime
     updated_at: datetime
     names: list[OrgName] = Field(default_factory=list)
@@ -575,6 +578,9 @@ class OrganizationObservationRequest(BaseModel):
         default_factory=list
     )
     events: list[ObservationEventItem] = Field(default_factory=list)
+    # Orgs-only domain axis (#240). None/omitted ⇒ leave the flag unchanged;
+    # an explicit bool asserts it. Rejected when the target org is archived.
+    active: bool | None = None
 
     @model_validator(mode="after")
     def _xor_org_parent(self) -> "OrganizationObservationRequest":

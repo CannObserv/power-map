@@ -30,6 +30,7 @@ from src.core.observation import (
     write_links,
     write_names,
     write_org_acronyms,
+    write_org_active,
     write_org_jurisdiction_affiliations,
     write_org_parent,
 )
@@ -86,6 +87,8 @@ async def submit_org_observation(
             await write_org_jurisdiction_affiliations(
                 db, entity_id, request.jurisdiction_affiliations
             )
+            if request.active is not None:
+                await write_org_active(db, entity_id, request.active)
     except ObservationRejected as exc:
         return ObservationResponse(disposition="rejected", reason=exc.detail)
     except IdentifierConflict as exc:
@@ -308,6 +311,7 @@ async def get_org(
             o.id,
             o.parent_id,
             o.archived_at,
+            o.active,
             o.created_at,
             o.updated_at,
             n.name,
@@ -339,6 +343,9 @@ async def get_org(
 
     return {
         **_org_row_to_dict(row),
+        # active is detail-only (#240) — added here, not in _org_row_to_dict
+        # (shared with search, whose queries do not select o.active).
+        "active": row["active"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "names": [dict(n) for n in names],
