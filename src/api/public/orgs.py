@@ -63,6 +63,9 @@ async def submit_org_observation(
 
     try:
         async with db.transaction():
+            # Fail fast on an archived target before doing any write work (#240).
+            if request.active is not None:
+                await write_org_active(db, entity_id, request.active)
             await write_names(db, entity_id, entity_type, auth.key_id, request.names)
             await write_links(db, entity_id, entity_type, request.links)
             await write_contact_methods(db, entity_id, entity_type, request.contact_methods)
@@ -87,8 +90,6 @@ async def submit_org_observation(
             await write_org_jurisdiction_affiliations(
                 db, entity_id, request.jurisdiction_affiliations
             )
-            if request.active is not None:
-                await write_org_active(db, entity_id, request.active)
     except ObservationRejected as exc:
         return ObservationResponse(disposition="rejected", reason=exc.detail)
     except IdentifierConflict as exc:

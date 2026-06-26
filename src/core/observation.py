@@ -694,20 +694,22 @@ async def write_org_active(conn, organization_id: str, active: bool) -> None:
     valid observation target: archiving is an admin lifecycle gate, so asserting
     active on an archived row is treated as a malformed observation and rejected.
 
-    The UPDATE is guarded by ``active IS DISTINCT FROM`` so a redundant assertion
-    is a true no-op and does not fire fn_record_entity_change — preventing a
-    spurious 'updated' event in the change feed.
+    The row is locked (``FOR UPDATE``) so the archived check and the write are
+    atomic against a concurrent admin archive. The flag is written only when it
+    actually changes — a redundant assertion is a true no-op that does not fire
+    fn_record_entity_change, avoiding a spurious 'updated' event in the change
+    feed. The caller (resolve_entity) guarantees the org exists.
     """
-    row = await conn.fetchrow("SELECT archived_at FROM organizations WHERE id=$1", organization_id)
-    if row is None:
-        raise ObservationRejected(f"org_not_found: {organization_id!r}")
-    if row["archived_at"] is not None:
-        raise ObservationRejected("active_on_archived_org")
-    await conn.execute(
-        "UPDATE organizations SET active=$1 WHERE id=$2 AND active IS DISTINCT FROM $1",
-        active,
+    row = await conn.fetchrow(
+        "SELECT archived_at, active FROM organizations WHERE id=$1 FOR UPDATE",
         organization_id,
     )
+    if row["archived_at"] is not None:
+        raise ObservationRejected("active_on_archived_org")
+    if row["active"] != active:
+        await conn.execute(
+            "UPDATE organizations SET active=$1 WHERE id=$2", active, organization_id
+        )
 
 
 async def write_org_jurisdiction_affiliations(

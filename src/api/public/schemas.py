@@ -101,7 +101,9 @@ class OrgDetail(OrgSearchResult):
 
     # Orgs-only domain axis (#240): operationally live vs. dissolved/defunct.
     # Orthogonal to archived_at. Detail-only — not surfaced in search results.
-    active: bool = True
+    # Required (no default): the org row always supplies it, and a default would
+    # silently mask a handler that forgot to populate it.
+    active: bool
     created_at: datetime
     updated_at: datetime
     names: list[OrgName] = Field(default_factory=list)
