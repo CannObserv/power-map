@@ -19,6 +19,7 @@ from src.api.admin.deps import (
 from src.api.admin.pagination import pagination_context
 from src.core.db import generate_id
 from src.core.logging import get_logger
+from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
 
 logger = get_logger(__name__)
 
@@ -227,13 +228,30 @@ async def org_inline_active_post(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Toggle org active flag; return updated active-toggle partial."""
+    """Toggle org active flag; return updated active-toggle partial.
+
+    Shares the archived + no-op guards with the public observation path via
+    ``set_org_active`` (#241): the toggle is rejected with 409 on an archived org
+    (the UI already disables the checkbox, so this only guards out-of-band POSTs)
+    and a redundant re-assertion is a true no-op (no entity_changes event). The
+    transaction holds the helper's ``FOR UPDATE`` lock until commit, keeping the
+    archived check atomic against a concurrent archive. ``set_org_active`` is the
+    single existence gate: a missing org raises OrgNotFound → 404.
+    """
+    new_active = active == "true"
+    try:
+        async with db.transaction():
+            await set_org_active(db, org_id, new_active)
+    except ActiveOnArchivedOrg as exc:
+        raise HTTPException(
+            status_code=409, detail="Cannot change active on an archived organization."
+        ) from exc
+    except OrgNotFound as exc:
+        raise HTTPException(status_code=404) from exc
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not org:
+        # Org hard-deleted in the window between commit and this re-fetch.
         raise HTTPException(status_code=404)
-    new_active = active == "true"
-    await db.execute("UPDATE organizations SET active=$1 WHERE id=$2", new_active, org_id)
-    org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     label = "Marked active." if new_active else "Marked inactive."

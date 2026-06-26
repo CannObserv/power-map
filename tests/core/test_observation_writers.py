@@ -29,6 +29,7 @@ from src.core.observation import (
     write_links,
     write_names,
     write_org_acronyms,
+    write_org_active,
     write_org_parent,
     write_pronouns,
     write_role_assignments,
@@ -89,6 +90,18 @@ async def org_id(db):
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     return oid
+
+
+# ---------------------------------------------------------------------------
+# write_org_active — OrgNotFound is mapped to a graceful rejection (#241)
+# ---------------------------------------------------------------------------
+
+
+async def test_write_org_active_missing_org_rejected(db):
+    """A vanished org maps OrgNotFound → ObservationRejected('org_not_found')."""
+    with pytest.raises(ObservationRejected) as exc:
+        await write_org_active(db, generate_id(), False)
+    assert exc.value.detail == "org_not_found"
 
 
 # ---------------------------------------------------------------------------

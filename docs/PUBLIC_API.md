@@ -462,7 +462,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 |-------------|-----------|
 | `new` | Identifier not seen before; organization created |
 | `auto-attached` | Identifier already known; existing entity returned |
-| `rejected` | Unknown identifier type; identifier belongs to a non-organization entity; ambiguous parent lookup (0 or 2+ matches); `active` asserted on an archived org (`reason: active_on_archived_org`); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
+| `rejected` | Unknown identifier type; identifier belongs to a non-organization entity; ambiguous parent lookup (0 or 2+ matches); `active` asserted on an archived org (`reason: active_on_archived_org`); `active` asserted on an org hard-deleted concurrently with the request (`reason: org_not_found`); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Main Office"`, `"Committee Hotline"`, `"Press Inquiries"`. Omit it when the value alone is self-explanatory.
 
