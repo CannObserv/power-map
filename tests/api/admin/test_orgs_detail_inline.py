@@ -171,6 +171,16 @@ async def test_active_post_change_emits_one_entity_change(client, org_id, db):
     assert rows[0]["change_kind"] == "updated"
 
 
+async def test_active_post_nonexistent_org_returns_404(client):
+    """A toggle on an org that does not exist → OrgNotFound → 404 (no early check)."""
+    r = await client.post(
+        f"/admin/orgs/{generate_id()}/inline/active/",
+        data={"active": "true"},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 404
+
+
 async def test_active_post_noop_emits_no_entity_change(client, org_id, db):
     """Re-asserting the current active value is a true no-op — no entity_changes row."""
     before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")

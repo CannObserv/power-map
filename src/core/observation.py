@@ -16,7 +16,7 @@ from src.core.logging import get_logger
 from src.core.normalizers.address import get_address_normalizer
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
-from src.core.organizations import ActiveOnArchivedOrg, set_org_active
+from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
 from src.core.types import EVENT_PLACE_PRECISIONS
 
 logger = get_logger(__name__)
@@ -696,15 +696,18 @@ async def write_org_active(conn, organization_id: str, active: bool) -> None:
     active on an archived row is treated as a malformed observation and rejected.
 
     Delegates the archived + no-op guards to the shared core helper
-    ``set_org_active`` (#241), mapping its archived rejection onto the
-    observation-domain ``ObservationRejected``. The caller (resolve_entity)
-    guarantees the org exists and runs inside the observation transaction, so
-    the helper's ``FOR UPDATE`` lock is held until commit.
+    ``set_org_active`` (#241), mapping its rejections onto the observation-domain
+    ``ObservationRejected``. The caller (resolve_entity) guarantees the org
+    exists and runs inside the observation transaction, so the helper's
+    ``FOR UPDATE`` lock is held until commit; the OrgNotFound mapping is a
+    defensive belt against a concurrent hard-delete in that window.
     """
     try:
         await set_org_active(conn, organization_id, active)
     except ActiveOnArchivedOrg as exc:
         raise ObservationRejected("active_on_archived_org") from exc
+    except OrgNotFound as exc:
+        raise ObservationRejected("org_not_found") from exc
 
 
 async def write_org_jurisdiction_affiliations(
