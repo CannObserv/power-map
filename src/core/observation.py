@@ -687,6 +687,31 @@ async def write_org_parent(conn, organization_id: str, parent_id: str) -> None:
     )
 
 
+async def write_org_active(conn, organization_id: str, active: bool) -> None:
+    """Set an organization's active flag from an observation (#240).
+
+    The active axis is orthogonal to archived_at, but an archived org is not a
+    valid observation target: archiving is an admin lifecycle gate, so asserting
+    active on an archived row is treated as a malformed observation and rejected.
+
+    The row is locked (``FOR UPDATE``) so the archived check and the write are
+    atomic against a concurrent admin archive. The flag is written only when it
+    actually changes — a redundant assertion is a true no-op that does not fire
+    fn_record_entity_change, avoiding a spurious 'updated' event in the change
+    feed. The caller (resolve_entity) guarantees the org exists.
+    """
+    row = await conn.fetchrow(
+        "SELECT archived_at, active FROM organizations WHERE id=$1 FOR UPDATE",
+        organization_id,
+    )
+    if row["archived_at"] is not None:
+        raise ObservationRejected("active_on_archived_org")
+    if row["active"] != active:
+        await conn.execute(
+            "UPDATE organizations SET active=$1 WHERE id=$2", active, organization_id
+        )
+
+
 async def write_org_jurisdiction_affiliations(
     conn, organization_id: str, affiliations: list
 ) -> None:

@@ -2,6 +2,9 @@
 
 from datetime import UTC, datetime
 
+import pytest
+from pydantic import ValidationError
+
 from src.api.public.schemas import (
     OrgAcronym,
     OrgAffiliationType,
@@ -134,23 +137,40 @@ _TS = datetime(2024, 1, 1, tzinfo=UTC)
 
 
 def test_org_detail_inherits_archived_at_serializer():
-    detail = OrgDetail(id="abc", archived_at=_TS, created_at=_TS, updated_at=_TS)
+    detail = OrgDetail(id="abc", active=True, archived_at=_TS, created_at=_TS, updated_at=_TS)
     dumped = detail.model_dump(mode="json")
     assert dumped["archived_at"].endswith("Z")
 
 
 def test_org_detail_timestamps_serialized_to_z():
-    detail = OrgDetail(id="abc", created_at=_TS, updated_at=_TS)
+    detail = OrgDetail(id="abc", active=True, created_at=_TS, updated_at=_TS)
     dumped = detail.model_dump(mode="json")
     assert dumped["created_at"].endswith("Z")
     assert dumped["updated_at"].endswith("Z")
 
 
 def test_org_detail_arrays_default_empty():
-    detail = OrgDetail(id="abc", created_at=_TS, updated_at=_TS)
+    detail = OrgDetail(id="abc", active=True, created_at=_TS, updated_at=_TS)
     assert detail.names == []
     assert detail.acronyms == []
     assert detail.identifiers == []
+
+
+def test_org_detail_active_is_required():
+    """active (#240) is required — no silent default masks a handler omission."""
+    with pytest.raises(ValidationError):
+        OrgDetail(id="abc", created_at=_TS, updated_at=_TS)
+
+
+def test_org_detail_active_round_trips():
+    true_dump = OrgDetail(id="abc", active=True, created_at=_TS, updated_at=_TS).model_dump(
+        mode="json"
+    )
+    false_dump = OrgDetail(id="abc", active=False, created_at=_TS, updated_at=_TS).model_dump(
+        mode="json"
+    )
+    assert true_dump["active"] is True
+    assert false_dump["active"] is False
 
 
 def test_org_detail_full_record_shape():
@@ -161,6 +181,7 @@ def test_org_detail_full_record_shape():
         slug="fc",
         parent_id=None,
         archived_at=None,
+        active=True,
         created_at=_TS,
         updated_at=_TS,
         names=[OrgName(id="n1", name="Foo Corp", name_type="legal", is_canonical=True)],
@@ -179,7 +200,7 @@ def test_org_detail_full_record_shape():
 
 
 def test_org_detail_jurisdiction_affiliations_default_empty():
-    detail = OrgDetail(id="abc", created_at=_TS, updated_at=_TS)
+    detail = OrgDetail(id="abc", active=True, created_at=_TS, updated_at=_TS)
     assert detail.jurisdiction_affiliations == []
 
 
@@ -188,6 +209,7 @@ def test_org_detail_jurisdiction_affiliations_shape():
     aff = OrgJurisdictionAffiliation(jurisdiction_id="jid1", affiliation_type=aff_type)
     detail = OrgDetail(
         id="abc",
+        active=True,
         created_at=_TS,
         updated_at=_TS,
         jurisdiction_affiliations=[aff],

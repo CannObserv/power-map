@@ -245,6 +245,19 @@ def test_org_request_minimal_ok():
     assert req.organization_parent_id is None
 
 
+def test_org_request_active_defaults_none():
+    """active (#240) defaults to None — omitted means 'leave the flag unchanged'."""
+    req = OrganizationObservationRequest(identifier_type="org_ubi", identifier_value="999")
+    assert req.active is None
+
+
+def test_org_request_active_accepts_bool():
+    req = OrganizationObservationRequest(
+        identifier_type="org_ubi", identifier_value="999", active=False
+    )
+    assert req.active is False
+
+
 def test_org_request_acronyms_are_observation_acronym_objects():
     req = OrganizationObservationRequest(
         identifier_type="org_ubi",

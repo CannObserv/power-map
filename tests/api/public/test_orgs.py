@@ -386,6 +386,44 @@ async def test_search_orgs_does_not_expose_timestamps(client, api_key, org_fixtu
 
 
 # ---------------------------------------------------------------------------
+# active flag (#240) — orgs-only domain axis, exposed on detail (read)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_get_org_detail_exposes_active_default_true(client, api_key, org_fixture):
+    """OrgDetail surfaces active; a fresh org defaults to active=True."""
+    oid = org_fixture["org_id"]
+    r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    data = r.json()
+    assert "active" in data, "active missing from OrgDetail"
+    assert data["active"] is True
+
+
+@pytest.mark.integration
+async def test_get_org_detail_reflects_inactive(client, api_key, org_fixture, db):
+    """Setting active=FALSE is reflected in the detail payload."""
+    oid = org_fixture["org_id"]
+    await db.execute("UPDATE organizations SET active=FALSE WHERE id=$1", oid)
+    try:
+        r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+        assert r.status_code == 200
+        assert r.json()["active"] is False
+    finally:
+        await db.execute("UPDATE organizations SET active=TRUE WHERE id=$1", oid)
+
+
+@pytest.mark.integration
+async def test_search_orgs_does_not_expose_active(client, api_key, org_fixture):
+    """active is a detail-only field; search results must not include it."""
+    r = _search(client, api_key, "Television")
+    assert r.status_code == 200
+    hit = next(o for o in r.json()["data"] if o["id"] == org_fixture["org_id"])
+    assert "active" not in hit
+
+
+# ---------------------------------------------------------------------------
 # Search — identifier_type / identifier_value filter
 # ---------------------------------------------------------------------------
 
