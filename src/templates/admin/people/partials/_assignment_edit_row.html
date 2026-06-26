@@ -8,14 +8,14 @@
   </td>
   <td>
     <div class="form-group" style="margin-bottom:0">
-      <input type="date" name="start_date" title="Start date"
+      <input type="date" name="start_date" aria-label="Start date"
              id="start-date-input-{{ ra.id }}"
              value="{{ start_date_input }}">
     </div>
   </td>
   <td>
     <div class="form-group" style="margin-bottom:0">
-      <input type="date" name="end_date" title="End date"
+      <input type="date" name="end_date" aria-label="End date"
              id="end-date-input-{{ ra.id }}"
              value="{{ end_date_input }}"
              {% if is_current_input %}disabled{% endif %}>

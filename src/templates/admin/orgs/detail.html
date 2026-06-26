@@ -282,7 +282,7 @@
     </div>
     {% endif %}
   </div>
-  <input type="search" id="roles-filter" placeholder="Filter roles…"
+  <input type="search" id="roles-filter" aria-label="Filter roles" placeholder="Filter roles…"
          class="filter-card__search">
   <div class="table-wrapper" style="position:relative">
     <table id="roles-table" class="data-table" data-org-id="{{ org.id }}">
@@ -295,7 +295,7 @@
       <tbody>
         {% for role in roles %}
         <tr data-title="{{ role.title or '' }}" data-role-id="{{ role.id }}">
-          <td class="merge-col" style="display:none;padding-right:0"><input type="checkbox" name="merge-select" value="{{ role.id }}"></td>
+          <td class="merge-col" style="display:none;padding-right:0"><input type="checkbox" name="merge-select" aria-label="Select {{ role.title or '(untitled)' }} for merge" value="{{ role.id }}"></td>
           <td><a href="/admin/roles/{{ role.id }}/">{{ role.title or '(untitled)' }}</a></td>
           <td style="text-align:right;color:var(--color-text-muted)">{{ role.assignment_count }}</td>
           <td style="text-align:right">{% if role.current_count %}<span class="badge badge--active">{{ role.current_count }}</span>{% else %}<span style="color:var(--color-text-muted)">0</span>{% endif %}</td>

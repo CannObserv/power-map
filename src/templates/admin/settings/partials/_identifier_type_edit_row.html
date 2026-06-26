@@ -12,19 +12,19 @@
           {% endif %}
           style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center">
       <div class="form-group" style="margin-bottom:0;flex:2;min-width:9rem">
-        <input type="text" name="display_name" required placeholder="Display Name"
+        <input type="text" name="display_name" aria-label="Display name" required placeholder="Display Name"
                value="{{ eit.display_name if eit else '' }}">
       </div>
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:6rem">
-        <input type="text" name="slug" required placeholder="slug"
+        <input type="text" name="slug" aria-label="Slug" required placeholder="slug"
                value="{{ eit.slug if eit else '' }}">
       </div>
       <div class="form-group" style="margin-bottom:0;flex:2;min-width:10rem">
-        <input type="text" name="full_name" required placeholder="Full Name"
+        <input type="text" name="full_name" aria-label="Full name" required placeholder="Full Name"
                value="{{ eit.full_name if eit else '' }}">
       </div>
       <div class="form-group" style="margin-bottom:0;min-width:9rem">
-        <select name="entity_type" required>
+        <select name="entity_type" aria-label="Entity type" required>
           {% for et in entity_types %}
           <option value="{{ et }}"{% if eit and eit.entity_type == et %} selected{% endif %}>{{ et }}</option>
           {% endfor %}

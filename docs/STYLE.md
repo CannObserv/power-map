@@ -579,6 +579,69 @@ All swap targets: `aria-live="polite" aria-atomic="false"`.
 During requests, `aria-busy="true"` is automatically set on the swap target via global
 `htmx:beforeRequest` / `htmx:afterSettle` listeners in `base.html`. No per-form work needed.
 
+### Form labels
+
+Every `<input>` (except `type="hidden"`), `<select>`, and `<textarea>` must have a
+programmatic **accessible name**. A `placeholder` is **not** a label — it disappears on
+input and many screen readers skip it (WCAG 2.1 AA SC 1.3.1 / 4.1.2). `<select>` can't
+carry a placeholder at all, so it always needs an explicit name.
+
+Three acceptable mechanisms:
+
+1. **Visible `<label for>`** — preferred for full-page forms (`*/form.html`) where vertical
+   space is free:
+   ```html
+   <label for="name">Canonical name</label>
+   <input id="name" name="name" type="text">
+   ```
+2. **Wrapping `<label>`** — when the control sits inside its label:
+   ```html
+   <label>Visibility <select name="visibility">…</select></label>
+   ```
+3. **`aria-label`** — for the dense inline form-row / edit-row grids
+   (`*_form_row.html`, `*_edit_row.html`, `_event_form_row.html`) where a visible `<label>`
+   would break the layout. Mirror the placeholder's intent as a concise noun phrase; keep the
+   `placeholder` for the visual hint:
+   ```html
+   <input type="text" name="event_place_text" aria-label="Place" placeholder="Place (optional)">
+   <select name="event_type_id" aria-label="Event type">…</select>
+   ```
+
+Repeated controls across rows (e.g. a per-row merge checkbox) need a **disambiguating**
+descriptor, same rule as row-action buttons (SC 2.4.6):
+
+```html
+<input type="checkbox" name="merge-select" aria-label="Select {{ role.title or '(untitled)' }} for merge">
+```
+
+Do **not** rely on `title` for the accessible name (see *`title` attributes* below). Static
+linting enforced by `tests/api/admin/test_aria_labels.py`.
+
+### Optional-field cue
+
+Inline form rows signal "(optional)" only in the `placeholder`, which assistive tech reads
+unreliably (same reason `placeholder` is not a label, above). Mark an optional inline field on
+**both** channels:
+
+- **Visible:** keep the `(optional)` suffix in the `placeholder`.
+- **Assistive tech:** add `aria-describedby` pointing to a `.visually-hidden` hint element
+  (defined in `admin.css`). Namespace the hint `id` with the row key so multiple open rows
+  don't collide.
+
+```html
+<input type="text" name="event_place_text" aria-label="Place"
+       aria-describedby="event-place-opt-{{ _le_key }}"
+       placeholder="Place (optional)">
+<span class="visually-hidden" id="event-place-opt-{{ _le_key }}">Optional</span>
+```
+
+When the parenthetical carries more than optionality (a format hint), put the full text in the
+hint: `Optional — city, postal, or street precision`.
+
+Fields with a visible `<label>` don't need this — the label already names the field accessibly;
+append `(optional)` to the label text instead. Static linting:
+`tests/api/admin/test_aria_labels.py::test_optional_placeholder_cue_has_describedby`.
+
 ### Form hints
 
 Link hint text to its input via `aria-describedby`:
