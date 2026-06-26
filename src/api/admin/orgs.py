@@ -16,6 +16,7 @@ from src.api.admin.deps import (
     is_htmx,
     resolve_query_flash,
 )
+from src.api.admin.entity_lookup import search_entities
 from src.api.admin.pagination import pagination_context
 from src.core.db import generate_id
 from src.core.logging import get_logger
@@ -201,18 +202,7 @@ async def orgs_search(
     db=Depends(get_db),
 ):
     """Typeahead search — returns an HTML fragment of matching org options."""
-    results = []
-    if q.strip():
-        results = await db.fetch(
-            """SELECT o.id, dn.display_name
-               FROM organizations o
-               LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-               WHERE o.archived_at IS NULL
-                 AND dn.display_name ILIKE $1 ESCAPE '\\'
-               ORDER BY dn.display_name NULLS LAST
-               LIMIT 20""",
-            f"%{escape_like(q.strip())}%",
-        )
+    results = await search_entities(db, "organization", q)
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_search_results.html",

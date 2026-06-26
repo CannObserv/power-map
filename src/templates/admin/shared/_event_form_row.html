@@ -91,7 +91,7 @@
         <label style="font-size:0.75rem;font-weight:600;display:block;color:var(--color-text-muted);margin-bottom:var(--space-1)">Linked Entity</label>
         <div style="display:flex;gap:var(--space-2);align-items:flex-start">
           <div class="form-group" style="margin-bottom:0">
-            <select name="linked_entity_type" data-linked-type>
+            <select name="linked_entity_type" id="linked-entity-type-{{ _le_key }}" data-linked-type>
               <option value=""{% if not ev or not ev.linked_entity_type %} selected{% endif %}>— none —</option>
               <option value="person"{% if ev and ev.linked_entity_type == 'person' %} selected{% endif %}>Person</option>
               <option value="organization"{% if ev and ev.linked_entity_type == 'organization' %} selected{% endif %}>Organization</option>
@@ -105,7 +105,7 @@
                    hx-trigger="input changed delay:200ms"
                    hx-target="#linked-entity-results-{{ _le_key }}"
                    hx-swap="innerHTML"
-                   hx-include="[name='linked_entity_type']"
+                   hx-include="#linked-entity-type-{{ _le_key }}"
                    name="q"
                    role="combobox"
                    aria-expanded="false"

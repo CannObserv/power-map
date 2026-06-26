@@ -518,9 +518,20 @@ def make_events_router(
                 linked_label=existing_label,
             )
 
-        linked_type, linked_id, linked_error = await _validate_linked_entity(
-            db, linked_entity_type, linked_entity_id
-        )
+        # Only re-validate the link when it actually changed. An existing link can
+        # dangle (target hard-deleted or merged away — polymorphic ref, no FK), and
+        # editing an unrelated field must not force the admin to repoint it first.
+        linked_id_in = linked_entity_id.strip() or None
+        linked_type_in = linked_entity_type.strip() or None
+        if (
+            linked_id_in == existing["linked_entity_id"]
+            and linked_type_in == existing["linked_entity_type"]
+        ):
+            linked_type, linked_id, linked_error = linked_type_in, linked_id_in, None
+        else:
+            linked_type, linked_id, linked_error = await _validate_linked_entity(
+                db, linked_entity_type, linked_entity_id
+            )
         if linked_error:
             if not is_htmx(request):
                 return RedirectResponse(detail_url(entity_id), status_code=303)

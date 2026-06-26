@@ -698,3 +698,60 @@ async def test_event_edit_rejects_unknown_linked_entity(client, person_with_even
     )
     assert r.status_code == 200
     assert "Linked entity not found" in r.text
+
+
+async def test_event_edit_unchanged_dangling_link_still_saves(
+    client, person_and_event_type, db_pool
+):
+    """Editing an unrelated field must not re-validate an unchanged (dangling) link.
+
+    A linked target can be hard-deleted or merged away after the link is made,
+    leaving entity_events.linked_entity_id dangling (polymorphic ref, no FK). The
+    admin must still be able to edit other fields without first repointing the link.
+    """
+    pid, etid = person_and_event_type
+    eid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO entity_events"
+            " (id, entity_type, entity_id, event_type_id, event_year,"
+            "  linked_entity_type, linked_entity_id, visibility)"
+            " VALUES ($1, 'person', $2, $3, 2020, 'organization', 'org_ghost_deleted', 'public')",
+            eid,
+            pid,
+            etid,
+        )
+    try:
+        r = client.post(
+            f"/admin/people/{pid}/events/{eid}/edit-row/",
+            headers=HTMX_HEADERS,
+            data={
+                "event_type_id": etid,
+                "event_year": "2021",
+                "linked_entity_type": "organization",
+                "linked_entity_id": "org_ghost_deleted",  # unchanged dangling link
+                "visibility": "public",
+            },
+        )
+        assert r.status_code == 200
+        assert "Linked entity not found" not in r.text
+        assert "<form" not in r.text  # read-row returned ⇒ saved
+        async with db_pool.acquire() as conn:
+            yr = await conn.fetchval("SELECT event_year FROM entity_events WHERE id=$1", eid)
+        assert yr == 2021
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+
+
+async def test_event_form_linked_typeahead_hx_include_is_row_scoped(client, person_and_event_type):
+    """hx-include must target this row's own type select by id, not a global
+
+    name selector — otherwise concurrently-open rows cross-contaminate scope.
+    """
+    pid, _ = person_and_event_type
+    r = client.get(f"/admin/people/{pid}/events/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'id="linked-entity-type-new"' in r.text
+    assert 'hx-include="#linked-entity-type-new"' in r.text
+    assert "[name='linked_entity_type']" not in r.text
