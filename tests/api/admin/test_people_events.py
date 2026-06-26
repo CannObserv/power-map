@@ -539,3 +539,219 @@ async def test_event_read_row_shows_address_city(
 
     async with db_pool.acquire() as conn:
         await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+
+
+# ---------------------------------------------------------------------------
+# Linked-entity validation + edit prefill (#172)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def linkable_org(db_pool):
+    """An organization with a display name, usable as a linked entity."""
+    oid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await conn.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Linked Target Org', TRUE)",
+            generate_id(),
+            oid,
+        )
+
+    yield oid, "Linked Target Org"
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+        await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+
+async def test_event_create_accepts_valid_linked_entity(
+    client, person_and_event_type, linkable_org, db_pool
+):
+    pid, etid = person_and_event_type
+    oid, _ = linkable_org
+    r = client.post(
+        f"/admin/people/{pid}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2020",
+            "linked_entity_type": "organization",
+            "linked_entity_id": oid,
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "Linked entity" not in r.text  # no validation error
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT linked_entity_type, linked_entity_id FROM entity_events"
+            " WHERE entity_id=$1 AND linked_entity_id=$2",
+            pid,
+            oid,
+        )
+    assert row is not None
+    assert row["linked_entity_type"] == "organization"
+
+
+async def test_event_create_rejects_unknown_linked_entity(client, person_and_event_type):
+    pid, etid = person_and_event_type
+    r = client.post(
+        f"/admin/people/{pid}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2020",
+            "linked_entity_type": "organization",
+            "linked_entity_id": "org_doesnotexist",
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "Linked entity not found" in r.text
+
+
+async def test_event_create_rejects_type_mismatch(client, person_and_event_type, db_pool):
+    """An id that exists as a person must not validate when type says organization."""
+    pid, etid = person_and_event_type
+    other_pid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO people (id) VALUES ($1)", other_pid)
+    try:
+        r = client.post(
+            f"/admin/people/{pid}/events/",
+            headers=HTMX_HEADERS,
+            data={
+                "event_type_id": etid,
+                "event_year": "2020",
+                "linked_entity_type": "organization",
+                "linked_entity_id": other_pid,
+                "visibility": "public",
+            },
+        )
+        assert r.status_code == 200
+        assert "Linked entity not found" in r.text
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM people WHERE id=$1", other_pid)
+
+
+async def test_event_create_rejects_linked_id_without_type(
+    client, person_and_event_type, linkable_org
+):
+    pid, etid = person_and_event_type
+    oid, _ = linkable_org
+    r = client.post(
+        f"/admin/people/{pid}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2020",
+            "linked_entity_type": "",
+            "linked_entity_id": oid,
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "person or organization" in r.text
+
+
+async def test_event_edit_row_prefills_linked_entity_name(
+    client, person_and_event_type, linkable_org, db_pool
+):
+    pid, etid = person_and_event_type
+    oid, oname = linkable_org
+    eid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO entity_events"
+            " (id, entity_type, entity_id, event_type_id, event_year,"
+            "  linked_entity_type, linked_entity_id, visibility)"
+            " VALUES ($1, 'person', $2, $3, 2020, 'organization', $4, 'public')",
+            eid,
+            pid,
+            etid,
+            oid,
+        )
+    try:
+        r = client.get(f"/admin/people/{pid}/events/{eid}/edit-row/", headers=HTMX_HEADERS)
+        assert r.status_code == 200
+        assert oname in r.text  # display name, not the raw ULID
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+
+
+async def test_event_edit_rejects_unknown_linked_entity(client, person_with_event):
+    pid, etid, eid = person_with_event
+    r = client.post(
+        f"/admin/people/{pid}/events/{eid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2020",
+            "linked_entity_type": "organization",
+            "linked_entity_id": "org_doesnotexist",
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "Linked entity not found" in r.text
+
+
+async def test_event_edit_unchanged_dangling_link_still_saves(
+    client, person_and_event_type, db_pool
+):
+    """Editing an unrelated field must not re-validate an unchanged (dangling) link.
+
+    A linked target can be hard-deleted or merged away after the link is made,
+    leaving entity_events.linked_entity_id dangling (polymorphic ref, no FK). The
+    admin must still be able to edit other fields without first repointing the link.
+    """
+    pid, etid = person_and_event_type
+    eid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO entity_events"
+            " (id, entity_type, entity_id, event_type_id, event_year,"
+            "  linked_entity_type, linked_entity_id, visibility)"
+            " VALUES ($1, 'person', $2, $3, 2020, 'organization', 'org_ghost_deleted', 'public')",
+            eid,
+            pid,
+            etid,
+        )
+    try:
+        r = client.post(
+            f"/admin/people/{pid}/events/{eid}/edit-row/",
+            headers=HTMX_HEADERS,
+            data={
+                "event_type_id": etid,
+                "event_year": "2021",
+                "linked_entity_type": "organization",
+                "linked_entity_id": "org_ghost_deleted",  # unchanged dangling link
+                "visibility": "public",
+            },
+        )
+        assert r.status_code == 200
+        assert "Linked entity not found" not in r.text
+        assert "<form" not in r.text  # read-row returned ⇒ saved
+        async with db_pool.acquire() as conn:
+            yr = await conn.fetchval("SELECT event_year FROM entity_events WHERE id=$1", eid)
+        assert yr == 2021
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+
+
+async def test_event_form_linked_typeahead_hx_include_is_row_scoped(client, person_and_event_type):
+    """hx-include must target this row's own type select by id, not a global
+
+    name selector — otherwise concurrently-open rows cross-contaminate scope.
+    """
+    pid, _ = person_and_event_type
+    r = client.get(f"/admin/people/{pid}/events/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'id="linked-entity-type-new"' in r.text
+    assert 'hx-include="#linked-entity-type-new"' in r.text
+    assert "[name='linked_entity_type']" not in r.text

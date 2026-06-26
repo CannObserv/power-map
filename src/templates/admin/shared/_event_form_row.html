@@ -1,11 +1,13 @@
 {# admin/shared/_event_form_row.html — shared event create/edit form.
    Callers must set: _ev_url_base, _ev_row_prefix #}
+{%- set _le_key = ev.id if ev else 'new' -%}
 <tr id="{% if ev %}{{ _ev_row_prefix }}-{{ ev.id }}{% else %}{{ _ev_row_prefix }}-new{% endif %}">
   <td colspan="6" style="padding:var(--space-3) var(--space-4)">
     {% if form_error %}
     <div class="alert alert--error" style="margin-bottom:var(--space-3)">{{ form_error }}</div>
     {% endif %}
-    <form {% if ev %}
+    <form data-event-form-row data-uid="{{ _le_key }}"
+          {% if ev %}
           hx-post="{{ _ev_url_base }}/events/{{ ev.id }}/edit-row/"
           hx-target="#{{ _ev_row_prefix }}-{{ ev.id }}"
           {% else %}
@@ -87,17 +89,32 @@
       </div>
       <div data-linked-entity-section>
         <label style="font-size:0.75rem;font-weight:600;display:block;color:var(--color-text-muted);margin-bottom:var(--space-1)">Linked Entity</label>
-        <div style="display:flex;gap:var(--space-2);align-items:center">
+        <div style="display:flex;gap:var(--space-2);align-items:flex-start">
           <div class="form-group" style="margin-bottom:0">
-            <select name="linked_entity_type">
+            <select name="linked_entity_type" id="linked-entity-type-{{ _le_key }}" data-linked-type>
               <option value=""{% if not ev or not ev.linked_entity_type %} selected{% endif %}>— none —</option>
               <option value="person"{% if ev and ev.linked_entity_type == 'person' %} selected{% endif %}>Person</option>
               <option value="organization"{% if ev and ev.linked_entity_type == 'organization' %} selected{% endif %}>Organization</option>
             </select>
           </div>
-          <div class="form-group" style="margin-bottom:0;flex:1">
-            <input type="text" name="linked_entity_id" placeholder="Entity ID"
+          <div class="form-group" style="margin-bottom:0;flex:1;position:relative">
+            <input type="text" autocomplete="off" placeholder="Search by name…"
+                   id="linked-entity-search-{{ _le_key }}"
+                   value="{{ linked_entity_label or (ev.linked_entity_id if ev else '') or '' }}"
+                   hx-get="/admin/entities/search/"
+                   hx-trigger="input changed delay:200ms"
+                   hx-target="#linked-entity-results-{{ _le_key }}"
+                   hx-swap="innerHTML"
+                   hx-include="#linked-entity-type-{{ _le_key }}"
+                   name="q"
+                   role="combobox"
+                   aria-expanded="false"
+                   aria-haspopup="listbox"
+                   aria-controls="linked-entity-results-{{ _le_key }}"
+                   aria-autocomplete="list">
+            <input type="hidden" name="linked_entity_id" id="linked-entity-id-{{ _le_key }}"
                    value="{{ ev.linked_entity_id or '' if ev else '' }}">
+            <ul id="linked-entity-results-{{ _le_key }}" class="typeahead-results" role="listbox"></ul>
           </div>
         </div>
       </div>
@@ -116,18 +133,8 @@
                 {% endif %}>Cancel</button>
       </div>
     </form>
-    <script>
-    (function () {
-      var form = document.currentScript.previousElementSibling;
-      var sel = form.querySelector('[name="event_type_id"]');
-      var section = form.querySelector('[data-linked-entity-section]');
-      function sync() {
-        var opt = sel.options[sel.selectedIndex];
-        section.style.display = opt && opt.dataset.requiresLinked === 'true' ? '' : 'none';
-      }
-      sel.addEventListener('change', sync);
-      sync();
-    })();
-    </script>
+    {# Per-row wiring (section show/hide, linked-entity typeahead, scope switch)
+       lives in static/admin/event-form-row.js, discovered via
+       [data-event-form-row]. #}
   </td>
 </tr>

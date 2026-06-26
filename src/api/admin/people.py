@@ -9,13 +9,13 @@ from src.api.admin._events_shared import fetch_entity_events
 from src.api.admin.deps import (
     AdminUser,
     build_parts_summary,
-    escape_like,
     flash_trigger,
     get_admin_user,
     get_db,
     is_htmx,
     resolve_query_flash,
 )
+from src.api.admin.entity_lookup import search_entities
 from src.api.admin.people_queries import query_people_rows
 from src.core.db import generate_id
 
@@ -171,18 +171,7 @@ async def people_search(
     db=Depends(get_db),
 ):
     """Typeahead search — returns HTML fragment of matching people."""
-    results = []
-    if q.strip():
-        results = await db.fetch(
-            """SELECT p.id, pn.display_name
-               FROM people p
-               LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
-               WHERE p.archived_at IS NULL
-                 AND pn.display_name ILIKE $1 ESCAPE '\\'
-               ORDER BY pn.sort_key COLLATE "und-x-icu" NULLS LAST
-               LIMIT 20""",
-            f"%{escape_like(q.strip())}%",
-        )
+    results = await search_entities(db, "person", q)
     return templates.TemplateResponse(
         request,
         "admin/people/partials/_search_results.html",
