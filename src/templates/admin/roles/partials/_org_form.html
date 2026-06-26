@@ -16,6 +16,7 @@
   </div>
   <div class="form-group" style="margin-bottom:0;position:relative">
     <input id="org-search" type="text" autocomplete="off"
+           aria-label="Search for an organization"
            placeholder="Type to search…"
            value="{{ role.org_name or '' }}"
            hx-get="/admin/orgs/search/"

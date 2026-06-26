@@ -17,6 +17,7 @@
                hx-swap="innerHTML"
                hx-params="q"
                name="q"
+               aria-label="Search for a role"
                role="combobox"
                aria-expanded="false"
                aria-haspopup="listbox"
@@ -26,11 +27,11 @@
         <ul id="role-search-results-{{ row_key }}" class="typeahead-results" role="listbox"></ul>
       </div>
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:8rem">
-        <input type="date" name="start_date" placeholder="Start date"
+        <input type="date" name="start_date" aria-label="Start date" placeholder="Start date"
                title="Start date" value="{{ start_date_input or '' }}">
       </div>
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:8rem">
-        <input type="date" name="end_date" placeholder="End date"
+        <input type="date" name="end_date" aria-label="End date" placeholder="End date"
                title="End date" id="end-date-input-{{ row_key }}" value="{{ end_date_input or '' }}">
       </div>
       <label class="toggle" style="align-self:center">

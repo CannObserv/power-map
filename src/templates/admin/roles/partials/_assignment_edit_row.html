@@ -5,14 +5,14 @@
   </td>
   <td>
     <div class="form-group" style="margin-bottom:0">
-      <input type="date" name="start_date" title="Start date{% if role and (role.established_on or role.abolished_on) %} (role: {{ role.established_on or '?' }} – {{ role.abolished_on or 'present' }}){% endif %}"
+      <input type="date" name="start_date" aria-label="Start date" title="Start date{% if role and (role.established_on or role.abolished_on) %} (role: {{ role.established_on or '?' }} – {{ role.abolished_on or 'present' }}){% endif %}"
              id="start-date-input-{{ ra.id }}"
              value="{{ start_date_input }}">
     </div>
   </td>
   <td>
     <div class="form-group" style="margin-bottom:0">
-      <input type="date" name="end_date" title="End date{% if role and (role.established_on or role.abolished_on) %} (role: {{ role.established_on or '?' }} – {{ role.abolished_on or 'present' }}){% endif %}"
+      <input type="date" name="end_date" aria-label="End date" title="End date{% if role and (role.established_on or role.abolished_on) %} (role: {{ role.established_on or '?' }} – {{ role.abolished_on or 'present' }}){% endif %}"
              id="end-date-input-{{ ra.id }}"
              value="{{ end_date_input }}"
              {% if is_current_input %}disabled{% endif %}>

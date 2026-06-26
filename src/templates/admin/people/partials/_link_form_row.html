@@ -11,11 +11,11 @@
           hx-swap="outerHTML"
           style="display:flex;gap:var(--space-2);align-items:center">
       <div class="form-group" style="margin-bottom:0;flex:2;min-width:10rem">
-        <input type="url" name="url" required
+        <input type="url" name="url" aria-label="URL" required
                value="{{ l.url if l else '' }}" placeholder="https://">
       </div>
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:8rem">
-        <select name="link_type_id">
+        <select name="link_type_id" aria-label="Link type">
           <optgroup label="Social">
             {% for lt in link_types if lt.is_social %}
             <option value="{{ lt.id }}"{% if l and l.link_type_id == lt.id %} selected{% endif %}>

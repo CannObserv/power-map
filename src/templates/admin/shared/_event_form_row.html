@@ -18,7 +18,7 @@
           style="display:grid;gap:var(--space-2)">
       <div style="display:flex;gap:var(--space-2);align-items:center">
         <div class="form-group" style="margin-bottom:0;flex:1">
-          <select name="event_type_id">
+          <select name="event_type_id" aria-label="Event type">
             {% for et in event_types %}
             <option value="{{ et.id }}"
                     data-requires-linked="{{ et.requires_linked_entity | lower }}"
@@ -27,7 +27,7 @@
           </select>
         </div>
         <div class="form-group" style="margin-bottom:0;flex:1">
-          <select name="visibility">
+          <select name="visibility" aria-label="Visibility">
             <option value="public"{% if not ev or ev.visibility == 'public' %} selected{% endif %}>Public</option>
             <option value="legal_only"{% if ev and ev.visibility == 'legal_only' %} selected{% endif %}>Legal only</option>
             <option value="hidden"{% if ev and ev.visibility == 'hidden' %} selected{% endif %}>Hidden</option>
@@ -36,7 +36,7 @@
       </div>
       <div style="display:flex;gap:var(--space-2);align-items:center">
         <div class="form-group" style="margin-bottom:0">
-          <select name="event_month">
+          <select name="event_month" aria-label="Month">
             <option value="">Month</option>
             <option value="1"{% if ev and ev.event_month == 1 %} selected{% endif %}>January</option>
             <option value="2"{% if ev and ev.event_month == 2 %} selected{% endif %}>February</option>
@@ -53,11 +53,11 @@
           </select>
         </div>
         <div class="form-group" style="margin-bottom:0;width:5rem">
-          <input type="number" name="event_day" placeholder="Day" min="1" max="31" step="1"
+          <input type="number" name="event_day" aria-label="Day" placeholder="Day" min="1" max="31" step="1"
                  value="{{ ev.event_day if ev and ev.event_day is not none else '' }}">
         </div>
         <div class="form-group" style="margin-bottom:0;width:6rem">
-          <input type="number" name="event_year" placeholder="Year" min="-9999" max="9999" step="1"
+          <input type="number" name="event_year" aria-label="Year" placeholder="Year" min="-9999" max="9999" step="1"
                  value="{{ ev.event_year if ev and ev.event_year is not none else '' }}">
         </div>
       </div>
@@ -65,25 +65,25 @@
         <summary style="font-size:var(--font-size-sm);color:var(--color-text-muted);cursor:pointer;user-select:none">Time</summary>
         <div style="display:flex;gap:var(--space-2);margin-top:var(--space-1)">
           <div class="form-group" style="margin-bottom:0;width:4rem">
-            <input type="number" name="event_hour" placeholder="HH" min="0" max="23" step="1"
+            <input type="number" name="event_hour" aria-label="Hour" placeholder="HH" min="0" max="23" step="1"
                    value="{{ ev.event_hour if ev and ev.event_hour is not none else '' }}">
           </div>
           <div class="form-group" style="margin-bottom:0;width:4rem">
-            <input type="number" name="event_minute" placeholder="MM" min="0" max="59" step="1"
+            <input type="number" name="event_minute" aria-label="Minute" placeholder="MM" min="0" max="59" step="1"
                    value="{{ ev.event_minute if ev and ev.event_minute is not none else '' }}">
           </div>
           <div class="form-group" style="margin-bottom:0;width:4rem">
-            <input type="number" name="event_second" placeholder="SS" min="0" max="59" step="1"
+            <input type="number" name="event_second" aria-label="Second" placeholder="SS" min="0" max="59" step="1"
                    value="{{ ev.event_second if ev and ev.event_second is not none else '' }}">
           </div>
         </div>
       </details>
       <div class="form-group" style="margin-bottom:0">
-        <input type="text" name="event_place_text" placeholder="Place (optional)"
+        <input type="text" name="event_place_text" aria-label="Place" placeholder="Place (optional)"
                value="{{ ev.event_place_text or '' if ev else '' }}">
       </div>
       <div class="form-group" style="margin-bottom:0">
-        <input type="text" name="event_place_address_id"
+        <input type="text" name="event_place_address_id" aria-label="Address ID"
                placeholder="Address ID (optional — city/postal/street precision)"
                value="{{ ev.event_place_address_id or '' if ev else '' }}">
       </div>
@@ -91,7 +91,7 @@
         <label style="font-size:0.75rem;font-weight:600;display:block;color:var(--color-text-muted);margin-bottom:var(--space-1)">Linked Entity</label>
         <div style="display:flex;gap:var(--space-2);align-items:flex-start">
           <div class="form-group" style="margin-bottom:0">
-            <select name="linked_entity_type" id="linked-entity-type-{{ _le_key }}" data-linked-type>
+            <select name="linked_entity_type" aria-label="Linked entity type" id="linked-entity-type-{{ _le_key }}" data-linked-type>
               <option value=""{% if not ev or not ev.linked_entity_type %} selected{% endif %}>— none —</option>
               <option value="person"{% if ev and ev.linked_entity_type == 'person' %} selected{% endif %}>Person</option>
               <option value="organization"{% if ev and ev.linked_entity_type == 'organization' %} selected{% endif %}>Organization</option>
@@ -99,6 +99,7 @@
           </div>
           <div class="form-group" style="margin-bottom:0;flex:1;position:relative">
             <input type="text" autocomplete="off" placeholder="Search by name…"
+                   aria-label="Search for a linked entity"
                    id="linked-entity-search-{{ _le_key }}"
                    value="{{ linked_entity_label or (ev.linked_entity_id if ev else '') or '' }}"
                    hx-get="/admin/entities/search/"
@@ -119,7 +120,7 @@
         </div>
       </div>
       <div class="form-group" style="margin-bottom:0">
-        <textarea name="notes" rows="2" placeholder="Notes (optional)">{{ ev.notes or '' if ev else '' }}</textarea>
+        <textarea name="notes" aria-label="Notes" rows="2" placeholder="Notes (optional)">{{ ev.notes or '' if ev else '' }}</textarea>
       </div>
       <div style="display:flex;gap:var(--space-2)">
         <button type="submit" class="btn btn--sm btn--primary">Save</button>

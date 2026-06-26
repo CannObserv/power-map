@@ -3,6 +3,7 @@
   <td>
     <div class="form-group" style="margin-bottom:0;position:relative">
       <input id="parent-search" type="text" autocomplete="off"
+             aria-label="Search for a parent organization"
              placeholder="Type to search…"
              value="{{ parent.display_name if parent else '' }}"
              hx-get="/admin/orgs/search/"

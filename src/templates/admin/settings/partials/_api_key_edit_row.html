@@ -12,7 +12,7 @@
           {% endif %}
           style="display:flex;gap:var(--space-2);align-items:center">
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:12rem">
-        <input type="text" name="label" required placeholder="Key label (e.g. My Script)"
+        <input type="text" name="label" aria-label="Key label" required placeholder="Key label (e.g. My Script)"
                value="{{ key.label if key else '' }}" autofocus>
       </div>
       <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
