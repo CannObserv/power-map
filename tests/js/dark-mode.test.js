@@ -1,10 +1,19 @@
 /**
  * Tests for src/static/admin/dark-mode.js
  *
- * The script is an IIFE that uses document-level delegation to handle clicks on
- * #theme-toggle and syncs aria-label / icon with the current html.dark class state.
- * It also re-syncs the button after every htmx:afterSettle so hx-boost body swaps
- * don't leave the button in a stale label/icon state.
+ * Three-state toggle (#25). The script is an IIFE that uses document-level
+ * delegation to handle clicks on #theme-toggle and cycles the stored color
+ * scheme through light → system → dark → light. The cycle is driven off the
+ * stored localStorage preference (not the rendered html class), because
+ * `system` and explicit `light` both render as light and are otherwise
+ * indistinguishable by class.
+ *
+ *   stored 'light'  → html.light, force light
+ *   stored 'dark'   → html.dark,  force dark
+ *   stored absent   → no class — OS prefers-color-scheme governs (system)
+ *
+ * It also re-syncs the button (icon + aria-label) after every htmx:afterSettle
+ * so hx-boost body swaps don't leave the button in a stale state.
  *
  * Pattern: build DOM fixture → eval() the IIFE → simulate events → assert state.
  *
@@ -21,6 +30,17 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const scriptCode = readFileSync(resolve(__dirname, '../../src/static/admin/dark-mode.js'), 'utf-8');
 
+const KEY = 'pm-color-scheme';
+
+// Affordance glyphs / labels — current-state convention (icon shows the active
+// state, label names the state and the next action in the cycle).
+const ICON = { light: '☀', system: '◑', dark: '☽' };
+const LABEL = {
+  light: 'Color theme: Light. Activate for System.',
+  system: 'Color theme: System. Activate for Dark.',
+  dark: 'Color theme: Dark. Activate for Light.',
+};
+
 // ---------------------------------------------------------------------------
 // Global listener cleanup — see docs/STYLE.md §33
 // ---------------------------------------------------------------------------
@@ -29,7 +49,6 @@ let addSpy;
 
 beforeEach(() => {
   addSpy = vi.spyOn(document, 'addEventListener');
-  // Reset html classes and localStorage
   document.documentElement.classList.remove('dark', 'light');
   localStorage.clear();
 });
@@ -49,13 +68,16 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 function buildButton() {
-  return `<button id="theme-toggle" aria-label="Switch to dark mode" type="button">
-    <span data-theme-icon aria-hidden="true">☽</span>
+  return `<button id="theme-toggle" aria-label="Color theme: System. Activate for Dark." type="button">
+    <span data-theme-icon aria-hidden="true">◑</span>
   </button>`;
 }
 
-function setup({ dark = false } = {}) {
-  if (dark) document.documentElement.classList.add('dark');
+// `stored` controls the localStorage preference the cycle reads. Omit (or pass
+// undefined) for the absent/system default.
+function setup({ stored } = {}) {
+  if (stored === undefined) localStorage.removeItem(KEY);
+  else localStorage.setItem(KEY, stored);
   document.body.innerHTML = buildButton();
   eval(scriptCode); // no-eval disabled for test files in eslint.config.js
 }
@@ -68,48 +90,105 @@ function click() {
   btn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }
 
+function iconText() {
+  return btn().querySelector('[data-theme-icon]').textContent;
+}
+
+function hasDark() {
+  return document.documentElement.classList.contains('dark');
+}
+
+function hasLight() {
+  return document.documentElement.classList.contains('light');
+}
+
 // ---------------------------------------------------------------------------
-// Basic toggle tests (initial page load — button already present)
+// Three-state cycle (light → system → dark → light)
 // ---------------------------------------------------------------------------
 
-describe('initial page load', () => {
-  it('toggles from light to dark on click', () => {
-    setup({ dark: false });
+describe('three-state cycle', () => {
+  it('system → dark on first click (default / new user)', () => {
+    setup(); // no stored value → system
     click();
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(localStorage.getItem(KEY)).toBe('dark');
+    expect(hasDark()).toBe(true);
+    expect(hasLight()).toBe(false);
   });
 
-  it('toggles from dark to light on click', () => {
-    setup({ dark: true });
+  it('dark → light', () => {
+    setup({ stored: 'dark' });
     click();
-    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(localStorage.getItem(KEY)).toBe('light');
+    expect(hasLight()).toBe(true);
+    expect(hasDark()).toBe(false);
   });
 
-  it('persists preference to localStorage', () => {
-    setup({ dark: false });
+  it('light → system clears the key and removes both classes', () => {
+    setup({ stored: 'light' });
     click();
-    expect(localStorage.getItem('pm-color-scheme')).toBe('dark');
-    click();
-    expect(localStorage.getItem('pm-color-scheme')).toBe('light');
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(hasDark()).toBe(false);
+    expect(hasLight()).toBe(false);
   });
 
-  it('updates aria-label after toggle', () => {
-    setup({ dark: false });
+  it('cycles the full ring system → dark → light → system', () => {
+    setup();
     click();
-    expect(btn().getAttribute('aria-label')).toBe('Switch to light mode');
+    expect(localStorage.getItem(KEY)).toBe('dark');
     click();
-    expect(btn().getAttribute('aria-label')).toBe('Switch to dark mode');
-  });
-
-  it('syncs button label and icon on load when dark mode is already active', () => {
-    setup({ dark: true });
-    expect(btn().getAttribute('aria-label')).toBe('Switch to light mode');
-    expect(btn().querySelector('[data-theme-icon]').textContent).toBe('\u2600');
+    expect(localStorage.getItem(KEY)).toBe('light');
+    click();
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// HTMX boost survival — the bug
+// Legacy / unknown stored values — treated as system
+// ---------------------------------------------------------------------------
+
+describe('unknown stored value', () => {
+  it('treats an unrecognized value as system', () => {
+    setup({ stored: 'garbage' });
+    expect(btn().getAttribute('aria-label')).toBe(LABEL.system);
+    expect(iconText()).toBe(ICON.system);
+    click(); // system → dark
+    expect(localStorage.getItem(KEY)).toBe('dark');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Button sync — icon + aria-label reflect the stored state
+// ---------------------------------------------------------------------------
+
+describe('button affordance', () => {
+  it('shows the system affordance when no preference is stored', () => {
+    setup();
+    expect(btn().getAttribute('aria-label')).toBe(LABEL.system);
+    expect(iconText()).toBe(ICON.system);
+  });
+
+  it('shows the dark affordance when stored dark', () => {
+    setup({ stored: 'dark' });
+    expect(btn().getAttribute('aria-label')).toBe(LABEL.dark);
+    expect(iconText()).toBe(ICON.dark);
+  });
+
+  it('shows the light affordance when stored light', () => {
+    setup({ stored: 'light' });
+    expect(btn().getAttribute('aria-label')).toBe(LABEL.light);
+    expect(iconText()).toBe(ICON.light);
+  });
+
+  it('updates the affordance after a click', () => {
+    setup({ stored: 'dark' });
+    click(); // → light
+    expect(btn().getAttribute('aria-label')).toBe(LABEL.light);
+    expect(iconText()).toBe(ICON.light);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTMX boost survival — the original bug from #19
 //
 // When HTMX boost navigates, it swaps document.body.innerHTML, destroying the
 // original #theme-toggle element and inserting a fresh one. The script must
@@ -118,49 +197,28 @@ describe('initial page load', () => {
 // ---------------------------------------------------------------------------
 
 describe('survives HTMX boost body swap', () => {
-  it('toggles after body innerHTML is replaced (simulated hx-boost)', () => {
-    setup({ dark: false });
-
-    // Simulate HTMX boost: replace entire body (destroys old btn + its listeners)
+  it('cycles after body innerHTML is replaced (simulated hx-boost)', () => {
+    setup();
     document.body.innerHTML = buildButton();
-
-    // New button should still be responsive
     click();
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(localStorage.getItem(KEY)).toBe('dark');
+    expect(hasDark()).toBe(true);
   });
 
-  it('toggles multiple times after body swap', () => {
-    setup({ dark: false });
+  it('cycles multiple times after body swap', () => {
+    setup({ stored: 'dark' });
     document.body.innerHTML = buildButton();
-
     click();
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(localStorage.getItem(KEY)).toBe('light');
     click();
-    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 
-  it('persists to localStorage after body swap', () => {
-    setup({ dark: false });
-    document.body.innerHTML = buildButton();
-
-    click();
-    expect(localStorage.getItem('pm-color-scheme')).toBe('dark');
-  });
-
-  it('updates aria-label on new button after body swap', () => {
-    setup({ dark: false });
-    document.body.innerHTML = buildButton();
-
-    click();
-    expect(btn().getAttribute('aria-label')).toBe('Switch to light mode');
-  });
-
-  it('syncs button label and icon via htmx:afterSettle when dark mode is active', () => {
-    setup({ dark: false });
-    click(); // go dark
-    document.body.innerHTML = buildButton(); // simulate boost swap — new button has stale defaults
+  it('syncs button affordance via htmx:afterSettle', () => {
+    setup({ stored: 'dark' });
+    document.body.innerHTML = buildButton(); // new button has stale defaults
     document.dispatchEvent(new Event('htmx:afterSettle'));
-    expect(btn().getAttribute('aria-label')).toBe('Switch to light mode');
-    expect(btn().querySelector('[data-theme-icon]').textContent).toBe('\u2600');
+    expect(btn().getAttribute('aria-label')).toBe(LABEL.dark);
+    expect(iconText()).toBe(ICON.dark);
   });
 });

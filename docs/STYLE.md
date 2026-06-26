@@ -86,9 +86,17 @@ Badge, alert, and flash colors are hardcoded per-class rather than derived from 
 
 ### Class-based approach
 
-Dark mode uses `html.dark` / `html.light` classes. The `dark-mode.js` toggle sets one of these on `<html>`.
+Dark mode uses `html.dark` / `html.light` classes. The `dark-mode.js` toggle sets **one or neither** on `<html>`:
+
+- `html.dark` — force dark
+- `html.light` — force light
+- *neither class* — follow OS (the **system** state); the `@media (prefers-color-scheme: dark)` rules govern
 
 **Specificity:** `html.dark` selector is `(0,1,1)`, which beats the `:root` selector `(0,0,1)` inside `@media (prefers-color-scheme: dark)`. This lets explicit user preference override the OS setting.
+
+### Three-state toggle (#25)
+
+`#theme-toggle` cycles the stored preference: **light → system → dark → light**. The cycle is driven off the *stored* `localStorage` value (not the rendered class) — `system` and explicit `light` both render as light and are indistinguishable by class. The **system** state is the *absent* key: reaching it calls `localStorage.removeItem`, so the FOUC `<head>` script needs no extra case (absent already means follow-OS there).
 
 ### No-JS fallback
 
@@ -96,7 +104,7 @@ Dark mode uses `html.dark` / `html.light` classes. The `dark-mode.js` toggle set
 
 ### FOUC prevention
 
-This inline script **must** appear in `<head>` **before** `<link rel="stylesheet">`:
+This inline script **must** appear in `<head>` **before** `<link rel="stylesheet">`. No `"system"` value is ever stored — the system state is the absent key — so the script's existing `s===null` follow-OS branch covers it unchanged:
 
 ```html
 <script>
@@ -121,22 +129,24 @@ Key: `pm-color-scheme`
 |---|---|
 | `"dark"` | User explicitly chose dark |
 | `"light"` | User explicitly chose light |
-| absent | Follow OS `prefers-color-scheme` |
+| absent | **system** — follow OS `prefers-color-scheme`; the toggle's third state (written by clearing the key, not a `"system"` literal) |
 
 ### Toggle button
 
 ```html
 <button class="btn btn--ghost btn--sm admin-topbar__theme-toggle"
         id="theme-toggle"
-        aria-label="Switch to dark mode"
+        aria-label="Color theme: System. Activate for Dark."
         type="button">
-  <span data-theme-icon aria-hidden="true">&#9789;</span>
+  <span data-theme-icon aria-hidden="true">&#9681;</span>
 </button>
 ```
 
 - `id="theme-toggle"` — required by `dark-mode.js`
-- `<span data-theme-icon>` — required; JS swaps content to sun/moon
-- `dark-mode.js` loaded with `defer` at end of `<body>`
+- `<span data-theme-icon>` — required; JS swaps content per state (current-state icon): ☀ light, ◑ system, ☽ dark
+- `aria-label` names the current state and the next cycle action; JS keeps both in sync with the stored preference on load and after each `htmx:afterSettle`
+- Static defaults shown above match the **system** default for the pre-JS paint
+- `dark-mode.js` loaded with `defer` from `<head>` (document-delegated, survives hx-boost swaps)
 
 ---
 
