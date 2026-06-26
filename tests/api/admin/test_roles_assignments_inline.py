@@ -273,6 +273,20 @@ async def bounded_assignment_id(db, bounded_role_id, person_id):
     return ra_id
 
 
+@pytest_asyncio.fixture(loop_scope="session")
+async def current_bounded_assignment_id(db, bounded_role_id, person_id):
+    """Current (open-ended) assignment on a bounded role — end date disabled."""
+    ra_id = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
+           VALUES ($1, $2, $3, TRUE, '2012-01-01', NULL)""",
+        ra_id,
+        person_id,
+        bounded_role_id,
+    )
+    return ra_id
+
+
 # ---------------------------------------------------------------------------
 # Read row
 # ---------------------------------------------------------------------------
@@ -434,9 +448,31 @@ async def test_edit_row_get_bounded_role_surfaces_range_accessibly(
     assert r.content.count(b"form-group__hint") == 2
     assert b"2010-01-01" in r.content
     assert b"2020-12-31" in r.content
-    # Each date input references its hint via aria-describedby.
+    # Each date input references its hint via aria-describedby AND that target id
+    # actually exists — the association is the whole point of the fix.
+    start_target = f'id="start-date-range-hint-{bounded_assignment_id}"'.encode()
+    end_target = f'id="end-date-range-hint-{bounded_assignment_id}"'.encode()
+    assert f'aria-describedby="start-date-range-hint-{bounded_assignment_id}"'.encode() in r.content
+    assert f'aria-describedby="end-date-range-hint-{bounded_assignment_id}"'.encode() in r.content
+    assert start_target in r.content
+    assert end_target in r.content
+
+
+async def test_edit_row_get_current_bounded_role_suppresses_end_hint(
+    client, bounded_role_id, current_bounded_assignment_id
+):
+    """#243: when the assignment is current the end-date input is disabled, so its
+    range hint + aria-describedby are suppressed; the start-date hint remains."""
+    r = await client.get(
+        f"/admin/roles/{bounded_role_id}/assignments/{current_bounded_assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    # Only the start-date hint renders.
+    assert r.content.count(b"form-group__hint") == 1
     assert b'aria-describedby="start-date-range-hint-' in r.content
-    assert b'aria-describedby="end-date-range-hint-' in r.content
+    assert b'aria-describedby="end-date-range-hint-' not in r.content
+    assert b"end-date-range-hint-" not in r.content
 
 
 async def test_edit_row_get_unbounded_role_has_no_range_hint(client, role_id, assignment_id):

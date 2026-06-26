@@ -1,4 +1,6 @@
 {# admin/roles/partials/_assignment_edit_row.html — inline edit form for one assignment #}
+{% set show_role_window = role and (role.established_on or role.abolished_on) %}
+{% set role_window = 'Role: ' ~ (role.established_on or '?') ~ ' – ' ~ (role.abolished_on or 'present') if show_role_window %}
 <tr id="assignment-row-{{ ra.id }}">
   <td style="font-size:var(--font-size-sm);vertical-align:middle">
     <a href="/admin/people/{{ ra.person_id }}/">{{ ra.person_name or '(unnamed)' }}</a>
@@ -7,10 +9,10 @@
     <div class="form-group" style="margin-bottom:0">
       <input type="date" name="start_date" aria-label="Start date"
              id="start-date-input-{{ ra.id }}"
-             {% if role and (role.established_on or role.abolished_on) %}aria-describedby="start-date-range-hint-{{ ra.id }}"{% endif %}
+             {% if show_role_window %}aria-describedby="start-date-range-hint-{{ ra.id }}"{% endif %}
              value="{{ start_date_input }}">
-      {% if role and (role.established_on or role.abolished_on) %}
-      <div class="form-group__hint" id="start-date-range-hint-{{ ra.id }}">Role: {{ role.established_on or '?' }} – {{ role.abolished_on or 'present' }}</div>
+      {% if show_role_window %}
+      <div class="form-group__hint" id="start-date-range-hint-{{ ra.id }}">{{ role_window }}</div>
       {% endif %}
     </div>
   </td>
@@ -18,11 +20,11 @@
     <div class="form-group" style="margin-bottom:0">
       <input type="date" name="end_date" aria-label="End date"
              id="end-date-input-{{ ra.id }}"
-             {% if role and (role.established_on or role.abolished_on) %}aria-describedby="end-date-range-hint-{{ ra.id }}"{% endif %}
+             {% if show_role_window and not is_current_input %}aria-describedby="end-date-range-hint-{{ ra.id }}"{% endif %}
              value="{{ end_date_input }}"
              {% if is_current_input %}disabled{% endif %}>
-      {% if role and (role.established_on or role.abolished_on) %}
-      <div class="form-group__hint" id="end-date-range-hint-{{ ra.id }}">Role: {{ role.established_on or '?' }} – {{ role.abolished_on or 'present' }}</div>
+      {% if show_role_window and not is_current_input %}
+      <div class="form-group__hint" id="end-date-range-hint-{{ ra.id }}">{{ role_window }}</div>
       {% endif %}
     </div>
   </td>
