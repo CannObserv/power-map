@@ -136,16 +136,15 @@ Key: `pm-color-scheme`
 ```html
 <button class="btn btn--ghost btn--sm admin-topbar__theme-toggle"
         id="theme-toggle"
-        aria-label="Color theme: System. Activate for Dark."
+        aria-label="Color theme"
         type="button">
-  <span data-theme-icon aria-hidden="true">&#9681;</span>
+  <span data-theme-icon aria-hidden="true"></span>
 </button>
 ```
 
 - `id="theme-toggle"` — required by `dark-mode.js`
-- `<span data-theme-icon>` — required; JS swaps content per state (current-state icon): ☀ light, ◑ system, ☽ dark
-- `aria-label` names the current state and the next cycle action; JS keeps both in sync with the stored preference on load and after each `htmx:afterSettle`
-- Static defaults shown above match the **system** default for the pre-JS paint
+- `<span data-theme-icon>` — required; JS sets the per-state icon (current-state): ☀ light, 🖥 system, ☽ dark
+- **Single source of truth:** the per-state icon + `aria-label` strings live only in `dark-mode.js`'s `META` map. The server can't know the client's stored preference, so it renders a **neutral** default (`aria-label="Color theme"`, empty icon); JS populates the correct state on load and after each `htmx:afterSettle`. (Starting empty also avoids a wrong-glyph flash for users whose stored preference isn't `system`.)
 - `dark-mode.js` loaded with `defer` from `<head>` (document-delegated, survives hx-boost swaps)
 
 ---

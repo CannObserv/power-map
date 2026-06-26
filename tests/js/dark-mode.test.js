@@ -17,6 +17,12 @@
  *
  * Pattern: build DOM fixture → eval() the IIFE → simulate events → assert state.
  *
+ * Coverage gap (#25): the `system` state's user-visible payoff — the page
+ * resolving to the OS theme via the @media (prefers-color-scheme) query — can't
+ * be exercised in jsdom. These tests assert only that `system` removes both
+ * html classes (so the media query governs); the actual OS-follow rendering
+ * must be confirmed in a real browser.
+ *
  * Listener cleanup: the script registers document-level 'click' and
  * 'htmx:afterSettle' listeners. A global beforeEach/afterEach pair spies on
  * document.addEventListener, captures every handler registered during the test,
@@ -34,7 +40,7 @@ const KEY = 'pm-color-scheme';
 
 // Affordance glyphs / labels — current-state convention (icon shows the active
 // state, label names the state and the next action in the cycle).
-const ICON = { light: '☀', system: '◑', dark: '☽' };
+const ICON = { light: '☀', system: '🖥', dark: '☽' };
 const LABEL = {
   light: 'Color theme: Light. Activate for System.',
   system: 'Color theme: System. Activate for Dark.',
@@ -67,9 +73,11 @@ afterEach(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Mirrors the neutral default base.html renders; dark-mode.js populates the
+// state-specific icon/label on load (and after each htmx:afterSettle).
 function buildButton() {
-  return `<button id="theme-toggle" aria-label="Color theme: System. Activate for Dark." type="button">
-    <span data-theme-icon aria-hidden="true">◑</span>
+  return `<button id="theme-toggle" aria-label="Color theme" type="button">
+    <span data-theme-icon aria-hidden="true"></span>
   </button>`;
 }
 

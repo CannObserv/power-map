@@ -12,6 +12,10 @@
  * `system` and explicit `light` both render as light and can't be told apart
  * by class alone.
  *
+ * META is the single source of truth for each state's button icon + aria-label.
+ * The server can't know the client's stored preference, so base.html renders a
+ * neutral default and this script populates the correct state on load.
+ *
  * FOUC prevention is handled by an inline <script> in base.html <head>.
  * Uses document-level delegation so the handler survives HTMX boost body swaps.
  */
@@ -21,27 +25,45 @@
   /* Successor of each state in the cycle ring. */
   var NEXT = { light: 'system', system: 'dark', dark: 'light' };
 
-  /* Button affordance per state — current-state convention: the icon shows the
-   * active state; the label names it and the next action. */
+  /* Single source of truth for the button affordance per state — current-state
+   * convention: the icon shows the active state; the label names it and the
+   * next action. */
   var META = {
     light: { icon: '☀', label: 'Color theme: Light. Activate for System.' },
-    system: { icon: '◑', label: 'Color theme: System. Activate for Dark.' },
+    system: { icon: '🖥', label: 'Color theme: System. Activate for Dark.' },
     dark: { icon: '☽', label: 'Color theme: Dark. Activate for Light.' },
   };
 
+  /* In-memory fallback for environments where localStorage throws (private
+   * mode / disabled storage) — keeps the cycle working for the session. */
+  var memState = null;
+
   /* Stored preference → 'light' | 'dark' | 'system'. Anything else (absent,
-   * legacy, junk) means follow OS. */
+   * legacy, junk, or a thrown read) means follow OS. */
   function storedState() {
-    var v = localStorage.getItem(KEY);
-    return v === 'light' || v === 'dark' ? v : 'system';
+    try {
+      var v = localStorage.getItem(KEY);
+      return v === 'light' || v === 'dark' ? v : 'system';
+    } catch {
+      return memState || 'system';
+    }
+  }
+
+  function persist(state) {
+    memState = state;
+    try {
+      if (state === 'system') localStorage.removeItem(KEY);
+      else localStorage.setItem(KEY, state);
+    } catch {
+      /* storage unavailable — session-only; memState carries the cycle */
+    }
   }
 
   function applyState(state) {
     var html = document.documentElement;
     html.classList.toggle('dark', state === 'dark');
     html.classList.toggle('light', state === 'light');
-    if (state === 'system') localStorage.removeItem(KEY);
-    else localStorage.setItem(KEY, state);
+    persist(state);
     syncBtn();
   }
 

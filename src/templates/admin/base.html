@@ -56,13 +56,14 @@
       <nav aria-label="Breadcrumb" class="breadcrumb">{% block breadcrumb %}{% endblock %}</nav>
       <div class="admin-topbar__user">
         {# Three-state color-scheme cycle (light → system → dark). dark-mode.js
-           syncs the icon/label to the stored preference on load; these defaults
-           match the absent/system default for the pre-JS paint. #}
+           owns the per-state icon/label (its META map, the single source of
+           truth) and populates this button on load. The server can't know the
+           client's stored preference, so it renders a neutral default. #}
         <button class="btn btn--ghost btn--sm admin-topbar__theme-toggle"
                 id="theme-toggle"
-                aria-label="Color theme: System. Activate for Dark."
+                aria-label="Color theme"
                 type="button">
-          <span data-theme-icon aria-hidden="true">&#9681;</span>
+          <span data-theme-icon aria-hidden="true"></span>
         </button>
         <span>{{ user.email }}</span>
         <form method="POST" action="/__exe.dev/logout" style="margin:0">
