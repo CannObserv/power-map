@@ -3,7 +3,7 @@
 {% if "address_line_1" in field_visible %}
 <div class="form-group" style="margin-bottom:0">
   <input type="text" name="address_line_1"
-         aria-label="Address line 1"
+         aria-label="{{ field_labels.get('address_line_1', 'Address line 1') }}"
          placeholder="{{ field_labels.get('address_line_1', 'Address line 1') }}"
          value="{{ a.address_line_1 or '' if a else '' }}">
 </div>
@@ -12,7 +12,7 @@
 {% if "address_line_2" in field_visible %}
 <div class="form-group" style="margin-bottom:0">
   <input type="text" name="address_line_2"
-         aria-label="Address line 2"
+         aria-label="{{ field_labels.get('address_line_2', 'Address line 2') }}"
          placeholder="{{ field_labels.get('address_line_2', 'Address line 2') }} (optional)"
          value="{{ a.address_line_2 or '' if a else '' }}">
 </div>
@@ -22,7 +22,7 @@
   {% if "city" in field_visible %}
   <div class="form-group" style="margin-bottom:0;flex:2">
     <input type="text" name="city"
-           aria-label="City"
+           aria-label="{{ field_labels.get('city', 'City') }}"
            placeholder="{{ field_labels.get('city', 'City') }}"
            value="{{ a.city or '' if a else '' }}">
   </div>
@@ -30,7 +30,7 @@
   {% if "region" in field_visible %}
   <div class="form-group" style="margin-bottom:0;flex:1">
     <input type="text" name="region"
-           aria-label="State or region"
+           aria-label="{{ field_labels.get('region', 'State') }}"
            placeholder="{{ field_labels.get('region', 'State') }}"
            value="{{ a.region or '' if a else '' }}">
   </div>
@@ -38,7 +38,7 @@
   {% if "postal_code" in field_visible %}
   <div class="form-group" style="margin-bottom:0;flex:1">
     <input type="text" name="postal_code"
-           aria-label="Postal code"
+           aria-label="{{ field_labels.get('postal_code', 'ZIP') }}"
            placeholder="{{ field_labels.get('postal_code', 'ZIP') }}"
            value="{{ a.postal_code or '' if a else '' }}">
   </div>
