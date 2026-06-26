@@ -68,10 +68,12 @@ def test_fouc_prevention_script_in_base_template(client):
 
 
 def test_dark_mode_toggle_button_present(client):
-    """Theme toggle button must be in the topbar with correct ARIA label."""
+    """Theme toggle button must be in the topbar with a neutral accessible name.
+    Per #25, dark-mode.js owns the per-state label/icon (its META map) and
+    populates the button on load; the server renders only this neutral default."""
     response = client.get("/admin/", headers=AUTH_HEADERS)
     assert "theme-toggle" in response.text
-    assert "Switch to dark mode" in response.text
+    assert 'aria-label="Color theme"' in response.text
 
 
 def test_dark_mode_js_loaded_with_defer(client):
