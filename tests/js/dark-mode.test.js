@@ -40,7 +40,7 @@ const KEY = 'pm-color-scheme';
 
 // Affordance glyphs / labels — current-state convention (icon shows the active
 // state, label names the state and the next action in the cycle).
-const ICON = { light: '☀', system: '🖥', dark: '☽' };
+const ICON = { light: '☀', system: '◑', dark: '☽' };
 const LABEL = {
   light: 'Color theme: Light. Activate for System.',
   system: 'Color theme: System. Activate for Dark.',
@@ -161,6 +161,52 @@ describe('unknown stored value', () => {
     expect(iconText()).toBe(ICON.system);
     click(); // system → dark
     expect(localStorage.getItem(KEY)).toBe('dark');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Degraded storage — localStorage throws (private mode / disabled / quota).
+//
+// The cycle must keep advancing in-session off the in-memory fallback. Only the
+// rendered classes are assertable (nothing can be persisted); cross-navigation
+// persistence is impossible with broken storage and is not part of the contract.
+// ---------------------------------------------------------------------------
+
+describe('degraded storage', () => {
+  it('keeps cycling when setItem throws but reads work (write-broken)', () => {
+    setup(); // system default; getItem works at load
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceeded');
+    });
+    try {
+      click(); // system → dark
+      expect(hasDark()).toBe(true);
+      expect(hasLight()).toBe(false);
+      click(); // dark → light  (must NOT re-read empty key and stick on system)
+      expect(hasLight()).toBe(true);
+      expect(hasDark()).toBe(false);
+      click(); // light → system
+      expect(hasDark()).toBe(false);
+      expect(hasLight()).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('keeps cycling when getItem throws (read-broken)', () => {
+    const spy = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    try {
+      setup(); // syncBtn on load reads through the throwing getItem
+      expect(btn().getAttribute('aria-label')).toBe(LABEL.system);
+      click(); // system → dark
+      expect(hasDark()).toBe(true);
+      click(); // dark → light
+      expect(hasLight()).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

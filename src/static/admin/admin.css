@@ -156,6 +156,11 @@ a:hover { color: var(--color-brand-hover); }
 
 /* Dark mode toggle button */
 .admin-topbar__theme-toggle { font-size: 1.1rem; line-height: 1; min-width: 2.25rem; }
+/* No-JS / pre-JS affordance: the server renders an empty [data-theme-icon] span
+   (dark-mode.js fills it on load). Show the neutral system glyph (mirrors
+   META.system.icon in dark-mode.js) until JS populates real textContent, so the
+   button never renders blank. */
+.admin-topbar__theme-toggle [data-theme-icon]:empty::before { content: "◑"; }
 
 /* Mobile nav backdrop */
 .admin-nav-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200; }

@@ -30,32 +30,40 @@
    * next action. */
   var META = {
     light: { icon: '☀', label: 'Color theme: Light. Activate for System.' },
-    system: { icon: '🖥', label: 'Color theme: System. Activate for Dark.' },
+    system: { icon: '◑', label: 'Color theme: System. Activate for Dark.' },
     dark: { icon: '☽', label: 'Color theme: Dark. Activate for Light.' },
   };
 
-  /* In-memory fallback for environments where localStorage throws (private
-   * mode / disabled storage) — keeps the cycle working for the session. */
+  /* Session fallback for environments where localStorage throws (private mode /
+   * disabled storage). Once any read or write throws we latch `storageBroken`
+   * and drive the cycle off `memState` — covers the asymmetric case where the
+   * read succeeds but the write fails, which would otherwise re-read the empty
+   * key every click and pin the cycle on system→dark. */
   var memState = null;
+  var storageBroken = false;
 
   /* Stored preference → 'light' | 'dark' | 'system'. Anything else (absent,
-   * legacy, junk, or a thrown read) means follow OS. */
+   * legacy, junk, or unavailable storage) means follow OS. */
   function storedState() {
-    try {
-      var v = localStorage.getItem(KEY);
-      return v === 'light' || v === 'dark' ? v : 'system';
-    } catch {
-      return memState || 'system';
+    if (!storageBroken) {
+      try {
+        var v = localStorage.getItem(KEY);
+        return v === 'light' || v === 'dark' ? v : 'system';
+      } catch {
+        storageBroken = true;
+      }
     }
+    return memState || 'system';
   }
 
   function persist(state) {
     memState = state;
+    if (storageBroken) return;
     try {
       if (state === 'system') localStorage.removeItem(KEY);
       else localStorage.setItem(KEY, state);
     } catch {
-      /* storage unavailable — session-only; memState carries the cycle */
+      storageBroken = true;
     }
   }
 

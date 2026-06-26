@@ -143,8 +143,9 @@ Key: `pm-color-scheme`
 ```
 
 - `id="theme-toggle"` — required by `dark-mode.js`
-- `<span data-theme-icon>` — required; JS sets the per-state icon (current-state): ☀ light, 🖥 system, ☽ dark
+- `<span data-theme-icon>` — required; JS sets the per-state icon (current-state): ☀ light, ◑ system, ☽ dark
 - **Single source of truth:** the per-state icon + `aria-label` strings live only in `dark-mode.js`'s `META` map. The server can't know the client's stored preference, so it renders a **neutral** default (`aria-label="Color theme"`, empty icon); JS populates the correct state on load and after each `htmx:afterSettle`. (Starting empty also avoids a wrong-glyph flash for users whose stored preference isn't `system`.)
+- **No-JS / pre-JS affordance:** `admin.css` gives the empty span a `[data-theme-icon]:empty::before { content: "◑"; }` placeholder (the neutral system glyph) so the button never renders blank before JS runs; once JS sets real `textContent` the `:empty` rule stops matching.
 - `dark-mode.js` loaded with `defer` from `<head>` (document-delegated, survives hx-boost swaps)
 
 ---
