@@ -1,0 +1,7 @@
+{# admin/shared/_entity_search_results.html — typeahead options for the unified
+   entity search (person | organization). Mirrors the per-entity search partials. #}
+{% for r in results %}
+<li id="opt-{{ r.id }}" role="option"
+    data-id="{{ r.id }}"
+    data-label="{{ r.display_name }}">{{ r.display_name }}</li>
+{% endfor %}

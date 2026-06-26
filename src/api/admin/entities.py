@@ -1,9 +1,10 @@
-"""Admin entities landing page."""
+"""Admin entities landing page and unified entity-search typeahead."""
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.api.admin.entity_lookup import search_entities
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/entities", tags=["admin-entities"])
@@ -33,4 +34,26 @@ async def entities_index(
             "active_section": "entities",
             "counts": counts,
         },
+    )
+
+
+@router.get("/search/")
+async def entities_search(
+    request: Request,
+    q: str = "",
+    linked_entity_type: str = "",
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Typeahead search scoped by entity type — returns an HTML option fragment.
+
+    Backs the linked-entity field on the admin event form: ``linked_entity_type``
+    selects which table (people or organizations) is searched. Unsupported types
+    and blank queries yield an empty fragment.
+    """
+    results = await search_entities(db, linked_entity_type, q)
+    return templates.TemplateResponse(
+        request,
+        "admin/shared/_entity_search_results.html",
+        {"results": results},
     )

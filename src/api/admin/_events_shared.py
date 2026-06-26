@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.entity_lookup import ENTITY_TYPES, entity_exists, resolve_entity_label
 from src.core.db import generate_id
 from src.core.types import EVENT_PLACE_PRECISIONS
 
@@ -160,6 +161,34 @@ def _parse_int(value: str) -> int | None:
         return None
 
 
+async def _validate_linked_entity(
+    db: asyncpg.Connection, linked_entity_type: str, linked_entity_id: str
+) -> tuple[str | None, str | None, str | None]:
+    """Validate a polymorphic linked-entity reference.
+
+    Returns ``(linked_type, linked_id, None)`` on success — both None when no link
+    is supplied — or ``(None, None, error_string)`` on failure. ``linked_entity_id``
+    is a polymorphic FK with no DB constraint, so type and existence are checked
+    here.
+    """
+    linked_id = linked_entity_id.strip() or None
+    if linked_id is None:
+        return None, None, None
+    linked_type = linked_entity_type.strip() or None
+    if linked_type not in ENTITY_TYPES:
+        return None, None, "Linked entity type must be a person or organization."
+    if not await entity_exists(db, linked_type, linked_id):
+        return None, None, "Linked entity not found."
+    return linked_type, linked_id, None
+
+
+async def _linked_label(db: asyncpg.Connection, ev) -> str | None:
+    """Resolve the display name for an event's linked entity, for form prefill."""
+    if ev is None or not ev["linked_entity_id"]:
+        return None
+    return await resolve_entity_label(db, ev["linked_entity_type"], ev["linked_entity_id"])
+
+
 def make_events_router(
     *,
     entity_type: str,
@@ -223,12 +252,25 @@ def make_events_router(
         """Build template context with the correct entity-id key."""
         return {entity_id_key: entity_id, **extra}
 
-    def _form_response(request, entity_id: str, ev, event_types, error: str | None = None):
+    def _form_response(
+        request,
+        entity_id: str,
+        ev,
+        event_types,
+        error: str | None = None,
+        linked_label: str | None = None,
+    ):
         """Return form template response, used for new-row and validation errors."""
         return templates.TemplateResponse(
             request,
             tmpl_form_row,
-            _ctx(entity_id, ev=ev, event_types=event_types, form_error=error),
+            _ctx(
+                entity_id,
+                ev=ev,
+                event_types=event_types,
+                form_error=error,
+                linked_entity_label=linked_label,
+            ),
         )
 
     # ---- routes -----------------------------------------------------------------
@@ -314,6 +356,15 @@ def make_events_router(
                 error="Linked entity is required for this event type.",
             )
 
+        linked_type, linked_id, linked_error = await _validate_linked_entity(
+            db, linked_entity_type, linked_entity_id
+        )
+        if linked_error:
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(request, entity_id, None, event_types, error=linked_error)
+
         place_addr_id, addr_error = await _validate_event_place_address(db, event_place_address_id)
         if addr_error:
             if not is_htmx(request):
@@ -322,8 +373,6 @@ def make_events_router(
             return _form_response(request, entity_id, None, event_types, error=addr_error)
 
         eid = generate_id()
-        linked_id = linked_entity_id.strip() or None
-        linked_type = linked_entity_type.strip() or None if linked_id else None
         await db.execute(
             """INSERT INTO entity_events
                (id, entity_type, entity_id, event_type_id,
@@ -386,7 +435,8 @@ def make_events_router(
         """Return event edit form row."""
         row = await _get_event_or_404(event_id, entity_id, db)
         event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
-        return _form_response(request, entity_id, row, event_types)
+        linked_label = await _linked_label(db, row)
+        return _form_response(request, entity_id, row, event_types, linked_label=linked_label)
 
     @router.post("/{event_id}/edit-row/")
     async def event_edit_row_post(
@@ -411,6 +461,7 @@ def make_events_router(
     ):
         """Update an event."""
         existing = await _get_event_or_404(event_id, entity_id, db)
+        existing_label = await _linked_label(db, existing)
 
         year_val = _parse_int(event_year)
         month_val = _parse_int(event_month)
@@ -426,7 +477,14 @@ def make_events_router(
             if not is_htmx(request):
                 return RedirectResponse(detail_url(entity_id), status_code=303)
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
-            return _form_response(request, entity_id, existing, event_types, error=date_error)
+            return _form_response(
+                request,
+                entity_id,
+                existing,
+                event_types,
+                error=date_error,
+                linked_label=existing_label,
+            )
 
         # Validate event type constraints
         etype_row = await db.fetchrow(
@@ -445,6 +503,7 @@ def make_events_router(
                 existing,
                 event_types,
                 error="Year is required for this event type.",
+                linked_label=existing_label,
             )
         if etype_row["requires_linked_entity"] and not linked_entity_id.strip():
             if not is_htmx(request):
@@ -456,6 +515,23 @@ def make_events_router(
                 existing,
                 event_types,
                 error="Linked entity is required for this event type.",
+                linked_label=existing_label,
+            )
+
+        linked_type, linked_id, linked_error = await _validate_linked_entity(
+            db, linked_entity_type, linked_entity_id
+        )
+        if linked_error:
+            if not is_htmx(request):
+                return RedirectResponse(detail_url(entity_id), status_code=303)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(
+                request,
+                entity_id,
+                existing,
+                event_types,
+                error=linked_error,
+                linked_label=existing_label,
             )
 
         place_addr_id, addr_error = await _validate_event_place_address(db, event_place_address_id)
@@ -463,10 +539,15 @@ def make_events_router(
             if not is_htmx(request):
                 return RedirectResponse(detail_url(entity_id), status_code=303)
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
-            return _form_response(request, entity_id, existing, event_types, error=addr_error)
+            return _form_response(
+                request,
+                entity_id,
+                existing,
+                event_types,
+                error=addr_error,
+                linked_label=existing_label,
+            )
 
-        linked_id = linked_entity_id.strip() or None
-        linked_type = linked_entity_type.strip() or None if linked_id else None
         await db.execute(
             """UPDATE entity_events SET
                event_type_id=$1,

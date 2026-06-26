@@ -38,6 +38,9 @@
   <script src="/static/admin/person-name-parts-reorder.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/person-name-parts-cardstack.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/person-name-row-typeahead.js?v={{ asset_version }}" defer></script>
+  {# Entity-event form row wiring (#172): linked-entity typeahead + scope switch.
+     Document-delegated; defensive on pages without an event form. #}
+  <script src="/static/admin/event-form-row.js?v={{ asset_version }}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
