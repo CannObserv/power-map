@@ -617,6 +617,31 @@ descriptor, same rule as row-action buttons (SC 2.4.6):
 Do **not** rely on `title` for the accessible name (see *`title` attributes* below). Static
 linting enforced by `tests/api/admin/test_aria_labels.py`.
 
+### Optional-field cue
+
+Inline form rows signal "(optional)" only in the `placeholder`, which assistive tech reads
+unreliably (same reason `placeholder` is not a label, above). Mark an optional inline field on
+**both** channels:
+
+- **Visible:** keep the `(optional)` suffix in the `placeholder`.
+- **Assistive tech:** add `aria-describedby` pointing to a `.visually-hidden` hint element
+  (defined in `admin.css`). Namespace the hint `id` with the row key so multiple open rows
+  don't collide.
+
+```html
+<input type="text" name="event_place_text" aria-label="Place"
+       aria-describedby="event-place-opt-{{ _le_key }}"
+       placeholder="Place (optional)">
+<span class="visually-hidden" id="event-place-opt-{{ _le_key }}">Optional</span>
+```
+
+When the parenthetical carries more than optionality (a format hint), put the full text in the
+hint: `Optional — city, postal, or street precision`.
+
+Fields with a visible `<label>` don't need this — the label already names the field accessibly;
+append `(optional)` to the label text instead. Static linting:
+`tests/api/admin/test_aria_labels.py::test_optional_placeholder_cue_has_describedby`.
+
 ### Form hints
 
 Link hint text to its input via `aria-describedby`:

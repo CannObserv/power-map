@@ -36,8 +36,11 @@
           </select>
         </div>
         <div class="form-group" style="margin-bottom:0;flex:2">
-          <input type="text" name="display_name" aria-label="Address label" placeholder="Label (optional)"
+          <input type="text" name="display_name" aria-label="Address label"
+                 aria-describedby="address-label-opt-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
+                 placeholder="Label (optional)"
                  value="{{ a.display_name or '' if a else '' }}">
+          <span class="visually-hidden" id="address-label-opt-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}">Optional</span>
         </div>
         <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
           <button type="submit" class="btn btn--sm btn--primary">Save</button>

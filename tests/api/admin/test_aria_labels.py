@@ -14,6 +14,11 @@ Two checks:
    mechanisms: ``aria-label`` / ``aria-labelledby`` on the control, an ``id``
    targeted by a ``<label for>``, or being wrapped in a ``<label>``. See
    ``docs/STYLE.md §12 → Form labels``.
+
+3. ``test_optional_placeholder_cue_has_describedby`` — a control that marks
+   "(optional)" in its ``placeholder`` must also expose it via
+   ``aria-describedby`` (placeholders are unreliable for assistive tech). See
+   ``docs/STYLE.md §12 → Optional-field cue``.
 """
 
 import re
@@ -128,4 +133,46 @@ def test_form_controls_have_accessible_names():
         raise AssertionError(
             "form controls missing accessible name (placeholder is not a label):\n"
             + "\n".join(lines)
+        )
+
+
+# --- Optional-field cue -------------------------------------------------------
+
+_PLACEHOLDER_RE = re.compile(r'placeholder="([^"]*)"')
+
+
+def _optional_cue_missing_describedby(text: str) -> list[str]:
+    """Controls whose placeholder marks '(optional)' but lack aria-describedby.
+
+    placeholder text is unreliable for assistive tech, so the optionality cue
+    must also be exposed via aria-describedby -> a .visually-hidden hint.
+    See docs/STYLE.md §12 → Optional-field cue.
+    """
+    missing: list[str] = []
+    for m in _CONTROL_RE.finditer(text):
+        tag = m.group(0)
+        ph = _PLACEHOLDER_RE.search(tag)
+        if ph and "optional" in ph.group(1).lower() and "aria-describedby=" not in tag:
+            missing.append(tag)
+    return missing
+
+
+def test_optional_placeholder_cue_has_describedby():
+    """A placeholder '(optional)' cue must be backed by aria-describedby."""
+    failures: dict[str, list[str]] = {}
+    for rel in _ALL_TEMPLATES:
+        text = (_TEMPLATE_BASE / rel).read_text()
+        missing = _optional_cue_missing_describedby(text)
+        if missing:
+            failures[str(rel)] = missing
+
+    if failures:
+        lines: list[str] = []
+        for rel, tags in sorted(failures.items()):
+            lines.append(f"  {rel}:")
+            for tag in tags:
+                lines.append(f"    {' '.join(tag.split())[:140]!r}")
+        raise AssertionError(
+            "placeholder '(optional)' cue without aria-describedby "
+            "(see docs/STYLE.md §12 → Optional-field cue):\n" + "\n".join(lines)
         )

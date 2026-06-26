@@ -13,8 +13,10 @@
 <div class="form-group" style="margin-bottom:0">
   <input type="text" name="address_line_2"
          aria-label="{{ field_labels.get('address_line_2', 'Address line 2') }}"
+         aria-describedby="address-line-2-opt-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
          placeholder="{{ field_labels.get('address_line_2', 'Address line 2') }} (optional)"
          value="{{ a.address_line_2 or '' if a else '' }}">
+  <span class="visually-hidden" id="address-line-2-opt-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}">Optional</span>
 </div>
 {% endif %}
 
