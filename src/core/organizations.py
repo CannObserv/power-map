@@ -11,7 +11,17 @@ class ActiveOnArchivedOrg(Exception):
     """
 
 
-async def set_org_active(conn, organization_id: str, active: bool) -> bool:
+class OrgNotFound(Exception):
+    """Raised when the target organization row does not exist.
+
+    The ``FOR UPDATE`` row read returns no row — e.g. the org was hard-deleted
+    concurrently between a caller's existence check and this write. Callers map
+    it to their own response (admin → 404); the public path cannot trigger it
+    because ``resolve_entity`` guarantees the org exists within the same txn.
+    """
+
+
+async def set_org_active(conn, organization_id: str, active: bool) -> None:
     """Set an organization's ``active`` flag with archived + no-op guards.
 
     The row is locked ``FOR UPDATE`` so the archived check and the write are
@@ -19,20 +29,20 @@ async def set_org_active(conn, organization_id: str, active: bool) -> bool:
     an open transaction for the lock to be held until commit. The flag is
     written only when it actually changes; a redundant assertion is a true
     no-op that does not fire ``fn_record_entity_change`` (no spurious 'updated'
-    event) and does not bump ``updated_at``. Assumes the org exists.
+    event) and does not bump ``updated_at``.
 
-    Raises ActiveOnArchivedOrg if the org is archived. Returns ``True`` when the
-    flag changed, ``False`` on a no-op.
+    Raises OrgNotFound if the row is absent, ActiveOnArchivedOrg if it is
+    archived.
     """
     row = await conn.fetchrow(
         "SELECT archived_at, active FROM organizations WHERE id=$1 FOR UPDATE",
         organization_id,
     )
+    if row is None:
+        raise OrgNotFound
     if row["archived_at"] is not None:
         raise ActiveOnArchivedOrg
     if row["active"] != active:
         await conn.execute(
             "UPDATE organizations SET active=$1 WHERE id=$2", active, organization_id
         )
-        return True
-    return False

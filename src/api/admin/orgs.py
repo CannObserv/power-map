@@ -19,7 +19,7 @@ from src.api.admin.deps import (
 from src.api.admin.pagination import pagination_context
 from src.core.db import generate_id
 from src.core.logging import get_logger
-from src.core.organizations import ActiveOnArchivedOrg, set_org_active
+from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
 
 logger = get_logger(__name__)
 
@@ -248,6 +248,9 @@ async def org_inline_active_post(
         raise HTTPException(
             status_code=409, detail="Cannot change active on an archived organization."
         ) from exc
+    except OrgNotFound as exc:
+        # Org hard-deleted between the existence check above and the locked write.
+        raise HTTPException(status_code=404) from exc
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
