@@ -832,6 +832,53 @@ async def test_observation_active_on_archived_org_rejected(client, org_write_key
         await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
 
 
+async def test_observation_active_on_archived_org_is_atomic(client, org_write_key, db):
+    """An archived-org reject rolls back the whole observation — sibling writes too.
+
+    The active write runs first and rejects before any name write; the surrounding
+    transaction guarantees nothing (not even the names) is persisted.
+    """
+    org_id = generate_id()
+    ubi_val = _unique_id()
+    await db.execute("INSERT INTO organizations (id, archived_at) VALUES ($1, NOW())", org_id)
+    ubi_type = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug='org_ubi'")
+    assert ubi_type is not None, "org_ubi type not seeded — run apply_schema"
+    eid = generate_id()
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1,$2,$3,$4)",
+        eid,
+        org_id,
+        ubi_type["id"],
+        ubi_val,
+    )
+    try:
+        raw, _ = org_write_key
+        r = _post(
+            client,
+            raw,
+            {
+                "identifier_type": "org_ubi",
+                "identifier_value": ubi_val,
+                "names": [{"name": "Should Not Persist Corp", "name_type": "legal"}],
+                "active": False,
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["disposition"] == "rejected"
+        # Nothing written: no name row, flag untouched.
+        name_count = await db.fetchval(
+            "SELECT COUNT(*) FROM organization_names WHERE organization_id=$1", org_id
+        )
+        assert name_count == 0, f"names must roll back on archived reject, found {name_count}"
+        active = await db.fetchval("SELECT active FROM organizations WHERE id=$1", org_id)
+        assert active is True
+    finally:
+        await db.execute("DELETE FROM organization_names WHERE organization_id=$1", org_id)
+        await db.execute("DELETE FROM identifiers WHERE id=$1", eid)
+        await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+
+
 async def test_observation_active_change_emits_entity_change(client, org_write_key, db):
     """An effective active toggle appends exactly one entity_changes 'updated' row."""
     org_id = generate_id()
