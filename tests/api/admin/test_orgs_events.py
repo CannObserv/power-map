@@ -586,3 +586,102 @@ async def test_event_create_presence_validation(
     assert r.status_code == 200
     assert "<form" in r.text
     assert expected_fragment in r.text
+
+
+# ---------------------------------------------------------------------------
+# Linked-entity validation + edit prefill (#172) — org side of the shared
+# factory (logic lives in _events_shared.py; people side covered separately).
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def linkable_person(db_pool):
+    """A person with a display name, usable as a linked entity."""
+    pid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical)"
+            " VALUES ($1, $2, $3, TRUE)",
+            generate_id(),
+            pid,
+            "Linked Target Person",
+        )
+
+    yield pid, "Linked Target Person"
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+        await conn.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_org_event_create_accepts_valid_linked_entity(
+    client, org_and_event_type, linkable_person, db_pool
+):
+    oid, etid = org_and_event_type
+    pid, _ = linkable_person
+    r = client.post(
+        f"/admin/orgs/{oid}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2020",
+            "linked_entity_type": "person",
+            "linked_entity_id": pid,
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "Linked entity" not in r.text  # no validation error
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT linked_entity_type, linked_entity_id FROM entity_events"
+            " WHERE entity_id=$1 AND linked_entity_id=$2",
+            oid,
+            pid,
+        )
+    assert row is not None
+    assert row["linked_entity_type"] == "person"
+
+
+async def test_org_event_create_rejects_unknown_linked_entity(client, org_and_event_type):
+    oid, etid = org_and_event_type
+    r = client.post(
+        f"/admin/orgs/{oid}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2020",
+            "linked_entity_type": "person",
+            "linked_entity_id": "per_doesnotexist",
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "Linked entity not found" in r.text
+
+
+async def test_org_event_edit_row_prefills_linked_entity_name(
+    client, org_and_event_type, linkable_person, db_pool
+):
+    oid, etid = org_and_event_type
+    pid, pname = linkable_person
+    eid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO entity_events"
+            " (id, entity_type, entity_id, event_type_id, event_year,"
+            "  linked_entity_type, linked_entity_id, visibility)"
+            " VALUES ($1, 'organization', $2, $3, 2020, 'person', $4, 'public')",
+            eid,
+            oid,
+            etid,
+            pid,
+        )
+    try:
+        r = client.get(f"/admin/orgs/{oid}/events/{eid}/edit-row/", headers=HTMX_HEADERS)
+        assert r.status_code == 200
+        assert pname in r.text  # display name, not the raw ULID
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)

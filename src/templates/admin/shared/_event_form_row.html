@@ -1,11 +1,12 @@
 {# admin/shared/_event_form_row.html — shared event create/edit form.
    Callers must set: _ev_url_base, _ev_row_prefix #}
+{%- set _le_key = ev.id if ev else 'new' -%}
 <tr id="{% if ev %}{{ _ev_row_prefix }}-{{ ev.id }}{% else %}{{ _ev_row_prefix }}-new{% endif %}">
   <td colspan="6" style="padding:var(--space-3) var(--space-4)">
     {% if form_error %}
     <div class="alert alert--error" style="margin-bottom:var(--space-3)">{{ form_error }}</div>
     {% endif %}
-    <form data-event-form-row data-uid="{% if ev %}{{ ev.id }}{% else %}new{% endif %}"
+    <form data-event-form-row data-uid="{{ _le_key }}"
           {% if ev %}
           hx-post="{{ _ev_url_base }}/events/{{ ev.id }}/edit-row/"
           hx-target="#{{ _ev_row_prefix }}-{{ ev.id }}"
@@ -86,7 +87,6 @@
                placeholder="Address ID (optional — city/postal/street precision)"
                value="{{ ev.event_place_address_id or '' if ev else '' }}">
       </div>
-      {%- set _le_key = ev.id if ev else 'new' -%}
       <div data-linked-entity-section>
         <label style="font-size:0.75rem;font-weight:600;display:block;color:var(--color-text-muted);margin-bottom:var(--space-1)">Linked Entity</label>
         <div style="display:flex;gap:var(--space-2);align-items:flex-start">
