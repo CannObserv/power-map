@@ -458,21 +458,22 @@ async def test_edit_row_get_bounded_role_surfaces_range_accessibly(
     assert end_target in r.content
 
 
-async def test_edit_row_get_current_bounded_role_suppresses_end_hint(
+async def test_edit_row_get_current_bounded_role_keeps_both_hints(
     client, bounded_role_id, current_bounded_assignment_id
 ):
-    """#243: when the assignment is current the end-date input is disabled, so its
-    range hint + aria-describedby are suppressed; the start-date hint remains."""
+    """#243: the range hint renders on both date inputs even when the assignment is
+    current. The end-date input is disabled at render but the Current checkbox can
+    re-enable it client-side, so the hint must already be present and linked."""
     r = await client.get(
         f"/admin/roles/{bounded_role_id}/assignments/{current_bounded_assignment_id}/edit-row/",
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    # Only the start-date hint renders.
-    assert r.content.count(b"form-group__hint") == 1
+    assert r.content.count(b"form-group__hint") == 2
     assert b'aria-describedby="start-date-range-hint-' in r.content
-    assert b'aria-describedby="end-date-range-hint-' not in r.content
-    assert b"end-date-range-hint-" not in r.content
+    assert b'aria-describedby="end-date-range-hint-' in r.content
+    # End-date input is disabled at initial render (current assignment).
+    assert b"disabled" in r.content
 
 
 async def test_edit_row_get_unbounded_role_has_no_range_hint(client, role_id, assignment_id):
