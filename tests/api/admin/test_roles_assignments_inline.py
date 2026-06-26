@@ -259,6 +259,20 @@ async def assignment_id(db, role_id, person_id):
     return ra_id
 
 
+@pytest_asyncio.fixture(loop_scope="session")
+async def bounded_assignment_id(db, bounded_role_id, person_id):
+    """Assignment on a role with established/abolished bounds (2010–2020)."""
+    ra_id = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
+           VALUES ($1, $2, $3, FALSE, '2012-01-01', '2015-12-31')""",
+        ra_id,
+        person_id,
+        bounded_role_id,
+    )
+    return ra_id
+
+
 # ---------------------------------------------------------------------------
 # Read row
 # ---------------------------------------------------------------------------
@@ -402,6 +416,39 @@ async def test_edit_row_get_unknown_returns_404(client, role_id):
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 404
+
+
+async def test_edit_row_get_bounded_role_surfaces_range_accessibly(
+    client, bounded_role_id, bounded_assignment_id
+):
+    """#243: the role established/abolished window must be conveyed via an
+    accessible mechanism (visible hint linked by aria-describedby), not `title`."""
+    r = await client.get(
+        f"/admin/roles/{bounded_role_id}/assignments/{bounded_assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    # No inaccessible title attribute (STYLE §12 ban).
+    assert b"title=" not in r.content
+    # Visible hint with the role window on both date inputs.
+    assert r.content.count(b"form-group__hint") == 2
+    assert b"2010-01-01" in r.content
+    assert b"2020-12-31" in r.content
+    # Each date input references its hint via aria-describedby.
+    assert b'aria-describedby="start-date-range-hint-' in r.content
+    assert b'aria-describedby="end-date-range-hint-' in r.content
+
+
+async def test_edit_row_get_unbounded_role_has_no_range_hint(client, role_id, assignment_id):
+    """#243: a role without bounds emits no hint, no aria-describedby, no title."""
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert b"title=" not in r.content
+    assert b"form-group__hint" not in r.content
+    assert b"aria-describedby" not in r.content
 
 
 # ---------------------------------------------------------------------------
