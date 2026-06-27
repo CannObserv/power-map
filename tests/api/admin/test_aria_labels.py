@@ -91,19 +91,25 @@ def _has_accessible_name(tag: str, pos: int, text: str, labeled_ids: set[str]) -
 
     placeholder is intentionally NOT accepted.
 
-    Heuristic, per-file, regex-based — accepted limitations (none triggered by
-    current templates; see GH #244). Each is inherently cross-template and so
-    cannot be resolved by a single-file parser; the authoritative fix is a
-    render-based a11y harness (GH #246):
+    Heuristic, per-file, regex/substring-based — accepted limitations (none
+    triggered by current templates, verified 2026-06; see GH #244). The
+    render-based a11y harness (GH #246) is the authoritative fix for all three;
+    #1 alone could also be closed by a single-file ancestry parser (it is
+    in-file, not cross-template):
 
       1. Two controls under one wrapping ``<label>`` both pass, though only the
          first labelable descendant actually receives the accessible name.
+         In-file, but needs real ancestry resolution to detect — fails
+         *silently* (the second control passes the lint).
       2. A control whose wrapping ``<label>`` lives in a *parent* template (the
          control pulled in via ``{% include %}``) false-positives — this file's
-         text never sees the opening ``<label``.
+         text never sees the opening ``<label``. Cross-template: the label is in
+         another file. Fails *loud* (the control is flagged), so it is
+         self-policing.
       3. ``aria-labelledby`` is accepted by presence; a dangling id reference
          (target absent, or rendered by a parent/sibling template) is not
-         validated.
+         validated. Cross-template when the target renders elsewhere — fails
+         *silently*.
     """
     if "aria-label=" in tag or "aria-labelledby=" in tag:
         return True
