@@ -557,7 +557,8 @@ Every `btn--sm` in a read-row partial must have `aria-label`. Multiple identical
 
 Pattern: `aria-label="[Action] [entity-specific descriptor]"`
 
-- **[Action]**: imperative matching visible text (`Edit`, `Delete`, `Archive`, `Unarchive`, `View`, `Open`, `Unlink`, `Copy`)
+- **[Action]**: imperative matching visible text (`Edit`, `Delete`, `Archive`, `Unarchive`, `View`, `Open`, `Unlink`, `Copy`, `Revoke`, `Grant`, `Close`)
+  Exception: where the visible text *is* the descriptor (the API-key scope panel's Grant buttons show the scope id, not the verb), prefix the action in the `aria-label` (`aria-label="Grant {{ st.id }}"`). WCAG 2.5.3 (Label in Name) still holds — the visible scope id is contained in the accessible name.
 - **[entity-specific descriptor]**: the row's most natural identifier — name, value, address type, etc.
   Address rows use `a.address_type` (e.g. `"Edit mailing address"`) since the full formatted address is unwieldy. If an entity has two addresses of the same type, labels will collide — acceptable given the rarity of this case.
 

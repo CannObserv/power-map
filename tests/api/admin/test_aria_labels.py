@@ -3,7 +3,9 @@
 Checks:
 
 1. ``test_read_row_buttons_have_aria_labels`` — every ``btn--sm`` in read-row
-   templates must have ``aria-label`` (SC 2.4.6 / 4.1.2: disambiguates repeated
+   templates (and the explicitly-listed looped-button partials in
+   ``_EXTRA_LOOPED_BUTTON_TEMPLATES``) must have ``aria-label`` (SC 2.4.6 /
+   4.1.2: disambiguates repeated
    "Edit"/"Delete" labels across rows on the same page). Form rows (Save/Cancel)
    are excluded — only one form row is open at a time, so there is no
    disambiguation issue on those buttons.
