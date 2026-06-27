@@ -572,6 +572,16 @@ Pattern: `aria-label="[Action] [entity-specific descriptor]"`
 editable at a time, so disambiguation is not needed. Static linting enforced by
 `tests/api/admin/test_aria_labels.py`.
 
+**Looped buttons outside `*_rows?.html`**: the lint auto-discovers `*_row.html` / `*_rows.html`
+partials only. A partial that renders repeated action buttons in a loop under a different name
+(e.g. `settings/partials/_api_key_scopes.html` — per-scope Revoke/Grant) hits the same SC 2.4.6
+problem but is missed by the glob. Add such files to `_EXTRA_LOOPED_BUTTON_TEMPLATES` in the lint
+rather than widening the glob — most non-row partials carry single buttons (Close/Save) that
+legitimately need no `aria-label`. Note the lint checks `aria-label` **presence**, not accessible
+name by any mechanism, so a button labeled via visible text alone still needs an `aria-label` to
+pass; when adding one, fold any `.visually-hidden` descriptor into the `aria-label` (it overrides
+the text-node name) so nothing is dropped. (#247)
+
 ### Status badges
 
 Entity state (active / inactive / archived / current / former, validation status, import

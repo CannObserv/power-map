@@ -36,12 +36,25 @@ _TEMPLATE_BASE = Path("src/templates/admin")
 # Auto-discover all read-row partials (singular *_row.html and plural *_rows.html).
 # Excludes form/edit rows (Save/Cancel buttons are exempt — only one row is editable
 # at a time) and confirm modals.
+#
+# Supplemental: partials that render repeated action buttons in a loop but don't
+# follow the *_rows?.html naming convention, so auto-discovery misses them. They
+# hit the same SC 2.4.6 disambiguation problem and must be linted too. List
+# explicitly rather than widening the glob — most non-row partials carry single
+# buttons (Close/Save/Cancel) that legitimately need no aria-label (GH #247).
+_EXTRA_LOOPED_BUTTON_TEMPLATES = {
+    Path("settings/partials/_api_key_scopes.html"),
+}
+
 _READ_ROW_TEMPLATES = sorted(
-    p.relative_to(_TEMPLATE_BASE)
-    for p in _TEMPLATE_BASE.rglob("*.html")
-    if re.search(r"_rows?\.html$", p.name)
-    and "_form_row" not in p.name
-    and "_edit_row" not in p.name
+    {
+        p.relative_to(_TEMPLATE_BASE)
+        for p in _TEMPLATE_BASE.rglob("*.html")
+        if re.search(r"_rows?\.html$", p.name)
+        and "_form_row" not in p.name
+        and "_edit_row" not in p.name
+    }
+    | _EXTRA_LOOPED_BUTTON_TEMPLATES
 )
 
 # Quoted-string-aware tag match: handles attribute values that contain >.
