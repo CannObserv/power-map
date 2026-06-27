@@ -7,7 +7,7 @@
   <td{% if n.reading_of_id %} style="padding-left:1.5rem"{% endif %}>
     {{ n.name }}
     {% if n.visibility and n.visibility != 'public' %}
-    <span class="badge badge--inactive" title="Visibility: {{ n.visibility }}"
+    <span class="badge badge--inactive"
           aria-label="Visibility: {{ n.visibility }}">{{ n.visibility }}</span>
     {% endif %}
     {% if n.locale or n.script or n.sort_as %}

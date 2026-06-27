@@ -1,6 +1,6 @@
 """Static linting for admin-dashboard accessibility (WCAG 2.1 AA).
 
-Two checks:
+Checks:
 
 1. ``test_read_row_buttons_have_aria_labels`` — every ``btn--sm`` in read-row
    templates must have ``aria-label`` (SC 2.4.6 / 4.1.2: disambiguates repeated
@@ -19,6 +19,13 @@ Two checks:
    "(optional)" in its ``placeholder`` must also expose it via
    ``aria-describedby`` (placeholders are unreliable for assistive tech). See
    ``docs/STYLE.md §12 → Optional-field cue``.
+
+4. ``test_no_title_attribute`` — the HTML ``title`` attribute is banned: its
+   tooltip is invisible to keyboard and touch users and is announced
+   inconsistently by screen readers, so it must never be the sole carrier of
+   information (badge state, table-cell expansions, button purpose). Expose the
+   text visibly or via a ``.visually-hidden`` span / ``aria-label``. See
+   ``docs/STYLE.md §12 → `title` attributes``.
 """
 
 import re
@@ -195,4 +202,43 @@ def test_optional_placeholder_cue_has_describedby():
         raise AssertionError(
             "placeholder '(optional)' cue without aria-describedby "
             "(see docs/STYLE.md §12 → Optional-field cue):\n" + "\n".join(lines)
+        )
+
+
+# --- title-attribute ban ------------------------------------------------------
+
+# Matches a standalone HTML ``title="`` attribute. The negative lookbehind for
+# ``[-\w?&]`` excludes ``data-*`` attributes (``data-title``,
+# ``data-confirm-title``), any ``*title`` compound, and ``title`` URL query
+# params (``?title=`` / ``&title=`` inside an href / hx-* value), leaving only
+# the HTML tooltip attribute. The ``<title>`` SVG/head element (no ``=``) never
+# matches. Genuine attributes are always whitespace-preceded, so none are lost.
+_TITLE_ATTR_RE = re.compile(r"(?<![-\w?&])title=", re.IGNORECASE)
+
+
+def test_no_title_attribute():
+    """No admin template may use the HTML ``title`` attribute.
+
+    ``title`` tooltips are inaccessible to keyboard and touch users and are
+    announced inconsistently by screen readers, so they must never be the sole
+    carrier of information. Surface the text visibly, in a ``.visually-hidden``
+    span, or via ``aria-label`` instead. See ``docs/STYLE.md §12 → `title`
+    attributes``. ``data-*`` attributes are unaffected.
+    """
+    failures: dict[str, list[str]] = {}
+    for rel in _ALL_TEMPLATES:
+        text = (_TEMPLATE_BASE / rel).read_text()
+        hits = [line.strip() for line in text.splitlines() if _TITLE_ATTR_RE.search(line)]
+        if hits:
+            failures[str(rel)] = hits
+
+    if failures:
+        lines: list[str] = []
+        for rel, hits in sorted(failures.items()):
+            lines.append(f"  {rel}:")
+            for hit in hits:
+                lines.append(f"    {hit[:140]!r}")
+        raise AssertionError(
+            "`title` attribute is banned (see docs/STYLE.md §12 → `title` attributes):\n"
+            + "\n".join(lines)
         )

@@ -572,6 +572,19 @@ Pattern: `aria-label="[Action] [entity-specific descriptor]"`
 editable at a time, so disambiguation is not needed. Static linting enforced by
 `tests/api/admin/test_aria_labels.py`.
 
+### Status badges
+
+Entity state (active / inactive / archived / current / former, validation status, import
+action, etc.) is **always conveyed by badge text** — never by color or icon alone (WCAG
+1.4.1 Use of Color). Row-level styling (`tr.is-archived` strike-through, `tr.is-inactive`
+muted first cell) is **redundant** with the in-row text badge and must never be the sole
+signal; the `.badge` background color is decorative reinforcement only.
+
+When adding a status indicator, render a text label inside the `.badge`. If a state must
+appear without visible text (a space-constrained icon or colored dot), expose the state
+name in a `.visually-hidden` span or `aria-label`. Audit 2026-06 (#245): no color-only or
+icon-only status indicators exist in the admin UI — keep it that way.
+
 ### HTMX live regions
 
 All swap targets: `aria-live="polite" aria-atomic="false"`.
@@ -668,7 +681,20 @@ All modals must trap focus and restore it on close. The delete modal in
 
 ### `title` attributes
 
-Do NOT use `title` — inaccessible to keyboard and touch users.
+Do **not** use the HTML `title` attribute — its tooltip is invisible to keyboard and
+touch users and is announced inconsistently by screen readers, so it must never be the
+sole carrier of information (table-cell expansions, badge state, button purpose).
+Surface the text visibly, in a `.visually-hidden` span, or via `aria-label`:
+
+```html
+<!-- avoid: full name only reachable on mouse hover -->
+<td title="{{ ident.type_full_name }}">{{ ident.type_name }}</td>
+<!-- prefer: expansion exposed to assistive tech -->
+<td>{{ ident.type_name }}<span class="visually-hidden"> — {{ ident.type_full_name }}</span></td>
+```
+
+Static linting enforced by `tests/api/admin/test_aria_labels.py::test_no_title_attribute`
+(`data-*` attributes such as `data-title` are unaffected).
 
 ### Muted text
 
@@ -687,6 +713,40 @@ Hidden off-screen by default, visible on `:focus`.
 ### Reduced motion
 
 All animations and transitions collapse to `0.01ms` under `prefers-reduced-motion: reduce`.
+
+### Screen-reader testing
+
+The static lints in `tests/api/admin/test_aria_labels.py` catch missing accessible names
+structurally, but cannot verify the *announced experience*. Manually screen-read admin
+changes that touch **forms, tables/rows, modals, badges, or live regions** before merging.
+
+**Recommended combos** (cover at least one; use both platforms for high-traffic flows):
+
+| Platform | Screen reader | Browser |
+|---|---|---|
+| macOS | VoiceOver (⌘F5) | Safari (primary), Chrome |
+| Windows | NVDA (free) | Firefox (primary), Chrome |
+| Linux | Orca | Firefox |
+
+**Checklist:**
+
+- **Forms** — every field announces a name + role; `(optional)` is spoken; hints
+  (`aria-describedby`) are read.
+- **Row actions** — repeated "Edit"/"Delete" buttons announce their entity-specific label,
+  not a bare verb.
+- **Status badges** — the state word ("Archived", "Inactive") is spoken; nothing conveys
+  state by color or icon alone.
+- **Table cells** — no information is mouse-hover-only (no `title`-only expansions).
+- **Modals** — focus moves in on open, is trapped, and returns to the trigger on close
+  (Esc + button); the modal exposes an accessible name.
+- **Live regions** — HTMX swaps (flash messages, inline saves) are announced via the
+  `aria-live="polite"` target without stealing focus.
+- **Skip link** — the first Tab from page load reveals "Skip to main content" and jumps to
+  `#main-content`.
+
+**When:** before merging any admin-template change that adds or restructures the element
+types above. Pure copy or style tweaks that don't change structure or semantics don't
+require a manual SR pass.
 
 ---
 
