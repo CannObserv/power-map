@@ -30,10 +30,9 @@
       <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">Grant:</span>
       {% for st in available %}
       <button type="button" class="btn btn--sm btn--secondary" style="margin-left:var(--space-1)"
-              title="{{ st.description }}"
               hx-post="/admin/settings/api-keys/{{ key.id }}/scopes/{{ st.id }}/grant/"
               hx-target="#api-key-scopes-{{ key.id }}"
-              hx-swap="outerHTML">{{ st.id }}</button>
+              hx-swap="outerHTML">{{ st.id }}{% if st.description %}<span class="visually-hidden"> — {{ st.description }}</span>{% endif %}</button>
       {% endfor %}
     </div>
     {% endif %}

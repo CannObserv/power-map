@@ -1,6 +1,6 @@
 {# admin/people/partials/_identifier_row.html #}
 <tr id="identifier-row-{{ ident.id }}">
-  <td title="{{ ident.type_full_name }}">{{ ident.type_name }}</td>
+  <td>{{ ident.type_name }}{% if ident.type_full_name and ident.type_full_name != ident.type_name %}<span class="visually-hidden"> — {{ ident.type_full_name }}</span>{% endif %}</td>
   <td>{{ ident.value }}</td>
   <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"

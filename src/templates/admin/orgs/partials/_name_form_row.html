@@ -31,11 +31,11 @@
       {# Effective-date timeline (#239). Empty = unknown/ongoing; the form is the
          source of truth on save, so clearing a field nulls the column. #}
       <div class="form-group" style="margin-bottom:0">
-        <input type="date" name="effective_start" aria-label="Effective start" title="Effective start"
+        <input type="date" name="effective_start" aria-label="Effective start"
                value="{{ n.effective_start if n and n.effective_start else '' }}">
       </div>
       <div class="form-group" style="margin-bottom:0">
-        <input type="date" name="effective_end" aria-label="Effective end" title="Effective end"
+        <input type="date" name="effective_end" aria-label="Effective end"
                value="{{ n.effective_end if n and n.effective_end else '' }}">
       </div>
       <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
