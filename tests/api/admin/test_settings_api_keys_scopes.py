@@ -139,12 +139,14 @@ async def test_revoke_button_has_scope_scoped_aria_label(client, user_and_key, d
 
 
 async def test_grant_button_has_scope_scoped_aria_label(client, user_and_key):
-    """Each Grant button carries aria-label="Grant <scope_id>…"; the scope id is the
-    disambiguator (any description is folded in after it, not in a separate span)."""
+    """Each Grant button carries aria-label="Grant <scope_id>, <description>"; the
+    scope id disambiguates and the description is folded into the label (not a
+    separate .visually-hidden span). The trailing ", " proves the fold-in fired —
+    observations:write has a seeded description — without coupling to its wording."""
     _, kid = user_and_key
     r = client.get(f"/admin/settings/api-keys/{kid}/detail/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert 'aria-label="Grant observations:write' in r.text
+    assert 'aria-label="Grant observations:write, ' in r.text
 
 
 async def test_close_button_has_key_scoped_aria_label(client, user_and_key):
