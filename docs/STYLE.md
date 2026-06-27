@@ -58,6 +58,7 @@ Badge, alert, and flash colors are hardcoded per-class rather than derived from 
 |---|---|---|---|---|
 | `.badge--active` | `#dcfce7` | `#15803d` | `#14532d` | `#86efac` |
 | `.badge--inactive` | `#f1f5f9` | `var(--color-inactive)` | `#1e293b` | `var(--color-inactive)` |
+| `.badge--neutral` | `#f1f5f9` | `var(--color-inactive)` | `#1e293b` | `var(--color-inactive)` |
 | `.badge--archived` | `#fee2e2` | `#991b1b` | `#450a0a` | `#fca5a5` |
 | `.badge--success` | `#dcfce7` | `#15803d` | `#14532d` | `#86efac` |
 | `.badge--warning` | `#fef9c3` | `#854d0e` | `#422006` | `#fde68a` |

@@ -72,15 +72,54 @@ def test_light_class_covers_badge_colors():
     assert "html.light .flash--success" in CSS
 
 
+def _badge_blocks() -> tuple[str, str]:
+    """(base block, @media-dark fallback block) for badge rules.
+
+    Anchors on the base `.badge {` rule, then the *next* `@media
+    (prefers-color-scheme: dark)` — the badge fallback, not the earlier `:root`
+    token @media block. Bounds the @media slice by the following `@media` so it
+    stays correct as rules are inserted."""
+    base_start = CSS.index(".badge {")
+    media_start = CSS.index("@media (prefers-color-scheme: dark)", base_start)
+    next_media = CSS.index("@media", media_start + 10)
+    return CSS[base_start:media_start], CSS[media_start:next_media]
+
+
 def test_media_query_dark_covers_badges():
     """No-JS @media fallback must also cover badge colors."""
     assert "prefers-color-scheme: dark" in CSS
-    # Verify badges are inside the media block (not just present anywhere)
-    media_start = CSS.index("prefers-color-scheme: dark")
-    media_block = CSS[media_start : media_start + 2000]
+    _, media_block = _badge_blocks()
     assert ".badge--active" in media_block
     assert ".badge--inactive" in media_block
     assert ".badge--archived" in media_block
+
+
+def test_neutral_badge_has_light_dark_parity():
+    """#248: badge--neutral (non-US country badge) needs the same four-block
+    coverage as every other badge — base, @media dark, html.dark, html.light —
+    else it falls back to bare `.badge` (no bg/fg) and renders inconsistently."""
+    assert "html.dark .badge--neutral" in CSS
+    assert "html.light .badge--neutral" in CSS
+    base_block, media_block = _badge_blocks()
+    assert ".badge--neutral" in base_block  # base rule
+    assert ".badge--neutral" in media_block  # @media dark fallback
+
+
+def _template_badge_variants() -> set[str]:
+    """Every `badge--X` modifier class referenced in admin templates."""
+    variants: set[str] = set()
+    for tmpl in _TEMPLATE_DIR.rglob("*.html"):
+        variants.update(re.findall(r"badge--([a-z]+)", tmpl.read_text()))
+    return variants
+
+
+def test_every_template_badge_variant_is_defined_in_css():
+    """Every `badge--X` used in a template must have a CSS rule. A referenced-but-
+    undefined variant falls back to bare `.badge` (no bg/fg) — the #248 bug class."""
+    undefined = sorted(
+        v for v in _template_badge_variants() if not re.search(rf"\.badge--{v}\b", CSS)
+    )
+    assert not undefined, f"badge--X used in templates but undefined in admin.css: {undefined}"
 
 
 _JS_PATH = Path("src/static/admin/dark-mode.js")
