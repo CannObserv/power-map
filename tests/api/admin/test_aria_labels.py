@@ -208,10 +208,12 @@ def test_optional_placeholder_cue_has_describedby():
 # --- title-attribute ban ------------------------------------------------------
 
 # Matches a standalone HTML ``title="`` attribute. The negative lookbehind for
-# ``[-\w]`` excludes ``data-*`` attributes (``data-title``,
-# ``data-confirm-title``) and any ``*title`` compound, leaving only the HTML
-# tooltip attribute. The ``<title>`` SVG/head element (no ``=``) never matches.
-_TITLE_ATTR_RE = re.compile(r"(?<![-\w])title=", re.IGNORECASE)
+# ``[-\w?&]`` excludes ``data-*`` attributes (``data-title``,
+# ``data-confirm-title``), any ``*title`` compound, and ``title`` URL query
+# params (``?title=`` / ``&title=`` inside an href / hx-* value), leaving only
+# the HTML tooltip attribute. The ``<title>`` SVG/head element (no ``=``) never
+# matches. Genuine attributes are always whitespace-preceded, so none are lost.
+_TITLE_ATTR_RE = re.compile(r"(?<![-\w?&])title=", re.IGNORECASE)
 
 
 def test_no_title_attribute():
