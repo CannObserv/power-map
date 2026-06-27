@@ -90,6 +90,20 @@ def _has_accessible_name(tag: str, pos: int, text: str, labeled_ids: set[str]) -
     """True if a control tag has a programmatic accessible name.
 
     placeholder is intentionally NOT accepted.
+
+    Heuristic, per-file, regex-based — accepted limitations (none triggered by
+    current templates; see GH #244). Each is inherently cross-template and so
+    cannot be resolved by a single-file parser; the authoritative fix is a
+    render-based a11y harness (GH #246):
+
+      1. Two controls under one wrapping ``<label>`` both pass, though only the
+         first labelable descendant actually receives the accessible name.
+      2. A control whose wrapping ``<label>`` lives in a *parent* template (the
+         control pulled in via ``{% include %}``) false-positives — this file's
+         text never sees the opening ``<label``.
+      3. ``aria-labelledby`` is accepted by presence; a dangling id reference
+         (target absent, or rendered by a parent/sibling template) is not
+         validated.
     """
     if "aria-label=" in tag or "aria-labelledby=" in tag:
         return True
