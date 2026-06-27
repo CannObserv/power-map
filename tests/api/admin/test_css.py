@@ -81,7 +81,9 @@ def _badge_blocks() -> tuple[str, str]:
     stays correct as rules are inserted."""
     base_start = CSS.index(".badge {")
     media_start = CSS.index("@media (prefers-color-scheme: dark)", base_start)
-    next_media = CSS.index("@media", media_start + 10)
+    next_media = CSS.find("@media", media_start + 10)
+    if next_media == -1:  # badge @media is the last one in the file
+        next_media = len(CSS)
     return CSS[base_start:media_start], CSS[media_start:next_media]
 
 
@@ -105,11 +107,22 @@ def test_neutral_badge_has_light_dark_parity():
     assert ".badge--neutral" in media_block  # @media dark fallback
 
 
+def test_neutral_inactive_badges_use_muted_text():
+    """#248 CR: neutral/inactive badge text uses --color-text-muted, not the
+    lower-contrast --color-inactive, so country/status labels stay legible."""
+    badge_lines = [
+        ln for ln in CSS.splitlines() if ".badge--inactive" in ln or ".badge--neutral" in ln
+    ]
+    assert badge_lines, "no badge--inactive/neutral rules found"
+    assert all("--color-text-muted" in ln for ln in badge_lines)
+    assert not any("--color-inactive" in ln for ln in badge_lines)
+
+
 def _template_badge_variants() -> set[str]:
     """Every `badge--X` modifier class referenced in admin templates."""
     variants: set[str] = set()
     for tmpl in _TEMPLATE_DIR.rglob("*.html"):
-        variants.update(re.findall(r"badge--([a-z]+)", tmpl.read_text()))
+        variants.update(re.findall(r"badge--([a-z-]+)", tmpl.read_text()))
     return variants
 
 
