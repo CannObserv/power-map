@@ -57,13 +57,13 @@ Badge, alert, and flash colors are hardcoded per-class rather than derived from 
 | Class | Light bg | Light text | Dark bg | Dark text |
 |---|---|---|---|---|
 | `.badge--active` | `#dcfce7` | `#15803d` | `#14532d` | `#86efac` |
-| `.badge--inactive` | `#f1f5f9` | `var(--color-text-muted)` | `#1e293b` | `var(--color-text-muted)` |
-| `.badge--neutral` | `#f1f5f9` | `var(--color-text-muted)` | `#1e293b` | `var(--color-text-muted)` |
+| `.badge--inactive` | `#f1f5f9` | `#556070` | `#1e293b` | `var(--color-text-muted)` |
+| `.badge--neutral` | `#f1f5f9` | `#556070` | `#1e293b` | `var(--color-text-muted)` |
 | `.badge--archived` | `#fee2e2` | `#991b1b` | `#450a0a` | `#fca5a5` |
 | `.badge--success` | `#dcfce7` | `#15803d` | `#14532d` | `#86efac` |
 | `.badge--warning` | `#fef9c3` | `#854d0e` | `#422006` | `#fde68a` |
 
-`.badge--neutral` and `.badge--inactive` intentionally share a palette but are **kept as distinct rules** — do not consolidate them. `--neutral` is an informational tag (e.g. a non-US country code on an address row); `--inactive` is a lifecycle status. A `badge--X` referenced in a template but missing from CSS falls back to bare `.badge` (no bg/fg) and renders unstyled — `tests/api/admin/test_css.py::test_every_template_badge_variant_is_defined_in_css` guards against that. Both use `--color-text-muted` (not the lower-contrast `--color-inactive`) so the label text stays legible on the grey background.
+`.badge--neutral` and `.badge--inactive` intentionally share a palette but are **kept as distinct rules** — do not consolidate them. `--neutral` is an informational tag (e.g. a non-US country code on an address row); `--inactive` is a lifecycle status. A `badge--X` referenced in a template but missing from CSS falls back to bare `.badge` (no bg/fg) and renders unstyled — `tests/api/admin/test_css.py` guards against that. Both avoid the lower-contrast `--color-inactive` for text: light blocks use `#556070` (≈5.8:1) and dark blocks use `--color-text-muted` (≈5.7:1), so the label clears WCAG AA on the grey background.
 
 **Alerts (light / dark):**
 

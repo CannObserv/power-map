@@ -107,15 +107,20 @@ def test_neutral_badge_has_light_dark_parity():
     assert ".badge--neutral" in media_block  # @media dark fallback
 
 
-def test_neutral_inactive_badges_use_muted_text():
-    """#248 CR: neutral/inactive badge text uses --color-text-muted, not the
-    lower-contrast --color-inactive, so country/status labels stay legible."""
+def test_neutral_inactive_badges_meet_text_contrast():
+    """#248 CR: neutral/inactive badge text must avoid the low-contrast
+    --color-inactive token. Light bg (#f1f5f9) pairs with a darker AA hex
+    (#556070, ~5.8:1); dark bg (#1e293b) pairs with --color-text-muted (~5.7:1)."""
     badge_lines = [
         ln for ln in CSS.splitlines() if ".badge--inactive" in ln or ".badge--neutral" in ln
     ]
     assert badge_lines, "no badge--inactive/neutral rules found"
-    assert all("--color-text-muted" in ln for ln in badge_lines)
     assert not any("--color-inactive" in ln for ln in badge_lines)
+    for ln in badge_lines:
+        if "#f1f5f9" in ln:  # light bg
+            assert "#556070" in ln, ln
+        elif "#1e293b" in ln:  # dark bg
+            assert "--color-text-muted" in ln, ln
 
 
 def _template_badge_variants() -> set[str]:
