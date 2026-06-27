@@ -4,6 +4,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-2)">
       <h3 style="font-size:var(--font-size-sm);font-weight:600;margin:0">Scopes</h3>
       <button type="button" class="btn btn--sm btn--secondary"
+              aria-label="Close scopes for {{ key.label or key.id }}"
               onclick="this.closest('tr').innerHTML=''">Close</button>
     </div>
     {% if current_scopes %}
@@ -13,6 +14,7 @@
         <code style="font-size:var(--font-size-sm)">{{ scope.scope_id }}</code>
         <span style="color:var(--color-text-muted);font-size:var(--font-size-sm)">{{ scope.display_name }}</span>
         <button type="button" class="btn btn--sm btn--danger"
+                aria-label="Revoke {{ scope.scope_id }}"
                 hx-post="/admin/settings/api-keys/{{ key.id }}/scopes/{{ scope.scope_id }}/revoke/"
                 hx-target="#api-key-scopes-{{ key.id }}"
                 hx-swap="outerHTML">Revoke</button>
@@ -30,9 +32,10 @@
       <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">Grant:</span>
       {% for st in available %}
       <button type="button" class="btn btn--sm btn--secondary" style="margin-left:var(--space-1)"
+              aria-label="Grant {{ st.id }}{% if st.description %}, {{ st.description }}{% endif %}"
               hx-post="/admin/settings/api-keys/{{ key.id }}/scopes/{{ st.id }}/grant/"
               hx-target="#api-key-scopes-{{ key.id }}"
-              hx-swap="outerHTML">{{ st.id }}{% if st.description %}<span class="visually-hidden">, {{ st.description }}</span>{% endif %}</button>
+              hx-swap="outerHTML">{{ st.id }}</button>
       {% endfor %}
     </div>
     {% endif %}

@@ -114,6 +114,51 @@ async def test_delete_button_clears_scopes_row(client, user_and_key):
 
 
 # ---------------------------------------------------------------------------
+# a11y — disambiguating aria-labels on looped scope buttons (#247)
+#
+# The static lint (test_aria_labels.py) only guards aria-label *presence*; these
+# render-level tests lock in the disambiguating *content* (scope id / key label)
+# that makes the labels WCAG SC 2.4.6-compliant.
+# ---------------------------------------------------------------------------
+
+
+async def test_revoke_button_has_scope_scoped_aria_label(client, user_and_key, db_pool):
+    """Each Revoke button carries aria-label="Revoke <scope_id>" — N otherwise
+    identical "Revoke" buttons must be distinguishable to assistive tech."""
+    _, kid = user_and_key
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)"
+            " ON CONFLICT DO NOTHING",
+            kid,
+            "observations:write",
+        )
+    r = client.get(f"/admin/settings/api-keys/{kid}/detail/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'aria-label="Revoke observations:write"' in r.text
+
+
+async def test_grant_button_has_scope_scoped_aria_label(client, user_and_key):
+    """Each Grant button carries aria-label="Grant <scope_id>, <description>"; the
+    scope id disambiguates and the description is folded into the label (not a
+    separate .visually-hidden span). The trailing ", " proves the fold-in fired —
+    observations:write has a seeded description — without coupling to its wording."""
+    _, kid = user_and_key
+    r = client.get(f"/admin/settings/api-keys/{kid}/detail/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'aria-label="Grant observations:write, ' in r.text
+
+
+async def test_close_button_has_key_scoped_aria_label(client, user_and_key):
+    """The Close button is key-scoped (by label) so multiple open scope panels do
+    not present identical "Close" accessible names."""
+    _, kid = user_and_key
+    r = client.get(f"/admin/settings/api-keys/{kid}/detail/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'aria-label="Close scopes for Scope Test Key"' in r.text
+
+
+# ---------------------------------------------------------------------------
 # GET detail
 # ---------------------------------------------------------------------------
 
