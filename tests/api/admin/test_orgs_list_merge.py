@@ -393,6 +393,75 @@ async def org_batch(db_pool):
             await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
 
 
+async def test_list_merge_reports_dropped_role_assignments(client, db_pool):
+    """CR #2: when a list-flow merge drops a conflicting role assignment,
+    the flash body must surface the count (parity with the detail-flow
+    `org_merge_with`, which already reports it)."""
+    id_a, id_b = generate_id(), generate_id()
+    role_a, role_b = generate_id(), generate_id()
+    person_id = generate_id()
+
+    async with db_pool.acquire() as conn:
+        for oid, name in [
+            (id_a, "Dropcount Org A"),
+            (id_b, "Dropcount Org B"),
+        ]:
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await conn.execute(
+                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(),
+                oid,
+                name,
+            )
+        # Same-title roles (winner "Director" vs loser "director") → conflict.
+        for rid, oid, title in [(role_a, id_a, "Director"), (role_b, id_b, "director")]:
+            await conn.execute(
+                "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+                rid,
+                oid,
+                title,
+            )
+        await conn.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Dropcount Person', TRUE)",
+            generate_id(),
+            person_id,
+        )
+        # Person assigned to BOTH roles at the same start_date → loser assignment
+        # is a duplicate of the winner's and gets dropped during merge.
+        for rid in (role_a, role_b):
+            await conn.execute(
+                "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+                " VALUES ($1, $2, $3, '2021-01-01')",
+                generate_id(),
+                person_id,
+                rid,
+            )
+
+    try:
+        response = client.post(
+            f"/admin/orgs/{id_a}/merge/{id_b}/",
+            headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 200
+        payload = json.loads(response.headers["HX-Trigger"])
+        assert "duplicate role assignment" in payload["showFlash"]["body"]
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM role_assignments WHERE person_id=$1", person_id)
+            for rid in (role_a, role_b):
+                await conn.execute("DELETE FROM roles WHERE id=$1", rid)
+            await conn.execute("DELETE FROM person_names WHERE person_id=$1", person_id)
+            await conn.execute("DELETE FROM people WHERE id=$1", person_id)
+            # id_b is hard-deleted by the merge; clean both defensively.
+            for oid in (id_a, id_b):
+                await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+                await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+
 async def test_merge_preserves_page_and_page_size_from_hx_current_url(client, org_batch):
     """HX-Current-URL `?page=2&page_size=10` must shape the refreshed region:
     post-merge count of 11 means page 2 holds exactly 1 row."""
@@ -414,3 +483,23 @@ async def test_merge_preserves_page_and_page_size_from_hx_current_url(client, or
         f"page=2 page_size=10 should yield exactly 1 row post-merge, "
         f"got {visible_count} edit anchors"
     )
+
+
+async def test_merge_handles_overflow_page_from_hx_current_url(client, org_batch):
+    """When the requested page sits past the new last page, pagination_context
+    clamps to the last valid page rather than returning an empty result."""
+    prefix, ids = org_batch
+    # 12 rows @ page_size 10 → pages 1 (10) + 2 (2). Merge the 2 on page 2.
+    response = client.post(
+        f"/admin/orgs/{ids[10]}/merge/{ids[11]}/",
+        headers={
+            **LIST_TARGET_HEADERS,
+            "HX-Current-URL": f"/admin/orgs/?q={prefix}&page=2&page_size=10",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "11 record" in response.text
+    # Page 2 of 11 rows @ page_size 10 → 1 row.
+    visible_count = response.text.count(EDIT_ANCHOR)
+    assert visible_count == 1
