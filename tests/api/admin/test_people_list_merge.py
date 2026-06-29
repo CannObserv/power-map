@@ -14,6 +14,7 @@ route:
 """
 
 import json
+import re
 
 import pytest
 import pytest_asyncio
@@ -96,9 +97,30 @@ async def test_people_list_renders_merge_btn_wrapper(client):
 
 
 async def test_people_list_loads_people_merge_js(client):
-    """list.html must reference the people-merge.js asset so the script runs."""
+    """The People list page must serve the people-merge.js asset.
+
+    #249: the script is now loaded site-wide from base.html (see
+    test_base_template.test_people_merge_js_loaded_site_wide_with_defer), so it
+    survives hx-boost <head>-stripping; this asserts it is still present on the
+    People list itself."""
     response = client.get("/admin/people/", headers=AUTH_HEADERS)
     assert "people-merge.js" in response.text
+
+
+async def test_people_merge_js_loaded_exactly_once(client):
+    """#249 regression guard: people-merge.js must load exactly once on the
+    People list.
+
+    It lives site-wide in base.html. Re-adding it to list.html's extra_head
+    would load it twice → the IIFE runs twice → the document-level click/change
+    listeners double-bind → every toggle fires twice and Merge is a no-op again.
+    The site-wide guard list (test_orgs_templates) catches removal from
+    base.html; this catches the duplicate-load inverse."""
+    response = client.get("/admin/people/", headers=AUTH_HEADERS)
+    # Count script tags (not raw substring) so a doc comment mentioning the
+    # filename can't false-fail the guard.
+    tags = re.findall(r"<script[^>]+people-merge\.js", response.text)
+    assert len(tags) == 1
 
 
 async def test_people_list_renders_merge_bar(client):

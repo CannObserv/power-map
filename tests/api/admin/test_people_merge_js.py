@@ -23,15 +23,27 @@ def test_references_people_merge_bar_id():
     assert "people-merge-bar" in JS
 
 
-def test_guards_on_missing_merge_button():
-    """Script must bail early on pages without the merge toggle button.
+def test_no_early_return_on_missing_merge_button():
+    """#249: the script is loaded site-wide and must NOT bail at eval time when
+    the merge button is absent.
 
-    The merge button lives in `.page-header` and is the only element
-    guaranteed-stable across region swaps; if it's absent we're not on
-    the People list. Table/merge-bar refs are now resolved lazily so
-    their absence doesn't prevent script execution.
+    The admin shell is `hx-boost="true"`, which strips `<head>` from boosted
+    responses, so an `extra_head`-only script never ran on a boosted nav (the
+    Merge button was an inert no-op). Loaded site-wide, the script first
+    evaluates on whatever page the user lands on — often without the People
+    list. An early `return` there would skip listener registration and the
+    Merge button delivered by a later boosted nav would never bind. Element
+    refs are resolved lazily instead.
     """
-    assert "if (!mergeBtn) return" in JS
+    assert "if (!mergeBtn) return" not in JS
+
+
+def test_button_click_is_document_delegated():
+    """#249: the Merge button must be driven by a document-level click
+    delegate (not a direct `mergeBtn.addEventListener`) so it survives both
+    `<head>`-stripping boosted navs and full-region swaps that replace the
+    button element."""
+    assert "document.addEventListener('click'" in JS
 
 
 def test_merge_mode_driven_by_dataset_flag():

@@ -1,27 +1,39 @@
 /**
- * people-merge.js — loaded via <script src defer> in extra_head on the People list page.
+ * people-merge.js — merge mode for the People list table: toggle button,
+ * checkbox selection, and a sticky action bar that swaps in for
+ * `.pagination--sticky` while merge mode is active (no overlap, single sticky
+ * slot).
  *
- * Manages merge mode for the people list table: toggle button, checkbox
- * selection, and a sticky action bar that swaps in for `.pagination--sticky`
- * while merge mode is active (no overlap, single sticky slot).
+ * Loaded site-wide from base.html <head> (#249). The admin shell is
+ * `hx-boost="true"`, and hx-boost strips <head> from boosted responses — a
+ * script in the People list's extra_head never ran when the list was reached
+ * by clicking the sidebar, so Merge was an inert no-op (no console error, the
+ * script simply wasn't there). Loading site-wide fixes that, but means the
+ * IIFE evaluates once, on whatever page first loads — often without the People
+ * list. So the script must NOT bind to specific elements at eval time:
  *
- * Lives in <head> via the extra_head block so hx-boost never re-executes it.
- *
- * Swap-resilient: the People list's filter card swaps the entire
- * `#people-list-region` on search/status/page-size change. Element refs
- * inside the region (table, merge bar, pagination strip) are re-resolved
- * on demand rather than cached; `change` events are caught at the
- * document level via delegation; merge-mode visual state is re-applied
- * on `htmx:afterSwap`.
+ *   - All element refs are resolved lazily (re-`getElementById` on each use),
+ *     so a boosted nav or a #people-list-region swap never leaves us holding a
+ *     detached node.
+ *   - Every listener is registered once, at the document level, via delegation
+ *     (click on the toggle, change on the checkboxes, showFlash, htmx:afterSwap,
+ *     htmx:load) — so they fire for elements that arrive later via a boosted nav.
+ *   - Merge-mode state lives in module scope and is re-applied after swaps:
+ *       · a #people-list-region partial swap (search / filter / page / post-
+ *         merge refresh) PRESERVES merge mode, clearing only the selection;
+ *       · a boosted full-page arrival of the list (detected via htmx:load, the
+ *         proven #237 boost signal — same as role-merge.js) starts CLEAN (fresh
+ *         mode off, no stale selection pointing at people from the previous view).
  */
 (function () {
-  // Stable elements (outside #people-list-region — survive region swaps).
-  var mergeBtn = document.getElementById('people-merge-btn');
-  var mergeBtnWrap = document.getElementById('people-merge-btn-wrap');
-  if (!mergeBtn) return;
-
-  // Volatile elements live inside #people-list-region. Re-resolve on each
-  // access so a swap doesn't leave us holding detached nodes.
+  // Lazy resolvers — never cache; every target lives inside the boost-swappable
+  // <body> / #people-list-region.
+  function getMergeBtn() {
+    return document.getElementById('people-merge-btn');
+  }
+  function getMergeBtnWrap() {
+    return document.getElementById('people-merge-btn-wrap');
+  }
   function getTable() {
     return document.getElementById('people-table');
   }
@@ -48,32 +60,46 @@
     });
   }
 
-  function enterMergeMode() {
-    inMergeMode = true;
+  // Re-apply the current merge-mode state to whatever People list is mounted.
+  // Safe no-op when the People list isn't on the page (non-People admin pages).
+  function applyMergeModeState() {
     var t = getTable();
-    if (t) t.dataset.mergeMode = 'true';
-    mergeBtn.textContent = 'Cancel merge';
-    mergeBtn.classList.remove('btn--secondary');
-    mergeBtn.classList.add('btn--ghost');
-    checked = [];
-    setMergeColVisibility(true);
-    setPaginationVisibility(false);
+    if (!t) return;
+    var btn = getMergeBtn();
+    if (inMergeMode) {
+      t.dataset.mergeMode = 'true';
+      if (btn) {
+        btn.textContent = 'Cancel merge';
+        btn.classList.remove('btn--secondary');
+        btn.classList.add('btn--ghost');
+      }
+      setMergeColVisibility(true);
+      setPaginationVisibility(false);
+    } else {
+      delete t.dataset.mergeMode;
+      if (btn) {
+        btn.textContent = 'Merge';
+        btn.classList.remove('btn--ghost');
+        btn.classList.add('btn--secondary');
+      }
+      setMergeColVisibility(false);
+      setPaginationVisibility(true);
+    }
     updateBar();
     updateCheckboxes();
+    syncMergeBtn();
+  }
+
+  function enterMergeMode() {
+    inMergeMode = true;
+    checked = [];
+    applyMergeModeState();
   }
 
   function exitMergeMode() {
     inMergeMode = false;
-    var t = getTable();
-    if (t) delete t.dataset.mergeMode;
-    mergeBtn.textContent = 'Merge';
-    mergeBtn.classList.remove('btn--ghost');
-    mergeBtn.classList.add('btn--secondary');
     checked = [];
-    setMergeColVisibility(false);
-    setPaginationVisibility(true);
-    updateBar();
-    updateCheckboxes();
+    applyMergeModeState();
   }
 
   function toggleMergeMode() {
@@ -204,44 +230,51 @@
   }
 
   function syncMergeBtn() {
+    var btn = getMergeBtn();
+    if (!btn) return;
     var t = getTable();
     var rows = t ? t.querySelectorAll('tbody tr[data-person-id]') : [];
     var canMerge = rows.length >= 2;
-    mergeBtn.disabled = !canMerge;
-    if (mergeBtnWrap) {
-      mergeBtnWrap.style.cursor = canMerge ? '' : 'not-allowed';
+    btn.disabled = !canMerge;
+    var wrap = getMergeBtnWrap();
+    if (wrap) {
+      wrap.style.cursor = canMerge ? '' : 'not-allowed';
       if (canMerge) {
-        mergeBtnWrap.removeAttribute('title');
+        wrap.removeAttribute('title');
       } else {
-        mergeBtnWrap.title = 'At least 2 people required to merge';
+        wrap.title = 'At least 2 people required to merge';
       }
     }
   }
 
-  // Re-apply merge-mode visuals after the region is swapped (search / filter
-  // / page change / post-merge refresh). Selection is intentionally cleared
-  // on swap — the new tbody may not contain the previously selected rows,
-  // and v1 keeps the role-merge behaviour of starting fresh after a swap.
+  // A #people-list-region partial swap (search / filter / page change / post-
+  // merge refresh) replaces the table element but PRESERVES merge mode. The new
+  // tbody may not contain the previously selected rows, so selection is cleared.
   function onRegionSwap() {
     checked = [];
-    if (inMergeMode) {
-      var t = getTable();
-      if (t) t.dataset.mergeMode = 'true';
-      setMergeColVisibility(true);
-      setPaginationVisibility(false);
-    } else {
-      setMergeColVisibility(false);
-      setPaginationVisibility(true);
-    }
-    updateBar();
-    updateCheckboxes();
-    syncMergeBtn();
+    applyMergeModeState();
   }
 
-  // Document-level delegation — survives region swaps.
-  document.addEventListener('change', onCheckboxChange);
+  // A boosted full-page arrival of the People list starts CLEAN — merge mode is
+  // a transient mode that should not carry across navigations, and a stale
+  // selection would point at people from the previous view.
+  function onFreshArrival() {
+    inMergeMode = false;
+    checked = [];
+    applyMergeModeState();
+  }
 
-  mergeBtn.addEventListener('click', toggleMergeMode);
+  // ── Document-level listeners — registered once, survive every swap ──────────
+
+  // Toggle button: delegated (the button element is replaced on each boosted
+  // nav, so a direct binding would go stale).
+  document.addEventListener('click', function (e) {
+    if (e.target && e.target.closest && e.target.closest('#people-merge-btn')) {
+      toggleMergeMode();
+    }
+  });
+
+  document.addEventListener('change', onCheckboxChange);
 
   document.addEventListener('showFlash', function () {
     if (inMergeMode) exitMergeMode();
@@ -252,10 +285,31 @@
   document.addEventListener('htmx:afterSwap', function (e) {
     var t = e.target;
     if (!t) return;
+    // Partial region swap (search / filter / page / post-merge refresh): the
+    // target is (or is inside) #people-list-region. Preserves merge mode.
     if (t.id === 'people-list-region' || (t.closest && t.closest('#people-list-region'))) {
       onRegionSwap();
     }
   });
 
-  syncMergeBtn();
+  // Boosted full-page arrival: hx-boost swaps <body> and htmx fires htmx:load on
+  // the new content (the proven #237 boost signal — same as role-merge.js). Only
+  // a full-page nav carries the page-header merge button in its loaded subtree; a
+  // #people-list-region partial swap does not — so this resets merge mode on a
+  // genuine navigation, never on a search / filter / pagination swap.
+  document.addEventListener('htmx:load', function (e) {
+    var el = (e.detail && e.detail.elt) || e.target;
+    if (!el) return;
+    if (
+      el.id === 'people-merge-btn' ||
+      (el.querySelector && el.querySelector('#people-merge-btn'))
+    ) {
+      onFreshArrival();
+    }
+  });
+
+  // First full page load (direct URL / hard refresh): reconcile visual state to
+  // the list already in the DOM, independent of htmx:load timing. No-op off the
+  // People list.
+  applyMergeModeState();
 })();
