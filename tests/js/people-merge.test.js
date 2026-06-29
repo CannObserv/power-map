@@ -630,17 +630,23 @@ describe('hx-boost survival (#249)', () => {
     eval(scriptCode);
   });
 
+  // Boosted full-page arrival fires htmx:load on the swapped-in content
+  // (the proven #237 signal — same as role-merge.js).
+  function dispatchBoostArrival() {
+    document.body.dispatchEvent(new CustomEvent('htmx:load', { bubbles: true }));
+  }
+
   it('does not throw when evaluated on a page without the People list', () => {
     expect(() => {
       document.dispatchEvent(new CustomEvent('showFlash'));
       document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+      dispatchBoostArrival();
     }).not.toThrow();
   });
 
   it('drives the Merge button delivered by a boosted navigation', () => {
     document.body.innerHTML = peopleListMarkup({ numPeople: 3 });
-    // Boosted full-page arrival: htmx swaps <body>; afterSwap bubbles to document.
-    document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+    dispatchBoostArrival();
 
     const btn = document.getElementById('people-merge-btn');
     btn.click();
@@ -649,14 +655,14 @@ describe('hx-boost survival (#249)', () => {
 
   it('syncs the Merge button disabled state on boosted arrival (<2 rows)', () => {
     document.body.innerHTML = peopleListMarkup({ numPeople: 1 });
-    document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+    dispatchBoostArrival();
     expect(document.getElementById('people-merge-btn').disabled).toBe(true);
   });
 
   it('starts a freshly-arrived People list outside merge mode (no stale state)', () => {
     // First arrival: enter merge mode + select a person.
     document.body.innerHTML = peopleListMarkup({ numPeople: 3 });
-    document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+    dispatchBoostArrival();
     document.getElementById('people-merge-btn').click();
     check(checkboxes()[0]);
     expect(document.getElementById('people-table').dataset.mergeMode).toBe('true');
@@ -664,7 +670,7 @@ describe('hx-boost survival (#249)', () => {
     // Navigate away and back (boosted): a brand-new People list arrives. It must
     // start clean — merge mode off and the action bar hidden.
     document.body.innerHTML = peopleListMarkup({ numPeople: 3 });
-    document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+    dispatchBoostArrival();
     expect(document.getElementById('people-table').dataset.mergeMode).toBeUndefined();
     expect(document.getElementById('people-merge-bar').style.display).toBe('none');
 

@@ -16,13 +16,14 @@
  *     so a boosted nav or a #people-list-region swap never leaves us holding a
  *     detached node.
  *   - Every listener is registered once, at the document level, via delegation
- *     (click on the toggle, change on the checkboxes, showFlash, htmx:afterSwap)
- *     — so they fire for elements that arrive later via a boosted nav.
+ *     (click on the toggle, change on the checkboxes, showFlash, htmx:afterSwap,
+ *     htmx:load) — so they fire for elements that arrive later via a boosted nav.
  *   - Merge-mode state lives in module scope and is re-applied after swaps:
  *       · a #people-list-region partial swap (search / filter / page / post-
  *         merge refresh) PRESERVES merge mode, clearing only the selection;
- *       · a boosted full-page arrival of the list starts CLEAN (fresh mode off,
- *         no stale selection pointing at people from the previous view).
+ *       · a boosted full-page arrival of the list (detected via htmx:load, the
+ *         proven #237 boost signal — same as role-merge.js) starts CLEAN (fresh
+ *         mode off, no stale selection pointing at people from the previous view).
  */
 (function () {
   // Lazy resolvers — never cache; every target lives inside the boost-swappable
@@ -284,18 +285,31 @@
   document.addEventListener('htmx:afterSwap', function (e) {
     var t = e.target;
     if (!t) return;
-    // Partial region swap: the target is (or is inside) #people-list-region.
+    // Partial region swap (search / filter / page / post-merge refresh): the
+    // target is (or is inside) #people-list-region. Preserves merge mode.
     if (t.id === 'people-list-region' || (t.closest && t.closest('#people-list-region'))) {
       onRegionSwap();
-      return;
     }
-    // Boosted full-page arrival: the swapped subtree CONTAINS the list region.
-    if (t.querySelector && t.querySelector('#people-list-region')) {
+  });
+
+  // Boosted full-page arrival: hx-boost swaps <body> and htmx fires htmx:load on
+  // the new content (the proven #237 boost signal — same as role-merge.js). Only
+  // a full-page nav carries the page-header merge button in its loaded subtree; a
+  // #people-list-region partial swap does not — so this resets merge mode on a
+  // genuine navigation, never on a search / filter / pagination swap.
+  document.addEventListener('htmx:load', function (e) {
+    var el = (e.detail && e.detail.elt) || e.target;
+    if (!el) return;
+    if (
+      el.id === 'people-merge-btn' ||
+      (el.querySelector && el.querySelector('#people-merge-btn'))
+    ) {
       onFreshArrival();
     }
   });
 
-  // First full page load (direct URL / hard refresh — no afterSwap fires): sync
-  // button state to the list already in the DOM. No-op off the People list.
-  syncMergeBtn();
+  // First full page load (direct URL / hard refresh): reconcile visual state to
+  // the list already in the DOM, independent of htmx:load timing. No-op off the
+  // People list.
+  applyMergeModeState();
 })();

@@ -106,6 +106,19 @@ async def test_people_list_loads_people_merge_js(client):
     assert "people-merge.js" in response.text
 
 
+async def test_people_merge_js_loaded_exactly_once(client):
+    """#249 regression guard: people-merge.js must load exactly once on the
+    People list.
+
+    It lives site-wide in base.html. Re-adding it to list.html's extra_head
+    would load it twice → the IIFE runs twice → the document-level click/change
+    listeners double-bind → every toggle fires twice and Merge is a no-op again.
+    The site-wide guard list (test_orgs_templates) catches removal from
+    base.html; this catches the duplicate-load inverse."""
+    response = client.get("/admin/people/", headers=AUTH_HEADERS)
+    assert response.text.count("people-merge.js") == 1
+
+
 async def test_people_list_renders_merge_bar(client):
     """Merge action bar markup must be present (hidden via inline display:none)."""
     response = client.get("/admin/people/", headers=AUTH_HEADERS)
