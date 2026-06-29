@@ -96,7 +96,12 @@ async def test_people_list_renders_merge_btn_wrapper(client):
 
 
 async def test_people_list_loads_people_merge_js(client):
-    """list.html must reference the people-merge.js asset so the script runs."""
+    """The People list page must serve the people-merge.js asset.
+
+    #249: the script is now loaded site-wide from base.html (see
+    test_base_template.test_people_merge_js_loaded_site_wide_with_defer), so it
+    survives hx-boost <head>-stripping; this asserts it is still present on the
+    People list itself."""
     response = client.get("/admin/people/", headers=AUTH_HEADERS)
     assert "people-merge.js" in response.text
 

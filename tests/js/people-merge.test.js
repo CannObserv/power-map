@@ -582,3 +582,97 @@ describe('merge button disabled state', () => {
     expect(wrap.style.cursor).toBe('not-allowed');
   });
 });
+
+// ---------------------------------------------------------------------------
+// hx-boost survival (#249)
+//
+// people-merge.js is now loaded site-wide from base.html (the admin shell is
+// hx-boost="true", which strips <head> from boosted responses — a script in
+// the People list's extra_head never ran on a boosted nav, leaving Merge an
+// inert no-op). The script must therefore:
+//   - register its listeners even when the People list is absent at eval time
+//     (e.g. the script first loads on the dashboard), and
+//   - drive the Merge button when the list arrives later via a boosted nav.
+// Achieved with document-level delegation + module-scope state (no per-element
+// binding at eval time).
+// ---------------------------------------------------------------------------
+
+function peopleListMarkup({ numPeople = 3 } = {}) {
+  const rows = Array.from({ length: numPeople }, (_, i) => {
+    const n = i + 1;
+    return `<tr data-title="Person ${n}" data-person-id="person-${n}">
+      <td class="merge-col"><input type="checkbox" name="merge-select" value="person-${n}"></td>
+      <td>Person ${n}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <span id="people-merge-btn-wrap" style="display:inline-block"><button id="people-merge-btn" class="btn btn--secondary">Merge</button></span>
+    <div id="people-list-region">
+      <table id="people-table">
+        <thead><tr><th class="merge-col">Sel</th><th>Name</th></tr></thead>
+        <tbody id="people-table-body">${rows}</tbody>
+      </table>
+      <div class="pagination--sticky">pagination here</div>
+      <div id="people-merge-bar" style="display:none">
+        <span class="merge-bar__label">Merge people:</span>
+        <button class="merge-bar__keep-a" type="button"></button>
+        <button class="merge-bar__keep-b" type="button"></button>
+      </div>
+    </div>
+  `;
+}
+
+describe('hx-boost survival (#249)', () => {
+  // Eval on a page with NO People list (e.g. the dashboard), as happens when
+  // the script loads site-wide before the user navigates to the People list.
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    eval(scriptCode);
+  });
+
+  it('does not throw when evaluated on a page without the People list', () => {
+    expect(() => {
+      document.dispatchEvent(new CustomEvent('showFlash'));
+      document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+    }).not.toThrow();
+  });
+
+  it('drives the Merge button delivered by a boosted navigation', () => {
+    document.body.innerHTML = peopleListMarkup({ numPeople: 3 });
+    // Boosted full-page arrival: htmx swaps <body>; afterSwap bubbles to document.
+    document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+
+    const btn = document.getElementById('people-merge-btn');
+    btn.click();
+    expect(document.getElementById('people-table').dataset.mergeMode).toBe('true');
+  });
+
+  it('syncs the Merge button disabled state on boosted arrival (<2 rows)', () => {
+    document.body.innerHTML = peopleListMarkup({ numPeople: 1 });
+    document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+    expect(document.getElementById('people-merge-btn').disabled).toBe(true);
+  });
+
+  it('starts a freshly-arrived People list outside merge mode (no stale state)', () => {
+    // First arrival: enter merge mode + select a person.
+    document.body.innerHTML = peopleListMarkup({ numPeople: 3 });
+    document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+    document.getElementById('people-merge-btn').click();
+    check(checkboxes()[0]);
+    expect(document.getElementById('people-table').dataset.mergeMode).toBe('true');
+
+    // Navigate away and back (boosted): a brand-new People list arrives. It must
+    // start clean — merge mode off and the action bar hidden.
+    document.body.innerHTML = peopleListMarkup({ numPeople: 3 });
+    document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }));
+    expect(document.getElementById('people-table').dataset.mergeMode).toBeUndefined();
+    expect(document.getElementById('people-merge-bar').style.display).toBe('none');
+
+    // Entering merge mode on the fresh list shows the 0-selection prompt — the
+    // previous view's selection did not leak across the navigation.
+    document.getElementById('people-merge-btn').click();
+    expect(document.querySelector('.merge-bar__label').textContent).toBe(
+      'Select 2 people to merge:',
+    );
+  });
+});

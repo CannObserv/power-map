@@ -84,3 +84,18 @@ def test_dark_mode_js_loaded_with_defer(client):
     text = response.text
     idx = text.find("dark-mode.js")
     assert "defer" in text[max(0, idx - 100) : idx + 100]
+
+
+def test_people_merge_js_loaded_site_wide_with_defer(client):
+    """#249: people-merge.js must load site-wide from base.html, not only from
+    the People list's extra_head.
+
+    The admin shell is hx-boost; boosted navs strip <head>, so an
+    extra_head-only script never ran when the user reached the People list by
+    clicking the sidebar — Merge was a silent no-op. Asserting it on a
+    NON-People page (the dashboard) proves it is loaded site-wide alongside
+    role-merge.js. Defer keeps it non-blocking and order-independent."""
+    response = client.get("/admin/", headers=AUTH_HEADERS)
+    assert "people-merge.js" in response.text
+    idx = response.text.find("people-merge.js")
+    assert "defer" in response.text[max(0, idx - 100) : idx + 100]
