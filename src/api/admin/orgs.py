@@ -17,7 +17,7 @@ from src.api.admin.deps import (
     resolve_query_flash,
 )
 from src.api.admin.entity_lookup import search_entities
-from src.api.admin.pagination import pagination_context
+from src.api.admin.orgs_queries import query_orgs_rows
 from src.core.db import generate_id
 from src.core.logging import get_logger
 from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
@@ -48,43 +48,8 @@ async def orgs_list(
 ):
     """List organizations with search and status filter."""
 
-    conditions = []
-    params: list = []
-
-    if status == "active":
-        conditions.append("o.archived_at IS NULL AND o.active = TRUE")
-    elif status == "inactive":
-        conditions.append("o.archived_at IS NULL AND o.active = FALSE")
-    elif status == "archived":
-        conditions.append("o.archived_at IS NOT NULL")
-
-    if q:
-        params.append(q)
-        conditions.append(f"o.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
-
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    count_params = params[:]
-
-    count = await db.fetchval(
-        f"""SELECT count(o.id)
-            FROM organizations o
-            {where}""",
-        *count_params,
-    )
-
-    pctx = pagination_context(page, count, page_size)
-    offset = (pctx["page"] - 1) * page_size
-    list_params = params + [page_size, offset]
-
-    rows = await db.fetch(
-        f"""SELECT o.id, o.active, o.archived_at, o.created_at,
-                   dn.display_name AS canonical_name
-            FROM organizations o
-            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-            {where}
-            ORDER BY dn.display_name NULLS LAST
-            LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
-        *list_params,
+    rows, count, pctx = await query_orgs_rows(
+        db, q=q, status=status, page=page, page_size=page_size
     )
 
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)

@@ -233,6 +233,8 @@ _SITEWIDE_DETAIL_SCRIPTS = [
     "person-detail.js",  # updatePersonHeader listener
     "role-merge.js",  # roles-table merge mode
     "people-merge.js",  # People list merge mode (#249)
+    "merge-mode.js",  # shared list-merge factory (#250)
+    "orgs-merge.js",  # Orgs list merge mode (#250)
     "add-row-guard.js",  # generic +Add duplicate-row guard (#238)
     "person-name-deadname-confirm.js",  # deadname save confirmation
     "person-name-parts-reorder.js",  # parts editor reorder arrows
