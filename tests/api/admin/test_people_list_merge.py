@@ -14,6 +14,7 @@ route:
 """
 
 import json
+import re
 
 import pytest
 import pytest_asyncio
@@ -116,7 +117,10 @@ async def test_people_merge_js_loaded_exactly_once(client):
     The site-wide guard list (test_orgs_templates) catches removal from
     base.html; this catches the duplicate-load inverse."""
     response = client.get("/admin/people/", headers=AUTH_HEADERS)
-    assert response.text.count("people-merge.js") == 1
+    # Count script tags (not raw substring) so a doc comment mentioning the
+    # filename can't false-fail the guard.
+    tags = re.findall(r"<script[^>]+people-merge\.js", response.text)
+    assert len(tags) == 1
 
 
 async def test_people_list_renders_merge_bar(client):

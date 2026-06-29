@@ -681,4 +681,38 @@ describe('hx-boost survival (#249)', () => {
       'Select 2 people to merge:',
     );
   });
+
+  // The core invariant the htmx:load alignment rests on: real htmx fires
+  // htmx:load on a #people-list-region partial swap too, but that subtree lacks
+  // the page-header button, so it must NOT trigger the fresh-arrival reset —
+  // otherwise every search / filter / pagination swap would drop the user out
+  // of merge mode. Dispatching htmx:load FROM the region (no afterSwap) isolates
+  // this path.
+  it('a region-only htmx:load preserves merge mode', () => {
+    document.body.innerHTML = peopleListMarkup({ numPeople: 3 });
+    dispatchBoostArrival();
+    document.getElementById('people-merge-btn').click();
+    expect(document.getElementById('people-table').dataset.mergeMode).toBe('true');
+
+    document
+      .getElementById('people-list-region')
+      .dispatchEvent(new CustomEvent('htmx:load', { bubbles: true }));
+
+    expect(document.getElementById('people-table').dataset.mergeMode).toBe('true');
+  });
+
+  it('a region-only htmx:load preserves an in-progress selection', () => {
+    document.body.innerHTML = peopleListMarkup({ numPeople: 3 });
+    dispatchBoostArrival();
+    document.getElementById('people-merge-btn').click();
+    check(checkboxes()[0]);
+    expect(document.querySelector('.merge-bar__label').textContent).toBe('Select 1 more:');
+
+    document
+      .getElementById('people-list-region')
+      .dispatchEvent(new CustomEvent('htmx:load', { bubbles: true }));
+
+    // htmx:load on region content is a no-op for merge state — selection intact.
+    expect(document.querySelector('.merge-bar__label').textContent).toBe('Select 1 more:');
+  });
 });
