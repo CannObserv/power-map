@@ -8,7 +8,10 @@
 {% block content %}
 <div class="page-header">
   <h1>Organizations</h1>
-  <a href="/admin/orgs/new/" class="btn btn--primary">+ Add organization</a>
+  <div style="display:flex;gap:var(--space-2)">
+    <span id="orgs-merge-btn-wrap" style="display:inline-block"><button id="orgs-merge-btn" class="btn btn--secondary" type="button">Merge</button></span>
+    <a href="/admin/orgs/new/" class="btn btn--primary">+ Add organization</a>
+  </div>
 </div>
 <div hx-get="/admin/_dup-badge/orgs/?variant=banner" hx-trigger="load, refreshDupBadge from:body" hx-swap="innerHTML"></div>
 <div class="filter-card">

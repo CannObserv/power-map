@@ -14,11 +14,40 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
 )
+from src.api.admin.list_filters import parse_list_filters
 from src.api.admin.org_dups import (
     CANDIDATE_WHERE,
     invalidate_dup_count_cache,
 )
+from src.api.admin.orgs_queries import query_orgs_rows
 from src.core.db import generate_id
+
+_LIST_TARGET = "orgs-list-region"
+# Three-valued, unlike People — `inactive` is org-only (organizations.active).
+_VALID_STATUSES = {"active", "inactive", "archived"}
+
+
+def _parse_list_filters_from_hx_current_url(request: Request) -> dict:
+    """Parse the orgs list filters from HX-Current-URL (see `parse_list_filters`).
+
+    Thin wrapper binding the org-specific three-valued status set; the parsing
+    logic (and the default page size) is shared with People via
+    `src.api.admin.list_filters`.
+    """
+    return parse_list_filters(request, valid_statuses=_VALID_STATUSES)
+
+
+def _dropped_assignments_note(dropped: int) -> str:
+    """Flash suffix reporting duplicate role assignments dropped during a merge.
+
+    Empty string when none were dropped. Shared by the list/duplicates flow
+    (`org_merge`) and the detail flow (`org_merge_with`) so the wording can't
+    drift between them.
+    """
+    if not dropped:
+        return ""
+    return f" {dropped} duplicate role assignment{'s' if dropped != 1 else ''} dropped."
+
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs", tags=["admin-orgs-merge"])
@@ -429,14 +458,41 @@ async def org_merge(
     loser_name = await db.fetchval(
         "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", loser_id
     )
-    await _execute_merge(db, winner_id, loser_id)
+    dropped = await _execute_merge(db, winner_id, loser_id)
     if is_htmx(request):
-        pairs = await _fetch_duplicate_pairs(db)
         body = (
             f"Merged <strong>{escape(loser_name)}</strong> into "
             f'<a href="/admin/orgs/{winner_id}/"><strong>{escape(winner_name)}</strong></a>. '
             f"Review URLs, roles, and contact info for duplicates."
         )
+        # Parity with the detail-flow `org_merge_with`: surface silently-dropped
+        # duplicate role assignments so the admin knows data changed shape.
+        body += _dropped_assignments_note(dropped)
+        # List-flow branch (#250): merge initiated from /admin/orgs/. HX-Target
+        # identifies the swap region; re-render the full `_region.html` (rows +
+        # caption total + sticky pagination) so post-merge counts stay
+        # consistent. Filter state preserved via HX-Current-URL.
+        if request.headers.get("HX-Target") == _LIST_TARGET:
+            filters = _parse_list_filters_from_hx_current_url(request)
+            rows, count, pctx = await query_orgs_rows(db, **filters)
+            ctx = {
+                "user": user,
+                "active_section": "orgs",
+                "orgs": rows,
+                "total": count,
+                "q": filters["q"],
+                "status": filters["status"],
+                "page_size": filters["page_size"],
+                **pctx,
+            }
+            return templates.TemplateResponse(
+                request,
+                "admin/orgs/_region.html",
+                ctx,
+                headers=flash_trigger("success", body, extra={"refreshDupBadge": True}),
+            )
+        # Duplicates-review-screen branch (existing).
+        pairs = await _fetch_duplicate_pairs(db)
         ctx = {
             "user": user,
             "active_section": "orgs_duplicates",
@@ -485,8 +541,7 @@ async def org_merge_with(
         f"<strong>{escape(winner_name)}</strong>. "
         f"Review names, roles, and contact info for duplicates."
     )
-    if dropped:
-        body += f" {dropped} duplicate role assignment{'s' if dropped != 1 else ''} dropped."
+    body += _dropped_assignments_note(dropped)
     redirect_url = f"/admin/orgs/{winner_id}/"
     if is_htmx(request):
         return HTMLResponse(

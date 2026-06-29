@@ -1,5 +1,6 @@
 {% for org in orgs %}
-<tr class="{% if org.archived_at %}is-archived{% elif not org.active %}is-inactive{% endif %}">
+<tr class="{% if org.archived_at %}is-archived{% elif not org.active %}is-inactive{% endif %}" data-title="{{ org.canonical_name or '(unnamed)' }}" data-org-id="{{ org.id }}">
+  <td class="merge-col" style="display:none;padding-right:0"><input type="checkbox" name="merge-select" value="{{ org.id }}" aria-label="Select {{ org.canonical_name or '(unnamed)' }} for merge"></td>
   <td><a href="/admin/orgs/{{ org.id }}/">{{ org.canonical_name or '(unnamed)' }}</a></td>
   <td>
     {% if org.archived_at %}<span class="badge badge--archived">Archived</span>
@@ -10,5 +11,5 @@
   <td><a href="/admin/orgs/{{ org.id }}/" class="btn btn--ghost btn--sm" aria-label="Edit {{ org.canonical_name or '(unnamed)' }}">Edit</a></td>
 </tr>
 {% else %}
-<tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
+<tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
 {% endfor %}

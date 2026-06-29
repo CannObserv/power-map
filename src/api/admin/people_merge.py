@@ -1,7 +1,6 @@
 """Admin views for person merge and duplicate review."""
 
 from datetime import UTC, datetime
-from urllib.parse import parse_qs, urlsplit
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -16,6 +15,7 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
 )
+from src.api.admin.list_filters import parse_list_filters
 from src.api.admin.people_dups import (
     CANDIDATE_WHERE,
 )
@@ -26,45 +26,16 @@ from src.api.admin.people_queries import query_people_rows
 from src.core.db import generate_id
 
 _LIST_TARGET = "people-list-region"
-_DEFAULT_PAGE_SIZE = 50
 _VALID_STATUSES = {"active", "archived"}
 
 
 def _parse_list_filters_from_hx_current_url(request: Request) -> dict:
-    """Parse `q` / `status` / `page` / `page_size` out of HX-Current-URL.
+    """Parse the people list filters from HX-Current-URL (see `parse_list_filters`).
 
-    HX-Current-URL is sent by HTMX on every request and carries the URL
-    the user is currently on (e.g. `/admin/people/?q=foo&status=archived`).
-    The merge POST has no query string of its own, so this header is the
-    source of truth for which list view to re-render.
-
-    Falls back to defaults silently on a missing or malformed header — the
-    merge succeeded; surfacing a parse error here would be needlessly noisy.
+    Thin wrapper binding the people-specific status set; the parsing logic (and
+    the default page size) is shared with Orgs via `src.api.admin.list_filters`.
     """
-    defaults = {"q": "", "status": "active", "page": 1, "page_size": _DEFAULT_PAGE_SIZE}
-    raw = request.headers.get("HX-Current-URL", "")
-    if not raw:
-        return defaults
-    try:
-        params = parse_qs(urlsplit(raw).query)
-    except ValueError:
-        return defaults
-
-    q = (params.get("q", [""])[0] or "").strip()
-    status = (params.get("status", ["active"])[0] or "active").lower()
-    if status not in _VALID_STATUSES:
-        status = "active"
-    try:
-        page = max(1, int(params.get("page", ["1"])[0]))
-    except (TypeError, ValueError):
-        page = 1
-    try:
-        page_size = int(params.get("page_size", [str(_DEFAULT_PAGE_SIZE)])[0])
-    except (TypeError, ValueError):
-        page_size = _DEFAULT_PAGE_SIZE
-    if not 10 <= page_size <= 500:
-        page_size = _DEFAULT_PAGE_SIZE
-    return {"q": q, "status": status, "page": page, "page_size": page_size}
+    return parse_list_filters(request, valid_statuses=_VALID_STATUSES)
 
 
 templates = Jinja2Templates(directory="src/templates")

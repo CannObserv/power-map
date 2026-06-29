@@ -16,6 +16,7 @@ from src.api.admin.deps import (
     resolve_query_flash,
 )
 from src.api.admin.entity_lookup import search_entities
+from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.people_queries import query_people_rows
 from src.core.db import generate_id
 
@@ -86,7 +87,7 @@ async def people_list(
     q: str = "",
     status: str = "active",
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=10, le=500),
+    page_size: int = Query(PAGE_SIZE_DEFAULT, ge=PAGE_SIZE_MIN, le=PAGE_SIZE_MAX),
     flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),

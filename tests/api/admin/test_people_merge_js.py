@@ -1,4 +1,11 @@
-"""Structural tests for people-merge.js."""
+"""Structural tests for people-merge.js (the People consumer of the shared
+merge-mode factory).
+
+Engine invariants (delegation, module-scope flag, label shape, etc.) moved to
+test_merge_mode_js.py when the implementation was extracted into merge-mode.js
+(#250). This file pins down only the People-specific config the consumer feeds
+to `window.createMergeMode`, plus the boost-safe wiring contract.
+"""
 
 from pathlib import Path
 
@@ -8,6 +15,16 @@ JS = _PATH.read_text() if _PATH.exists() else ""
 
 def test_people_merge_js_exists():
     assert _PATH.exists()
+
+
+def test_delegates_to_shared_factory():
+    """Consumer must call the shared factory rather than reimplement merge mode."""
+    assert "createMergeMode" in JS
+
+
+def test_guards_on_factory_presence():
+    """If merge-mode.js failed to load, the consumer must no-op, not throw."""
+    assert "typeof window.createMergeMode" in JS
 
 
 def test_references_people_table_id():
@@ -23,112 +40,28 @@ def test_references_people_merge_bar_id():
     assert "people-merge-bar" in JS
 
 
-def test_no_early_return_on_missing_merge_button():
-    """#249: the script is loaded site-wide and must NOT bail at eval time when
-    the merge button is absent.
-
-    The admin shell is `hx-boost="true"`, which strips `<head>` from boosted
-    responses, so an `extra_head`-only script never ran on a boosted nav (the
-    Merge button was an inert no-op). Loaded site-wide, the script first
-    evaluates on whatever page the user lands on — often without the People
-    list. An early `return` there would skip listener registration and the
-    Merge button delivered by a later boosted nav would never bind. Element
-    refs are resolved lazily instead.
-    """
-    assert "if (!mergeBtn) return" not in JS
+def test_references_people_list_region():
+    """List-flow merge swaps the whole region so caption + sticky pagination
+    stay in sync with the post-merge row count."""
+    assert "people-list-region" in JS
 
 
-def test_button_click_is_document_delegated():
-    """#249: the Merge button must be driven by a document-level click
-    delegate (not a direct `mergeBtn.addEventListener`) so it survives both
-    `<head>`-stripping boosted navs and full-region swaps that replace the
-    button element."""
-    assert "document.addEventListener('click'" in JS
+def test_row_id_attr_is_person():
+    assert "data-person-id" in JS
 
 
-def test_merge_mode_driven_by_dataset_flag():
-    assert "mergeMode" in JS
-
-
-def test_bar_visibility_gated_on_merge_mode_not_selection_count():
-    """Bar appears at 0 selections (entry), not only at 2 selected.
-
-    Implementation uses a module-scope `inMergeMode` flag rather than reading
-    the table's dataset (which was unreliable after the CR #1 swap-survival
-    refactor — the table can be replaced by an htmx swap mid-session).
-    """
-    assert "inMergeMode" in JS
-    assert "if (!inMergeMode)" in JS
-    assert "checked.length < 2" not in JS
-
-
-def test_merge_mode_tracked_as_module_scope_flag():
-    """CR #1 follow-up: `inMergeMode` survives region swaps; the dataset
-    attribute on the table does not (it's a fresh DOM node post-swap)."""
-    assert "var inMergeMode" in JS
-
-
-def test_zero_selection_label():
-    assert "Select 2 people to merge" in JS
-
-
-def test_one_selection_label():
-    assert "Select 1 more" in JS
-
-
-def test_one_selection_uses_selected_prefix():
-    assert 'Selected: "' in JS
-
-
-def test_two_selection_label():
-    assert "Merge people:" in JS
-
-
-def test_checkboxes_disabled_at_max():
-    assert "atMax" in JS
-    assert "cb.disabled = atMax" in JS
-
-
-def test_no_shift_oldest_logic():
-    """checked.shift() must stay absent — checkbox-disable makes it unreachable."""
-    assert "checked.shift()" not in JS
-
-
-def test_exits_merge_mode_on_show_flash():
-    assert "showFlash" in JS
-    assert "exitMergeMode" in JS
-
-
-def test_htmx_reprocessed_after_button_update():
-    """Dynamically set hx-post/hx-confirm requires htmx.process() to take effect."""
-    assert "htmx.process" in JS
+def test_noun_is_people():
+    assert "people" in JS
 
 
 def test_targets_people_merge_url():
-    """Keep buttons must construct the people merge URL, not roles."""
+    """Keep buttons must construct the people merge URL, not roles/orgs."""
     assert "/admin/people/" in JS
     assert "/merge/" in JS
 
 
-def test_hides_sticky_pagination_in_merge_mode():
-    """People list has sticky pagination — JS must hide it on enter, restore on exit."""
-    assert "pagination--sticky" in JS
-
-
-def test_hx_target_is_people_list_region():
-    """List-flow merge swaps the whole region so caption + sticky pagination
-    stay in sync with the post-merge row count (CR #2 follow-up)."""
-    assert "people-list-region" in JS
-
-
-def test_reattaches_on_region_swap():
-    """JS must re-apply merge-mode visual state after htmx:afterSwap of the
-    region — otherwise filter/search/pagination breaks merge UI (CR #1)."""
-    assert "htmx:afterSwap" in JS
-    assert "people-list-region" in JS
-
-
-def test_uses_event_delegation_for_checkbox_change():
-    """Change handler must be bound at the document level so it survives
-    region swaps (table element gets detached on swap)."""
-    assert "document.addEventListener('change'" in JS
+def test_no_early_return_on_missing_merge_button():
+    """The consumer must not bail at eval time on a missing merge button — only
+    on a missing factory. The factory resolves element refs lazily so the Merge
+    button delivered by a later boosted nav still binds (#249)."""
+    assert "if (!mergeBtn) return" not in JS
