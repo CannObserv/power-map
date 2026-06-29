@@ -26,19 +26,16 @@ from src.api.admin.people_queries import query_people_rows
 from src.core.db import generate_id
 
 _LIST_TARGET = "people-list-region"
-_DEFAULT_PAGE_SIZE = 50
 _VALID_STATUSES = {"active", "archived"}
 
 
 def _parse_list_filters_from_hx_current_url(request: Request) -> dict:
     """Parse the people list filters from HX-Current-URL (see `parse_list_filters`).
 
-    Thin wrapper binding the people-specific status set; the parsing logic is
-    shared with Orgs via `src.api.admin.list_filters`.
+    Thin wrapper binding the people-specific status set; the parsing logic (and
+    the default page size) is shared with Orgs via `src.api.admin.list_filters`.
     """
-    return parse_list_filters(
-        request, valid_statuses=_VALID_STATUSES, default_page_size=_DEFAULT_PAGE_SIZE
-    )
+    return parse_list_filters(request, valid_statuses=_VALID_STATUSES)
 
 
 templates = Jinja2Templates(directory="src/templates")

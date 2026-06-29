@@ -448,7 +448,8 @@ async def test_list_merge_reports_dropped_role_assignments(client, db_pool):
         )
         assert response.status_code == 200
         payload = json.loads(response.headers["HX-Trigger"])
-        assert "duplicate role assignment" in payload["showFlash"]["body"]
+        # Exact wording incl. count + singular form (one assignment dropped).
+        assert "1 duplicate role assignment dropped" in payload["showFlash"]["body"]
     finally:
         async with db_pool.acquire() as conn:
             await conn.execute("DELETE FROM role_assignments WHERE person_id=$1", person_id)

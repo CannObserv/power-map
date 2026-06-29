@@ -2,6 +2,13 @@
 
 import math
 
+# Page-size bounds shared by the list routes (FastAPI `Query` validators), the
+# HX-Current-URL merge filter parser (`list_filters.parse_list_filters`), and
+# any other list view — one source of truth so the three can't drift.
+PAGE_SIZE_DEFAULT = 50
+PAGE_SIZE_MIN = 10
+PAGE_SIZE_MAX = 500
+
 
 def pagination_context(page: int, count: int, page_size: int) -> dict:
     """Compute pagination context values for a list view.

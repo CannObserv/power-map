@@ -12,12 +12,11 @@ from urllib.parse import parse_qs, urlsplit
 
 from fastapi import Request
 
-_PAGE_SIZE_MIN = 10
-_PAGE_SIZE_MAX = 500
+from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 
 
 def parse_list_filters(
-    request: Request, *, valid_statuses: set[str], default_page_size: int = 50
+    request: Request, *, valid_statuses: set[str], default_page_size: int = PAGE_SIZE_DEFAULT
 ) -> dict:
     """Parse ``q`` / ``status`` / ``page`` / ``page_size`` out of HX-Current-URL.
 
@@ -53,6 +52,6 @@ def parse_list_filters(
         page_size = int(params.get("page_size", [str(default_page_size)])[0])
     except (TypeError, ValueError):
         page_size = default_page_size
-    if not _PAGE_SIZE_MIN <= page_size <= _PAGE_SIZE_MAX:
+    if not PAGE_SIZE_MIN <= page_size <= PAGE_SIZE_MAX:
         page_size = default_page_size
     return {"q": q, "status": status, "page": page, "page_size": page_size}

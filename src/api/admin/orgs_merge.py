@@ -23,7 +23,6 @@ from src.api.admin.orgs_queries import query_orgs_rows
 from src.core.db import generate_id
 
 _LIST_TARGET = "orgs-list-region"
-_DEFAULT_PAGE_SIZE = 50
 # Three-valued, unlike People — `inactive` is org-only (organizations.active).
 _VALID_STATUSES = {"active", "inactive", "archived"}
 
@@ -32,11 +31,22 @@ def _parse_list_filters_from_hx_current_url(request: Request) -> dict:
     """Parse the orgs list filters from HX-Current-URL (see `parse_list_filters`).
 
     Thin wrapper binding the org-specific three-valued status set; the parsing
-    logic is shared with People via `src.api.admin.list_filters`.
+    logic (and the default page size) is shared with People via
+    `src.api.admin.list_filters`.
     """
-    return parse_list_filters(
-        request, valid_statuses=_VALID_STATUSES, default_page_size=_DEFAULT_PAGE_SIZE
-    )
+    return parse_list_filters(request, valid_statuses=_VALID_STATUSES)
+
+
+def _dropped_assignments_note(dropped: int) -> str:
+    """Flash suffix reporting duplicate role assignments dropped during a merge.
+
+    Empty string when none were dropped. Shared by the list/duplicates flow
+    (`org_merge`) and the detail flow (`org_merge_with`) so the wording can't
+    drift between them.
+    """
+    if not dropped:
+        return ""
+    return f" {dropped} duplicate role assignment{'s' if dropped != 1 else ''} dropped."
 
 
 templates = Jinja2Templates(directory="src/templates")
@@ -457,8 +467,7 @@ async def org_merge(
         )
         # Parity with the detail-flow `org_merge_with`: surface silently-dropped
         # duplicate role assignments so the admin knows data changed shape.
-        if dropped:
-            body += f" {dropped} duplicate role assignment{'s' if dropped != 1 else ''} dropped."
+        body += _dropped_assignments_note(dropped)
         # List-flow branch (#250): merge initiated from /admin/orgs/. HX-Target
         # identifies the swap region; re-render the full `_region.html` (rows +
         # caption total + sticky pagination) so post-merge counts stay
@@ -532,8 +541,7 @@ async def org_merge_with(
         f"<strong>{escape(winner_name)}</strong>. "
         f"Review names, roles, and contact info for duplicates."
     )
-    if dropped:
-        body += f" {dropped} duplicate role assignment{'s' if dropped != 1 else ''} dropped."
+    body += _dropped_assignments_note(dropped)
     redirect_url = f"/admin/orgs/{winner_id}/"
     if is_htmx(request):
         return HTMLResponse(
