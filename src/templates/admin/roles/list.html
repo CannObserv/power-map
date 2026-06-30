@@ -6,7 +6,10 @@
 {% block content %}
 <div class="page-header">
   <h1>Roles</h1>
-  <a href="/admin/roles/new/" class="btn btn--primary">+ Add role</a>
+  <div style="display:flex;gap:var(--space-2)">
+    <span id="roles-list-merge-btn-wrap" style="display:inline-block"><button id="roles-list-merge-btn" class="btn btn--secondary" type="button">Merge</button></span>
+    <a href="/admin/roles/new/" class="btn btn--primary">+ Add role</a>
+  </div>
 </div>
 <div class="filter-card">
   <input type="search" name="q" value="{{ q }}" placeholder="Search by title…"

@@ -110,3 +110,32 @@ def test_keep_buttons_target_list_region_via_config():
     in sync). The region id is supplied by the consumer config."""
     assert "listRegionSelector" in JS
     assert "hx-target" in JS
+
+
+# ── #251 same-org predicate extension point ──────────────────────────────────
+
+
+def test_optional_can_merge_predicate_gates_two_selection():
+    """Roles list (#251): an optional canMerge(a, b) predicate blocks the
+    two-selection enable point so a cross-org pair can't wire an hx-post."""
+    assert "config.canMerge" in JS
+    assert "if (canMerge && !canMerge(rowA, rowB))" in JS
+
+
+def test_cannot_merge_label_shown_when_predicate_fails():
+    assert "cannotMergeLabel" in JS
+
+
+def test_group_key_captured_per_row_via_optional_group_attr():
+    """The predicate needs a per-row group key (e.g. data-org-id) captured into
+    the checked entry; gated on the optional groupAttr config so People / Orgs
+    (no groupAttr) are unaffected."""
+    assert "config.groupAttr" in JS
+    assert "entry.group" in JS
+
+
+def test_build_merge_url_receives_entries_for_group_scoped_url():
+    """An org-scoped merge URL needs the shared group, so buildMergeUrl is called
+    with the winner/loser entries (carrying .group), not just their ids."""
+    assert "buildMergeUrl(rowA.id, rowB.id, rowA, rowB)" in JS
+    assert "buildMergeUrl(rowB.id, rowA.id, rowB, rowA)" in JS

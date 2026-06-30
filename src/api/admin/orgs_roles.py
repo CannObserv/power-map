@@ -9,10 +9,28 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.list_filters import parse_list_filters
+from src.api.admin.roles_queries import query_roles_rows
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/roles", tags=["admin-org-roles"])
+
+# Roles list region id (#251). A merge initiated from /admin/roles/ targets this
+# region; the org-detail roles table merge does not, so the response branches on it.
+_LIST_TARGET = "roles-list-region"
+# Roles have no `active` flag (org-only) — two-valued status, unlike Orgs.
+_VALID_STATUSES = {"active", "archived"}
+
+
+def _parse_roles_list_filters(request: Request) -> dict:
+    """Parse the roles list filters (incl. the roles-only `org_q`) from HX-Current-URL.
+
+    Thin wrapper binding the roles two-valued status set and the second
+    organization-name filter; parsing logic is shared with People / Orgs via
+    `src.api.admin.list_filters`.
+    """
+    return parse_list_filters(request, valid_statuses=_VALID_STATUSES, extra_text_params=("org_q",))
 
 
 async def _get_org_or_404(org_id: str, db) -> None:
@@ -184,11 +202,36 @@ async def role_merge(
     winner_title = winner["title"]
 
     if is_htmx(request):
-        roles = await _fetch_roles(org_id, db)
         body = (
             f"Merged <strong>{escape(loser_title)}</strong>"
             f" into <strong>{escape(winner_title)}</strong>."
         )
+        # List-flow branch (#251): merge initiated from /admin/roles/. HX-Target
+        # identifies the swap region; re-render the full roles `_region.html`
+        # (rows + caption total + sticky pagination) so post-merge counts stay
+        # consistent. Filter state (incl. org_q) preserved via HX-Current-URL.
+        if request.headers.get("HX-Target") == _LIST_TARGET:
+            filters = _parse_roles_list_filters(request)
+            rows, count, pctx = await query_roles_rows(db, **filters)
+            ctx = {
+                "user": user,
+                "active_section": "roles",
+                "roles": rows,
+                "total": count,
+                "q": filters["q"],
+                "org_q": filters["org_q"],
+                "status": filters["status"],
+                "page_size": filters["page_size"],
+                **pctx,
+            }
+            return templates.TemplateResponse(
+                request,
+                "admin/roles/_region.html",
+                ctx,
+                headers=flash_trigger("success", body),
+            )
+        # Org-detail roles-table branch (existing) — keep working unchanged.
+        roles = await _fetch_roles(org_id, db)
         return templates.TemplateResponse(
             request,
             "admin/orgs/partials/_role_rows.html",
