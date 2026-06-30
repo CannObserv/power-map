@@ -1541,8 +1541,8 @@ CREATE TABLE IF NOT EXISTS deleted_entities (
     PRIMARY KEY (entity_type, entity_id)
 );
 
--- TTL cleanup: rows older than 90 days are safe to purge (cron or manual).
--- DELETE FROM deleted_entities WHERE deleted_at < NOW() - INTERVAL '90 days';
+-- TTL cleanup (issue #204): rows older than 90 days are pruned alongside the
+-- entity_changes outbox by scripts/prune_outbox.py (daily power-map-prune.timer).
 
 CREATE INDEX IF NOT EXISTS idx_deleted_entities_deleted_at
     ON deleted_entities (deleted_at ASC);
@@ -1818,6 +1818,13 @@ UPDATE embedding_model_registry
 
 -- ---------------------------------------------------------------------------
 -- Outbox log
+--
+-- Append-only; not self-limiting. Rows older than 90 days are pruned by
+-- scripts/prune_outbox.py (daily power-map-prune.timer, issue #204), so the
+-- public change feed is a recent-changes window, not a permanent event store.
+-- Pruning is a DELETE by changed_at; no dedicated index is kept here to avoid
+-- taxing the trigger-heavy insert path — revisit range-partitioning if volume
+-- makes the daily scan expensive.
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS entity_changes (

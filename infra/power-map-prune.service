@@ -1,0 +1,13 @@
+[Unit]
+Description=power-map outbox + tombstone TTL prune (issue #204)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
+# Default retention is 90 days; override with --retention-days N.
+ExecStart=uv run python -m scripts.prune_outbox --execute

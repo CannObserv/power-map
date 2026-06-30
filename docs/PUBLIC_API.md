@@ -278,8 +278,8 @@ while True:
 
 - **Exclusive cursor.** `after` uses `>` semantics — `next_after` will never appear again in the next page.
 - **Subscription-filtered.** Events for entities not in the subscription set are never returned, regardless of cursor.
-- **Backfill note.** The outbox retains all events since trigger installation. To receive historical events for a newly subscribed entity, poll from `after=0` — the subscription filter applies at query time, so all past outbox entries for that entity are returned.
-- **Deleted entities.** Hard deletes and merges write a tombstone to an internal `deleted_entities` table (TTL ≈ 90 days). After the TTL, `GET /api/v1/people/{id}` or `/orgs/{id}` returning 404 is the fallback signal that an entity was removed.
+- **Retention window — the feed is recent-changes, not a permanent event store.** Outbox rows older than ~90 days are pruned (issue #204). Polling from `after=0` returns every *retained* event for your subscribed entities (the subscription filter applies at query time), but only within that window — it is **not** a full-history backfill. To obtain the **current state** of a newly subscribed entity (including one unchanged for longer than the window, which therefore has no recent outbox row), fetch it directly from its read endpoint, then poll incrementally from the returned `next_after`. A consumer dark longer than the retention window may miss intervening events and must full-reconcile against the read endpoints.
+- **Deleted entities.** Hard deletes and merges write a tombstone to an internal `deleted_entities` table, pruned on the same ~90-day TTL as the outbox (issue #204). After the TTL, `GET /api/v1/people/{id}` or `/orgs/{id}` returning 404 is the fallback signal that an entity was removed.
 - **Order.** Results are ordered by outbox `seq_id ASC` — strictly monotonic, no ties.
 - **No total count.** `meta.count` is the page count, not a dataset total.
 

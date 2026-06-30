@@ -314,9 +314,15 @@ uv run "${env_args[@]}" python -m scripts.seed_jurisdictions data/cannabis_obser
 
 Safe to re-run; upserts are idempotent.
 
-## Tombstone cleanup (deleted_entities TTL)
+## Outbox + tombstone TTL prune (issue #204)
 
-Rows in `deleted_entities` older than 90 days are safe to purge — sibling services should have invalidated their caches by then. Run manually or via cron:
+`scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)
+from **both** `entity_changes` (the change-feed outbox) and `deleted_entities`
+(deletion tombstones). The two TTLs stay aligned so the public change feed and the
+404-fallback signal expire together. Sibling services must poll at least once per
+window or full-reconcile (see `docs/PUBLIC_API.md` § change feed).
+
+Manual run:
 
 ```bash
 # Build --env-file flags (see § Environment)
@@ -324,27 +330,25 @@ env_args=()
 [ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
 [ -f .env ] && env_args+=(--env-file .env)
 
-# Dry run — count rows that would be deleted
-uv run "${env_args[@]}" python -c "
-import asyncio, asyncpg, os
-async def main():
-    conn = await asyncpg.connect(os.environ['DATABASE_URL'])
-    n = await conn.fetchval(\"SELECT COUNT(*) FROM deleted_entities WHERE deleted_at < NOW() - INTERVAL '90 days'\")
-    print(f'{n} rows eligible for cleanup')
-    await conn.close()
-asyncio.run(main())
-"
+# Dry run — count eligible rows in both tables
+uv run "${env_args[@]}" python -m scripts.prune_outbox
 
-# Execute — purge stale tombstones
-uv run "${env_args[@]}" python -c "
-import asyncio, asyncpg, os
-async def main():
-    conn = await asyncpg.connect(os.environ['DATABASE_URL'])
-    result = await conn.execute(\"DELETE FROM deleted_entities WHERE deleted_at < NOW() - INTERVAL '90 days'\")
-    print(result)
-    await conn.close()
-asyncio.run(main())
-"
+# Execute — delete (optionally override the window)
+uv run "${env_args[@]}" python -m scripts.prune_outbox --execute
+uv run "${env_args[@]}" python -m scripts.prune_outbox --execute --retention-days 90
+```
+
+Scheduled (production): a daily systemd timer runs `--execute`. Install / update:
+
+```bash
+sudo cp infra/power-map-prune.service infra/power-map-prune.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now power-map-prune.timer
+
+# Inspect
+systemctl list-timers power-map-prune.timer   # next/last run
+sudo systemctl start power-map-prune.service   # run once, now
+sudo journalctl -u power-map-prune -f          # logs (rows pruned per run)
 ```
 
 ## Git Submodules
