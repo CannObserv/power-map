@@ -30,6 +30,7 @@ NOTES_FORM = Path("src/templates/admin/orgs/partials/_notes_form.html").read_tex
 LIST_HTML = Path("src/templates/admin/orgs/list.html").read_text()
 REGION_HTML = Path("src/templates/admin/orgs/_region.html").read_text()
 NAME_FORM_ROW = Path("src/templates/admin/orgs/partials/_name_form_row.html").read_text()
+NAME_ROW = Path("src/templates/admin/orgs/partials/_name_row.html").read_text()
 
 
 def _render_child_form(org_id: str = "org_x") -> str:
@@ -458,3 +459,33 @@ def test_name_form_row_does_not_hardcode_org_name_type_list():
     for t in ORG_NAME_TYPES:
         assert f"'{t}'" not in block, f"name_type dropdown contains hardcoded literal {t!r}"
         assert f'"{t}"' not in block, f"name_type dropdown contains hardcoded literal {t!r}"
+
+
+# ---------------------------------------------------------------------------
+# Names section column order — Effective precedes Canonical (#252)
+# View and edit modes must agree so the inline editor lines up with the header.
+# ---------------------------------------------------------------------------
+
+
+def test_names_thead_effective_precedes_canonical():
+    """Header row: the Effective column header sits before Canonical (#252)."""
+    thead_open = DETAIL_HTML.index('<table id="names-table"')
+    thead_close = DETAIL_HTML.index("</thead>", thead_open)
+    header = DETAIL_HTML[thead_open:thead_close]
+    assert header.index("Effective") < header.index("Canonical"), (
+        "Names header must list Effective before Canonical"
+    )
+
+
+def test_name_read_row_effective_cell_precedes_canonical_cell():
+    """View row: the effective-date cell renders before the canonical cell (#252)."""
+    assert NAME_ROW.index("n.effective_start") < NAME_ROW.index("n.is_canonical"), (
+        "Name read row must render the Effective cell before the Canonical cell"
+    )
+
+
+def test_name_form_row_effective_inputs_precede_canonical_toggle():
+    """Edit form: the effective-date inputs render before the canonical toggle (#252)."""
+    assert NAME_FORM_ROW.index('name="effective_start"') < NAME_FORM_ROW.index(
+        'name="is_canonical"'
+    ), "Name form row must place Effective inputs before the Canonical toggle"

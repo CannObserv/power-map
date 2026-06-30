@@ -2,8 +2,8 @@
 <tr id="name-row-{{ n.id }}">
   <td>{{ n.name }}</td>
   <td style="text-align:right">{{ n.name_type }}</td>
-  <td style="text-align:right">{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
   <td style="text-align:right;white-space:nowrap;color:var(--color-text-muted)">{% if n.effective_start or n.effective_end %}{{ n.effective_start or "?" }} – {{ n.effective_end or "present" }}{% else %}—{% endif %}</td>
+  <td style="text-align:right">{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
   <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit name {{ n.name }}"
