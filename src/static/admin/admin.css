@@ -283,8 +283,12 @@ a:hover { color: var(--color-brand-hover); }
 .typeahead-results li:hover, .typeahead-results li.is-active { background: var(--color-surface-0); }
 
 /* Pill toggle switch */
-.toggle { display: inline-flex; align-items: center; cursor: pointer; gap: var(--space-3); }
-.toggle input[type=checkbox] { position: absolute; opacity: 0; width: 0; height: 0; }
+.toggle { position: relative; display: inline-flex; align-items: center; cursor: pointer; gap: var(--space-3); }
+/* Hidden but focusable: clip technique, not width:0/height:0. With the label
+   positioned (above), the input's containing block is the on-screen label, so
+   focusing it (via label click) can't scroll the .admin-main container to the
+   viewport-relative phantom position the zero-size absolute box produced (#253). */
+.toggle input[type=checkbox] { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip: rect(0 0 0 0); opacity: 0; }
 .toggle__track { position: relative; display: inline-block; width: 44px; height: 24px; border-radius: 12px; background: var(--color-border); transition: background 0.2s; flex-shrink: 0; }
 .toggle input[type=checkbox]:checked + .toggle__track { background: var(--color-brand); }
 .toggle input[type=checkbox]:focus-visible + .toggle__track { box-shadow: 0 0 0 3px var(--color-brand-glow); }
