@@ -882,6 +882,7 @@ Used for auto-saving boolean fields. The checkbox is hidden; `.toggle__track` + 
 ```
 
 **Rules:**
+- The checkbox is hidden via the clip technique (`position:absolute; width:1px; height:1px; clip:rect(0 0 0 0)`), **not** `width:0;height:0`, and `.toggle` must stay `position:relative`. A zero-size absolute box with no positioned ancestor anchors to the viewport, so focusing it (label click) scrolls the inner `.admin-main` container to a phantom offset and overlays empty whitespace (#253). Guarded by `tests/js/toggle-focus-scroll-guard.test.js`.
 - Always `disabled` when the entity is archived — archiving/unarchiving is a separate action (Danger Zone). CSS dims the disabled toggle via `.toggle:has(input:disabled)`.
 - The toggle label (`toggle__label`) can hold a badge (e.g. Active/Inactive/Archived) instead of plain text.
 - No visible label text needed when column/section context makes the field self-evident — but always add `aria-label` on the checkbox for screen reader accessibility (e.g. `aria-label="Canonical"`).
