@@ -200,5 +200,5 @@ GET /api/v1/subscriptions/discover
 
 ## Open Questions
 
-- **Outbox TTL policy** — `entity_changes` rows are the only tombstone after `deleted_entities` is retired. Define retention (90 days matches current `deleted_entities` TTL, but longer may be needed for infrequent pollers).
-- **Backfill on new subscription** — when a key registers a new entity, it sees only future changes. If it needs historical state, it must fetch the entity directly. Document this explicitly in `PUBLIC_API.md`.
+- ~~**Outbox TTL policy**~~ — RESOLVED (#204): 90-day window on both `entity_changes` and `deleted_entities`, enforced by `scripts/prune_outbox.py` under a daily `power-map-prune.timer`. DELETE-based (no `changed_at` index, to keep the trigger-heavy insert path lean); revisit range-partitioning only if steady-state volume makes the daily scan expensive.
+- ~~**Backfill on new subscription**~~ — RESOLVED (#204): the feed is a recent-changes window, not a full-history store. New subscribers fetch current state from the read endpoint, then poll incrementally; documented in `PUBLIC_API.md` § change feed.

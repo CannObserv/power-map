@@ -1,0 +1,99 @@
+"""Integration tests for src.core.maintenance — outbox/tombstone TTL pruning."""
+
+import pytest
+import pytest_asyncio
+
+from src.core.maintenance import DEFAULT_RETENTION_DAYS, PruneResult, prune_outbox
+
+pytestmark = [pytest.mark.integration]
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
+
+
+async def _insert_change(conn, entity_id, *, days_old):
+    await conn.execute(
+        "INSERT INTO entity_changes (entity_type, entity_id, change_kind, changed_at) "
+        "VALUES ('organization', $1, 'updated', NOW() - make_interval(days => $2::int))",
+        entity_id,
+        days_old,
+    )
+
+
+async def _insert_tombstone(conn, entity_id, *, days_old):
+    await conn.execute(
+        "INSERT INTO deleted_entities (entity_type, entity_id, deleted_at) "
+        "VALUES ('organization', $1, NOW() - make_interval(days => $2::int))",
+        entity_id,
+        days_old,
+    )
+
+
+async def _change_ids(conn):
+    rows = await conn.fetch("SELECT entity_id FROM entity_changes ORDER BY entity_id")
+    return {r["entity_id"] for r in rows}
+
+
+async def _tombstone_ids(conn):
+    rows = await conn.fetch("SELECT entity_id FROM deleted_entities ORDER BY entity_id")
+    return {r["entity_id"] for r in rows}
+
+
+def test_default_retention_is_90_days():
+    assert DEFAULT_RETENTION_DAYS == 90
+
+
+async def test_prune_deletes_stale_keeps_fresh(db):
+    await _insert_change(db, "ec-stale", days_old=91)
+    await _insert_change(db, "ec-fresh", days_old=1)
+    await _insert_tombstone(db, "de-stale", days_old=91)
+    await _insert_tombstone(db, "de-fresh", days_old=1)
+
+    result = await prune_outbox(db, retention_days=90)
+
+    assert isinstance(result, PruneResult)
+    assert result.entity_changes_deleted == 1
+    assert result.deleted_entities_deleted == 1
+
+    changes = await _change_ids(db)
+    assert "ec-stale" not in changes
+    assert "ec-fresh" in changes
+
+    tombstones = await _tombstone_ids(db)
+    assert "de-stale" not in tombstones
+    assert "de-fresh" in tombstones
+
+
+async def test_prune_respects_retention_days(db):
+    """A wider window keeps rows a 90-day window would drop."""
+    await _insert_change(db, "ec-91d", days_old=91)
+    await _insert_tombstone(db, "de-91d", days_old=91)
+
+    result = await prune_outbox(db, retention_days=120)
+
+    assert result.entity_changes_deleted == 0
+    assert result.deleted_entities_deleted == 0
+    assert "ec-91d" in await _change_ids(db)
+    assert "de-91d" in await _tombstone_ids(db)
+
+
+async def test_prune_default_retention(db):
+    """Called with no retention arg, uses the 90-day default."""
+    await _insert_change(db, "ec-old", days_old=120)
+    await _insert_change(db, "ec-recent", days_old=10)
+
+    result = await prune_outbox(db)
+
+    assert result.entity_changes_deleted == 1
+    changes = await _change_ids(db)
+    assert "ec-old" not in changes
+    assert "ec-recent" in changes

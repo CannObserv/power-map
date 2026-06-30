@@ -108,6 +108,7 @@ exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 | After schema change only (no restart) | `bash scripts/apply-schema.sh` |
 | Worktree dev testing | kill+restart dev server on 8001 with `--reload` from worktree dir |
 | Service debugging | `sudo journalctl -u power-map -f` |
+| Outbox/tombstone TTL prune | daily `power-map-prune.timer` runs `scripts/prune_outbox.py --execute` (90-day window, `entity_changes` + `deleted_entities`); see `docs/COMMANDS.md` |
 
 Full command reference: `docs/COMMANDS.md`
 
