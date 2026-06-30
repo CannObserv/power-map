@@ -68,8 +68,8 @@ class PruneResult:
     rows that *would* be deleted.
     """
 
-    entity_changes_deleted: int
-    deleted_entities_deleted: int
+    entity_changes: int
+    deleted_entities: int
 
 
 def _validate_retention(retention_days: int) -> None:
@@ -94,7 +94,7 @@ async def count_prunable(
     _validate_retention(retention_days)
     changes = await conn.fetchval(_COUNT_CHANGES_SQL, retention_days)
     tombstones = await conn.fetchval(_COUNT_TOMBSTONES_SQL, retention_days)
-    return PruneResult(entity_changes_deleted=changes, deleted_entities_deleted=tombstones)
+    return PruneResult(entity_changes=changes, deleted_entities=tombstones)
 
 
 async def _prune_table(
@@ -136,6 +136,6 @@ async def prune_outbox(
     changes = await _prune_table(conn, _PRUNE_CHANGES_SQL, retention_days, batch_size)
     tombstones = await _prune_table(conn, _PRUNE_TOMBSTONES_SQL, retention_days, batch_size)
     return PruneResult(
-        entity_changes_deleted=changes,
-        deleted_entities_deleted=tombstones,
+        entity_changes=changes,
+        deleted_entities=tombstones,
     )

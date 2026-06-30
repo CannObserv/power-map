@@ -66,8 +66,8 @@ async def test_prune_deletes_stale_keeps_fresh(db):
     result = await prune_outbox(db, retention_days=90)
 
     assert isinstance(result, PruneResult)
-    assert result.entity_changes_deleted == 1
-    assert result.deleted_entities_deleted == 1
+    assert result.entity_changes == 1
+    assert result.deleted_entities == 1
 
     changes = await _change_ids(db)
     assert "ec-stale" not in changes
@@ -85,8 +85,8 @@ async def test_prune_respects_retention_days(db):
 
     result = await prune_outbox(db, retention_days=120)
 
-    assert result.entity_changes_deleted == 0
-    assert result.deleted_entities_deleted == 0
+    assert result.entity_changes == 0
+    assert result.deleted_entities == 0
     assert "ec-91d" in await _change_ids(db)
     assert "de-91d" in await _tombstone_ids(db)
 
@@ -98,7 +98,7 @@ async def test_prune_default_retention(db):
 
     result = await prune_outbox(db)
 
-    assert result.entity_changes_deleted == 1
+    assert result.entity_changes == 1
     changes = await _change_ids(db)
     assert "ec-old" not in changes
     assert "ec-recent" in changes
@@ -112,16 +112,16 @@ async def test_count_prunable_matches_delete_and_does_not_mutate(db):
     await _insert_tombstone(db, "de-fresh", days_old=1)
 
     eligible = await count_prunable(db, retention_days=90)
-    assert eligible.entity_changes_deleted == 1
-    assert eligible.deleted_entities_deleted == 1
+    assert eligible.entity_changes == 1
+    assert eligible.deleted_entities == 1
     # Counting must not delete anything.
     assert "ec-stale" in await _change_ids(db)
     assert "de-stale" in await _tombstone_ids(db)
 
     deleted = await prune_outbox(db, retention_days=90)
-    assert (deleted.entity_changes_deleted, deleted.deleted_entities_deleted) == (
-        eligible.entity_changes_deleted,
-        eligible.deleted_entities_deleted,
+    assert (deleted.entity_changes, deleted.deleted_entities) == (
+        eligible.entity_changes,
+        eligible.deleted_entities,
     )
 
 
@@ -133,7 +133,7 @@ async def test_prune_batches_until_drained(db):
 
     result = await prune_outbox(db, retention_days=90, batch_size=2)
 
-    assert result.entity_changes_deleted == 5
+    assert result.entity_changes == 5
     changes = await _change_ids(db)
     assert changes == {"ec-keep"}
 
@@ -144,3 +144,34 @@ async def test_retention_days_must_be_positive(db, bad):
         await prune_outbox(db, retention_days=bad)
     with pytest.raises(ValueError):
         await count_prunable(db, retention_days=bad)
+
+
+async def test_prune_commits_durably_across_connections(db_pool):
+    """Real-commit path: batches persist (not just savepoints).
+
+    Runs on raw pooled connections — no enclosing rolled-back transaction — so
+    the per-batch COMMIT is exercised. A *separate* connection then confirms the
+    deletes are durable. Acquires its own connections and cleans up explicitly,
+    since nothing rolls back here.
+    """
+    tag = "ec-commit-durable"
+    try:
+        async with db_pool.acquire() as setup:
+            await setup.execute("DELETE FROM entity_changes WHERE entity_id LIKE $1", f"{tag}-%")
+            for i in range(5):
+                await _insert_change(setup, f"{tag}-{i}", days_old=200)
+
+        async with db_pool.acquire() as conn:
+            result = await prune_outbox(conn, retention_days=90, batch_size=2)
+
+        assert result.entity_changes >= 5  # our 5 stale rows, drained across 3 batches
+
+        # Durability check from a different connection: our rows are gone.
+        async with db_pool.acquire() as verify:
+            remaining = await verify.fetchval(
+                "SELECT COUNT(*) FROM entity_changes WHERE entity_id LIKE $1", f"{tag}-%"
+            )
+        assert remaining == 0
+    finally:
+        async with db_pool.acquire() as cleanup:
+            await cleanup.execute("DELETE FROM entity_changes WHERE entity_id LIKE $1", f"{tag}-%")

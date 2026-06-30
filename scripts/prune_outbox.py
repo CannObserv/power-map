@@ -40,8 +40,8 @@ async def run(*, execute: bool, retention_days: int) -> None:
             logger.info(
                 "Dry run — %d entity_changes + %d deleted_entities row(s) older "
                 "than %d days are eligible; pass --execute to delete",
-                eligible.entity_changes_deleted,
-                eligible.deleted_entities_deleted,
+                eligible.entity_changes,
+                eligible.deleted_entities,
                 retention_days,
             )
             return
@@ -49,8 +49,8 @@ async def run(*, execute: bool, retention_days: int) -> None:
         result = await prune_outbox(conn, retention_days)
         logger.info(
             "Pruned %d entity_changes + %d deleted_entities row(s) older than %d days",
-            result.entity_changes_deleted,
-            result.deleted_entities_deleted,
+            result.entity_changes,
+            result.deleted_entities,
             retention_days,
         )
     finally:
