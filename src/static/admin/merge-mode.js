@@ -3,10 +3,11 @@
  *
  * Extracted from people-merge.js (#249) so the People and Orgs list-merge
  * flows share one implementation instead of forking a near-identical copy per
- * entity. `role-merge.js` (org-detail roles table) uses the older #237
- * init-per-table lifecycle and is intentionally NOT migrated here yet; the
- * Roles *list* merge (#251) is a list flow and will consume this factory,
- * adding a same-org predicate at the 2-selection enable point.
+ * entity. The Roles *list* merge (#251) also consumes it via roles-merge.js,
+ * supplying the optional `canMerge` / `groupAttr` config to gate the
+ * two-selection enable point on a same-org predicate. `role-merge.js` (the
+ * org-detail roles table) uses the older #237 init-per-table lifecycle and is
+ * intentionally NOT migrated here.
  *
  * `window.createMergeMode(config)` wires merge mode for one list table:
  *   - toggle button, checkbox selection, sticky "Keep A / Keep B" action bar.
@@ -28,8 +29,19 @@
  *                  mode (clearing selection), and Keep buttons target it
  *   rowAttr        per-row id attribute used to count rows (e.g. 'data-org-id')
  *   nounPlural     entity noun for labels (e.g. 'organizations')
- *   buildMergeUrl  (winnerId, loserId) => POST url for the merge
+ *   buildMergeUrl  (winnerId, loserId, winnerEntry, loserEntry) => POST url. The
+ *                  two entries carry {id, title, group} so an org-scoped merge
+ *                  (Roles, #251) can read the shared org from entry.group.
  *   untitledLabel  fallback row label when data-title is absent ('(unnamed)')
+ *   groupAttr      OPTIONAL dataset key (camelCase, e.g. 'orgId' for
+ *                  data-org-id) captured per row into entry.group, for use by
+ *                  canMerge / buildMergeUrl. Omit when merge isn't group-scoped.
+ *   canMerge       OPTIONAL (entryA, entryB) => bool gating the two-selected
+ *                  enable point. When it returns false the Keep buttons stay
+ *                  disabled and `cannotMergeLabel` is shown. The Roles list
+ *                  (#251) uses a == on entry.group (same org). Defaults to
+ *                  always-mergeable (People / Orgs).
+ *   cannotMergeLabel OPTIONAL bar label shown when canMerge fails.
  */
 (function () {
   function createMergeMode(config) {
@@ -42,6 +54,9 @@
     var nounPlural = config.nounPlural;
     var buildMergeUrl = config.buildMergeUrl;
     var untitled = config.untitledLabel || '(unnamed)';
+    var groupAttr = config.groupAttr; // dataset key, e.g. 'orgId'; optional
+    var canMerge = config.canMerge; // (a, b) => bool; optional
+    var cannotMergeLabel = config.cannotMergeLabel;
 
     var listRegionSelector = '#' + listRegionId;
     var rowSelector = 'tbody tr[' + rowAttr + ']';
@@ -63,7 +78,7 @@
 
     // Closure-scope state — persists across region swaps.
     var inMergeMode = false;
-    var checked = []; // ordered list of {id, title}
+    var checked = []; // ordered list of {id, title, group?}
 
     function setMergeColVisibility(visible) {
       var t = getTable();
@@ -161,50 +176,41 @@
 
       if (checked.length === 0) {
         if (label) label.textContent = 'Select 2 ' + nounPlural + ' to merge:';
-        if (btnA) {
-          btnA.textContent = '—';
-          btnA.disabled = true;
-          btnA.removeAttribute('hx-post');
-          btnA.removeAttribute('hx-confirm');
-        }
-        if (btnB) {
-          btnB.textContent = '—';
-          btnB.disabled = true;
-          btnB.removeAttribute('hx-post');
-          btnB.removeAttribute('hx-confirm');
-        }
+        disableKeepBtn(btnA);
+        disableKeepBtn(btnB);
         return;
       }
 
       if (checked.length === 1) {
         var a = checked[0];
         if (label) label.textContent = 'Select 1 more:';
-        if (btnA) {
-          btnA.textContent = 'Selected: "' + a.title + '"';
-          btnA.disabled = true;
-          btnA.removeAttribute('hx-post');
-          btnA.removeAttribute('hx-confirm');
-        }
-        if (btnB) {
-          btnB.textContent = '—';
-          btnB.disabled = true;
-          btnB.removeAttribute('hx-post');
-          btnB.removeAttribute('hx-confirm');
-        }
+        disableKeepBtn(btnA);
+        disableKeepBtn(btnB);
+        // The already-picked side shows what's selected rather than the bare '—'.
+        if (btnA) btnA.textContent = 'Selected: "' + a.title + '"';
         return;
       }
 
-      // Two selected. Extension point (#251): a same-org predicate would gate
-      // the enable/hx-post wiring here, showing a disabled-state hint instead
-      // when the two rows can't be merged together.
+      // Two selected.
       var rowA = checked[0];
       var rowB = checked[1];
+
+      // Same-org predicate (#251): role merge is org-scoped, so an org-mismatched
+      // pair can't be merged. Show the hint and leave both Keep buttons disabled
+      // (no hx-post wired) rather than letting a doomed POST 409 server-side.
+      if (canMerge && !canMerge(rowA, rowB)) {
+        if (label) label.textContent = cannotMergeLabel || 'These cannot be merged.';
+        disableKeepBtn(btnA);
+        disableKeepBtn(btnB);
+        return;
+      }
+
       if (label) label.textContent = 'Merge ' + nounPlural + ':';
 
       if (btnA) {
         btnA.textContent = 'Keep "' + rowA.title + '"';
         btnA.disabled = false;
-        btnA.setAttribute('hx-post', buildMergeUrl(rowA.id, rowB.id));
+        btnA.setAttribute('hx-post', buildMergeUrl(rowA.id, rowB.id, rowA, rowB));
         btnA.setAttribute('hx-target', listRegionSelector);
         btnA.setAttribute('hx-swap', 'innerHTML');
         btnA.setAttribute(
@@ -215,7 +221,7 @@
       if (btnB) {
         btnB.textContent = 'Keep "' + rowB.title + '"';
         btnB.disabled = false;
-        btnB.setAttribute('hx-post', buildMergeUrl(rowB.id, rowA.id));
+        btnB.setAttribute('hx-post', buildMergeUrl(rowB.id, rowA.id, rowB, rowA));
         btnB.setAttribute('hx-target', listRegionSelector);
         btnB.setAttribute('hx-swap', 'innerHTML');
         btnB.setAttribute(
@@ -230,6 +236,16 @@
       }
     }
 
+    // Reset a Keep button to its inert disabled state (used by the 0/1-selection
+    // branches and the canMerge-blocked two-selection branch).
+    function disableKeepBtn(btn) {
+      if (!btn) return;
+      btn.textContent = '—';
+      btn.disabled = true;
+      btn.removeAttribute('hx-post');
+      btn.removeAttribute('hx-confirm');
+    }
+
     function onCheckboxChange(e) {
       var cb = e.target;
       if (!cb || !cb.matches) return;
@@ -241,7 +257,10 @@
       var title = row ? row.dataset.title || untitled : untitled;
 
       if (cb.checked) {
-        checked.push({ id: rowId, title: title });
+        var entry = { id: rowId, title: title };
+        // group key for an org-scoped merge (#251); undefined when groupAttr unset.
+        if (groupAttr) entry.group = row ? row.dataset[groupAttr] : undefined;
+        checked.push(entry);
       } else {
         checked = checked.filter(function (c) {
           return c.id !== rowId;

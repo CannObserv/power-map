@@ -1,5 +1,6 @@
 {% for role in roles %}
-<tr class="{% if role.archived_at %}is-archived{% endif %}">
+<tr class="{% if role.archived_at %}is-archived{% endif %}" data-title="{{ role.title or '(untitled)' }}" data-role-id="{{ role.id }}" data-org-id="{{ role.org_id or '' }}">
+  <td class="merge-col" style="display:none;padding-right:0"><input type="checkbox" name="merge-select" value="{{ role.id }}" aria-label="Select {{ role.title or '(untitled)' }} for merge"></td>
   <td>
     {% if role.org_id %}
     <a href="/admin/orgs/{{ role.org_id }}/">{{ role.org_name or '(unnamed)' }}</a>
@@ -14,5 +15,5 @@
   <td><a href="/admin/roles/{{ role.id }}/" class="btn btn--ghost btn--sm" aria-label="View {{ role.title or '(untitled)' }}">View</a></td>
 </tr>
 {% else %}
-<tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
+<tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
 {% endfor %}

@@ -2,10 +2,11 @@
 
 A merge POST carries no query string of its own, so the list-flow merge
 branches re-derive the user's active filters from the ``HX-Current-URL`` header
-(the URL the user is currently on). People and Orgs share the parsing logic and
-differ only in their valid status set — this module is the single source of
-truth so the two can't drift (the same rationale behind ``people_queries.py`` /
-``orgs_queries.py`` and the ``merge-mode.js`` factory).
+(the URL the user is currently on). People, Orgs, and Roles share the parsing
+logic and differ only in their valid status set (and, for Roles, a second
+free-text ``org_q`` filter) — this module is the single source of truth so they
+can't drift (the same rationale behind ``people_queries.py`` /
+``orgs_queries.py`` / ``roles_queries.py`` and the ``merge-mode.js`` factory).
 """
 
 from urllib.parse import parse_qs, urlsplit
@@ -16,7 +17,11 @@ from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE
 
 
 def parse_list_filters(
-    request: Request, *, valid_statuses: set[str], default_page_size: int = PAGE_SIZE_DEFAULT
+    request: Request,
+    *,
+    valid_statuses: set[str],
+    default_page_size: int = PAGE_SIZE_DEFAULT,
+    extra_text_params: tuple[str, ...] = (),
 ) -> dict:
     """Parse ``q`` / ``status`` / ``page`` / ``page_size`` out of HX-Current-URL.
 
@@ -30,8 +35,14 @@ def parse_list_filters(
             Orgs adds the org-only ``"inactive"``.)
         default_page_size: used as the default and as the fallback when the
             parsed value is missing, non-numeric, or outside [10, 500].
+        extra_text_params: additional free-text filter names to parse (each
+            stripped, defaulting to ``""``) and include in the result. Roles
+            (#251) passes ``("org_q",)`` for its second organization-name
+            filter, which People / Orgs lack.
     """
     defaults = {"q": "", "status": "active", "page": 1, "page_size": default_page_size}
+    for name in extra_text_params:
+        defaults[name] = ""
     raw = request.headers.get("HX-Current-URL", "")
     if not raw:
         return defaults
@@ -54,4 +65,7 @@ def parse_list_filters(
         page_size = default_page_size
     if not PAGE_SIZE_MIN <= page_size <= PAGE_SIZE_MAX:
         page_size = default_page_size
-    return {"q": q, "status": status, "page": page, "page_size": page_size}
+    out = {"q": q, "status": status, "page": page, "page_size": page_size}
+    for name in extra_text_params:
+        out[name] = (params.get(name, [""])[0] or "").strip()
+    return out

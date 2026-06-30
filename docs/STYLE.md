@@ -1286,9 +1286,11 @@ All list-view search inputs and filter selects include `hx-push-url="true"` so t
 
 ## 24. Merge Bar Pattern
 
-A fixed-position page overlay for bulk-select-and-merge on tables with potentially duplicate rows. Used on the Roles table of the org detail page (`role-merge.js`), the People list (`people-merge.js`), and the Organizations list (`orgs-merge.js`).
+A fixed-position page overlay for bulk-select-and-merge on tables with potentially duplicate rows. Used on the Roles table of the org detail page (`role-merge.js`), the People list (`people-merge.js`), the Organizations list (`orgs-merge.js`), and the Roles list (`roles-merge.js`).
 
-> **Shared engine (#250):** the two **list** flows (People, Orgs) are thin consumers of `merge-mode.js`, which exposes `window.createMergeMode(config)` — one boost-safe, document-delegated implementation parameterized by `{ tableId, btnId, btnWrapId, barId, listRegionId, rowAttr, nounPlural, buildMergeUrl, untitledLabel }`. `people-merge.js` / `orgs-merge.js` only supply config. `role-merge.js` (org-detail roles table) predates the factory and keeps its own `init()`-per-table lifecycle (#237); the Roles **list** merge (#251) will consume the factory, adding a same-org predicate at the 2-selection enable point. Load order in `base.html` matters: `merge-mode.js` must precede its consumers (`defer` preserves document order).
+> **Shared engine (#250):** the three **list** flows (People, Orgs, Roles) are thin consumers of `merge-mode.js`, which exposes `window.createMergeMode(config)` — one boost-safe, document-delegated implementation parameterized by `{ tableId, btnId, btnWrapId, barId, listRegionId, rowAttr, nounPlural, buildMergeUrl, untitledLabel }` plus the optional `{ groupAttr, canMerge, cannotMergeLabel }` (#251) for group-scoped merges. `people-merge.js` / `orgs-merge.js` / `roles-merge.js` only supply config. `role-merge.js` (org-detail roles table) predates the factory and keeps its own `init()`-per-table lifecycle (#237). Load order in `base.html` matters: `merge-mode.js` must precede its consumers (`defer` preserves document order).
+
+> **Same-org predicate (#251):** role merge is org-scoped (route `/admin/orgs/{org}/roles/{winner}/merge/{loser}/`, unique per `(organization_id, lower(title))`), but the Roles **list** is cross-org. So `roles-merge.js` supplies `groupAttr: 'orgId'` (the factory captures each row's `data-org-id` into the selection entry's `.group`) and `canMerge: (a, b) => a.group === b.group`. When two selected roles span different orgs the factory shows `cannotMergeLabel` ("Roles must be in the same organization to merge") and leaves both Keep buttons disabled — no `hx-post` is wired, so a doomed cross-org POST can't fire. `buildMergeUrl` reads the shared org from the winner entry's `.group`. People / Orgs omit these keys and are unaffected (always-mergeable).
 
 > **Positioning:** `.merge-bar` is `position: fixed; bottom: 3rem; left: var(--sidebar-w); right: 0` — a full-width overlay above the sticky pagination, not a block contained by its parent element. It is placed inside `table-wrapper` in the DOM for logical proximity only; the containing block has no effect on layout.
 
@@ -1367,7 +1369,7 @@ The same `role-merge.js` also handles the roles filter input (`#roles-filter`). 
        class="filter-card__search">
 ```
 
-### List variants (`people-merge.js`, `orgs-merge.js`)
+### List variants (`people-merge.js`, `orgs-merge.js`, `roles-merge.js`)
 
 Both consume the shared `merge-mode.js` engine; the table below contrasts the list lifecycle against the org-detail roles table. Same DOM contract, five deltas:
 
@@ -1385,6 +1387,12 @@ POST URL pattern: `/admin/people/{winner_id}/merge/{loser_id}/`. The route ([src
 Merge button always renders (the People list mixes active + archived via the status filter); the `_btn-wrap` shows the `not-allowed` cursor + tooltip when fewer than 2 rows are visible in the current tbody. Selection state clears on `htmx:afterSwap` (search, pagination, page-size change) — cross-page selection persistence is intentionally not implemented.
 
 The **Orgs list** (`orgs-merge.js`) mirrors the People list exactly, with rows carrying `data-org-id` and POST URL `/admin/orgs/{winner_id}/merge/{loser_id}/`. The route ([src/api/admin/orgs_merge.py](../src/api/admin/orgs_merge.py)) detects the list flow via `HX-Target == "orgs-list-region"` and returns `_region.html` instead of `_duplicates_region.html`; the shared query helper is [src/api/admin/orgs_queries.py](../src/api/admin/orgs_queries.py). The `HX-Current-URL` filter parsing is shared with People via [src/api/admin/list_filters.py](../src/api/admin/list_filters.py) (`parse_list_filters`); each route binds its own valid-status set. One difference from People: the org status axis is three-valued (`active` / `inactive` / `archived`), so the Orgs caller passes `inactive` as a valid status — copy-pasting the People set would collapse it to `active`. Page-size bounds live in [pagination.py](../src/api/admin/pagination.py) (`PAGE_SIZE_*`), used by both the route `Query` validators and the parser. A list-flow merge that drops conflicting role assignments appends the count to the flash (`_dropped_assignments_note`, shared with the detail-flow `org_merge_with`).
+
+The **Roles list** (`roles-merge.js`, #251) is the cross-org variant, and differs from People/Orgs in three ways:
+
+- **Namespaced IDs.** Both the org-detail roles table and the roles list would otherwise use `#roles-table` / `#roles-merge-*`. The list uses `#roles-list-table` / `#roles-list-merge-btn` / `#roles-list-merge-bar` / `#roles-list-merge-btn-wrap` so `role-merge.js` (which binds `#roles-table`) and `roles-merge.js` never double-bind. Rows carry `data-role-id` (row identity / count via `rowAttr`) **and** `data-org-id` (the same-org key via `groupAttr`).
+- **Same-org predicate.** See the "Same-org predicate (#251)" note in §24 — `canMerge` gates the 2-selection enable point; cross-org pairs show the hint and stay disabled. POST URL is org-scoped: `/admin/orgs/{org}/roles/{winner}/merge/{loser}/`, built from the shared `entry.group`.
+- **Backend reuses the org-detail route.** No new route — `role_merge` in [src/api/admin/orgs_roles.py](../src/api/admin/orgs_roles.py) gains an `HX-Target == "roles-list-region"` branch returning `admin/roles/_region.html` (filters re-derived from `HX-Current-URL`); without that header it keeps returning the org-detail `_role_rows.html` partial. The shared query helper is [src/api/admin/roles_queries.py](../src/api/admin/roles_queries.py); filter parsing reuses `parse_list_filters` with `extra_text_params=("org_q",)` for the roles-only organization-name filter (status axis is two-valued — roles have no `active` flag).
 
 ---
 
@@ -1869,7 +1877,7 @@ Always include a `RedirectResponse` fallback on mutation routes for graceful deg
 - **Body `<script src>` tags re-run on every boosted navigation.** A persistent `document.addEventListener` in `<body>` accumulates duplicate listeners. For unavoidable inline body scripts use the replace-then-add idiom: `document.removeEventListener(evt, document.__pmKey); document.__pmKey = fn; document.addEventListener(evt, document.__pmKey)` — see `base.html` `aria-busy` and `__pmNavKeydown`.
 - **Head `<script>` tags in a _detail template's_ `extra_head` never run when the page is reached via a boosted link** — they are stripped with the rest of `<head>`. They execute only on a full (non-boosted) page load.
 
-So any script that must run on (or register listeners for) a detail page reached by clicking an in-app link belongs in **`base.html`'s `<head>`**, which loads once on the first full page load and persists across every boosted swap. Scripts loaded this way today: `htmx`, `dark-mode.js`, `admin-modal.js`, `flash.js`, `typeahead-combobox.js`, and the detail-interaction scripts (`org-detail.js`, `person-detail.js`, `role-merge.js`, the list-merge engine + consumers `merge-mode.js` / `people-merge.js` / `orgs-merge.js` (#249/#250), `add-row-guard.js`, the `person-name-*` editor scripts, and `event-form-row.js` — the entity-event form-row typeahead + linked-entity scope wiring, #172). See #237.
+So any script that must run on (or register listeners for) a detail page reached by clicking an in-app link belongs in **`base.html`'s `<head>`**, which loads once on the first full page load and persists across every boosted swap. Scripts loaded this way today: `htmx`, `dark-mode.js`, `admin-modal.js`, `flash.js`, `typeahead-combobox.js`, and the detail-interaction scripts (`org-detail.js`, `person-detail.js`, `role-merge.js`, the list-merge engine + consumers `merge-mode.js` / `people-merge.js` / `orgs-merge.js` / `roles-merge.js` (#249/#250/#251), `add-row-guard.js`, the `person-name-*` editor scripts, and `event-form-row.js` — the entity-event form-row typeahead + linked-entity scope wiring, #172). See #237.
 
 ### Page-specific scripts
 

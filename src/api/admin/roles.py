@@ -13,8 +13,9 @@ from src.api.admin.deps import (
     is_htmx,
     resolve_query_flash,
 )
-from src.api.admin.pagination import pagination_context
+from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
+from src.api.admin.roles_queries import query_roles_rows
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -32,54 +33,14 @@ async def roles_list(
     org_q: str = "",
     status: str = "active",
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=10, le=500),
+    page_size: int = Query(PAGE_SIZE_DEFAULT, ge=PAGE_SIZE_MIN, le=PAGE_SIZE_MAX),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """List roles with title/org search and status filter."""
 
-    conditions = []
-    params: list = []
-
-    if status == "active":
-        conditions.append("r.archived_at IS NULL")
-    elif status == "archived":
-        conditions.append("r.archived_at IS NOT NULL")
-
-    if q:
-        params.append(q)
-        conditions.append(f"r.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
-
-    if org_q:
-        params.append(org_q)
-        conditions.append(f"o.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
-
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    count_params = params[:]
-
-    count = await db.fetchval(
-        f"""SELECT count(r.id)
-            FROM roles r
-            JOIN organizations o ON o.id = r.organization_id
-            {where}""",
-        *count_params,
-    )
-
-    pctx = pagination_context(page, count, page_size)
-    offset = (pctx["page"] - 1) * page_size
-    list_params = params + [page_size, offset]
-
-    rows = await db.fetch(
-        f"""SELECT r.id, r.title, r.notes, r.archived_at, r.created_at,
-                   o.id AS org_id,
-                   dn.display_name AS org_name
-            FROM roles r
-            JOIN organizations o ON o.id = r.organization_id
-            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-            {where}
-            ORDER BY dn.display_name NULLS LAST, r.title
-            LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
-        *list_params,
+    rows, count, pctx = await query_roles_rows(
+        db, q=q, org_q=org_q, status=status, page=page, page_size=page_size
     )
 
     ctx = {

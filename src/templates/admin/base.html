@@ -27,14 +27,15 @@
   <script src="/static/admin/org-detail.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/person-detail.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/role-merge.js?v={{ asset_version }}" defer></script>
-  {# List merge mode (#249 People, #250 Orgs) — loaded site-wide for the same
-     reason: an extra_head-only script never ran on a boosted nav, so Merge was
-     a no-op. merge-mode.js is the shared factory and MUST precede its consumers
-     (defer preserves document order). All document-delegated + boost-safe;
-     no-op on pages without the relevant list. #}
+  {# List merge mode (#249 People, #250 Orgs, #251 Roles) — loaded site-wide for
+     the same reason: an extra_head-only script never ran on a boosted nav, so
+     Merge was a no-op. merge-mode.js is the shared factory and MUST precede its
+     consumers (defer preserves document order). All document-delegated +
+     boost-safe; no-op on pages without the relevant list. #}
   <script src="/static/admin/merge-mode.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/people-merge.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/orgs-merge.js?v={{ asset_version }}" defer></script>
+  <script src="/static/admin/roles-merge.js?v={{ asset_version }}" defer></script>
   {# Generic "+ Add" duplicate-row guard (#238) — disables each button carrying
      data-new-row-id while its unsaved new-row is on the page. Replaces the
      per-feature event-add-guard.js / person-detail-add-name-guard.js. #}

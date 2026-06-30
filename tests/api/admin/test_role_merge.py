@@ -405,3 +405,95 @@ async def test_merge_non_htmx_redirects_to_org_detail(client, role_pair):
     )
     assert response.status_code == 303
     assert response.headers["location"] == f"/admin/orgs/{org_id}/"
+
+
+# ── List-flow merge (#251): merge initiated from /admin/roles/ ───────────────
+
+LIST_HEADERS = {**HTMX_HEADERS, "HX-Target": "roles-list-region"}
+
+
+async def test_list_merge_returns_roles_list_region(client, role_pair):
+    """HX-Target=roles-list-region → render the roles LIST region, not the
+    org-detail roles table partial."""
+    org_id, role_a, role_b = role_pair
+    response = client.post(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/",
+        headers=LIST_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    # List-region markers (caption + namespaced table id + merge bar), absent
+    # from the org-detail `_role_rows.html` partial.
+    assert 'id="roles-list-table"' in response.text
+    assert 'id="roles-list-merge-bar"' in response.text
+    assert "Roles —" in response.text
+    # Surviving winner linked into the roles list (not the org-detail view).
+    assert f'href="/admin/roles/{role_a}/"' in response.text
+
+
+async def test_list_merge_actually_merges(client, role_pair, db_pool):
+    """Loser is hard-deleted regardless of which response branch renders."""
+    org_id, role_a, role_b = role_pair
+    client.post(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/",
+        headers=LIST_HEADERS,
+        follow_redirects=False,
+    )
+    async with db_pool.acquire() as conn:
+        survivor = await conn.fetchval("SELECT count(*) FROM roles WHERE id = $1", role_a)
+        gone = await conn.fetchval("SELECT count(*) FROM roles WHERE id = $1", role_b)
+    assert survivor == 1
+    assert gone == 0
+
+
+async def test_list_merge_sends_flash_trigger(client, role_pair):
+    org_id, role_a, role_b = role_pair
+    response = client.post(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/",
+        headers=LIST_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    payload = json.loads(response.headers["HX-Trigger"])
+    assert payload["showFlash"]["level"] == "success"
+    assert "Exec Director" in payload["showFlash"]["body"]
+
+
+async def test_list_merge_preserves_org_q_filter(client, role_pair):
+    """A non-matching org_q (re-derived from HX-Current-URL) filters the survivor
+    out of the re-rendered region — proving the filter flowed through."""
+    org_id, role_a, role_b = role_pair
+    response = client.post(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/",
+        headers={**LIST_HEADERS, "HX-Current-URL": "/admin/roles/?org_q=Zzzznomatch"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "Roles — 0 records" in response.text
+    assert "No results" in response.text
+
+
+async def test_list_merge_honors_matching_org_q_filter(client, role_pair):
+    """A matching org_q keeps the survivor in the region."""
+    org_id, role_a, role_b = role_pair
+    response = client.post(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/",
+        headers={**LIST_HEADERS, "HX-Current-URL": "/admin/roles/?org_q=Test"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert f'href="/admin/roles/{role_a}/"' in response.text
+
+
+async def test_org_detail_merge_unaffected_without_hx_target(client, role_pair):
+    """No HX-Target → the org-detail roles-table partial still renders (regression
+    guard: the list branch must not steal the detail flow)."""
+    org_id, role_a, role_b = role_pair
+    response = client.post(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/",
+        headers=HTMX_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert 'id="roles-list-table"' not in response.text
+    assert "Roles —" not in response.text
