@@ -176,36 +176,18 @@
 
       if (checked.length === 0) {
         if (label) label.textContent = 'Select 2 ' + nounPlural + ' to merge:';
-        if (btnA) {
-          btnA.textContent = '—';
-          btnA.disabled = true;
-          btnA.removeAttribute('hx-post');
-          btnA.removeAttribute('hx-confirm');
-        }
-        if (btnB) {
-          btnB.textContent = '—';
-          btnB.disabled = true;
-          btnB.removeAttribute('hx-post');
-          btnB.removeAttribute('hx-confirm');
-        }
+        disableKeepBtn(btnA);
+        disableKeepBtn(btnB);
         return;
       }
 
       if (checked.length === 1) {
         var a = checked[0];
         if (label) label.textContent = 'Select 1 more:';
-        if (btnA) {
-          btnA.textContent = 'Selected: "' + a.title + '"';
-          btnA.disabled = true;
-          btnA.removeAttribute('hx-post');
-          btnA.removeAttribute('hx-confirm');
-        }
-        if (btnB) {
-          btnB.textContent = '—';
-          btnB.disabled = true;
-          btnB.removeAttribute('hx-post');
-          btnB.removeAttribute('hx-confirm');
-        }
+        disableKeepBtn(btnA);
+        disableKeepBtn(btnB);
+        // The already-picked side shows what's selected rather than the bare '—'.
+        if (btnA) btnA.textContent = 'Selected: "' + a.title + '"';
         return;
       }
 

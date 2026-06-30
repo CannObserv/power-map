@@ -13,6 +13,7 @@ from src.api.admin.deps import (
     is_htmx,
     resolve_query_flash,
 )
+from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.api.admin.roles_queries import query_roles_rows
 from src.core.db import generate_id
@@ -32,7 +33,7 @@ async def roles_list(
     org_q: str = "",
     status: str = "active",
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=10, le=500),
+    page_size: int = Query(PAGE_SIZE_DEFAULT, ge=PAGE_SIZE_MIN, le=PAGE_SIZE_MAX),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):

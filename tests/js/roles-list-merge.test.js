@@ -251,14 +251,44 @@ describe('two roles, different orgs', () => {
     expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-post')).toBeNull();
     expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-post')).toBeNull();
   });
+});
 
-  it('re-enables once a same-org pair is reselected', () => {
+// ---------------------------------------------------------------------------
+// Same-org predicate — cross-org block then same-org reselect re-enables
+// ---------------------------------------------------------------------------
+
+describe('cross-org block then same-org reselect', () => {
+  beforeEach(() => {
+    setup([
+      { id: 'role-1', title: 'Director', org: 'org-1' },
+      { id: 'role-2', title: 'Treasurer', org: 'org-2' },
+      { id: 'role-3', title: 'Chair', org: 'org-1' },
+    ]);
+    document.getElementById('roles-list-merge-btn').click();
     const [cb1, cb2] = checkboxes();
-    uncheck(cb2); // drop the cross-org role
-    // selecting the cross-org one again keeps it blocked; instead verify that
-    // dropping back to 1 returns to the progressive-disclosure label
-    expect(document.querySelector('.merge-bar__label').textContent).toBe('Select 1 more:');
-    expect(cb1.checked).toBe(true);
+    check(cb1); // role-1 (org-1)
+    check(cb2); // role-2 (org-2) → cross-org, blocked
+  });
+
+  it('starts blocked on the cross-org pair', () => {
+    expect(document.querySelector('.merge-bar__label').textContent).toBe(
+      'Roles must be in the same organization to merge',
+    );
+    expect(document.querySelector('.merge-bar__keep-a').disabled).toBe(true);
+  });
+
+  it('re-enables with a correct hx-post after swapping in a same-org role', () => {
+    const [, cb2, cb3] = checkboxes();
+    uncheck(cb2); // drop the org-2 role
+    check(cb3); // role-3 (org-1) → role-1 + role-3 now share org-1
+
+    expect(document.querySelector('.merge-bar__label').textContent).toBe('Merge roles:');
+    const btnA = document.querySelector('.merge-bar__keep-a');
+    const btnB = document.querySelector('.merge-bar__keep-b');
+    expect(btnA.disabled).toBe(false);
+    expect(btnB.disabled).toBe(false);
+    expect(btnA.getAttribute('hx-post')).toBe('/admin/orgs/org-1/roles/role-1/merge/role-3/');
+    expect(btnB.getAttribute('hx-post')).toBe('/admin/orgs/org-1/roles/role-3/merge/role-1/');
   });
 });
 
