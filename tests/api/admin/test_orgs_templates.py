@@ -489,3 +489,42 @@ def test_name_form_row_effective_inputs_precede_canonical_toggle():
     assert NAME_FORM_ROW.index('name="effective_start"') < NAME_FORM_ROW.index(
         'name="is_canonical"'
     ), "Name form row must place Effective inputs before the Canonical toggle"
+
+
+def _names_header_column_count() -> int:
+    """Count `<th>` cells in the org detail Names-table header.
+
+    Matches `<th` only when followed by whitespace or `>` so the enclosing
+    `<thead>` tag is not miscounted as a column.
+    """
+    thead_open = DETAIL_HTML.index('<table id="names-table"')
+    thead_close = DETAIL_HTML.index("</thead>", thead_open)
+    return len(re.findall(r"<th[\s>]", DETAIL_HTML[thead_open:thead_close]))
+
+
+def test_name_read_row_cell_count_matches_header_columns():
+    """Read row must carry exactly one cell per Names header column (#252 guard).
+
+    Anchors the inline read row to the `<thead>` so a future cell add/remove on
+    one without the other (column drift) fails loudly instead of silently
+    sliding every value under the wrong header.
+    """
+    header_cols = _names_header_column_count()
+    row_cells = NAME_ROW.count("<td")
+    assert row_cells == header_cols, (
+        f"Names read row has {row_cells} cells but the header declares {header_cols} columns"
+    )
+
+
+def test_names_empty_state_colspan_matches_header_columns():
+    """The `No names` empty-state row must span every Names header column (#252 guard).
+
+    A stale colspan (e.g. left at 5 after a column is dropped) misrenders the
+    empty state; tie it to the live header column count.
+    """
+    header_cols = _names_header_column_count()
+    match = re.search(r'colspan="(\d+)"[^>]*>\s*No names', DETAIL_HTML)
+    assert match, "names-table `No names` empty-state row not found"
+    assert int(match.group(1)) == header_cols, (
+        f"`No names` colspan is {match.group(1)} but the header declares {header_cols} columns"
+    )
