@@ -23,11 +23,6 @@
           {% endfor %}
         </select>
       </div>
-      <label class="toggle" style="flex-shrink:0">
-        <input type="checkbox" name="is_canonical" value="true" aria-label="Canonical"
-               {% if n and n.is_canonical %} checked{% endif %}>
-        <span class="toggle__track"><span class="toggle__thumb"></span></span>
-      </label>
       {# Effective-date timeline (#239). Empty = unknown/ongoing; the form is the
          source of truth on save, so clearing a field nulls the column. #}
       <div class="form-group" style="margin-bottom:0">
@@ -38,6 +33,11 @@
         <input type="date" name="effective_end" aria-label="Effective end"
                value="{{ n.effective_end if n and n.effective_end else '' }}">
       </div>
+      <label class="toggle" style="flex-shrink:0">
+        <input type="checkbox" name="is_canonical" value="true" aria-label="Canonical"
+               {% if n and n.is_canonical %} checked{% endif %}>
+        <span class="toggle__track"><span class="toggle__thumb"></span></span>
+      </label>
       <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
         <button type="submit" class="btn btn--sm btn--primary">Save</button>
         <button type="button" class="btn btn--sm btn--secondary"
