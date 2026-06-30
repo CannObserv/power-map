@@ -47,7 +47,7 @@ src/static/     — Static assets; vendor/ is SHA-pinned and excluded from linti
 tests/          — Mirrors src/ structure; js/ for Vitest
 docs/           — Reference docs (COMMANDS, STYLE, CONVENTIONS, SKILLS, PUBLIC_API)
 scripts/        — One-off operational scripts
-infra/          — systemd unit file
+infra/          — systemd units (API + prune timer) + terraform
 ```
 
 ## Admin Dashboard Key Rules

@@ -22,17 +22,9 @@ import os
 import asyncpg
 
 from src.core.logging import configure_logging, get_logger
-from src.core.maintenance import DEFAULT_RETENTION_DAYS, prune_outbox
+from src.core.maintenance import DEFAULT_RETENTION_DAYS, count_prunable, prune_outbox
 
 logger = get_logger(__name__)
-
-_COUNT_SQL = """
-SELECT
-    (SELECT COUNT(*) FROM entity_changes
-       WHERE changed_at < NOW() - make_interval(days => $1::int))   AS entity_changes,
-    (SELECT COUNT(*) FROM deleted_entities
-       WHERE deleted_at < NOW() - make_interval(days => $1::int))   AS deleted_entities
-"""
 
 
 async def run(*, execute: bool, retention_days: int) -> None:
@@ -44,12 +36,12 @@ async def run(*, execute: bool, retention_days: int) -> None:
     conn = await asyncpg.connect(dsn)
     try:
         if not execute:
-            counts = await conn.fetchrow(_COUNT_SQL, retention_days)
+            eligible = await count_prunable(conn, retention_days)
             logger.info(
                 "Dry run — %d entity_changes + %d deleted_entities row(s) older "
                 "than %d days are eligible; pass --execute to delete",
-                counts["entity_changes"],
-                counts["deleted_entities"],
+                eligible.entity_changes_deleted,
+                eligible.deleted_entities_deleted,
                 retention_days,
             )
             return

@@ -3,7 +3,12 @@
 import pytest
 import pytest_asyncio
 
-from src.core.maintenance import DEFAULT_RETENTION_DAYS, PruneResult, prune_outbox
+from src.core.maintenance import (
+    DEFAULT_RETENTION_DAYS,
+    PruneResult,
+    count_prunable,
+    prune_outbox,
+)
 
 pytestmark = [pytest.mark.integration]
 
@@ -97,3 +102,45 @@ async def test_prune_default_retention(db):
     changes = await _change_ids(db)
     assert "ec-old" not in changes
     assert "ec-recent" in changes
+
+
+async def test_count_prunable_matches_delete_and_does_not_mutate(db):
+    """The dry-run count equals what execute deletes, and counting leaves rows."""
+    await _insert_change(db, "ec-stale", days_old=91)
+    await _insert_change(db, "ec-fresh", days_old=1)
+    await _insert_tombstone(db, "de-stale", days_old=91)
+    await _insert_tombstone(db, "de-fresh", days_old=1)
+
+    eligible = await count_prunable(db, retention_days=90)
+    assert eligible.entity_changes_deleted == 1
+    assert eligible.deleted_entities_deleted == 1
+    # Counting must not delete anything.
+    assert "ec-stale" in await _change_ids(db)
+    assert "de-stale" in await _tombstone_ids(db)
+
+    deleted = await prune_outbox(db, retention_days=90)
+    assert (deleted.entity_changes_deleted, deleted.deleted_entities_deleted) == (
+        eligible.entity_changes_deleted,
+        eligible.deleted_entities_deleted,
+    )
+
+
+async def test_prune_batches_until_drained(db):
+    """A batch_size smaller than the backlog still deletes every expired row."""
+    for i in range(5):
+        await _insert_change(db, f"ec-{i}", days_old=100)
+    await _insert_change(db, "ec-keep", days_old=1)
+
+    result = await prune_outbox(db, retention_days=90, batch_size=2)
+
+    assert result.entity_changes_deleted == 5
+    changes = await _change_ids(db)
+    assert changes == {"ec-keep"}
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+async def test_retention_days_must_be_positive(db, bad):
+    with pytest.raises(ValueError):
+        await prune_outbox(db, retention_days=bad)
+    with pytest.raises(ValueError):
+        await count_prunable(db, retention_days=bad)
