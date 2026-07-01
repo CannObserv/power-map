@@ -32,8 +32,17 @@
       return a.group && b.group && a.group === b.group;
     },
     cannotMergeLabel: 'Roles must be in the same organization to merge',
-    buildMergeUrl: function (winnerId, loserId, winnerEntry) {
-      return '/admin/orgs/' + winnerEntry.group + '/roles/' + winnerId + '/merge/' + loserId + '/';
+    buildPreviewUrl: function (winnerId, loserId, winnerEntry) {
+      // #255: open the role merge-preview modal in list context (org from entry.group).
+      return (
+        '/admin/orgs/' +
+        winnerEntry.group +
+        '/roles/' +
+        winnerId +
+        '/merge-preview/' +
+        loserId +
+        '/?ctx=list'
+      );
     },
   });
 })();

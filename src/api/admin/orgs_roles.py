@@ -239,3 +239,73 @@ async def role_merge(
             headers=flash_trigger("success", body),
         )
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+
+
+@router.get("/{winner_id}/merge-preview/{loser_id}/")
+async def role_merge_preview(
+    org_id: str,
+    winner_id: str,
+    loser_id: str,
+    request: Request,
+    ctx: str = "",
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return the role merge-preview modal (#255).
+
+    Roles have no names/acronyms, so this is confirmation-style: it surfaces how many
+    assignments reassign vs. drop as (person, start_date) conflicts, and whether the
+    loser's notes will be appended. Unlike Orgs/People — which need a curated
+    `merge-with` endpoint to honour keep/drop name selections — there is nothing to
+    curate here, so the modal simply posts to the existing `role_merge` (`/merge/`)
+    route, targeting the roles list region. `ctx` is accepted for symmetry with the
+    other entity previews; the role merge is only ever opened from the list.
+    """
+    if winner_id == loser_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a role with itself")
+    winner = await db.fetchrow(
+        "SELECT id, title, organization_id, archived_at FROM roles WHERE id=$1", winner_id
+    )
+    loser = await db.fetchrow(
+        "SELECT id, title, organization_id, notes, archived_at FROM roles WHERE id=$1", loser_id
+    )
+    if not winner or not loser:
+        raise HTTPException(status_code=404, detail="Role not found")
+    if winner["organization_id"] != org_id or loser["organization_id"] != org_id:
+        raise HTTPException(status_code=409, detail="Roles must belong to the same organization")
+    if winner["archived_at"] or loser["archived_at"]:
+        raise HTTPException(status_code=409, detail="Cannot merge archived roles")
+
+    total_assignments = await db.fetchval(
+        "SELECT count(*) FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
+        loser_id,
+    )
+    conflict_count = await db.fetchval(
+        """SELECT count(*) FROM role_assignments l
+           WHERE l.role_id=$1 AND l.archived_at IS NULL
+             AND EXISTS (
+                 SELECT 1 FROM role_assignments w
+                 WHERE w.role_id=$2 AND w.archived_at IS NULL
+                   AND w.person_id = l.person_id
+                   AND w.start_date IS NOT DISTINCT FROM l.start_date
+             )""",
+        loser_id,
+        winner_id,
+    )
+    reassigned_count = total_assignments - conflict_count
+
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/_merge_preview_modal.html",
+        {
+            "org_id": org_id,
+            "winner_id": winner_id,
+            "loser_id": loser_id,
+            "winner_title": winner["title"],
+            "loser_title": loser["title"],
+            "reassigned_count": reassigned_count,
+            "conflict_count": conflict_count,
+            "loser_has_notes": bool(loser["notes"]),
+            "ctx": ctx,
+        },
+    )

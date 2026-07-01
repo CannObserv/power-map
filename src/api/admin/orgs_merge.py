@@ -53,6 +53,33 @@ templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs", tags=["admin-orgs-merge"])
 
 
+async def _render_orgs_list_region(request: Request, db, user: AdminUser, flash_body: str):
+    """Re-render the orgs list region (rows + caption total + sticky pagination).
+
+    Shared by the list-flow merge (`org_merge`) and the list-context detail-modal
+    merge (`org_merge_with` with `return_to=list`, #255) so the post-merge swap
+    stays identical. Filter state is read from HX-Current-URL.
+    """
+    filters = _parse_list_filters_from_hx_current_url(request)
+    rows, count, pctx = await query_orgs_rows(db, **filters)
+    ctx = {
+        "user": user,
+        "active_section": "orgs",
+        "orgs": rows,
+        "total": count,
+        "q": filters["q"],
+        "status": filters["status"],
+        "page_size": filters["page_size"],
+        **pctx,
+    }
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/_region.html",
+        ctx,
+        headers=flash_trigger("success", flash_body, extra={"refreshDupBadge": True}),
+    )
+
+
 async def _fetch_duplicate_pairs(db) -> list:
     """Return near-duplicate org pairs; empty list if pg_trgm not installed."""
     try:
@@ -207,14 +234,23 @@ async def _execute_merge(
                 loser_id,
             )
         else:
+            # Non-lossy demote+transfer (#255): preserve the loser's canonical name
+            # as a non-canonical alias on the winner instead of deleting it. Dedup by
+            # lower(name) against names the winner already holds (incl. its canonical)
+            # to avoid redundant rows; demote ALL transferred rows to non-canonical so
+            # the winner keeps its single canonical name (uq_org_canonical_name).
             await db.execute(
-                "UPDATE organization_names SET organization_id=$1"
-                " WHERE organization_id=$2 AND is_canonical=FALSE",
-                winner_id,
+                "DELETE FROM organization_names"
+                " WHERE organization_id=$1"
+                "   AND lower(name) IN ("
+                "       SELECT lower(name) FROM organization_names WHERE organization_id=$2)",
                 loser_id,
+                winner_id,
             )
             await db.execute(
-                "DELETE FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
+                "UPDATE organization_names SET organization_id=$1, is_canonical=FALSE"
+                " WHERE organization_id=$2",
+                winner_id,
                 loser_id,
             )
 
@@ -233,14 +269,21 @@ async def _execute_merge(
                 loser_id,
             )
         else:
+            # Non-lossy demote+transfer (#255): same rule as names — keep the loser's
+            # canonical acronym as a non-canonical alias on the winner. Dedup by
+            # lower(acronym); demote all to non-canonical (uq_org_canonical_acronym).
             await db.execute(
-                "UPDATE organization_acronyms SET organization_id=$1"
-                " WHERE organization_id=$2 AND is_canonical=FALSE",
-                winner_id,
+                "DELETE FROM organization_acronyms"
+                " WHERE organization_id=$1"
+                "   AND lower(acronym) IN ("
+                "       SELECT lower(acronym) FROM organization_acronyms WHERE organization_id=$2)",
                 loser_id,
+                winner_id,
             )
             await db.execute(
-                "DELETE FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
+                "UPDATE organization_acronyms SET organization_id=$1, is_canonical=FALSE"
+                " WHERE organization_id=$2",
+                winner_id,
                 loser_id,
             )
 
@@ -449,7 +492,14 @@ async def org_merge(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Merge loser into winner: reassign all references, hard-delete loser."""
+    """Merge loser into winner: reassign all references, hard-delete loser.
+
+    Bulk (non-curated) path — `_execute_merge` with `keep_name_ids=None`, which is
+    now non-lossy (demote+transfer, #255). Since #255 the list UI no longer enters
+    here; it opens the preview modal and posts to `org_merge_with` with
+    `return_to=list`. This route remains for the duplicates-review fallback,
+    programmatic/script callers, and as the defense-in-depth non-lossy bulk merge.
+    """
     if winner_id == loser_id:
         raise HTTPException(status_code=400, detail="Cannot merge an organization with itself")
     winner_name = await db.fetchval(
@@ -473,24 +523,7 @@ async def org_merge(
         # caption total + sticky pagination) so post-merge counts stay
         # consistent. Filter state preserved via HX-Current-URL.
         if request.headers.get("HX-Target") == _LIST_TARGET:
-            filters = _parse_list_filters_from_hx_current_url(request)
-            rows, count, pctx = await query_orgs_rows(db, **filters)
-            ctx = {
-                "user": user,
-                "active_section": "orgs",
-                "orgs": rows,
-                "total": count,
-                "q": filters["q"],
-                "status": filters["status"],
-                "page_size": filters["page_size"],
-                **pctx,
-            }
-            return templates.TemplateResponse(
-                request,
-                "admin/orgs/_region.html",
-                ctx,
-                headers=flash_trigger("success", body, extra={"refreshDupBadge": True}),
-            )
+            return await _render_orgs_list_region(request, db, user, body)
         # Duplicates-review-screen branch (existing).
         pairs = await _fetch_duplicate_pairs(db)
         ctx = {
@@ -517,8 +550,14 @@ async def org_merge_with(
     keep_name_ids: list[str] = Form(default=[]),
     keep_acronym_ids: list[str] = Form(default=[]),
     merge_role_pairs: list[str] = Form(default=[]),
+    return_to: str = Form(default="detail"),
 ):
-    """Merge loser into winner from detail page; redirect to winner detail."""
+    """Merge loser into winner from a preview modal.
+
+    `return_to="list"` (modal opened from the orgs list, #255) re-renders the orgs
+    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
+    the winner detail page.
+    """
     if winner_id == loser_id:
         raise HTTPException(status_code=400, detail="Cannot merge an organization with itself")
     winner_name = await db.fetchval(
@@ -542,6 +581,14 @@ async def org_merge_with(
         f"Review names, roles, and contact info for duplicates."
     )
     body += _dropped_assignments_note(dropped)
+    # List-context merge (#255): the preview modal was opened from the orgs list, so
+    # re-render the list region in place instead of redirecting to winner detail.
+    if (
+        return_to == "list"
+        and is_htmx(request)
+        and request.headers.get("HX-Target") == _LIST_TARGET
+    ):
+        return await _render_orgs_list_region(request, db, user, body)
     redirect_url = f"/admin/orgs/{winner_id}/"
     if is_htmx(request):
         return HTMLResponse(
@@ -647,10 +694,15 @@ async def org_merge_preview(
     id_b: str,
     request: Request,
     winner: str | None = None,
+    ctx: str = "",
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Return preview modal: impact of merging id_b into id_a (or flipped via ?winner=)."""
+    """Return preview modal: impact of merging id_b into id_a (or flipped via ?winner=).
+
+    `ctx="list"` (modal opened from the orgs list, #255) makes the modal form submit
+    back to the list region (`return_to=list`) instead of redirecting to detail.
+    """
     if id_a == id_b:
         raise HTTPException(status_code=400, detail="Cannot merge an organization with itself")
     winner_id = winner if winner in (id_a, id_b) else id_a
@@ -778,5 +830,6 @@ async def org_merge_preview(
             "addresses_count": addresses_count,
             "identifiers_count": identifiers_count,
             "conflicting_roles": conflicting_roles,
+            "ctx": ctx,
         },
     )

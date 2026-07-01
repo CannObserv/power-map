@@ -47,7 +47,7 @@ def test_noun_is_organizations():
     assert "organizations" in JS
 
 
-def test_targets_orgs_merge_url():
-    """Keep buttons must construct the orgs merge URL, not people/roles."""
+def test_targets_orgs_merge_preview_url():
+    """Keep buttons must open the orgs merge-preview modal, not people/roles (#255)."""
     assert "/admin/orgs/" in JS
-    assert "/merge/" in JS
+    assert "/merge-preview/" in JS

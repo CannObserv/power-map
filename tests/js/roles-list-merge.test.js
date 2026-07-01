@@ -195,28 +195,27 @@ describe('two roles, same org', () => {
     expect(document.querySelector('.merge-bar__keep-b').disabled).toBe(false);
   });
 
-  it('keep-a hx-post is org-scoped: keep role-1, discard role-2', () => {
-    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-post')).toBe(
-      '/admin/orgs/org-1/roles/role-1/merge/role-2/',
+  it('keep-a hx-get is org-scoped: preview winner role-1, loser role-2', () => {
+    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-get')).toBe(
+      '/admin/orgs/org-1/roles/role-1/merge-preview/role-2/?ctx=list',
     );
   });
 
-  it('keep-b hx-post is org-scoped: keep role-2, discard role-1', () => {
-    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-post')).toBe(
-      '/admin/orgs/org-1/roles/role-2/merge/role-1/',
+  it('keep-b hx-get is org-scoped: preview winner role-2, loser role-1', () => {
+    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-get')).toBe(
+      '/admin/orgs/org-1/roles/role-2/merge-preview/role-1/?ctx=list',
     );
   });
 
-  it('keep buttons target the list region', () => {
+  it('keep buttons target the shared modal portal', () => {
     expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-target')).toBe(
-      '#roles-list-region',
+      '#merge-modal-portal',
     );
   });
 
-  it('keep-a hx-confirm names both roles', () => {
-    const msg = document.querySelector('.merge-bar__keep-a').getAttribute('hx-confirm');
-    expect(msg).toContain('"Director"');
-    expect(msg).toContain('"Exec Director"');
+  it('keep buttons carry no hx-confirm (the modal is the confirm step now)', () => {
+    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-confirm')).toBeNull();
+    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-confirm')).toBeNull();
   });
 });
 
@@ -247,9 +246,9 @@ describe('two roles, different orgs', () => {
     expect(document.querySelector('.merge-bar__keep-b').disabled).toBe(true);
   });
 
-  it('keep buttons carry no hx-post (merge cannot fire)', () => {
-    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-post')).toBeNull();
-    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-post')).toBeNull();
+  it('keep buttons carry no hx-get (preview cannot open for a cross-org pair)', () => {
+    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-get')).toBeNull();
+    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-get')).toBeNull();
   });
 });
 
@@ -277,7 +276,7 @@ describe('cross-org block then same-org reselect', () => {
     expect(document.querySelector('.merge-bar__keep-a').disabled).toBe(true);
   });
 
-  it('re-enables with a correct hx-post after swapping in a same-org role', () => {
+  it('re-enables with a correct preview hx-get after swapping in a same-org role', () => {
     const [, cb2, cb3] = checkboxes();
     uncheck(cb2); // drop the org-2 role
     check(cb3); // role-3 (org-1) → role-1 + role-3 now share org-1
@@ -287,8 +286,12 @@ describe('cross-org block then same-org reselect', () => {
     const btnB = document.querySelector('.merge-bar__keep-b');
     expect(btnA.disabled).toBe(false);
     expect(btnB.disabled).toBe(false);
-    expect(btnA.getAttribute('hx-post')).toBe('/admin/orgs/org-1/roles/role-1/merge/role-3/');
-    expect(btnB.getAttribute('hx-post')).toBe('/admin/orgs/org-1/roles/role-3/merge/role-1/');
+    expect(btnA.getAttribute('hx-get')).toBe(
+      '/admin/orgs/org-1/roles/role-1/merge-preview/role-3/?ctx=list',
+    );
+    expect(btnB.getAttribute('hx-get')).toBe(
+      '/admin/orgs/org-1/roles/role-3/merge-preview/role-1/?ctx=list',
+    );
   });
 });
 

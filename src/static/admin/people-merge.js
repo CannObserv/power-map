@@ -22,8 +22,9 @@
     rowAttr: 'data-person-id',
     nounPlural: 'people',
     untitledLabel: '(unnamed)',
-    buildMergeUrl: function (winnerId, loserId) {
-      return '/admin/people/' + winnerId + '/merge/' + loserId + '/';
+    buildPreviewUrl: function (winnerId, loserId) {
+      // #255: open the person merge-preview modal in list context.
+      return '/admin/people/' + winnerId + '/merge-preview/' + loserId + '/?ctx=list';
     },
   });
 })();

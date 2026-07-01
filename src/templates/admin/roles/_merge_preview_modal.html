@@ -1,0 +1,60 @@
+{# admin/roles/_merge_preview_modal.html (#255) #}
+{# Context: org_id, winner_id, loser_id, winner_title, loser_title,
+   reassigned_count, conflict_count, loser_has_notes, ctx #}
+<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="merge-preview-title">
+  <div class="modal modal--wide">
+    <h2 id="merge-preview-title">Merge roles</h2>
+
+    {# Roles have no keep/drop selection — confirmation only. Post to the existing
+       merge route, swapping the roles list region in on success. #}
+    <form id="merge-form"
+          hx-post="/admin/orgs/{{ org_id }}/roles/{{ winner_id }}/merge/{{ loser_id }}/"
+          hx-target="#roles-list-region" hx-swap="innerHTML">
+
+    <div style="display:flex;align-items:stretch;margin-bottom:var(--space-4)">
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) 0;border-bottom:1px solid var(--color-border)">
+          <span style="width:4.5rem;font-size:var(--font-size-sm);font-weight:600;color:var(--color-text-muted)">Kept</span>
+          <strong id="merge-name-winner">{{ winner_title }}</strong>
+        </div>
+        <div style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) 0">
+          <span style="width:4.5rem;font-size:var(--font-size-sm);font-weight:600;color:var(--color-text-muted)">Deleted</span>
+          <span id="merge-name-loser" style="color:var(--color-text-muted)">{{ loser_title }}</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;padding-left:var(--space-3)">
+        <button id="merge-swap-btn" class="btn btn--sm btn--ghost" type="button"
+                hx-get="/admin/orgs/{{ org_id }}/roles/{{ loser_id }}/merge-preview/{{ winner_id }}/{% if ctx %}?ctx={{ ctx }}{% endif %}"
+                hx-target="#merge-modal-portal"
+                hx-swap="innerHTML"
+                hx-push-url="false"
+                aria-label="Swap kept and deleted">⇅</button>
+      </div>
+    </div>
+
+    {% if reassigned_count or conflict_count %}
+    <h3 class="field-group-label" style="margin-bottom:var(--space-2)">Assignments</h3>
+    <ul style="margin:0 0 var(--space-4) var(--space-4);padding:0">
+      {% if reassigned_count %}<li>{{ reassigned_count }} role assignment{{ 's' if reassigned_count != 1 }} reassigned to the kept role</li>{% endif %}
+      {% if conflict_count %}<li>{{ conflict_count }} duplicate assignment{{ 's' if conflict_count != 1 }} dropped (same person &amp; start date)</li>{% endif %}
+    </ul>
+    {% endif %}
+
+    {% if loser_has_notes %}
+    <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:0 0 var(--space-4)">
+      The deleted role's notes will be appended to the kept role with a merge audit line.
+    </p>
+    {% endif %}
+
+    <div class="modal__actions">
+      <button type="button" class="btn btn--ghost"
+              onclick="window.__pmMergeClose()">Cancel</button>
+      <button type="submit" class="btn btn--danger" id="merge-execute-btn">
+        Execute merge
+      </button>
+    </div>
+
+    </form>
+  </div>
+</div>
+{% include "admin/partials/_merge_modal_script.html" %}

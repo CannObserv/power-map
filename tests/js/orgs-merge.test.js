@@ -318,40 +318,33 @@ describe('bar at 2 selections', () => {
     expect(document.querySelector('.merge-bar__keep-b').textContent).toBe('Keep "Org 2"');
   });
 
-  it('keep-a hx-post: keep org-1, discard org-2', () => {
-    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-post')).toBe(
-      '/admin/orgs/org-1/merge/org-2/',
+  it('keep-a hx-get opens the preview modal: winner org-1, loser org-2', () => {
+    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-get')).toBe(
+      '/admin/orgs/org-1/merge-preview/org-2/?winner=org-1&ctx=list',
     );
   });
 
-  it('keep-b hx-post: keep org-2, discard org-1', () => {
-    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-post')).toBe(
-      '/admin/orgs/org-2/merge/org-1/',
+  it('keep-b hx-get opens the preview modal: winner org-2, loser org-1', () => {
+    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-get')).toBe(
+      '/admin/orgs/org-2/merge-preview/org-1/?winner=org-2&ctx=list',
     );
   });
 
-  it('keep-a hx-target swaps the whole list region', () => {
+  it('keep-a hx-target is the shared modal portal', () => {
     expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-target')).toBe(
-      '#orgs-list-region',
+      '#merge-modal-portal',
     );
   });
 
-  it('keep-b hx-target swaps the whole list region', () => {
+  it('keep-b hx-target is the shared modal portal', () => {
     expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-target')).toBe(
-      '#orgs-list-region',
+      '#merge-modal-portal',
     );
   });
 
-  it('keep-a hx-confirm names both orgs', () => {
-    const msg = document.querySelector('.merge-bar__keep-a').getAttribute('hx-confirm');
-    expect(msg).toContain('"Org 2"');
-    expect(msg).toContain('"Org 1"');
-  });
-
-  it('keep-b hx-confirm names both orgs', () => {
-    const msg = document.querySelector('.merge-bar__keep-b').getAttribute('hx-confirm');
-    expect(msg).toContain('"Org 1"');
-    expect(msg).toContain('"Org 2"');
+  it('keep buttons carry no hx-confirm (the modal is the confirm step now)', () => {
+    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-confirm')).toBeNull();
+    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-confirm')).toBeNull();
   });
 });
 

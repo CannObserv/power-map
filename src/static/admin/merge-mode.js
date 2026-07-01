@@ -29,9 +29,13 @@
  *                  mode (clearing selection), and Keep buttons target it
  *   rowAttr        per-row id attribute used to count rows (e.g. 'data-org-id')
  *   nounPlural     entity noun for labels (e.g. 'organizations')
- *   buildMergeUrl  (winnerId, loserId, winnerEntry, loserEntry) => POST url. The
- *                  two entries carry {id, title, group} so an org-scoped merge
- *                  (Roles, #251) can read the shared org from entry.group.
+ *   buildPreviewUrl (winnerId, loserId, winnerEntry, loserEntry) => GET url of the
+ *                  merge-preview modal (#255). The Keep buttons hx-get this into the
+ *                  modal portal; the modal form drives the merge POST. The two
+ *                  entries carry {id, title, group} so an org-scoped merge (Roles,
+ *                  #251) can read the shared org from entry.group.
+ *   previewTarget  OPTIONAL hx-target selector for the modal (default
+ *                  '#merge-modal-portal').
  *   untitledLabel  fallback row label when data-title is absent ('(unnamed)')
  *   groupAttr      OPTIONAL dataset key (camelCase, e.g. 'orgId' for
  *                  data-org-id) captured per row into entry.group, for use by
@@ -52,7 +56,8 @@
     var listRegionId = config.listRegionId;
     var rowAttr = config.rowAttr;
     var nounPlural = config.nounPlural;
-    var buildMergeUrl = config.buildMergeUrl;
+    var buildPreviewUrl = config.buildPreviewUrl;
+    var previewTarget = config.previewTarget || '#merge-modal-portal';
     var untitled = config.untitledLabel || '(unnamed)';
     var groupAttr = config.groupAttr; // dataset key, e.g. 'orgId'; optional
     var canMerge = config.canMerge; // (a, b) => bool; optional
@@ -207,27 +212,23 @@
 
       if (label) label.textContent = 'Merge ' + nounPlural + ':';
 
+      // #255: open the rich preview/confirm modal instead of a bare hx-confirm +
+      // direct POST. The Keep button GETs the entity's merge-preview into the
+      // shared modal portal; the modal form drives the actual merge POST (and,
+      // for the list flow, swaps this list region back in on success).
       if (btnA) {
         btnA.textContent = 'Keep "' + rowA.title + '"';
         btnA.disabled = false;
-        btnA.setAttribute('hx-post', buildMergeUrl(rowA.id, rowB.id, rowA, rowB));
-        btnA.setAttribute('hx-target', listRegionSelector);
+        btnA.setAttribute('hx-get', buildPreviewUrl(rowA.id, rowB.id, rowA, rowB));
+        btnA.setAttribute('hx-target', previewTarget);
         btnA.setAttribute('hx-swap', 'innerHTML');
-        btnA.setAttribute(
-          'hx-confirm',
-          'Merge "' + rowB.title + '" into "' + rowA.title + '"? This cannot be undone.',
-        );
       }
       if (btnB) {
         btnB.textContent = 'Keep "' + rowB.title + '"';
         btnB.disabled = false;
-        btnB.setAttribute('hx-post', buildMergeUrl(rowB.id, rowA.id, rowB, rowA));
-        btnB.setAttribute('hx-target', listRegionSelector);
+        btnB.setAttribute('hx-get', buildPreviewUrl(rowB.id, rowA.id, rowB, rowA));
+        btnB.setAttribute('hx-target', previewTarget);
         btnB.setAttribute('hx-swap', 'innerHTML');
-        btnB.setAttribute(
-          'hx-confirm',
-          'Merge "' + rowA.title + '" into "' + rowB.title + '"? This cannot be undone.',
-        );
       }
 
       if (typeof htmx !== 'undefined') {
@@ -242,6 +243,7 @@
       if (!btn) return;
       btn.textContent = '—';
       btn.disabled = true;
+      btn.removeAttribute('hx-get');
       btn.removeAttribute('hx-post');
       btn.removeAttribute('hx-confirm');
     }

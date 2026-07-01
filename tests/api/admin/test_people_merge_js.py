@@ -54,10 +54,10 @@ def test_noun_is_people():
     assert "people" in JS
 
 
-def test_targets_people_merge_url():
-    """Keep buttons must construct the people merge URL, not roles/orgs."""
+def test_targets_people_merge_preview_url():
+    """Keep buttons must open the people merge-preview modal, not roles/orgs (#255)."""
     assert "/admin/people/" in JS
-    assert "/merge/" in JS
+    assert "/merge-preview/" in JS
 
 
 def test_no_early_return_on_missing_merge_button():
