@@ -9,7 +9,11 @@
   <div class="modal modal--wide">
     <h2 id="merge-preview-title">Merge organizations</h2>
 
-    <form id="merge-form" hx-post="/admin/orgs/{{ winner_id }}/merge-with/{{ loser_id }}/" hx-target="body">
+    {# ctx="list" (#255): modal opened from the orgs list — submit back into the list
+       region and close the modal on success, instead of the detail-flow body redirect. #}
+    <form id="merge-form" hx-post="/admin/orgs/{{ winner_id }}/merge-with/{{ loser_id }}/"
+          {% if ctx == 'list' %}hx-target="#orgs-list-region" hx-swap="innerHTML"{% else %}hx-target="body"{% endif %}>
+      {% if ctx == 'list' %}<input type="hidden" name="return_to" value="list">{% endif %}
 
     <div style="display:flex;align-items:stretch;margin-bottom:var(--space-4)">
       <div style="flex:1">
@@ -24,7 +28,7 @@
       </div>
       <div style="display:flex;align-items:center;padding-left:var(--space-3)">
         <button id="merge-swap-btn" class="btn btn--sm btn--ghost" type="button"
-                hx-get="/admin/orgs/{{ org_a_id }}/merge-preview/{{ org_b_id }}/?winner={{ loser_id }}"
+                hx-get="/admin/orgs/{{ org_a_id }}/merge-preview/{{ org_b_id }}/?winner={{ loser_id }}{% if ctx %}&ctx={{ ctx }}{% endif %}"
                 hx-target="#merge-modal-portal"
                 hx-swap="innerHTML"
                 hx-push-url="false"
@@ -41,8 +45,8 @@
       {% if dropped_name %}
       <li style="margin-bottom:var(--space-1)">
         <label style="display:flex;align-items:center;gap:var(--space-2)">
-          <input type="checkbox" name="keep_name_ids" value="{{ dropped_name.id }}">
-          <span style="color:var(--color-text-muted)">{{ dropped_name.name }}</span>
+          <input type="checkbox" name="keep_name_ids" value="{{ dropped_name.id }}" checked>
+          <span>{{ dropped_name.name }}</span>
         </label>
       </li>
       {% endif %}
@@ -66,8 +70,8 @@
       {% if dropped_acronym %}
       <li style="margin-bottom:var(--space-1)">
         <label style="display:flex;align-items:center;gap:var(--space-2)">
-          <input type="checkbox" name="keep_acronym_ids" value="{{ dropped_acronym.id }}">
-          <span style="color:var(--color-text-muted)">{{ dropped_acronym.acronym }}</span>
+          <input type="checkbox" name="keep_acronym_ids" value="{{ dropped_acronym.id }}" checked>
+          <span>{{ dropped_acronym.acronym }}</span>
         </label>
       </li>
       {% endif %}
@@ -129,28 +133,12 @@
     </form>
   </div>
 </div>
+{# Shared portal lifecycle (Escape/close, focus, close-on-success). #}
+{% include "admin/partials/_merge_modal_script.html" %}
 <script>
 (function () {
+  // Orgs-only: block Execute while any conflict role-pair checkbox is unchecked.
   var portal = document.getElementById('merge-modal-portal');
-
-  function closePortal() {
-    document.removeEventListener('keydown', document.__pmMergeKey);
-    portal.innerHTML = '';
-    if (document.__pmMergeSavedFocus && document.__pmMergeSavedFocus.focus) {
-      document.__pmMergeSavedFocus.focus();
-    }
-    document.__pmMergeSavedFocus = null;
-  }
-  window.__pmMergeClose = closePortal;
-  document.__pmMergeSavedFocus = document.__pmMergeSavedFocus || document.activeElement;
-
-  document.removeEventListener('keydown', document.__pmMergeKey);
-  document.__pmMergeKey = function (e) {
-    if (e.key === 'Escape') { e.preventDefault(); closePortal(); }
-  };
-  document.addEventListener('keydown', document.__pmMergeKey);
-
-  // Disable execute if any conflict role-pair checkbox is unchecked.
   function syncExecute() {
     var unchecked = portal.querySelectorAll('.merge-role-pair-cb:not(:checked)');
     var btn = document.getElementById('merge-execute-btn');
@@ -162,8 +150,5 @@
   portal.addEventListener('change', function (e) {
     if (e.target.classList.contains('merge-role-pair-cb')) syncExecute();
   });
-
-  var firstBtn = portal.querySelector('button');
-  if (firstBtn) firstBtn.focus();
 }());
 </script>

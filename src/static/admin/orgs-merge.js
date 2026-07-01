@@ -17,8 +17,17 @@
     rowAttr: 'data-org-id',
     nounPlural: 'organizations',
     untitledLabel: '(unnamed)',
-    buildMergeUrl: function (winnerId, loserId) {
-      return '/admin/orgs/' + winnerId + '/merge/' + loserId + '/';
+    buildPreviewUrl: function (winnerId, loserId) {
+      // #255: open the org merge-preview modal in list context (winner pre-picked).
+      return (
+        '/admin/orgs/' +
+        winnerId +
+        '/merge-preview/' +
+        loserId +
+        '/?winner=' +
+        winnerId +
+        '&ctx=list'
+      );
     },
   });
 })();

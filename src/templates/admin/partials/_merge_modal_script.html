@@ -1,0 +1,38 @@
+{# Shared merge-preview modal portal script (#255). Included by the Orgs / People /
+   Roles `_merge_preview_modal.html`. Owns the portal lifecycle only: Escape/Cancel
+   close, focus restore, and closing the modal once the merge POST succeeds (the
+   list-context submit swaps a list region outside the portal; the detail flow
+   HX-Redirects away, making the close a harmless no-op). Entity-specific behaviour
+   (e.g. the Orgs role-pair execute gating) stays inline in each modal. #}
+<script>
+(function () {
+  var portal = document.getElementById('merge-modal-portal');
+
+  function closePortal() {
+    document.removeEventListener('keydown', document.__pmMergeKey);
+    portal.innerHTML = '';
+    if (document.__pmMergeSavedFocus && document.__pmMergeSavedFocus.focus) {
+      document.__pmMergeSavedFocus.focus();
+    }
+    document.__pmMergeSavedFocus = null;
+  }
+  window.__pmMergeClose = closePortal;
+  document.__pmMergeSavedFocus = document.__pmMergeSavedFocus || document.activeElement;
+
+  document.removeEventListener('keydown', document.__pmMergeKey);
+  document.__pmMergeKey = function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); closePortal(); }
+  };
+  document.addEventListener('keydown', document.__pmMergeKey);
+
+  var mergeForm = document.getElementById('merge-form');
+  if (mergeForm) {
+    mergeForm.addEventListener('htmx:afterRequest', function (e) {
+      if (e.detail && e.detail.successful) closePortal();
+    });
+  }
+
+  var firstBtn = portal.querySelector('button');
+  if (firstBtn) firstBtn.focus();
+}());
+</script>

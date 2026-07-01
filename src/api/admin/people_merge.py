@@ -3,8 +3,8 @@
 from datetime import UTC, datetime
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
@@ -40,6 +40,33 @@ def _parse_list_filters_from_hx_current_url(request: Request) -> dict:
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/people", tags=["admin-people-merge"])
+
+
+async def _render_people_list_region(request: Request, db, user: AdminUser, flash_body: str):
+    """Re-render the people list region (rows + caption total + sticky pagination).
+
+    Shared by the list-flow merge (`person_merge`) and the list-context preview-modal
+    merge (`person_merge_with` with `return_to=list`, #255). Filter state read from
+    HX-Current-URL.
+    """
+    filters = _parse_list_filters_from_hx_current_url(request)
+    rows, count, pctx = await query_people_rows(db, **filters)
+    ctx = {
+        "user": user,
+        "active_section": "people",
+        "people": rows,
+        "total": count,
+        "q": filters["q"],
+        "status": filters["status"],
+        "page_size": filters["page_size"],
+        **pctx,
+    }
+    return templates.TemplateResponse(
+        request,
+        "admin/people/_region.html",
+        ctx,
+        headers=flash_trigger("success", flash_body, extra={"refreshDupBadge": True}),
+    )
 
 
 async def _fetch_duplicate_pairs(db) -> list:
@@ -123,6 +150,7 @@ async def merge_person_into(
     loser_id: str,
     actor_email: str,
     loser_display_name: str | None = None,
+    keep_name_ids: list[str] | None = None,
 ) -> None:
     """Merge `loser_id` into `winner_id` — reassign references + hard-delete loser.
 
@@ -140,6 +168,11 @@ async def merge_person_into(
         loser_display_name: optional pre-fetched display name for the
             audit-line. If ``None`` the helper looks it up via
             ``v_person_display_names``.
+        keep_name_ids: curated-merge selection (#255). ``None`` (default)
+            keeps the established behavior — inherit ALL of the loser's names,
+            including deadnames / hidden (#121). A list keeps only those loser
+            ``person_names.id`` rows (transferred as non-canonical aliases); the
+            rest are dropped. An empty list drops every loser name.
 
     Raises:
         PersonNotFoundError: when either ``winner_id`` or ``loser_id``
@@ -180,6 +213,22 @@ async def merge_person_into(
             new_notes,
             winner_id,
         )
+
+    # Curated merge (#255): when the admin made an explicit keep/drop selection in
+    # the preview modal, drop the unchecked loser names FIRST; the standard
+    # demote+dedup+transfer below then moves only what remains. `keep_name_ids=None`
+    # skips this — preserving the #121 inherit-ALL-names default for direct/script
+    # callers (deadnames, hidden names, etc.).
+    if keep_name_ids is not None:
+        if keep_name_ids:
+            placeholders = ", ".join(f"${i + 2}" for i in range(len(keep_name_ids)))
+            await db.execute(
+                f"DELETE FROM person_names WHERE person_id=$1 AND id NOT IN ({placeholders})",
+                loser_id,
+                *keep_name_ids,
+            )
+        else:
+            await db.execute("DELETE FROM person_names WHERE person_id=$1", loser_id)
 
     # person_names: demote loser's canonical, drop exact-name duplicates,
     # then reassign remaining loser names to winner.
@@ -383,24 +432,7 @@ async def person_merge(
         # post-merge counts stay consistent. Filter state preserved via
         # HX-Current-URL.
         if request.headers.get("HX-Target") == _LIST_TARGET:
-            filters = _parse_list_filters_from_hx_current_url(request)
-            rows, count, pctx = await query_people_rows(db, **filters)
-            ctx = {
-                "user": user,
-                "active_section": "people",
-                "people": rows,
-                "total": count,
-                "q": filters["q"],
-                "status": filters["status"],
-                "page_size": filters["page_size"],
-                **pctx,
-            }
-            return templates.TemplateResponse(
-                request,
-                "admin/people/_region.html",
-                ctx,
-                headers=flash_trigger("success", body, extra={"refreshDupBadge": True}),
-            )
+            return await _render_people_list_region(request, db, user, body)
         # Duplicates-review-screen branch (existing).
         pairs = await _fetch_duplicate_pairs(db)
         ctx = {
@@ -415,6 +447,143 @@ async def person_merge(
             headers=flash_trigger("success", body, extra={"refreshDupBadge": True}),
         )
     return RedirectResponse("/admin/people/duplicates/", status_code=303)
+
+
+@router.get("/{winner_id}/merge-preview/{loser_id}/")
+async def person_merge_preview(
+    winner_id: str,
+    loser_id: str,
+    request: Request,
+    ctx: str = "",
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return the merge-preview modal: impact of merging loser_id into winner_id (#255).
+
+    `ctx="list"` makes the modal form submit back to the people list region. The
+    swap button re-requests with the ids flipped in the path to reverse direction.
+    """
+    if winner_id == loser_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a person with itself")
+    winner = await db.fetchrow(
+        "SELECT id FROM people WHERE id=$1 AND archived_at IS NULL", winner_id
+    )
+    loser = await db.fetchrow("SELECT id FROM people WHERE id=$1 AND archived_at IS NULL", loser_id)
+    if not winner or not loser:
+        raise HTTPException(status_code=404)
+
+    winner_name = await db.fetchval(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", winner_id
+    )
+    loser_name = await db.fetchval(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", loser_id
+    )
+    # All loser names — the admin manages hidden / deadnames too (#121), and each is
+    # keepable as an alias; visibility is surfaced as a badge so an unchecked drop of
+    # a sensitive name is a deliberate, informed choice.
+    loser_names = await db.fetch(
+        "SELECT id, name, is_canonical, visibility FROM person_names"
+        " WHERE person_id=$1 ORDER BY is_canonical DESC, name",
+        loser_id,
+    )
+    roles_count = await db.fetchval(
+        "SELECT count(*) FROM role_assignments WHERE person_id=$1 AND archived_at IS NULL",
+        loser_id,
+    )
+    contacts_count = await db.fetchval(
+        "SELECT count(*) FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
+        loser_id,
+    )
+    links_count = await db.fetchval(
+        "SELECT count(*) FROM links WHERE entity_type='person' AND entity_id=$1",
+        loser_id,
+    )
+    addresses_count = await db.fetchval(
+        "SELECT count(*) FROM entity_addresses WHERE entity_type='person' AND entity_id=$1",
+        loser_id,
+    )
+    identifiers_count = await db.fetchval(
+        """SELECT count(*) FROM identifiers i
+           JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
+           WHERE i.entity_id=$1 AND eit.entity_type='person'""",
+        loser_id,
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "admin/people/_merge_preview_modal.html",
+        {
+            "winner_id": winner_id,
+            "loser_id": loser_id,
+            "winner_name": winner_name,
+            "loser_name": loser_name,
+            "loser_names": loser_names,
+            "roles_count": roles_count,
+            "contacts_count": contacts_count,
+            "links_count": links_count,
+            "addresses_count": addresses_count,
+            "identifiers_count": identifiers_count,
+            "ctx": ctx,
+        },
+    )
+
+
+@router.post("/{winner_id}/merge-with/{loser_id}/")
+async def person_merge_with(
+    winner_id: str,
+    loser_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+    keep_name_ids: list[str] = Form(default=[]),
+    return_to: str = Form(default="detail"),
+):
+    """Curated person merge from the preview modal (#255).
+
+    `keep_name_ids` is authoritative — only the checked loser names transfer (the
+    rest are dropped). `return_to="list"` re-renders the people list region in place;
+    otherwise HX-Redirect to the winner detail page.
+    """
+    if winner_id == loser_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a person with itself")
+    winner_name = await db.fetchval(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", winner_id
+    )
+    loser_name = await db.fetchval(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", loser_id
+    )
+    async with db.transaction():
+        try:
+            await merge_person_into(
+                db,
+                winner_id=winner_id,
+                loser_id=loser_id,
+                actor_email=user.email,
+                loser_display_name=loser_name,
+                keep_name_ids=keep_name_ids,
+            )
+        except PersonNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Person not found") from exc
+    await invalidate_person_dup_count_cache(db)
+
+    body = (
+        f"Merged <strong>{escape(loser_name)}</strong> into "
+        f'<a href="/admin/people/{winner_id}/"><strong>{escape(winner_name)}</strong></a>. '
+        f"Review role assignments and contact info."
+    )
+    if (
+        return_to == "list"
+        and is_htmx(request)
+        and request.headers.get("HX-Target") == _LIST_TARGET
+    ):
+        return await _render_people_list_region(request, db, user, body)
+    redirect_url = f"/admin/people/{winner_id}/"
+    if is_htmx(request):
+        return HTMLResponse(
+            "",
+            headers={**flash_trigger("success", body), "HX-Redirect": redirect_url},
+        )
+    return RedirectResponse(redirect_url, status_code=303)
 
 
 @router.post("/{id_a}/dismiss-duplicate/{id_b}/")

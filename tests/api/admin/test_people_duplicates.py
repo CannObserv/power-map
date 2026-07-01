@@ -283,6 +283,74 @@ async def test_merge_reassigns_loser_names_as_aliases(client, person_pair, db_po
     assert len(canonical_rows) == 1  # exactly one canonical remains
 
 
+async def test_merge_preview_returns_modal_with_names_and_form(client, person_pair):
+    """GET merge-preview returns the people merge modal: both names, a keep/drop
+    checkbox for the loser's name, and a form posting to /merge-with/ (#255)."""
+    id_a, id_b = person_pair
+    response = client.get(
+        f"/admin/people/{id_a}/merge-preview/{id_b}/?ctx=list",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200
+    assert "Jonathan Smithfield" in response.text  # winner name
+    assert "Jonathan Smithfield Jr" in response.text  # loser name (keepable alias)
+    assert f"/admin/people/{id_a}/merge-with/{id_b}/" in response.text
+    assert 'name="keep_name_ids"' in response.text
+    assert 'name="return_to" value="list"' in response.text
+
+
+async def test_merge_with_keep_name_ids_drops_unchecked_names(client, person_pair, db_pool):
+    """Curated people merge (#255): only checked loser names transfer; unchecked
+    names are dropped. Mirrors org keep_name_ids semantics."""
+    id_a, id_b = person_pair  # id_b loser, canonical "Jonathan Smithfield Jr"
+    extra_id = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Johnny S', FALSE)",
+            extra_id,
+            id_b,
+        )
+
+    # Keep ONLY the extra alias; the loser's canonical name is unchecked → dropped.
+    response = client.post(
+        f"/admin/people/{id_a}/merge-with/{id_b}/",
+        data={"keep_name_ids": extra_id},
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (200, 303)
+
+    async with db_pool.acquire() as conn:
+        winner_names = {
+            r["name"]
+            for r in await conn.fetch("SELECT name FROM person_names WHERE person_id=$1", id_a)
+        }
+    assert "Johnny S" in winner_names  # checked alias kept
+    assert "Jonathan Smithfield Jr" not in winner_names  # unchecked loser name dropped
+
+
+async def test_merge_with_return_to_list_renders_people_region(client, person_pair):
+    """People list-context merge (return_to=list) re-renders the people list region
+    and does NOT HX-Redirect (#255)."""
+    id_a, id_b = person_pair
+    response = client.post(
+        f"/admin/people/{id_a}/merge-with/{id_b}/",
+        data={"return_to": "list"},
+        headers={
+            **HTMX_HEADERS,
+            "HX-Target": "people-list-region",
+            "HX-Current-URL": "https://testserver/admin/people/",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "HX-Redirect" not in response.headers
+    assert "Jonathan Smithfield" in response.text  # winner row in re-rendered region
+    trigger = json.loads(response.headers["HX-Trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+
+
 async def test_merge_deletes_conflicting_role_assignment(client, person_pair_with_roles, db_pool):
     id_winner, id_loser, shared_role_id, unique_role_id = person_pair_with_roles
     client.post(

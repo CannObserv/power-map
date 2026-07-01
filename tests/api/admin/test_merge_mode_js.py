@@ -90,7 +90,7 @@ def test_exits_merge_mode_on_show_flash():
 
 
 def test_htmx_reprocessed_after_button_update():
-    """Dynamically set hx-post/hx-confirm requires htmx.process() to take effect."""
+    """Dynamically set hx-get (open-preview) requires htmx.process() to take effect."""
     assert "htmx.process" in JS
 
 
@@ -105,11 +105,22 @@ def test_reattaches_on_region_swap():
     assert "htmx:afterSwap" in JS
 
 
-def test_keep_buttons_target_list_region_via_config():
-    """Keep buttons swap the configured list region (caption + pagination stay
-    in sync). The region id is supplied by the consumer config."""
+def test_keep_buttons_open_preview_modal_in_portal():
+    """#255: Keep buttons hx-get the merge-preview modal into the shared portal
+    (the modal is the confirm step). The list region is still tracked for
+    post-swap state, but it's no longer the Keep-button target."""
+    assert "previewTarget" in JS
+    assert "'#merge-modal-portal'" in JS
+    assert "hx-get" in JS
+    # The region selector is still used for swap detection / re-apply.
     assert "listRegionSelector" in JS
-    assert "hx-target" in JS
+
+
+def test_keep_buttons_carry_no_hx_confirm():
+    """#255: the bare browser confirm is gone — the modal replaces it. The engine
+    must not (re)set hx-confirm on the Keep buttons, and must clear it on reset."""
+    assert "'hx-confirm'," not in JS  # the setAttribute('hx-confirm', …) call is gone
+    assert "removeAttribute('hx-confirm')" in JS
 
 
 # ── #251 same-org predicate extension point ──────────────────────────────────
@@ -117,7 +128,7 @@ def test_keep_buttons_target_list_region_via_config():
 
 def test_optional_can_merge_predicate_gates_two_selection():
     """Roles list (#251): an optional canMerge(a, b) predicate blocks the
-    two-selection enable point so a cross-org pair can't wire an hx-post."""
+    two-selection enable point so a cross-org pair can't open the preview."""
     assert "config.canMerge" in JS
     assert "if (canMerge && !canMerge(rowA, rowB))" in JS
 
@@ -134,8 +145,8 @@ def test_group_key_captured_per_row_via_optional_group_attr():
     assert "entry.group" in JS
 
 
-def test_build_merge_url_receives_entries_for_group_scoped_url():
-    """An org-scoped merge URL needs the shared group, so buildMergeUrl is called
-    with the winner/loser entries (carrying .group), not just their ids."""
-    assert "buildMergeUrl(rowA.id, rowB.id, rowA, rowB)" in JS
-    assert "buildMergeUrl(rowB.id, rowA.id, rowB, rowA)" in JS
+def test_build_preview_url_receives_entries_for_group_scoped_url():
+    """An org-scoped preview URL needs the shared group, so buildPreviewUrl is
+    called with the winner/loser entries (carrying .group), not just their ids."""
+    assert "buildPreviewUrl(rowA.id, rowB.id, rowA, rowB)" in JS
+    assert "buildPreviewUrl(rowB.id, rowA.id, rowB, rowA)" in JS

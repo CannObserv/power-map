@@ -130,6 +130,57 @@ async def test_merge_hard_deletes_loser(client, org_pair, db_pool):
     assert row is None
 
 
+async def test_list_merge_preserves_loser_canonical_name_and_acronym_as_aliases(
+    client, org_pair, db_pool
+):
+    """List-screen merge (no keep_*_ids) must demote+transfer the loser's canonical
+    name and acronym to the winner as non-canonical aliases — never hard-delete them.
+
+    Regression for #255: the `keep_name_ids=None` branch previously DELETEd the
+    loser's `is_canonical=TRUE` name/acronym, silently destroying alternate names on
+    a list-screen merge.
+    """
+    id_a, id_b = org_pair  # id_a = winner, id_b = loser
+    loser_name = "Alberta Gaming, Liquor, and Cannabis Commission"  # id_b canonical (fixture)
+    acr_id = generate_id()
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+            " VALUES ($1, $2, 'AGLCC', TRUE)",
+            acr_id,
+            id_b,
+        )
+
+    try:
+        response = client.post(
+            f"/admin/orgs/{id_a}/merge/{id_b}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            name_row = await conn.fetchrow(
+                "SELECT is_canonical FROM organization_names WHERE organization_id=$1 AND name=$2",
+                id_a,
+                loser_name,
+            )
+            acr_row = await conn.fetchrow(
+                "SELECT is_canonical FROM organization_acronyms"
+                " WHERE organization_id=$1 AND acronym='AGLCC'",
+                id_a,
+            )
+        assert name_row is not None, "loser canonical name was destroyed (regression #255)"
+        assert name_row["is_canonical"] is False
+        assert acr_row is not None, "loser canonical acronym was destroyed (regression #255)"
+        assert acr_row["is_canonical"] is False
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM organization_acronyms WHERE organization_id=$1", id_a)
+            await conn.execute("DELETE FROM organization_acronyms WHERE id=$1", acr_id)
+
+
 async def test_dismiss_pair_removes_from_list(client, org_pair):
     id_a, id_b = org_pair
     response = client.post(
@@ -265,6 +316,62 @@ async def test_merge_with_htmx_returns_hx_redirect(client, org_pair):
     )
     assert response.status_code == 200
     assert response.headers.get("HX-Redirect") == f"/admin/orgs/{id_a}/"
+
+
+async def test_merge_with_return_to_list_renders_list_region(client, org_pair):
+    """List-context merge via the preview modal (return_to=list) re-renders the orgs
+    list region and does NOT HX-Redirect to winner detail (#255)."""
+    id_a, id_b = org_pair
+    response = client.post(
+        f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+        data={"return_to": "list"},
+        headers={
+            **HTMX_HEADERS,
+            "HX-Target": "orgs-list-region",
+            "HX-Current-URL": "https://testserver/admin/orgs/",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "HX-Redirect" not in response.headers
+    assert "Alberta Gaming" in response.text  # winner row in re-rendered list region
+    trigger = json.loads(response.headers["HX-Trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+    assert "refreshDupBadge" in trigger
+
+
+async def test_merge_preview_defaults_loser_canonical_name_and_acronym_to_keep(
+    client, org_pair, db_pool
+):
+    """The preview modal must render the loser's canonical name + acronym checkboxes as
+    `checked` (default-keep). This is what preserves them through the list flow (#255):
+    the list merge posts the modal's checked ids, so a template regression that dropped
+    `checked` would silently reintroduce the canonical-name loss.
+    """
+    id_a, id_b = org_pair  # id_a = winner, id_b = loser
+    acr_id = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+            " VALUES ($1, $2, 'AGLCC', TRUE)",
+            acr_id,
+            id_b,
+        )
+        loser_name_id = await conn.fetchval(
+            "SELECT id FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
+            id_b,
+        )
+    try:
+        response = client.get(
+            f"/admin/orgs/{id_a}/merge-preview/{id_b}/?winner={id_a}&ctx=list",
+            headers=AUTH_HEADERS,
+        )
+        assert response.status_code == 200
+        assert f'name="keep_name_ids" value="{loser_name_id}" checked' in response.text
+        assert f'name="keep_acronym_ids" value="{acr_id}" checked' in response.text
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM organization_acronyms WHERE id=$1", acr_id)
 
 
 async def test_dismiss_htmx_sends_hx_trigger_flash(client, org_pair):

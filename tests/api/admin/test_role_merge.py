@@ -198,6 +198,61 @@ async def test_merge_hard_deletes_loser(client, role_pair, db_pool):
     assert row is None
 
 
+# ── Merge preview modal (#255) ───────────────────────────────────────────────
+
+
+async def test_merge_preview_returns_modal_with_titles_and_form(client, role_pair):
+    """GET role merge-preview returns the modal: both titles and a form posting back
+    to the existing /merge/ endpoint, targeting the roles list region (#255)."""
+    org_id, role_a, role_b = role_pair
+    response = client.get(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge-preview/{role_b}/?ctx=list",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200
+    assert "Director" in response.text  # winner title
+    assert "Exec Director" in response.text  # loser title
+    assert f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/" in response.text
+    assert "roles-list-region" in response.text
+
+
+async def test_merge_preview_counts_reassigned_and_conflicts(client, role_pair_with_assignments):
+    """Preview surfaces how many assignments reassign vs. drop as conflicts (#255)."""
+    org_id, role_a, role_b, _person, _unique = role_pair_with_assignments
+    # role_a (winner) has the shared person; role_b (loser) has shared (conflict) + unique.
+    response = client.get(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge-preview/{role_b}/?ctx=list",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200
+    assert "1 role assignment" in response.text  # the unique person reassigns
+    assert "1 duplicate" in response.text  # the shared person+date is dropped
+
+
+async def test_merge_preview_409_for_cross_org(client, role_pair, db_pool):
+    """Preview enforces the same-org rule like the merge route itself."""
+    org_id, role_a, role_b = role_pair
+    other_org = generate_id()
+    other_role = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", other_org)
+        await conn.execute(
+            "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Other')",
+            other_role,
+            other_org,
+        )
+    try:
+        response = client.get(
+            f"/admin/orgs/{org_id}/roles/{role_a}/merge-preview/{other_role}/?ctx=list",
+            headers=AUTH_HEADERS,
+        )
+        assert response.status_code == 409
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM roles WHERE id=$1", other_role)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", other_org)
+
+
 # ── Merge: role_assignments ─────────────────────────────────────────────────
 
 

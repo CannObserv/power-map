@@ -327,40 +327,33 @@ describe('bar at 2 selections', () => {
     expect(document.querySelector('.merge-bar__keep-b').textContent).toBe('Keep "Person 2"');
   });
 
-  it('keep-a hx-post: keep person-1, discard person-2', () => {
-    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-post')).toBe(
-      '/admin/people/person-1/merge/person-2/',
+  it('keep-a hx-get opens the preview modal: winner person-1, loser person-2', () => {
+    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-get')).toBe(
+      '/admin/people/person-1/merge-preview/person-2/?ctx=list',
     );
   });
 
-  it('keep-b hx-post: keep person-2, discard person-1', () => {
-    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-post')).toBe(
-      '/admin/people/person-2/merge/person-1/',
+  it('keep-b hx-get opens the preview modal: winner person-2, loser person-1', () => {
+    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-get')).toBe(
+      '/admin/people/person-2/merge-preview/person-1/?ctx=list',
     );
   });
 
-  it('keep-a hx-target swaps the whole list region (caption + pagination stay in sync)', () => {
+  it('keep-a hx-target is the shared modal portal', () => {
     expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-target')).toBe(
-      '#people-list-region',
+      '#merge-modal-portal',
     );
   });
 
-  it('keep-b hx-target swaps the whole list region (caption + pagination stay in sync)', () => {
+  it('keep-b hx-target is the shared modal portal', () => {
     expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-target')).toBe(
-      '#people-list-region',
+      '#merge-modal-portal',
     );
   });
 
-  it('keep-a hx-confirm names both people', () => {
-    const msg = document.querySelector('.merge-bar__keep-a').getAttribute('hx-confirm');
-    expect(msg).toContain('"Person 2"');
-    expect(msg).toContain('"Person 1"');
-  });
-
-  it('keep-b hx-confirm names both people', () => {
-    const msg = document.querySelector('.merge-bar__keep-b').getAttribute('hx-confirm');
-    expect(msg).toContain('"Person 1"');
-    expect(msg).toContain('"Person 2"');
+  it('keep buttons carry no hx-confirm (the modal is the confirm step now)', () => {
+    expect(document.querySelector('.merge-bar__keep-a').getAttribute('hx-confirm')).toBeNull();
+    expect(document.querySelector('.merge-bar__keep-b').getAttribute('hx-confirm')).toBeNull();
   });
 });
 
