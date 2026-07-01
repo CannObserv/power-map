@@ -15,11 +15,22 @@ pytestmark = [pytest.mark.integration]
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def db(db_pool):
-    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    """Pool-acquired connection wrapped in a rolled-back transaction.
+
+    The outbox tables are append-only and trigger-populated: every entity
+    insert/update/delete in the wider suite (e.g. merges) commits `entity_changes`
+    / `deleted_entities` rows that are never cleaned up. Prune assertions that
+    check exact table contents (`changes == {...}`) would see that cross-test
+    pollution. Emptying both tables *inside* this rolled-back transaction gives
+    each prune test an isolated view without durably deleting anything — the
+    rollback restores the other tests' committed rows.
+    """
     async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
         try:
+            await conn.execute("DELETE FROM entity_changes")
+            await conn.execute("DELETE FROM deleted_entities")
             yield conn
         finally:
             await tr.rollback()
