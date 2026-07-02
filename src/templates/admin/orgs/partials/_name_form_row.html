@@ -25,13 +25,20 @@
       </div>
       {# Effective-date timeline (#239). Empty = unknown/ongoing; the form is the
          source of truth on save, so clearing a field nulls the column. #}
-      <div class="form-group" style="margin-bottom:0">
-        <input type="date" name="effective_start" aria-label="Effective start"
-               value="{{ n.effective_start if n and n.effective_start else '' }}">
-      </div>
-      <div class="form-group" style="margin-bottom:0">
-        <input type="date" name="effective_end" aria-label="Effective end"
-               value="{{ n.effective_end if n and n.effective_end else '' }}">
+      <div style="display:flex;gap:var(--space-2);align-items:center">
+        <label for="effective-start-{% if n %}{{ n.id }}{% else %}new{% endif %}"
+               style="font-size:var(--font-size-sm);color:var(--color-text-muted);white-space:nowrap">Effective start</label>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" name="effective_start"
+                 id="effective-start-{% if n %}{{ n.id }}{% else %}new{% endif %}"
+                 value="{{ n.effective_start if n and n.effective_start else '' }}">
+        </div>
+        <span aria-hidden="true"
+              style="font-size:var(--font-size-sm);color:var(--color-text-muted)">to</span>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" name="effective_end" aria-label="Effective end"
+                 value="{{ n.effective_end if n and n.effective_end else '' }}">
+        </div>
       </div>
       <label class="toggle" style="flex-shrink:0">
         <input type="checkbox" name="is_canonical" value="true" aria-label="Canonical"

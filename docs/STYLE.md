@@ -1884,8 +1884,16 @@ visible prefix label + presentational separator instead. Reference:
 - **Second input:** keeps `aria-label` for its accessible name; its only visible
   "label" is the separator, which is not an accessible name. Screen readers announce
   the pair as "Valid from" / "Valid until", never a dangling "to".
-- Rollout of this pattern to the remaining `aria-label`-only inline date pairs
-  (assignment start/end, org-name effective dates) is tracked in #259.
+
+Applied to the header-less flex form rows: `_address_form_row.html` (validity),
+`people/_assignment_form_row.html` + `roles/_assignment_form_row.html` (start/end),
+and `orgs/_name_form_row.html` (effective dates) — #259.
+
+**Not** for date pairs in **table cells** under `<th>` column headers (the
+assignment *edit* rows, `_assignment_edit_row.html`): the column header already
+supplies visible context, so the input keeps a plain `aria-label` and no in-cell
+label is added (it would duplicate the header). This variant is for flex rows where
+the dates float without a header.
 
 ---
 
