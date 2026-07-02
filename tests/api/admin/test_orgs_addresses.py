@@ -879,6 +879,33 @@ async def test_country_format_preserves_current_values(client, org_and_address):
     assert f"address-line-2-opt-{eaid}" in r.text
 
 
+async def test_country_format_drops_field_absent_from_new_format(client, org_and_address):
+    """#258 CR: a value present in the query but not in the new country's format is dropped."""
+    oid, _ = org_and_address
+    with patch(
+        "src.api.admin._addresses_shared.get_country_format",
+        new=AsyncMock(
+            return_value={
+                "country": "JP",
+                "fields": [
+                    {"key": "address_line_1", "label": "Address line 1", "required": True},
+                    {"key": "city", "label": "City", "required": True},
+                    {"key": "postal_code", "label": "Postal code", "required": False},
+                ],
+            }
+        ),
+    ):
+        r = client.get(
+            f"/admin/orgs/{oid}/addresses/country-format/",
+            params={"country": "JP", "region": "WA", "city": "Kyoto"},
+            headers=HTMX_HEADERS,
+        )
+    assert r.status_code == 200
+    assert 'value="Kyoto"' in r.text
+    assert 'name="region"' not in r.text
+    assert 'value="WA"' not in r.text
+
+
 async def test_address_form_row_validity_labels(client, org_and_address):
     """#181 follow-up: visible 'Valid from' label + aria-hidden 'to' separator."""
     oid, eaid = org_and_address
