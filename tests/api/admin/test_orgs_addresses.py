@@ -818,12 +818,65 @@ async def test_address_form_row_scopes_country_swap_target(client, org_and_addre
     assert new.status_code == 200
     assert 'id="address-structured-fields-new"' in new.text
     assert 'hx-target="#address-structured-fields-new"' in new.text
-    assert "hx-include" not in new.text
+    assert 'hx-include="[name=' not in new.text
     assert 'id="address-country-input"' not in new.text
     edit = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
     assert edit.status_code == 200
     assert f'id="address-structured-fields-{eaid}"' in edit.text
     assert f'hx-target="#address-structured-fields-{eaid}"' in edit.text
+
+
+async def test_address_form_row_country_swap_includes_form_values(client, org_and_address):
+    """#258: country swap carries the form's current values; edit rows carry addr_id."""
+    oid, eaid = org_and_address
+    new = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
+    assert new.status_code == 200
+    assert 'hx-include="closest form"' in new.text
+    assert 'name="addr_id"' not in new.text
+    edit = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
+    assert edit.status_code == 200
+    assert 'hx-include="closest form"' in edit.text
+    assert f'<input type="hidden" name="addr_id" value="{eaid}">' in edit.text
+
+
+async def test_country_format_preserves_current_values(client, org_and_address):
+    """#258: the fields partial echoes in-progress values instead of blanking them."""
+    oid, eaid = org_and_address
+    with patch(
+        "src.api.admin._addresses_shared.get_country_format",
+        new=AsyncMock(
+            return_value={
+                "country": "CA",
+                "fields": [
+                    {"key": "address_line_1", "label": "Address line 1", "required": True},
+                    {"key": "address_line_2", "label": "Apt/suite", "required": False},
+                    {"key": "city", "label": "City", "required": True},
+                    {"key": "region", "label": "Province", "required": True},
+                    {"key": "postal_code", "label": "Postal code", "required": False},
+                ],
+            }
+        ),
+    ):
+        r = client.get(
+            f"/admin/orgs/{oid}/addresses/country-format/",
+            params={
+                "country": "CA",
+                "address_line_1": "123 Main St",
+                "address_line_2": "Suite 4",
+                "city": "Olympia",
+                "region": "WA",
+                "postal_code": "98501",
+                "addr_id": eaid,
+            },
+            headers=HTMX_HEADERS,
+        )
+    assert r.status_code == 200
+    assert 'value="123 Main St"' in r.text
+    assert 'value="Suite 4"' in r.text
+    assert 'value="Olympia"' in r.text
+    assert 'value="WA"' in r.text
+    assert 'value="98501"' in r.text
+    assert f"address-line-2-opt-{eaid}" in r.text
 
 
 async def test_address_form_row_validity_labels(client, org_and_address):

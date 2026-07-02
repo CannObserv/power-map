@@ -11,6 +11,7 @@
           hx-swap="outerHTML"
           style="display:grid;gap:var(--space-2)">
       {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
+      {% if a and a.id %}<input type="hidden" name="addr_id" value="{{ a.id }}">{% endif %}
       <div style="display:flex;gap:var(--space-2)">
         <div class="form-group" style="margin-bottom:0;flex:1">
           <select name="address_type" aria-label="Address type">
@@ -36,7 +37,8 @@
                hx-get="/admin/people/{{ person_id }}/addresses/country-format/"
                hx-trigger="change"
                hx-target="#address-structured-fields-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
-               hx-swap="innerHTML">
+               hx-swap="innerHTML"
+               hx-include="closest form">
       </div>
 
       <div id="address-structured-fields-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}">
