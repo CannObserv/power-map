@@ -2,6 +2,7 @@
 
 import datetime as dt
 import json
+import re
 
 import pytest
 import pytest_asyncio
@@ -119,6 +120,18 @@ async def test_new_row_returns_form(client, role_id):
 async def test_new_row_unknown_role_returns_404(client):
     r = await client.get(f"/admin/roles/{generate_id()}/assignments/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 404
+
+
+async def test_new_row_labels_start_end_dates(client, role_id):
+    """#259: visible 'Start' label (row-scoped for/id) + aria-hidden 'to'; end keeps a name."""
+    r = await client.get(f"/admin/roles/{role_id}/assignments/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    body = r.text
+    assert '<label for="start-date-input-new"' in body
+    assert ">Start</label>" in body
+    assert 'id="start-date-input-new"' in body
+    assert re.search(r'<span aria-hidden="true"[^>]*>\s*to</span>', body)
+    assert 'aria-label="End"' in body
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 """Integration tests for org names CRUD."""
 
 import json
+import re
 from datetime import date
 
 import pytest
@@ -65,6 +66,22 @@ async def test_names_new_row_returns_form(client, org_and_name):
     r = client.get(f"/admin/orgs/{oid}/names/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<form" in r.text
+
+
+async def test_name_form_row_labels_effective_dates(client, org_and_name):
+    """#259: visible 'Effective start' label + aria-hidden 'to'; row-scoped for new + edit."""
+    oid, nid = org_and_name
+    new = client.get(f"/admin/orgs/{oid}/names/new-row/", headers=HTMX_HEADERS)
+    assert new.status_code == 200
+    assert '<label for="effective-start-new"' in new.text
+    assert ">Effective start</label>" in new.text
+    assert 'id="effective-start-new"' in new.text
+    assert re.search(r'<span aria-hidden="true"[^>]*>\s*to</span>', new.text)
+    assert 'aria-label="Effective end"' in new.text
+    edit = client.get(f"/admin/orgs/{oid}/names/{nid}/edit-row/", headers=HTMX_HEADERS)
+    assert edit.status_code == 200
+    assert f'<label for="effective-start-{nid}"' in edit.text
+    assert f'id="effective-start-{nid}"' in edit.text
 
 
 async def test_names_create(client, org_and_name):

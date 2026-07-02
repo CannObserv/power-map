@@ -1,6 +1,7 @@
 """Integration tests for inline assignment CRUD on person detail."""
 
 import json
+import re
 
 import pytest
 import pytest_asyncio
@@ -91,6 +92,18 @@ async def test_new_row_unknown_person_returns_404(client):
         f"/admin/people/{generate_id()}/assignments/new-row/", headers=HTMX_HEADERS
     )
     assert r.status_code == 404
+
+
+async def test_new_row_labels_start_end_dates(client, person_id):
+    """#259: visible 'Start' label (row-scoped for/id) + aria-hidden 'to'; end keeps a name."""
+    r = await client.get(f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    body = r.text
+    assert '<label for="start-date-input-new"' in body
+    assert ">Start</label>" in body
+    assert 'id="start-date-input-new"' in body
+    assert re.search(r'<span aria-hidden="true"[^>]*>\s*to</span>', body)
+    assert 'aria-label="End"' in body
 
 
 async def test_new_row_is_current_uses_pill_toggle(client, person_id):
