@@ -1,6 +1,7 @@
 """Integration tests for org addresses CRUD."""
 
 import json
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -833,7 +834,7 @@ async def test_address_form_row_validity_labels(client, org_and_address):
     assert '<label for="valid-from-new"' in new.text
     assert ">Valid from</label>" in new.text
     assert 'id="valid-from-new"' in new.text
-    assert 'aria-hidden="true"' in new.text and ">to</span>" in new.text
+    assert re.search(r'<span aria-hidden="true"[^>]*>\s*to</span>', new.text)
     assert 'aria-label="Valid until"' in new.text
     edit = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
     assert edit.status_code == 200
