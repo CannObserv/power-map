@@ -8,10 +8,10 @@ DATE_FORMAT_ERROR = "Dates must be YYYY-MM-DD."
 VALIDITY_ORDER_ERROR = "Valid from must be on or before valid until."
 
 
-async def field_context(country: str) -> dict:
+async def field_context(country: str | None) -> dict:
     """Return field_labels and field_visible template context for a country code.
 
-    Normalizes raw form/query input (strip + upper); blank falls back to US.
+    Normalizes raw form/query input (strip + upper); blank or None falls back to US.
     """
     code = (country or "").strip().upper() or "US"
     fmt = await get_country_format(code)

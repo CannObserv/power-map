@@ -47,7 +47,7 @@ async def test_field_context_normalizes_country_code(raw):
     mock.assert_awaited_once_with("CA")
 
 
-@pytest.mark.parametrize("blank", ["", "  "])
+@pytest.mark.parametrize("blank", ["", "  ", None])
 async def test_field_context_blank_country_falls_back_to_us(blank):
     mock = AsyncMock(return_value={"fields": []})
     with patch("src.api.admin._addresses_shared.get_country_format", new=mock):
