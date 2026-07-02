@@ -1,5 +1,6 @@
 """Unit tests for shared address validity-window and field-context helpers."""
 
+import dataclasses
 import re
 from datetime import date
 from unittest.mock import AsyncMock, patch
@@ -96,3 +97,10 @@ def test_address_echo_params_as_row_maps_fields():
 def test_address_echo_params_blank_addr_id_is_none():
     """#258 CR: a blank addr_id (new row) maps to id=None so ids render row-scoped as -new."""
     assert AddressEchoParams().as_row()["id"] is None
+
+
+def test_address_echo_params_is_frozen():
+    """#258 CR round 2: read-only echo bundle — mutation raises."""
+    p = AddressEchoParams(city="Olympia")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        p.city = "Tacoma"

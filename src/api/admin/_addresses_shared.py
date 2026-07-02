@@ -9,7 +9,7 @@ DATE_FORMAT_ERROR = "Dates must be YYYY-MM-DD."
 VALIDITY_ORDER_ERROR = "Valid from must be on or before valid until."
 
 
-@dataclass
+@dataclass(frozen=True)
 class AddressEchoParams:
     """In-progress structured-field values echoed back on a country change (#258).
 
