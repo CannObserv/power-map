@@ -797,6 +797,19 @@ async def test_address_form_row_has_country_field(client, org_and_address):
     assert 'name="country"' in r.text
 
 
+async def test_address_form_row_type_and_label_lead_panel(client, org_and_address):
+    """#181 follow-up: type + label on the first line, ahead of country and validity."""
+    oid, _ = org_and_address
+    r = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    type_pos = r.text.index('name="address_type"')
+    label_pos = r.text.index('name="display_name"')
+    assert type_pos < r.text.index('name="country"')
+    assert label_pos < r.text.index('name="country"')
+    assert type_pos < r.text.index('name="valid_from"')
+    assert label_pos < r.text.index('name="valid_from"')
+
+
 async def test_country_format_endpoint_returns_fields_partial(client, org_and_address):
     oid, _ = org_and_address
     with patch(

@@ -77,6 +77,19 @@ async def person_and_address(db_pool):
         await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
+async def test_address_form_row_type_and_label_lead_panel(client, person_and_address):
+    """#181 follow-up: type + label on the first line, ahead of country and validity."""
+    pid, _ = person_and_address
+    r = client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    type_pos = r.text.index('name="address_type"')
+    label_pos = r.text.index('name="display_name"')
+    assert type_pos < r.text.index('name="country"')
+    assert label_pos < r.text.index('name="country"')
+    assert type_pos < r.text.index('name="valid_from"')
+    assert label_pos < r.text.index('name="valid_from"')
+
+
 async def test_addresses_create_with_validity_window(client, person_and_address, db_pool):
     pid, existing_eaid = person_and_address
     r = client.post(
