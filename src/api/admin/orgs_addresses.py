@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin._addresses_shared import field_context, parse_validity
+from src.api.admin._addresses_shared import AddressEchoParams, field_context, parse_validity
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 from src.core.normalizers.address import get_address_normalizer
@@ -514,12 +514,7 @@ async def address_country_format(
     org_id: str,
     request: Request,
     country: str = "US",
-    address_line_1: str = "",
-    address_line_2: str = "",
-    city: str = "",
-    region: str = "",
-    postal_code: str = "",
-    addr_id: str = "",
+    echo: AddressEchoParams = Depends(),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -530,18 +525,10 @@ async def address_country_format(
     """
     await _get_org_or_404(org_id, db)
     ctx = await field_context(country)
-    a = {
-        "id": addr_id or None,
-        "address_line_1": address_line_1,
-        "address_line_2": address_line_2,
-        "city": city,
-        "region": region,
-        "postal_code": postal_code,
-    }
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_fields_partial.html",
-        {"org_id": org_id, "a": a, **ctx},
+        {"org_id": org_id, "a": echo.as_row(), **ctx},
     )
 
 

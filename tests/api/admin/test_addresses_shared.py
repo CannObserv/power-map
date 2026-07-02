@@ -9,6 +9,7 @@ import pytest
 from src.api.admin._addresses_shared import (
     DATE_FORMAT_ERROR,
     VALIDITY_ORDER_ERROR,
+    AddressEchoParams,
     field_context,
     parse_validity,
 )
@@ -70,3 +71,28 @@ async def test_field_context_shapes_labels_and_visibility():
         "field_labels": {"city": "Town", "postal_code": "Postcode"},
         "field_visible": {"city", "postal_code"},
     }
+
+
+def test_address_echo_params_as_row_maps_fields():
+    """#258 CR: as_row() shapes the echo params into the partial's `a` context."""
+    p = AddressEchoParams(
+        address_line_1="1 A St",
+        address_line_2="Apt 2",
+        city="Olympia",
+        region="WA",
+        postal_code="98501",
+        addr_id="EA1",
+    )
+    assert p.as_row() == {
+        "id": "EA1",
+        "address_line_1": "1 A St",
+        "address_line_2": "Apt 2",
+        "city": "Olympia",
+        "region": "WA",
+        "postal_code": "98501",
+    }
+
+
+def test_address_echo_params_blank_addr_id_is_none():
+    """#258 CR: a blank addr_id (new row) maps to id=None so ids render row-scoped as -new."""
+    assert AddressEchoParams().as_row()["id"] is None
