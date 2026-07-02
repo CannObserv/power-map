@@ -1,5 +1,6 @@
 """Tests for address normalizers."""
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -401,9 +402,6 @@ def test_get_address_normalizer_without_api_key_has_no_config():
     """Without ADDRESS_VALIDATOR_API_KEY, config is None (local-only normalizer)."""
     _reset_normalizer()
     with patch.dict("os.environ", {}, clear=True):
-        # Ensure key absent
-        import os
-
         os.environ.pop("ADDRESS_VALIDATOR_API_KEY", None)
         n = get_address_normalizer()
     assert n.config is None
@@ -417,6 +415,32 @@ def test_get_address_normalizer_with_api_key_sets_config():
     assert n.config is not None
     assert n.config.api_key == "test-key-123"
     assert n.config.run_validation is False
+
+
+def test_get_address_normalizer_honors_base_url_env_and_strips_slash():
+    """#257 CR: ADDRESS_VALIDATOR_BASE_URL re-points standardize/validate too, rstrip'd."""
+    _reset_normalizer()
+    with patch.dict(
+        "os.environ",
+        {
+            "ADDRESS_VALIDATOR_API_KEY": "test-key-123",
+            "ADDRESS_VALIDATOR_BASE_URL": "https://validator.test:8001/",
+        },
+        clear=False,
+    ):
+        n = get_address_normalizer()
+    _reset_normalizer()
+    assert n.config.base_url == "https://validator.test:8001"
+
+
+def test_get_address_normalizer_default_base_url_without_env():
+    """Without ADDRESS_VALIDATOR_BASE_URL, the dataclass default stands."""
+    _reset_normalizer()
+    with patch.dict("os.environ", {"ADDRESS_VALIDATOR_API_KEY": "test-key-123"}, clear=False):
+        os.environ.pop("ADDRESS_VALIDATOR_BASE_URL", None)
+        n = get_address_normalizer()
+    _reset_normalizer()
+    assert n.config.base_url == "https://address-validator.exe.xyz:8000"
 
 
 def test_get_address_normalizer_with_run_validation_true():

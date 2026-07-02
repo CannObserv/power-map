@@ -1,13 +1,15 @@
-"""Unit tests for shared address validity-window helpers."""
+"""Unit tests for shared address validity-window and field-context helpers."""
 
 import re
 from datetime import date
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from src.api.admin._addresses_shared import (
     DATE_FORMAT_ERROR,
     VALIDITY_ORDER_ERROR,
+    field_context,
     parse_validity,
 )
 
@@ -35,3 +37,36 @@ def test_inverted_range_raises_order_error():
 def test_malformed_date_raises_format_error(bad):
     with pytest.raises(ValueError, match=re.escape(DATE_FORMAT_ERROR)):
         parse_validity(bad, "")
+
+
+@pytest.mark.parametrize("raw", ["ca", " ca ", "CA", " CA"])
+async def test_field_context_normalizes_country_code(raw):
+    mock = AsyncMock(return_value={"fields": []})
+    with patch("src.api.admin._addresses_shared.get_country_format", new=mock):
+        await field_context(raw)
+    mock.assert_awaited_once_with("CA")
+
+
+@pytest.mark.parametrize("blank", ["", "  "])
+async def test_field_context_blank_country_falls_back_to_us(blank):
+    mock = AsyncMock(return_value={"fields": []})
+    with patch("src.api.admin._addresses_shared.get_country_format", new=mock):
+        await field_context(blank)
+    mock.assert_awaited_once_with("US")
+
+
+async def test_field_context_shapes_labels_and_visibility():
+    fmt = {
+        "fields": [
+            {"key": "city", "label": "Town", "required": True},
+            {"key": "postal_code", "label": "Postcode", "required": False},
+        ]
+    }
+    with patch(
+        "src.api.admin._addresses_shared.get_country_format", new=AsyncMock(return_value=fmt)
+    ):
+        ctx = await field_context("GB")
+    assert ctx == {
+        "field_labels": {"city": "Town", "postal_code": "Postcode"},
+        "field_visible": {"city", "postal_code"},
+    }

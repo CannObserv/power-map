@@ -111,6 +111,19 @@ async def test_get_country_format_follows_redirects():
     assert MockClient.call_args.kwargs.get("follow_redirects") is True
 
 
+async def test_get_country_format_sets_explicit_timeout():
+    """#257 CR: bounded timeout so a validator outage can't block the admin form ~5s."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"country": "CA", "fields": []}
+    mock_response.raise_for_status = MagicMock()
+
+    with mock_http_client(mock_response, method="get") as MockClient:
+        await get_country_format("CA")
+
+    assert MockClient.call_args.kwargs.get("timeout") == 3.0
+
+
 async def test_get_country_format_logs_warning_on_fallback(caplog):
     """#257: the US-default fallback must leave a server-side trace."""
     with mock_http_client(method="get", side_effect=Exception("boom")):

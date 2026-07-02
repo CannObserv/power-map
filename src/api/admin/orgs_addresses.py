@@ -6,11 +6,10 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin._addresses_shared import parse_validity
+from src.api.admin._addresses_shared import field_context, parse_validity
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 from src.core.normalizers.address import get_address_normalizer
-from src.core.normalizers.address_meta import get_country_format
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/addresses", tags=["admin-org-addresses"])
@@ -52,15 +51,6 @@ def _parse_normalizer_fields(
 
 
 _NORMALIZER = get_address_normalizer()
-
-
-async def _field_context(country: str) -> dict:
-    """Return field_labels and field_visible for the given country code."""
-    fmt = await get_country_format(country.upper() if country else "US")
-    return {
-        "field_labels": {f["key"]: f["label"] for f in fmt.get("fields", [])},
-        "field_visible": {f["key"] for f in fmt.get("fields", [])},
-    }
 
 
 async def _maybe_confirm(
@@ -172,7 +162,7 @@ async def address_new_row(
 ):
     """Return empty address form row."""
     await _get_org_or_404(org_id, db)
-    ctx = await _field_context("US")
+    ctx = await field_context("US")
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_form_row.html",
@@ -227,7 +217,7 @@ async def address_create(
                 "org_id": org_id,
                 "a": form_echo,
                 "error": "At least one address field is required.",
-                **(await _field_context(country)),
+                **(await field_context(country)),
             },
         )
     if mode == "edit":
@@ -239,7 +229,7 @@ async def address_create(
             {
                 "org_id": org_id,
                 "a": form_echo,
-                **(await _field_context(country)),
+                **(await field_context(country)),
             },
         )
     try:
@@ -254,7 +244,7 @@ async def address_create(
                 "org_id": org_id,
                 "a": form_echo,
                 "error": str(exc),
-                **(await _field_context(country)),
+                **(await field_context(country)),
             },
         )
     if mode == "confirm":
@@ -291,7 +281,7 @@ async def address_create(
                 "org_id": org_id,
                 "a": form_echo,
                 "error": "Invalid address data submitted. Please re-submit the form.",
-                **(await _field_context(country)),
+                **(await field_context(country)),
             },
         )
     await db.execute(
@@ -360,7 +350,7 @@ async def address_edit_row_get(
 ):
     """Return address edit form row."""
     row = await _get_entity_address_or_404(addr_id, org_id, db)
-    ctx = await _field_context(row["country"] or "US")
+    ctx = await field_context(row["country"] or "US")
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_form_row.html",
@@ -416,7 +406,7 @@ async def address_edit_row_post(
                 "org_id": org_id,
                 "a": form_echo,
                 "error": "At least one address field is required.",
-                **(await _field_context(country)),
+                **(await field_context(country)),
             },
         )
     if mode == "edit":
@@ -428,7 +418,7 @@ async def address_edit_row_post(
             {
                 "org_id": org_id,
                 "a": form_echo,
-                **(await _field_context(country)),
+                **(await field_context(country)),
             },
         )
     try:
@@ -443,7 +433,7 @@ async def address_edit_row_post(
                 "org_id": org_id,
                 "a": form_echo,
                 "error": str(exc),
-                **(await _field_context(country)),
+                **(await field_context(country)),
             },
         )
     if mode == "confirm":
@@ -478,7 +468,7 @@ async def address_edit_row_post(
                 "org_id": org_id,
                 "a": form_echo,
                 "error": "Invalid address data submitted. Please re-submit the form.",
-                **(await _field_context(country)),
+                **(await field_context(country)),
             },
         )
     await db.execute(
@@ -529,7 +519,7 @@ async def address_country_format(
 ):
     """Return HTMX partial of structured address fields for the given country code."""
     await _get_org_or_404(org_id, db)
-    ctx = await _field_context(country)
+    ctx = await field_context(country)
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_fields_partial.html",

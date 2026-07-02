@@ -16,6 +16,7 @@ _ADDRESS_VALIDATOR_BASE = os.environ.get(
 _ADDRESS_VALIDATOR_API_KEY = os.environ.get("ADDRESS_VALIDATOR_API_KEY", "")
 
 _FORMAT_TTL = 86_400  # 24 hours
+_FETCH_TIMEOUT = 3.0  # seconds — the fetch blocks an admin-form HTMX swap
 
 # Per-code cache: {country_code: {"value": dict, "expires": float}}
 _format_cache: dict[str, dict] = {}
@@ -55,7 +56,7 @@ async def get_country_format(country_code: str) -> dict:
     url = f"{_ADDRESS_VALIDATOR_BASE.rstrip('/')}/api/v2/countries/{code}/format"
     try:
         headers = {"X-API-Key": _ADDRESS_VALIDATOR_API_KEY} if _ADDRESS_VALIDATOR_API_KEY else {}
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=_FETCH_TIMEOUT) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             fmt = response.json()
