@@ -80,6 +80,50 @@ async def test_get_country_format_uses_v2_path():
     assert "/api/v2/" in called_url
 
 
+async def test_get_country_format_strips_trailing_slash_from_base_url(monkeypatch):
+    """#257: a trailing slash on the base URL must not produce a double-slash path."""
+    monkeypatch.setattr(
+        "src.core.normalizers.address_meta._ADDRESS_VALIDATOR_BASE",
+        "https://validator.test:8000/",
+    )
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"country": "CA", "fields": []}
+    mock_response.raise_for_status = MagicMock()
+
+    with mock_http_client(mock_response, method="get") as MockClient:
+        await get_country_format("CA")
+
+    called_url = MockClient.return_value.get.call_args[0][0]
+    assert called_url == "https://validator.test:8000/api/v2/countries/CA/format"
+
+
+async def test_get_country_format_follows_redirects():
+    """#257: the client must follow redirects (e.g. upstream path normalization)."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"country": "CA", "fields": []}
+    mock_response.raise_for_status = MagicMock()
+
+    with mock_http_client(mock_response, method="get") as MockClient:
+        await get_country_format("CA")
+
+    assert MockClient.call_args.kwargs.get("follow_redirects") is True
+
+
+async def test_get_country_format_logs_warning_on_fallback(caplog):
+    """#257: the US-default fallback must leave a server-side trace."""
+    with mock_http_client(method="get", side_effect=Exception("boom")):
+        with caplog.at_level("WARNING", logger="src.core.normalizers.address_meta"):
+            result = await get_country_format("XX")
+
+    assert result == US_DEFAULT_FORMAT
+    assert any(
+        "XX" in r.message and "boom" in r.message and r.levelname == "WARNING"
+        for r in caplog.records
+    )
+
+
 async def test_invalidate_cache_causes_re_fetch():
     mock_response = MagicMock()
     mock_response.status_code = 200
