@@ -1,6 +1,7 @@
 """Admin CRUD for organization addresses."""
 
 import json
+from datetime import date
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -17,6 +18,21 @@ router = APIRouter(prefix="/orgs/{org_id}/addresses", tags=["admin-org-addresses
 
 def _is_all_blank(*fields: str) -> bool:
     return not any(f.strip() for f in fields)
+
+
+VALIDITY_ERROR = "Valid from must be on or before valid until (YYYY-MM-DD)."
+
+
+def _parse_validity(valid_from: str, valid_until: str) -> tuple[date | None, date | None]:
+    """Parse validity window form fields; blank = open-ended on that side.
+
+    Raises ValueError on non-ISO input or an inverted range.
+    """
+    vf = date.fromisoformat(valid_from.strip()) if valid_from.strip() else None
+    vu = date.fromisoformat(valid_until.strip()) if valid_until.strip() else None
+    if vf and vu and vf > vu:
+        raise ValueError(VALIDITY_ERROR)
+    return vf, vu
 
 
 def _parse_normalizer_fields(
@@ -74,6 +90,8 @@ async def _maybe_confirm(
     address_type: str,
     display_name: str,
     country: str = "US",
+    valid_from: str = "",
+    valid_until: str = "",
 ):
     """Call normalizer and return confirm partial if standardized result; else None."""
     raw = " ".join(
@@ -118,6 +136,8 @@ async def _maybe_confirm(
         "address_type": address_type,
         "display_name": display_name,
         "country": country,
+        "valid_from": valid_from,
+        "valid_until": valid_until,
     }
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
@@ -145,7 +165,7 @@ async def _get_org_or_404(org_id: str, db):
 
 async def _get_entity_address_or_404(addr_id: str, org_id: str, db):
     row = await db.fetchrow(
-        """SELECT ea.id, ea.address_type, ea.display_name,
+        """SELECT ea.id, ea.address_type, ea.display_name, ea.valid_from, ea.valid_until,
                   a.id AS address_id, a.standardized, a.address_line_1, a.address_line_2,
                   a.city, a.region, a.postal_code, a.country
            FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
@@ -186,6 +206,8 @@ async def address_create(
     postal_code: str = Form(""),
     address_type: str = Form("mailing"),
     display_name: str = Form(""),
+    valid_from: str = Form(""),
+    valid_until: str = Form(""),
     mode: str = Form("confirm"),
     standardized: str = Form(""),
     latitude: str = Form(""),
@@ -197,6 +219,19 @@ async def address_create(
 ):
     """Create a new organization address."""
     await _get_org_or_404(org_id, db)
+    form_echo = {
+        "id": None,
+        "address_line_1": address_line_1,
+        "address_line_2": address_line_2,
+        "city": city,
+        "region": region,
+        "postal_code": postal_code,
+        "address_type": address_type,
+        "display_name": display_name,
+        "country": country,
+        "valid_from": valid_from,
+        "valid_until": valid_until,
+    }
     if _is_all_blank(address_line_1, city, region, postal_code):
         if not is_htmx(request):
             return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
@@ -205,17 +240,7 @@ async def address_create(
             "admin/orgs/partials/_address_form_row.html",
             {
                 "org_id": org_id,
-                "a": {
-                    "id": None,
-                    "address_line_1": address_line_1,
-                    "address_line_2": address_line_2,
-                    "city": city,
-                    "region": region,
-                    "postal_code": postal_code,
-                    "address_type": address_type,
-                    "display_name": display_name,
-                    "country": country,
-                },
+                "a": form_echo,
                 "error": "At least one address field is required.",
                 **(await _field_context(country)),
             },
@@ -228,17 +253,22 @@ async def address_create(
             "admin/orgs/partials/_address_form_row.html",
             {
                 "org_id": org_id,
-                "a": {
-                    "id": None,
-                    "address_line_1": address_line_1,
-                    "address_line_2": address_line_2,
-                    "city": city,
-                    "region": region,
-                    "postal_code": postal_code,
-                    "address_type": address_type,
-                    "display_name": display_name,
-                    "country": country,
-                },
+                "a": form_echo,
+                **(await _field_context(country)),
+            },
+        )
+    try:
+        _valid_from, _valid_until = _parse_validity(valid_from, valid_until)
+    except ValueError:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_address_form_row.html",
+            {
+                "org_id": org_id,
+                "a": form_echo,
+                "error": VALIDITY_ERROR,
                 **(await _field_context(country)),
             },
         )
@@ -255,6 +285,8 @@ async def address_create(
             address_type,
             display_name,
             country,
+            valid_from,
+            valid_until,
         )
         if confirm is not None:
             return confirm
@@ -272,17 +304,7 @@ async def address_create(
             "admin/orgs/partials/_address_form_row.html",
             {
                 "org_id": org_id,
-                "a": {
-                    "id": None,
-                    "address_line_1": address_line_1,
-                    "address_line_2": address_line_2,
-                    "city": city,
-                    "region": region,
-                    "postal_code": postal_code,
-                    "address_type": address_type,
-                    "display_name": display_name,
-                    "country": country,
-                },
+                "a": form_echo,
                 "error": "Invalid address data submitted. Please re-submit the form.",
                 **(await _field_context(country)),
             },
@@ -306,13 +328,16 @@ async def address_create(
     )
     await db.execute(
         "INSERT INTO entity_addresses"
-        " (id, entity_type, entity_id, address_id, address_type, display_name)"
-        " VALUES ($1, 'organization', $2, $3, $4, $5)",
+        " (id, entity_type, entity_id, address_id, address_type, display_name,"
+        "  valid_from, valid_until)"
+        " VALUES ($1, 'organization', $2, $3, $4, $5, $6, $7)",
         eaid,
         org_id,
         aid,
         address_type,
         display_name.strip() or None,
+        _valid_from,
+        _valid_until,
     )
     row = await _get_entity_address_or_404(eaid, org_id, db)
     if not is_htmx(request):
@@ -370,6 +395,8 @@ async def address_edit_row_post(
     postal_code: str = Form(""),
     address_type: str = Form("mailing"),
     display_name: str = Form(""),
+    valid_from: str = Form(""),
+    valid_until: str = Form(""),
     mode: str = Form("confirm"),
     standardized: str = Form(""),
     latitude: str = Form(""),
@@ -381,6 +408,19 @@ async def address_edit_row_post(
 ):
     """Update an organization address."""
     existing = await _get_entity_address_or_404(addr_id, org_id, db)
+    form_echo = {
+        "id": addr_id,
+        "address_line_1": address_line_1,
+        "address_line_2": address_line_2,
+        "city": city,
+        "region": region,
+        "postal_code": postal_code,
+        "address_type": address_type,
+        "display_name": display_name,
+        "country": country,
+        "valid_from": valid_from,
+        "valid_until": valid_until,
+    }
     if _is_all_blank(address_line_1, city, region, postal_code):
         if not is_htmx(request):
             return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
@@ -389,17 +429,7 @@ async def address_edit_row_post(
             "admin/orgs/partials/_address_form_row.html",
             {
                 "org_id": org_id,
-                "a": {
-                    "id": addr_id,
-                    "address_line_1": address_line_1,
-                    "address_line_2": address_line_2,
-                    "city": city,
-                    "region": region,
-                    "postal_code": postal_code,
-                    "address_type": address_type,
-                    "display_name": display_name,
-                    "country": country,
-                },
+                "a": form_echo,
                 "error": "At least one address field is required.",
                 **(await _field_context(country)),
             },
@@ -412,17 +442,22 @@ async def address_edit_row_post(
             "admin/orgs/partials/_address_form_row.html",
             {
                 "org_id": org_id,
-                "a": {
-                    "id": addr_id,
-                    "address_line_1": address_line_1,
-                    "address_line_2": address_line_2,
-                    "city": city,
-                    "region": region,
-                    "postal_code": postal_code,
-                    "address_type": address_type,
-                    "display_name": display_name,
-                    "country": country,
-                },
+                "a": form_echo,
+                **(await _field_context(country)),
+            },
+        )
+    try:
+        _valid_from, _valid_until = _parse_validity(valid_from, valid_until)
+    except ValueError:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_address_form_row.html",
+            {
+                "org_id": org_id,
+                "a": form_echo,
+                "error": VALIDITY_ERROR,
                 **(await _field_context(country)),
             },
         )
@@ -439,6 +474,8 @@ async def address_edit_row_post(
             address_type,
             display_name,
             country,
+            valid_from,
+            valid_until,
         )
         if confirm is not None:
             return confirm
@@ -454,17 +491,7 @@ async def address_edit_row_post(
             "admin/orgs/partials/_address_form_row.html",
             {
                 "org_id": org_id,
-                "a": {
-                    "id": addr_id,
-                    "address_line_1": address_line_1,
-                    "address_line_2": address_line_2,
-                    "city": city,
-                    "region": region,
-                    "postal_code": postal_code,
-                    "address_type": address_type,
-                    "display_name": display_name,
-                    "country": country,
-                },
+                "a": form_echo,
                 "error": "Invalid address data submitted. Please re-submit the form.",
                 **(await _field_context(country)),
             },
@@ -487,9 +514,13 @@ async def address_edit_row_post(
         existing["address_id"],
     )
     await db.execute(
-        "UPDATE entity_addresses SET address_type=$1, display_name=$2 WHERE id=$3",
+        "UPDATE entity_addresses"
+        " SET address_type=$1, display_name=$2, valid_from=$3, valid_until=$4"
+        " WHERE id=$5",
         address_type,
         display_name.strip() or None,
+        _valid_from,
+        _valid_until,
         addr_id,
     )
     row = await _get_entity_address_or_404(addr_id, org_id, db)

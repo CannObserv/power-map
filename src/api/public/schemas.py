@@ -1038,6 +1038,8 @@ class RoleAddress(BaseModel):
     address_type: str
     raw_input: str | None = None
     standardized: str | None = None
+    valid_from: date | None = None
+    valid_until: date | None = None
 
 
 class RoleDetail(RoleListItem):
@@ -1107,6 +1109,8 @@ class AssignmentAddress(BaseModel):
     address_type: str
     raw_input: str | None = None
     standardized: str | None = None
+    valid_from: date | None = None
+    valid_until: date | None = None
 
 
 class AssignmentDetail(AssignmentListItem):

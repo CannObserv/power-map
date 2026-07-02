@@ -1412,3 +1412,68 @@ async def test_merge_deduplicates_shared_org_address(client, db_pool):
             for oid in (winner_id, loser_id):
                 await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
                 await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+
+async def test_merge_preserves_distinct_window_org_address(client, db_pool):
+    """Same address + type across different validity windows must survive merge (#181).
+
+    The dedup anti-join must compare (valid_from, valid_until) — a loser row
+    that shares address_id + address_type with a winner row but covers a
+    different window is history, not a duplicate.
+    """
+    async with db_pool.acquire() as conn:
+        winner_id = await _make_org(conn, "Winner Org Window Test")
+        loser_id = await _make_org(conn, "Loser Org Window Test")
+        shared_aid = generate_id()
+        await conn.execute(
+            "INSERT INTO addresses (id, raw_input, country)"
+            " VALUES ($1, '300 Window Org Blvd', 'US')",
+            shared_aid,
+        )
+        await conn.execute(
+            "INSERT INTO entity_addresses"
+            " (id, entity_type, entity_id, address_id, address_type, valid_from, valid_until)"
+            " VALUES ($1, 'organization', $2, $3, 'mailing', DATE '2024-01-01', NULL)",
+            generate_id(),
+            winner_id,
+            shared_aid,
+        )
+        await conn.execute(
+            "INSERT INTO entity_addresses"
+            " (id, entity_type, entity_id, address_id, address_type, valid_from, valid_until)"
+            " VALUES ($1, 'organization', $2, $3, 'mailing',"
+            "  DATE '2020-01-01', DATE '2022-12-31')",
+            generate_id(),
+            loser_id,
+            shared_aid,
+        )
+
+    try:
+        response = client.post(
+            f"/admin/orgs/{winner_id}/merge/{loser_id}/",
+            headers=AUTH_HEADERS,
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT valid_from, valid_until FROM entity_addresses"
+                " WHERE entity_type='organization' AND entity_id=$1 AND address_id=$2"
+                " ORDER BY valid_from",
+                winner_id,
+                shared_aid,
+            )
+        assert len(rows) == 2, "historical-window row was dropped as a duplicate"
+        assert rows[0]["valid_until"] is not None  # 2020–2022 history preserved
+        assert rows[1]["valid_until"] is None  # current window intact
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM entity_addresses WHERE entity_type='organization' AND entity_id=$1",
+                winner_id,
+            )
+            await conn.execute("DELETE FROM addresses WHERE id=$1", shared_aid)
+            for oid in (winner_id, loser_id):
+                await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+                await conn.execute("DELETE FROM organizations WHERE id=$1", oid)

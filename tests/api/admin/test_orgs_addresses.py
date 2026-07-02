@@ -847,3 +847,180 @@ async def test_country_format_endpoint_us_returns_default_labels(client, org_and
     assert r.status_code == 200
     assert "State" in r.text
     assert "ZIP" in r.text
+
+
+# ---------------------------------------------------------------------------
+# Temporal validity window (#181)
+# ---------------------------------------------------------------------------
+
+
+async def test_addresses_create_with_validity_window(client, org_and_address, db_pool):
+    oid, existing_eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "789 Window Way",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "physical",
+            "valid_from": "2024-01-01",
+            "valid_until": "2025-06-30",
+            "mode": "save",
+        },
+    )
+    assert r.status_code == 200
+    assert "2024-01-01" in r.text
+    assert "2025-06-30" in r.text
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT ea.valid_from, ea.valid_until FROM entity_addresses ea"
+            " WHERE ea.entity_id=$1 AND ea.id != $2",
+            oid,
+            existing_eaid,
+        )
+    assert row is not None
+    assert str(row["valid_from"]) == "2024-01-01"
+    assert str(row["valid_until"]) == "2025-06-30"
+
+
+async def test_addresses_update_validity_window(client, org_and_address, db_pool):
+    oid, eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+            "valid_from": "2020-05-01",
+            "mode": "save",
+        },
+    )
+    assert r.status_code == 200
+    assert "2020-05-01" in r.text
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT valid_from, valid_until FROM entity_addresses WHERE id=$1", eaid
+        )
+    assert str(row["valid_from"]) == "2020-05-01"
+    assert row["valid_until"] is None
+
+
+async def test_addresses_update_clears_validity_when_blank(client, org_and_address, db_pool):
+    oid, eaid = org_and_address
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE entity_addresses SET valid_from=DATE '2020-01-01',"
+            " valid_until=DATE '2021-01-01' WHERE id=$1",
+            eaid,
+        )
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+            "valid_from": "",
+            "valid_until": "",
+            "mode": "save",
+        },
+    )
+    assert r.status_code == 200
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT valid_from, valid_until FROM entity_addresses WHERE id=$1", eaid
+        )
+    assert row["valid_from"] is None
+    assert row["valid_until"] is None
+
+
+async def test_addresses_create_inverted_range_returns_error(client, org_and_address, db_pool):
+    oid, existing_eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "1 Backwards Blvd",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+            "valid_from": "2025-06-30",
+            "valid_until": "2024-01-01",
+            "mode": "save",
+        },
+    )
+    assert r.status_code == 200
+    assert "alert--error" in r.text
+    assert "on or before" in r.text
+
+    async with db_pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT count(*) FROM entity_addresses WHERE entity_id=$1 AND id != $2",
+            oid,
+            existing_eaid,
+        )
+    assert count == 0
+
+
+async def test_addresses_edit_row_prefills_validity(client, org_and_address, db_pool):
+    oid, eaid = org_and_address
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE entity_addresses SET valid_from=DATE '2019-03-01' WHERE id=$1", eaid
+        )
+    r = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert 'name="valid_from"' in r.text
+    assert "2019-03-01" in r.text
+
+
+@patch("src.api.admin.orgs_addresses._NORMALIZER")
+async def test_address_confirm_modal_roundtrips_validity(mock_normalizer, client, org_and_address):
+    """Dates entered on the form must survive the normalize-confirm hop."""
+    oid, _ = org_and_address
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "123 MAIN ST",
+                "address_line_2": None,
+                "city": "SEATTLE",
+                "region": "WA",
+                "postal_code": "98101",
+                "country": "US",
+                "standardized": "123 MAIN ST SEATTLE WA 98101",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+            "valid_from": "2024-01-01",
+            "valid_until": "2025-06-30",
+        },
+    )
+    assert r.status_code == 200
+    assert r.headers.get("hx-retarget") == "#address-confirm-portal"
+    assert '<input type="hidden" name="valid_from" value="2024-01-01">' in r.text
+    assert '<input type="hidden" name="valid_until" value="2025-06-30">' in r.text

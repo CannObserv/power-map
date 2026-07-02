@@ -98,8 +98,9 @@ async def role_fixtures(db, link_type):
         addr_id,
     )
     await db.execute(
-        "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type)"
-        " VALUES ($1,'role',$2,$3,'physical')",
+        "INSERT INTO entity_addresses"
+        " (id, entity_type, entity_id, address_id, address_type, valid_from, valid_until)"
+        " VALUES ($1,'role',$2,$3,'physical',DATE '2024-01-01',DATE '2025-06-30')",
         ea_id,
         r1,
         addr_id,
@@ -250,6 +251,14 @@ async def test_detail_includes_arrays(client, api_key, role_fixtures):
     assert len(body["addresses"]) == 1
     assert body["addresses"][0]["address_type"] == role_fixtures["r1_addr_type"]
     assert body["addresses"][0]["raw_input"] == "1 Chair Lane"
+
+
+async def test_detail_address_includes_validity_window(client, api_key, role_fixtures):
+    """valid_from/valid_until surface as ISO dates on role addresses (#181)."""
+    r = client.get(f"/api/v1/roles/{role_fixtures['r1']}", headers={"X-API-Key": api_key})
+    addrs = r.json()["addresses"]
+    assert addrs[0]["valid_from"] == "2024-01-01"
+    assert addrs[0]["valid_until"] == "2025-06-30"
 
 
 async def test_detail_contact_method_includes_display_label(client, api_key, role_fixtures):

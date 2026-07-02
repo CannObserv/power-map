@@ -125,7 +125,9 @@ CREATE TABLE IF NOT EXISTS addresses (
     updated_at     TIMESTAMPTZ      NOT NULL DEFAULT NOW()
 );
 
--- Polymorphic join: links any entity to one or more addresses with a typed relationship
+-- Polymorphic join: links any entity to one or more addresses with a typed relationship.
+-- valid_from/valid_until (#181): valid-time window; NULL = open-ended on that side.
+-- Overlapping windows are legitimate (mailing + physical simultaneously; two offices).
 CREATE TABLE IF NOT EXISTS entity_addresses (
     id           TEXT        PRIMARY KEY,
     entity_type  TEXT        NOT NULL CHECK (entity_type IN ('organization', 'person', 'role', 'jurisdiction')),
@@ -133,7 +135,11 @@ CREATE TABLE IF NOT EXISTS entity_addresses (
     address_id   TEXT        NOT NULL REFERENCES addresses(id),
     address_type TEXT        NOT NULL CHECK (address_type IN ('mailing', 'physical', 'other')),
     display_name TEXT,                           -- optional label, e.g. "Seattle Office"
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    valid_from   DATE,
+    valid_until  DATE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_ea_validity
+        CHECK (valid_from IS NULL OR valid_until IS NULL OR valid_from <= valid_until)
 );
 
 CREATE INDEX IF NOT EXISTS idx_entity_addresses_entity
@@ -1075,6 +1081,43 @@ $$;
 CREATE OR REPLACE TRIGGER trg_touch_entity_on_identifier_change
     AFTER INSERT OR UPDATE OR DELETE ON identifiers
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_identifier_change();
+
+-- entity_addresses is polymorphic: dispatch the touch on entity_type (#181).
+-- Cascades into the entity_changes outbox via each parent's
+-- fn_record_entity_change AFTER UPDATE trigger.
+CREATE OR REPLACE FUNCTION touch_parent_on_entity_address_change()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_entity_type TEXT;
+    v_entity_id   TEXT;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_entity_type := OLD.entity_type;
+        v_entity_id   := OLD.entity_id;
+    ELSE
+        v_entity_type := NEW.entity_type;
+        v_entity_id   := NEW.entity_id;
+    END IF;
+
+    IF v_entity_type = 'organization' THEN
+        UPDATE organizations SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'person' THEN
+        UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'jurisdiction' THEN
+        UPDATE jurisdictions SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'role' THEN
+        UPDATE roles SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'role_assignment' THEN
+        UPDATE role_assignments SET updated_at = NOW() WHERE id = v_entity_id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_entity_on_address_change
+    AFTER INSERT OR UPDATE OR DELETE ON entity_addresses
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_on_entity_address_change();
 
 -- =============================================================================
 -- Migration: urls/social_links/url_types/platforms → link_types/links
@@ -2286,12 +2329,33 @@ ALTER TABLE contact_methods
     UNIQUE (entity_type, entity_id, contact_type, value);
 
 -- ---------------------------------------------------------------------------
--- Unique constraint: entity_addresses (entity_type, entity_id, address_type, address_id)
+-- Migration (#181): temporal validity window on entity_addresses.
+-- NULL on either side = open-ended. Must run before the unique-constraint
+-- block below, which references the new columns.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE entity_addresses ADD COLUMN IF NOT EXISTS valid_from  DATE;
+ALTER TABLE entity_addresses ADD COLUMN IF NOT EXISTS valid_until DATE;
+
+ALTER TABLE entity_addresses DROP CONSTRAINT IF EXISTS chk_ea_validity;
+ALTER TABLE entity_addresses
+    ADD CONSTRAINT chk_ea_validity
+    CHECK (valid_from IS NULL OR valid_until IS NULL OR valid_from <= valid_until);
+
+-- ---------------------------------------------------------------------------
+-- Unique constraint: entity_addresses
+--   (entity_type, entity_id, address_type, address_id, valid_from, valid_until)
 --
 -- Closes the FK-level duplicate hole produced by merge. Normalised-form dedup
 -- (same physical address, different addresses rows) is handled at write time by
 -- write_addresses() via COALESCE(standardized, raw_input); this constraint
 -- catches exact-FK duplicates that _execute_merge could produce.
+--
+-- #181: the validity window is part of the key — the same entity at the same
+-- address across two windows is legitimate (HQ moves back). NULLS NOT DISTINCT
+-- keeps duplicate open-ended (NULL/NULL) rows blocked, preserving the original
+-- guarantee. The dedup DELETE uses IS NOT DISTINCT FROM for the same reason —
+-- it must never collapse rows that differ only in their validity window.
 -- ---------------------------------------------------------------------------
 
 DELETE FROM entity_addresses a USING entity_addresses b
@@ -2299,12 +2363,15 @@ WHERE a.id > b.id
   AND a.entity_type  = b.entity_type
   AND a.entity_id    = b.entity_id
   AND a.address_type = b.address_type
-  AND a.address_id   = b.address_id;
+  AND a.address_id   = b.address_id
+  AND a.valid_from   IS NOT DISTINCT FROM b.valid_from
+  AND a.valid_until  IS NOT DISTINCT FROM b.valid_until;
 
 ALTER TABLE entity_addresses DROP CONSTRAINT IF EXISTS entity_addresses_entity_addr_uniq;
 ALTER TABLE entity_addresses
     ADD CONSTRAINT entity_addresses_entity_addr_uniq
-    UNIQUE (entity_type, entity_id, address_type, address_id);
+    UNIQUE NULLS NOT DISTINCT
+        (entity_type, entity_id, address_type, address_id, valid_from, valid_until);
 
 -- Migration (#235): carry merged_into (winner id) on merge tombstones.
 -- NULL = genuine delete; non-NULL = merged into winner.

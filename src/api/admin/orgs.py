@@ -400,7 +400,9 @@ async def org_detail(
     addresses = await db.fetch(
         """SELECT ea.*, a.standardized, a.address_line_1, a.city, a.region, a.postal_code
            FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
-           WHERE ea.entity_type = 'organization' AND ea.entity_id = $1""",
+           WHERE ea.entity_type = 'organization' AND ea.entity_id = $1
+           ORDER BY (ea.valid_until IS NOT NULL AND ea.valid_until < CURRENT_DATE),
+                    ea.valid_from DESC NULLS LAST""",
         org_id,
     )
     email_contacts = await db.fetch(

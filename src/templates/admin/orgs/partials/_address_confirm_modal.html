@@ -58,6 +58,8 @@
         <input type="hidden" name="address_type" value="{{ original.address_type }}">
         <input type="hidden" name="display_name" value="{{ original.display_name or '' }}">
         <input type="hidden" name="country" value="{{ original.country or 'US' }}">
+        <input type="hidden" name="valid_from" value="{{ original.valid_from or '' }}">
+        <input type="hidden" name="valid_until" value="{{ original.valid_until or '' }}">
         <button type="submit" class="btn btn--sm btn--secondary">Keep my input</button>
       </form>
 
@@ -84,6 +86,8 @@
         <input type="hidden" name="components" value="{{ normalized.components_json or '' }}">
         <input type="hidden" name="address_type" value="{{ original.address_type }}">
         <input type="hidden" name="display_name" value="{{ original.display_name or '' }}">
+        <input type="hidden" name="valid_from" value="{{ original.valid_from or '' }}">
+        <input type="hidden" name="valid_until" value="{{ original.valid_until or '' }}">
         <button type="submit" class="btn btn--sm btn--primary">Accept</button>
       </form>
 

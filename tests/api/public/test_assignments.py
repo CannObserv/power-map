@@ -116,8 +116,9 @@ async def assignment_fixtures(db, link_type):
         addr_id,
     )
     await db.execute(
-        "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type)"
-        " VALUES ($1,'role_assignment',$2,$3,'physical')",
+        "INSERT INTO entity_addresses"
+        " (id, entity_type, entity_id, address_id, address_type, valid_from, valid_until)"
+        " VALUES ($1,'role_assignment',$2,$3,'physical',DATE '2024-01-01',DATE '2025-06-30')",
         ea_id,
         a1,
         addr_id,
@@ -344,6 +345,14 @@ def test_detail_includes_address(client, api_key, assignment_fixtures):
     addrs = r.json()["addresses"]
     assert len(addrs) == 1
     assert addrs[0]["raw_input"] == "1 Assignment Ave"
+
+
+def test_detail_address_includes_validity_window(client, api_key, assignment_fixtures):
+    """valid_from/valid_until surface as ISO dates on assignment addresses (#181)."""
+    r = client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
+    addrs = r.json()["addresses"]
+    assert addrs[0]["valid_from"] == "2024-01-01"
+    assert addrs[0]["valid_until"] == "2025-06-30"
 
 
 def test_detail_etag_304(client, api_key, assignment_fixtures):
