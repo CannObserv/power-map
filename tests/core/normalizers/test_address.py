@@ -385,7 +385,7 @@ async def test_external_validate_error_maps_to_failed(external_validate):
 
 @pytest.fixture(autouse=True)
 def _fresh_normalizer():
-    """Isolate the get_address_normalizer singleton per test."""
+    """Isolate the get_address_normalizer singleton per test (module-wide autouse)."""
     _reset_normalizer()
     yield
     _reset_normalizer()
@@ -407,7 +407,6 @@ def test_get_address_normalizer_returns_same_instance():
 def test_get_address_normalizer_without_api_key_has_no_config():
     """Without ADDRESS_VALIDATOR_API_KEY, config is None (local-only normalizer)."""
     with patch.dict("os.environ", {}, clear=True):
-        os.environ.pop("ADDRESS_VALIDATOR_API_KEY", None)
         n = get_address_normalizer()
     assert n.config is None
 
