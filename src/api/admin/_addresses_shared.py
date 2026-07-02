@@ -1,9 +1,24 @@
-"""Shared validity-window helpers for entity address CRUD routers (orgs and people)."""
+"""Shared helpers for entity address CRUD routers (orgs and people)."""
 
 from datetime import date
 
+from src.core.normalizers.address_meta import get_country_format
+
 DATE_FORMAT_ERROR = "Dates must be YYYY-MM-DD."
 VALIDITY_ORDER_ERROR = "Valid from must be on or before valid until."
+
+
+async def field_context(country: str) -> dict:
+    """Return field_labels and field_visible template context for a country code.
+
+    Normalizes raw form/query input (strip + upper); blank falls back to US.
+    """
+    code = (country or "").strip().upper() or "US"
+    fmt = await get_country_format(code)
+    return {
+        "field_labels": {f["key"]: f["label"] for f in fmt.get("fields", [])},
+        "field_visible": {f["key"] for f in fmt.get("fields", [])},
+    }
 
 
 def parse_validity(valid_from: str, valid_until: str) -> tuple[date | None, date | None]:

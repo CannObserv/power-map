@@ -217,19 +217,22 @@ _normalizer: FallbackAddressNormalizer | None = None
 def get_address_normalizer() -> FallbackAddressNormalizer:
     """Return a shared FallbackAddressNormalizer, initializing lazily on first call.
 
-    Reads ADDRESS_VALIDATOR_API_KEY and ADDRESS_VALIDATOR_RUN_VALIDATION from
-    the environment on first call; result is cached for the lifetime of the process.
+    Reads ADDRESS_VALIDATOR_API_KEY, ADDRESS_VALIDATOR_RUN_VALIDATION, and
+    ADDRESS_VALIDATOR_BASE_URL (trailing slash tolerated) from the environment
+    on first call; result is cached for the lifetime of the process.
     Call _reset_normalizer() in tests to clear the cache.
     """
     global _normalizer
     if _normalizer is None:
         api_key = os.environ.get("ADDRESS_VALIDATOR_API_KEY")
         run_validation = os.environ.get("ADDRESS_VALIDATOR_RUN_VALIDATION", "").lower() == "true"
-        config = (
-            AddressNormalizerConfig(api_key=api_key, run_validation=run_validation)
-            if api_key
-            else None
-        )
+        if api_key:
+            config = AddressNormalizerConfig(api_key=api_key, run_validation=run_validation)
+            base_url = os.environ.get("ADDRESS_VALIDATOR_BASE_URL", "").rstrip("/")
+            if base_url:
+                config.base_url = base_url
+        else:
+            config = None
         _normalizer = FallbackAddressNormalizer(config=config)
     return _normalizer
 

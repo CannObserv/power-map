@@ -90,6 +90,21 @@ async def test_address_form_row_type_and_label_lead_panel(client, person_and_add
     assert label_pos < r.text.index('name="valid_from"')
 
 
+async def test_address_form_row_scopes_country_swap_target(client, person_and_address):
+    """CR round 1: country swap target is row-scoped; no page-global hx-include."""
+    pid, eaid = person_and_address
+    new = client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
+    assert new.status_code == 200
+    assert 'id="address-structured-fields-new"' in new.text
+    assert 'hx-target="#address-structured-fields-new"' in new.text
+    assert "hx-include" not in new.text
+    assert 'id="address-country-input"' not in new.text
+    edit = client.get(f"/admin/people/{pid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
+    assert edit.status_code == 200
+    assert f'id="address-structured-fields-{eaid}"' in edit.text
+    assert f'hx-target="#address-structured-fields-{eaid}"' in edit.text
+
+
 async def test_addresses_create_with_validity_window(client, person_and_address, db_pool):
     pid, existing_eaid = person_and_address
     r = client.post(
