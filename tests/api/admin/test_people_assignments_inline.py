@@ -410,6 +410,20 @@ async def test_edit_row_get_uses_individual_cells(client, person_id, assignment_
     assert r.content.count(b"<td") == 6
 
 
+async def test_edit_row_date_aria_labels_match_new_row(client, person_id, assignment_id):
+    """#259 CR: edit-row date accessible names align with the new-row forms (Start/End)."""
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    body = r.text
+    assert 'aria-label="Start"' in body
+    assert 'aria-label="End"' in body
+    assert 'aria-label="Start date"' not in body
+    assert 'aria-label="End date"' not in body
+
+
 async def test_edit_row_get_prepopulates_dates(client, person_id, assignment_id):
     r = await client.get(
         f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
