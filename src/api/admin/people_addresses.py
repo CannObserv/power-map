@@ -510,16 +510,34 @@ async def address_country_format(
     person_id: str,
     request: Request,
     country: str = "US",
+    address_line_1: str = "",
+    address_line_2: str = "",
+    city: str = "",
+    region: str = "",
+    postal_code: str = "",
+    addr_id: str = "",
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Return HTMX partial of structured address fields for the given country code."""
+    """Return HTMX partial of structured address fields for the given country code.
+
+    Echoes the caller's in-progress field values (sent via hx-include="closest form")
+    so a country change re-labels the fields without blanking them (#258).
+    """
     await _get_person_or_404(person_id, db)
     ctx = await field_context(country)
+    a = {
+        "id": addr_id or None,
+        "address_line_1": address_line_1,
+        "address_line_2": address_line_2,
+        "city": city,
+        "region": region,
+        "postal_code": postal_code,
+    }
     return templates.TemplateResponse(
         request,
         "admin/people/partials/_address_fields_partial.html",
-        {"person_id": person_id, "a": None, **ctx},
+        {"person_id": person_id, "a": a, **ctx},
     )
 
 
