@@ -43,10 +43,15 @@
         {% include "admin/orgs/partials/_address_fields_partial.html" %}
       </div>
       <div style="display:flex;gap:var(--space-2);align-items:center">
+        <label for="valid-from-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
+               style="font-size:var(--font-size-sm);color:var(--color-text-muted);white-space:nowrap">Valid from</label>
         <div class="form-group" style="margin-bottom:0">
-          <input type="date" name="valid_from" aria-label="Valid from"
+          <input type="date" name="valid_from"
+                 id="valid-from-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
                  value="{{ a.valid_from if a and a.valid_from else '' }}">
         </div>
+        <span aria-hidden="true"
+              style="font-size:var(--font-size-sm);color:var(--color-text-muted)">to</span>
         <div class="form-group" style="margin-bottom:0">
           <input type="date" name="valid_until" aria-label="Valid until"
                  value="{{ a.valid_until if a and a.valid_until else '' }}">

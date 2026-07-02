@@ -825,6 +825,22 @@ async def test_address_form_row_scopes_country_swap_target(client, org_and_addre
     assert f'hx-target="#address-structured-fields-{eaid}"' in edit.text
 
 
+async def test_address_form_row_validity_labels(client, org_and_address):
+    """#181 follow-up: visible 'Valid from' label + aria-hidden 'to' separator."""
+    oid, eaid = org_and_address
+    new = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
+    assert new.status_code == 200
+    assert '<label for="valid-from-new"' in new.text
+    assert ">Valid from</label>" in new.text
+    assert 'id="valid-from-new"' in new.text
+    assert 'aria-hidden="true"' in new.text and ">to</span>" in new.text
+    assert 'aria-label="Valid until"' in new.text
+    edit = client.get(f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
+    assert edit.status_code == 200
+    assert f'<label for="valid-from-{eaid}"' in edit.text
+    assert f'id="valid-from-{eaid}"' in edit.text
+
+
 async def test_country_format_endpoint_returns_fields_partial(client, org_and_address):
     oid, _ = org_and_address
     with patch(
