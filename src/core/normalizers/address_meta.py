@@ -6,6 +6,10 @@ import time
 
 import httpx
 
+from src.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 _ADDRESS_VALIDATOR_BASE = os.environ.get(
     "ADDRESS_VALIDATOR_BASE_URL", "https://address-validator.exe.xyz:8000"
 )
@@ -48,14 +52,20 @@ async def get_country_format(country_code: str) -> dict:
     if entry and time.monotonic() < entry["expires"]:
         return entry["value"]
 
+    url = f"{_ADDRESS_VALIDATOR_BASE.rstrip('/')}/api/v2/countries/{code}/format"
     try:
-        url = f"{_ADDRESS_VALIDATOR_BASE}/api/v2/countries/{code}/format"
         headers = {"X-API-Key": _ADDRESS_VALIDATOR_API_KEY} if _ADDRESS_VALIDATOR_API_KEY else {}
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             fmt = response.json()
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "country format fetch failed for %s (%s): %s; falling back to US default",
+            code,
+            url,
+            exc,
+        )
         return US_DEFAULT_FORMAT
 
     _format_cache[code] = {"value": fmt, "expires": time.monotonic() + _FORMAT_TTL}
