@@ -1850,6 +1850,43 @@ GET  /admin/{entities}/{id}/inline/dates/edit/  → edit partial
 POST /admin/{entities}/{id}/inline/dates/       → save → read partial (or re-render form on error)
 ```
 
+### Inline row variant — date-range labeling
+
+When the date pair sits inside a **repeatable inline form row** (a flex action row in a
+table, not a standalone detail-page section), the stacked labels above don't fit. Use a
+visible prefix label + presentational separator instead. Reference:
+`admin/orgs/partials/_address_form_row.html` (validity window).
+
+```html
+<label for="valid-from-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
+       style="font-size:var(--font-size-sm);color:var(--color-text-muted);white-space:nowrap">Valid from</label>
+<div class="form-group" style="margin-bottom:0">
+  <input type="date" name="valid_from"
+         id="valid-from-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
+         value="…">
+</div>
+<span aria-hidden="true"
+      style="font-size:var(--font-size-sm);color:var(--color-text-muted)">to</span>
+<div class="form-group" style="margin-bottom:0">
+  <input type="date" name="valid_until" aria-label="Valid until" value="…">
+</div>
+```
+
+**Rules:**
+
+- **First input:** visible `<label for>` is its accessible name — do **not** also set
+  `aria-label` (conflicting double name). Label sits *outside* the `.form-group` (the
+  `.form-group label` CSS rule forces `display:block`, which breaks the inline flex).
+- **Label/input ids are row-scoped** (`{field}-{{ a.id }}` / `{field}-new`) — same suffix
+  convention as `address-structured-fields-*`; multiple rows in edit mode must not
+  produce duplicate ids.
+- **Separator** (`to`, `—`) is `aria-hidden="true"` — purely presentational.
+- **Second input:** keeps `aria-label` for its accessible name; its only visible
+  "label" is the separator, which is not an accessible name. Screen readers announce
+  the pair as "Valid from" / "Valid until", never a dangling "to".
+- Rollout of this pattern to the remaining `aria-label`-only inline date pairs
+  (assignment start/end, org-name effective dates) is tracked in #259.
+
 ---
 
 ## 32. Admin Server Conventions
