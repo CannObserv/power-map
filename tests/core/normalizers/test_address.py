@@ -383,16 +383,22 @@ async def test_external_validate_error_maps_to_failed(external_validate):
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _fresh_normalizer():
+    """Isolate the get_address_normalizer singleton per test."""
+    _reset_normalizer()
+    yield
+    _reset_normalizer()
+
+
 def test_get_address_normalizer_returns_fallback_instance():
     """get_address_normalizer returns a FallbackAddressNormalizer."""
-    _reset_normalizer()
     n = get_address_normalizer()
     assert isinstance(n, FallbackAddressNormalizer)
 
 
 def test_get_address_normalizer_returns_same_instance():
     """Repeated calls return the same cached instance."""
-    _reset_normalizer()
     n1 = get_address_normalizer()
     n2 = get_address_normalizer()
     assert n1 is n2
@@ -400,7 +406,6 @@ def test_get_address_normalizer_returns_same_instance():
 
 def test_get_address_normalizer_without_api_key_has_no_config():
     """Without ADDRESS_VALIDATOR_API_KEY, config is None (local-only normalizer)."""
-    _reset_normalizer()
     with patch.dict("os.environ", {}, clear=True):
         os.environ.pop("ADDRESS_VALIDATOR_API_KEY", None)
         n = get_address_normalizer()
@@ -409,7 +414,6 @@ def test_get_address_normalizer_without_api_key_has_no_config():
 
 def test_get_address_normalizer_with_api_key_sets_config():
     """With ADDRESS_VALIDATOR_API_KEY set, config is populated."""
-    _reset_normalizer()
     with patch.dict("os.environ", {"ADDRESS_VALIDATOR_API_KEY": "test-key-123"}, clear=False):
         n = get_address_normalizer()
     assert n.config is not None
@@ -419,7 +423,6 @@ def test_get_address_normalizer_with_api_key_sets_config():
 
 def test_get_address_normalizer_honors_base_url_env_and_strips_slash():
     """#257 CR: ADDRESS_VALIDATOR_BASE_URL re-points standardize/validate too, rstrip'd."""
-    _reset_normalizer()
     with patch.dict(
         "os.environ",
         {
@@ -429,23 +432,19 @@ def test_get_address_normalizer_honors_base_url_env_and_strips_slash():
         clear=False,
     ):
         n = get_address_normalizer()
-    _reset_normalizer()
     assert n.config.base_url == "https://validator.test:8001"
 
 
 def test_get_address_normalizer_default_base_url_without_env():
     """Without ADDRESS_VALIDATOR_BASE_URL, the dataclass default stands."""
-    _reset_normalizer()
     with patch.dict("os.environ", {"ADDRESS_VALIDATOR_API_KEY": "test-key-123"}, clear=False):
         os.environ.pop("ADDRESS_VALIDATOR_BASE_URL", None)
         n = get_address_normalizer()
-    _reset_normalizer()
     assert n.config.base_url == "https://address-validator.exe.xyz:8000"
 
 
 def test_get_address_normalizer_with_run_validation_true():
     """ADDRESS_VALIDATOR_RUN_VALIDATION=true sets run_validation=True."""
-    _reset_normalizer()
     with patch.dict(
         "os.environ",
         {"ADDRESS_VALIDATOR_API_KEY": "key", "ADDRESS_VALIDATOR_RUN_VALIDATION": "true"},
