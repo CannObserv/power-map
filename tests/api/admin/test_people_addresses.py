@@ -20,6 +20,24 @@ def client():
         yield c
 
 
+@pytest_asyncio.fixture(scope="module", loop_scope="session", autouse=True)
+async def _no_address_leak(db_pool):
+    """Guard against re-introducing the address teardown leak (#150).
+
+    Snapshots the ``addresses`` rowcount before this module's tests run and
+    asserts equality after — fails loudly if any fixture in this module
+    stops cleaning up newly-created ``addresses`` rows.
+    """
+    async with db_pool.acquire() as conn:
+        before = await conn.fetchval("SELECT COUNT(*) FROM addresses")
+    yield
+    async with db_pool.acquire() as conn:
+        after = await conn.fetchval("SELECT COUNT(*) FROM addresses")
+    assert after == before, (
+        f"person_and_address fixture leaked {after - before} addresses row(s) — see #150"
+    )
+
+
 @pytest_asyncio.fixture(loop_scope="session")
 async def person_and_address(db_pool):
     pid = generate_id()
@@ -136,6 +154,38 @@ async def test_addresses_create_inverted_range_returns_error(client, person_and_
     assert r.status_code == 200
     assert "alert--error" in r.text
     assert "on or before" in r.text
+
+    async with db_pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT count(*) FROM entity_addresses WHERE entity_id=$1 AND id != $2",
+            pid,
+            existing_eaid,
+        )
+    assert count == 0
+
+
+async def test_addresses_create_malformed_date_returns_format_error(
+    client, person_and_address, db_pool
+):
+    """Malformed date input gets a format message, not the range-order message (#181 CR)."""
+    pid, existing_eaid = person_and_address
+    r = client.post(
+        f"/admin/people/{pid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "1 Malformed Way",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+            "valid_from": "01/02/2024",
+            "mode": "save",
+        },
+    )
+    assert r.status_code == 200
+    assert "alert--error" in r.text
+    assert "YYYY-MM-DD" in r.text
+    assert "on or before" not in r.text
 
     async with db_pool.acquire() as conn:
         count = await conn.fetchval(
