@@ -1024,3 +1024,35 @@ async def test_address_confirm_modal_roundtrips_validity(mock_normalizer, client
     assert r.headers.get("hx-retarget") == "#address-confirm-portal"
     assert '<input type="hidden" name="valid_from" value="2024-01-01">' in r.text
     assert '<input type="hidden" name="valid_until" value="2025-06-30">' in r.text
+
+
+async def test_addresses_create_malformed_date_returns_format_error(
+    client, org_and_address, db_pool
+):
+    """Malformed date input gets a format message, not the range-order message (#181 CR)."""
+    oid, existing_eaid = org_and_address
+    r = client.post(
+        f"/admin/orgs/{oid}/addresses/",
+        headers=HTMX_HEADERS,
+        data={
+            "address_line_1": "1 Malformed Way",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+            "valid_from": "01/02/2024",
+            "mode": "save",
+        },
+    )
+    assert r.status_code == 200
+    assert "alert--error" in r.text
+    assert "YYYY-MM-DD" in r.text
+    assert "on or before" not in r.text
+
+    async with db_pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT count(*) FROM entity_addresses WHERE entity_id=$1 AND id != $2",
+            oid,
+            existing_eaid,
+        )
+    assert count == 0

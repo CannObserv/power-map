@@ -1,12 +1,12 @@
 """Admin CRUD for person addresses."""
 
 import json
-from datetime import date
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from src.api.admin._addresses_shared import parse_validity
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 from src.core.normalizers.address import get_address_normalizer
@@ -18,21 +18,6 @@ router = APIRouter(prefix="/people/{person_id}/addresses", tags=["admin-person-a
 
 def _is_all_blank(*fields: str) -> bool:
     return not any(f.strip() for f in fields)
-
-
-VALIDITY_ERROR = "Valid from must be on or before valid until (YYYY-MM-DD)."
-
-
-def _parse_validity(valid_from: str, valid_until: str) -> tuple[date | None, date | None]:
-    """Parse validity window form fields; blank = open-ended on that side.
-
-    Raises ValueError on non-ISO input or an inverted range.
-    """
-    vf = date.fromisoformat(valid_from.strip()) if valid_from.strip() else None
-    vu = date.fromisoformat(valid_until.strip()) if valid_until.strip() else None
-    if vf and vu and vf > vu:
-        raise ValueError(VALIDITY_ERROR)
-    return vf, vu
 
 
 def _parse_normalizer_fields(
@@ -253,8 +238,8 @@ async def address_create(
             },
         )
     try:
-        _valid_from, _valid_until = _parse_validity(valid_from, valid_until)
-    except ValueError:
+        _valid_from, _valid_until = parse_validity(valid_from, valid_until)
+    except ValueError as exc:
         if not is_htmx(request):
             return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
         return templates.TemplateResponse(
@@ -263,7 +248,7 @@ async def address_create(
             {
                 "person_id": person_id,
                 "a": form_echo,
-                "error": VALIDITY_ERROR,
+                "error": str(exc),
                 **(await _field_context(country)),
             },
         )
@@ -442,8 +427,8 @@ async def address_edit_row_post(
             },
         )
     try:
-        _valid_from, _valid_until = _parse_validity(valid_from, valid_until)
-    except ValueError:
+        _valid_from, _valid_until = parse_validity(valid_from, valid_until)
+    except ValueError as exc:
         if not is_htmx(request):
             return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
         return templates.TemplateResponse(
@@ -452,7 +437,7 @@ async def address_edit_row_post(
             {
                 "person_id": person_id,
                 "a": form_echo,
-                "error": VALIDITY_ERROR,
+                "error": str(exc),
                 **(await _field_context(country)),
             },
         )
