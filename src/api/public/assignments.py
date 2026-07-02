@@ -112,11 +112,12 @@ async def _fetch_arrays(assignment_id: str, db: Any) -> tuple:
     )
     addresses = await db.fetch(
         """
-        SELECT ea.id, ea.address_id, ea.address_type, a.raw_input, a.standardized
+        SELECT ea.id, ea.address_id, ea.address_type, ea.valid_from, ea.valid_until,
+               a.raw_input, a.standardized
         FROM entity_addresses ea
         JOIN addresses a ON a.id = ea.address_id
         WHERE ea.entity_type = 'role_assignment' AND ea.entity_id = $1
-        ORDER BY ea.address_type
+        ORDER BY ea.address_type, ea.valid_from DESC NULLS LAST
         """,
         assignment_id,
     )

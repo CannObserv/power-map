@@ -499,7 +499,7 @@ Returns all list item fields plus:
 |-------|-------------|
 | `links` | Array of `{id, url, link_type_id, link_type_slug, link_type_name, is_active}` |
 | `contact_methods` | Array of `{id, contact_type, value, display_label (nullable)}` |
-| `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable)}` |
+| `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable), valid_from (nullable date), valid_until (nullable date)}` — `valid_from`/`valid_until` bound the validity window (`YYYY-MM-DD`); NULL = open-ended on that side |
 
 Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 
@@ -569,7 +569,7 @@ Returns all list item fields plus:
 |-------|-------------|
 | `links` | Array of `{id, url, link_type_id, link_type_slug, link_type_name, is_active}` |
 | `contact_methods` | Array of `{id, contact_type, value, display_label (nullable)}` |
-| `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable)}` |
+| `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable), valid_from (nullable date), valid_until (nullable date)}` — `valid_from`/`valid_until` bound the validity window (`YYYY-MM-DD`); NULL = open-ended on that side |
 
 Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 

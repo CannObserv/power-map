@@ -181,13 +181,13 @@
     </div>
     <div class="table-wrapper">
       <table id="addresses-table" class="data-table">
-        <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col">Validity</th><th scope="col"></th></tr></thead>
         <tbody>
           {% for a in addresses %}
           {% set person_id = person.id %}
           {% include "admin/people/partials/_address_row.html" %}
           {% else %}
-          <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No locations</td></tr>
+          <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No locations</td></tr>
           {% endfor %}
         </tbody>
       </table>

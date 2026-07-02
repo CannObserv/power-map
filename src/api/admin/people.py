@@ -248,11 +248,13 @@ async def person_detail(
     phone_contacts = [c for c in contacts if c["contact_type"] == "phone"]
 
     addresses = await db.fetch(
-        """SELECT ea.id, ea.address_type, ea.display_name,
+        """SELECT ea.id, ea.address_type, ea.display_name, ea.valid_from, ea.valid_until,
                   a.id AS address_id, a.standardized, a.address_line_1, a.address_line_2,
                   a.city, a.region, a.postal_code, a.country
            FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
-           WHERE ea.entity_type = 'person' AND ea.entity_id = $1""",
+           WHERE ea.entity_type = 'person' AND ea.entity_id = $1
+           ORDER BY (ea.valid_until IS NOT NULL AND ea.valid_until < CURRENT_DATE),
+                    ea.valid_from DESC NULLS LAST""",
         person_id,
     )
     links = await db.fetch(

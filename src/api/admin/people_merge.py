@@ -283,12 +283,18 @@ async def merge_person_into(
     )
 
     # entity_addresses: drop loser rows where winner already has same address_id+type.
+    # The validity window is part of the identity (#181) — IS NOT DISTINCT FROM so a
+    # loser row covering a different window survives as history, not a duplicate.
     await db.execute(
-        """DELETE FROM entity_addresses
-           WHERE entity_type='person' AND entity_id=$1
-             AND (address_id, address_type) IN (
-                 SELECT address_id, address_type FROM entity_addresses
-                 WHERE entity_type='person' AND entity_id=$2
+        """DELETE FROM entity_addresses l
+           WHERE l.entity_type='person' AND l.entity_id=$1
+             AND EXISTS (
+                 SELECT 1 FROM entity_addresses w
+                 WHERE w.entity_type='person' AND w.entity_id=$2
+                   AND w.address_id   = l.address_id
+                   AND w.address_type = l.address_type
+                   AND w.valid_from   IS NOT DISTINCT FROM l.valid_from
+                   AND w.valid_until  IS NOT DISTINCT FROM l.valid_until
              )""",
         loser_id,
         winner_id,

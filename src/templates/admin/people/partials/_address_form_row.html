@@ -1,6 +1,6 @@
 {# admin/people/partials/_address_form_row.html #}
 <tr id="{% if a and a.id %}address-row-{{ a.id }}{% else %}address-row-new{% endif %}">
-  <td colspan="4" style="padding:var(--space-2) var(--space-4)">
+  <td colspan="5" style="padding:var(--space-2) var(--space-4)">
     <form {% if a and a.id %}
           hx-post="/admin/people/{{ person_id }}/addresses/{{ a.id }}/edit-row/"
           hx-target="#address-row-{{ a.id }}"
@@ -41,6 +41,14 @@
                  placeholder="Label (optional)"
                  value="{{ a.display_name or '' if a else '' }}">
           <span class="visually-hidden" id="address-label-opt-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}">Optional</span>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" name="valid_from" aria-label="Valid from"
+                 value="{{ a.valid_from if a and a.valid_from else '' }}">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" name="valid_until" aria-label="Valid until"
+                 value="{{ a.valid_until if a and a.valid_until else '' }}">
         </div>
         <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
           <button type="submit" class="btn btn--sm btn--primary">Save</button>

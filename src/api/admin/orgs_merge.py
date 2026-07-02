@@ -354,12 +354,18 @@ async def _execute_merge(
         # Each table that follows in the bulk reassign loop needs a corresponding dedup
         # DELETE here; omitting one silently produces duplicate rows after merge.
         # entity_addresses: FK-level dedup only; normalised-form dedup lives in write_addresses().
+        # The validity window is part of the identity (#181) — IS NOT DISTINCT FROM so a
+        # loser row covering a different window survives as history, not a duplicate.
         await db.execute(
-            """DELETE FROM entity_addresses
-               WHERE entity_type='organization' AND entity_id=$1
-                 AND (address_id, address_type) IN (
-                     SELECT address_id, address_type FROM entity_addresses
-                     WHERE entity_type='organization' AND entity_id=$2
+            """DELETE FROM entity_addresses l
+               WHERE l.entity_type='organization' AND l.entity_id=$1
+                 AND EXISTS (
+                     SELECT 1 FROM entity_addresses w
+                     WHERE w.entity_type='organization' AND w.entity_id=$2
+                       AND w.address_id   = l.address_id
+                       AND w.address_type = l.address_type
+                       AND w.valid_from   IS NOT DISTINCT FROM l.valid_from
+                       AND w.valid_until  IS NOT DISTINCT FROM l.valid_until
                  )""",
             loser_id,
             winner_id,

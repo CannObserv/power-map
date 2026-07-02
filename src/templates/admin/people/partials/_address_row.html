@@ -9,6 +9,7 @@
   </td>
   <td>{{ a.address_type }}</td>
   {% if a.display_name %}<td>{{ a.display_name }}</td>{% else %}<td>—</td>{% endif %}
+  <td style="white-space:nowrap;color:var(--color-text-muted)">{% if a.valid_from or a.valid_until %}{{ a.valid_from or "?" }} – {{ a.valid_until or "present" }}{% else %}—{% endif %}</td>
   <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit {{ a.address_type }} address"

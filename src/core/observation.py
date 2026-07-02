@@ -412,11 +412,20 @@ async def _record_entity_change(conn, entity_type: str, entity_id: str) -> None:
 
 
 async def _null_fill_metadata(
-    conn, entity_type: str, entity_id: str, table: str, col: str, pk_val: str, value: str
+    conn,
+    entity_type: str,
+    entity_id: str,
+    table: str,
+    col: str,
+    pk_val: str,
+    value: str,
+    record_change: bool = True,
 ) -> None:
     """Fill col in table where pk_val row has NULL, atomically with an entity_changes row.
 
     table/col are caller-controlled string constants, not user input.
+    Pass record_change=False for tables with a touch-parent trigger
+    (entity_addresses) — the trigger already emits the outbox row.
     """
     async with conn.transaction():
         updated = await conn.fetchval(
@@ -424,7 +433,7 @@ async def _null_fill_metadata(
             value,
             pk_val,
         )
-        if updated:
+        if updated and record_change:
             await _record_entity_change(conn, entity_type, entity_id)
 
 
@@ -518,6 +527,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
         )
         if existing:
             if addr.display_name:
+                # trg_touch_entity_on_address_change emits the outbox row (#181)
                 await _null_fill_metadata(
                     conn,
                     entity_type,
@@ -526,6 +536,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
                     "display_name",
                     existing["id"],
                     addr.display_name,
+                    record_change=False,
                 )
             continue
         components_val = v.get("components")
@@ -561,7 +572,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
                 addr.address_type,
                 addr.display_name,
             )
-            await _record_entity_change(conn, entity_type, entity_id)
+            # trg_touch_entity_on_address_change emits the outbox row (#181)
 
 
 async def write_org_acronyms(
