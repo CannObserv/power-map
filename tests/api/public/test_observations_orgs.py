@@ -214,7 +214,9 @@ async def test_observation_reversed_effective_dates_rejected(client, org_write_k
     assert r.status_code == 422
 
 
-async def test_observation_address_validity_window_persisted(client, org_write_key, db):
+async def test_observation_address_validity_window_persisted(
+    client, org_write_key, db, local_address_normalizer
+):
     """An address observation carrying validity dates round-trips them onto the link (#256)."""
     raw, _ = org_write_key
     value = _unique_id()
