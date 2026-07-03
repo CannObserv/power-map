@@ -1406,6 +1406,52 @@ INSERT INTO api_key_scope_types (id, display_name, description) VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
+-- API Request Log (#260)
+-- =============================================================================
+
+-- Append-only observability log of public API traffic. One row per /api/v1/*
+-- request, written by the pure-ASGI capture middleware (src/api/public/
+-- middleware.py). Structured metadata columns support filtering/aggregation;
+-- raw request/response bodies support debug drill-down. Both are pruned on the
+-- same 90-day window as the entity_changes outbox by scripts/prune_outbox.py
+-- (daily power-map-prune.timer, issue #204).
+--
+-- result_entity_id intentionally has NO foreign key: the referenced entity may
+-- be hard-deleted or merged, and the historical log record must survive. The
+-- admin UI resolves it to a link and shows "(removed)" on a 404.
+CREATE TABLE IF NOT EXISTS api_request_log (
+    id               BIGSERIAL   PRIMARY KEY,
+    occurred_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    api_key_id       TEXT        REFERENCES api_keys(id) ON DELETE SET NULL,  -- NULL = unauthenticated/invalid
+    method           TEXT        NOT NULL,
+    path             TEXT        NOT NULL,
+    route_group      TEXT        NOT NULL,          -- 'observations' | 'changes' | 'other'
+    entity_type      TEXT,                          -- observations: people|organizations|jurisdictions
+    status_code      INT         NOT NULL,
+    latency_ms       INT         NOT NULL,
+    disposition      TEXT,                          -- observations: new|auto-attached|rejected
+    result_entity_id TEXT,                          -- observations: matched/created entity (no FK — may be deleted/merged)
+    reason           TEXT,                          -- rejection/error reason code
+    item_count       INT,                           -- changes: rows delivered (0 = empty poll)
+    is_empty         BOOLEAN     NOT NULL DEFAULT FALSE,  -- changes: zero-result poll flag
+    client_ip        TEXT,
+    user_agent       TEXT,
+    request_body     JSONB,                         -- raw; NULL for GET/changes
+    response_body    JSONB                          -- raw
+);
+
+CREATE INDEX IF NOT EXISTS idx_arl_occurred
+    ON api_request_log (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_arl_key_occurred
+    ON api_request_log (api_key_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_arl_group_occurred
+    ON api_request_log (route_group, occurred_at DESC);
+-- Partial index for the "problems" view (rejections + 4xx/5xx).
+CREATE INDEX IF NOT EXISTS idx_arl_problems
+    ON api_request_log (occurred_at DESC)
+    WHERE status_code >= 400 OR disposition = 'rejected';
+
+-- =============================================================================
 -- Entity Events (#170)
 -- =============================================================================
 

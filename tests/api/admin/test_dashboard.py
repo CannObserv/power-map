@@ -79,6 +79,14 @@ async def test_dashboard_shows_counts(client, seeded_counts):
     assert len(counts) == 5, f"Expected 5 count boxes, found: {counts}"
 
 
+def test_dashboard_has_api_activity_panel(client):
+    """Dashboard surfaces the API Activity (24h) panel linking to the request log (#260)."""
+    resp = client.get("/admin/", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    assert "API Activity" in resp.text
+    assert 'href="/admin/activity/requests/"' in resp.text
+
+
 def test_dashboard_has_org_dup_badge_slot(client):
     """Org dup badge loaded async; dashboard must contain the HTMX slot, not inline count."""
     resp = client.get("/admin/", headers=AUTH_HEADERS)

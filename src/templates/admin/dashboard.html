@@ -116,5 +116,30 @@
     <a href="/admin/imports/" class="btn btn--sm btn--secondary">View →</a>
   </div>
 
+  {# API Activity (24h) #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">API Activity</h3>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">last 24h</span>
+    </div>
+    <dl style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted);display:grid;grid-template-columns:1fr auto;gap:var(--space-1) var(--space-3)">
+      <dt>Requests</dt><dd style="margin:0;font-weight:600;color:var(--color-text)">{{ api_stats.total }}</dd>
+      <dt>Observations (new / attached / rejected)</dt>
+      <dd style="margin:0;font-weight:600;color:var(--color-text)">
+        {{ api_stats.obs_new }} / {{ api_stats.obs_attached }} /
+        <span {% if api_stats.obs_rejected %}style="color:var(--color-danger)"{% endif %}>{{ api_stats.obs_rejected }}</span>
+      </dd>
+      <dt>Changes polls / rows</dt>
+      <dd style="margin:0;font-weight:600;color:var(--color-text)">{{ api_stats.changes_polls }} / {{ api_stats.changes_rows }}</dd>
+      <dt>Error rate</dt>
+      <dd style="margin:0;font-weight:600;{% if api_stats.errors %}color:var(--color-danger){% else %}color:var(--color-text){% endif %}">
+        {{ ((api_stats.errors / api_stats.total * 100) | round(1)) if api_stats.total else 0 }}%
+      </dd>
+      <dt>Last request</dt>
+      <dd style="margin:0;font-weight:600;color:var(--color-text)">{{ api_stats.last_request.strftime('%H:%M:%S') ~ ' UTC' if api_stats.last_request else '—' }}</dd>
+    </dl>
+    <a href="/admin/activity/requests/" class="btn btn--sm btn--secondary">View →</a>
+  </div>
+
 </div>
 {% endblock %}

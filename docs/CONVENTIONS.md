@@ -189,6 +189,38 @@ A symmetric FK on `bcp47_locales.script → iso15924_scripts(code)` (same `ON UP
 
 ---
 
+## API request log (#260)
+
+`api_request_log` is an append-only observability record of public API traffic —
+one row per `/api/v1/*` request. It backs the admin **Activity › API Requests**
+screens and the dashboard API-activity panel.
+
+- **Capture** — `src.api.public.middleware.RequestLogMiddleware`, a **pure-ASGI**
+  middleware (not `BaseHTTPMiddleware`, so it can tee request+response bodies
+  without breaking downstream `.json()` reads). Registered in `src/api/main.py`
+  via `app.add_middleware`. Non-`/api/v1/*` paths early-return uncaptured.
+- **Identity** — read from `request.state.api_key_id`, which the auth deps
+  (`require_api_key` / `require_key` / `require_scope`) stash on a successful key
+  resolve. Unauthenticated/invalid requests (401/403) log a row with a NULL key.
+- **Enrichment** — for the `observations` and `changes` route groups only, the
+  middleware parses the response body into structured columns (`disposition`,
+  `result_entity_id`, `entity_type`, `reason`; `item_count`, `is_empty`). Any
+  other group, or a non-JSON body, logs generic metadata only.
+- **Fidelity / PII** — raw request/response JSONB bodies are stored **only for
+  the `observations` and `changes` groups** (the ones the log surfaces); all
+  other v1 traffic records structured metadata only and its bodies are never even
+  buffered (avoids memory + JSONB bloat from e.g. large embedding vectors).
+  Observation payloads carry PII (names, addresses, contacts); the 90-day
+  retention window bounds that footprint, and the admin list surface shows
+  metadata only — bodies are confined to the detail view (admin-authed).
+- **`result_entity_id` has no FK** — the referenced entity may be hard-deleted or
+  merged; the log record must survive. The UI resolves it to an admin link and
+  shows "(removed)" on a 404.
+- **Best-effort** — a capture failure is swallowed and logged; observability must
+  never break the request path.
+- **Retention** — pruned on the same 90-day window as the outbox by
+  `scripts/prune_outbox.py` (see `docs/COMMANDS.md`).
+
 ## Unique Indexes (PostgreSQL 15+)
 
 - `uq_role_org_title` — `roles(organization_id, lower(title)) WHERE archived_at IS NULL`

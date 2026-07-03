@@ -13,6 +13,7 @@ from src.api.admin.assets import (
     inject_non_decomposable_types_into_admin_templates,
 )
 from src.api.admin.router import admin_router
+from src.api.public.middleware import RequestLogMiddleware
 from src.api.public.router import router as public_router
 from src.core.embedding_registry import EmbeddingRegistry
 from src.core.logging import configure_logging
@@ -38,6 +39,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="power-map", version="0.1.0", lifespan=lifespan)
+
+# Capture public API request/response telemetry (#260). Early-returns for any
+# non-/api/v1 path, so admin/static traffic is untouched.
+app.add_middleware(RequestLogMiddleware)
 
 app.include_router(admin_router)
 app.include_router(public_router)

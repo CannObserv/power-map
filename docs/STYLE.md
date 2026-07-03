@@ -2140,3 +2140,33 @@ Some partials are guaranteed singletons (one parent per org, one org field per r
 ### Test coverage
 
 `tests/js/typeahead-row-key-collision.test.js` is the regression guard. It builds two forms in the same DOM with distinct row-keys, evals the real `typeahead-combobox.js` factory, and asserts a selection in form B never mutates form A's hidden field — and that `aria-controls` on each input points at its own listbox. Add cases there when introducing a new multi-instance partial.
+
+## 35. Activity › API Requests screens (#260)
+
+Observability of public API traffic, under the **Activity** section
+(`src/api/admin/activity_requests.py`, templates under
+`src/templates/admin/activity/requests/`). Read-only over `api_request_log` — see
+`docs/CONVENTIONS.md` § "API request log" for the capture/data contract.
+
+- **Landing card** — `admin/activity/index.html` gains an "API Requests" card
+  with a 24h pulse subtitle (`N requests · M rejected`) linking to the list.
+- **Dashboard panel** — `admin/dashboard.html` Activity grid gains an
+  "API Activity (24h)" card: total requests, observation dispositions (new /
+  attached / **rejected**), changes polls/rows, error rate, last-request time.
+  Rejections and a non-zero error rate render in `--color-danger`.
+- **List** — `/admin/activity/requests/`. Stats strip (24h/7d window toggle via
+  `request.url.include_query_params`), filter form (endpoint group defaulting to
+  observations+changes, key **by label**, status class, disposition, free-text
+  on path/reason), empty `/changes` polls hidden by default with a "Show empty
+  polls" toggle. Rows with `status_code >= 400` or `disposition='rejected'` are
+  tinted `rgba(220,38,38,0.06)`. Filters live in query params so a filtered view
+  is shareable. Offset pagination (consistent with Import History), keyset on
+  `id DESC`.
+- **Detail** — `/admin/activity/requests/{id}/`. Metadata table + pretty-printed
+  request/response JSON (`<pre>`, monospace). `result_entity_id` resolves to an
+  admin entity link (`person` → `/admin/people/`, `organization` →
+  `/admin/orgs/`) with a "(removed)" fallback when the entity no longer exists;
+  the resolved key label + scopes are shown. `active_section = 'activity'` on all
+  three routes so the sidebar Activity link stays highlighted.
+- **PII** — the list shows metadata only; raw bodies live on the detail view
+  (admin-authed). No live auto-refresh — reload to refresh.

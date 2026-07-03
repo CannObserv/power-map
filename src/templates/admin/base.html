@@ -93,6 +93,7 @@
       <a class="admin-sidebar__link" href="/admin/settings/identifier-types/" {% if active_section == 'settings_identifier_types' %}aria-current="page"{% endif %}>Identifier Types</a>
       <a class="admin-sidebar__link" href="/admin/settings/api-keys/" {% if active_section == 'settings_api_keys' %}aria-current="page"{% endif %}>API Keys</a>
       <a class="admin-sidebar__section-link" href="/admin/activity/" {% if active_section == 'activity' %}aria-current="page"{% endif %}>Activity</a>
+      <a class="admin-sidebar__link" href="/admin/activity/requests/" {% if active_section == 'activity_requests' %}aria-current="page"{% endif %}>API Requests</a>
       <a class="admin-sidebar__link" href="/admin/imports/" {% if active_section == 'imports' %}aria-current="page"{% endif %}>Import History</a>
     </nav>
     <main id="main-content" class="admin-main">{% block content %}{% endblock %}

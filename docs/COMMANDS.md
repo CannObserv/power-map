@@ -317,10 +317,12 @@ Safe to re-run; upserts are idempotent.
 ## Outbox + tombstone TTL prune (issue #204)
 
 `scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)
-from **both** `entity_changes` (the change-feed outbox) and `deleted_entities`
-(deletion tombstones). The two TTLs stay aligned so the public change feed and the
-404-fallback signal expire together. Sibling services must poll at least once per
-window or full-reconcile (see `docs/PUBLIC_API.md` § change feed).
+from **three** append-only tables: `entity_changes` (the change-feed outbox),
+`deleted_entities` (deletion tombstones), and `api_request_log` (the public-API
+request log, issue #260). All three TTLs stay aligned so the public change feed,
+the 404-fallback signal, and the request-observability window expire together.
+Sibling services must poll at least once per window or full-reconcile (see
+`docs/PUBLIC_API.md` § change feed).
 
 Manual run:
 

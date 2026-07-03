@@ -3,7 +3,7 @@
 import hashlib
 from dataclasses import dataclass
 
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Query, Request
 from fastapi.security import APIKeyHeader
 
 from src.api.deps import get_db
@@ -19,10 +19,12 @@ class AuthedKey:
     key_id: str
 
 
-async def _resolve_api_key(raw_key: str | None, db) -> dict:
+async def _resolve_api_key(raw_key: str | None, db, request: Request | None = None) -> dict:
     """Validate raw key, update last_used_at, return the api_keys row.
 
-    Raises 403 when raw_key is None, 401 when key hash is not found.
+    Raises 403 when raw_key is None, 401 when key hash is not found. On success,
+    stashes ``request.state.api_key_id`` so the capture middleware (#260) can
+    record request identity without re-hashing the key.
     """
     if raw_key is None:
         raise HTTPException(status_code=403, detail="Not authenticated")
@@ -31,28 +33,38 @@ async def _resolve_api_key(raw_key: str | None, db) -> dict:
     if not row:
         raise HTTPException(status_code=401, detail="Invalid API key")
     await db.execute("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"])
+    if request is not None:
+        request.state.api_key_id = row["id"]
     return row
 
 
+# NOTE on the ``request: Request = None`` params below: FastAPI injects the live
+# Request by *type* and ignores the default, so production always gets a real
+# Request (needed to stash api_key_id for the capture middleware, #260). The
+# ``= None`` default is load-bearing only for unit tests that call these deps
+# directly — do not "tighten" it to ``Request | None``, which FastAPI would treat
+# as a non-injected parameter.
 async def require_api_key(
     raw_key: str | None = Depends(api_key_header),
     db=Depends(get_db),
+    request: Request = None,
 ) -> str:
     """Validate X-API-Key header; return user_id on success.
 
     Raises 403 when header is absent, 401 when key is invalid.
     Also updates last_used_at on the matching api_keys row.
     """
-    row = await _resolve_api_key(raw_key, db)
+    row = await _resolve_api_key(raw_key, db, request)
     return row["user_id"]
 
 
 async def require_key(
     raw_key: str | None = Depends(api_key_header),
     db=Depends(get_db),
+    request: Request = None,
 ) -> AuthedKey:
     """Validate X-API-Key; return AuthedKey (user_id + key_id) without scope check."""
-    row = await _resolve_api_key(raw_key, db)
+    row = await _resolve_api_key(raw_key, db, request)
     return AuthedKey(user_id=row["user_id"], key_id=row["id"])
 
 
@@ -67,8 +79,9 @@ def require_scope(scope_id: str):
     async def _check(
         raw_key: str | None = Depends(api_key_header),
         db=Depends(get_db),
+        request: Request = None,
     ) -> AuthedKey:
-        row = await _resolve_api_key(raw_key, db)
+        row = await _resolve_api_key(raw_key, db, request)
         scope_row = await db.fetchrow(
             "SELECT 1 FROM api_key_scopes WHERE api_key_id = $1 AND scope_id = $2",
             row["id"],
