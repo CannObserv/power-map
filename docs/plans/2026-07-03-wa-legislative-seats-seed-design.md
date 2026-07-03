@@ -9,9 +9,14 @@ Coordinates with: #265 (merge existing roles onto seats — separate)
 ## Goal
 
 Seed the 147 canonical WA legislative seat-Roles introduced by #261, against the
-49 `legislative_district` jurisdictions that are already seeded. Produce a
-committed, importable JSON seed artifact akin to the jurisdictions seed
+49 `legislative_district` jurisdictions that are already seeded. Produce an
+importable JSON seed artifact akin to the jurisdictions seed
 (`data/cannabis_observer/2026_06_07-usa_wa-jurisdictions.json`).
+
+Note: `data/cannabis_observer/` is **gitignored** — the jurisdictions seed and
+this seat seed are **local data artifacts**, generated and archived on the box,
+not git-committed. Only the generator + importer scripts and their tests are
+committed.
 
 147 = 49 Senate seats (1 per LD, no qualifier) + 98 House seats (2 per LD,
 Position 1 / Position 2).
@@ -31,7 +36,8 @@ must be excluded. Strategy is **seed-then-merge**: this issue seeds; #265 merges
 
 ### 1. Seed file — `data/cannabis_observer/2026_07_03-usa_wa-legislative-seats.json`
 
-Committed artifact. Natural keys only (no PM ULIDs):
+Local artifact (gitignored, generated + archived on the box — not committed).
+Natural keys only (no PM ULIDs):
 
 ```json
 {
