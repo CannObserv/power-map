@@ -38,19 +38,22 @@ async def run(*, execute: bool, retention_days: int) -> None:
         if not execute:
             eligible = await count_prunable(conn, retention_days)
             logger.info(
-                "Dry run — %d entity_changes + %d deleted_entities row(s) older "
-                "than %d days are eligible; pass --execute to delete",
+                "Dry run — %d entity_changes + %d deleted_entities + %d api_request_log "
+                "row(s) older than %d days are eligible; pass --execute to delete",
                 eligible.entity_changes,
                 eligible.deleted_entities,
+                eligible.api_request_log,
                 retention_days,
             )
             return
 
         result = await prune_outbox(conn, retention_days)
         logger.info(
-            "Pruned %d entity_changes + %d deleted_entities row(s) older than %d days",
+            "Pruned %d entity_changes + %d deleted_entities + %d api_request_log "
+            "row(s) older than %d days",
             result.entity_changes,
             result.deleted_entities,
+            result.api_request_log,
             retention_days,
         )
     finally:

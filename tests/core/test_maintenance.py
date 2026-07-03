@@ -31,6 +31,7 @@ async def db(db_pool):
         try:
             await conn.execute("DELETE FROM entity_changes")
             await conn.execute("DELETE FROM deleted_entities")
+            await conn.execute("DELETE FROM api_request_log")
             yield conn
         finally:
             await tr.rollback()
@@ -64,8 +65,45 @@ async def _tombstone_ids(conn):
     return {r["entity_id"] for r in rows}
 
 
+async def _insert_arl(conn, path, *, days_old):
+    await conn.execute(
+        "INSERT INTO api_request_log "
+        "(method, path, route_group, status_code, latency_ms, occurred_at) "
+        "VALUES ('GET', $1, 'other', 200, 1, NOW() - make_interval(days => $2::int))",
+        path,
+        days_old,
+    )
+
+
+async def _arl_paths(conn):
+    rows = await conn.fetch("SELECT path FROM api_request_log ORDER BY path")
+    return {r["path"] for r in rows}
+
+
 def test_default_retention_is_90_days():
     assert DEFAULT_RETENTION_DAYS == 90
+
+
+async def test_prune_deletes_stale_api_request_log(db):
+    await _insert_arl(db, "/api/v1/stale", days_old=91)
+    await _insert_arl(db, "/api/v1/fresh", days_old=1)
+
+    result = await prune_outbox(db, retention_days=90)
+
+    assert result.api_request_log == 1
+    paths = await _arl_paths(db)
+    assert "/api/v1/stale" not in paths
+    assert "/api/v1/fresh" in paths
+
+
+async def test_count_prunable_includes_api_request_log(db):
+    await _insert_arl(db, "/api/v1/stale", days_old=91)
+
+    eligible = await count_prunable(db, retention_days=90)
+
+    assert eligible.api_request_log == 1
+    # Counting must not delete anything.
+    assert "/api/v1/stale" in await _arl_paths(db)
 
 
 async def test_prune_deletes_stale_keeps_fresh(db):
