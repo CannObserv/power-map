@@ -214,6 +214,60 @@ async def test_observation_reversed_effective_dates_rejected(client, org_write_k
     assert r.status_code == 422
 
 
+async def test_observation_address_validity_window_persisted(client, org_write_key, db):
+    """An address observation carrying validity dates round-trips them onto the link (#256)."""
+    raw, _ = org_write_key
+    value = _unique_id()
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": value,
+            "addresses": [
+                {
+                    "raw_input": "1600 Pennsylvania Ave NW, Washington DC 20500",
+                    "address_type": "mailing",
+                    "valid_from": "2020-01-01",
+                    "valid_until": "2021-12-31",
+                }
+            ],
+        },
+    )
+    assert r.status_code == 200
+    eid = r.json()["entity_id"]
+    row = await db.fetchrow(
+        "SELECT valid_from, valid_until FROM entity_addresses"
+        " WHERE entity_type='organization' AND entity_id=$1",
+        eid,
+    )
+    assert row is not None
+    assert row["valid_from"] == date(2020, 1, 1)
+    assert row["valid_until"] == date(2021, 12, 31)
+
+
+async def test_observation_address_reversed_validity_rejected(client, org_write_key):
+    """An address with valid_from > valid_until is rejected at the boundary (422) (#256)."""
+    raw, _ = org_write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": _unique_id(),
+            "addresses": [
+                {
+                    "raw_input": "1600 Pennsylvania Ave NW, Washington DC 20500",
+                    "address_type": "mailing",
+                    "valid_from": "2021-12-31",
+                    "valid_until": "2020-01-01",
+                }
+            ],
+        },
+    )
+    assert r.status_code == 422
+
+
 async def test_org_acronym_created(client, org_write_key, db):
     raw, _ = org_write_key
     value = _unique_id()
