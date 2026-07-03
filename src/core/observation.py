@@ -495,7 +495,18 @@ async def write_contact_methods(
 async def write_addresses(conn, entity_id: str, entity_type: str, addresses: list) -> None:
     """Write address claims via the address normalizer.
 
-    Dedup on (entity_id, standardized form OR raw_input fallback, address_type).
+    Dedup mirrors the DB unique key on ``entity_addresses`` — the normalized form
+    plus the validity window ``(valid_from, valid_until)`` (#256):
+
+    - **Dated claim** (either window bound supplied): strict window equality via
+      ``IS NOT DISTINCT FROM``. A new window of an address the entity already has
+      is history, not a duplicate — a fresh link is written, reusing the existing
+      ``addresses`` row rather than inserting a per-window duplicate.
+    - **Dateless claim** (both bounds NULL): matches *any* existing row regardless
+      of window (unchanged behavior). Admin end-dating stays authoritative — a
+      dateless re-observation never resurrects a closed window
+      (docs/CONVENTIONS.md §"Address validity windows (#181)", #256 decision).
+
     Raises ObservationRejected on normalizer failure.
     """
     normalizer = get_address_normalizer()
@@ -515,15 +526,24 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
         v = result.value
         # Dedup key: standardized form if present, else raw_input
         dedup_form = v.get("standardized") or v.get("raw_input") or addr.raw_input
+        dated = addr.valid_from is not None or addr.valid_until is not None
+        # Dated claims match on the exact window; dateless claims match any window.
+        window_clause = (
+            "   AND ea.valid_from IS NOT DISTINCT FROM $5"
+            "   AND ea.valid_until IS NOT DISTINCT FROM $6"
+            if dated
+            else ""
+        )
+        params = [entity_type, entity_id, addr.address_type, dedup_form]
+        if dated:
+            params += [addr.valid_from, addr.valid_until]
         existing = await conn.fetchrow(
             "SELECT ea.id FROM entity_addresses ea"
             " JOIN addresses a ON a.id = ea.address_id"
             " WHERE ea.entity_type=$1 AND ea.entity_id=$2 AND ea.address_type=$3"
-            "   AND COALESCE(a.standardized, a.raw_input) = $4",
-            entity_type,
-            entity_id,
-            addr.address_type,
-            dedup_form,
+            "   AND COALESCE(a.standardized, a.raw_input) = $4"
+            f"{window_clause}",
+            *params,
         )
         if existing:
             if addr.display_name:
@@ -539,38 +559,58 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
                     record_change=False,
                 )
             continue
+        # No exact (form + window) match. Reuse an existing addresses row for the
+        # same entity + type + form in any window so a new window does not spawn a
+        # duplicate physical address; only mint a fresh row when the form is new.
+        reuse = await conn.fetchrow(
+            "SELECT ea.address_id FROM entity_addresses ea"
+            " JOIN addresses a ON a.id = ea.address_id"
+            " WHERE ea.entity_type=$1 AND ea.entity_id=$2 AND ea.address_type=$3"
+            "   AND COALESCE(a.standardized, a.raw_input) = $4"
+            " LIMIT 1",
+            entity_type,
+            entity_id,
+            addr.address_type,
+            dedup_form,
+        )
         components_val = v.get("components")
         components_str = json.dumps(components_val) if components_val else None
-        aid = generate_id()
         async with conn.transaction():
-            await conn.execute(
-                "INSERT INTO addresses"
-                " (id, raw_input, address_line_1, address_line_2, city, region,"
-                "  postal_code, country, standardized, latitude, longitude, components)"
-                " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-                aid,
-                v.get("raw_input") or addr.raw_input,
-                v.get("address_line_1"),
-                v.get("address_line_2"),
-                v.get("city"),
-                v.get("region"),
-                v.get("postal_code"),
-                v.get("country") or "US",
-                v.get("standardized"),
-                v.get("latitude"),
-                v.get("longitude"),
-                components_str,
-            )
+            if reuse:
+                aid = reuse["address_id"]
+            else:
+                aid = generate_id()
+                await conn.execute(
+                    "INSERT INTO addresses"
+                    " (id, raw_input, address_line_1, address_line_2, city, region,"
+                    "  postal_code, country, standardized, latitude, longitude, components)"
+                    " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                    aid,
+                    v.get("raw_input") or addr.raw_input,
+                    v.get("address_line_1"),
+                    v.get("address_line_2"),
+                    v.get("city"),
+                    v.get("region"),
+                    v.get("postal_code"),
+                    v.get("country") or "US",
+                    v.get("standardized"),
+                    v.get("latitude"),
+                    v.get("longitude"),
+                    components_str,
+                )
             await conn.execute(
                 "INSERT INTO entity_addresses"
-                " (id, entity_type, entity_id, address_id, address_type, display_name)"
-                " VALUES ($1, $2, $3, $4, $5, $6)",
+                " (id, entity_type, entity_id, address_id, address_type, display_name,"
+                "  valid_from, valid_until)"
+                " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
                 generate_id(),
                 entity_type,
                 entity_id,
                 aid,
                 addr.address_type,
                 addr.display_name,
+                addr.valid_from,
+                addr.valid_until,
             )
             # trg_touch_entity_on_address_change emits the outbox row (#181)
 

@@ -96,6 +96,43 @@ def test_address_nonempty_display_name_preserved():
     assert addr.display_name == "HQ"
 
 
+def test_address_dateless_defaults_to_none():
+    addr = ObservationAddress(raw_input="123 Main St")
+    assert addr.valid_from is None
+    assert addr.valid_until is None
+
+
+def test_address_iso_date_strings_parsed_to_date():
+    addr = ObservationAddress(
+        raw_input="123 Main St", valid_from="2020-01-01", valid_until="2021-12-31"
+    )
+    assert addr.valid_from == date(2020, 1, 1)
+    assert addr.valid_until == date(2021, 12, 31)
+
+
+def test_address_valid_from_equal_until_ok():
+    addr = ObservationAddress(
+        raw_input="123 Main St", valid_from="2020-01-01", valid_until="2020-01-01"
+    )
+    assert addr.valid_from == addr.valid_until
+
+
+def test_address_open_ended_windows_ok():
+    frm = ObservationAddress(raw_input="123 Main St", valid_from="2020-01-01")
+    assert frm.valid_from == date(2020, 1, 1)
+    assert frm.valid_until is None
+    until = ObservationAddress(raw_input="123 Main St", valid_until="2021-12-31")
+    assert until.valid_from is None
+    assert until.valid_until == date(2021, 12, 31)
+
+
+def test_address_valid_from_after_until_rejected():
+    with pytest.raises(ValidationError):
+        ObservationAddress(
+            raw_input="123 Main St", valid_from="2021-01-01", valid_until="2020-01-01"
+        )
+
+
 def test_name_parts_invalid_primary_identifier_rejected():
     with pytest.raises(ValidationError):
         ObservationPersonNameParts(primary_identifier="nickname")
