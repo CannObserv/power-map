@@ -7,7 +7,7 @@ import os
 import pytest
 import pytest_asyncio
 
-from src.api.public.middleware import route_group_for_path
+from src.api.public.middleware import _enrich, route_group_for_path
 from src.core.db import generate_id
 
 # ---------------------------------------------------------------------------
@@ -160,3 +160,115 @@ async def test_body_tee_preserves_downstream_and_captures_body(client, db, obs_k
     assert row["method"] == "POST"
     assert json.loads(row["request_body"]) == payload
     assert row["response_body"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Step 4 — domain enrichment (unit, no DB)
+# ---------------------------------------------------------------------------
+
+
+def test_enrich_observation_success():
+    out = _enrich(
+        "observations",
+        {"disposition": "new", "entity_id": "01ENTITY", "entity_type": "person", "reason": None},
+    )
+    assert out["disposition"] == "new"
+    assert out["result_entity_id"] == "01ENTITY"
+    assert out["entity_type"] == "person"
+    assert out["reason"] is None
+    assert out["item_count"] is None
+    assert out["is_empty"] is False
+
+
+def test_enrich_observation_rejected():
+    out = _enrich(
+        "observations",
+        {"disposition": "rejected", "entity_id": None, "entity_type": None, "reason": "bad_type"},
+    )
+    assert out["disposition"] == "rejected"
+    assert out["result_entity_id"] is None
+    assert out["entity_type"] is None
+    assert out["reason"] == "bad_type"
+
+
+def test_enrich_changes_empty():
+    out = _enrich(
+        "changes",
+        {"data": [], "meta": {"count": 0, "limit": 50, "has_more": False, "next_after": 0}},
+    )
+    assert out["item_count"] == 0
+    assert out["is_empty"] is True
+
+
+def test_enrich_changes_nonempty():
+    out = _enrich("changes", {"data": [{}, {}, {}], "meta": {"count": 3}})
+    assert out["item_count"] == 3
+    assert out["is_empty"] is False
+
+
+def test_enrich_changes_count_falls_back_to_data_len():
+    out = _enrich("changes", {"data": [{}, {}], "meta": {}})
+    assert out["item_count"] == 2
+    assert out["is_empty"] is False
+
+
+def test_enrich_other_and_nondict_noop():
+    assert _enrich("other", {"disposition": "new"})["disposition"] is None
+    assert _enrich("observations", None)["disposition"] is None
+    assert _enrich("changes", "not-a-dict")["item_count"] is None
+
+
+# ---------------------------------------------------------------------------
+# Step 4 — domain enrichment (integration)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_observation_new_enriched(client, db, obs_key):
+    raw, kid = obs_key
+    payload = {"identifier_type": "person_wa_pdc", "identifier_value": "arl_" + os.urandom(6).hex()}
+    resp = client.post("/api/v1/people/observations", json=payload, headers={"X-API-Key": raw})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["disposition"] == "new"
+    row = await db.fetchrow(
+        "SELECT * FROM api_request_log WHERE api_key_id=$1 AND route_group='observations'"
+        " ORDER BY id DESC LIMIT 1",
+        kid,
+    )
+    assert row["disposition"] == "new"
+    assert row["entity_type"] == "person"
+    assert row["result_entity_id"] == body["entity_id"]
+    assert row["reason"] is None
+
+
+@pytest.mark.integration
+async def test_observation_rejected_enriched(client, db, obs_key):
+    raw, kid = obs_key
+    payload = {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"}
+    resp = client.post("/api/v1/people/observations", json=payload, headers={"X-API-Key": raw})
+    assert resp.status_code == 200
+    assert resp.json()["disposition"] == "rejected"
+    row = await db.fetchrow(
+        "SELECT * FROM api_request_log WHERE api_key_id=$1 AND route_group='observations'"
+        " ORDER BY id DESC LIMIT 1",
+        kid,
+    )
+    assert row["disposition"] == "rejected"
+    assert row["result_entity_id"] is None
+    assert row["reason"] is not None
+
+
+@pytest.mark.integration
+async def test_changes_empty_poll_enriched(client, db, plain_key):
+    raw, kid = plain_key
+    resp = client.get("/api/v1/changes?after=0", headers={"X-API-Key": raw})
+    assert resp.status_code == 200
+    row = await db.fetchrow(
+        "SELECT * FROM api_request_log WHERE api_key_id=$1 AND route_group='changes'"
+        " ORDER BY id DESC LIMIT 1",
+        kid,
+    )
+    assert row is not None
+    assert row["item_count"] == 0
+    assert row["is_empty"] is True

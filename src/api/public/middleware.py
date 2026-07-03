@@ -25,9 +25,10 @@ _V1_PREFIX = "/api/v1"
 
 _INSERT_SQL = """
     INSERT INTO api_request_log
-        (api_key_id, method, path, route_group, status_code, latency_ms,
+        (api_key_id, method, path, route_group, entity_type, status_code, latency_ms,
+         disposition, result_entity_id, reason, item_count, is_empty,
          client_ip, user_agent, request_body, response_body)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb)
 """
 
 
@@ -61,6 +62,50 @@ def _body_to_jsonb_param(raw: bytes) -> str | None:
     except ValueError:
         return json.dumps({"_unparsed": text})
     return text
+
+
+def _safe_json(raw: bytes):
+    """Best-effort parse of a body into a Python object for enrichment; None on failure."""
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None
+
+
+def _enrich(route_group: str, response_obj) -> dict:
+    """Extract domain columns from a parsed response for known route groups.
+
+    Observations expose ``disposition`` / ``entity_id`` / ``entity_type`` /
+    ``reason``; the change feed exposes ``meta.count`` (falling back to
+    ``len(data)``). Any other group, or a non-dict body, yields all-empty
+    columns — enrichment never raises.
+    """
+    fields = {
+        "entity_type": None,
+        "disposition": None,
+        "result_entity_id": None,
+        "reason": None,
+        "item_count": None,
+        "is_empty": False,
+    }
+    if not isinstance(response_obj, dict):
+        return fields
+    if route_group == "observations":
+        fields["disposition"] = response_obj.get("disposition")
+        fields["result_entity_id"] = response_obj.get("entity_id")
+        fields["entity_type"] = response_obj.get("entity_type")
+        fields["reason"] = response_obj.get("reason")
+    elif route_group == "changes":
+        meta = response_obj.get("meta")
+        count = meta.get("count") if isinstance(meta, dict) else None
+        if count is None:
+            data = response_obj.get("data")
+            count = len(data) if isinstance(data, list) else None
+        fields["item_count"] = count
+        fields["is_empty"] = count == 0
+    return fields
 
 
 class RequestLogMiddleware:
@@ -122,8 +167,12 @@ class RequestLogMiddleware:
         else:
             client_ip = None
 
+        response_raw = b"".join(response_chunks)
         request_body = _body_to_jsonb_param(b"".join(request_chunks))
-        response_body = _body_to_jsonb_param(b"".join(response_chunks))
+        response_body = _body_to_jsonb_param(response_raw)
+
+        parsed = _safe_json(response_raw) if route_group in ("observations", "changes") else None
+        enriched = _enrich(route_group, parsed)
 
         pool = db.get_pool()
         async with pool.acquire() as conn:
@@ -133,8 +182,14 @@ class RequestLogMiddleware:
                 method,
                 path,
                 route_group,
+                enriched["entity_type"],
                 status_code,
                 latency_ms,
+                enriched["disposition"],
+                enriched["result_entity_id"],
+                enriched["reason"],
+                enriched["item_count"],
+                enriched["is_empty"],
                 client_ip,
                 user_agent,
                 request_body,
