@@ -961,6 +961,11 @@ class RoleListItem(BaseModel):
     notes: str | None = None
     established_on: date | None = None
     abolished_on: date | None = None
+    # Seat fields (#261): populated for districted seats, null for plain roles.
+    role_type_id: str | None = None
+    role_type_slug: str | None = None
+    jurisdiction_id: str | None = None
+    qualifier: str | None = None
     archived_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -996,9 +1001,30 @@ class RoleObservationRequest(BaseModel):
     established_on: date | None = None
     abolished_on: date | None = None
 
+    # Seat fields (#261): a districted seat = role_type + jurisdiction (+ qualifier).
+    # role_type is a role_types slug (e.g. "state_representative"); jurisdiction_id
+    # is a PM jurisdiction ULID; qualifier disambiguates seats (e.g. "Position 1").
+    role_type: str | None = None
+    jurisdiction_id: str | None = None
+    qualifier: str | None = None
+
     links: list[ObservationLink] = Field(default_factory=list)
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
     addresses: list[ObservationAddress] = Field(default_factory=list)
+
+    @field_validator("qualifier", mode="before")
+    @classmethod
+    def _normalize_qualifier(cls, v: object) -> object:
+        """Trim whitespace and collapse empty/whitespace-only to None."""
+        if isinstance(v, str):
+            v = v.strip()
+        return v or None
+
+    @model_validator(mode="after")
+    def _check_qualifier_needs_jurisdiction(self) -> "RoleObservationRequest":
+        if self.qualifier is not None and self.jurisdiction_id is None:
+            raise ValueError("qualifier requires jurisdiction_id (it disambiguates seats)")
+        return self
 
     @model_validator(mode="after")
     def _check_resolution_mode(self) -> "RoleObservationRequest":

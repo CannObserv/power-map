@@ -16,6 +16,7 @@ from src.api.public.schemas import (
     ObservationResponse,
     OrganizationObservationRequest,
     PeopleObservationRequest,
+    RoleObservationRequest,
 )
 
 # ---------------------------------------------------------------------------
@@ -380,4 +381,39 @@ def test_org_request_multiple_canonical_acronyms_raises():
                 ObservationAcronym(acronym="ACME", is_canonical=True),
                 ObservationAcronym(acronym="ACM", is_canonical=True),
             ],
+        )
+
+
+# ---------------------------------------------------------------------------
+# RoleObservationRequest — qualifier normalization (#261)
+# ---------------------------------------------------------------------------
+
+
+def test_role_request_qualifier_stripped():
+    req = RoleObservationRequest(
+        organization_id="org1",
+        title="State Representative",
+        role_type="state_representative",
+        jurisdiction_id="jur1",
+        qualifier="  Position 1  ",
+    )
+    assert req.qualifier == "Position 1"
+
+
+def test_role_request_whitespace_qualifier_collapses_to_none():
+    """A whitespace-only qualifier collapses to None, so it needs no jurisdiction."""
+    req = RoleObservationRequest(
+        organization_id="org1",
+        title="Speaker",
+        qualifier="   ",
+    )
+    assert req.qualifier is None
+
+
+def test_role_request_qualifier_without_jurisdiction_raises():
+    with pytest.raises(ValidationError):
+        RoleObservationRequest(
+            organization_id="org1",
+            title="State Representative",
+            qualifier="Position 1",
         )

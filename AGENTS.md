@@ -77,6 +77,7 @@ Full conventions → `docs/CONVENTIONS.md`
 - `updated_at`: maintained by DB triggers — never set manually
 - Route handlers acquire connections via `Depends(get_db)` only — never call `src.core.db.acquire()` directly; doing so escapes `app.dependency_overrides` and breaks test isolation
 - Display names: always use `v_org_display_names` / `v_person_display_names` views; never join name tables directly for display
+- Roles: a **seat** is a `roles` row with `role_type_id` (FK `role_types`) + `jurisdiction_id` + `qualifier` (e.g. "Position 1"); plain roles leave them NULL. Districted seats need an office (`chk_role_districted_needs_type`). Uniqueness is split — `uq_role_seat` (districted) vs `uq_role_org_title` (non-districted). Full rules → `docs/CONVENTIONS.md` §"Unique Indexes".
 - Person-name visibility rule (deadnames, hidden, legal-only): see `docs/CONVENTIONS.md` §"Person names — i18n & cultural awareness".
 - Raw `person_names` access: AND-append `visibility='public'` or call `visible_names_filter()` from `src.core.db`. Lint enforces.
 - Structured name parts: `person_name_parts` is a 1:0..1 sidecar to `person_names` (ON DELETE CASCADE). Never auto-*written* — only populated when an upstream source supplies structure or a human confirms a suggestion. Assisted decomposition via `src.core.normalizers.person_name.suggest_parts(...)` is allowed (CSV triage / UI pre-fill); persistence still goes through the unified name-row form (`POST /admin/people/{pid}/names/{nid}/edit-row/`). See `docs/CONVENTIONS.md` §"Structured parts (`person_name_parts` sidecar)".

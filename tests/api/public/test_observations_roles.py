@@ -447,3 +447,125 @@ async def test_rejected_unknown_org_includes_reason(client, role_write_key):
     assert body["disposition"] == "rejected"
     assert body["reason"] is not None
     assert "org_not_found" in body["reason"]
+
+
+# ---------------------------------------------------------------------------
+# #261 — legislator seat-Roles (role_type + jurisdiction + qualifier)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def obs_jur(db):
+    """A legislative-district jurisdiction for seat observations."""
+    jid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        f"ld-obs-{jid[-8:].lower()}",
+        "Test LD (obs)",
+        type_id,
+    )
+    yield jid
+    await db.execute("DELETE FROM roles WHERE jurisdiction_id=$1", jid)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+
+
+async def test_new_seat_persists_seat_columns(client, role_write_key, obs_org, obs_jur, db):
+    raw, _ = role_write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "organization_id": obs_org,
+            "title": "State Representative",
+            "role_type": "state_representative",
+            "jurisdiction_id": obs_jur,
+            "qualifier": "Position 1",
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "new"
+    rid = r.json()["entity_id"]
+    row = await db.fetchrow(
+        "SELECT r.jurisdiction_id, r.qualifier, rt.slug AS role_type_slug "
+        "FROM roles r JOIN role_types rt ON rt.id = r.role_type_id WHERE r.id=$1",
+        rid,
+    )
+    assert row["jurisdiction_id"] == obs_jur
+    assert row["qualifier"] == "Position 1"
+    assert row["role_type_slug"] == "state_representative"
+
+
+async def test_two_positions_are_distinct_seats(client, role_write_key, obs_org, obs_jur):
+    raw, _ = role_write_key
+    base = {
+        "organization_id": obs_org,
+        "title": "State Representative",
+        "role_type": "state_representative",
+        "jurisdiction_id": obs_jur,
+    }
+    r1 = _post(client, raw, {**base, "qualifier": "Position 1"})
+    r2 = _post(client, raw, {**base, "qualifier": "Position 2"})
+    assert r1.json()["disposition"] == "new"
+    assert r2.json()["disposition"] == "new"
+    assert r1.json()["entity_id"] != r2.json()["entity_id"]
+
+
+async def test_same_seat_auto_attached(client, role_write_key, obs_org, obs_jur):
+    raw, _ = role_write_key
+    payload = {
+        "organization_id": obs_org,
+        "title": "State Representative",
+        "role_type": "state_representative",
+        "jurisdiction_id": obs_jur,
+        "qualifier": "Position 1",
+    }
+    r1 = _post(client, raw, payload)
+    r2 = _post(client, raw, payload)
+    assert r1.json()["disposition"] == "new"
+    assert r2.json()["disposition"] == "auto-attached"
+    assert r2.json()["entity_id"] == r1.json()["entity_id"]
+
+
+async def test_seat_unknown_role_type_rejected(client, role_write_key, obs_org, obs_jur):
+    raw, _ = role_write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "organization_id": obs_org,
+            "title": "State Representative",
+            "role_type": "not_a_real_office",
+            "jurisdiction_id": obs_jur,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert "role_type_not_found" in body["reason"]
+
+
+async def test_districted_without_role_type_rejected(client, role_write_key, obs_org, obs_jur):
+    raw, _ = role_write_key
+    r = _post(
+        client,
+        raw,
+        {"organization_id": obs_org, "title": "State Representative", "jurisdiction_id": obs_jur},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert "role_type" in body["reason"]
+
+
+def test_qualifier_without_jurisdiction_is_422(client, role_write_key, obs_org):
+    raw, _ = role_write_key
+    r = _post(
+        client,
+        raw,
+        {"organization_id": obs_org, "title": "State Representative", "qualifier": "Position 1"},
+    )
+    assert r.status_code == 422

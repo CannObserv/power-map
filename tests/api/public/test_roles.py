@@ -309,3 +309,77 @@ async def test_detail_etag_304(client, api_key, role_fixtures):
         headers={"X-API-Key": api_key, "If-None-Match": etag},
     )
     assert r2.status_code == 304
+
+
+# ---------------------------------------------------------------------------
+# #261 — seat fields (role_type, jurisdiction, qualifier) on read
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def seat_fixture(db):
+    org_id = generate_id()
+    jur_id = generate_id()
+    role_id = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    rt_id = await db.fetchval("SELECT id FROM role_types WHERE slug='state_representative'")
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jur_id,
+        f"ld-read-{jur_id[-8:].lower()}",
+        "Test LD (read)",
+        type_id,
+    )
+    await db.execute(
+        "INSERT INTO roles"
+        " (id, organization_id, title, role_type_id, jurisdiction_id, qualifier)"
+        " VALUES ($1,$2,$3,$4,$5,$6)",
+        role_id,
+        org_id,
+        "State Representative",
+        rt_id,
+        jur_id,
+        "Position 1",
+    )
+    yield {"org_id": org_id, "jur_id": jur_id, "role_id": role_id, "rt_id": rt_id}
+    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jur_id)
+    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+
+
+async def test_list_plain_role_has_null_seat_fields(client, api_key, role_fixtures):
+    r = client.get(
+        _LIST,
+        params={"organization_id": role_fixtures["org_id"]},
+        headers={"X-API-Key": api_key},
+    )
+    item = next(i for i in r.json()["data"] if i["id"] == role_fixtures["r1"])
+    assert item["role_type_id"] is None
+    assert item["role_type_slug"] is None
+    assert item["jurisdiction_id"] is None
+    assert item["qualifier"] is None
+
+
+async def test_list_surfaces_seat_fields(client, api_key, seat_fixture):
+    r = client.get(
+        _LIST,
+        params={"organization_id": seat_fixture["org_id"]},
+        headers={"X-API-Key": api_key},
+    )
+    item = next(i for i in r.json()["data"] if i["id"] == seat_fixture["role_id"])
+    assert item["role_type_id"] == seat_fixture["rt_id"]
+    assert item["role_type_slug"] == "state_representative"
+    assert item["jurisdiction_id"] == seat_fixture["jur_id"]
+    assert item["qualifier"] == "Position 1"
+
+
+async def test_detail_surfaces_seat_fields(client, api_key, seat_fixture):
+    r = client.get(f"{_LIST}/{seat_fixture['role_id']}", headers={"X-API-Key": api_key})
+    body = r.json()
+    assert body["role_type_id"] == seat_fixture["rt_id"]
+    assert body["role_type_slug"] == "state_representative"
+    assert body["jurisdiction_id"] == seat_fixture["jur_id"]
+    assert body["qualifier"] == "Position 1"

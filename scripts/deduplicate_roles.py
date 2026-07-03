@@ -67,29 +67,48 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
     # ------------------------------------------------------------------
     # Step A: deduplicate roles
     # ------------------------------------------------------------------
-    dup_role_groups = await conn.fetch(
+    # Non-districted roles (#261): identity is (organization_id, lower(title)).
+    # Districted seats are excluded here — collapsing them by title would merge
+    # genuinely distinct seats (two House positions, or different districts that
+    # share the title "State Representative").
+    title_groups = await conn.fetch(
         """
         SELECT
             organization_id,
-            lower(title) AS title_lower,
             min(id)      AS canonical_id,
             array_agg(id ORDER BY id) AS all_ids,
             count(*)     AS cnt
         FROM roles
-        WHERE archived_at IS NULL
+        WHERE archived_at IS NULL AND jurisdiction_id IS NULL
         GROUP BY organization_id, lower(title)
         HAVING count(*) > 1
         """
     )
 
-    for group in dup_role_groups:
+    # Districted seats (#261): identity is (org, role_type_id, jurisdiction_id,
+    # qualifier). GROUP BY folds NULL qualifiers together (one senator/district),
+    # matching uq_role_seat's NULLS NOT DISTINCT.
+    seat_groups = await conn.fetch(
+        """
+        SELECT
+            organization_id,
+            min(id)      AS canonical_id,
+            array_agg(id ORDER BY id) AS all_ids,
+            count(*)     AS cnt
+        FROM roles
+        WHERE archived_at IS NULL AND jurisdiction_id IS NOT NULL
+        GROUP BY organization_id, role_type_id, jurisdiction_id, qualifier
+        HAVING count(*) > 1
+        """
+    )
+
+    for group in [*title_groups, *seat_groups]:
         canonical_id: str = group["canonical_id"]
         dup_ids: list[str] = [i for i in group["all_ids"] if i != canonical_id]
 
         logger.info(
-            "role dedup: org=%s title=%r canonical=%s duplicates=%s",
+            "role dedup: org=%s canonical=%s duplicates=%s",
             group["organization_id"],
-            group["title_lower"],
             canonical_id,
             dup_ids,
         )
