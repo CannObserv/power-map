@@ -393,7 +393,7 @@ async def test_contact_method_written(client, write_key, obs_entities, db):
 # ---------------------------------------------------------------------------
 
 
-async def test_address_written(client, write_key, obs_entities, db):
+async def test_address_written(client, write_key, obs_entities, db, local_address_normalizer):
     raw, _ = write_key
     r = _post(
         client,

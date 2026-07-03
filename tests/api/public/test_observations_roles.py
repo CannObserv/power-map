@@ -312,7 +312,7 @@ async def test_contact_method_written_on_auto_attached(client, role_write_key, o
 # ---------------------------------------------------------------------------
 
 
-async def test_address_written(client, role_write_key, obs_org, db):
+async def test_address_written(client, role_write_key, obs_org, db, local_address_normalizer):
     raw, _ = role_write_key
     title = _title()
     r = _post(
@@ -333,7 +333,9 @@ async def test_address_written(client, role_write_key, obs_org, db):
     assert row is not None
 
 
-async def test_address_written_on_auto_attached(client, role_write_key, obs_org, db):
+async def test_address_written_on_auto_attached(
+    client, role_write_key, obs_org, db, local_address_normalizer
+):
     raw, _ = role_write_key
     title = _title()
     r1 = _post(
