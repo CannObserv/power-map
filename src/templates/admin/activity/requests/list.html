@@ -1,0 +1,129 @@
+{% extends "admin/base.html" %}
+{% block title %}API Requests{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/activity/">Activity</a><span class="breadcrumb__sep">›</span><span>API Requests</span>
+{% endblock %}
+{% block content %}
+<div class="page-header"><h1>API Requests</h1></div>
+
+{# ---- Stats strip ---------------------------------------------------- #}
+<section aria-label="Traffic summary"
+  style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--space-3);margin-bottom:var(--space-5)">
+  {% macro stat(label, value, danger=False) %}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
+    <div style="font-size:var(--font-size-lg);font-weight:700;{% if danger and value %}color:var(--color-danger){% endif %}">{{ value }}</div>
+    <div style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ label }}</div>
+  </div>
+  {% endmacro %}
+  {{ stat("Total requests", stats.total) }}
+  {{ stat("New", stats.obs_new) }}
+  {{ stat("Auto-attached", stats.obs_attached) }}
+  {{ stat("Rejected", stats.obs_rejected, danger=True) }}
+  {{ stat("Changes polls", stats.changes_polls) }}
+  {{ stat("Rows delivered", stats.changes_rows) }}
+  {{ stat("Errors (4xx/5xx)", stats.errors, danger=True) }}
+  {{ stat("Active keys", stats.active_keys) }}
+  <div style="grid-column:1/-1;font-size:var(--font-size-sm);color:var(--color-text-muted)">
+    Window:
+    <a href="{{ request.url.include_query_params(window='24h') }}" {% if filters.window == '24h' %}aria-current="true" style="font-weight:700"{% endif %}>24h</a> ·
+    <a href="{{ request.url.include_query_params(window='7d') }}" {% if filters.window == '7d' %}aria-current="true" style="font-weight:700"{% endif %}>7d</a>
+  </div>
+</section>
+
+{# ---- Filters -------------------------------------------------------- #}
+<form method="get" action="/admin/activity/requests/"
+  style="display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:end;margin-bottom:var(--space-4)">
+  <label class="form-group">Endpoints
+    <select name="group">
+      <option value="" {% if not filters.group %}selected{% endif %}>Observations + Changes</option>
+      <option value="all" {% if filters.group == 'all' %}selected{% endif %}>All endpoints</option>
+      <option value="observations" {% if filters.group == 'observations' %}selected{% endif %}>Observations</option>
+      <option value="changes" {% if filters.group == 'changes' %}selected{% endif %}>Changes</option>
+      <option value="other" {% if filters.group == 'other' %}selected{% endif %}>Other</option>
+    </select>
+  </label>
+  <label class="form-group">Key
+    <select name="key">
+      <option value="">All keys</option>
+      {% for k in keys %}
+      <option value="{{ k.id }}" {% if filters.key == k.id %}selected{% endif %}>{{ k.label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="form-group">Status
+    <select name="status">
+      <option value="">Any</option>
+      {% for s in ['2xx','4xx','5xx'] %}
+      <option value="{{ s }}" {% if filters.status == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="form-group">Disposition
+    <select name="disposition">
+      <option value="">Any</option>
+      {% for d in ['new','auto-attached','rejected'] %}
+      <option value="{{ d }}" {% if filters.disposition == d %}selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="form-group">Search
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="path or reason">
+  </label>
+  <label style="display:flex;align-items:center;gap:var(--space-2)">
+    <input type="checkbox" name="show_empty" value="true" {% if filters.show_empty %}checked{% endif %}> Show empty polls
+  </label>
+  <input type="hidden" name="window" value="{{ filters.window }}">
+  <button type="submit" class="btn btn--primary btn--sm">Filter</button>
+  <a href="/admin/activity/requests/" class="btn btn--ghost btn--sm">Reset</a>
+</form>
+
+{# ---- Table --------------------------------------------------------- #}
+<div class="table-wrapper">
+  <table class="data-table">
+    <caption>{{ total }} request{{ 's' if total != 1 else '' }}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Time (UTC)</th>
+        <th scope="col">Key</th>
+        <th scope="col">Request</th>
+        <th scope="col">Status</th>
+        <th scope="col">Disposition</th>
+        <th scope="col">Latency</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      {% set is_problem = r.status_code >= 400 or r.disposition == 'rejected' %}
+      <tr {% if is_problem %}style="background:rgba(220,38,38,0.06)"{% endif %}>
+        <td><a href="/admin/activity/requests/{{ r.id }}/">{{ r.occurred_at.strftime('%Y-%m-%d %H:%M:%S') }}</a></td>
+        <td>{{ r.key_label or '—' }}</td>
+        <td><code>{{ r.method }} {{ r.path }}</code>{% if r.is_empty %} <span style="color:var(--color-text-muted);font-size:var(--font-size-sm)">(empty)</span>{% endif %}</td>
+        <td><span class="badge {{ 'badge--inactive' if r.status_code < 400 else 'badge--archived' }}">{{ r.status_code }}</span></td>
+        <td>
+          {% if r.disposition == 'rejected' %}<span class="badge badge--archived">rejected</span>
+          {% elif r.disposition %}<span class="badge badge--active">{{ r.disposition }}</span>
+          {% elif r.route_group == 'changes' %}{{ r.item_count if r.item_count is not none else '—' }} rows
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ r.latency_ms }} ms</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No requests match these filters</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if total > page_size %}
+<nav class="pagination" aria-label="Pagination">
+  {% if page > 1 %}
+  <a href="{{ request.url.include_query_params(page=page - 1) }}" class="btn btn--ghost btn--sm">← Previous</a>
+  {% endif %}
+  <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+  {% if page * page_size < total %}
+  <a href="{{ request.url.include_query_params(page=page + 1) }}" class="btn btn--ghost btn--sm">Next →</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

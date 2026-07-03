@@ -1,0 +1,60 @@
+{% extends "admin/base.html" %}
+{% block title %}Request #{{ row.id }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/activity/">Activity</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/activity/requests/">API Requests</a><span class="breadcrumb__sep">›</span><span>#{{ row.id }}</span>
+{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Request #{{ row.id }}</h1></div>
+
+<div class="entity-card" style="margin-bottom:var(--space-5)">
+  <table class="data-table">
+    <tbody>
+      <tr><th scope="row">Time (UTC)</th><td>{{ row.occurred_at.strftime('%Y-%m-%d %H:%M:%S.%f') }}</td></tr>
+      <tr><th scope="row">Request</th><td><code>{{ row.method }} {{ row.path }}</code></td></tr>
+      <tr><th scope="row">Route group</th><td>{{ row.route_group }}</td></tr>
+      <tr><th scope="row">Status</th>
+        <td><span class="badge {{ 'badge--inactive' if row.status_code < 400 else 'badge--archived' }}">{{ row.status_code }}</span></td></tr>
+      <tr><th scope="row">Latency</th><td>{{ row.latency_ms }} ms</td></tr>
+      <tr><th scope="row">API key</th>
+        <td>{{ row.key_label or '— (unauthenticated)' }}{% if scopes %} <span style="color:var(--color-text-muted);font-size:var(--font-size-sm)">[{{ scopes | join(', ') }}]</span>{% endif %}</td></tr>
+      {% if row.route_group == 'observations' %}
+      <tr><th scope="row">Entity type</th><td>{{ row.entity_type or '—' }}</td></tr>
+      <tr><th scope="row">Disposition</th>
+        <td>{% if row.disposition == 'rejected' %}<span class="badge badge--archived">rejected</span>
+            {% elif row.disposition %}<span class="badge badge--active">{{ row.disposition }}</span>
+            {% else %}—{% endif %}</td></tr>
+      <tr><th scope="row">Result entity</th>
+        <td>
+          {% if row.result_entity_id and entity_link %}<a href="{{ entity_link }}"><code>{{ row.result_entity_id }}</code></a>
+          {% elif row.result_entity_id and entity_removed %}<code>{{ row.result_entity_id }}</code> <span style="color:var(--color-danger)">(removed)</span>
+          {% elif row.result_entity_id %}<code>{{ row.result_entity_id }}</code>
+          {% else %}—{% endif %}
+        </td></tr>
+      <tr><th scope="row">Reason</th><td>{{ row.reason or '—' }}</td></tr>
+      {% elif row.route_group == 'changes' %}
+      <tr><th scope="row">Rows delivered</th><td>{{ row.item_count if row.item_count is not none else '—' }}{% if row.is_empty %} <span style="color:var(--color-text-muted)">(empty poll)</span>{% endif %}</td></tr>
+      {% endif %}
+      <tr><th scope="row">Client IP</th><td>{{ row.client_ip or '—' }}</td></tr>
+      <tr><th scope="row">User agent</th><td>{{ row.user_agent or '—' }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% macro body_block(title, body) %}
+<section style="margin-bottom:var(--space-5)">
+  <h2 style="font-size:var(--font-size-md)">{{ title }}</h2>
+  {% if body %}
+  <pre style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3);overflow:auto;font-family:monospace;font-size:var(--font-size-sm)">{{ body }}</pre>
+  {% else %}
+  <p style="color:var(--color-text-muted)">— none —</p>
+  {% endif %}
+</section>
+{% endmacro %}
+
+{{ body_block("Request body", request_body_pretty) }}
+{{ body_block("Response body", response_body_pretty) }}
+
+<a href="/admin/activity/requests/" class="btn btn--ghost btn--sm">← Back to requests</a>
+{% endblock %}
