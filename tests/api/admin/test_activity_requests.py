@@ -250,3 +250,49 @@ async def test_detail_resolves_role_link(client, db_pool):
             await conn.execute("DELETE FROM api_request_log WHERE id=$1", lid)
             await conn.execute("DELETE FROM roles WHERE id=$1", role_id)
             await conn.execute("DELETE FROM organizations WHERE id=$1", org_id)
+
+
+async def test_detail_resolves_role_assignment_link(client, db_pool):
+    """role_assignment result_entity_id deep-links to its admin screen (#260 CR)."""
+    org_id, role_id, person_id, ra_id = (generate_id() for _ in range(4))
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+        await conn.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+        await conn.execute(
+            "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'ARL RA Role')",
+            role_id,
+            org_id,
+        )
+        await conn.execute(
+            "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1,$2,$3)",
+            ra_id,
+            person_id,
+            role_id,
+        )
+        lid = await _insert_log(
+            conn,
+            path="/api/v1/assignments/observations",
+            disposition="new",
+            entity_type="role_assignment",
+            result_entity_id=ra_id,
+        )
+    try:
+        resp = client.get(f"{_BASE}{lid}/", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        assert f"/admin/role-assignments/{ra_id}/" in resp.text
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM api_request_log WHERE id=$1", lid)
+            await conn.execute("DELETE FROM role_assignments WHERE id=$1", ra_id)
+            await conn.execute("DELETE FROM roles WHERE id=$1", role_id)
+            await conn.execute("DELETE FROM people WHERE id=$1", person_id)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", org_id)
+
+
+def test_sidebar_sublink_renders_on_non_activity_page(client, seeded_log):
+    """The API Requests sidebar sublink renders on other admin pages, un-highlighted (#260 CR)."""
+    resp = client.get("/admin/", headers=AUTH_HEADERS)  # dashboard, active_section='dashboard'
+    assert resp.status_code == 200
+    assert 'class="admin-sidebar__link" href="/admin/activity/requests/"' in resp.text
+    # Not the current page here, so the sidebar link must not be marked active.
+    assert 'href="/admin/activity/requests/" aria-current="page"' not in resp.text

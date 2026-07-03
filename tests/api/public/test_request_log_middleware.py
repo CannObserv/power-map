@@ -275,3 +275,6 @@ async def test_changes_empty_poll_enriched(client, db, plain_key):
     assert row is not None
     assert row["item_count"] == 0
     assert row["is_empty"] is True
+    # changes is a captured group: the response body is stored (GET has no request body).
+    assert row["response_body"] is not None
+    assert row["request_body"] is None
