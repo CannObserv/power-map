@@ -961,6 +961,11 @@ class RoleListItem(BaseModel):
     notes: str | None = None
     established_on: date | None = None
     abolished_on: date | None = None
+    # Seat fields (#261): populated for districted seats, null for plain roles.
+    role_type_id: str | None = None
+    role_type_slug: str | None = None
+    jurisdiction_id: str | None = None
+    qualifier: str | None = None
     archived_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

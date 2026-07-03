@@ -33,6 +33,10 @@ def _role_row_to_dict(r: Any) -> dict[str, Any]:
         "notes": r["notes"],
         "established_on": r["established_on"],
         "abolished_on": r["abolished_on"],
+        "role_type_id": r["role_type_id"],
+        "role_type_slug": r["role_type_slug"],
+        "jurisdiction_id": r["jurisdiction_id"],
+        "qualifier": r["qualifier"],
         "archived_at": r["archived_at"],
         "created_at": r["created_at"],
         "updated_at": r["updated_at"],
@@ -55,12 +59,16 @@ async def list_roles(
     """Return a paginated list of roles, optionally filtered by organization."""
     rows = await db.fetch(
         """
-        SELECT id, organization_id, title, notes, established_on, abolished_on,
-               archived_at, created_at, updated_at
-        FROM roles
-        WHERE ($1::TEXT IS NULL OR organization_id = $1)
-          AND ($2 OR archived_at IS NULL)
-        ORDER BY organization_id, title
+        SELECT r.id, r.organization_id, r.title, r.notes,
+               r.established_on, r.abolished_on,
+               r.role_type_id, rt.slug AS role_type_slug,
+               r.jurisdiction_id, r.qualifier,
+               r.archived_at, r.created_at, r.updated_at
+        FROM roles r
+        LEFT JOIN role_types rt ON rt.id = r.role_type_id
+        WHERE ($1::TEXT IS NULL OR r.organization_id = $1)
+          AND ($2 OR r.archived_at IS NULL)
+        ORDER BY r.organization_id, r.title
         LIMIT $3 OFFSET $4
         """,
         organization_id,
@@ -134,10 +142,14 @@ async def get_role(
     """Return a full role record with links, contact methods, and addresses."""
     row = await db.fetchrow(
         """
-        SELECT id, organization_id, title, notes, established_on, abolished_on,
-               archived_at, created_at, updated_at
-        FROM roles
-        WHERE id = $1
+        SELECT r.id, r.organization_id, r.title, r.notes,
+               r.established_on, r.abolished_on,
+               r.role_type_id, rt.slug AS role_type_slug,
+               r.jurisdiction_id, r.qualifier,
+               r.archived_at, r.created_at, r.updated_at
+        FROM roles r
+        LEFT JOIN role_types rt ON rt.id = r.role_type_id
+        WHERE r.id = $1
         """,
         role_id,
     )
