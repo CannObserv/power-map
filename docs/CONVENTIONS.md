@@ -206,9 +206,12 @@ screens and the dashboard API-activity panel.
   middleware parses the response body into structured columns (`disposition`,
   `result_entity_id`, `entity_type`, `reason`; `item_count`, `is_empty`). Any
   other group, or a non-JSON body, logs generic metadata only.
-- **Fidelity / PII** — stores structured metadata **and** raw request/response
-  JSONB bodies. Observation payloads carry PII (names, addresses, contacts); the
-  90-day retention window bounds that footprint, and the admin list surface shows
+- **Fidelity / PII** — raw request/response JSONB bodies are stored **only for
+  the `observations` and `changes` groups** (the ones the log surfaces); all
+  other v1 traffic records structured metadata only and its bodies are never even
+  buffered (avoids memory + JSONB bloat from e.g. large embedding vectors).
+  Observation payloads carry PII (names, addresses, contacts); the 90-day
+  retention window bounds that footprint, and the admin list surface shows
   metadata only — bodies are confined to the detail view (admin-authed).
 - **`result_entity_id` has no FK** — the referenced entity may be hard-deleted or
   merged; the log record must survive. The UI resolves it to an admin link and

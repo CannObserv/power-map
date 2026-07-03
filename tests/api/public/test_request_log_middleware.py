@@ -119,6 +119,9 @@ async def test_valid_v1_get_logs_row(client, db, plain_key):
     assert row["status_code"] == 200
     assert row["latency_ms"] >= 0
     assert row["api_key_id"] == kid
+    # Bodies are captured only for observations/changes; 'other' stores metadata only.
+    assert row["request_body"] is None
+    assert row["response_body"] is None
 
 
 @pytest.mark.integration

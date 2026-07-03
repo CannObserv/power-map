@@ -25,9 +25,10 @@
   {{ stat("Errors (4xx/5xx)", stats.errors, danger=True) }}
   {{ stat("Active keys", stats.active_keys) }}
   <div style="grid-column:1/-1;font-size:var(--font-size-sm);color:var(--color-text-muted)">
-    Window:
+    Summary across <strong>all keys</strong> — window:
     <a href="{{ request.url.include_query_params(window='24h') }}" {% if filters.window == '24h' %}aria-current="true" style="font-weight:700"{% endif %}>24h</a> ·
     <a href="{{ request.url.include_query_params(window='7d') }}" {% if filters.window == '7d' %}aria-current="true" style="font-weight:700"{% endif %}>7d</a>
+    <span style="margin-left:var(--space-2)">(the table below reflects your filters)</span>
   </div>
 </section>
 

@@ -216,3 +216,37 @@ def test_detail_removed_entity_fallback(client, seeded_log):
 def test_detail_404_for_unknown(client, seeded_log):
     resp = client.get(f"{_BASE}999999999/", headers=AUTH_HEADERS)
     assert resp.status_code == 404
+
+
+def test_list_has_active_sidebar_sublink(client, seeded_log):
+    """API Requests sidebar sublink is present and active on the list page (#260 CR)."""
+    resp = client.get(_BASE, headers=AUTH_HEADERS)
+    assert 'href="/admin/activity/requests/" aria-current="page"' in resp.text
+
+
+async def test_detail_resolves_role_link(client, db_pool):
+    """result_entity_id of a role observation deep-links to the role admin screen (#260 CR)."""
+    org_id, role_id = generate_id(), generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+        await conn.execute(
+            "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'ARL Role')",
+            role_id,
+            org_id,
+        )
+        lid = await _insert_log(
+            conn,
+            path="/api/v1/roles/observations",
+            disposition="new",
+            entity_type="role",
+            result_entity_id=role_id,
+        )
+    try:
+        resp = client.get(f"{_BASE}{lid}/", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        assert f"/admin/roles/{role_id}/" in resp.text
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM api_request_log WHERE id=$1", lid)
+            await conn.execute("DELETE FROM roles WHERE id=$1", role_id)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", org_id)

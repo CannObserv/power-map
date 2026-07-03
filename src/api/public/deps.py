@@ -38,6 +38,12 @@ async def _resolve_api_key(raw_key: str | None, db, request: Request | None = No
     return row
 
 
+# NOTE on the ``request: Request = None`` params below: FastAPI injects the live
+# Request by *type* and ignores the default, so production always gets a real
+# Request (needed to stash api_key_id for the capture middleware, #260). The
+# ``= None`` default is load-bearing only for unit tests that call these deps
+# directly — do not "tighten" it to ``Request | None``, which FastAPI would treat
+# as a non-injected parameter.
 async def require_api_key(
     raw_key: str | None = Depends(api_key_header),
     db=Depends(get_db),

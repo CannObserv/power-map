@@ -21,9 +21,12 @@ PAGE_SIZE = 50
 _WINDOWS = {"24h": 24, "7d": 168}
 
 # entity_type -> admin detail URL prefix + existence table, for link resolution.
+# jurisdiction has no admin screen, so it is intentionally absent (renders a plain id).
 _ENTITY_LINK = {
     "person": ("/admin/people/", "people"),
     "organization": ("/admin/orgs/", "organizations"),
+    "role": ("/admin/roles/", "roles"),
+    "role_assignment": ("/admin/role-assignments/", "role_assignments"),
 }
 
 _STATS_SQL = """
@@ -110,7 +113,7 @@ async def request_list(
         "admin/activity/requests/list.html",
         {
             "user": user,
-            "active_section": "activity",
+            "active_section": "activity_requests",
             "rows": rows,
             "total": total,
             "page": page,
@@ -171,7 +174,7 @@ async def request_detail(
         "admin/activity/requests/detail.html",
         {
             "user": user,
-            "active_section": "activity",
+            "active_section": "activity_requests",
             "row": row,
             "scopes": scopes,
             "entity_link": entity_link,

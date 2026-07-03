@@ -119,6 +119,12 @@ class RequestLogMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Raw bodies are stored (and enrichment parsed) only for the two groups the
+        # log surfaces — observations/changes. Other v1 traffic (e.g. large embedding
+        # vectors) records metadata only, so we don't even buffer its bodies in memory.
+        route_group = route_group_for_path(scope.get("path", ""))
+        capture_bodies = route_group in ("observations", "changes")
+
         request_chunks: list[bytes] = []
 
         async def receive_wrapper():
@@ -127,6 +133,8 @@ class RequestLogMiddleware:
                 request_chunks.append(message.get("body", b""))
             return message
 
+        recv = receive_wrapper if capture_bodies else receive
+
         status_code = 500
         response_chunks: list[bytes] = []
 
@@ -134,26 +142,42 @@ class RequestLogMiddleware:
             nonlocal status_code
             if message["type"] == "http.response.start":
                 status_code = message["status"]
-            elif message["type"] == "http.response.body":
+            elif message["type"] == "http.response.body" and capture_bodies:
                 response_chunks.append(message.get("body", b""))
             await send(message)
 
         start = time.perf_counter()
         try:
-            await self.app(scope, receive_wrapper, send_wrapper)
+            await self.app(scope, recv, send_wrapper)
         finally:
             latency_ms = int((time.perf_counter() - start) * 1000)
             try:
-                await self._record(scope, request_chunks, status_code, response_chunks, latency_ms)
+                await self._record(
+                    scope,
+                    route_group,
+                    capture_bodies,
+                    request_chunks,
+                    status_code,
+                    response_chunks,
+                    latency_ms,
+                )
             except Exception:  # observability must never break the request
                 logger.warning("api_request_log capture failed", exc_info=True)
 
-    async def _record(self, scope, request_chunks, status_code, response_chunks, latency_ms):
+    async def _record(
+        self,
+        scope,
+        route_group,
+        capture_bodies,
+        request_chunks,
+        status_code,
+        response_chunks,
+        latency_ms,
+    ):
         path = scope.get("path", "")
         method = scope.get("method", "")
         state = scope.get("state") or {}
         api_key_id = state.get("api_key_id")
-        route_group = route_group_for_path(path)
 
         headers = {
             k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])
@@ -167,13 +191,18 @@ class RequestLogMiddleware:
         else:
             client_ip = None
 
-        response_raw = b"".join(response_chunks)
-        request_body = _body_to_jsonb_param(b"".join(request_chunks))
-        response_body = _body_to_jsonb_param(response_raw)
+        if capture_bodies:
+            response_raw = b"".join(response_chunks)
+            request_body = _body_to_jsonb_param(b"".join(request_chunks))
+            response_body = _body_to_jsonb_param(response_raw)
+            enriched = _enrich(route_group, _safe_json(response_raw))
+        else:
+            request_body = None
+            response_body = None
+            enriched = _enrich(route_group, None)
 
-        parsed = _safe_json(response_raw) if route_group in ("observations", "changes") else None
-        enriched = _enrich(route_group, parsed)
-
+        # Synchronous write on the request tail — deferred hot-path concern (#262):
+        # move to a fire-and-forget / buffered writer if poll cadence bites.
         pool = db.get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
