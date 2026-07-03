@@ -202,3 +202,12 @@ async def test_archived_jurisdiction_rejected(db):
     )
     assert disp is Disposition.REJECTED
     assert "jurisdiction_archived" in reason
+
+
+async def test_qualifier_dropped_for_non_districted_role(db):
+    """resolve_role ignores qualifier without a jurisdiction (it only disambiguates seats)."""
+    org = await _org(db)
+    role_id, disp, _ = await resolve_role(db, org, "Speaker", qualifier="Ignored")
+    assert disp is Disposition.NEW
+    stored = await db.fetchval("SELECT qualifier FROM roles WHERE id=$1", role_id)
+    assert stored is None

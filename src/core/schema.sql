@@ -662,6 +662,18 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+-- A qualifier only disambiguates districted seats — it must not appear on a
+-- non-districted role (backstops any insert path; resolve_role also drops it).
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name='roles' AND constraint_name='chk_role_qualifier_needs_jurisdiction'
+    ) THEN
+        ALTER TABLE roles ADD CONSTRAINT chk_role_qualifier_needs_jurisdiction
+            CHECK (qualifier IS NULL OR jurisdiction_id IS NOT NULL);
+    END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_roles_role_type ON roles(role_type_id);
 CREATE INDEX IF NOT EXISTS idx_roles_jurisdiction ON roles(jurisdiction_id);
 

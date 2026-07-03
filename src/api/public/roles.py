@@ -215,7 +215,9 @@ async def submit_role_observation(
             )
         except asyncpg.UniqueViolationError:
             # Concurrent create of the same role/seat: re-resolve so the loser
-            # of the race attaches to the winner's row instead of 500-ing.
+            # of the race attaches to the winner's row instead of 500-ing. One
+            # retry only — a second, persistent conflict is treated as a genuine
+            # error and propagates (500).
             role_id, disposition, reason = await resolve_role(
                 db, req.organization_id, req.title, **resolve_kwargs
             )

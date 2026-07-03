@@ -718,6 +718,12 @@ async def resolve_role(
         if role_type_id is None:
             return "", Disposition.REJECTED, "role_type_required_for_districted_role"
 
+    # A qualifier only disambiguates districted seats; drop it for non-districted
+    # roles so it never persists without a jurisdiction. The
+    # chk_role_qualifier_needs_jurisdiction CHECK backstops other insert paths.
+    if jurisdiction_id is None:
+        qualifier = None
+
     # NOTE: title-mode matching below keys on (org, lower(title)) and ignores
     # role_type_id. Harmless today — role_type is only set on seats, which carry
     # a jurisdiction and take the seat-match branch. Revisit when non-districted

@@ -215,3 +215,16 @@ async def test_non_districted_duplicate_title_still_rejected(db):
             org,
             "speaker",
         )
+
+
+async def test_qualifier_without_jurisdiction_rejected(db):
+    """chk_role_qualifier_needs_jurisdiction: a qualifier requires a district."""
+    org = await _make_org(db)
+    with pytest.raises(asyncpg.CheckViolationError):
+        await db.execute(
+            "INSERT INTO roles (id, organization_id, title, qualifier) VALUES ($1,$2,$3,$4)",
+            generate_id(),
+            org,
+            "Speaker",
+            "Position 1",
+        )
