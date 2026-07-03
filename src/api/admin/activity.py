@@ -16,7 +16,17 @@ async def activity_index(
     db=Depends(get_db),
 ):
     """Activity landing page — overview cards for all activity sections."""
-    counts = await db.fetchrow("SELECT COUNT(*) AS imports FROM import_batches")
+    counts = await db.fetchrow(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM import_batches) AS imports,
+            (SELECT COUNT(*) FROM api_request_log
+             WHERE occurred_at >= NOW() - INTERVAL '24 hours') AS req_24h,
+            (SELECT COUNT(*) FROM api_request_log
+             WHERE occurred_at >= NOW() - INTERVAL '24 hours'
+               AND disposition = 'rejected') AS req_rejected_24h
+        """
+    )
     return templates.TemplateResponse(
         request,
         "admin/activity/index.html",

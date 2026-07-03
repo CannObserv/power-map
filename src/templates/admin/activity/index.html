@@ -18,5 +18,19 @@
     <a href="/admin/imports/" class="btn btn--sm btn--secondary">View →</a>
   </div>
 
+  {# API Requests #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">API Requests</h2>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">
+        {{ counts.req_24h }} request{{ 's' if counts.req_24h != 1 else '' }}{% if counts.req_rejected_24h %} · <span style="color:var(--color-danger)">{{ counts.req_rejected_24h }} rejected</span>{% endif %} (24h)
+      </span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Observability of public API traffic — observation writes and change-feed polls, per key.
+    </p>
+    <a href="/admin/activity/requests/" class="btn btn--sm btn--secondary">View →</a>
+  </div>
+
 </div>
 {% endblock %}

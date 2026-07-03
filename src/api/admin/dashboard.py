@@ -32,6 +32,23 @@ async def dashboard(
             (SELECT COUNT(*) FROM entity_identifier_types)           AS identifier_types
         """
     )
+    api_stats = await db.fetchrow(
+        """
+        SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE route_group='observations' AND disposition='new') AS obs_new,
+            COUNT(*) FILTER (WHERE route_group='observations' AND disposition='auto-attached')
+                AS obs_attached,
+            COUNT(*) FILTER (WHERE route_group='observations' AND disposition='rejected')
+                AS obs_rejected,
+            COUNT(*) FILTER (WHERE route_group='changes') AS changes_polls,
+            COALESCE(SUM(item_count) FILTER (WHERE route_group='changes'), 0) AS changes_rows,
+            COUNT(*) FILTER (WHERE status_code >= 400) AS errors,
+            MAX(occurred_at) AS last_request
+        FROM api_request_log
+        WHERE occurred_at >= NOW() - INTERVAL '24 hours'
+        """
+    )
     return templates.TemplateResponse(
         request,
         "admin/dashboard.html",
@@ -39,5 +56,6 @@ async def dashboard(
             "user": user,
             "active_section": "dashboard",
             "counts": counts,
+            "api_stats": api_stats,
         },
     )

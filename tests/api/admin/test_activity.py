@@ -27,6 +27,14 @@ def test_activity_landing_returns_200(client):
     assert 'href="/admin/activity/" aria-current="page"' in response.text
 
 
+def test_activity_has_api_requests_card(client):
+    """Activity landing surfaces the API Requests card linking to the log (#260)."""
+    response = client.get("/admin/activity/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "API Requests" in response.text
+    assert 'href="/admin/activity/requests/"' in response.text
+
+
 def test_activity_landing_redirects_unauthenticated(client):
     response = client.get("/admin/activity/", follow_redirects=False)
     assert response.status_code in (302, 307)
