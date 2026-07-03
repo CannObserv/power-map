@@ -19,7 +19,6 @@ from src.api.public.schemas import (
     ObservationRoleAssignment,
 )
 from src.core.db import generate_id
-from src.core.normalizers import address as addr_mod
 from src.core.observation import (
     IdentifierConflict,
     ObservationRejected,
@@ -570,373 +569,301 @@ async def test_write_contact_methods_initial_empty_string_stored_as_null(db):
 # ---------------------------------------------------------------------------
 
 
-async def test_write_addresses_basic(db, org_id, monkeypatch):
+async def test_write_addresses_basic(db, org_id, local_address_normalizer):
     """write_addresses inserts an address row and an entity_addresses join."""
-    # Disable external validator → falls back to LocalAddressNormalizer (usaddress)
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        addr = ObservationAddress(
-            raw_input="123 Main St, Seattle, WA 98101", address_type="mailing"
-        )
-        await write_addresses(db, org_id, "organization", [addr])
-        rows = await db.fetch(
-            "SELECT ea.address_type, a.raw_input FROM entity_addresses ea"
-            " JOIN addresses a ON a.id = ea.address_id"
-            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
-            org_id,
-        )
-        assert len(rows) == 1
-        assert rows[0]["address_type"] == "mailing"
-    finally:
-        addr_mod._reset_normalizer()
+    addr = ObservationAddress(raw_input="123 Main St, Seattle, WA 98101", address_type="mailing")
+    await write_addresses(db, org_id, "organization", [addr])
+    rows = await db.fetch(
+        "SELECT ea.address_type, a.raw_input FROM entity_addresses ea"
+        " JOIN addresses a ON a.id = ea.address_id"
+        " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+        org_id,
+    )
+    assert len(rows) == 1
+    assert rows[0]["address_type"] == "mailing"
 
 
-async def test_write_addresses_duplicate_noop(db, org_id, monkeypatch):
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        addr = ObservationAddress(
-            raw_input="123 Main St, Seattle, WA 98101", address_type="mailing"
-        )
-        await write_addresses(db, org_id, "organization", [addr])
-        await write_addresses(db, org_id, "organization", [addr])
-        rows = await db.fetch(
-            "SELECT id FROM entity_addresses WHERE entity_type='organization' AND entity_id=$1",
-            org_id,
-        )
-        assert len(rows) == 1
-    finally:
-        addr_mod._reset_normalizer()
+async def test_write_addresses_duplicate_noop(db, org_id, local_address_normalizer):
+    addr = ObservationAddress(raw_input="123 Main St, Seattle, WA 98101", address_type="mailing")
+    await write_addresses(db, org_id, "organization", [addr])
+    await write_addresses(db, org_id, "organization", [addr])
+    rows = await db.fetch(
+        "SELECT id FROM entity_addresses WHERE entity_type='organization' AND entity_id=$1",
+        org_id,
+    )
+    assert len(rows) == 1
 
 
-async def test_write_addresses_insert_writes_entity_changes(db, monkeypatch):
+async def test_write_addresses_insert_writes_entity_changes(db, local_address_normalizer):
     """Initial INSERT of an address writes an entity_changes row."""
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        oid = generate_id()
-        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-        before = await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-            oid,
-        )
-        addr = ObservationAddress(
-            raw_input="456 Pine St, Seattle, WA 98101", address_type="physical"
-        )
-        await write_addresses(db, oid, "organization", [addr])
-        after = await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-            oid,
-        )
-        assert after - before == 1
-    finally:
-        addr_mod._reset_normalizer()
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+        oid,
+    )
+    addr = ObservationAddress(raw_input="456 Pine St, Seattle, WA 98101", address_type="physical")
+    await write_addresses(db, oid, "organization", [addr])
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+        oid,
+    )
+    assert after - before == 1
 
 
-async def test_write_addresses_null_fill_updates_display_name(db, monkeypatch):
+async def test_write_addresses_null_fill_updates_display_name(db, local_address_normalizer):
     """display_name NULL-filled from re-observation; entity_changes row written."""
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        oid = generate_id()
-        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-        addr1 = ObservationAddress(
-            raw_input="789 Oak Ave, Seattle, WA 98101", address_type="mailing"
-        )
-        await write_addresses(db, oid, "organization", [addr1])
-        before = await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-            oid,
-        )
-        addr2 = ObservationAddress(
-            raw_input="789 Oak Ave, Seattle, WA 98101", address_type="mailing", display_name="HQ"
-        )
-        await write_addresses(db, oid, "organization", [addr2])
-        row = await db.fetchrow(
-            "SELECT ea.display_name FROM entity_addresses ea"
-            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
-            oid,
-        )
-        after = await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-            oid,
-        )
-        assert row["display_name"] == "HQ"
-        assert after - before == 1
-    finally:
-        addr_mod._reset_normalizer()
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    addr1 = ObservationAddress(raw_input="789 Oak Ave, Seattle, WA 98101", address_type="mailing")
+    await write_addresses(db, oid, "organization", [addr1])
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+        oid,
+    )
+    addr2 = ObservationAddress(
+        raw_input="789 Oak Ave, Seattle, WA 98101", address_type="mailing", display_name="HQ"
+    )
+    await write_addresses(db, oid, "organization", [addr2])
+    row = await db.fetchrow(
+        "SELECT ea.display_name FROM entity_addresses ea"
+        " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+        oid,
+    )
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+        oid,
+    )
+    assert row["display_name"] == "HQ"
+    assert after - before == 1
 
 
-async def test_write_addresses_existing_display_name_not_overwritten(db, monkeypatch):
+async def test_write_addresses_existing_display_name_not_overwritten(db, local_address_normalizer):
     """Non-NULL display_name is not overwritten; no entity_changes row written."""
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        oid = generate_id()
-        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-        addr1 = ObservationAddress(
-            raw_input="321 Elm St, Seattle, WA 98101", address_type="mailing", display_name="Branch"
-        )
-        await write_addresses(db, oid, "organization", [addr1])
-        before = await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-            oid,
-        )
-        addr2 = ObservationAddress(
-            raw_input="321 Elm St, Seattle, WA 98101", address_type="mailing", display_name="HQ"
-        )
-        await write_addresses(db, oid, "organization", [addr2])
-        row = await db.fetchrow(
-            "SELECT ea.display_name FROM entity_addresses ea"
-            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
-            oid,
-        )
-        after = await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-            oid,
-        )
-        assert row["display_name"] == "Branch"
-        assert after - before == 0
-    finally:
-        addr_mod._reset_normalizer()
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    addr1 = ObservationAddress(
+        raw_input="321 Elm St, Seattle, WA 98101", address_type="mailing", display_name="Branch"
+    )
+    await write_addresses(db, oid, "organization", [addr1])
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+        oid,
+    )
+    addr2 = ObservationAddress(
+        raw_input="321 Elm St, Seattle, WA 98101", address_type="mailing", display_name="HQ"
+    )
+    await write_addresses(db, oid, "organization", [addr2])
+    row = await db.fetchrow(
+        "SELECT ea.display_name FROM entity_addresses ea"
+        " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+        oid,
+    )
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+        oid,
+    )
+    assert row["display_name"] == "Branch"
+    assert after - before == 0
 
 
-async def test_write_addresses_null_fill_idempotent(db, monkeypatch):
+async def test_write_addresses_null_fill_idempotent(db, local_address_normalizer):
     """Second re-observation after display_name already filled → no new entity_changes."""
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        oid = generate_id()
-        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-        addr1 = ObservationAddress(
-            raw_input="654 Maple Dr, Seattle, WA 98101", address_type="other"
-        )
-        await write_addresses(db, oid, "organization", [addr1])
-        addr2 = ObservationAddress(
-            raw_input="654 Maple Dr, Seattle, WA 98101", address_type="other", display_name="Annex"
-        )
-        await write_addresses(db, oid, "organization", [addr2])
-        before = await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-            oid,
-        )
-        await write_addresses(db, oid, "organization", [addr2])
-        after = await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-            oid,
-        )
-        assert after - before == 0
-    finally:
-        addr_mod._reset_normalizer()
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    addr1 = ObservationAddress(raw_input="654 Maple Dr, Seattle, WA 98101", address_type="other")
+    await write_addresses(db, oid, "organization", [addr1])
+    addr2 = ObservationAddress(
+        raw_input="654 Maple Dr, Seattle, WA 98101", address_type="other", display_name="Annex"
+    )
+    await write_addresses(db, oid, "organization", [addr2])
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+        oid,
+    )
+    await write_addresses(db, oid, "organization", [addr2])
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+        oid,
+    )
+    assert after - before == 0
 
 
-async def test_write_addresses_empty_string_display_name_skipped(db, monkeypatch):
+async def test_write_addresses_empty_string_display_name_skipped(db, local_address_normalizer):
     """Empty string display_name is not written; no entity_changes row emitted."""
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        oid = generate_id()
-        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-        addr1 = ObservationAddress(
-            raw_input="987 Cedar Rd, Seattle, WA 98101", address_type="mailing"
-        )
-        await write_addresses(db, oid, "organization", [addr1])
-        before = await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-            oid,
-        )
-        addr2 = ObservationAddress(
-            raw_input="987 Cedar Rd, Seattle, WA 98101", address_type="mailing", display_name=""
-        )
-        await write_addresses(db, oid, "organization", [addr2])
-        row = await db.fetchrow(
-            "SELECT ea.display_name FROM entity_addresses ea"
-            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
-            oid,
-        )
-        after = await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-            oid,
-        )
-        assert row["display_name"] is None
-        assert after - before == 0
-    finally:
-        addr_mod._reset_normalizer()
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    addr1 = ObservationAddress(raw_input="987 Cedar Rd, Seattle, WA 98101", address_type="mailing")
+    await write_addresses(db, oid, "organization", [addr1])
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+        oid,
+    )
+    addr2 = ObservationAddress(
+        raw_input="987 Cedar Rd, Seattle, WA 98101", address_type="mailing", display_name=""
+    )
+    await write_addresses(db, oid, "organization", [addr2])
+    row = await db.fetchrow(
+        "SELECT ea.display_name FROM entity_addresses ea"
+        " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+        oid,
+    )
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
+        oid,
+    )
+    assert row["display_name"] is None
+    assert after - before == 0
 
 
-async def test_write_addresses_initial_empty_string_stored_as_null(db, monkeypatch):
+async def test_write_addresses_initial_empty_string_stored_as_null(db, local_address_normalizer):
     """Initial INSERT with display_name='' stores NULL so future NULL-fill can land."""
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        oid = generate_id()
-        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-        addr1 = ObservationAddress(
-            raw_input="111 Test Ave, Seattle, WA 98101",
-            address_type="mailing",
-            display_name="",
-        )
-        await write_addresses(db, oid, "organization", [addr1])
-        row = await db.fetchrow(
-            "SELECT ea.display_name FROM entity_addresses ea"
-            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
-            oid,
-        )
-        assert row["display_name"] is None
-        # Confirm a subsequent real label can fill the slot
-        addr2 = ObservationAddress(
-            raw_input="111 Test Ave, Seattle, WA 98101",
-            address_type="mailing",
-            display_name="HQ",
-        )
-        await write_addresses(db, oid, "organization", [addr2])
-        row2 = await db.fetchrow(
-            "SELECT ea.display_name FROM entity_addresses ea"
-            " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
-            oid,
-        )
-        assert row2["display_name"] == "HQ"
-    finally:
-        addr_mod._reset_normalizer()
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    addr1 = ObservationAddress(
+        raw_input="111 Test Ave, Seattle, WA 98101",
+        address_type="mailing",
+        display_name="",
+    )
+    await write_addresses(db, oid, "organization", [addr1])
+    row = await db.fetchrow(
+        "SELECT ea.display_name FROM entity_addresses ea"
+        " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+        oid,
+    )
+    assert row["display_name"] is None
+    # Confirm a subsequent real label can fill the slot
+    addr2 = ObservationAddress(
+        raw_input="111 Test Ave, Seattle, WA 98101",
+        address_type="mailing",
+        display_name="HQ",
+    )
+    await write_addresses(db, oid, "organization", [addr2])
+    row2 = await db.fetchrow(
+        "SELECT ea.display_name FROM entity_addresses ea"
+        " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+        oid,
+    )
+    assert row2["display_name"] == "HQ"
 
 
 # write_addresses — validity windows (#256)
 
 
-async def test_write_addresses_dated_claim_stores_window(db, org_id, monkeypatch):
+async def test_write_addresses_dated_claim_stores_window(db, org_id, local_address_normalizer):
     """A dated claim persists valid_from / valid_until on the entity_addresses link."""
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        addr = ObservationAddress(
-            raw_input="123 Main St, Seattle, WA 98101",
-            address_type="mailing",
-            valid_from="2020-01-01",
-            valid_until="2021-12-31",
-        )
-        await write_addresses(db, org_id, "organization", [addr])
-        row = await db.fetchrow(
-            "SELECT valid_from, valid_until FROM entity_addresses"
-            " WHERE entity_type='organization' AND entity_id=$1",
-            org_id,
-        )
-        assert row["valid_from"] == date(2020, 1, 1)
-        assert row["valid_until"] == date(2021, 12, 31)
-    finally:
-        addr_mod._reset_normalizer()
+    addr = ObservationAddress(
+        raw_input="123 Main St, Seattle, WA 98101",
+        address_type="mailing",
+        valid_from="2020-01-01",
+        valid_until="2021-12-31",
+    )
+    await write_addresses(db, org_id, "organization", [addr])
+    row = await db.fetchrow(
+        "SELECT valid_from, valid_until FROM entity_addresses"
+        " WHERE entity_type='organization' AND entity_id=$1",
+        org_id,
+    )
+    assert row["valid_from"] == date(2020, 1, 1)
+    assert row["valid_until"] == date(2021, 12, 31)
 
 
-async def test_write_addresses_same_window_dedups(db, org_id, monkeypatch):
+async def test_write_addresses_same_window_dedups(db, org_id, local_address_normalizer):
     """Re-observing the same form + same window is a no-op."""
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        addr = ObservationAddress(
-            raw_input="123 Main St, Seattle, WA 98101",
-            address_type="mailing",
-            valid_from="2020-01-01",
-            valid_until="2021-12-31",
-        )
-        await write_addresses(db, org_id, "organization", [addr])
-        await write_addresses(db, org_id, "organization", [addr])
-        rows = await db.fetch(
-            "SELECT id FROM entity_addresses WHERE entity_type='organization' AND entity_id=$1",
-            org_id,
-        )
-        assert len(rows) == 1
-    finally:
-        addr_mod._reset_normalizer()
+    addr = ObservationAddress(
+        raw_input="123 Main St, Seattle, WA 98101",
+        address_type="mailing",
+        valid_from="2020-01-01",
+        valid_until="2021-12-31",
+    )
+    await write_addresses(db, org_id, "organization", [addr])
+    await write_addresses(db, org_id, "organization", [addr])
+    rows = await db.fetch(
+        "SELECT id FROM entity_addresses WHERE entity_type='organization' AND entity_id=$1",
+        org_id,
+    )
+    assert len(rows) == 1
 
 
-async def test_write_addresses_different_window_new_link_reuses_address(db, org_id, monkeypatch):
+async def test_write_addresses_different_window_new_link_reuses_address(
+    db, org_id, local_address_normalizer
+):
     """A dated claim for a new window creates a second link but reuses the addresses row."""
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        first = ObservationAddress(
-            raw_input="123 Main St, Seattle, WA 98101",
-            address_type="mailing",
-            valid_from="2018-01-01",
-            valid_until="2019-12-31",
-        )
-        second = ObservationAddress(
-            raw_input="123 Main St, Seattle, WA 98101",
-            address_type="mailing",
-            valid_from="2020-01-01",
-        )
-        await write_addresses(db, org_id, "organization", [first])
-        await write_addresses(db, org_id, "organization", [second])
-        rows = await db.fetch(
-            "SELECT address_id, valid_from, valid_until FROM entity_addresses"
-            " WHERE entity_type='organization' AND entity_id=$1 ORDER BY valid_from",
-            org_id,
-        )
-        assert len(rows) == 2
-        # Same physical address reused across both windows — no duplicate addresses row.
-        assert len({r["address_id"] for r in rows}) == 1
-        assert rows[1]["valid_from"] == date(2020, 1, 1)
-        assert rows[1]["valid_until"] is None
-    finally:
-        addr_mod._reset_normalizer()
+    first = ObservationAddress(
+        raw_input="123 Main St, Seattle, WA 98101",
+        address_type="mailing",
+        valid_from="2018-01-01",
+        valid_until="2019-12-31",
+    )
+    second = ObservationAddress(
+        raw_input="123 Main St, Seattle, WA 98101",
+        address_type="mailing",
+        valid_from="2020-01-01",
+    )
+    await write_addresses(db, org_id, "organization", [first])
+    await write_addresses(db, org_id, "organization", [second])
+    rows = await db.fetch(
+        "SELECT address_id, valid_from, valid_until FROM entity_addresses"
+        " WHERE entity_type='organization' AND entity_id=$1 ORDER BY valid_from",
+        org_id,
+    )
+    assert len(rows) == 2
+    # Same physical address reused across both windows — no duplicate addresses row.
+    assert len({r["address_id"] for r in rows}) == 1
+    assert rows[1]["valid_from"] == date(2020, 1, 1)
+    assert rows[1]["valid_until"] is None
 
 
-async def test_write_addresses_dateless_claim_matches_dated_row(db, org_id, monkeypatch):
+async def test_write_addresses_dateless_claim_matches_dated_row(
+    db, org_id, local_address_normalizer
+):
     """Dateless re-observation matches any existing row (incl. dated) — records nothing new.
 
     Admin end-dating stays authoritative: a feed cannot resurrect a current window (#256).
     """
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        dated = ObservationAddress(
-            raw_input="123 Main St, Seattle, WA 98101",
-            address_type="mailing",
-            valid_from="2018-01-01",
-            valid_until="2019-12-31",
-        )
-        dateless = ObservationAddress(
-            raw_input="123 Main St, Seattle, WA 98101", address_type="mailing"
-        )
-        await write_addresses(db, org_id, "organization", [dated])
-        await write_addresses(db, org_id, "organization", [dateless])
-        rows = await db.fetch(
-            "SELECT valid_from, valid_until FROM entity_addresses"
-            " WHERE entity_type='organization' AND entity_id=$1",
-            org_id,
-        )
-        assert len(rows) == 1
-        assert rows[0]["valid_from"] == date(2018, 1, 1)
-    finally:
-        addr_mod._reset_normalizer()
+    dated = ObservationAddress(
+        raw_input="123 Main St, Seattle, WA 98101",
+        address_type="mailing",
+        valid_from="2018-01-01",
+        valid_until="2019-12-31",
+    )
+    dateless = ObservationAddress(
+        raw_input="123 Main St, Seattle, WA 98101", address_type="mailing"
+    )
+    await write_addresses(db, org_id, "organization", [dated])
+    await write_addresses(db, org_id, "organization", [dateless])
+    rows = await db.fetch(
+        "SELECT valid_from, valid_until FROM entity_addresses"
+        " WHERE entity_type='organization' AND entity_id=$1",
+        org_id,
+    )
+    assert len(rows) == 1
+    assert rows[0]["valid_from"] == date(2018, 1, 1)
 
 
-async def test_write_addresses_dated_claim_not_deduped_by_dateless_row(db, org_id, monkeypatch):
+async def test_write_addresses_dated_claim_not_deduped_by_dateless_row(
+    db, org_id, local_address_normalizer
+):
     """A dated claim does not match a pre-existing dateless row — strict window equality."""
-    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
-    addr_mod._reset_normalizer()
-    try:
-        dateless = ObservationAddress(
-            raw_input="123 Main St, Seattle, WA 98101", address_type="mailing"
-        )
-        dated = ObservationAddress(
-            raw_input="123 Main St, Seattle, WA 98101",
-            address_type="mailing",
-            valid_from="2020-01-01",
-        )
-        await write_addresses(db, org_id, "organization", [dateless])
-        await write_addresses(db, org_id, "organization", [dated])
-        rows = await db.fetch(
-            "SELECT address_id, valid_from FROM entity_addresses"
-            " WHERE entity_type='organization' AND entity_id=$1 ORDER BY valid_from NULLS FIRST",
-            org_id,
-        )
-        assert len(rows) == 2
-        assert len({r["address_id"] for r in rows}) == 1  # addresses row reused
-        assert rows[0]["valid_from"] is None
-        assert rows[1]["valid_from"] == date(2020, 1, 1)
-    finally:
-        addr_mod._reset_normalizer()
+    dateless = ObservationAddress(
+        raw_input="123 Main St, Seattle, WA 98101", address_type="mailing"
+    )
+    dated = ObservationAddress(
+        raw_input="123 Main St, Seattle, WA 98101",
+        address_type="mailing",
+        valid_from="2020-01-01",
+    )
+    await write_addresses(db, org_id, "organization", [dateless])
+    await write_addresses(db, org_id, "organization", [dated])
+    rows = await db.fetch(
+        "SELECT address_id, valid_from FROM entity_addresses"
+        " WHERE entity_type='organization' AND entity_id=$1 ORDER BY valid_from NULLS FIRST",
+        org_id,
+    )
+    assert len(rows) == 2
+    assert len({r["address_id"] for r in rows}) == 1  # addresses row reused
+    assert rows[0]["valid_from"] is None
+    assert rows[1]["valid_from"] == date(2020, 1, 1)
 
 
 # ---------------------------------------------------------------------------

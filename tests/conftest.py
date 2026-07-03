@@ -17,6 +17,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import apply_schema
+from src.core.normalizers import address as addr_mod
 
 INTEGRATION_SKIP_REASON = (
     "TEST_DATABASE_URL not set — set it in .env (see docs/COMMANDS.md); skipping integration tests"
@@ -112,3 +113,20 @@ async def db_pool():
         yield pool
     finally:
         await pool.close()
+
+
+@pytest.fixture
+def local_address_normalizer(monkeypatch):
+    """Pin the local (usaddress) normalizer for tests that write address claims.
+
+    Deletes ADDRESS_VALIDATOR_API_KEY and resets the cached normalizer so address
+    claims normalize deterministically without depending on the external validator.
+    Request it from any test — writer-level or endpoint-level — whose path reaches
+    ``write_addresses``.
+    """
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
+    addr_mod._reset_normalizer()
+    try:
+        yield
+    finally:
+        addr_mod._reset_normalizer()
