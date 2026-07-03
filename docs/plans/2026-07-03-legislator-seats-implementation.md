@@ -85,17 +85,20 @@ columns.
 7. **Verify**: full `pytest` + `ruff` + pre-commit green; spot-check the public
    roles endpoints against the dev server on 8001.
 
-## Open questions / risks
+## Open questions / risks — resolved 2026-07-03
 
-- **role_type enforcement**: `role_type_id` is nullable for backward compat.
-  Should we require it when `jurisdiction_id` is set (a districted seat with no
-  office is meaningless)? Leaning yes via a CHECK; confirm.
-- **`uq_role_org_title` consumers**: `deduplicate_roles.py` relies on the old
-  index name/key (step 5). Any missed reference would break dedup silently.
-- **Public API shape**: expose `role_type` as `id` + `slug` (matches how
-  jurisdictions/link_types are surfaced) vs a nested object. Proposing id + slug.
-- **Change-feed / entity subscriptions**: verify role column additions propagate
-  through `entity_changes` without a trigger column-list edit.
-- **Title still required**: `roles.title` stays NOT NULL; observation callers
-  supply a display title for seats for now. Auto-derived display label is deferred
-  to the admin plan.
+- **role_type enforcement** → DECIDED: require `role_type_id` when
+  `jurisdiction_id` is set, via a CHECK (`jurisdiction_id IS NULL OR
+  role_type_id IS NOT NULL`).
+- **`uq_role_org_title` consumers** → AGREED: update `deduplicate_roles.py` (and
+  any other reference) in lockstep (step 5). Missed reference would break dedup
+  silently — grep-verify.
+- **Public API shape** → DECIDED: expose `role_type` as `id` + `slug` (matches
+  jurisdictions/link_types).
+- **Change-feed / entity subscriptions** → AGREED: verify role column additions
+  propagate through `entity_changes` without a trigger column-list edit.
+- **Title still required** → AGREED: `roles.title` stays NOT NULL; observation
+  callers supply a display title for seats. Auto-derived label deferred to the
+  admin plan.
+- Also register `role_types` in `tests/conftest.py::_REFERENCE_TABLES` so its
+  seed survives per-session truncation.

@@ -155,6 +155,16 @@ CREATE TABLE IF NOT EXISTS organization_jurisdiction_affiliation_types (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Typed office/kind classifier for roles (#261). Lets "all Representatives",
+-- "all Senators" aggregate reliably across districts/chambers/states without
+-- matching free-text titles. FK'd from roles.role_type_id (added by migration).
+CREATE TABLE IF NOT EXISTS role_types (
+    id           TEXT        PRIMARY KEY,
+    slug         TEXT        NOT NULL UNIQUE,
+    display_name TEXT        NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- =============================================================================
 -- Core Entities
 -- =============================================================================
@@ -598,6 +608,91 @@ DO $$ BEGIN
             CHECK (established_on IS NULL OR abolished_on IS NULL
                    OR established_on <= abolished_on);
     END IF;
+END $$;
+
+-- =============================================================================
+-- Legislator seat-Roles (#261): role_type_id + jurisdiction_id + qualifier turn
+-- a role into a durable "seat" (office + district + position). Occupant/tenure
+-- stays in role_assignments. See docs/plans/2026-07-03-legislator-*-design.md.
+-- =============================================================================
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='roles' AND column_name='role_type_id'
+    ) THEN
+        ALTER TABLE roles ADD COLUMN role_type_id TEXT REFERENCES role_types(id);
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='roles' AND column_name='jurisdiction_id'
+    ) THEN
+        ALTER TABLE roles ADD COLUMN jurisdiction_id TEXT REFERENCES jurisdictions(id);
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='roles' AND column_name='qualifier'
+    ) THEN
+        ALTER TABLE roles ADD COLUMN qualifier TEXT;
+    END IF;
+END $$;
+
+-- A districted role (a seat) must name its office.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name='roles' AND constraint_name='chk_role_districted_needs_type'
+    ) THEN
+        ALTER TABLE roles ADD CONSTRAINT chk_role_districted_needs_type
+            CHECK (jurisdiction_id IS NULL OR role_type_id IS NOT NULL);
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_roles_role_type ON roles(role_type_id);
+CREATE INDEX IF NOT EXISTS idx_roles_jurisdiction ON roles(jurisdiction_id);
+
+-- Split role uniqueness (supersedes the (organization_id, lower(title)) form
+-- created above):
+--   * districted seats: identity = chamber + office + district + position;
+--     NULLS NOT DISTINCT makes a NULL qualifier unique per district (one senator).
+--   * non-districted roles (leadership, generic): keep title-based identity.
+-- Drop the pre-#261 index only if present in its old (no jurisdiction predicate)
+-- form, so re-applies don't churn.
+DO $$
+DECLARE d TEXT;
+BEGIN
+    SELECT indexdef INTO d FROM pg_indexes
+    WHERE schemaname='public' AND indexname='uq_role_org_title';
+    IF d IS NOT NULL AND position('jurisdiction_id' IN d) = 0 THEN
+        DROP INDEX uq_role_org_title;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_role_seat
+        ON roles (organization_id, role_type_id, jurisdiction_id, qualifier)
+        NULLS NOT DISTINCT
+        WHERE jurisdiction_id IS NOT NULL AND archived_at IS NULL;
+EXCEPTION WHEN unique_violation THEN
+    RAISE WARNING
+        'uq_role_seat not created: duplicate (org, role_type, jurisdiction, '
+        'qualifier) seats exist. Resolve duplicates then re-apply schema.';
+END $$;
+
+DO $$ BEGIN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_role_org_title
+        ON roles (organization_id, lower(title))
+        WHERE jurisdiction_id IS NULL AND archived_at IS NULL;
+EXCEPTION WHEN unique_violation THEN
+    RAISE WARNING
+        'uq_role_org_title not created: duplicate (organization_id, title) rows '
+        'exist. Run scripts/deduplicate_roles.py --execute then re-apply schema.';
 END $$;
 
 -- organization_names real-world effective-date timeline (#239). Lets PM answer
@@ -1308,6 +1403,15 @@ ON CONFLICT (id) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     category     = EXCLUDED.category,
     is_symmetric = EXCLUDED.is_symmetric;
+
+-- Role-type classifier seed (#261). Extend as new offices are modeled
+-- (speaker, majority_leader, committee_chair, ...).
+INSERT INTO role_types (id, slug, display_name) VALUES
+    ('01KX0000000000000000000001', 'state_representative', 'State Representative'),
+    ('01KX0000000000000000000002', 'state_senator',        'State Senator')
+ON CONFLICT (id) DO UPDATE SET
+    slug         = EXCLUDED.slug,
+    display_name = EXCLUDED.display_name;
 
 -- =============================================================================
 -- Entity Event Types Seed Data (#170)
