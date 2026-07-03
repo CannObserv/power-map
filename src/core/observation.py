@@ -665,13 +665,24 @@ async def resolve_role(
     notes: str | None = None,
     established_on: date | None = None,
     abolished_on: date | None = None,
+    role_type_id: str | None = None,
+    jurisdiction_id: str | None = None,
+    qualifier: str | None = None,
 ) -> tuple[str, Disposition, str | None]:
-    """Match or create a role by (organization_id, lower(title)).
+    """Match or create a role.
+
+    Non-districted roles (jurisdiction_id is None) match by
+    (organization_id, lower(title)). Districted seats (jurisdiction_id set)
+    match by (organization_id, role_type_id, jurisdiction_id, qualifier), so
+    distinct seats sharing a title — e.g. the two WA House positions in a
+    district — never collapse into one another, and a title-only observation
+    never glues onto a seat.
 
     Returns (role_id, disposition, reason).
     disposition is AUTO_ATTACHED if an active (non-archived) match is found,
-    NEW if created, REJECTED if the organization_id does not exist.
-    reason is a human-readable string on REJECTED, None otherwise.
+    NEW if created, REJECTED if a referenced entity is missing or a districted
+    role omits its office. reason is a human-readable string on REJECTED,
+    None otherwise.
     """
     org_exists = await conn.fetchval(
         "SELECT 1 FROM organizations WHERE id=$1 AND archived_at IS NULL", organization_id
@@ -680,27 +691,64 @@ async def resolve_role(
         logger.warning("resolve_role: unknown organization_id=%r", organization_id)
         return "", Disposition.REJECTED, f"org_not_found: {organization_id!r}"
 
-    existing = await conn.fetchrow(
-        "SELECT id FROM roles WHERE organization_id=$1 AND lower(title)=lower($2)"
-        " AND archived_at IS NULL",
-        organization_id,
-        title,
-    )
+    if jurisdiction_id is not None:
+        jur_exists = await conn.fetchval("SELECT 1 FROM jurisdictions WHERE id=$1", jurisdiction_id)
+        if not jur_exists:
+            return "", Disposition.REJECTED, f"jurisdiction_not_found: {jurisdiction_id!r}"
+        if role_type_id is None:
+            return "", Disposition.REJECTED, "role_type_required_for_districted_role"
+
+    if role_type_id is not None:
+        rt_exists = await conn.fetchval("SELECT 1 FROM role_types WHERE id=$1", role_type_id)
+        if not rt_exists:
+            return "", Disposition.REJECTED, f"role_type_not_found: {role_type_id!r}"
+
+    if jurisdiction_id is not None:
+        existing = await conn.fetchrow(
+            "SELECT id FROM roles WHERE organization_id=$1"
+            " AND role_type_id IS NOT DISTINCT FROM $2"
+            " AND jurisdiction_id=$3"
+            " AND qualifier IS NOT DISTINCT FROM $4"
+            " AND archived_at IS NULL",
+            organization_id,
+            role_type_id,
+            jurisdiction_id,
+            qualifier,
+        )
+    else:
+        existing = await conn.fetchrow(
+            "SELECT id FROM roles WHERE organization_id=$1 AND lower(title)=lower($2)"
+            " AND jurisdiction_id IS NULL AND archived_at IS NULL",
+            organization_id,
+            title,
+        )
     if existing:
         return existing["id"], Disposition.AUTO_ATTACHED, None
 
     role_id = generate_id()
     await conn.execute(
-        "INSERT INTO roles (id, organization_id, title, notes, established_on, abolished_on)"
-        " VALUES ($1,$2,$3,$4,$5,$6)",
+        "INSERT INTO roles"
+        " (id, organization_id, title, notes, established_on, abolished_on,"
+        "  role_type_id, jurisdiction_id, qualifier)"
+        " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         role_id,
         organization_id,
         title,
         notes,
         established_on,
         abolished_on,
+        role_type_id,
+        jurisdiction_id,
+        qualifier,
     )
-    logger.info("Created role id=%s org=%s title=%r", role_id, organization_id, title)
+    logger.info(
+        "Created role id=%s org=%s title=%r jurisdiction=%s qualifier=%r",
+        role_id,
+        organization_id,
+        title,
+        jurisdiction_id,
+        qualifier,
+    )
     return role_id, Disposition.NEW, None
 
 
