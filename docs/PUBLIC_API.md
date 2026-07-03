@@ -527,7 +527,7 @@ Two mutually exclusive resolution modes:
 | `organization_id` | standard mode | ULID of the owning organization. Must exist and be active; unknown/archived org → `rejected`. |
 | `title` | standard mode | Role title. Case-insensitive match against existing non-districted roles in the same org. For a seat, still supply a display title (e.g. `"State Representative"`). |
 | `role_type` | seat | `role_types` slug (e.g. `state_representative`, `state_senator`). Required when `jurisdiction_id` is supplied; unknown slug → `rejected`. |
-| `jurisdiction_id` | seat | PM jurisdiction ULID for a districted seat. When present, matching/uniqueness switches to seat identity. |
+| `jurisdiction_id` | seat | PM jurisdiction ULID for a districted seat. When present, matching/uniqueness switches to seat identity. A superseded/redistricted (historical) district is valid — only a soft-deleted (archived) district is rejected — so seats can be created against the district that was in effect. |
 | `qualifier` | optional (seat) | Position label disambiguating seats in one district (e.g. `"Position 1"`). Requires `jurisdiction_id` (422 otherwise). NULL/omitted for single-seat offices. |
 | `notes` | optional | Free text. Only written on NEW. |
 | `established_on` | optional | ISO 8601 date. Only written on NEW. |
@@ -542,7 +542,7 @@ Two mutually exclusive resolution modes:
 |-------------|-----------|
 | `new` | No active matching role found (plain: `(org_id, lower(title))`; seat: `(org_id, role_type, jurisdiction_id, qualifier)`); role created (standard mode only) |
 | `auto-attached` | Active matching role already exists (standard) or known ULID supplied (PM-native); attribute writes still applied |
-| `rejected` | Organization unknown or archived; unknown/archived ULID (PM-native); unknown `role_type` slug; districted seat missing `role_type`; unknown `jurisdiction_id`; DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
+| `rejected` | Organization unknown or archived; unknown/archived ULID (PM-native); unknown `role_type` slug; districted seat missing `role_type`; unknown or archived `jurisdiction_id`; DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **Note:** `notes`, `established_on`, and `abolished_on` are only written on NEW disposition. They are intentionally not updated on AUTO_ATTACHED to preserve first-submitter authority over these core role fields.
 

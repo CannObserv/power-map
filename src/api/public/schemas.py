@@ -1012,6 +1012,14 @@ class RoleObservationRequest(BaseModel):
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
     addresses: list[ObservationAddress] = Field(default_factory=list)
 
+    @field_validator("qualifier", mode="before")
+    @classmethod
+    def _normalize_qualifier(cls, v: object) -> object:
+        """Trim whitespace and collapse empty/whitespace-only to None."""
+        if isinstance(v, str):
+            v = v.strip()
+        return v or None
+
     @model_validator(mode="after")
     def _check_qualifier_needs_jurisdiction(self) -> "RoleObservationRequest":
         if self.qualifier is not None and self.jurisdiction_id is None:

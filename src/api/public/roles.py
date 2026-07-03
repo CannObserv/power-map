@@ -201,26 +201,24 @@ async def submit_role_observation(
         role_id = row["id"]
         disposition = Disposition.AUTO_ATTACHED
     else:
-        role_type_id: str | None = None
-        if req.role_type is not None:
-            role_type_id = await db.fetchval(
-                "SELECT id FROM role_types WHERE slug=$1", req.role_type
-            )
-            if role_type_id is None:
-                return ObservationResponse(
-                    disposition="rejected", reason=f"role_type_not_found: {req.role_type!r}"
-                )
-        role_id, disposition, reason = await resolve_role(
-            db,
-            req.organization_id,
-            req.title,
+        resolve_kwargs = dict(
             notes=req.notes,
             established_on=req.established_on,
             abolished_on=req.abolished_on,
-            role_type_id=role_type_id,
+            role_type=req.role_type,
             jurisdiction_id=req.jurisdiction_id,
             qualifier=req.qualifier,
         )
+        try:
+            role_id, disposition, reason = await resolve_role(
+                db, req.organization_id, req.title, **resolve_kwargs
+            )
+        except asyncpg.UniqueViolationError:
+            # Concurrent create of the same role/seat: re-resolve so the loser
+            # of the race attaches to the winner's row instead of 500-ing.
+            role_id, disposition, reason = await resolve_role(
+                db, req.organization_id, req.title, **resolve_kwargs
+            )
         if disposition is Disposition.REJECTED:
             return ObservationResponse(disposition="rejected", reason=reason)
 

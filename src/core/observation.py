@@ -665,7 +665,7 @@ async def resolve_role(
     notes: str | None = None,
     established_on: date | None = None,
     abolished_on: date | None = None,
-    role_type_id: str | None = None,
+    role_type: str | None = None,
     jurisdiction_id: str | None = None,
     qualifier: str | None = None,
 ) -> tuple[str, Disposition, str | None]:
@@ -673,16 +673,26 @@ async def resolve_role(
 
     Non-districted roles (jurisdiction_id is None) match by
     (organization_id, lower(title)). Districted seats (jurisdiction_id set)
-    match by (organization_id, role_type_id, jurisdiction_id, qualifier), so
+    match by (organization_id, role_type, jurisdiction_id, qualifier), so
     distinct seats sharing a title — e.g. the two WA House positions in a
     district — never collapse into one another, and a title-only observation
     never glues onto a seat.
 
+    ``role_type`` is a ``role_types`` slug, resolved and validated here — the
+    single resolution point for both the observation endpoint and direct
+    callers.
+
+    Jurisdiction history: a superseded/redistricted district row stays
+    ``archived_at IS NULL`` (supersession is tracked via ``superseded_at`` /
+    ``valid_until`` / lineage edges, not soft-delete), so it remains a valid
+    seat reference — historical seats can be created against the district that
+    was in effect. Only a truly archived (soft-deleted) district is rejected.
+
     Returns (role_id, disposition, reason).
     disposition is AUTO_ATTACHED if an active (non-archived) match is found,
-    NEW if created, REJECTED if a referenced entity is missing or a districted
-    role omits its office. reason is a human-readable string on REJECTED,
-    None otherwise.
+    NEW if created, REJECTED if a referenced entity is missing/archived or a
+    districted role omits its office. reason is a human-readable string on
+    REJECTED, None otherwise.
     """
     org_exists = await conn.fetchval(
         "SELECT 1 FROM organizations WHERE id=$1 AND archived_at IS NULL", organization_id
@@ -691,17 +701,27 @@ async def resolve_role(
         logger.warning("resolve_role: unknown organization_id=%r", organization_id)
         return "", Disposition.REJECTED, f"org_not_found: {organization_id!r}"
 
+    role_type_id: str | None = None
+    if role_type is not None:
+        role_type_id = await conn.fetchval("SELECT id FROM role_types WHERE slug=$1", role_type)
+        if role_type_id is None:
+            return "", Disposition.REJECTED, f"role_type_not_found: {role_type!r}"
+
     if jurisdiction_id is not None:
-        jur_exists = await conn.fetchval("SELECT 1 FROM jurisdictions WHERE id=$1", jurisdiction_id)
-        if not jur_exists:
+        jur = await conn.fetchrow(
+            "SELECT archived_at FROM jurisdictions WHERE id=$1", jurisdiction_id
+        )
+        if jur is None:
             return "", Disposition.REJECTED, f"jurisdiction_not_found: {jurisdiction_id!r}"
+        if jur["archived_at"] is not None:
+            return "", Disposition.REJECTED, f"jurisdiction_archived: {jurisdiction_id!r}"
         if role_type_id is None:
             return "", Disposition.REJECTED, "role_type_required_for_districted_role"
 
-    if role_type_id is not None:
-        rt_exists = await conn.fetchval("SELECT 1 FROM role_types WHERE id=$1", role_type_id)
-        if not rt_exists:
-            return "", Disposition.REJECTED, f"role_type_not_found: {role_type_id!r}"
+    # NOTE: title-mode matching below keys on (org, lower(title)) and ignores
+    # role_type_id. Harmless today — role_type is only set on seats, which carry
+    # a jurisdiction and take the seat-match branch. Revisit when non-districted
+    # typed roles (e.g. chamber leadership) are introduced.
 
     if jurisdiction_id is not None:
         existing = await conn.fetchrow(

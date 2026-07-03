@@ -2,7 +2,8 @@
 
 Districted seats match by (org, role_type, jurisdiction, qualifier); distinct
 seats sharing a title must not collapse. Non-districted title matching is
-unchanged.
+unchanged. A superseded/historical district is a valid seat reference; only a
+soft-deleted (archived) district is rejected.
 """
 
 import pytest
@@ -46,18 +47,13 @@ async def _jur(db) -> str:
     return jid
 
 
-async def _rt(db, slug: str) -> str:
-    return await db.fetchval("SELECT id FROM role_types WHERE slug=$1", slug)
-
-
 async def test_distinct_qualifiers_create_distinct_seats(db):
     org, jur = await _org(db), await _jur(db)
-    rt = await _rt(db, "state_representative")
     id1, disp1, _ = await resolve_role(
         db,
         org,
         "State Representative",
-        role_type_id=rt,
+        role_type="state_representative",
         jurisdiction_id=jur,
         qualifier="Position 1",
     )
@@ -65,7 +61,7 @@ async def test_distinct_qualifiers_create_distinct_seats(db):
         db,
         org,
         "State Representative",
-        role_type_id=rt,
+        role_type="state_representative",
         jurisdiction_id=jur,
         qualifier="Position 2",
     )
@@ -76,8 +72,7 @@ async def test_distinct_qualifiers_create_distinct_seats(db):
 
 async def test_same_seat_auto_attaches(db):
     org, jur = await _org(db), await _jur(db)
-    rt = await _rt(db, "state_representative")
-    kw = dict(role_type_id=rt, jurisdiction_id=jur, qualifier="Position 1")
+    kw = dict(role_type="state_representative", jurisdiction_id=jur, qualifier="Position 1")
     id1, disp1, _ = await resolve_role(db, org, "State Representative", **kw)
     id2, disp2, _ = await resolve_role(db, org, "State Representative", **kw)
     assert disp1 is Disposition.NEW
@@ -87,13 +82,9 @@ async def test_same_seat_auto_attaches(db):
 
 async def test_senate_seat_null_qualifier_auto_attaches(db):
     org, jur = await _org(db), await _jur(db)
-    rt = await _rt(db, "state_senator")
-    id1, disp1, _ = await resolve_role(
-        db, org, "State Senator", role_type_id=rt, jurisdiction_id=jur
-    )
-    id2, disp2, _ = await resolve_role(
-        db, org, "State Senator", role_type_id=rt, jurisdiction_id=jur
-    )
+    kw = dict(role_type="state_senator", jurisdiction_id=jur)
+    id1, disp1, _ = await resolve_role(db, org, "State Senator", **kw)
+    id2, disp2, _ = await resolve_role(db, org, "State Senator", **kw)
     assert disp1 is Disposition.NEW
     assert disp2 is Disposition.AUTO_ATTACHED
     assert id1 == id2
@@ -111,12 +102,11 @@ async def test_title_only_path_unchanged(db):
 async def test_title_observation_does_not_attach_to_seat(db):
     """A title-only resolve must not glue onto a districted seat of the same title."""
     org, jur = await _org(db), await _jur(db)
-    rt = await _rt(db, "state_representative")
     seat_id, _, _ = await resolve_role(
         db,
         org,
         "State Representative",
-        role_type_id=rt,
+        role_type="state_representative",
         jurisdiction_id=jur,
         qualifier="Position 1",
     )
@@ -137,9 +127,12 @@ async def test_districted_requires_role_type(db):
 
 async def test_unknown_jurisdiction_rejected(db):
     org = await _org(db)
-    rt = await _rt(db, "state_representative")
     role_id, disp, reason = await resolve_role(
-        db, org, "State Representative", role_type_id=rt, jurisdiction_id=generate_id()
+        db,
+        org,
+        "State Representative",
+        role_type="state_representative",
+        jurisdiction_id=generate_id(),
     )
     assert disp is Disposition.REJECTED
     assert "jurisdiction_not_found" in reason
@@ -148,7 +141,64 @@ async def test_unknown_jurisdiction_rejected(db):
 async def test_unknown_role_type_rejected(db):
     org, jur = await _org(db), await _jur(db)
     role_id, disp, reason = await resolve_role(
-        db, org, "State Representative", role_type_id=generate_id(), jurisdiction_id=jur
+        db, org, "State Representative", role_type="not_a_real_office", jurisdiction_id=jur
     )
     assert disp is Disposition.REJECTED
     assert "role_type_not_found" in reason
+
+
+async def test_superseded_jurisdiction_allows_historical_seat(db):
+    """A redistricted (superseded, past-valid) district is still referenceable.
+
+    Supersession sets superseded_at / valid_until, not archived_at, so a
+    historical seat can be created against the district that was in effect.
+    """
+    org = await _org(db)
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    jid = generate_id()
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id, valid_until, superseded_at)"
+        " VALUES ($1,$2,$3,$4, DATE '2012-01-01', NOW() - INTERVAL '10 years')",
+        jid,
+        f"ld-old-{jid[-8:].lower()}",
+        "LD-5 (2002 plan)",
+        type_id,
+    )
+    role_id, disp, _ = await resolve_role(
+        db,
+        org,
+        "State Representative",
+        role_type="state_representative",
+        jurisdiction_id=jid,
+        qualifier="Position 1",
+    )
+    assert disp is Disposition.NEW
+    assert role_id != ""
+
+
+async def test_archived_jurisdiction_rejected(db):
+    """A soft-deleted (archived) district is not a valid seat reference."""
+    org = await _org(db)
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    jid = generate_id()
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+        " VALUES ($1,$2,$3,$4, NOW())",
+        jid,
+        f"ld-arch-{jid[-8:].lower()}",
+        "Deleted LD",
+        type_id,
+    )
+    role_id, disp, reason = await resolve_role(
+        db,
+        org,
+        "State Representative",
+        role_type="state_representative",
+        jurisdiction_id=jid,
+    )
+    assert disp is Disposition.REJECTED
+    assert "jurisdiction_archived" in reason

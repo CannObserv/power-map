@@ -341,6 +341,14 @@ CREATE TABLE IF NOT EXISTS role_assignments (
 -- NOTE: index creation is skipped (with a warning) if duplicate rows exist.
 -- Run scripts/deduplicate_roles.py --execute before applying this schema if the
 -- index fails to create, then re-run apply_schema to pick it up.
+--
+-- SUPERSEDED by the #261 role-uniqueness split further below (search
+-- "Legislator seat-Roles"): that migration DROPs this pre-#261 form and
+-- recreates uq_role_org_title with an added `jurisdiction_id IS NULL` predicate
+-- (plus the seat index uq_role_seat). This block still creates the old form on
+-- a fresh DB; the migration replaces it in the same apply. Kept here because the
+-- predicate below can't reference jurisdiction_id, which doesn't exist yet at
+-- this point in the file.
 DO $$ BEGIN
     CREATE UNIQUE INDEX IF NOT EXISTS uq_role_org_title
         ON roles (organization_id, lower(title))
