@@ -235,3 +235,81 @@ async def test_dry_run_makes_no_changes(db):
     assert result.roles_removed >= 1
     assert result.assignments_removed >= 1
     assert result.dry_run is True
+
+
+# ---------------------------------------------------------------------------
+# #261 — seat-Role dedup: collapse true seat dupes, never distinct seats
+# ---------------------------------------------------------------------------
+
+
+async def _jur(conn: asyncpg.Connection) -> str:
+    jid = generate_id()
+    type_id = await conn.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    await conn.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        f"ld-dedup-{jid[-8:].lower()}",
+        "Test LD (dedup)",
+        type_id,
+    )
+    return jid
+
+
+async def _insert_seat(conn, org_id, jur_id, qualifier) -> str:
+    rid = generate_id()
+    rt = await conn.fetchval("SELECT id FROM role_types WHERE slug='state_representative'")
+    await conn.execute(
+        "INSERT INTO roles"
+        " (id, organization_id, title, role_type_id, jurisdiction_id, qualifier)"
+        " VALUES ($1,$2,$3,$4,$5,$6)",
+        rid,
+        org_id,
+        "State Representative",
+        rt,
+        jur_id,
+        qualifier,
+    )
+    return rid
+
+
+async def test_dedup_collapses_duplicate_seats(db):
+    """Two identical seats (same org, role_type, jurisdiction, qualifier) collapse to one."""
+    org_id = await _org(db)
+    jur_id = await _jur(db)
+    await db.execute("DROP INDEX IF EXISTS uq_role_seat")
+    a = await _insert_seat(db, org_id, jur_id, "Position 1")
+    b = await _insert_seat(db, org_id, jur_id, "Position 1")
+
+    await run_deduplication(db, dry_run=False)
+
+    remaining = await db.fetch(
+        "SELECT id FROM roles WHERE organization_id=$1 AND jurisdiction_id=$2"
+        " AND archived_at IS NULL",
+        org_id,
+        jur_id,
+    )
+    assert len(remaining) == 1
+    assert remaining[0]["id"] == min(a, b)
+
+
+async def test_dedup_preserves_distinct_positions(db):
+    """Two positions share the title 'State Representative' but are NOT duplicates."""
+    org_id = await _org(db)
+    jur_id = await _jur(db)
+    p1 = await _insert_seat(db, org_id, jur_id, "Position 1")
+    p2 = await _insert_seat(db, org_id, jur_id, "Position 2")
+
+    await run_deduplication(db, dry_run=False)
+
+    ids = {
+        r["id"]
+        for r in await db.fetch(
+            "SELECT id FROM roles WHERE organization_id=$1 AND jurisdiction_id=$2"
+            " AND archived_at IS NULL",
+            org_id,
+            jur_id,
+        )
+    }
+    assert ids == {p1, p2}
