@@ -189,6 +189,15 @@ async def submit_role_observation(
         role_id = row["id"]
         disposition = Disposition.AUTO_ATTACHED
     else:
+        role_type_id: str | None = None
+        if req.role_type is not None:
+            role_type_id = await db.fetchval(
+                "SELECT id FROM role_types WHERE slug=$1", req.role_type
+            )
+            if role_type_id is None:
+                return ObservationResponse(
+                    disposition="rejected", reason=f"role_type_not_found: {req.role_type!r}"
+                )
         role_id, disposition, reason = await resolve_role(
             db,
             req.organization_id,
@@ -196,6 +205,9 @@ async def submit_role_observation(
             notes=req.notes,
             established_on=req.established_on,
             abolished_on=req.abolished_on,
+            role_type_id=role_type_id,
+            jurisdiction_id=req.jurisdiction_id,
+            qualifier=req.qualifier,
         )
         if disposition is Disposition.REJECTED:
             return ObservationResponse(disposition="rejected", reason=reason)
