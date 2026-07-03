@@ -541,8 +541,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
             "SELECT ea.id FROM entity_addresses ea"
             " JOIN addresses a ON a.id = ea.address_id"
             " WHERE ea.entity_type=$1 AND ea.entity_id=$2 AND ea.address_type=$3"
-            "   AND COALESCE(a.standardized, a.raw_input) = $4"
-            f"{window_clause}",
+            "   AND COALESCE(a.standardized, a.raw_input) = $4" + window_clause,
             *params,
         )
         if existing:
@@ -567,6 +566,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
             " JOIN addresses a ON a.id = ea.address_id"
             " WHERE ea.entity_type=$1 AND ea.entity_id=$2 AND ea.address_type=$3"
             "   AND COALESCE(a.standardized, a.raw_input) = $4"
+            " ORDER BY ea.created_at, ea.id"
             " LIMIT 1",
             entity_type,
             entity_id,
