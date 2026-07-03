@@ -223,10 +223,14 @@ screens and the dashboard API-activity panel.
 
 ## Unique Indexes (PostgreSQL 15+)
 
-- `uq_role_org_title` — `roles(organization_id, lower(title)) WHERE archived_at IS NULL`
+- Role uniqueness is **split by seat vs non-seat** (#261):
+  - `uq_role_seat` — `roles(organization_id, role_type_id, jurisdiction_id, qualifier) NULLS NOT DISTINCT WHERE jurisdiction_id IS NOT NULL AND archived_at IS NULL` — a districted seat's identity is chamber + office + district + position; `NULLS NOT DISTINCT` makes a NULL `qualifier` unique per district (one senator).
+  - `uq_role_org_title` — `roles(organization_id, lower(title)) WHERE jurisdiction_id IS NULL AND archived_at IS NULL` — non-districted roles keep title-based identity.
+  - A districted role must name its office: `chk_role_districted_needs_type` (`jurisdiction_id IS NULL OR role_type_id IS NOT NULL`).
 - `uq_role_assignment_person_role_start` — `role_assignments(person_id, role_id, start_date) NULLS NOT DISTINCT WHERE archived_at IS NULL`
-- Both created inside `DO … EXCEPTION WHEN unique_violation` blocks so `apply_schema` is safe on DBs with existing duplicates (logs WARNING instead of raising)
+- All created inside `DO … EXCEPTION WHEN unique_violation` blocks so `apply_schema` is safe on DBs with existing duplicates (logs WARNING instead of raising)
 - Schema tests for `uq_role_org_title` are guarded by a `require_uq_role_org_title` fixture that skips when the index is absent
+- `deduplicate_roles.py` collapses in two passes matching the split: non-districted by `(organization_id, lower(title))`, districted seats by `(organization_id, role_type_id, jurisdiction_id, qualifier)` — it never merges distinct seats that share a title
 
 **Bootstrap sequence for a dirty DB:** (1) run `scripts/deduplicate_roles.py --execute` to collapse duplicates, (2) re-run `apply_schema` (or restart the service) to create the indexes, (3) verify with `\d roles` / `\d role_assignments` in psql.
 

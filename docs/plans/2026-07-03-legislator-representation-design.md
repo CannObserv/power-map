@@ -132,8 +132,17 @@ role_assignments:  Alice -> LD-5 Position 1 seat, 2023-01-09 .. 2025-01-13 (is_c
   (`valid_from` / `valid_until`, `supersedes` / `evolved_from` edges). The seat
   is never re-pointed. Single-FK, YAGNI-friendly; a dated seat<->district
   junction was explicitly declined.
-- **Abolished seat**: existing `roles.archived_at` (this is what "validity on
-  roles" resolves to; no new role date columns).
+- **Seat lifecycle dates**: `roles` already carries `established_on` /
+  `abolished_on` DATE columns (with a `chk_role_date_order` CHECK). These are the
+  role-level "validity" dates — a seat created or abolished by reapportionment.
+  No new date columns were added. Correction to an earlier draft that claimed
+  role dates did not exist and pointed only at `archived_at`.
+- **Archive vs abolish**: `roles.archived_at` remains soft-delete (data hygiene),
+  distinct from `abolished_on` (the seat ceased to exist in the world).
+- **Implemented as** issue #261 / branch `feature/legislator-seats`; the new
+  columns are `role_type_id` (FK `role_types`), `jurisdiction_id`, `qualifier`,
+  with a `chk_role_districted_needs_type` CHECK and split `uq_role_seat` /
+  `uq_role_org_title` partial unique indexes.
 
 ## Open choices (defaults chosen)
 
