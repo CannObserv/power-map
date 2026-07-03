@@ -801,6 +801,144 @@ async def test_write_addresses_initial_empty_string_stored_as_null(db, monkeypat
         addr_mod._reset_normalizer()
 
 
+# write_addresses — validity windows (#256)
+
+
+async def test_write_addresses_dated_claim_stores_window(db, org_id, monkeypatch):
+    """A dated claim persists valid_from / valid_until on the entity_addresses link."""
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
+    addr_mod._reset_normalizer()
+    try:
+        addr = ObservationAddress(
+            raw_input="123 Main St, Seattle, WA 98101",
+            address_type="mailing",
+            valid_from="2020-01-01",
+            valid_until="2021-12-31",
+        )
+        await write_addresses(db, org_id, "organization", [addr])
+        row = await db.fetchrow(
+            "SELECT valid_from, valid_until FROM entity_addresses"
+            " WHERE entity_type='organization' AND entity_id=$1",
+            org_id,
+        )
+        assert row["valid_from"] == date(2020, 1, 1)
+        assert row["valid_until"] == date(2021, 12, 31)
+    finally:
+        addr_mod._reset_normalizer()
+
+
+async def test_write_addresses_same_window_dedups(db, org_id, monkeypatch):
+    """Re-observing the same form + same window is a no-op."""
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
+    addr_mod._reset_normalizer()
+    try:
+        addr = ObservationAddress(
+            raw_input="123 Main St, Seattle, WA 98101",
+            address_type="mailing",
+            valid_from="2020-01-01",
+            valid_until="2021-12-31",
+        )
+        await write_addresses(db, org_id, "organization", [addr])
+        await write_addresses(db, org_id, "organization", [addr])
+        rows = await db.fetch(
+            "SELECT id FROM entity_addresses WHERE entity_type='organization' AND entity_id=$1",
+            org_id,
+        )
+        assert len(rows) == 1
+    finally:
+        addr_mod._reset_normalizer()
+
+
+async def test_write_addresses_different_window_new_link_reuses_address(db, org_id, monkeypatch):
+    """A dated claim for a new window creates a second link but reuses the addresses row."""
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
+    addr_mod._reset_normalizer()
+    try:
+        first = ObservationAddress(
+            raw_input="123 Main St, Seattle, WA 98101",
+            address_type="mailing",
+            valid_from="2018-01-01",
+            valid_until="2019-12-31",
+        )
+        second = ObservationAddress(
+            raw_input="123 Main St, Seattle, WA 98101",
+            address_type="mailing",
+            valid_from="2020-01-01",
+        )
+        await write_addresses(db, org_id, "organization", [first])
+        await write_addresses(db, org_id, "organization", [second])
+        rows = await db.fetch(
+            "SELECT address_id, valid_from, valid_until FROM entity_addresses"
+            " WHERE entity_type='organization' AND entity_id=$1 ORDER BY valid_from",
+            org_id,
+        )
+        assert len(rows) == 2
+        # Same physical address reused across both windows — no duplicate addresses row.
+        assert len({r["address_id"] for r in rows}) == 1
+        assert rows[1]["valid_from"] == date(2020, 1, 1)
+        assert rows[1]["valid_until"] is None
+    finally:
+        addr_mod._reset_normalizer()
+
+
+async def test_write_addresses_dateless_claim_matches_dated_row(db, org_id, monkeypatch):
+    """Dateless re-observation matches any existing row (incl. dated) — records nothing new.
+
+    Admin end-dating stays authoritative: a feed cannot resurrect a current window (#256).
+    """
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
+    addr_mod._reset_normalizer()
+    try:
+        dated = ObservationAddress(
+            raw_input="123 Main St, Seattle, WA 98101",
+            address_type="mailing",
+            valid_from="2018-01-01",
+            valid_until="2019-12-31",
+        )
+        dateless = ObservationAddress(
+            raw_input="123 Main St, Seattle, WA 98101", address_type="mailing"
+        )
+        await write_addresses(db, org_id, "organization", [dated])
+        await write_addresses(db, org_id, "organization", [dateless])
+        rows = await db.fetch(
+            "SELECT valid_from, valid_until FROM entity_addresses"
+            " WHERE entity_type='organization' AND entity_id=$1",
+            org_id,
+        )
+        assert len(rows) == 1
+        assert rows[0]["valid_from"] == date(2018, 1, 1)
+    finally:
+        addr_mod._reset_normalizer()
+
+
+async def test_write_addresses_dated_claim_not_deduped_by_dateless_row(db, org_id, monkeypatch):
+    """A dated claim does not match a pre-existing dateless row — strict window equality."""
+    monkeypatch.delenv("ADDRESS_VALIDATOR_API_KEY", raising=False)
+    addr_mod._reset_normalizer()
+    try:
+        dateless = ObservationAddress(
+            raw_input="123 Main St, Seattle, WA 98101", address_type="mailing"
+        )
+        dated = ObservationAddress(
+            raw_input="123 Main St, Seattle, WA 98101",
+            address_type="mailing",
+            valid_from="2020-01-01",
+        )
+        await write_addresses(db, org_id, "organization", [dateless])
+        await write_addresses(db, org_id, "organization", [dated])
+        rows = await db.fetch(
+            "SELECT address_id, valid_from FROM entity_addresses"
+            " WHERE entity_type='organization' AND entity_id=$1 ORDER BY valid_from NULLS FIRST",
+            org_id,
+        )
+        assert len(rows) == 2
+        assert len({r["address_id"] for r in rows}) == 1  # addresses row reused
+        assert rows[0]["valid_from"] is None
+        assert rows[1]["valid_from"] == date(2020, 1, 1)
+    finally:
+        addr_mod._reset_normalizer()
+
+
 # ---------------------------------------------------------------------------
 # write_org_acronyms
 # ---------------------------------------------------------------------------

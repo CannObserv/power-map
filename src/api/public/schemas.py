@@ -469,11 +469,26 @@ class ObservationAddress(BaseModel):
     raw_input: str
     address_type: Literal["mailing", "physical", "other"] = "other"
     display_name: str | None = None  # optional label, e.g. "Seattle Office"
+    # Validity window (#256); ISO YYYY-MM-DD. NULL = open-ended on that side.
+    # Supply only when an upstream source carries dates — dateless claims stay
+    # window-agnostic in write_addresses (see docs/CONVENTIONS.md §181/#256).
+    valid_from: date | None = None
+    valid_until: date | None = None
 
     @field_validator("display_name", mode="before")
     @classmethod
     def _normalize_display_name(cls, v: object) -> object:
         return v or None
+
+    @model_validator(mode="after")
+    def _check_valid_range(self) -> "ObservationAddress":
+        if (
+            self.valid_from is not None
+            and self.valid_until is not None
+            and self.valid_from > self.valid_until
+        ):
+            raise ValueError("valid_from must be <= valid_until")
+        return self
 
 
 class ObservationRoleAssignment(BaseModel):
