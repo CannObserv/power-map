@@ -258,15 +258,26 @@ async def test_seat_create_without_title_synthesizes_representative_position(db)
     assert title == "Washington State Representative, LD-7, Position 2"
 
 
-async def test_seat_create_provided_title_is_respected(db):
-    """Fill-when-absent: an explicit title on a seat create is not overridden."""
+async def test_seat_create_prefers_synthesis_over_supplied_title(db):
+    """PM prefers the synthesized title over a supplied one (no upstream drift)."""
     org, jur = await _org(db), await _wa_ld(db, 7)
     rid, disp, _ = await resolve_role(
         db, org, "Custom Senator Title", role_type="state_senator", jurisdiction_id=jur
     )
     assert disp is Disposition.NEW
     title = await db.fetchval("SELECT title FROM roles WHERE id=$1", rid)
-    assert title == "Custom Senator Title"
+    assert title == "Washington State Senator, LD-7"
+
+
+async def test_seat_create_unsynthesizable_falls_back_to_supplied_title(db):
+    """A seat that can't be synthesized uses the supplied title as fallback."""
+    org, jur = await _org(db), await _jur(db)  # slug ld-<hex>, not usa-wa-ld-N
+    rid, disp, _ = await resolve_role(
+        db, org, "Fallback Title", role_type="state_senator", jurisdiction_id=jur
+    )
+    assert disp is Disposition.NEW
+    title = await db.fetchval("SELECT title FROM roles WHERE id=$1", rid)
+    assert title == "Fallback Title"
 
 
 async def test_seat_create_unsynthesizable_without_title_rejected(db):
@@ -276,7 +287,17 @@ async def test_seat_create_unsynthesizable_without_title_rejected(db):
         db, org, None, role_type="state_senator", jurisdiction_id=jur
     )
     assert disp is Disposition.REJECTED
-    assert reason == "seat_title_unavailable"
+    assert reason.startswith("seat_title_unavailable:")
+    assert "state_senator" in reason
+    assert rid == ""
+
+
+async def test_non_seat_without_title_rejected(db):
+    """A non-seat role (no jurisdiction) with no title is rejected, not a DB error."""
+    org = await _org(db)
+    rid, disp, reason = await resolve_role(db, org, None)
+    assert disp is Disposition.REJECTED
+    assert reason == "title_required"
     assert rid == ""
 
 

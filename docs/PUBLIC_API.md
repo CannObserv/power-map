@@ -515,7 +515,7 @@ Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 
 Two mutually exclusive resolution modes:
 
-- **Standard** — match or create. A **plain role** matches by `(organization_id, lower(title))`. A **districted seat** (supply `jurisdiction_id`) matches by `(organization_id, role_type, jurisdiction_id, qualifier)`, so distinct seats sharing a title never collapse and a title-only submission never attaches to a seat. No external identifier type needed. For a seat, `title` is **optional** — PM synthesizes the canonical seat title from the tuple on create (#267), so an observer never nudges PM's curated title; a supplied title is respected (fill-when-absent).
+- **Standard** — match or create. A **plain role** matches by `(organization_id, lower(title))`. A **districted seat** (supply `jurisdiction_id`) matches by `(organization_id, role_type, jurisdiction_id, qualifier)`, so distinct seats sharing a title never collapse and a title-only submission never attaches to a seat. No external identifier type needed. For a seat, `title` is **optional and PM-curated** — on create PM synthesizes the canonical seat title from the tuple and **prefers it over any supplied title** (#267), so an observer never drifts PM's form; a supplied title is used only as a fallback when the seat can't be synthesized.
 - **PM-native** — attach to a known role by its PM ULID. Supply `identifier_type="pm_role_id"` + `identifier_value=<role ULID>`. Never creates; returns `rejected` if the ULID is unknown or archived.
 
 **Request fields:**
@@ -525,7 +525,7 @@ Two mutually exclusive resolution modes:
 | `identifier_type` | PM-native mode | Must be `"pm_role_id"` when supplied. Mutually exclusive with `organization_id`/`title`. |
 | `identifier_value` | PM-native mode | Role ULID. Required when `identifier_type` is present. |
 | `organization_id` | standard mode | ULID of the owning organization. Must exist and be active; unknown/archived org → `rejected`. |
-| `title` | non-seat only | Role title. Case-insensitive match against existing non-districted roles in the same org. Required for a plain role; **optional for a seat** (`jurisdiction_id` present) — PM synthesizes the canonical title from the tuple, so omit it to let PM curate. A supplied seat title is respected on create. |
+| `title` | plain role only | Role title. Case-insensitive match against existing non-districted roles in the same org. **Required for a plain role**; **optional for a seat** (`jurisdiction_id` present) — PM synthesizes the canonical title and prefers it, so a supplied seat title is ignored except as a fallback when the seat can't be synthesized. Omit it for seats. |
 | `role_type` | seat | `role_types` slug (e.g. `state_representative`, `state_senator`). Required when `jurisdiction_id` is supplied; unknown slug → `rejected`. |
 | `jurisdiction_id` | seat | PM jurisdiction ULID for a districted seat. When present, matching/uniqueness switches to seat identity. A superseded/redistricted (historical) district is valid — only a soft-deleted (archived) district is rejected — so seats can be created against the district that was in effect. |
 | `qualifier` | optional (seat) | Position label disambiguating seats in one district (e.g. `"Position 1"`). Requires `jurisdiction_id` (422 otherwise). NULL/omitted for single-seat offices. |

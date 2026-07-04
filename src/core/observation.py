@@ -683,13 +683,14 @@ async def resolve_role(
     single resolution point for both the observation endpoint and direct
     callers.
 
-    ``title`` is optional for a seat (jurisdiction set): when absent on create,
-    PM synthesizes the canonical title from the structural tuple via
-    ``src.core.seat_title`` (#267), so an upstream observer never nudges PM's
-    curated title. A supplied title is respected (fill-when-absent). A seat that
-    cannot be synthesized (unknown role_type / non-``usa-wa-ld`` jurisdiction)
-    and carries no title is REJECTED (``seat_title_unavailable``). A non-seat
-    role still requires a title — it is the match key.
+    ``title`` is optional for a seat (jurisdiction set): on create PM synthesizes
+    the canonical title from the structural tuple via ``src.core.seat_title``
+    (#267) and **prefers it over any supplied title**, so an upstream observer
+    never drifts PM's curated form. A supplied title is used only as a fallback
+    when the seat cannot be synthesized (unknown role_type / non-``usa-wa-ld``
+    jurisdiction); a seat with neither is REJECTED (``seat_title_unavailable``).
+    A non-seat role requires a title — it is the match key — else REJECTED
+    (``title_required``).
 
     Jurisdiction history: a superseded/redistricted district row stays
     ``archived_at IS NULL`` (supersession is tracked via ``superseded_at`` /
@@ -760,14 +761,22 @@ async def resolve_role(
     if existing:
         return existing["id"], Disposition.AUTO_ATTACHED, None
 
-    # Creating a seat with no supplied title: PM curates the canonical title from
-    # the structural tuple (#267), so an observer can omit it. Fill-when-absent —
-    # a supplied title is respected. Reject if the seat can't be synthesized
-    # (unknown role_type / non-usa-wa-ld jurisdiction) and no title was given.
-    if jurisdiction_id is not None and not title:
-        title = synthesize_seat_title(role_type, jur["slug"], qualifier)
+    if jurisdiction_id is not None:
+        # Seat create: PM curates the canonical title from the structural tuple
+        # (#267) and prefers it over any supplied title, so an upstream observer
+        # can never drift PM's form. A supplied title is used only as a fallback
+        # when the seat can't be synthesized (unknown role_type / non-usa-wa-ld
+        # jurisdiction); if neither is available, reject.
+        title = synthesize_seat_title(role_type, jur["slug"], qualifier) or title
         if not title:
-            return "", Disposition.REJECTED, "seat_title_unavailable"
+            return (
+                "",
+                Disposition.REJECTED,
+                f"seat_title_unavailable: role_type={role_type!r} jurisdiction={jur['slug']!r}",
+            )
+    elif not title:
+        # Non-seat role: title is the match key and is required.
+        return "", Disposition.REJECTED, "title_required"
 
     role_id = generate_id()
     await conn.execute(
