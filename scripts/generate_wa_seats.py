@@ -96,6 +96,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if not args.jurisdictions_file.exists():
+        raise SystemExit(f"jurisdictions seed file not found: {args.jurisdictions_file}")
+
     jurisdictions = json.loads(args.jurisdictions_file.read_text()).get("jurisdictions", [])
     seed = build_seed(jurisdictions)
     text = json.dumps(seed, indent=2, ensure_ascii=False) + "\n"

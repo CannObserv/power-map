@@ -3,7 +3,7 @@
 import pytest
 import pytest_asyncio
 
-from scripts.seed_role_seats import seed_seats
+from scripts.seed_role_seats import preview_seats, seed_seats
 from src.core.db import generate_id
 
 pytestmark = [pytest.mark.integration]
@@ -108,3 +108,45 @@ async def test_rejects_unknown_district(db):
     await _chamber(db, "usa_wa_senate")
     seats = [_seat("usa_wa_senate", "state_senator", "usa-wa-ld-999", None, "X")]
     assert await seed_seats(db, seats) == {"new": 0, "attached": 0, "rejected": 1}
+
+
+async def _archived_district(db, slug: str) -> str:
+    jid = generate_id()
+    tid = await db.fetchval("SELECT id FROM jurisdiction_types WHERE slug='legislative_district'")
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+        " VALUES ($1,$2,$3,$4, NOW())",
+        jid,
+        slug,
+        "Archived LD",
+        tid,
+    )
+    return jid
+
+
+async def test_rejects_archived_jurisdiction(db):
+    """resolve_role rejects an archived (soft-deleted) district → counted rejected."""
+    await _chamber(db, "usa_wa_senate")
+    await _archived_district(db, "usa-wa-ld-3")
+    seats = [_seat("usa_wa_senate", "state_senator", "usa-wa-ld-3", None, "X")]
+    assert await seed_seats(db, seats) == {"new": 0, "attached": 0, "rejected": 1}
+
+
+async def test_preview_reports_new_existing_and_unresolved(db):
+    await _chamber(db, "usa_wa_senate")
+    await _district(db, "usa-wa-ld-4")
+    seat = _seat(
+        "usa_wa_senate", "state_senator", "usa-wa-ld-4", None, "Washington State Senator, LD-4"
+    )
+    bad = _seat("no_such_chamber", "state_senator", "usa-wa-ld-4", None, "X")
+
+    # Before seeding: the good seat would be created, the bad one is unresolved.
+    assert await preview_seats(db, [seat, bad]) == {
+        "would_create": 1,
+        "exists": 0,
+        "unresolved": 1,
+    }
+
+    # After seeding: the good seat now shows as existing (no writes from preview).
+    await seed_seats(db, [seat])
+    assert await preview_seats(db, [seat]) == {"would_create": 0, "exists": 1, "unresolved": 0}

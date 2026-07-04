@@ -314,6 +314,38 @@ uv run "${env_args[@]}" python -m scripts.seed_jurisdictions data/cannabis_obser
 
 Safe to re-run; upserts are idempotent.
 
+## Seed WA legislative seat-Roles (idempotent, #263)
+
+Creates the 147 canonical legislative seats (49 Senate + 98 House Position 1/2) against
+the already-seeded `legislative_district` jurisdictions. Prerequisites: `apply_schema`
+(role_types seeded), the jurisdictions seed above (LD jurisdictions present), and the WA
+chamber orgs carrying the `org_wa_legislature_chamber` identifier (`usa_wa_house` /
+`usa_wa_senate`). The seat seed file is a local, gitignored artifact under
+`data/cannabis_observer/` — regenerate it from the jurisdictions seed if absent.
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+# 1. Generate the seat seed JSON from the jurisdictions seed (deterministic, no DB)
+uv run "${env_args[@]}" python -m scripts.generate_wa_seats \
+    data/cannabis_observer/2026_06_07-usa_wa-jurisdictions.json \
+    -o data/cannabis_observer/2026_07_03-usa_wa-legislative-seats.json
+
+# 2. Dry run — read-only; reports would-create / already-exist / unresolved counts
+uv run "${env_args[@]}" python -m scripts.seed_role_seats data/cannabis_observer/2026_07_03-usa_wa-legislative-seats.json
+
+# 3. Execute — create-or-attach the seats and commit
+uv run "${env_args[@]}" python -m scripts.seed_role_seats data/cannabis_observer/2026_07_03-usa_wa-legislative-seats.json --execute
+```
+
+Idempotent: seats match on identity (org + role_type + jurisdiction + qualifier), so re-runs
+attach rather than duplicate. Seeder, not updater — it does not revise existing seats'
+titles/attributes. Merging existing (idiosyncratic) legislator Roles onto these seats is
+separate (#265).
+
 ## Outbox + tombstone TTL prune (issue #204)
 
 `scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)

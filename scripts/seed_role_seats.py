@@ -7,6 +7,11 @@ its district by jurisdiction slug, and its office by role_type slug. Creation
 goes through ``resolve_role`` (#261), so the run is idempotent — re-running
 attaches to existing seats rather than duplicating them.
 
+This is a **seeder, not an updater**: ``resolve_role`` matches on seat identity
+(org + role_type + jurisdiction + qualifier) and ignores ``title``, so re-running
+after a title-convention change does NOT revise existing seats' titles or other
+attributes — it only create-or-attaches.
+
 Usage:
     uv run python -m scripts.seed_role_seats <path-to-seats.json>            # dry run
     uv run python -m scripts.seed_role_seats <path-to-seats.json> --execute  # commit
@@ -33,24 +38,33 @@ def load_seed_file(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
+async def _resolve_refs(
+    conn: asyncpg.Connection, seat: dict[str, Any]
+) -> tuple[str | None, str | None]:
+    """Resolve a seat's chamber → org_id and jurisdiction slug → id (either may be None)."""
+    org_id = await conn.fetchval(
+        "SELECT i.entity_id FROM identifiers i"
+        " JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id"
+        " WHERE t.slug = 'org_wa_legislature_chamber' AND i.value = $1",
+        seat["chamber"],
+    )
+    if org_id is None:
+        return None, None
+    jurisdiction_id = await conn.fetchval(
+        "SELECT id FROM jurisdictions WHERE slug = $1", seat["jurisdiction_slug"]
+    )
+    return org_id, jurisdiction_id
+
+
 async def seed_seats(conn: asyncpg.Connection, seats: list[dict[str, Any]]) -> dict[str, int]:
     """Create-or-attach each seat via resolve_role. Returns {new, attached, rejected}."""
     counts = {"new": 0, "attached": 0, "rejected": 0}
     for seat in seats:
-        org_id = await conn.fetchval(
-            "SELECT i.entity_id FROM identifiers i"
-            " JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id"
-            " WHERE t.slug = 'org_wa_legislature_chamber' AND i.value = $1",
-            seat["chamber"],
-        )
+        org_id, jurisdiction_id = await _resolve_refs(conn, seat)
         if org_id is None:
             logger.warning("seat rejected: unknown chamber=%r (%s)", seat["chamber"], seat["title"])
             counts["rejected"] += 1
             continue
-
-        jurisdiction_id = await conn.fetchval(
-            "SELECT id FROM jurisdictions WHERE slug = $1", seat["jurisdiction_slug"]
-        )
         if jurisdiction_id is None:
             logger.warning(
                 "seat rejected: unknown jurisdiction_slug=%r (%s)",
@@ -78,25 +92,55 @@ async def seed_seats(conn: asyncpg.Connection, seats: list[dict[str, Any]]) -> d
     return counts
 
 
+async def preview_seats(conn: asyncpg.Connection, seats: list[dict[str, Any]]) -> dict[str, int]:
+    """Read-only classification for dry runs. Returns {would_create, exists, unresolved}.
+
+    ``unresolved`` counts seats whose chamber or jurisdiction does not resolve
+    (these would be rejected on execute). No rows are written.
+    """
+    counts = {"would_create": 0, "exists": 0, "unresolved": 0}
+    for seat in seats:
+        org_id, jurisdiction_id = await _resolve_refs(conn, seat)
+        if org_id is None or jurisdiction_id is None:
+            counts["unresolved"] += 1
+            continue
+        existing = await conn.fetchval(
+            "SELECT 1 FROM roles"
+            " WHERE organization_id = $1"
+            "   AND role_type_id IS NOT DISTINCT FROM (SELECT id FROM role_types WHERE slug = $2)"
+            "   AND jurisdiction_id = $3"
+            "   AND qualifier IS NOT DISTINCT FROM $4"
+            "   AND archived_at IS NULL",
+            org_id,
+            seat["role_type"],
+            jurisdiction_id,
+            seat["qualifier"],
+        )
+        counts["exists" if existing else "would_create"] += 1
+    return counts
+
+
 async def run(seed_path: Path, *, execute: bool) -> None:
-    """Load the seed file and seed seats. Dry run unless ``execute``."""
+    """Load the seed file and seed seats. Dry run (read-only preview) unless ``execute``."""
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL not set")
 
     seats = load_seed_file(seed_path).get("seats", [])
-    logger.info(
-        "Loaded %d seat(s) from %s%s",
-        len(seats),
-        seed_path,
-        " (dry run)" if not execute else "",
-    )
-    if not execute:
-        logger.info("Dry run — pass --execute to commit changes")
-        return
-
     conn = await asyncpg.connect(dsn)
     try:
+        if not execute:
+            preview = await preview_seats(conn, seats)
+            logger.info(
+                "Dry run (%d seats): %d would create, %d already exist, %d unresolved."
+                " Pass --execute to commit.",
+                len(seats),
+                preview["would_create"],
+                preview["exists"],
+                preview["unresolved"],
+            )
+            return
+
         async with conn.transaction():
             counts = await seed_seats(conn, seats)
         logger.info(
@@ -119,6 +163,8 @@ def main() -> None:
         help="Commit changes (default is dry run)",
     )
     args = parser.parse_args()
+    if not args.seed_file.exists():
+        raise SystemExit(f"seed file not found: {args.seed_file}")
     asyncio.run(run(args.seed_file, execute=args.execute))
 
 
