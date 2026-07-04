@@ -162,6 +162,10 @@ CREATE TABLE IF NOT EXISTS role_types (
     id           TEXT        PRIMARY KEY,
     slug         TEXT        NOT NULL UNIQUE,
     display_name TEXT        NOT NULL,
+    -- Advisory intent (#268): this office is normally a districted seat and a
+    -- producer should attach it with a jurisdiction (structural-tuple match).
+    -- A hint for producers, not enforced by resolve_role.
+    is_seat      BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -1424,14 +1428,30 @@ ON CONFLICT (id) DO UPDATE SET
     category     = EXCLUDED.category,
     is_symmetric = EXCLUDED.is_symmetric;
 
+-- Add is_seat column to existing DBs (#268).
+-- Fresh DBs already have it from the CREATE TABLE above.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = 'role_types'
+          AND column_name  = 'is_seat'
+    ) THEN
+        ALTER TABLE role_types ADD COLUMN is_seat BOOLEAN NOT NULL DEFAULT FALSE;
+    END IF;
+END $$;
+
 -- Role-type classifier seed (#261). Extend as new offices are modeled
--- (speaker, majority_leader, committee_chair, ...).
-INSERT INTO role_types (id, slug, display_name) VALUES
-    ('01KX0000000000000000000001', 'state_representative', 'State Representative'),
-    ('01KX0000000000000000000002', 'state_senator',        'State Senator')
+-- (speaker, majority_leader, committee_chair, ...). is_seat marks a districted
+-- office (#268) — both seeded offices are seats; the upsert backfills is_seat
+-- on existing rows.
+INSERT INTO role_types (id, slug, display_name, is_seat) VALUES
+    ('01KX0000000000000000000001', 'state_representative', 'State Representative', TRUE),
+    ('01KX0000000000000000000002', 'state_senator',        'State Senator',        TRUE)
 ON CONFLICT (id) DO UPDATE SET
     slug         = EXCLUDED.slug,
-    display_name = EXCLUDED.display_name;
+    display_name = EXCLUDED.display_name,
+    is_seat      = EXCLUDED.is_seat;
 
 -- =============================================================================
 -- Entity Event Types Seed Data (#170)
