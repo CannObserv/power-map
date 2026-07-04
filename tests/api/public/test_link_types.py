@@ -1,4 +1,9 @@
-"""Tests for GET /api/v1/link-types."""
+"""Tests for GET /api/v1/link-types.
+
+Per-test markers: DB-backed cases carry ``@pytest.mark.integration``; the keyless
+auth-reject case is a pure unit test (``unit_client``) so it runs in the fast
+suite. (No module-level ``pytestmark`` — see test_role_types.py / test_auth.py.)
+"""
 
 import hashlib
 import os
@@ -7,8 +12,6 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
-
-pytestmark = pytest.mark.integration
 
 
 @pytest_asyncio.fixture(loop_scope="session")
