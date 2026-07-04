@@ -569,3 +569,51 @@ def test_qualifier_without_jurisdiction_is_422(client, role_write_key, obs_org):
         {"organization_id": obs_org, "title": "State Representative", "qualifier": "Position 1"},
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# #267 — seat-title synthesis (title optional for seats)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def obs_wa_jur(db):
+    """A usa-wa-ld-N district so seat titles are synthesizable (#267)."""
+    jid = generate_id()
+    n = int.from_bytes(os.urandom(4), "big")  # far outside real LDs 1..49
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        f"usa-wa-ld-{n}",
+        f"Washington Legislative District {n}",
+        type_id,
+    )
+    yield jid, n
+    await db.execute("DELETE FROM roles WHERE jurisdiction_id=$1", jid)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+
+
+async def test_titleless_seat_observation_synthesizes_title(
+    client, role_write_key, obs_org, obs_wa_jur, db
+):
+    raw, _ = role_write_key
+    jid, n = obs_wa_jur
+    r = _post(
+        client,
+        raw,
+        {"organization_id": obs_org, "role_type": "state_senator", "jurisdiction_id": jid},
+    )
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "new"
+    title = await db.fetchval("SELECT title FROM roles WHERE id=$1", r.json()["entity_id"])
+    assert title == f"Washington State Senator, LD-{n}"
+
+
+async def test_titleless_non_seat_observation_is_422(client, role_write_key, obs_org):
+    """No jurisdiction + no title → validation error (title still required)."""
+    raw, _ = role_write_key
+    r = _post(client, raw, {"organization_id": obs_org, "role_type": "state_senator"})
+    assert r.status_code == 422
