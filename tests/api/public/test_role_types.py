@@ -79,17 +79,20 @@ async def test_role_types_seeded_offices_present_and_are_seats(client, api_key):
 async def test_role_types_non_seat_defaults_false(client, api_key, db):
     """A role_type inserted without is_seat surfaces is_seat=false (the column default)."""
     rid = generate_id()
+    # Per-run-unique slug so a crash-orphaned row can never collide on the next
+    # run's slug UNIQUE constraint.
+    slug = f"cr_test_nonseat_{rid[-8:].lower()}"
     await db.execute(
         "INSERT INTO role_types (id, slug, display_name) VALUES ($1,$2,$3)",
         rid,
-        "cr_test_nonseat",
+        slug,
         "CR Test Non-Seat",
     )
     try:
         response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
         by_slug = {r["slug"]: r for r in response.json()["data"]}
-        assert "cr_test_nonseat" in by_slug
-        assert by_slug["cr_test_nonseat"]["is_seat"] is False
+        assert slug in by_slug
+        assert by_slug[slug]["is_seat"] is False
     finally:
         await db.execute("DELETE FROM role_types WHERE id=$1", rid)
 
