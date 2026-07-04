@@ -335,6 +335,31 @@ class LinkTypesResponse(BaseModel):
     data: list[LinkType]
 
 
+class RoleType(BaseModel):
+    """A role-type classifier (office) — the seat-match vocabulary (#268).
+
+    ``slug`` is the stable value a producer sends as ``RoleObservationRequest.
+    role_type`` and reads back on ``RoleDetail.role_type_slug``. ``is_seat`` is
+    an advisory hint that this office is normally a districted seat (attach with
+    a jurisdiction); it is not enforced by ``resolve_role``.
+    """
+
+    id: str
+    slug: str
+    display_name: str
+    is_seat: bool
+
+
+class RoleTypesResponse(BaseModel):
+    """Unpaginated list of all role types.
+
+    Intentionally omits ``meta`` pagination — role_types is a small, stable
+    lookup table returned in full. No limit/offset parameters are accepted.
+    """
+
+    data: list[RoleType]
+
+
 class EntityEventType(BaseModel):
     """An entity event type used to classify life/organisational events."""
 

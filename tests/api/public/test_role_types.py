@@ -1,0 +1,85 @@
+"""Tests for GET /api/v1/role-types (#268).
+
+Public read catalog of the role_types classifier — the seat-match vocabulary
+producers attach to. Mirrors the link-types lookup endpoint.
+"""
+
+import hashlib
+import os
+
+import pytest
+import pytest_asyncio
+
+from src.core.db import generate_id
+
+pytestmark = pytest.mark.integration
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def api_key(db):
+    """Insert a test app_user + api_key; yield raw_key; clean up."""
+    uid = generate_id()
+    kid = generate_id()
+    raw_key = "pm_" + os.urandom(16).hex()
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    await db.execute(
+        "INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "roletypetest@test.com"
+    )
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        uid,
+        "Role Type Test Key",
+        raw_key[:8],
+        key_hash,
+    )
+    yield raw_key
+    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
+    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+
+
+async def test_role_types_with_valid_key_returns_200(client, api_key):
+    response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    assert response.status_code == 200
+
+
+async def test_role_types_response_has_data_list(client, api_key):
+    response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    body = response.json()
+    assert "data" in body
+    assert isinstance(body["data"], list)
+    # Unpaginated catalog — no meta envelope.
+    assert "meta" not in body
+
+
+async def test_role_types_items_have_required_fields(client, api_key):
+    response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    item = response.json()["data"][0]
+    assert set(item) == {"id", "slug", "display_name", "is_seat"}
+    assert isinstance(item["is_seat"], bool)
+
+
+async def test_role_types_seeded_offices_present_and_are_seats(client, api_key):
+    """The #261 seeded offices are present and flagged is_seat=True."""
+    response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    by_slug = {r["slug"]: r for r in response.json()["data"]}
+    assert {"state_representative", "state_senator"} <= set(by_slug)
+    assert by_slug["state_representative"]["display_name"] == "State Representative"
+    assert by_slug["state_senator"]["is_seat"] is True
+    assert by_slug["state_representative"]["is_seat"] is True
+
+
+async def test_role_types_sorted_by_slug(client, api_key):
+    response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    slugs = [r["slug"] for r in response.json()["data"]]
+    assert slugs == sorted(slugs)
+
+
+def test_role_types_without_key_returns_403(unit_client):
+    response = unit_client.get("/api/v1/role-types")
+    assert response.status_code == 403
+
+
+async def test_role_types_with_invalid_key_returns_401(client):
+    response = client.get("/api/v1/role-types", headers={"X-API-Key": "pm_invalid"})
+    assert response.status_code == 401

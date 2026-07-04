@@ -482,6 +482,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 |--------|------|------|-------------|
 | `GET` | `/api/v1/roles` | API key | Paginated list of roles, optionally filtered by org. |
 | `GET` | `/api/v1/roles/{id}` | API key | Full role record (links, contact methods, addresses) with ETag caching. |
+| `GET` | `/api/v1/role-types` | API key | Full (unpaginated) catalog of role-type classifiers — the seat-match vocabulary. |
 | `POST` | `/api/v1/roles/observations` | `observations:write` scope | Submit a role observation (match-or-create). |
 
 ### List — `GET /api/v1/roles`
@@ -498,6 +499,24 @@ Query parameters:
 Response item fields: `id`, `organization_id`, `title`, `notes`, `established_on`, `abolished_on`, `role_type_id`, `role_type_slug`, `jurisdiction_id`, `qualifier`, `archived_at`, `created_at`, `updated_at`.
 
 **Seat fields (#261):** a role that models a legislative seat carries `role_type_id` + `role_type_slug` (the office, e.g. `state_representative`), `jurisdiction_id` (the district), and `qualifier` (position label, e.g. `"Position 1"`; NULL for single-seat offices like a state senator). All four are `null` on plain (non-districted) roles. Aggregate by these: all Representatives → filter `role_type_slug`; all seats in a district → filter `jurisdiction_id`.
+
+### Role types — `GET /api/v1/role-types`
+
+The machine-readable catalog of role-type classifiers (#268), so seat-Role producers discover the `role_type` match-key vocabulary instead of hardcoding it. Unpaginated `{"data": [...]}` (small, stable set); no query parameters.
+
+Item fields: `id`, `slug`, `display_name`, `is_seat`.
+
+- `slug` — the stable value sent as `RoleObservationRequest.role_type` and returned as `RoleDetail.role_type_slug`.
+- `is_seat` — advisory hint that this office is normally a districted seat (attach it with a `jurisdiction_id`, structural-tuple match). It is a producer hint, **not** enforced: `resolve_role` will let a seat-type be used in title mode. Sending an **unknown** `role_type` is already rejected (`role_type_not_found`), so an unrecognized slug can never mint a seat — this endpoint is what keeps a producer from sending a *valid-but-wrong* slug.
+
+```jsonc
+{
+  "data": [
+    { "id": "01KX…01", "slug": "state_representative", "display_name": "State Representative", "is_seat": true },
+    { "id": "01KX…02", "slug": "state_senator",        "display_name": "State Senator",        "is_seat": true }
+  ]
+}
+```
 
 ### Detail — `GET /api/v1/roles/{id}`
 

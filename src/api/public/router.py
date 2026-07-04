@@ -11,6 +11,7 @@ from src.api.public.jurisdictions import router as jurisdictions_router
 from src.api.public.link_types import router as link_types_router
 from src.api.public.orgs import router as orgs_router
 from src.api.public.people import router as people_router
+from src.api.public.role_types import router as role_types_router
 from src.api.public.roles import router as roles_router
 from src.api.public.subscriptions import router as subscriptions_router
 
@@ -28,6 +29,7 @@ router.include_router(jurisdictions_router)
 router.include_router(link_types_router)
 router.include_router(orgs_router)
 router.include_router(people_router)
+router.include_router(role_types_router)
 router.include_router(roles_router)
 
 
