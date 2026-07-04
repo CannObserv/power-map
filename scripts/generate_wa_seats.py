@@ -16,23 +16,21 @@ Usage:
 
 import argparse
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 from src.core.logging import configure_logging, get_logger
+from src.core.seat_title import ld_number_from_slug, wa_legislative_seat_title
 
 logger = get_logger(__name__)
-
-_LD_SLUG_RE = re.compile(r"^usa-wa-ld-(\d+)$")
 
 
 def _ld_number(slug: str) -> int:
     """Return the LD number from a `usa-wa-ld-{N}` slug, or raise ValueError."""
-    m = _LD_SLUG_RE.match(slug)
-    if m is None:
+    n = ld_number_from_slug(slug)
+    if n is None:
         raise ValueError(f"legislative_district slug not in usa-wa-ld-N form: {slug!r}")
-    return int(m.group(1))
+    return n
 
 
 def generate_seats(jurisdictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -50,17 +48,18 @@ def generate_seats(jurisdictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "role_type": "state_senator",
                 "jurisdiction_slug": slug,
                 "qualifier": None,
-                "title": f"Washington State Senator, LD-{n}",
+                "title": wa_legislative_seat_title("state_senator", n, None),
             }
         )
         for pos in (1, 2):
+            qualifier = f"Position {pos}"
             seats.append(
                 {
                     "chamber": "usa_wa_house",
                     "role_type": "state_representative",
                     "jurisdiction_slug": slug,
-                    "qualifier": f"Position {pos}",
-                    "title": f"Washington State Representative, LD-{n}, Position {pos}",
+                    "qualifier": qualifier,
+                    "title": wa_legislative_seat_title("state_representative", n, qualifier),
                 }
             )
     return seats

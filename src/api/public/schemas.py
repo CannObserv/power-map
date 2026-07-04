@@ -1034,10 +1034,13 @@ class RoleObservationRequest(BaseModel):
             if not self.identifier_value:
                 raise ValueError("identifier_value is required when identifier_type is supplied")
         else:
-            if not self.organization_id or not self.title:
-                raise ValueError(
-                    "organization_id and title are required when identifier_type is absent"
-                )
+            if not self.organization_id:
+                raise ValueError("organization_id is required when identifier_type is absent")
+            # Seat mode (jurisdiction_id set): PM synthesizes the canonical seat
+            # title from the structural tuple (#267), so title is optional. A
+            # non-seat role still requires a title — it is the match key.
+            if self.jurisdiction_id is None and not self.title:
+                raise ValueError("title is required for a non-seat role (jurisdiction_id absent)")
         return self
 
     @model_validator(mode="after")

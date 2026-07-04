@@ -17,6 +17,7 @@ from src.core.normalizers.address import get_address_normalizer
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
 from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
+from src.core.seat_title import synthesize_seat_title
 from src.core.types import EVENT_PLACE_PRECISIONS
 
 logger = get_logger(__name__)
@@ -660,7 +661,7 @@ async def write_org_acronyms(
 async def resolve_role(
     conn,
     organization_id: str,
-    title: str,
+    title: str | None,
     *,
     notes: str | None = None,
     established_on: date | None = None,
@@ -681,6 +682,14 @@ async def resolve_role(
     ``role_type`` is a ``role_types`` slug, resolved and validated here — the
     single resolution point for both the observation endpoint and direct
     callers.
+
+    ``title`` is optional for a seat (jurisdiction set): when absent on create,
+    PM synthesizes the canonical title from the structural tuple via
+    ``src.core.seat_title`` (#267), so an upstream observer never nudges PM's
+    curated title. A supplied title is respected (fill-when-absent). A seat that
+    cannot be synthesized (unknown role_type / non-``usa-wa-ld`` jurisdiction)
+    and carries no title is REJECTED (``seat_title_unavailable``). A non-seat
+    role still requires a title — it is the match key.
 
     Jurisdiction history: a superseded/redistricted district row stays
     ``archived_at IS NULL`` (supersession is tracked via ``superseded_at`` /
@@ -709,7 +718,7 @@ async def resolve_role(
 
     if jurisdiction_id is not None:
         jur = await conn.fetchrow(
-            "SELECT archived_at FROM jurisdictions WHERE id=$1", jurisdiction_id
+            "SELECT archived_at, slug FROM jurisdictions WHERE id=$1", jurisdiction_id
         )
         if jur is None:
             return "", Disposition.REJECTED, f"jurisdiction_not_found: {jurisdiction_id!r}"
@@ -750,6 +759,15 @@ async def resolve_role(
         )
     if existing:
         return existing["id"], Disposition.AUTO_ATTACHED, None
+
+    # Creating a seat with no supplied title: PM curates the canonical title from
+    # the structural tuple (#267), so an observer can omit it. Fill-when-absent —
+    # a supplied title is respected. Reject if the seat can't be synthesized
+    # (unknown role_type / non-usa-wa-ld jurisdiction) and no title was given.
+    if jurisdiction_id is not None and not title:
+        title = synthesize_seat_title(role_type, jur["slug"], qualifier)
+        if not title:
+            return "", Disposition.REJECTED, "seat_title_unavailable"
 
     role_id = generate_id()
     await conn.execute(

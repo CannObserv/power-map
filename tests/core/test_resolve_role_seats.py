@@ -211,3 +211,81 @@ async def test_qualifier_dropped_for_non_districted_role(db):
     assert disp is Disposition.NEW
     stored = await db.fetchval("SELECT qualifier FROM roles WHERE id=$1", role_id)
     assert stored is None
+
+
+# ---------------------------------------------------------------------------
+# Seat-title synthesis on create (#267): title optional for seats; PM curates it
+# ---------------------------------------------------------------------------
+
+
+async def _wa_ld(db, n: int) -> str:
+    jid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        f"usa-wa-ld-{n}",
+        f"Washington Legislative District {n}",
+        type_id,
+    )
+    return jid
+
+
+async def test_seat_create_without_title_synthesizes_senator(db):
+    org, jur = await _org(db), await _wa_ld(db, 7)
+    rid, disp, reason = await resolve_role(
+        db, org, None, role_type="state_senator", jurisdiction_id=jur
+    )
+    assert disp is Disposition.NEW
+    title = await db.fetchval("SELECT title FROM roles WHERE id=$1", rid)
+    assert title == "Washington State Senator, LD-7"
+
+
+async def test_seat_create_without_title_synthesizes_representative_position(db):
+    org, jur = await _org(db), await _wa_ld(db, 7)
+    rid, disp, _ = await resolve_role(
+        db,
+        org,
+        None,
+        role_type="state_representative",
+        jurisdiction_id=jur,
+        qualifier="Position 2",
+    )
+    assert disp is Disposition.NEW
+    title = await db.fetchval("SELECT title FROM roles WHERE id=$1", rid)
+    assert title == "Washington State Representative, LD-7, Position 2"
+
+
+async def test_seat_create_provided_title_is_respected(db):
+    """Fill-when-absent: an explicit title on a seat create is not overridden."""
+    org, jur = await _org(db), await _wa_ld(db, 7)
+    rid, disp, _ = await resolve_role(
+        db, org, "Custom Senator Title", role_type="state_senator", jurisdiction_id=jur
+    )
+    assert disp is Disposition.NEW
+    title = await db.fetchval("SELECT title FROM roles WHERE id=$1", rid)
+    assert title == "Custom Senator Title"
+
+
+async def test_seat_create_unsynthesizable_without_title_rejected(db):
+    """Non-usa-wa-ld jurisdiction can't be synthesized; titleless create is rejected."""
+    org, jur = await _org(db), await _jur(db)  # slug ld-<hex>, not usa-wa-ld-N
+    rid, disp, reason = await resolve_role(
+        db, org, None, role_type="state_senator", jurisdiction_id=jur
+    )
+    assert disp is Disposition.REJECTED
+    assert reason == "seat_title_unavailable"
+    assert rid == ""
+
+
+async def test_seat_match_without_title_auto_attaches(db):
+    """Title is not the seat match key — a titleless re-observation attaches."""
+    org, jur = await _org(db), await _wa_ld(db, 7)
+    kw = dict(role_type="state_senator", jurisdiction_id=jur)
+    id1, disp1, _ = await resolve_role(db, org, None, **kw)
+    id2, disp2, _ = await resolve_role(db, org, None, **kw)
+    assert disp1 is Disposition.NEW
+    assert disp2 is Disposition.AUTO_ATTACHED
+    assert id1 == id2
