@@ -101,18 +101,23 @@ async def preview_seats(conn: asyncpg.Connection, seats: list[dict[str, Any]]) -
     counts = {"would_create": 0, "exists": 0, "unresolved": 0}
     for seat in seats:
         org_id, jurisdiction_id = await _resolve_refs(conn, seat)
-        if org_id is None or jurisdiction_id is None:
+        role_type_id = await conn.fetchval(
+            "SELECT id FROM role_types WHERE slug = $1", seat["role_type"]
+        )
+        # unresolved mirrors what --execute would reject (missing chamber /
+        # jurisdiction / office).
+        if org_id is None or jurisdiction_id is None or role_type_id is None:
             counts["unresolved"] += 1
             continue
         existing = await conn.fetchval(
             "SELECT 1 FROM roles"
             " WHERE organization_id = $1"
-            "   AND role_type_id IS NOT DISTINCT FROM (SELECT id FROM role_types WHERE slug = $2)"
+            "   AND role_type_id IS NOT DISTINCT FROM $2"
             "   AND jurisdiction_id = $3"
             "   AND qualifier IS NOT DISTINCT FROM $4"
             "   AND archived_at IS NULL",
             org_id,
-            seat["role_type"],
+            role_type_id,
             jurisdiction_id,
             seat["qualifier"],
         )

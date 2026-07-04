@@ -5,9 +5,12 @@ gitignored ``data/cannabis_observer/`` (a local data artifact), so tests must
 not depend on it.
 """
 
+import sys
+
 import pytest
 
 from scripts.generate_wa_seats import build_seed, generate_seats
+from scripts.generate_wa_seats import main as generate_main
 
 
 def _synthetic_lds(n: int) -> list[dict]:
@@ -75,3 +78,10 @@ def test_build_seed_shape():
     assert "_comment" in seed
     assert isinstance(seed["seats"], list)
     assert len(seed["seats"]) == 3
+
+
+def test_main_missing_file_exits(monkeypatch):
+    """main() reports a friendly SystemExit (not a traceback) for a missing input file."""
+    monkeypatch.setattr(sys, "argv", ["generate_wa_seats", "/no/such/jurisdictions.json"])
+    with pytest.raises(SystemExit):
+        generate_main()
