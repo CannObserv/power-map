@@ -151,7 +151,7 @@ async def role_inline_title_post(
             {"role": role},
             headers=flash_trigger(
                 "error",
-                "A seat's title is generated from its office, jurisdiction, and qualifier.",
+                "This title is generated from the qualifier (office, jurisdiction, qualifier).",
             ),
         )
     cleaned = title.strip()
@@ -250,15 +250,22 @@ async def role_inline_notes_post(
 # ---------------------------------------------------------------------------
 
 
-def _seat_form_ctx(role, role_types, *, rt=None, jur=None, jur_name=None, qual=None):
-    """Context for the seat edit form; defaults reflect the role's current tuple."""
+def _seat_form_ctx(
+    role, role_types, *, sel_role_type_id, sel_jurisdiction_id, sel_jurisdiction_name, sel_qualifier
+):
+    """Context for the seat edit form.
+
+    Callers pass the selected values explicitly: the GET-edit route passes the
+    role's current tuple; the POST-error path passes the *submitted* values so a
+    cleared field re-renders empty rather than being restored from the DB (#264).
+    """
     return {
         "role": role,
         "role_types": role_types,
-        "sel_role_type_id": rt if rt is not None else role["role_type_id"],
-        "sel_jurisdiction_id": jur if jur is not None else role["jurisdiction_id"],
-        "sel_jurisdiction_name": jur_name if jur is not None else role["jurisdiction_name"],
-        "sel_qualifier": qual if qual is not None else role["qualifier"],
+        "sel_role_type_id": sel_role_type_id,
+        "sel_jurisdiction_id": sel_jurisdiction_id,
+        "sel_jurisdiction_name": sel_jurisdiction_name,
+        "sel_qualifier": sel_qualifier,
     }
 
 
@@ -289,7 +296,14 @@ async def role_inline_seat_edit_get(
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_seat_form.html",
-        _seat_form_ctx(role, role_types),
+        _seat_form_ctx(
+            role,
+            role_types,
+            sel_role_type_id=role["role_type_id"],
+            sel_jurisdiction_id=role["jurisdiction_id"],
+            sel_jurisdiction_name=role["jurisdiction_name"],
+            sel_qualifier=role["qualifier"],
+        ),
     )
 
 
@@ -317,7 +331,14 @@ async def role_inline_seat_post(
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_seat_form.html",
-            _seat_form_ctx(role, role_types, rt=rt, jur=jur, jur_name=jur_name, qual=qual),
+            _seat_form_ctx(
+                role,
+                role_types,
+                sel_role_type_id=rt,
+                sel_jurisdiction_id=jur,
+                sel_jurisdiction_name=jur_name,
+                sel_qualifier=qual,
+            ),
             headers=flash_trigger("error", error),
         )
 
@@ -326,6 +347,11 @@ async def role_inline_seat_post(
         return await _form("A qualifier requires a jurisdiction.")
     if jur is not None and rt is None:
         return await _form("A districted seat needs an office (role type).")
+
+    # Demotion: a seat (had a role_type) is being cleared back to a plain role.
+    # We keep the old (synthesized) title — the title editor un-gates for plain
+    # roles, so the admin can retitle it — but flag the retention in the flash.
+    demoted = role["role_type_id"] is not None and rt is None
 
     # A seat's title is PM-curated: regenerate it from the new tuple when the
     # formatter can render one; otherwise leave the existing title untouched.
@@ -361,11 +387,16 @@ async def role_inline_seat_post(
     role = await _get_role(role_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+    flash_body = (
+        "Qualifier cleared — the previous title was retained. Edit the title if needed."
+        if demoted
+        else "Qualifier saved."
+    )
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_seat_read.html",
         {"role": role},
-        headers=flash_trigger("success", "Seat saved."),
+        headers=flash_trigger("success", flash_body),
     )
 
 

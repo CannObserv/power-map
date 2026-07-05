@@ -30,12 +30,12 @@
       <label for="title">Title</label>
       <input id="title" name="title" type="text" value="{{ v.get('title') or '' }}">
       <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-1) 0 0">
-        Required for a plain role. For a WA legislative seat, leave blank — the title is generated from the seat below.
+        Required for a plain role. For a fully-qualified WA legislative role the title is generated automatically — anything entered here is replaced.
       </p>
     </div>
 
     <fieldset style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-4);margin-bottom:var(--space-4)">
-      <legend style="padding:0 var(--space-2);font-weight:600;font-size:var(--font-size-sm)">Seat (optional)</legend>
+      <legend style="padding:0 var(--space-2);font-weight:600;font-size:var(--font-size-sm)">Qualifier (optional)</legend>
       <div class="form-group">
         <label for="role_type_id">Office (role type)</label>
         <select id="role_type_id" name="role_type_id">
@@ -91,9 +91,20 @@
     var sel = document.getElementById('role_type_id');
     var box = document.getElementById('seat-districted');
     if (sel && box) {
-      var sync = function () { box.hidden = !sel.value; };
+      var sync = function () {
+        box.hidden = !sel.value;
+        if (!sel.value) {
+          // Clearing the office demotes to a plain role — clear the districted
+          // sub-fields so a stale jurisdiction/qualifier isn't submitted.
+          var h = document.getElementById('jurisdiction-id-hidden');
+          var s = document.getElementById('jurisdiction-search');
+          var q = document.getElementById('qualifier');
+          if (h) h.value = '';
+          if (s) s.value = '';
+          if (q) q.value = '';
+        }
+      };
       sel.addEventListener('change', sync);
-      sync();
     }
     if (typeof window.initTypeaheadCombobox === 'function') {
       window.initTypeaheadCombobox({

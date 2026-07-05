@@ -158,17 +158,20 @@ async def role_create(
         return await _reload("A districted seat needs an office (role type).")
 
     if jurisdiction_id_c is not None:
-        # Seat mode: PM curates the title. Synthesize when absent (#267);
-        # require a manual title only when synthesis can't render one.
-        if not title_c:
-            rt_slug = await db.fetchval("SELECT slug FROM role_types WHERE id=$1", role_type_id_c)
-            jur_slug = await db.fetchval(
-                "SELECT slug FROM jurisdictions WHERE id=$1", jurisdiction_id_c
-            )
-            synthesized = synthesize_seat_title(rt_slug, jur_slug, qualifier_c) if rt_slug else None
-            if synthesized is None:
-                return await _reload("Could not auto-generate a title for this seat — enter one.")
+        # Seat mode: PM curates the title. For a fully-qualified seat (the
+        # formatter can render one) ALWAYS synthesize — any supplied title is
+        # ignored so the admin can't diverge from the canonical form (#264 CR-1,
+        # matching the inline seat editor). Keep/require a manual title only when
+        # synthesis is unavailable (non-WA seats).
+        rt_slug = await db.fetchval("SELECT slug FROM role_types WHERE id=$1", role_type_id_c)
+        jur_slug = await db.fetchval(
+            "SELECT slug FROM jurisdictions WHERE id=$1", jurisdiction_id_c
+        )
+        synthesized = synthesize_seat_title(rt_slug, jur_slug, qualifier_c) if rt_slug else None
+        if synthesized is not None:
             title_c = synthesized
+        elif not title_c:
+            return await _reload("Could not auto-generate a title for this seat — enter one.")
     elif not title_c:
         return await _reload("Title is required for a non-seat role.")
 

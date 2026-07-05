@@ -2,14 +2,14 @@
 <div id="seat-field" style="margin-top:var(--space-5)">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <div style="display:flex;align-items:center;gap:var(--space-2)">
-      <h3 class="field-group-label" style="margin:0">Seat</h3>
-      {% if role.role_type_id %}<span class="badge badge--seat">Seat</span>{% endif %}
+      <h3 class="field-group-label" style="margin:0">Qualifier</h3>
+      {% if role.role_type_id %}<span class="badge badge--seat">Qualifier</span>{% endif %}
     </div>
     {% if not role.archived_at %}
     <button type="button" class="btn btn--sm btn--secondary"
             hx-get="/admin/roles/{{ role.id }}/inline/seat/edit/"
             hx-target="#seat-field"
-            hx-swap="outerHTML">{{ 'Edit' if role.role_type_id else 'Add seat' }}</button>
+            hx-swap="outerHTML">{{ 'Edit' if role.role_type_id else 'Add qualifier' }}</button>
     {% endif %}
   </div>
   {% if role.role_type_id %}
@@ -28,6 +28,6 @@
     </div>
   </div>
   {% else %}
-  <div style="color:var(--color-text-muted);font-size:var(--font-size-sm)">Plain role — not a districted seat.</div>
+  <div style="color:var(--color-text-muted);font-size:var(--font-size-sm)">Plain role — no qualifier.</div>
   {% endif %}
 </div>

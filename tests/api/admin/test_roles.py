@@ -653,3 +653,144 @@ async def test_seat_detail_hides_title_edit_button(client, seat_role, role_id):
     plain = client.get(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
     assert "inline/title/edit/" not in seat.text
     assert "inline/title/edit/" in plain.text
+
+
+# ---------------------------------------------------------------------------
+# CR round 1 — follow-up fixes
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def promotable_role(db, org_id):
+    """A fresh plain role that a test may convert to a seat (isolated, not shared)."""
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Promotable Role')",
+        rid,
+        org_id,
+    )
+    yield rid
+    await db.execute("DELETE FROM role_assignments WHERE role_id = $1", rid)
+    await db.execute("DELETE FROM roles WHERE id = $1", rid)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def demotable_seat(db, org_id):
+    """A fresh WA seat (usa-wa-ld-997) that a test may demote to a plain role."""
+    jid = generate_id()
+    rid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    rt_id = await db.fetchval("SELECT id FROM role_types WHERE slug='state_representative'")
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        "usa-wa-ld-997",
+        "Legislative District 997",
+        type_id,
+    )
+    await db.execute(
+        "INSERT INTO roles"
+        " (id, organization_id, title, role_type_id, jurisdiction_id, qualifier)"
+        " VALUES ($1,$2,$3,$4,$5,$6)",
+        rid,
+        org_id,
+        "Washington State Representative, LD-997, Position 1",
+        rt_id,
+        jid,
+        "Position 1",
+    )
+    yield {"role_id": rid, "jur_id": jid, "rt_id": rt_id}
+    await db.execute("DELETE FROM role_assignments WHERE role_id = $1", rid)
+    await db.execute("DELETE FROM roles WHERE id = $1", rid)
+    await db.execute("DELETE FROM jurisdictions WHERE id = $1", jid)
+
+
+async def test_seat_inline_error_preserves_cleared_jurisdiction(client, seat_role):
+    """On a validation error the re-rendered form reflects the *submitted* values —
+    a cleared jurisdiction must not be silently restored from the DB (#264 CR-1)."""
+    r = client.post(
+        f"/admin/roles/{seat_role['role_id']}/inline/seat/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "role_type_id": seat_role["rt_id"],
+            "jurisdiction_id": "",  # cleared
+            "qualifier": "Position 9",
+        },
+    )
+    assert r.status_code == 200
+    assert seat_role["jur_id"] not in r.text  # old jurisdiction not restored
+    assert "Position 9" in r.text  # submitted qualifier preserved
+
+
+async def test_seat_inline_add_to_plain_role(
+    client, db, promotable_role, rt_rep_id, wa_ld_jurisdiction
+):
+    """Adding a seat to a plain role sets the tuple and synthesizes the WA title."""
+    r = client.post(
+        f"/admin/roles/{promotable_role}/inline/seat/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": wa_ld_jurisdiction,
+            "qualifier": "Position 7",
+        },
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT role_type_id, jurisdiction_id, qualifier, title FROM roles WHERE id=$1",
+        promotable_role,
+    )
+    assert row["role_type_id"] == rt_rep_id
+    assert row["jurisdiction_id"] == wa_ld_jurisdiction
+    assert row["qualifier"] == "Position 7"
+    assert row["title"] == "Washington State Representative, LD-999, Position 7"
+
+
+async def test_seat_inline_demote_to_plain(client, db, demotable_seat):
+    """Clearing the office demotes a seat to a plain role (all three columns NULL),
+    retains the old title, and the flash flags that the title was kept (#264 CR-1)."""
+    r = client.post(
+        f"/admin/roles/{demotable_seat['role_id']}/inline/seat/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={"role_type_id": "", "jurisdiction_id": "", "qualifier": ""},
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT role_type_id, jurisdiction_id, qualifier, title FROM roles WHERE id=$1",
+        demotable_seat["role_id"],
+    )
+    assert row["role_type_id"] is None
+    assert row["jurisdiction_id"] is None
+    assert row["qualifier"] is None
+    assert row["title"] == "Washington State Representative, LD-997, Position 1"  # retained
+    assert "retained" in r.headers.get("HX-Trigger", "")
+
+
+async def test_create_wa_seat_ignores_supplied_title(
+    client, db, org_id, wa_ld_jurisdiction, rt_rep_id
+):
+    """A supplied title is ignored for a fully-qualified WA seat — PM always
+    synthesizes the canonical title (#264 CR-1, directive 5)."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "My Custom Override",
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": wa_ld_jurisdiction,
+            "qualifier": "Position 5",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 303
+    title = await db.fetchval(
+        "SELECT title FROM roles WHERE organization_id=$1 AND jurisdiction_id=$2 AND qualifier=$3",
+        org_id,
+        wa_ld_jurisdiction,
+        "Position 5",
+    )
+    assert title == "Washington State Representative, LD-999, Position 5"

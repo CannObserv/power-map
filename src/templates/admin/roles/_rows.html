@@ -8,7 +8,7 @@
   </td>
   <td>
     <a href="/admin/roles/{{ role.id }}/">{{ role.title or '(untitled)' }}</a>
-    {% if role.role_type_id %}<span class="badge badge--seat">Seat</span>{% endif %}
+    {% if role.role_type_id %}<span class="badge badge--seat">Qualifier</span>{% endif %}
   </td>
   <td>
     {% if role.archived_at %}<span class="badge badge--archived">Archived</span>
