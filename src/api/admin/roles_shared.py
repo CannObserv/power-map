@@ -39,7 +39,7 @@ def _check_assignment_within_bounds(
 
 
 async def fetch_role_types(db):
-    """The role_types catalog for the office select (shared by create + inline)."""
+    """The role_types catalog for the role-type select (shared by create + inline)."""
     return await db.fetch("SELECT id, slug, display_name FROM role_types ORDER BY display_name")
 
 

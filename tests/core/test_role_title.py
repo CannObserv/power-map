@@ -1,7 +1,7 @@
-"""Unit tests: canonical WA legislative seat-title synthesis (#267).
+"""Unit tests: canonical WA legislative role-title synthesis (#267).
 
-Single source of truth for a seat's curated title, shared by the seed generator
-(scripts/generate_wa_seats.py) and the observation resolver (resolve_role) so PM
+Single source of truth for a role's curated title, shared by the seed generator
+(scripts/generate_wa_roles.py) and the observation resolver (resolve_role) so PM
 owns the title and it never drifts from an upstream-supplied label.
 """
 

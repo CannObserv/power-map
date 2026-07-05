@@ -2,7 +2,7 @@
 
 Single source of truth for the human-readable title of a WA legislative role
 (one with a role type + jurisdiction + qualifier), shared by the seed generator
-(``scripts/generate_wa_seats.py``) and the observation resolver
+(``scripts/generate_wa_roles.py``) and the observation resolver
 (``src.core.observation.resolve_role``). Centralizing the format here means PM
 curates the title deterministically from the structural tuple
 ``(role_type, jurisdiction, qualifier)`` — an upstream observer can omit

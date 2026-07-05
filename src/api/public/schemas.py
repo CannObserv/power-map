@@ -1029,7 +1029,7 @@ class RoleObservationRequest(BaseModel):
     abolished_on: date | None = None
 
     # Structural fields (#261): role_type + jurisdiction (+ qualifier) make a role
-    # a durable districted position. role_type is a role_types slug (e.g.
+    # a durable role tied to a district. role_type is a role_types slug (e.g.
     # "state_representative"); jurisdiction_id is a PM jurisdiction ULID; qualifier
     # disambiguates roles in one district (e.g. "Position 1").
     role_type: str | None = None

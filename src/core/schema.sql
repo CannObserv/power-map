@@ -624,7 +624,7 @@ END $$;
 
 -- =============================================================================
 -- Role structural fields (#261): role_type_id + jurisdiction_id + qualifier make
--- a role a durable districted position (role type + district + position).
+-- a role a durable role tied to a district (role type + district + position).
 -- Occupant/tenure stays in role_assignments. See
 -- docs/plans/2026-07-03-legislator-*-design.md.
 -- =============================================================================

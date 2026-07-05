@@ -238,7 +238,7 @@ async def test_dry_run_makes_no_changes(db):
 
 
 # ---------------------------------------------------------------------------
-# #261 — seat-Role dedup: collapse true seat dupes, never distinct seats
+# #261 — structural-role dedup: collapse true dupes, never distinct roles
 # ---------------------------------------------------------------------------
 
 
@@ -257,7 +257,7 @@ async def _jur(conn: asyncpg.Connection) -> str:
     return jid
 
 
-async def _insert_seat(conn, org_id, jur_id, qualifier) -> str:
+async def _insert_structural_role(conn, org_id, jur_id, qualifier) -> str:
     rid = generate_id()
     rt = await conn.fetchval("SELECT id FROM role_types WHERE slug='state_representative'")
     await conn.execute(
@@ -274,13 +274,13 @@ async def _insert_seat(conn, org_id, jur_id, qualifier) -> str:
     return rid
 
 
-async def test_dedup_collapses_duplicate_seats(db):
-    """Two identical seats (same org, role_type, jurisdiction, qualifier) collapse to one."""
+async def test_dedup_collapses_duplicate_structural_roles(db):
+    """Two identical roles (same org, role_type, jurisdiction, qualifier) collapse to one."""
     org_id = await _org(db)
     jur_id = await _jur(db)
     await db.execute("DROP INDEX IF EXISTS uq_role_structural")
-    a = await _insert_seat(db, org_id, jur_id, "Position 1")
-    b = await _insert_seat(db, org_id, jur_id, "Position 1")
+    a = await _insert_structural_role(db, org_id, jur_id, "Position 1")
+    b = await _insert_structural_role(db, org_id, jur_id, "Position 1")
 
     await run_deduplication(db, dry_run=False)
 
@@ -298,8 +298,8 @@ async def test_dedup_preserves_distinct_positions(db):
     """Two positions share the title 'State Representative' but are NOT duplicates."""
     org_id = await _org(db)
     jur_id = await _jur(db)
-    p1 = await _insert_seat(db, org_id, jur_id, "Position 1")
-    p2 = await _insert_seat(db, org_id, jur_id, "Position 2")
+    p1 = await _insert_structural_role(db, org_id, jur_id, "Position 1")
+    p2 = await _insert_structural_role(db, org_id, jur_id, "Position 2")
 
     await run_deduplication(db, dry_run=False)
 
