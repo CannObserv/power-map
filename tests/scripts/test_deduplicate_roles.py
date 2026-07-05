@@ -278,7 +278,7 @@ async def test_dedup_collapses_duplicate_seats(db):
     """Two identical seats (same org, role_type, jurisdiction, qualifier) collapse to one."""
     org_id = await _org(db)
     jur_id = await _jur(db)
-    await db.execute("DROP INDEX IF EXISTS uq_role_seat")
+    await db.execute("DROP INDEX IF EXISTS uq_role_structural")
     a = await _insert_seat(db, org_id, jur_id, "Position 1")
     b = await _insert_seat(db, org_id, jur_id, "Position 1")
 

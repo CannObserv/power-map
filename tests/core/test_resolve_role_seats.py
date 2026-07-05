@@ -287,7 +287,7 @@ async def test_seat_create_unsynthesizable_without_title_rejected(db):
         db, org, None, role_type="state_senator", jurisdiction_id=jur
     )
     assert disp is Disposition.REJECTED
-    assert reason.startswith("seat_title_unavailable:")
+    assert reason.startswith("role_title_unavailable:")
     assert "state_senator" in reason
     assert rid == ""
 

@@ -112,8 +112,8 @@ async def test_split_unique_indexes_exist(db):
             "SELECT indexname, indexdef FROM pg_indexes WHERE tablename='roles'"
         )
     }
-    assert "uq_role_seat" in rows
-    assert "jurisdiction_id is not null" in rows["uq_role_seat"]
+    assert "uq_role_structural" in rows
+    assert "jurisdiction_id is not null" in rows["uq_role_structural"]
     assert "uq_role_org_title" in rows
     assert "jurisdiction_id is null" in rows["uq_role_org_title"]
 

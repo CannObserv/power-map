@@ -1,7 +1,7 @@
 """Public API: role types lookup endpoint (#268).
 
-Exposes the ``role_types`` classifier catalog so seat-Role producers can
-discover the match-key vocabulary (``slug``) instead of hardcoding it from a
+Exposes the ``role_types`` classifier catalog so producers of structured roles
+can discover the match-key vocabulary (``slug``) instead of hardcoding it from a
 design doc. Mirrors the link-types lookup endpoint.
 """
 
@@ -23,6 +23,8 @@ async def list_role_types(
     _user_id: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> RoleTypesResponse:
-    """Return all role types (the seat-match vocabulary)."""
-    rows = await db.fetch("SELECT id, slug, display_name, is_seat FROM role_types ORDER BY slug")
+    """Return all role types (the structural-match vocabulary)."""
+    rows = await db.fetch(
+        "SELECT id, slug, display_name, expects_jurisdiction FROM role_types ORDER BY slug"
+    )
     return RoleTypesResponse(data=[RoleType(**dict(r)) for r in rows])

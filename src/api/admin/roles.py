@@ -18,7 +18,7 @@ from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.api.admin.roles_queries import query_roles_rows
 from src.api.admin.roles_shared import fetch_role_types
 from src.core.db import generate_id
-from src.core.seat_title import synthesize_seat_title
+from src.core.role_title import synthesize_role_title
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles", tags=["admin-roles"])
@@ -167,7 +167,7 @@ async def role_create(
         jur_slug = await db.fetchval(
             "SELECT slug FROM jurisdictions WHERE id=$1", jurisdiction_id_c
         )
-        synthesized = synthesize_seat_title(rt_slug, jur_slug, qualifier_c) if rt_slug else None
+        synthesized = synthesize_role_title(rt_slug, jur_slug, qualifier_c) if rt_slug else None
         if synthesized is not None:
             title_c = synthesized
         elif not title_c:

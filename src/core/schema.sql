@@ -162,10 +162,10 @@ CREATE TABLE IF NOT EXISTS role_types (
     id           TEXT        PRIMARY KEY,
     slug         TEXT        NOT NULL UNIQUE,
     display_name TEXT        NOT NULL,
-    -- Advisory intent (#268): this office is normally a districted seat and a
-    -- producer should attach it with a jurisdiction (structural-tuple match).
-    -- A hint for producers, not enforced by resolve_role.
-    is_seat      BOOLEAN     NOT NULL DEFAULT FALSE,
+    -- Advisory intent (#268): a producer should attach this office with a
+    -- jurisdiction (structural-tuple match). A hint for producers, not enforced
+    -- by resolve_role.
+    expects_jurisdiction BOOLEAN NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -347,9 +347,9 @@ CREATE TABLE IF NOT EXISTS role_assignments (
 -- index fails to create, then re-run apply_schema to pick it up.
 --
 -- SUPERSEDED by the #261 role-uniqueness split further below (search
--- "Legislator seat-Roles"): that migration DROPs this pre-#261 form and
+-- "Role structural fields"): that migration DROPs this pre-#261 form and
 -- recreates uq_role_org_title with an added `jurisdiction_id IS NULL` predicate
--- (plus the seat index uq_role_seat). This block still creates the old form on
+-- (plus the structural index uq_role_structural). This block still creates the old form on
 -- a fresh DB; the migration replaces it in the same apply. Kept here because the
 -- predicate below can't reference jurisdiction_id, which doesn't exist yet at
 -- this point in the file.
@@ -623,9 +623,10 @@ DO $$ BEGIN
 END $$;
 
 -- =============================================================================
--- Legislator seat-Roles (#261): role_type_id + jurisdiction_id + qualifier turn
--- a role into a durable "seat" (office + district + position). Occupant/tenure
--- stays in role_assignments. See docs/plans/2026-07-03-legislator-*-design.md.
+-- Role structural fields (#261): role_type_id + jurisdiction_id + qualifier make
+-- a role a durable districted position (role type + district + position).
+-- Occupant/tenure stays in role_assignments. See
+-- docs/plans/2026-07-03-legislator-*-design.md.
 -- =============================================================================
 
 DO $$ BEGIN
@@ -655,19 +656,29 @@ DO $$ BEGIN
     END IF;
 END $$;
 
--- A districted role (a seat) must name its office.
+-- A role with a jurisdiction must name its role type. Rename the legacy
+-- constraint if present (#271), else create it fresh.
 DO $$ BEGIN
-    IF NOT EXISTS (
+    IF EXISTS (
         SELECT 1 FROM information_schema.table_constraints
         WHERE table_name='roles' AND constraint_name='chk_role_districted_needs_type'
     ) THEN
-        ALTER TABLE roles ADD CONSTRAINT chk_role_districted_needs_type
+        ALTER TABLE roles RENAME CONSTRAINT chk_role_districted_needs_type
+            TO chk_role_jurisdiction_needs_role_type;
+    END IF;
+END $$;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name='roles' AND constraint_name='chk_role_jurisdiction_needs_role_type'
+    ) THEN
+        ALTER TABLE roles ADD CONSTRAINT chk_role_jurisdiction_needs_role_type
             CHECK (jurisdiction_id IS NULL OR role_type_id IS NOT NULL);
     END IF;
 END $$;
 
--- A qualifier only disambiguates districted seats — it must not appear on a
--- non-districted role (backstops any insert path; resolve_role also drops it).
+-- A qualifier only disambiguates roles with a jurisdiction — it must not appear
+-- on a role without one (backstops any insert path; resolve_role also drops it).
 DO $$ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.table_constraints
@@ -683,9 +694,9 @@ CREATE INDEX IF NOT EXISTS idx_roles_jurisdiction ON roles(jurisdiction_id);
 
 -- Split role uniqueness (supersedes the (organization_id, lower(title)) form
 -- created above):
---   * districted seats: identity = chamber + office + district + position;
+--   * roles with a jurisdiction: identity = chamber + role type + district + position;
 --     NULLS NOT DISTINCT makes a NULL qualifier unique per district (one senator).
---   * non-districted roles (leadership, generic): keep title-based identity.
+--   * roles without a jurisdiction (leadership, generic): keep title-based identity.
 -- Drop the pre-#261 index only if present in its old (no jurisdiction predicate)
 -- form, so re-applies don't churn.
 DO $$
@@ -698,15 +709,18 @@ BEGIN
     END IF;
 END $$;
 
+-- Rename the legacy seat index if present (#271).
+ALTER INDEX IF EXISTS uq_role_seat RENAME TO uq_role_structural;
+
 DO $$ BEGIN
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_role_seat
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_role_structural
         ON roles (organization_id, role_type_id, jurisdiction_id, qualifier)
         NULLS NOT DISTINCT
         WHERE jurisdiction_id IS NOT NULL AND archived_at IS NULL;
 EXCEPTION WHEN unique_violation THEN
     RAISE WARNING
-        'uq_role_seat not created: duplicate (org, role_type, jurisdiction, '
-        'qualifier) seats exist. Resolve duplicates then re-apply schema.';
+        'uq_role_structural not created: duplicate (org, role_type, jurisdiction, '
+        'qualifier) rows exist. Resolve duplicates then re-apply schema.';
 END $$;
 
 DO $$ BEGIN
@@ -1428,30 +1442,35 @@ ON CONFLICT (id) DO UPDATE SET
     category     = EXCLUDED.category,
     is_symmetric = EXCLUDED.is_symmetric;
 
--- Add is_seat column to existing DBs (#268).
--- Fresh DBs already have it from the CREATE TABLE above.
+-- Rename is_seat → expects_jurisdiction on existing DBs (#271); add it on DBs
+-- predating both (#268). Fresh DBs already have expects_jurisdiction from the
+-- CREATE TABLE above.
 DO $$ BEGIN
-    IF NOT EXISTS (
+    IF EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name   = 'role_types'
-          AND column_name  = 'is_seat'
+        WHERE table_schema='public' AND table_name='role_types' AND column_name='is_seat'
     ) THEN
-        ALTER TABLE role_types ADD COLUMN is_seat BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE role_types RENAME COLUMN is_seat TO expects_jurisdiction;
+    ELSIF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='role_types'
+          AND column_name='expects_jurisdiction'
+    ) THEN
+        ALTER TABLE role_types ADD COLUMN expects_jurisdiction BOOLEAN NOT NULL DEFAULT FALSE;
     END IF;
 END $$;
 
 -- Role-type classifier seed (#261). Extend as new offices are modeled
--- (speaker, majority_leader, committee_chair, ...). is_seat marks a districted
--- office (#268) — both seeded offices are seats; the upsert backfills is_seat
--- on existing rows.
-INSERT INTO role_types (id, slug, display_name, is_seat) VALUES
+-- (speaker, majority_leader, committee_chair, ...). expects_jurisdiction marks
+-- an office normally attached with a jurisdiction (#268/#271) — both seeded
+-- offices are; the upsert backfills it on existing rows.
+INSERT INTO role_types (id, slug, display_name, expects_jurisdiction) VALUES
     ('01KX0000000000000000000001', 'state_representative', 'State Representative', TRUE),
     ('01KX0000000000000000000002', 'state_senator',        'State Senator',        TRUE)
 ON CONFLICT (id) DO UPDATE SET
-    slug         = EXCLUDED.slug,
-    display_name = EXCLUDED.display_name,
-    is_seat      = EXCLUDED.is_seat;
+    slug                 = EXCLUDED.slug,
+    display_name         = EXCLUDED.display_name,
+    expects_jurisdiction = EXCLUDED.expects_jurisdiction;
 
 -- =============================================================================
 -- Entity Event Types Seed Data (#170)

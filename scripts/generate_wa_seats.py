@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.logging import configure_logging, get_logger
-from src.core.seat_title import ld_number_from_slug, wa_legislative_seat_title
+from src.core.role_title import ld_number_from_slug, wa_legislative_role_title
 
 logger = get_logger(__name__)
 
@@ -48,7 +48,7 @@ def generate_seats(jurisdictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "role_type": "state_senator",
                 "jurisdiction_slug": slug,
                 "qualifier": None,
-                "title": wa_legislative_seat_title("state_senator", n, None),
+                "title": wa_legislative_role_title("state_senator", n, None),
             }
         )
         for pos in (1, 2):
@@ -59,7 +59,7 @@ def generate_seats(jurisdictions: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "role_type": "state_representative",
                     "jurisdiction_slug": slug,
                     "qualifier": qualifier,
-                    "title": wa_legislative_seat_title("state_representative", n, qualifier),
+                    "title": wa_legislative_role_title("state_representative", n, qualifier),
                 }
             )
     return seats

@@ -336,18 +336,19 @@ class LinkTypesResponse(BaseModel):
 
 
 class RoleType(BaseModel):
-    """A role-type classifier (office) — the seat-match vocabulary (#268).
+    """A role-type classifier (office) — the structural-match vocabulary (#268).
 
     ``slug`` is the stable value a producer sends as ``RoleObservationRequest.
-    role_type`` and reads back on ``RoleDetail.role_type_slug``. ``is_seat`` is
-    an advisory hint that this office is normally a districted seat (attach with
-    a jurisdiction); it is not enforced by ``resolve_role``.
+    role_type`` and reads back on ``RoleDetail.role_type_slug``.
+    ``expects_jurisdiction`` is an advisory hint that this office is normally
+    attached with a jurisdiction (structural-tuple match); it is not enforced by
+    ``resolve_role``.
     """
 
     id: str
     slug: str
     display_name: str
-    is_seat: bool
+    expects_jurisdiction: bool
 
 
 class RoleTypesResponse(BaseModel):
@@ -986,7 +987,8 @@ class RoleListItem(BaseModel):
     notes: str | None = None
     established_on: date | None = None
     abolished_on: date | None = None
-    # Seat fields (#261): populated for districted seats, null for plain roles.
+    # Structural fields (#261): populated for a role with a jurisdiction, null
+    # for a role without one.
     role_type_id: str | None = None
     role_type_slug: str | None = None
     jurisdiction_id: str | None = None
@@ -1026,9 +1028,10 @@ class RoleObservationRequest(BaseModel):
     established_on: date | None = None
     abolished_on: date | None = None
 
-    # Seat fields (#261): a districted seat = role_type + jurisdiction (+ qualifier).
-    # role_type is a role_types slug (e.g. "state_representative"); jurisdiction_id
-    # is a PM jurisdiction ULID; qualifier disambiguates seats (e.g. "Position 1").
+    # Structural fields (#261): role_type + jurisdiction (+ qualifier) make a role
+    # a durable districted position. role_type is a role_types slug (e.g.
+    # "state_representative"); jurisdiction_id is a PM jurisdiction ULID; qualifier
+    # disambiguates roles in one district (e.g. "Position 1").
     role_type: str | None = None
     jurisdiction_id: str | None = None
     qualifier: str | None = None
@@ -1048,7 +1051,9 @@ class RoleObservationRequest(BaseModel):
     @model_validator(mode="after")
     def _check_qualifier_needs_jurisdiction(self) -> "RoleObservationRequest":
         if self.qualifier is not None and self.jurisdiction_id is None:
-            raise ValueError("qualifier requires jurisdiction_id (it disambiguates seats)")
+            raise ValueError(
+                "qualifier requires jurisdiction_id (it disambiguates roles in a district)"
+            )
         return self
 
     @model_validator(mode="after")
@@ -1061,11 +1066,13 @@ class RoleObservationRequest(BaseModel):
         else:
             if not self.organization_id:
                 raise ValueError("organization_id is required when identifier_type is absent")
-            # Seat mode (jurisdiction_id set): PM synthesizes the canonical seat
-            # title from the structural tuple (#267), so title is optional. A
-            # non-seat role still requires a title — it is the match key.
+            # With a jurisdiction: PM synthesizes the canonical title from the
+            # structural tuple (#267), so title is optional. A role without a
+            # jurisdiction still requires a title — it is the match key.
             if self.jurisdiction_id is None and not self.title:
-                raise ValueError("title is required for a non-seat role (jurisdiction_id absent)")
+                raise ValueError(
+                    "title is required for a role without a jurisdiction (jurisdiction_id absent)"
+                )
         return self
 
     @model_validator(mode="after")

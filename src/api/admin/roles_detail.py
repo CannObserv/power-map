@@ -13,7 +13,7 @@ from src.api.admin.roles_shared import (
     _parse_date,
     fetch_role_types,
 )
-from src.core.seat_title import synthesize_seat_title
+from src.core.role_title import synthesize_role_title
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles/{role_id}", tags=["admin-roles-detail"])
@@ -359,7 +359,7 @@ async def role_inline_seat_post(
     if jur is not None:
         rt_slug = await db.fetchval("SELECT slug FROM role_types WHERE id=$1", rt)
         jur_slug = await db.fetchval("SELECT slug FROM jurisdictions WHERE id=$1", jur)
-        synthesized = synthesize_seat_title(rt_slug, jur_slug, qual) if rt_slug else None
+        synthesized = synthesize_role_title(rt_slug, jur_slug, qual) if rt_slug else None
         if synthesized is not None:
             new_title = synthesized
 
