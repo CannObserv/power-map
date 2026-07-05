@@ -6,7 +6,10 @@
     <a href="/admin/orgs/{{ role.org_id }}/">{{ role.org_name or '(unnamed)' }}</a>
     {% else %}—{% endif %}
   </td>
-  <td><a href="/admin/roles/{{ role.id }}/">{{ role.title or '(untitled)' }}</a></td>
+  <td>
+    <a href="/admin/roles/{{ role.id }}/">{{ role.title or '(untitled)' }}</a>
+    {% if role.role_type_id %}<span class="badge badge--seat">Seat</span>{% endif %}
+  </td>
   <td>
     {% if role.archived_at %}<span class="badge badge--archived">Archived</span>
     {% else %}<span class="badge badge--active">Active</span>{% endif %}

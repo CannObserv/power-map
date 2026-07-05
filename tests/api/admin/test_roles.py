@@ -86,6 +86,68 @@ async def person_id(db):
     await db.execute("DELETE FROM people WHERE id = $1", pid)
 
 
+@pytest_asyncio.fixture(loop_scope="session")
+async def seat_role(db, org_id):
+    """A districted seat under `org_id`: role_type + jurisdiction + qualifier.
+
+    Title deliberately excludes "State Representative" / "Position 1" so the
+    display tests prove the join-sourced role_type/qualifier render, not the
+    title echoing them.
+    """
+    jur_id = generate_id()
+    rid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    rt_id = await db.fetchval("SELECT id FROM role_types WHERE slug='state_representative'")
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jur_id,
+        f"ld-admin-{jur_id[-8:].lower()}",
+        "Test Legislative District",
+        type_id,
+    )
+    await db.execute(
+        "INSERT INTO roles"
+        " (id, organization_id, title, role_type_id, jurisdiction_id, qualifier)"
+        " VALUES ($1,$2,$3,$4,$5,$6)",
+        rid,
+        org_id,
+        "WA Rep Seat One",
+        rt_id,
+        jur_id,
+        "Position 1",
+    )
+    yield {"role_id": rid, "jur_id": jur_id, "rt_id": rt_id}
+    await db.execute("DELETE FROM role_assignments WHERE role_id = $1", rid)
+    await db.execute("DELETE FROM roles WHERE id = $1", rid)
+    await db.execute("DELETE FROM jurisdictions WHERE id = $1", jur_id)
+
+
+async def test_role_detail_shows_seat_fields(client, seat_role):
+    """Seat detail surfaces role_type display_name, jurisdiction name, qualifier."""
+    r = client.get(f"/admin/roles/{seat_role['role_id']}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert 'id="seat-details"' in r.text
+    assert "State Representative" in r.text  # role_type display_name (join)
+    assert "Test Legislative District" in r.text  # jurisdiction name (join)
+    assert "Position 1" in r.text  # qualifier column
+
+
+async def test_role_detail_plain_role_hides_seat_section(client, role_id):
+    """A plain role (no seat fields) renders no seat section."""
+    r = client.get(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert 'id="seat-details"' not in r.text
+
+
+async def test_roles_list_shows_seat_badge(client, seat_role):
+    """Seats are visually flagged in the list."""
+    r = client.get("/admin/roles/?org_q=Test", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "badge--seat" in r.text
+
+
 async def test_role_detail_shows_person_name(client, db, role_id, person_id):
     """Role detail assignment list must show canonical name via v_person_display_names."""
     ra_id = generate_id()

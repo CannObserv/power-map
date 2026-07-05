@@ -148,9 +148,17 @@ async def role_detail(
     role = await db.fetchrow(
         """SELECT r.id, r.title, r.notes, r.archived_at, r.created_at, r.updated_at,
                   r.organization_id AS org_id,
-                  dn.display_name AS org_name
+                  r.role_type_id, r.jurisdiction_id, r.qualifier,
+                  dn.display_name AS org_name,
+                  rt.display_name AS role_type_name,
+                  rt.slug AS role_type_slug,
+                  jdn.display_name AS jurisdiction_name,
+                  jdn.slug AS jurisdiction_slug
            FROM roles r
            LEFT JOIN v_org_display_names dn ON dn.organization_id = r.organization_id
+           LEFT JOIN role_types rt ON rt.id = r.role_type_id
+           LEFT JOIN v_jurisdiction_display_names jdn
+                  ON jdn.jurisdiction_id = r.jurisdiction_id
            WHERE r.id = $1""",
         role_id,
     )

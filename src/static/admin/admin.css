@@ -77,6 +77,7 @@ html.dark .badge--active   { background: #14532d; color: #86efac; }
 html.dark .badge--inactive { background: #1e293b; color: var(--color-text-muted); }
 html.dark .badge--neutral  { background: #1e293b; color: var(--color-text-muted); }
 html.dark .badge--archived { background: #450a0a; color: #fca5a5; }
+html.dark .badge--seat     { background: #312e81; color: #c7d2fe; }
 html.dark .badge--success  { background: #14532d; color: #86efac; }
 html.dark .badge--warning  { background: #422006; color: #fde68a; }
 /* Alert colors */
@@ -110,6 +111,7 @@ html.light .badge--active   { background: #dcfce7; color: #15803d; }
 html.light .badge--inactive { background: #f1f5f9; color: #556070; }
 html.light .badge--neutral  { background: #f1f5f9; color: #556070; }
 html.light .badge--archived { background: #fee2e2; color: #991b1b; }
+html.light .badge--seat     { background: #e0e7ff; color: #3730a3; }
 html.light .badge--success  { background: #dcfce7; color: #15803d; }
 html.light .badge--warning  { background: #fef9c3; color: #854d0e; }
 html.light .alert--success  { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
@@ -216,6 +218,7 @@ a:hover { color: var(--color-brand-hover); }
 .badge--inactive { background: #f1f5f9; color: #556070; }
 .badge--neutral  { background: #f1f5f9; color: #556070; }
 .badge--archived { background: #fee2e2; color: #991b1b; }
+.badge--seat     { background: #e0e7ff; color: #3730a3; }
 .badge--success  { background: #dcfce7; color: #15803d; }
 .badge--warning  { background: #fef9c3; color: #854d0e; }
 @media (prefers-color-scheme: dark) {
@@ -223,6 +226,7 @@ a:hover { color: var(--color-brand-hover); }
   .badge--inactive { background: #1e293b; color: var(--color-text-muted); }
   .badge--neutral  { background: #1e293b; color: var(--color-text-muted); }
   .badge--archived { background: #450a0a; color: #fca5a5; }
+  .badge--seat     { background: #312e81; color: #c7d2fe; }
   .badge--success  { background: #14532d; color: #86efac; }
   .badge--warning  { background: #422006; color: #fde68a; }
 }
