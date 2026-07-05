@@ -1,4 +1,4 @@
-"""Inline editing routes for the role detail page (org, title, notes, boundary dates)."""
+"""Inline editing routes for the role detail page (org, title, seat, notes, dates)."""
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, Request
@@ -11,7 +11,9 @@ from src.api.admin.roles_shared import (
     _check_assignment_within_bounds,
     _get_role,
     _parse_date,
+    fetch_role_types,
 )
+from src.core.seat_title import synthesize_seat_title
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles/{role_id}", tags=["admin-roles-detail"])
@@ -138,6 +140,20 @@ async def role_inline_title_post(
 ):
     """Save title; return updated read partial."""
     role = await _get_role(role_id, db)
+    # A seat's title is PM-curated from its (office, jurisdiction, qualifier)
+    # tuple (#267) — refuse manual edits so the admin can't become a drift vector.
+    if role["role_type_id"]:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_title_read.html",
+            {"role": role},
+            headers=flash_trigger(
+                "error",
+                "A seat's title is generated from its office, jurisdiction, and qualifier.",
+            ),
+        )
     cleaned = title.strip()
     if not cleaned:
         if not is_htmx(request):
@@ -226,6 +242,130 @@ async def role_inline_notes_post(
         "admin/roles/partials/_notes_read.html",
         {"role": role},
         headers=flash_trigger("success", "Notes saved."),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Seat inline (role_type / jurisdiction / qualifier)
+# ---------------------------------------------------------------------------
+
+
+def _seat_form_ctx(role, role_types, *, rt=None, jur=None, jur_name=None, qual=None):
+    """Context for the seat edit form; defaults reflect the role's current tuple."""
+    return {
+        "role": role,
+        "role_types": role_types,
+        "sel_role_type_id": rt if rt is not None else role["role_type_id"],
+        "sel_jurisdiction_id": jur if jur is not None else role["jurisdiction_id"],
+        "sel_jurisdiction_name": jur_name if jur is not None else role["jurisdiction_name"],
+        "sel_qualifier": qual if qual is not None else role["qualifier"],
+    }
+
+
+@router.get("/inline/seat/")
+async def role_inline_seat_get(
+    role_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return seat read partial."""
+    role = await _get_role(role_id, db)
+    return templates.TemplateResponse(
+        request, "admin/roles/partials/_seat_read.html", {"role": role}
+    )
+
+
+@router.get("/inline/seat/edit/")
+async def role_inline_seat_edit_get(
+    role_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return seat edit form partial."""
+    role = await _get_role(role_id, db)
+    role_types = await fetch_role_types(db)
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/partials/_seat_form.html",
+        _seat_form_ctx(role, role_types),
+    )
+
+
+@router.post("/inline/seat/")
+async def role_inline_seat_post(
+    role_id: str,
+    request: Request,
+    role_type_id: str = Form(""),
+    jurisdiction_id: str = Form(""),
+    qualifier: str = Form(""),
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Save the seat tuple; re-synthesize the curated title when possible (#267)."""
+    role = await _get_role(role_id, db)
+    rt = role_type_id.strip() or None
+    jur = jurisdiction_id.strip() or None
+    qual = qualifier.strip() or None
+
+    async def _form(error: str):
+        jur_name = None
+        if jur:
+            jur_name = await db.fetchval("SELECT name FROM jurisdictions WHERE id=$1", jur)
+        role_types = await fetch_role_types(db)
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_seat_form.html",
+            _seat_form_ctx(role, role_types, rt=rt, jur=jur, jur_name=jur_name, qual=qual),
+            headers=flash_trigger("error", error),
+        )
+
+    # Mirror the DB check-constraints with clear messages.
+    if qual is not None and jur is None:
+        return await _form("A qualifier requires a jurisdiction.")
+    if jur is not None and rt is None:
+        return await _form("A districted seat needs an office (role type).")
+
+    # A seat's title is PM-curated: regenerate it from the new tuple when the
+    # formatter can render one; otherwise leave the existing title untouched.
+    new_title = role["title"]
+    if jur is not None:
+        rt_slug = await db.fetchval("SELECT slug FROM role_types WHERE id=$1", rt)
+        jur_slug = await db.fetchval("SELECT slug FROM jurisdictions WHERE id=$1", jur)
+        synthesized = synthesize_seat_title(rt_slug, jur_slug, qual) if rt_slug else None
+        if synthesized is not None:
+            new_title = synthesized
+
+    try:
+        await db.execute(
+            "UPDATE roles SET role_type_id=$1, jurisdiction_id=$2, qualifier=$3, title=$4"
+            " WHERE id=$5",
+            rt,
+            jur,
+            qual,
+            new_title,
+            role_id,
+        )
+    except asyncpg.UniqueViolationError:
+        if jur is not None:
+            return await _form(
+                "A seat with this office, jurisdiction, and qualifier already exists."
+            )
+        return await _form(
+            f"A role titled “{escape(new_title)}” already exists for this organization."
+        )
+    except asyncpg.ForeignKeyViolationError:
+        return await _form("The selected office or jurisdiction no longer exists.")
+
+    role = await _get_role(role_id, db)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/partials/_seat_read.html",
+        {"role": role},
+        headers=flash_trigger("success", "Seat saved."),
     )
 
 

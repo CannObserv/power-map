@@ -6,29 +6,79 @@
   <span>{{ 'Edit' if role else 'New' }}</span>
 {% endblock %}
 {% block content %}
+{% set v = values if values is defined else {} %}
 <div class="page-header">
   <h1>{{ 'Edit Role' if role else 'New Role' }}</h1>
 </div>
 <div class="entity-card">
+  {% if error %}
+  <div class="alert alert--error" role="alert" style="margin-bottom:var(--space-4)">{{ error }}</div>
+  {% endif %}
   <form method="POST" action="{{ '/admin/roles/' + role.id + '/edit/' if role else '/admin/roles/new/' }}">
     <div class="form-group">
       <label for="organization_id">Organization <span aria-hidden="true">*</span></label>
       <select id="organization_id" name="organization_id" required>
         <option value="">— select organization —</option>
         {% for org in orgs %}
-        <option value="{{ org.id }}" {% if role and role.organization_id == org.id %}selected{% endif %}>
+        <option value="{{ org.id }}" {% if v.get('organization_id') == org.id %}selected{% endif %}>
           {{ org.name or org.id }}
         </option>
         {% endfor %}
       </select>
     </div>
     <div class="form-group">
-      <label for="title">Title <span aria-hidden="true">*</span></label>
-      <input id="title" name="title" type="text" required value="{{ role.title if role else '' }}">
+      <label for="title">Title</label>
+      <input id="title" name="title" type="text" value="{{ v.get('title') or '' }}">
+      <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-1) 0 0">
+        Required for a plain role. For a WA legislative seat, leave blank — the title is generated from the seat below.
+      </p>
     </div>
+
+    <fieldset style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-4);margin-bottom:var(--space-4)">
+      <legend style="padding:0 var(--space-2);font-weight:600;font-size:var(--font-size-sm)">Seat (optional)</legend>
+      <div class="form-group">
+        <label for="role_type_id">Office (role type)</label>
+        <select id="role_type_id" name="role_type_id">
+          <option value="">— none (plain role) —</option>
+          {% for rt in role_types %}
+          <option value="{{ rt.id }}" {% if v.get('role_type_id') == rt.id %}selected{% endif %}>
+            {{ rt.display_name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div id="seat-districted" {% if not v.get('role_type_id') %}hidden{% endif %}>
+        <div class="form-group" style="position:relative">
+          <label for="jurisdiction-search">Jurisdiction</label>
+          <input id="jurisdiction-search" type="text" autocomplete="off"
+                 placeholder="Type to search…"
+                 value="{{ v.get('jurisdiction_name') or '' }}"
+                 hx-get="/admin/jurisdictions/search/"
+                 hx-trigger="input changed delay:200ms"
+                 hx-target="#jurisdiction-search-results"
+                 hx-swap="innerHTML"
+                 hx-params="q"
+                 name="q"
+                 role="combobox"
+                 aria-expanded="false"
+                 aria-haspopup="listbox"
+                 aria-controls="jurisdiction-search-results"
+                 aria-autocomplete="list">
+          <input type="hidden" name="jurisdiction_id" id="jurisdiction-id-hidden"
+                 value="{{ v.get('jurisdiction_id') or '' }}">
+          <ul id="jurisdiction-search-results" class="typeahead-results" role="listbox"></ul>
+        </div>
+        <div class="form-group">
+          <label for="qualifier">Qualifier</label>
+          <input id="qualifier" name="qualifier" type="text"
+                 value="{{ v.get('qualifier') or '' }}" placeholder="e.g. Position 1">
+        </div>
+      </div>
+    </fieldset>
+
     <div class="form-group">
       <label for="notes">Notes</label>
-      <textarea id="notes" name="notes" rows="3">{{ role.notes if role else '' }}</textarea>
+      <textarea id="notes" name="notes" rows="3">{{ v.get('notes') or '' }}</textarea>
     </div>
     <div class="form-actions">
       <button type="submit" class="btn btn--primary">{{ 'Save changes' if role else 'Create role' }}</button>
@@ -36,4 +86,22 @@
     </div>
   </form>
 </div>
+<script>
+  (function () {
+    var sel = document.getElementById('role_type_id');
+    var box = document.getElementById('seat-districted');
+    if (sel && box) {
+      var sync = function () { box.hidden = !sel.value; };
+      sel.addEventListener('change', sync);
+      sync();
+    }
+    if (typeof window.initTypeaheadCombobox === 'function') {
+      window.initTypeaheadCombobox({
+        inputId: 'jurisdiction-search',
+        listboxId: 'jurisdiction-search-results',
+        hiddenId: 'jurisdiction-id-hidden',
+      });
+    }
+  })();
+</script>
 {% endblock %}

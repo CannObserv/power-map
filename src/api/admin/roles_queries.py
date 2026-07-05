@@ -50,10 +50,13 @@ async def query_roles_rows(
     rows = await db.fetch(
         f"""SELECT r.id, r.title, r.notes, r.archived_at, r.created_at,
                    o.id AS org_id,
-                   dn.display_name AS org_name
+                   dn.display_name AS org_name,
+                   r.role_type_id,
+                   rt.display_name AS role_type_name
             FROM roles r
             JOIN organizations o ON o.id = r.organization_id
             LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+            LEFT JOIN role_types rt ON rt.id = r.role_type_id
             {where}
             ORDER BY dn.display_name NULLS LAST, r.title
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",

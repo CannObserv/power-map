@@ -86,6 +86,266 @@ async def person_id(db):
     await db.execute("DELETE FROM people WHERE id = $1", pid)
 
 
+@pytest_asyncio.fixture(loop_scope="session")
+async def seat_role(db, org_id):
+    """A districted seat under `org_id`: role_type + jurisdiction + qualifier.
+
+    Title deliberately excludes "State Representative" / "Position 1" so the
+    display tests prove the join-sourced role_type/qualifier render, not the
+    title echoing them.
+    """
+    jur_id = generate_id()
+    rid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    rt_id = await db.fetchval("SELECT id FROM role_types WHERE slug='state_representative'")
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jur_id,
+        f"ld-admin-{jur_id[-8:].lower()}",
+        "Test Legislative District",
+        type_id,
+    )
+    await db.execute(
+        "INSERT INTO roles"
+        " (id, organization_id, title, role_type_id, jurisdiction_id, qualifier)"
+        " VALUES ($1,$2,$3,$4,$5,$6)",
+        rid,
+        org_id,
+        "WA Rep Seat One",
+        rt_id,
+        jur_id,
+        "Position 1",
+    )
+    yield {"role_id": rid, "jur_id": jur_id, "rt_id": rt_id}
+    await db.execute("DELETE FROM role_assignments WHERE role_id = $1", rid)
+    await db.execute("DELETE FROM roles WHERE id = $1", rid)
+    await db.execute("DELETE FROM jurisdictions WHERE id = $1", jur_id)
+
+
+async def test_role_detail_shows_seat_fields(client, seat_role):
+    """Seat detail surfaces role_type display_name, jurisdiction name, qualifier."""
+    r = client.get(f"/admin/roles/{seat_role['role_id']}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert 'id="seat-details"' in r.text
+    assert "State Representative" in r.text  # role_type display_name (join)
+    assert "Test Legislative District" in r.text  # jurisdiction name (join)
+    assert "Position 1" in r.text  # qualifier column
+
+
+async def test_role_detail_plain_role_hides_seat_section(client, role_id):
+    """A plain role (no seat fields) renders no seat section."""
+    r = client.get(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert 'id="seat-details"' not in r.text
+
+
+async def test_roles_list_shows_seat_badge(client, seat_role):
+    """Seats are visually flagged in the list."""
+    r = client.get("/admin/roles/?org_q=Test", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "badge--seat" in r.text
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def rt_rep_id(db):
+    """role_types.id for the seeded state_representative office."""
+    return await db.fetchval("SELECT id FROM role_types WHERE slug='state_representative'")
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def wa_ld_jurisdiction(db):
+    """A WA legislative district; slug usa-wa-ld-999 drives title synthesis."""
+    jid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        "usa-wa-ld-999",
+        "Legislative District 999",
+        type_id,
+    )
+    yield jid
+    # Drop any seats POSTed onto this district before removing it (FK).
+    await db.execute(
+        "DELETE FROM role_assignments WHERE role_id IN"
+        " (SELECT id FROM roles WHERE jurisdiction_id=$1)",
+        jid,
+    )
+    await db.execute("DELETE FROM roles WHERE jurisdiction_id=$1", jid)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def nonwa_jurisdiction(db):
+    """A jurisdiction whose slug is NOT usa-wa-ld-N → title synthesis returns None."""
+    jid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        f"test-nonwa-{jid[-8:].lower()}",
+        "Nonsynthesizable County",
+        type_id,
+    )
+    yield jid
+    await db.execute(
+        "DELETE FROM role_assignments WHERE role_id IN"
+        " (SELECT id FROM roles WHERE jurisdiction_id=$1)",
+        jid,
+    )
+    await db.execute("DELETE FROM roles WHERE jurisdiction_id=$1", jid)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+
+
+# ---------------------------------------------------------------------------
+# Slice 2 — create-form seat block + jurisdiction typeahead
+# ---------------------------------------------------------------------------
+
+
+async def test_jurisdiction_search_returns_matches(client, wa_ld_jurisdiction):
+    r = client.get("/admin/jurisdictions/search/?q=District 999", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "Legislative District 999" in r.text
+    assert wa_ld_jurisdiction in r.text
+
+
+async def test_create_seat_synthesizes_title(client, db, org_id, wa_ld_jurisdiction, rt_rep_id):
+    """Seat create with empty title → PM synthesizes the canonical WA seat title."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "",
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": wa_ld_jurisdiction,
+            "qualifier": "Position 1",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 303
+    row = await db.fetchrow(
+        "SELECT title, role_type_id, jurisdiction_id, qualifier FROM roles"
+        " WHERE organization_id=$1 AND jurisdiction_id=$2",
+        org_id,
+        wa_ld_jurisdiction,
+    )
+    assert row["role_type_id"] == rt_rep_id
+    assert row["qualifier"] == "Position 1"
+    assert row["title"] == "Washington State Representative, LD-999, Position 1"
+
+
+async def test_create_seat_missing_office_rejected(client, db, org_id, wa_ld_jurisdiction):
+    """jurisdiction without a role_type violates chk_role_districted_needs_type."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "",
+            "role_type_id": "",
+            "jurisdiction_id": wa_ld_jurisdiction,
+            "qualifier": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "needs an office" in r.text
+    n = await db.fetchval("SELECT count(*) FROM roles WHERE jurisdiction_id=$1", wa_ld_jurisdiction)
+    assert n == 0
+
+
+async def test_create_qualifier_without_jurisdiction_rejected(client, org_id, rt_rep_id):
+    """qualifier without a jurisdiction violates chk_role_qualifier_needs_jurisdiction."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "Some Role",
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": "",
+            "qualifier": "Position 2",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "requires a jurisdiction" in r.text
+
+
+async def test_create_plain_role_requires_title(client, org_id):
+    """A non-seat role still requires a title."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "",
+            "role_type_id": "",
+            "jurisdiction_id": "",
+            "qualifier": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "Title is required for a non-seat" in r.text
+
+
+async def test_create_seat_nonwa_requires_manual_title(
+    client, org_id, rt_rep_id, nonwa_jurisdiction
+):
+    """Synthesis returns None for a non-WA jurisdiction → manual title required."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "",
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": nonwa_jurisdiction,
+            "qualifier": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "Could not auto-generate" in r.text
+
+
+async def test_create_seat_nonwa_manual_title_ok(client, db, org_id, rt_rep_id, nonwa_jurisdiction):
+    """A supplied title is respected for an unsynthesizable seat (fill-when-absent)."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "County Commissioner Seat",
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": nonwa_jurisdiction,
+            "qualifier": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 303
+    row = await db.fetchrow(
+        "SELECT title FROM roles WHERE organization_id=$1 AND jurisdiction_id=$2",
+        org_id,
+        nonwa_jurisdiction,
+    )
+    assert row["title"] == "County Commissioner Seat"
+
+
 async def test_role_detail_shows_person_name(client, db, role_id, person_id):
     """Role detail assignment list must show canonical name via v_person_display_names."""
     ra_id = generate_id()
@@ -274,3 +534,122 @@ async def test_roles_list_htmx_request_returns_rows_partial(client):
     )
     assert response.status_code == 200
     assert "admin-layout" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# Slice 3 — inline seat editor + title gating
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def wa_seat_role(db, org_id):
+    """A synthesizable WA seat (usa-wa-ld-998) for title re-synthesis tests."""
+    jid = generate_id()
+    rid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    rt_id = await db.fetchval("SELECT id FROM role_types WHERE slug='state_representative'")
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        "usa-wa-ld-998",
+        "Legislative District 998",
+        type_id,
+    )
+    await db.execute(
+        "INSERT INTO roles"
+        " (id, organization_id, title, role_type_id, jurisdiction_id, qualifier)"
+        " VALUES ($1,$2,$3,$4,$5,$6)",
+        rid,
+        org_id,
+        "Washington State Representative, LD-998, Position 1",
+        rt_id,
+        jid,
+        "Position 1",
+    )
+    yield {"role_id": rid, "jur_id": jid, "rt_id": rt_id}
+    await db.execute("DELETE FROM role_assignments WHERE role_id = $1", rid)
+    await db.execute("DELETE FROM roles WHERE id = $1", rid)
+    await db.execute("DELETE FROM jurisdictions WHERE id = $1", jid)
+
+
+async def test_seat_inline_edit_form_renders(client, seat_role):
+    r = client.get(f"/admin/roles/{seat_role['role_id']}/inline/seat/edit/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "State Representative" in r.text  # office <option>
+    assert 'name="jurisdiction_id"' in r.text
+    assert 'name="qualifier"' in r.text
+
+
+async def test_seat_inline_update_qualifier_persists(client, db, seat_role):
+    """Non-WA seat: qualifier updates; unsynthesizable title left untouched."""
+    r = client.post(
+        f"/admin/roles/{seat_role['role_id']}/inline/seat/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "role_type_id": seat_role["rt_id"],
+            "jurisdiction_id": seat_role["jur_id"],
+            "qualifier": "Position 2",
+        },
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow("SELECT qualifier, title FROM roles WHERE id=$1", seat_role["role_id"])
+    assert row["qualifier"] == "Position 2"
+    assert row["title"] == "WA Rep Seat One"
+
+
+async def test_seat_inline_wa_title_resynthesized(client, db, wa_seat_role):
+    """WA seat: changing the tuple regenerates the curated title."""
+    r = client.post(
+        f"/admin/roles/{wa_seat_role['role_id']}/inline/seat/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "role_type_id": wa_seat_role["rt_id"],
+            "jurisdiction_id": wa_seat_role["jur_id"],
+            "qualifier": "Position 2",
+        },
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT title, qualifier FROM roles WHERE id=$1", wa_seat_role["role_id"]
+    )
+    assert row["qualifier"] == "Position 2"
+    assert row["title"] == "Washington State Representative, LD-998, Position 2"
+
+
+async def test_seat_inline_qualifier_without_jurisdiction_rejected(client, db, seat_role):
+    r = client.post(
+        f"/admin/roles/{seat_role['role_id']}/inline/seat/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "role_type_id": seat_role["rt_id"],
+            "jurisdiction_id": "",
+            "qualifier": "Position 9",
+        },
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT qualifier, jurisdiction_id FROM roles WHERE id=$1", seat_role["role_id"]
+    )
+    assert row["qualifier"] == "Position 1"  # unchanged
+    assert row["jurisdiction_id"] == seat_role["jur_id"]
+
+
+async def test_seat_title_edit_post_rejected(client, db, seat_role):
+    """A seat's title is PM-curated — the manual title editor refuses to change it."""
+    r = client.post(
+        f"/admin/roles/{seat_role['role_id']}/inline/title/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={"title": "Hand Edited Title"},
+    )
+    assert r.status_code == 200
+    title = await db.fetchval("SELECT title FROM roles WHERE id=$1", seat_role["role_id"])
+    assert title == "WA Rep Seat One"
+
+
+async def test_seat_detail_hides_title_edit_button(client, seat_role, role_id):
+    seat = client.get(f"/admin/roles/{seat_role['role_id']}/", headers=AUTH_HEADERS)
+    plain = client.get(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
+    assert "inline/title/edit/" not in seat.text
+    assert "inline/title/edit/" in plain.text

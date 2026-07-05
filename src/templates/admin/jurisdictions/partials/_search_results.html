@@ -1,0 +1,6 @@
+{# admin/jurisdictions/partials/_search_results.html — seat-picker typeahead #}
+{% for r in results %}
+<li id="opt-{{ r.id }}" role="option"
+    data-id="{{ r.id }}"
+    data-label="{{ r.name }}">{{ r.name }} <span style="color:var(--color-text-muted)">({{ r.slug }})</span></li>
+{% endfor %}

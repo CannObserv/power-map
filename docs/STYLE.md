@@ -2041,6 +2041,16 @@ Issue #131 follow-ups (lookup bug fix + redesign II):
 - **Cardstack inputs full-size**: each card in the given/family/additional CardStacks wraps its `<input>` in `<div class="form-group" style="margin-bottom:0;flex:1">` so the input inherits the baseline `.form-group input` rule (font-size, padding, `min-height: 44px`). A bare `<input style="flex:1">` falls back to browser-default text input styling and renders visibly smaller than the rest of the form.
 - **Reorder focus-follows-value (#145)**: after a ↑/↓ click on a cardstack arrow, `person-name-parts-reorder.js` moves focus to the neighbor card's same-direction button so repeated keypresses walk the value through the stack. At the boundary (neighbor's same-direction button is disabled), focus falls back to the neighbor's input — the cell that just received the value. Lookups are scoped to the neighbor element (form-scoped via `cardsIn(stack)`), so concurrent reorder in one form never moves focus out of that form.
 
+### Roles — seat fields (#264)
+
+The roles admin surfaces the seat tuple (`role_type_id` / `jurisdiction_id` / `qualifier`, #261). Rules that keep the admin from becoming a title-drift vector (#267):
+
+- **One seat block, not three fields.** The three columns are constraint-coupled, so they're edited together via a single inline read/edit pair (`_seat_read.html` / `_seat_form.html`) on `#seat-field`, and as one `<fieldset>` on the new-role form. Both use **progressive disclosure**: office `<select>` (from `role_types`) → reveal jurisdiction typeahead → reveal qualifier. Selecting office = "none" clears the districted sub-fields (demotes a seat to a plain role).
+- **Jurisdiction typeahead**: `GET /admin/jurisdictions/search/` (`src.api.admin.jurisdictions`) is a read-only `<li role="option" data-id data-label>` fragment for the shared `typeahead-combobox.js` factory — jurisdictions have no admin CRUD, only this picker. Mirrors `/admin/orgs/search/`.
+- **Title is PM-curated for seats.** Both create and inline-seat-save synthesize the canonical title via `src.core.seat_title.synthesize_seat_title` when the formatter can render one (WA legislative only), else require/keep a manual title (fill-when-absent). The free-text title editor is **gated for seats**: `_title_read.html` shows "Curated from the seat" instead of Edit, and `POST /inline/title/` refuses to retitle a role with a `role_type_id`.
+- **Validation mirrors the DB.** Both handlers reproduce `chk_role_qualifier_needs_jurisdiction` (qualifier ⇒ jurisdiction) and `chk_role_districted_needs_type` (jurisdiction ⇒ office) with clear flash errors, and catch `UniqueViolationError` for both `uq_role_seat` and `uq_role_org_title`.
+- **Known gap:** admin `role_create` / inline-seat-save write the row directly (no `resolve_role`, so no outbox/entity_changes emission) — consistent with the rest of the admin, unlike the observation path.
+
 ### Dup count cache
 
 `count_org_duplicates(db)` in `src.api.admin.org_dups` and `count_person_duplicates(db)` in `src.api.admin.people_dups` are TTL-cached (5 min, process-local). Call `invalidate_dup_count_cache()` from the appropriate module after any merge or dismiss. All people and org routes inject both counts via deps; sidebar badges use these template vars directly (no HTMX XHR).

@@ -9,6 +9,7 @@ from src.api.admin import dashboard as dashboard_module
 from src.api.admin import dup_badges as dup_badges_module
 from src.api.admin import entities as entities_module
 from src.api.admin import imports as imports_module
+from src.api.admin import jurisdictions as jurisdictions_module
 from src.api.admin import orgs as orgs_module
 from src.api.admin import orgs_acronyms as orgs_acronyms_module
 from src.api.admin import orgs_addresses as orgs_addresses_module
@@ -88,6 +89,7 @@ admin_router.include_router(people_links_module.router)
 admin_router.include_router(people_identifiers_module.router)
 admin_router.include_router(people_assignments_module.router)
 admin_router.include_router(people_events_module.router)
+admin_router.include_router(jurisdictions_module.router)
 admin_router.include_router(roles_module.router)
 admin_router.include_router(roles_detail_module.router)
 admin_router.include_router(roles_assignments_inline_module.router)

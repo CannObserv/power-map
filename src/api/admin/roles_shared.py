@@ -38,15 +38,30 @@ def _check_assignment_within_bounds(
     return None
 
 
+async def fetch_role_types(db):
+    """The role_types catalog for the seat office select (shared by create + inline)."""
+    return await db.fetch(
+        "SELECT id, slug, display_name, is_seat FROM role_types ORDER BY display_name"
+    )
+
+
 async def _get_role(role_id: str, db):
-    """Fetch role with org display name, or raise 404."""
+    """Fetch role with org display name + seat fields, or raise 404."""
     row = await db.fetchrow(
         """SELECT r.id, r.title, r.notes, r.archived_at, r.created_at, r.updated_at,
                   r.established_on, r.abolished_on,
                   r.organization_id AS org_id,
-                  dn.display_name AS org_name
+                  r.role_type_id, r.jurisdiction_id, r.qualifier,
+                  dn.display_name AS org_name,
+                  rt.display_name AS role_type_name,
+                  rt.slug AS role_type_slug,
+                  jdn.display_name AS jurisdiction_name,
+                  jdn.slug AS jurisdiction_slug
            FROM roles r
            LEFT JOIN v_org_display_names dn ON dn.organization_id = r.organization_id
+           LEFT JOIN role_types rt ON rt.id = r.role_type_id
+           LEFT JOIN v_jurisdiction_display_names jdn
+                  ON jdn.jurisdiction_id = r.jurisdiction_id
            WHERE r.id = $1""",
         role_id,
     )
