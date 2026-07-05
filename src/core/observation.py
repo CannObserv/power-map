@@ -775,7 +775,7 @@ async def resolve_role(
                 f"role_title_unavailable: role_type={role_type!r} jurisdiction={jur['slug']!r}",
             )
     elif not title:
-        # Non-seat role: title is the match key and is required.
+        # Role without a jurisdiction: title is the match key and is required.
         return "", Disposition.REJECTED, "title_required"
 
     role_id = generate_id()

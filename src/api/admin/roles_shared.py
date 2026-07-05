@@ -44,7 +44,7 @@ async def fetch_role_types(db):
 
 
 async def _get_role(role_id: str, db):
-    """Fetch role with org display name + seat fields, or raise 404."""
+    """Fetch role with org display name + structural fields, or raise 404."""
     row = await db.fetchrow(
         """SELECT r.id, r.title, r.notes, r.archived_at, r.created_at, r.updated_at,
                   r.established_on, r.abolished_on,

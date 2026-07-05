@@ -482,7 +482,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 |--------|------|------|-------------|
 | `GET` | `/api/v1/roles` | API key | Paginated list of roles, optionally filtered by org. |
 | `GET` | `/api/v1/roles/{id}` | API key | Full role record (links, contact methods, addresses) with ETag caching. |
-| `GET` | `/api/v1/role-types` | API key | Full (unpaginated) catalog of role-type classifiers — the seat-match vocabulary. |
+| `GET` | `/api/v1/role-types` | API key | Full (unpaginated) catalog of role-type classifiers — the structural-match vocabulary. |
 | `POST` | `/api/v1/roles/observations` | `observations:write` scope | Submit a role observation (match-or-create). |
 
 ### List — `GET /api/v1/roles`
@@ -498,22 +498,22 @@ Query parameters:
 
 Response item fields: `id`, `organization_id`, `title`, `notes`, `established_on`, `abolished_on`, `role_type_id`, `role_type_slug`, `jurisdiction_id`, `qualifier`, `archived_at`, `created_at`, `updated_at`.
 
-**Seat fields (#261):** a role that models a legislative seat carries `role_type_id` + `role_type_slug` (the office, e.g. `state_representative`), `jurisdiction_id` (the district), and `qualifier` (position label, e.g. `"Position 1"`; NULL for single-seat offices like a state senator). All four are `null` on plain (non-districted) roles. Aggregate by these: all Representatives → filter `role_type_slug`; all seats in a district → filter `jurisdiction_id`.
+**Structural fields (#261):** a role with a jurisdiction carries `role_type_id` + `role_type_slug` (the office, e.g. `state_representative`), `jurisdiction_id` (the district), and `qualifier` (position label, e.g. `"Position 1"`; NULL for single-position offices like a state senator). All four are `null` on a plain role (no jurisdiction). Aggregate by these: all Representatives → filter `role_type_slug`; all roles in a district → filter `jurisdiction_id`.
 
 ### Role types — `GET /api/v1/role-types`
 
-The machine-readable catalog of role-type classifiers (#268), so seat-Role producers discover the `role_type` match-key vocabulary instead of hardcoding it. Unpaginated `{"data": [...]}` (small, stable set); no query parameters.
+The machine-readable catalog of role-type classifiers (#268), so producers of structured roles discover the `role_type` match-key vocabulary instead of hardcoding it. Unpaginated `{"data": [...]}` (small, stable set); no query parameters.
 
-Item fields: `id`, `slug`, `display_name`, `is_seat`.
+Item fields: `id`, `slug`, `display_name`, `expects_jurisdiction`.
 
 - `slug` — the stable value sent as `RoleObservationRequest.role_type` and returned as `RoleDetail.role_type_slug`.
-- `is_seat` — advisory hint that this office is normally a districted seat (attach it with a `jurisdiction_id`, structural-tuple match). It is a producer hint, **not** enforced: `resolve_role` will let a seat-type be used in title mode. Sending an **unknown** `role_type` is already rejected (`role_type_not_found`), so an unrecognized slug can never mint a seat — this endpoint is what keeps a producer from sending a *valid-but-wrong* slug.
+- `expects_jurisdiction` — advisory hint that this office is normally attached with a `jurisdiction_id` (structural-tuple match). It is a producer hint, **not** enforced: `resolve_role` will let a jurisdiction-expecting type be used in title mode. Sending an **unknown** `role_type` is already rejected (`role_type_not_found`), so an unrecognized slug can never mint a role — this endpoint is what keeps a producer from sending a *valid-but-wrong* slug.
 
 ```jsonc
 {
   "data": [
-    { "id": "01KX…01", "slug": "state_representative", "display_name": "State Representative", "is_seat": true },
-    { "id": "01KX…02", "slug": "state_senator",        "display_name": "State Senator",        "is_seat": true }
+    { "id": "01KX…01", "slug": "state_representative", "display_name": "State Representative", "expects_jurisdiction": true },
+    { "id": "01KX…02", "slug": "state_senator",        "display_name": "State Senator",        "expects_jurisdiction": true }
   ]
 }
 ```
@@ -534,7 +534,7 @@ Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 
 Two mutually exclusive resolution modes:
 
-- **Standard** — match or create. A **plain role** matches by `(organization_id, lower(title))`. A **districted seat** (supply `jurisdiction_id`) matches by `(organization_id, role_type, jurisdiction_id, qualifier)`, so distinct seats sharing a title never collapse and a title-only submission never attaches to a seat. No external identifier type needed. For a seat, `title` is **optional and PM-curated** — on create PM synthesizes the canonical seat title from the tuple and **prefers it over any supplied title** (#267), so an observer never drifts PM's form; a supplied title is used only as a fallback when the seat can't be synthesized.
+- **Standard** — match or create. A **plain role** (no jurisdiction) matches by `(organization_id, lower(title))`. A **role with a jurisdiction** (supply `jurisdiction_id`) matches by `(organization_id, role_type, jurisdiction_id, qualifier)`, so distinct roles sharing a title never collapse and a title-only submission never attaches to a role with a jurisdiction. No external identifier type needed. For a role with a jurisdiction, `title` is **optional and PM-curated** — on create PM synthesizes the canonical title from the tuple and **prefers it over any supplied title** (#267), so an observer never drifts PM's form; a supplied title is used only as a fallback when it can't be synthesized.
 - **PM-native** — attach to a known role by its PM ULID. Supply `identifier_type="pm_role_id"` + `identifier_value=<role ULID>`. Never creates; returns `rejected` if the ULID is unknown or archived.
 
 **Request fields:**
@@ -544,10 +544,10 @@ Two mutually exclusive resolution modes:
 | `identifier_type` | PM-native mode | Must be `"pm_role_id"` when supplied. Mutually exclusive with `organization_id`/`title`. |
 | `identifier_value` | PM-native mode | Role ULID. Required when `identifier_type` is present. |
 | `organization_id` | standard mode | ULID of the owning organization. Must exist and be active; unknown/archived org → `rejected`. |
-| `title` | plain role only | Role title. Case-insensitive match against existing non-districted roles in the same org. **Required for a plain role**; **optional for a seat** (`jurisdiction_id` present) — PM synthesizes the canonical title and prefers it, so a supplied seat title is ignored except as a fallback when the seat can't be synthesized. Omit it for seats. |
-| `role_type` | seat | `role_types` slug (e.g. `state_representative`, `state_senator`). Required when `jurisdiction_id` is supplied; unknown slug → `rejected`. |
-| `jurisdiction_id` | seat | PM jurisdiction ULID for a districted seat. When present, matching/uniqueness switches to seat identity. A superseded/redistricted (historical) district is valid — only a soft-deleted (archived) district is rejected — so seats can be created against the district that was in effect. |
-| `qualifier` | optional (seat) | Position label disambiguating seats in one district (e.g. `"Position 1"`). Requires `jurisdiction_id` (422 otherwise). NULL/omitted for single-seat offices. |
+| `title` | plain role only | Role title. Case-insensitive match against existing roles without a jurisdiction in the same org. **Required for a plain role**; **optional when `jurisdiction_id` is present** — PM synthesizes the canonical title and prefers it, so a supplied title is ignored except as a fallback when it can't be synthesized. Omit it for a role with a jurisdiction. |
+| `role_type` | with jurisdiction | `role_types` slug (e.g. `state_representative`, `state_senator`). Required when `jurisdiction_id` is supplied; unknown slug → `rejected`. |
+| `jurisdiction_id` | with jurisdiction | PM jurisdiction ULID. When present, matching/uniqueness switches to structural identity. A superseded/redistricted (historical) district is valid — only a soft-deleted (archived) district is rejected — so roles can be created against the district that was in effect. |
+| `qualifier` | optional (with jurisdiction) | Position label disambiguating roles in one district (e.g. `"Position 1"`). Requires `jurisdiction_id` (422 otherwise). NULL/omitted for single-position offices. |
 | `notes` | optional | Free text. Only written on NEW. |
 | `established_on` | optional | ISO 8601 date. Only written on NEW. |
 | `abolished_on` | optional | ISO 8601 date. Only written on NEW. Must be >= `established_on` if both supplied. |
@@ -559,9 +559,9 @@ Two mutually exclusive resolution modes:
 
 | Disposition | Condition |
 |-------------|-----------|
-| `new` | No active matching role found (plain: `(org_id, lower(title))`; seat: `(org_id, role_type, jurisdiction_id, qualifier)`); role created (standard mode only) |
+| `new` | No active matching role found (plain: `(org_id, lower(title))`; with jurisdiction: `(org_id, role_type, jurisdiction_id, qualifier)`); role created (standard mode only) |
 | `auto-attached` | Active matching role already exists (standard) or known ULID supplied (PM-native); attribute writes still applied |
-| `rejected` | Organization unknown or archived; unknown/archived ULID (PM-native); unknown `role_type` slug; districted seat missing `role_type`; unknown or archived `jurisdiction_id`; titleless seat whose title can't be synthesized (`seat_title_unavailable` — unknown role_type / non-`usa-wa-ld` district); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
+| `rejected` | Organization unknown or archived; unknown/archived ULID (PM-native); unknown `role_type` slug; a role with a jurisdiction missing `role_type`; unknown or archived `jurisdiction_id`; a titleless role with a jurisdiction whose title can't be synthesized (`role_title_unavailable` — unknown role_type / non-`usa-wa-ld` district); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **Note:** `notes`, `established_on`, and `abolished_on` are only written on NEW disposition. They are intentionally not updated on AUTO_ATTACHED to preserve first-submitter authority over these core role fields.
 
