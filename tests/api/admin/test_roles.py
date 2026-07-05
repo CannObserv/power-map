@@ -148,6 +148,204 @@ async def test_roles_list_shows_seat_badge(client, seat_role):
     assert "badge--seat" in r.text
 
 
+@pytest_asyncio.fixture(loop_scope="session")
+async def rt_rep_id(db):
+    """role_types.id for the seeded state_representative office."""
+    return await db.fetchval("SELECT id FROM role_types WHERE slug='state_representative'")
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def wa_ld_jurisdiction(db):
+    """A WA legislative district; slug usa-wa-ld-999 drives title synthesis."""
+    jid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        "usa-wa-ld-999",
+        "Legislative District 999",
+        type_id,
+    )
+    yield jid
+    # Drop any seats POSTed onto this district before removing it (FK).
+    await db.execute(
+        "DELETE FROM role_assignments WHERE role_id IN"
+        " (SELECT id FROM roles WHERE jurisdiction_id=$1)",
+        jid,
+    )
+    await db.execute("DELETE FROM roles WHERE jurisdiction_id=$1", jid)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def nonwa_jurisdiction(db):
+    """A jurisdiction whose slug is NOT usa-wa-ld-N → title synthesis returns None."""
+    jid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        f"test-nonwa-{jid[-8:].lower()}",
+        "Nonsynthesizable County",
+        type_id,
+    )
+    yield jid
+    await db.execute(
+        "DELETE FROM role_assignments WHERE role_id IN"
+        " (SELECT id FROM roles WHERE jurisdiction_id=$1)",
+        jid,
+    )
+    await db.execute("DELETE FROM roles WHERE jurisdiction_id=$1", jid)
+    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+
+
+# ---------------------------------------------------------------------------
+# Slice 2 — create-form seat block + jurisdiction typeahead
+# ---------------------------------------------------------------------------
+
+
+async def test_jurisdiction_search_returns_matches(client, wa_ld_jurisdiction):
+    r = client.get("/admin/jurisdictions/search/?q=District 999", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "Legislative District 999" in r.text
+    assert wa_ld_jurisdiction in r.text
+
+
+async def test_create_seat_synthesizes_title(client, db, org_id, wa_ld_jurisdiction, rt_rep_id):
+    """Seat create with empty title → PM synthesizes the canonical WA seat title."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "",
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": wa_ld_jurisdiction,
+            "qualifier": "Position 1",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 303
+    row = await db.fetchrow(
+        "SELECT title, role_type_id, jurisdiction_id, qualifier FROM roles"
+        " WHERE organization_id=$1 AND jurisdiction_id=$2",
+        org_id,
+        wa_ld_jurisdiction,
+    )
+    assert row["role_type_id"] == rt_rep_id
+    assert row["qualifier"] == "Position 1"
+    assert row["title"] == "Washington State Representative, LD-999, Position 1"
+
+
+async def test_create_seat_missing_office_rejected(client, db, org_id, wa_ld_jurisdiction):
+    """jurisdiction without a role_type violates chk_role_districted_needs_type."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "",
+            "role_type_id": "",
+            "jurisdiction_id": wa_ld_jurisdiction,
+            "qualifier": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "needs an office" in r.text
+    n = await db.fetchval("SELECT count(*) FROM roles WHERE jurisdiction_id=$1", wa_ld_jurisdiction)
+    assert n == 0
+
+
+async def test_create_qualifier_without_jurisdiction_rejected(client, org_id, rt_rep_id):
+    """qualifier without a jurisdiction violates chk_role_qualifier_needs_jurisdiction."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "Some Role",
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": "",
+            "qualifier": "Position 2",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "requires a jurisdiction" in r.text
+
+
+async def test_create_plain_role_requires_title(client, org_id):
+    """A non-seat role still requires a title."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "",
+            "role_type_id": "",
+            "jurisdiction_id": "",
+            "qualifier": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "Title is required for a non-seat" in r.text
+
+
+async def test_create_seat_nonwa_requires_manual_title(
+    client, org_id, rt_rep_id, nonwa_jurisdiction
+):
+    """Synthesis returns None for a non-WA jurisdiction → manual title required."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "",
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": nonwa_jurisdiction,
+            "qualifier": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "Could not auto-generate" in r.text
+
+
+async def test_create_seat_nonwa_manual_title_ok(client, db, org_id, rt_rep_id, nonwa_jurisdiction):
+    """A supplied title is respected for an unsynthesizable seat (fill-when-absent)."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "County Commissioner Seat",
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": nonwa_jurisdiction,
+            "qualifier": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 303
+    row = await db.fetchrow(
+        "SELECT title FROM roles WHERE organization_id=$1 AND jurisdiction_id=$2",
+        org_id,
+        nonwa_jurisdiction,
+    )
+    assert row["title"] == "County Commissioner Seat"
+
+
 async def test_role_detail_shows_person_name(client, db, role_id, person_id):
     """Role detail assignment list must show canonical name via v_person_display_names."""
     ra_id = generate_id()

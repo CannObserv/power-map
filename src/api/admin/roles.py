@@ -17,6 +17,7 @@ from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.api.admin.roles_queries import query_roles_rows
 from src.core.db import generate_id
+from src.core.seat_title import synthesize_seat_title
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles", tags=["admin-roles"])
@@ -62,6 +63,23 @@ async def roles_list(
     return templates.TemplateResponse(request, template, ctx)
 
 
+async def _fetch_orgs(db):
+    """Active organizations for the role-form org select."""
+    return await db.fetch(
+        """SELECT o.id, dn.display_name AS name
+           FROM organizations o
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           WHERE o.archived_at IS NULL ORDER BY dn.display_name NULLS LAST"""
+    )
+
+
+async def _fetch_role_types(db):
+    """The role_types catalog for the seat office select."""
+    return await db.fetch(
+        "SELECT id, slug, display_name, is_seat FROM role_types ORDER BY display_name"
+    )
+
+
 @router.get("/new/")
 async def role_new_form(
     request: Request,
@@ -69,12 +87,6 @@ async def role_new_form(
     db=Depends(get_db),
 ):
     """New role form."""
-    orgs = await db.fetch(
-        """SELECT o.id, dn.display_name AS name
-           FROM organizations o
-           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-           WHERE o.archived_at IS NULL ORDER BY dn.display_name NULLS LAST"""
-    )
     return templates.TemplateResponse(
         request,
         "admin/roles/form.html",
@@ -82,7 +94,9 @@ async def role_new_form(
             "user": user,
             "active_section": "roles",
             "role": None,
-            "orgs": orgs,
+            "orgs": await _fetch_orgs(db),
+            "role_types": await _fetch_role_types(db),
+            "values": {},
         },
     )
 
@@ -91,20 +105,101 @@ async def role_new_form(
 async def role_create(
     request: Request,
     organization_id: str = Form(...),
-    title: str = Form(...),
+    title: str = Form(""),
+    role_type_id: str = Form(""),
+    jurisdiction_id: str = Form(""),
+    qualifier: str = Form(""),
     notes: str = Form(""),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Create a new role."""
+    """Create a new role — plain or a districted seat.
+
+    A seat is ``jurisdiction_id`` + ``role_type_id`` (+ optional ``qualifier``).
+    Validates the two DB check-constraints up front with clear errors, and, for
+    a seat with no supplied title, synthesizes the canonical WA seat title (#267)
+    — falling back to requiring a manual title when synthesis is unavailable.
+    """
+    title_c = title.strip()
+    role_type_id_c = role_type_id.strip() or None
+    jurisdiction_id_c = jurisdiction_id.strip() or None
+    qualifier_c = qualifier.strip() or None
+    notes_c = notes.strip() or None
+
+    async def _reload(error: str):
+        jur_name = None
+        if jurisdiction_id_c:
+            jur_name = await db.fetchval(
+                "SELECT name FROM jurisdictions WHERE id=$1", jurisdiction_id_c
+            )
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/form.html",
+            {
+                "user": user,
+                "active_section": "roles",
+                "role": None,
+                "orgs": await _fetch_orgs(db),
+                "role_types": await _fetch_role_types(db),
+                "values": {
+                    "organization_id": organization_id,
+                    "title": title_c,
+                    "role_type_id": role_type_id_c,
+                    "jurisdiction_id": jurisdiction_id_c,
+                    "jurisdiction_name": jur_name,
+                    "qualifier": qualifier_c,
+                    "notes": notes_c,
+                },
+                "error": error,
+            },
+            status_code=200,
+        )
+
+    # Mirror the DB check-constraints (chk_role_qualifier_needs_jurisdiction,
+    # chk_role_districted_needs_type) so the admin sees a clear message rather
+    # than a raw IntegrityError.
+    if qualifier_c is not None and jurisdiction_id_c is None:
+        return await _reload("A qualifier requires a jurisdiction.")
+    if jurisdiction_id_c is not None and role_type_id_c is None:
+        return await _reload("A districted seat needs an office (role type).")
+
+    if jurisdiction_id_c is not None:
+        # Seat mode: PM curates the title. Synthesize when absent (#267);
+        # require a manual title only when synthesis can't render one.
+        if not title_c:
+            rt_slug = await db.fetchval("SELECT slug FROM role_types WHERE id=$1", role_type_id_c)
+            jur_slug = await db.fetchval(
+                "SELECT slug FROM jurisdictions WHERE id=$1", jurisdiction_id_c
+            )
+            synthesized = synthesize_seat_title(rt_slug, jur_slug, qualifier_c) if rt_slug else None
+            if synthesized is None:
+                return await _reload("Could not auto-generate a title for this seat — enter one.")
+            title_c = synthesized
+    elif not title_c:
+        return await _reload("Title is required for a non-seat role.")
+
     role_id = generate_id()
-    await db.execute(
-        "INSERT INTO roles (id, organization_id, title, notes) VALUES ($1, $2, $3, $4)",
-        role_id,
-        organization_id,
-        title,
-        notes or None,
-    )
+    try:
+        await db.execute(
+            "INSERT INTO roles"
+            " (id, organization_id, title, notes, role_type_id, jurisdiction_id, qualifier)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            role_id,
+            organization_id,
+            title_c,
+            notes_c,
+            role_type_id_c,
+            jurisdiction_id_c,
+            qualifier_c,
+        )
+    except asyncpg.UniqueViolationError:
+        if jurisdiction_id_c is not None:
+            return await _reload(
+                "A seat with this office, jurisdiction, and qualifier already exists."
+            )
+        return await _reload(f"A role titled “{title_c}” already exists for this organization.")
+    except asyncpg.ForeignKeyViolationError:
+        return await _reload("The selected organization, office, or jurisdiction no longer exists.")
     return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
 
 
