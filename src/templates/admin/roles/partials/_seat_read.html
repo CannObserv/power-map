@@ -1,11 +1,19 @@
 {# admin/roles/partials/_seat_read.html — seat structural fields (read) #}
-{% if role.role_type_id %}
-<div id="seat-details" style="margin-top:var(--space-5)">
+<div id="seat-field" style="margin-top:var(--space-5)">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
-    <h3 class="field-group-label">Seat</h3>
-    <span class="badge badge--seat">Seat</span>
+    <div style="display:flex;align-items:center;gap:var(--space-2)">
+      <h3 class="field-group-label" style="margin:0">Seat</h3>
+      {% if role.role_type_id %}<span class="badge badge--seat">Seat</span>{% endif %}
+    </div>
+    {% if not role.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-get="/admin/roles/{{ role.id }}/inline/seat/edit/"
+            hx-target="#seat-field"
+            hx-swap="outerHTML">{{ 'Edit' if role.role_type_id else 'Add seat' }}</button>
+    {% endif %}
   </div>
-  <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);background:var(--color-surface-1);font-size:var(--font-size-sm);display:flex;gap:var(--space-6);flex-wrap:wrap">
+  {% if role.role_type_id %}
+  <div id="seat-details" style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);background:var(--color-surface-1);font-size:var(--font-size-sm);display:flex;gap:var(--space-6);flex-wrap:wrap">
     <div>
       <div class="field-group-label" style="font-size:var(--font-size-xs)">Office</div>
       <div>{{ role.role_type_name or role.role_type_slug }}</div>
@@ -19,5 +27,7 @@
       <div style="color:{% if role.qualifier %}var(--color-text){% else %}var(--color-text-muted){% endif %}">{{ role.qualifier or '—' }}</div>
     </div>
   </div>
+  {% else %}
+  <div style="color:var(--color-text-muted);font-size:var(--font-size-sm)">Plain role — not a districted seat.</div>
+  {% endif %}
 </div>
-{% endif %}

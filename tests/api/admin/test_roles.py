@@ -534,3 +534,122 @@ async def test_roles_list_htmx_request_returns_rows_partial(client):
     )
     assert response.status_code == 200
     assert "admin-layout" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# Slice 3 — inline seat editor + title gating
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def wa_seat_role(db, org_id):
+    """A synthesizable WA seat (usa-wa-ld-998) for title re-synthesis tests."""
+    jid = generate_id()
+    rid = generate_id()
+    type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
+    )
+    rt_id = await db.fetchval("SELECT id FROM role_types WHERE slug='state_representative'")
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        "usa-wa-ld-998",
+        "Legislative District 998",
+        type_id,
+    )
+    await db.execute(
+        "INSERT INTO roles"
+        " (id, organization_id, title, role_type_id, jurisdiction_id, qualifier)"
+        " VALUES ($1,$2,$3,$4,$5,$6)",
+        rid,
+        org_id,
+        "Washington State Representative, LD-998, Position 1",
+        rt_id,
+        jid,
+        "Position 1",
+    )
+    yield {"role_id": rid, "jur_id": jid, "rt_id": rt_id}
+    await db.execute("DELETE FROM role_assignments WHERE role_id = $1", rid)
+    await db.execute("DELETE FROM roles WHERE id = $1", rid)
+    await db.execute("DELETE FROM jurisdictions WHERE id = $1", jid)
+
+
+async def test_seat_inline_edit_form_renders(client, seat_role):
+    r = client.get(f"/admin/roles/{seat_role['role_id']}/inline/seat/edit/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "State Representative" in r.text  # office <option>
+    assert 'name="jurisdiction_id"' in r.text
+    assert 'name="qualifier"' in r.text
+
+
+async def test_seat_inline_update_qualifier_persists(client, db, seat_role):
+    """Non-WA seat: qualifier updates; unsynthesizable title left untouched."""
+    r = client.post(
+        f"/admin/roles/{seat_role['role_id']}/inline/seat/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "role_type_id": seat_role["rt_id"],
+            "jurisdiction_id": seat_role["jur_id"],
+            "qualifier": "Position 2",
+        },
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow("SELECT qualifier, title FROM roles WHERE id=$1", seat_role["role_id"])
+    assert row["qualifier"] == "Position 2"
+    assert row["title"] == "WA Rep Seat One"
+
+
+async def test_seat_inline_wa_title_resynthesized(client, db, wa_seat_role):
+    """WA seat: changing the tuple regenerates the curated title."""
+    r = client.post(
+        f"/admin/roles/{wa_seat_role['role_id']}/inline/seat/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "role_type_id": wa_seat_role["rt_id"],
+            "jurisdiction_id": wa_seat_role["jur_id"],
+            "qualifier": "Position 2",
+        },
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT title, qualifier FROM roles WHERE id=$1", wa_seat_role["role_id"]
+    )
+    assert row["qualifier"] == "Position 2"
+    assert row["title"] == "Washington State Representative, LD-998, Position 2"
+
+
+async def test_seat_inline_qualifier_without_jurisdiction_rejected(client, db, seat_role):
+    r = client.post(
+        f"/admin/roles/{seat_role['role_id']}/inline/seat/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "role_type_id": seat_role["rt_id"],
+            "jurisdiction_id": "",
+            "qualifier": "Position 9",
+        },
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT qualifier, jurisdiction_id FROM roles WHERE id=$1", seat_role["role_id"]
+    )
+    assert row["qualifier"] == "Position 1"  # unchanged
+    assert row["jurisdiction_id"] == seat_role["jur_id"]
+
+
+async def test_seat_title_edit_post_rejected(client, db, seat_role):
+    """A seat's title is PM-curated — the manual title editor refuses to change it."""
+    r = client.post(
+        f"/admin/roles/{seat_role['role_id']}/inline/title/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={"title": "Hand Edited Title"},
+    )
+    assert r.status_code == 200
+    title = await db.fetchval("SELECT title FROM roles WHERE id=$1", seat_role["role_id"])
+    assert title == "WA Rep Seat One"
+
+
+async def test_seat_detail_hides_title_edit_button(client, seat_role, role_id):
+    seat = client.get(f"/admin/roles/{seat_role['role_id']}/", headers=AUTH_HEADERS)
+    plain = client.get(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
+    assert "inline/title/edit/" not in seat.text
+    assert "inline/title/edit/" in plain.text

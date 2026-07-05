@@ -16,6 +16,7 @@ from src.api.admin.deps import (
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.api.admin.roles_queries import query_roles_rows
+from src.api.admin.roles_shared import fetch_role_types
 from src.core.db import generate_id
 from src.core.seat_title import synthesize_seat_title
 
@@ -73,13 +74,6 @@ async def _fetch_orgs(db):
     )
 
 
-async def _fetch_role_types(db):
-    """The role_types catalog for the seat office select."""
-    return await db.fetch(
-        "SELECT id, slug, display_name, is_seat FROM role_types ORDER BY display_name"
-    )
-
-
 @router.get("/new/")
 async def role_new_form(
     request: Request,
@@ -95,7 +89,7 @@ async def role_new_form(
             "active_section": "roles",
             "role": None,
             "orgs": await _fetch_orgs(db),
-            "role_types": await _fetch_role_types(db),
+            "role_types": await fetch_role_types(db),
             "values": {},
         },
     )
@@ -140,7 +134,7 @@ async def role_create(
                 "active_section": "roles",
                 "role": None,
                 "orgs": await _fetch_orgs(db),
-                "role_types": await _fetch_role_types(db),
+                "role_types": await fetch_role_types(db),
                 "values": {
                     "organization_id": organization_id,
                     "title": title_c,
