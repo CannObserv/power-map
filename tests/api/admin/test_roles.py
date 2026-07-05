@@ -128,7 +128,7 @@ async def test_role_detail_shows_seat_fields(client, seat_role):
     """Seat detail surfaces role_type display_name, jurisdiction name, qualifier."""
     r = client.get(f"/admin/roles/{seat_role['role_id']}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert 'id="seat-details"' in r.text
+    assert 'id="structural-details"' in r.text
     assert "State Representative" in r.text  # role_type display_name (join)
     assert "Test Legislative District" in r.text  # jurisdiction name (join)
     assert "Position 1" in r.text  # qualifier column
@@ -138,14 +138,14 @@ async def test_role_detail_plain_role_hides_seat_section(client, role_id):
     """A plain role (no seat fields) renders no seat section."""
     r = client.get(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert 'id="seat-details"' not in r.text
+    assert 'id="structural-details"' not in r.text
 
 
 async def test_roles_list_shows_seat_badge(client, seat_role):
     """Seats are visually flagged in the list."""
     r = client.get("/admin/roles/?org_q=Test", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert "badge--seat" in r.text
+    assert "badge--role-type" in r.text
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -258,7 +258,7 @@ async def test_create_seat_missing_office_rejected(client, db, org_id, wa_ld_jur
         },
     )
     assert r.status_code == 200
-    assert "needs an office" in r.text
+    assert "requires a role type" in r.text
     n = await db.fetchval("SELECT count(*) FROM roles WHERE jurisdiction_id=$1", wa_ld_jurisdiction)
     assert n == 0
 
@@ -298,7 +298,7 @@ async def test_create_plain_role_requires_title(client, org_id):
         },
     )
     assert r.status_code == 200
-    assert "Title is required for a non-seat" in r.text
+    assert "Title is required for a role without a jurisdiction" in r.text
 
 
 async def test_create_seat_nonwa_requires_manual_title(
@@ -575,7 +575,9 @@ async def wa_seat_role(db, org_id):
 
 
 async def test_seat_inline_edit_form_renders(client, seat_role):
-    r = client.get(f"/admin/roles/{seat_role['role_id']}/inline/seat/edit/", headers=AUTH_HEADERS)
+    r = client.get(
+        f"/admin/roles/{seat_role['role_id']}/inline/structural/edit/", headers=AUTH_HEADERS
+    )
     assert r.status_code == 200
     assert "State Representative" in r.text  # office <option>
     assert 'name="jurisdiction_id"' in r.text
@@ -585,7 +587,7 @@ async def test_seat_inline_edit_form_renders(client, seat_role):
 async def test_seat_inline_update_qualifier_persists(client, db, seat_role):
     """Non-WA seat: qualifier updates; unsynthesizable title left untouched."""
     r = client.post(
-        f"/admin/roles/{seat_role['role_id']}/inline/seat/",
+        f"/admin/roles/{seat_role['role_id']}/inline/structural/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
             "role_type_id": seat_role["rt_id"],
@@ -602,7 +604,7 @@ async def test_seat_inline_update_qualifier_persists(client, db, seat_role):
 async def test_seat_inline_wa_title_resynthesized(client, db, wa_seat_role):
     """WA seat: changing the tuple regenerates the curated title."""
     r = client.post(
-        f"/admin/roles/{wa_seat_role['role_id']}/inline/seat/",
+        f"/admin/roles/{wa_seat_role['role_id']}/inline/structural/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
             "role_type_id": wa_seat_role["rt_id"],
@@ -620,7 +622,7 @@ async def test_seat_inline_wa_title_resynthesized(client, db, wa_seat_role):
 
 async def test_seat_inline_qualifier_without_jurisdiction_rejected(client, db, seat_role):
     r = client.post(
-        f"/admin/roles/{seat_role['role_id']}/inline/seat/",
+        f"/admin/roles/{seat_role['role_id']}/inline/structural/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
             "role_type_id": seat_role["rt_id"],
@@ -711,7 +713,7 @@ async def test_seat_inline_error_preserves_cleared_jurisdiction(client, seat_rol
     """On a validation error the re-rendered form reflects the *submitted* values —
     a cleared jurisdiction must not be silently restored from the DB (#264 CR-1)."""
     r = client.post(
-        f"/admin/roles/{seat_role['role_id']}/inline/seat/",
+        f"/admin/roles/{seat_role['role_id']}/inline/structural/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
             "role_type_id": seat_role["rt_id"],
@@ -729,7 +731,7 @@ async def test_seat_inline_add_to_plain_role(
 ):
     """Adding a seat to a plain role sets the tuple and synthesizes the WA title."""
     r = client.post(
-        f"/admin/roles/{promotable_role}/inline/seat/",
+        f"/admin/roles/{promotable_role}/inline/structural/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
             "role_type_id": rt_rep_id,
@@ -752,7 +754,7 @@ async def test_seat_inline_demote_to_plain(client, db, demotable_seat):
     """Clearing the office demotes a seat to a plain role (all three columns NULL),
     retains the old title, and the flash flags that the title was kept (#264 CR-1)."""
     r = client.post(
-        f"/admin/roles/{demotable_seat['role_id']}/inline/seat/",
+        f"/admin/roles/{demotable_seat['role_id']}/inline/structural/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={"role_type_id": "", "jurisdiction_id": "", "qualifier": ""},
     )

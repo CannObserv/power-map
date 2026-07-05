@@ -1,71 +1,71 @@
-{# admin/roles/partials/_seat_form.html — seat structural fields (edit) #}
-<div id="seat-field" style="margin-top:var(--space-5)">
+{# admin/roles/partials/_structural_form.html — role type / jurisdiction / qualifier (edit) #}
+<div id="structural-field" style="margin-top:var(--space-5)">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
-    <h3 class="field-group-label" style="margin:0">Qualifier</h3>
+    <h3 class="field-group-label" style="margin:0">Role type</h3>
     <div>
       <button type="button" class="btn btn--primary btn--sm"
-              hx-post="/admin/roles/{{ role.id }}/inline/seat/"
-              hx-target="#seat-field"
+              hx-post="/admin/roles/{{ role.id }}/inline/structural/"
+              hx-target="#structural-field"
               hx-swap="outerHTML"
-              hx-include="#seat-role-type,#seat-jurisdiction-id,#seat-qualifier">Save</button>
+              hx-include="#structural-role-type,#structural-jurisdiction-id,#structural-qualifier">Save</button>
       <button type="button" class="btn btn--secondary btn--sm"
-              hx-get="/admin/roles/{{ role.id }}/inline/seat/"
-              hx-target="#seat-field"
+              hx-get="/admin/roles/{{ role.id }}/inline/structural/"
+              hx-target="#structural-field"
               hx-swap="outerHTML">Cancel</button>
     </div>
   </div>
   <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-4);background:var(--color-surface-1)">
     <div class="form-group">
-      <label for="seat-role-type">Office (role type)</label>
-      <select id="seat-role-type" name="role_type_id">
+      <label for="structural-role-type">Role type</label>
+      <select id="structural-role-type" name="role_type_id">
         <option value="">— none (plain role) —</option>
         {% for rt in role_types %}
         <option value="{{ rt.id }}" {% if sel_role_type_id == rt.id %}selected{% endif %}>{{ rt.display_name }}</option>
         {% endfor %}
       </select>
     </div>
-    <div id="seat-districted" {% if not sel_role_type_id %}hidden{% endif %}>
+    <div id="structural-jurisdictional" {% if not sel_role_type_id %}hidden{% endif %}>
       <div class="form-group" style="position:relative">
-        <label for="seat-jurisdiction-search">Jurisdiction</label>
-        <input id="seat-jurisdiction-search" type="text" autocomplete="off"
+        <label for="structural-jurisdiction-search">Jurisdiction</label>
+        <input id="structural-jurisdiction-search" type="text" autocomplete="off"
                placeholder="Type to search…"
                value="{{ sel_jurisdiction_name or '' }}"
                hx-get="/admin/jurisdictions/search/"
                hx-trigger="input changed delay:200ms"
-               hx-target="#seat-jurisdiction-results"
+               hx-target="#structural-jurisdiction-results"
                hx-swap="innerHTML"
                hx-params="q"
                name="q"
                role="combobox"
                aria-expanded="false"
                aria-haspopup="listbox"
-               aria-controls="seat-jurisdiction-results"
+               aria-controls="structural-jurisdiction-results"
                aria-autocomplete="list">
-        <input type="hidden" name="jurisdiction_id" id="seat-jurisdiction-id"
+        <input type="hidden" name="jurisdiction_id" id="structural-jurisdiction-id"
                value="{{ sel_jurisdiction_id or '' }}">
-        <ul id="seat-jurisdiction-results" class="typeahead-results" role="listbox"></ul>
+        <ul id="structural-jurisdiction-results" class="typeahead-results" role="listbox"></ul>
       </div>
       <div class="form-group">
-        <label for="seat-qualifier">Qualifier</label>
-        <input id="seat-qualifier" name="qualifier" type="text"
+        <label for="structural-qualifier">Qualifier</label>
+        <input id="structural-qualifier" name="qualifier" type="text"
                value="{{ sel_qualifier or '' }}" placeholder="e.g. Position 1">
       </div>
     </div>
     <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-2) 0 0">
-      For a WA legislative seat the title is regenerated from these fields.
+      For a WA legislative role the title is regenerated from these fields.
     </p>
   </div>
   <script>
     (function () {
-      var sel = document.getElementById('seat-role-type');
-      var box = document.getElementById('seat-districted');
+      var sel = document.getElementById('structural-role-type');
+      var box = document.getElementById('structural-jurisdictional');
       if (sel && box) {
         var sync = function () {
           box.hidden = !sel.value;
           if (!sel.value) {
-            var h = document.getElementById('seat-jurisdiction-id');
-            var s = document.getElementById('seat-jurisdiction-search');
-            var q = document.getElementById('seat-qualifier');
+            var h = document.getElementById('structural-jurisdiction-id');
+            var s = document.getElementById('structural-jurisdiction-search');
+            var q = document.getElementById('structural-qualifier');
             if (h) h.value = '';
             if (s) s.value = '';
             if (q) q.value = '';
@@ -75,9 +75,9 @@
       }
       if (typeof window.initTypeaheadCombobox === 'function') {
         window.initTypeaheadCombobox({
-          inputId: 'seat-jurisdiction-search',
-          listboxId: 'seat-jurisdiction-results',
-          hiddenId: 'seat-jurisdiction-id',
+          inputId: 'structural-jurisdiction-search',
+          listboxId: 'structural-jurisdiction-results',
+          hiddenId: 'structural-jurisdiction-id',
         });
       }
     })();

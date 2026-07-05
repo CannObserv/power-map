@@ -107,12 +107,11 @@ async def role_create(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Create a new role — plain or a districted seat.
+    """Create a new role — plain or with a role type + jurisdiction (+ qualifier).
 
-    A seat is ``jurisdiction_id`` + ``role_type_id`` (+ optional ``qualifier``).
-    Validates the two DB check-constraints up front with clear errors, and, for
-    a seat with no supplied title, synthesizes the canonical WA seat title (#267)
-    — falling back to requiring a manual title when synthesis is unavailable.
+    Validates the two DB check-constraints up front with clear errors, and, for a
+    role with a jurisdiction, synthesizes the canonical WA title (#267) — falling
+    back to requiring a manual title when synthesis is unavailable.
     """
     title_c = title.strip()
     role_type_id_c = role_type_id.strip() or None
@@ -150,19 +149,19 @@ async def role_create(
         )
 
     # Mirror the DB check-constraints (chk_role_qualifier_needs_jurisdiction,
-    # chk_role_districted_needs_type) so the admin sees a clear message rather
-    # than a raw IntegrityError.
+    # chk_role_jurisdiction_needs_role_type) so the admin sees a clear message
+    # rather than a raw IntegrityError.
     if qualifier_c is not None and jurisdiction_id_c is None:
         return await _reload("A qualifier requires a jurisdiction.")
     if jurisdiction_id_c is not None and role_type_id_c is None:
-        return await _reload("A districted seat needs an office (role type).")
+        return await _reload("A jurisdiction requires a role type.")
 
     if jurisdiction_id_c is not None:
-        # Seat mode: PM curates the title. For a fully-qualified seat (the
-        # formatter can render one) ALWAYS synthesize — any supplied title is
-        # ignored so the admin can't diverge from the canonical form (#264 CR-1,
-        # matching the inline seat editor). Keep/require a manual title only when
-        # synthesis is unavailable (non-WA seats).
+        # With a jurisdiction, PM curates the title. When the formatter can render
+        # one, ALWAYS synthesize — any supplied title is ignored so the admin
+        # can't diverge from the canonical form (#264 CR-1, matching the inline
+        # editor). Keep/require a manual title only when synthesis is unavailable
+        # (non-WA jurisdictions).
         rt_slug = await db.fetchval("SELECT slug FROM role_types WHERE id=$1", role_type_id_c)
         jur_slug = await db.fetchval(
             "SELECT slug FROM jurisdictions WHERE id=$1", jurisdiction_id_c
@@ -171,9 +170,9 @@ async def role_create(
         if synthesized is not None:
             title_c = synthesized
         elif not title_c:
-            return await _reload("Could not auto-generate a title for this seat — enter one.")
+            return await _reload("Could not auto-generate a title for this role — enter one.")
     elif not title_c:
-        return await _reload("Title is required for a non-seat role.")
+        return await _reload("Title is required for a role without a jurisdiction.")
 
     role_id = generate_id()
     try:
@@ -192,11 +191,13 @@ async def role_create(
     except asyncpg.UniqueViolationError:
         if jurisdiction_id_c is not None:
             return await _reload(
-                "A seat with this office, jurisdiction, and qualifier already exists."
+                "A role with this role type, jurisdiction, and qualifier already exists."
             )
         return await _reload(f"A role titled “{title_c}” already exists for this organization.")
     except asyncpg.ForeignKeyViolationError:
-        return await _reload("The selected organization, office, or jurisdiction no longer exists.")
+        return await _reload(
+            "The selected organization, role type, or jurisdiction no longer exists."
+        )
     return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
 
 
