@@ -139,6 +139,28 @@ async def test_senate_districted_seat_null_qualifier_allowed(db):
     )
 
 
+async def test_clearing_qualifier_on_districted_seat_rejected_by_trigger(db):
+    """The trigger also fires on UPDATE (not just INSERT): clearing the qualifier of
+    a positioned seat is rejected (#273)."""
+    org = await _make_org(db)
+    jur = await _make_jurisdiction(db)
+    rt = await _role_type_id(db, "state_representative")
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles "
+        "(id, organization_id, title, role_type_id, jurisdiction_id, qualifier) "
+        "VALUES ($1,$2,$3,$4,$5,$6)",
+        rid,
+        org,
+        "State Representative",
+        rt,
+        jur,
+        "Position 1",
+    )
+    with pytest.raises(asyncpg.CheckViolationError):
+        await db.execute("UPDATE roles SET qualifier = NULL WHERE id=$1", rid)
+
+
 # --- split unique indexes ---
 
 

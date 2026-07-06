@@ -679,6 +679,23 @@ async def test_structural_inline_qualifier_without_jurisdiction_rejected(
     assert row["jurisdiction_id"] == structural_role["jur_id"]
 
 
+async def test_structural_inline_positionless_seat_rejected(client, db, structural_role):
+    """Editing a requires_qualifier office to drop its qualifier is rejected with a
+    friendly error (not a raw trigger 500), leaving the seat unchanged (#273)."""
+    r = client.post(
+        f"/admin/roles/{structural_role['role_id']}/inline/structural/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "role_type_id": structural_role["rt_id"],
+            "jurisdiction_id": structural_role["jur_id"],
+            "qualifier": "",
+        },
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow("SELECT qualifier FROM roles WHERE id=$1", structural_role["role_id"])
+    assert row["qualifier"] == "Position 1"  # unchanged
+
+
 async def test_structural_title_edit_post_rejected(client, db, structural_role):
     """A curated role's title is PM-owned — the manual title editor refuses to change it."""
     r = client.post(
