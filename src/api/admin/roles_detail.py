@@ -12,6 +12,7 @@ from src.api.admin.roles_shared import (
     _get_role,
     _parse_date,
     fetch_role_types,
+    positionless_seat_error,
 )
 from src.core.role_title import synthesize_role_title
 
@@ -366,14 +367,12 @@ async def role_inline_structural_post(
         synthesized = synthesize_role_title(rt_slug, jur_slug, qual) if rt_slug else None
         if synthesized is not None:
             new_title = synthesized
-        # Mirror the requires_qualifier guard + DB trigger (#273): a per-position
-        # office needs a qualifier for a districted seat — reject with a clear
-        # message rather than surfacing a raw trigger CheckViolation.
-        if rt_row is not None and rt_row["requires_qualifier"] and qual is None:
-            return await _form(
-                "This office needs a position for a districted seat — enter a qualifier "
-                "(e.g. “Position 1”)."
-            )
+        # Mirror the requires_qualifier guard + DB trigger (#273).
+        seat_error = positionless_seat_error(
+            rt_row["requires_qualifier"] if rt_row else False, qual
+        )
+        if seat_error:
+            return await _form(seat_error)
 
     try:
         await db.execute(

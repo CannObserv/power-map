@@ -43,6 +43,24 @@ async def fetch_role_types(db):
     return await db.fetch("SELECT id, slug, display_name FROM role_types ORDER BY display_name")
 
 
+_POSITIONLESS_SEAT_ERROR = (
+    "This office needs a position for a districted seat — enter a qualifier (e.g. “Position 1”)."
+)
+
+
+def positionless_seat_error(requires_qualifier: bool, qualifier: str | None) -> str | None:
+    """Admin-facing error when a per-position office lacks a qualifier for a
+    districted seat, else None (#273).
+
+    Mirrors the ``resolve_role`` guard + the ``trg_role_requires_qualifier`` DB
+    trigger so the create and edit routes show one clear message instead of a raw
+    ``CheckViolation`` 500. An empty/whitespace qualifier counts as missing.
+    """
+    if requires_qualifier and not (qualifier or "").strip():
+        return _POSITIONLESS_SEAT_ERROR
+    return None
+
+
 async def _get_role(role_id: str, db):
     """Fetch role with org display name + structural fields, or raise 404."""
     row = await db.fetchrow(
