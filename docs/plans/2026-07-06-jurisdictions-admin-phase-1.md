@@ -71,21 +71,23 @@ dashboard count. No writes, no schema changes. TDD throughout, mirroring
 6. **Detail graph panels (read-only)** — RED: tests that relationships (both
    directions, with type/category/validity), lineage chain, affiliated orgs, and
    referencing roles (`roles.jurisdiction_id`, archived excluded) render. GREEN:
-   add the fetches (copy the relationships + recursive-lineage SQL from
-   `src/api/public/jurisdictions.py`) + panels. Verify: graph-panel tests pass.
+   **extract** the recursive-lineage CTE into `src/core/jurisdictions.py::fetch_lineage`
+   and refactor `src/api/public/jurisdictions.py::get_jurisdiction_lineage` onto it
+   (existing public lineage tests are the regression guard); the admin detail calls
+   the same helper. Relationships + affiliated orgs + referencing roles are direct
+   joins in the admin detail. Add the panels. Verify: graph-panel tests + the
+   public lineage suite pass.
 7. **Docs + full verification** — update `docs/STYLE.md §32` (admin conventions)
    and the AGENTS.md admin note alongside the code. Run `ruff` + the full pytest
    suite; smoke-test on the dev server (port 8001 from the worktree). Verify:
    green suite, clean lint, page renders end-to-end.
 
-## Open questions / risks
+## Open questions / risks — RESOLVED (2026-07-06)
 
-- **Detail page query count** — the detail view fires ~8 queries (header + 4
-  attachments + relationships + lineage + affiliations + roles). Acceptable for a
-  low-traffic admin page; flag if it feels heavy and batch later.
-- **Lineage CTE reuse** — copying the recursive CTE from the public module risks
-  drift between the two copies. Acceptable for Phase 1; a shared core helper could
-  be extracted later if a third caller appears.
-- **Superseded status lens** — confirm the desired semantics: `superseded_at IS
-  NOT NULL` as a distinct filter value vs. a badge only. Plan assumes a distinct
-  status filter value; easy to demote to a badge if preferred.
+- **Detail page query count** — ACCEPTED. ~8 queries per detail render is fine for
+  a low-traffic admin page; no batching for Phase 1.
+- **Lineage CTE reuse** — EXTRACT NOW. `fetch_lineage` moves to
+  `src/core/jurisdictions.py`; the public endpoint is refactored onto it (guarded
+  by its existing tests) and the admin detail shares it. No copy. (Step 6.)
+- **Superseded status lens** — FILTER VALUE. `superseded_at IS NOT NULL` is a
+  distinct `status` filter option, not merely a badge. (Steps 1–2.)
