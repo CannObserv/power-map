@@ -509,9 +509,12 @@ Item fields: `id`, `slug`, `display_name`, `expects_jurisdiction`.
 - `slug` — the stable value sent as `RoleObservationRequest.role_type` and returned as `RoleDetail.role_type_slug`.
 - `expects_jurisdiction` — advisory hint that this office is normally attached with a `jurisdiction_id` (structural-tuple match). It is a producer hint, **not** enforced: `resolve_role` will let a jurisdiction-expecting type be used in title mode. Sending an **unknown** `role_type` is already rejected (`role_type_not_found`), so an unrecognized slug can never mint a role — this endpoint is what keeps a producer from sending a *valid-but-wrong* slug.
 
+`member` (#269) is the coarse, jurisdiction-less membership classifier (`expects_jurisdiction: false`) — "person is a member of this body/committee" beneath any precise seat. It is a classifier only: a role tagged `member` still matches by `(organization_id, lower(title))` (send a `title` like `"Member"`), and the type is stored on the role so memberships aggregate without relying on the free-text title.
+
 ```jsonc
 {
   "data": [
+    { "id": "01KX…03", "slug": "member",               "display_name": "Member",              "expects_jurisdiction": false },
     { "id": "01KX…01", "slug": "state_representative", "display_name": "State Representative", "expects_jurisdiction": true },
     { "id": "01KX…02", "slug": "state_senator",        "display_name": "State Senator",        "expects_jurisdiction": true }
   ]

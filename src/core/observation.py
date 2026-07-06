@@ -735,9 +735,14 @@ async def resolve_role(
         qualifier = None
 
     # NOTE: title-mode matching below keys on (org, lower(title)) and ignores
-    # role_type_id. Harmless today — role_type is only set on roles that carry a
-    # jurisdiction and take the jurisdiction-match branch. Revisit when typed
-    # roles without a jurisdiction (e.g. chamber leadership) are introduced.
+    # role_type_id — by design. Typed jurisdiction-less roles now exist (the
+    # `member` classifier, #269): role_type_id is persisted on create (below), so
+    # the classifier lands on the row and aggregates cleanly, but it is *not* a
+    # match key here — (org, title) stays the sole key, so a producer's emitter
+    # needs no change. One consequence: a pre-existing *untyped* role with the
+    # same (org, title) AUTO_ATTACHes and is left untyped (role_type_id not
+    # upgraded in place). Benign for greenfield ingest (fresh orgs); revisit with
+    # an upgrade-on-match if untyped duplicates of a typed role need reconciling.
 
     if jurisdiction_id is not None:
         existing = await conn.fetchrow(

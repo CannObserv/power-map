@@ -438,6 +438,16 @@ async def test_wa_legislature_identifier_types_seeded(db):
     }
 
 
+async def test_org_wa_party_identifier_type_seeded(db):
+    """The #270 org_wa_party identifier type is seeded (organization, public)."""
+    row = await db.fetchrow(
+        "SELECT entity_type, is_internal FROM entity_identifier_types WHERE slug = 'org_wa_party'"
+    )
+    assert row is not None, "org_wa_party not found — check seed data in schema.sql"
+    assert row["entity_type"] == "organization"
+    assert row["is_internal"] is False
+
+
 # ---------------------------------------------------------------------------
 # updated_at trigger
 # ---------------------------------------------------------------------------

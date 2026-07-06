@@ -1386,6 +1386,10 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     -- WA legislature org identifier types (#225)
     ('01KVJWW7YCKYMY4ZEEZWPKZT5H', 'organization',    'org_wa_legislature_chamber', 'WA Chamber',     'Washington State Legislature Chamber', FALSE),
     ('01KVJWW7YCKYMY4ZEEZWPKZT5J', 'organization',    'org_wa_legislature',         'WA Legislature', 'Washington State Legislature',        FALSE),
+    -- WA political-party org identifier (#270): deterministic attach of a party
+    -- Org by stable key (value convention: bare lowercase slug — democratic,
+    -- republican). Existing party Orgs backfilled via a one-off script.
+    ('01KWW0ZAM6C540AD40V48QBYJM', 'organization',    'org_wa_party',               'WA Party',       'Washington State Political Party',     FALSE),
     -- PM-native internal identifiers (#198): resolve directly by PM ULID, never NEW
     ('01KTVHGATRG3WEN9NXATTA2RA9', 'organization',    'pm_org_id',        'PM Org',        'Power Map Organization ID',             TRUE),
     ('01KTVHGATRG3WEN9NXATTA2RAA', 'person',          'pm_person_id',     'PM Person',     'Power Map Person ID',                   TRUE),
@@ -1462,11 +1466,15 @@ END $$;
 
 -- Role-type classifier seed (#261). Extend as new offices are modeled
 -- (speaker, majority_leader, committee_chair, ...). expects_jurisdiction marks
--- an office normally attached with a jurisdiction (#268/#271) — both seeded
--- offices are; the upsert backfills it on existing rows.
+-- an office normally attached with a jurisdiction (#268/#271) — the two office
+-- rows are; the upsert backfills it on existing rows. `member` (#269) is the
+-- coarse, jurisdiction-less membership classifier (committee membership, or a
+-- chamber member whose precise seat isn't yet positionable) — expects_jurisdiction
+-- is FALSE; it attaches by (org, title) like any plain role.
 INSERT INTO role_types (id, slug, display_name, expects_jurisdiction) VALUES
     ('01KX0000000000000000000001', 'state_representative', 'State Representative', TRUE),
-    ('01KX0000000000000000000002', 'state_senator',        'State Senator',        TRUE)
+    ('01KX0000000000000000000002', 'state_senator',        'State Senator',        TRUE),
+    ('01KX0000000000000000000003', 'member',               'Member',               FALSE)
 ON CONFLICT (id) DO UPDATE SET
     slug                 = EXCLUDED.slug,
     display_name         = EXCLUDED.display_name,
