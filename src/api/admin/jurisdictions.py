@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from src.api.admin.deps import AdminUser, escape_like, get_admin_user, get_db, is_htmx
 from src.api.admin.jurisdictions_queries import VALID_STATUSES, query_jurisdictions_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
+from src.core.jurisdictions import fetch_lineage
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/jurisdictions", tags=["admin-jurisdictions"])
@@ -130,6 +131,43 @@ async def jurisdiction_detail(
            ORDER BY contact_type, value""",
         jurisdiction_id,
     )
+    relationships = await db.fetch(
+        """SELECT jr.from_id, jr.to_id,
+                  jrt.slug AS rel_type_slug, jrt.display_name AS rel_type_name,
+                  jrt.category, jrt.is_symmetric,
+                  jr.valid_from, jr.valid_until, jr.superseded_at,
+                  jf.name AS from_name, jto.name AS to_name
+           FROM jurisdiction_relationships jr
+           JOIN jurisdiction_relationship_types jrt ON jrt.id = jr.rel_type_id
+           JOIN jurisdictions jf ON jf.id = jr.from_id
+           JOIN jurisdictions jto ON jto.id = jr.to_id
+           WHERE jr.from_id = $1 OR jr.to_id = $1
+           ORDER BY jrt.category, jrt.display_name, jr.created_at""",
+        jurisdiction_id,
+    )
+    lineage = await fetch_lineage(db, jurisdiction_id)
+    affiliations = await db.fetch(
+        """SELECT o.id AS org_id, dn.display_name AS org_name,
+                  ojat.display_name AS affiliation_type
+           FROM organization_jurisdiction_affiliations oja
+           JOIN organizations o ON o.id = oja.organization_id
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           JOIN organization_jurisdiction_affiliation_types ojat
+                ON ojat.id = oja.affiliation_type_id
+           WHERE oja.jurisdiction_id = $1
+           ORDER BY dn.display_name NULLS LAST""",
+        jurisdiction_id,
+    )
+    roles = await db.fetch(
+        """SELECT r.id, r.title, r.qualifier,
+                  o.id AS org_id, dn.display_name AS org_name
+           FROM roles r
+           JOIN organizations o ON o.id = r.organization_id
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           WHERE r.jurisdiction_id = $1 AND r.archived_at IS NULL
+           ORDER BY dn.display_name NULLS LAST, r.title""",
+        jurisdiction_id,
+    )
 
     return templates.TemplateResponse(
         request,
@@ -142,5 +180,9 @@ async def jurisdiction_detail(
             "links": links,
             "addresses": addresses,
             "contacts": contacts,
+            "relationships": relationships,
+            "lineage": lineage,
+            "affiliations": affiliations,
+            "roles": roles,
         },
     )

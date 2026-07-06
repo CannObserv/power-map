@@ -229,3 +229,129 @@ async def test_detail_shows_address(client, jur_with_attachments):
 async def test_detail_shows_contact(client, jur_with_attachments):
     r = client.get(f"/admin/jurisdictions/{jur_with_attachments['id']}/", headers=AUTH_HEADERS)
     assert jur_with_attachments["email"] in r.text
+
+
+# ---------------------------------------------------------------------------
+# Detail — graph panels (relationships / lineage / affiliations / roles)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def jur_with_graph(db_pool):
+    """Jurisdiction J wired to: a spatial edge (→ R), a lineage edge (→ P),
+    an affiliated org, and a role referencing J."""
+    marker = generate_id()[-10:].lower()
+    ids = {
+        k: generate_id()
+        for k in ("j", "r", "p", "org", "role", "rel_spatial", "rel_lineage", "affil")
+    }
+    names = {
+        "j": f"Graphville {marker}",
+        "r": f"Parentstate {marker}",
+        "p": f"Oldcounty {marker}",
+        "org": f"Governing Body {marker}",
+        "role_title": f"Delegate {marker}",
+    }
+    async with db_pool.acquire() as conn:
+        county = await conn.fetchval("SELECT id FROM jurisdiction_types WHERE slug='county'")
+        state = await conn.fetchval("SELECT id FROM jurisdiction_types WHERE slug='state'")
+        for key, tid, nm in (
+            ("j", county, names["j"]),
+            ("r", state, names["r"]),
+            ("p", county, names["p"]),
+        ):
+            await conn.execute(
+                "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+                ids[key],
+                f"{key}-{marker}",
+                nm,
+                tid,
+            )
+        contained = await conn.fetchval(
+            "SELECT id FROM jurisdiction_relationship_types WHERE slug='is_fully_contained_by'"
+        )
+        supersedes = await conn.fetchval(
+            "SELECT id FROM jurisdiction_relationship_types WHERE slug='supersedes'"
+        )
+        await conn.execute(
+            "INSERT INTO jurisdiction_relationships (id, from_id, to_id, rel_type_id)"
+            " VALUES ($1,$2,$3,$4)",
+            ids["rel_spatial"],
+            ids["j"],
+            ids["r"],
+            contained,
+        )
+        await conn.execute(
+            "INSERT INTO jurisdiction_relationships (id, from_id, to_id, rel_type_id)"
+            " VALUES ($1,$2,$3,$4)",
+            ids["rel_lineage"],
+            ids["j"],
+            ids["p"],
+            supersedes,
+        )
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", ids["org"])
+        await conn.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1,$2,$3,TRUE)",
+            generate_id(),
+            ids["org"],
+            names["org"],
+        )
+        governing = await conn.fetchval(
+            "SELECT id FROM organization_jurisdiction_affiliation_types WHERE slug='governing'"
+        )
+        await conn.execute(
+            "INSERT INTO organization_jurisdiction_affiliations"
+            " (id, organization_id, jurisdiction_id, affiliation_type_id) VALUES ($1,$2,$3,$4)",
+            ids["affil"],
+            ids["org"],
+            ids["j"],
+            governing,
+        )
+        member = await conn.fetchval("SELECT id FROM role_types WHERE slug='member'")
+        await conn.execute(
+            "INSERT INTO roles (id, organization_id, title, role_type_id, jurisdiction_id)"
+            " VALUES ($1,$2,$3,$4,$5)",
+            ids["role"],
+            ids["org"],
+            names["role_title"],
+            member,
+            ids["j"],
+        )
+    yield {"ids": ids, "names": names, "marker": marker}
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM roles WHERE id=$1", ids["role"])
+        await conn.execute(
+            "DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", ids["affil"]
+        )
+        await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", ids["org"])
+        await conn.execute("DELETE FROM organizations WHERE id=$1", ids["org"])
+        await conn.execute(
+            "DELETE FROM jurisdiction_relationships WHERE id = ANY($1::text[])",
+            [ids["rel_spatial"], ids["rel_lineage"]],
+        )
+        await conn.execute(
+            "DELETE FROM jurisdictions WHERE id = ANY($1::text[])",
+            [ids["j"], ids["r"], ids["p"]],
+        )
+
+
+async def test_detail_shows_relationships(client, jur_with_graph):
+    r = client.get(f"/admin/jurisdictions/{jur_with_graph['ids']['j']}/", headers=AUTH_HEADERS)
+    assert jur_with_graph["names"]["r"] in r.text
+    assert "Is Fully Contained By" in r.text
+
+
+async def test_detail_shows_lineage(client, jur_with_graph):
+    r = client.get(f"/admin/jurisdictions/{jur_with_graph['ids']['j']}/", headers=AUTH_HEADERS)
+    assert jur_with_graph["names"]["p"] in r.text
+
+
+async def test_detail_shows_affiliated_org(client, jur_with_graph):
+    r = client.get(f"/admin/jurisdictions/{jur_with_graph['ids']['j']}/", headers=AUTH_HEADERS)
+    assert jur_with_graph["names"]["org"] in r.text
+
+
+async def test_detail_shows_referencing_role(client, jur_with_graph):
+    r = client.get(f"/admin/jurisdictions/{jur_with_graph['ids']['j']}/", headers=AUTH_HEADERS)
+    assert jur_with_graph["names"]["role_title"] in r.text

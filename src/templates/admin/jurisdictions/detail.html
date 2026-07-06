@@ -113,4 +113,87 @@
     {% else %}<p style="color:var(--color-text-muted)">No contact methods.</p>{% endif %}
   </div>
 </section>
+
+<section class="entity-section">
+  <h2>Relationships</h2>
+  <div class="entity-card">
+    {% if relationships %}
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th scope="col">Relationship</th><th scope="col">Jurisdiction</th><th scope="col">Category</th><th scope="col">Effective</th></tr></thead>
+        <tbody>
+          {% for rel in relationships %}
+          {% set outgoing = rel.from_id == jur.id %}
+          {% set other_id = rel.to_id if outgoing else rel.from_id %}
+          {% set other_name = rel.to_name if outgoing else rel.from_name %}
+          <tr>
+            <td>{{ '→' if outgoing else '←' }} {{ rel.rel_type_name }}{% if rel.is_symmetric %} <span style="color:var(--color-text-muted)">(symmetric)</span>{% endif %}</td>
+            <td><a href="/admin/jurisdictions/{{ other_id }}/">{{ other_name }}</a></td>
+            <td>{{ rel.category }}</td>
+            <td>{{ rel.valid_from.strftime('%Y-%m-%d') if rel.valid_from else '—' }}{% if rel.valid_until %} – {{ rel.valid_until.strftime('%Y-%m-%d') }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p style="color:var(--color-text-muted)">No relationships.</p>{% endif %}
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Lineage</h2>
+  <div class="entity-card">
+    {% if lineage | length > 1 %}
+    <ol style="margin:0;padding-left:var(--space-5)">
+      {% for l in lineage %}
+      <li>
+        {% if l.id == jur.id %}<strong>{{ l.name }}</strong> <span style="color:var(--color-text-muted)">(this jurisdiction)</span>
+        {% else %}<a href="/admin/jurisdictions/{{ l.id }}/">{{ l.name }}</a>{% endif %}
+        <span style="color:var(--color-text-muted)">· {{ l.type_display_name }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}<p style="color:var(--color-text-muted)">No lineage relationships.</p>{% endif %}
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Affiliated organizations</h2>
+  <div class="entity-card">
+    {% if affiliations %}
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th scope="col">Organization</th><th scope="col">Affiliation</th></tr></thead>
+        <tbody>
+          {% for a in affiliations %}
+          <tr><td><a href="/admin/orgs/{{ a.org_id }}/">{{ a.org_name or '(unnamed)' }}</a></td><td>{{ a.affiliation_type }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p style="color:var(--color-text-muted)">No affiliated organizations.</p>{% endif %}
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Referencing roles</h2>
+  <div class="entity-card">
+    {% if roles %}
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th scope="col">Role</th><th scope="col">Organization</th><th scope="col">Qualifier</th></tr></thead>
+        <tbody>
+          {% for r in roles %}
+          <tr>
+            <td><a href="/admin/roles/{{ r.id }}/">{{ r.title or '(untitled)' }}</a></td>
+            <td><a href="/admin/orgs/{{ r.org_id }}/">{{ r.org_name or '(unnamed)' }}</a></td>
+            <td>{{ r.qualifier or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p style="color:var(--color-text-muted)">No roles reference this jurisdiction.</p>{% endif %}
+  </div>
+</section>
 {% endblock %}
