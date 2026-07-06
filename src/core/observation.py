@@ -736,7 +736,10 @@ async def resolve_role(
         # A per-position office (e.g. a WA House seat) needs a qualifier; without
         # one, a create would mint a spurious positionless seat (#267/#273).
         # Reject before match/create so the omission is loud, not silently minted.
-        if requires_qualifier and qualifier is None:
+        # Treat an empty/whitespace qualifier as missing (the API normalizes it to
+        # None, but a direct caller might not) so it can't slip past as a distinct
+        # blank-qualifier seat.
+        if requires_qualifier and not (qualifier or "").strip():
             return "", Disposition.REJECTED, f"qualifier_required: role_type={role_type!r}"
 
     # A qualifier only disambiguates roles with a jurisdiction; drop it for roles

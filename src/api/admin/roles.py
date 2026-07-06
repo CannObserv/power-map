@@ -162,7 +162,10 @@ async def role_create(
         # can't diverge from the canonical form (#264 CR-1, matching the inline
         # editor). Keep/require a manual title only when synthesis is unavailable
         # (non-WA jurisdictions).
-        rt_slug = await db.fetchval("SELECT slug FROM role_types WHERE id=$1", role_type_id_c)
+        rt_row = await db.fetchrow(
+            "SELECT slug, requires_qualifier FROM role_types WHERE id=$1", role_type_id_c
+        )
+        rt_slug = rt_row["slug"] if rt_row else None
         jur_slug = await db.fetchval(
             "SELECT slug FROM jurisdictions WHERE id=$1", jurisdiction_id_c
         )
@@ -171,6 +174,15 @@ async def role_create(
             title_c = synthesized
         elif not title_c:
             return await _reload("Could not auto-generate a title for this role — enter one.")
+        # Mirror the requires_qualifier guard + DB trigger (#273): a per-position
+        # office needs a qualifier for a districted seat — reject with a clear
+        # message rather than surfacing a raw trigger CheckViolation. After the
+        # title check, so a missing title still reports first.
+        if rt_row is not None and rt_row["requires_qualifier"] and qualifier_c is None:
+            return await _reload(
+                "This office needs a position for a districted seat — enter a qualifier "
+                "(e.g. “Position 1”)."
+            )
     elif not title_c:
         return await _reload("Title is required for a role without a jurisdiction.")
 

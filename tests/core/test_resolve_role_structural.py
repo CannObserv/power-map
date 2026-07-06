@@ -406,3 +406,20 @@ async def test_senate_seat_null_qualifier_not_rejected(db):
     rid, disp, _ = await resolve_role(db, org, None, role_type="state_senator", jurisdiction_id=jur)
     assert disp is Disposition.NEW
     assert rid != ""
+
+
+async def test_positionless_house_seat_empty_qualifier_rejected(db):
+    """An empty/whitespace qualifier is treated as missing, not a distinct seat."""
+    org, jur = await _org(db), await _wa_ld(db, 12)
+    for blank in ("", "   "):
+        rid, disp, reason = await resolve_role(
+            db,
+            org,
+            None,
+            role_type="state_representative",
+            jurisdiction_id=jur,
+            qualifier=blank,
+        )
+        assert disp is Disposition.REJECTED, f"qualifier={blank!r}"
+        assert rid == ""
+        assert reason is not None and "qualifier_required" in reason

@@ -1500,6 +1500,35 @@ ON CONFLICT (id) DO UPDATE SET
     expects_jurisdiction = EXCLUDED.expects_jurisdiction,
     requires_qualifier   = EXCLUDED.requires_qualifier;
 
+-- requires_qualifier DB backstop (#273): resolve_role rejects a positionless
+-- districted seat at the app layer, but the admin dashboard and direct INSERTs
+-- bypass it — enforce the same rule here so no code path can mint one. Cannot be
+-- a CHECK (it references another table); a BEFORE trigger is the tool. Defined
+-- after the seed so role_types.requires_qualifier is guaranteed to exist.
+CREATE OR REPLACE FUNCTION enforce_role_requires_qualifier()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.jurisdiction_id IS NOT NULL
+       AND NEW.qualifier IS NULL
+       AND NEW.role_type_id IS NOT NULL
+       AND EXISTS (
+           SELECT 1 FROM role_types
+           WHERE id = NEW.role_type_id AND requires_qualifier
+       ) THEN
+        RAISE EXCEPTION
+            'role_type % requires a qualifier for a districted seat', NEW.role_type_id
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+-- Only fires when the columns that decide the outcome change (or on INSERT).
+CREATE OR REPLACE TRIGGER trg_role_requires_qualifier
+    BEFORE INSERT OR UPDATE OF role_type_id, jurisdiction_id, qualifier ON roles
+    FOR EACH ROW EXECUTE FUNCTION enforce_role_requires_qualifier();
+
 -- =============================================================================
 -- Entity Event Types Seed Data (#170)
 -- =============================================================================

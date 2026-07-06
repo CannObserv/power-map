@@ -339,7 +339,10 @@ async def test_create_structural_role_nonwa_manual_title_ok(
             "title": "County Commissioner Seat",
             "role_type_id": rt_rep_id,
             "jurisdiction_id": nonwa_jurisdiction,
-            "qualifier": "",
+            # rt_rep_id is a requires_qualifier office (#273), so a districted seat
+            # needs a qualifier; the non-WA jurisdiction still can't synthesize a
+            # title, so the manual one is kept.
+            "qualifier": "District 3",
             "notes": "",
         },
     )
@@ -350,6 +353,34 @@ async def test_create_structural_role_nonwa_manual_title_ok(
         nonwa_jurisdiction,
     )
     assert row["title"] == "County Commissioner Seat"
+
+
+async def test_create_positionless_districted_seat_shows_error(
+    client, db, org_id, rt_rep_id, nonwa_jurisdiction
+):
+    """A requires_qualifier office + jurisdiction with no qualifier is rejected with
+    a friendly message (not a 500 from the DB trigger), and nothing is created (#273)."""
+    r = client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "Rep Seat",
+            "role_type_id": rt_rep_id,
+            "jurisdiction_id": nonwa_jurisdiction,
+            "qualifier": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 200  # form re-rendered with an error, not 303/500
+    assert "qualifier" in r.text.lower()
+    count = await db.fetchval(
+        "SELECT count(*) FROM roles WHERE organization_id=$1 AND jurisdiction_id=$2",
+        org_id,
+        nonwa_jurisdiction,
+    )
+    assert count == 0
 
 
 async def test_role_detail_shows_person_name(client, db, role_id, person_id):
