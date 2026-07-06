@@ -106,3 +106,28 @@ async def test_nav_link_present_and_current(client):
     # sidebar link renders and is marked current on the jurisdictions page
     assert 'href="/admin/jurisdictions/" aria-current="page"' in r.text
     assert ">Jurisdictions<" in r.text
+
+
+# ---------------------------------------------------------------------------
+# Detail — header
+# ---------------------------------------------------------------------------
+
+
+async def test_detail_returns_200_with_core_fields(client, jur_id):
+    r = client.get(f"/admin/jurisdictions/{jur_id['id']}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert jur_id["name"] in r.text
+    assert jur_id["slug"] in r.text
+    assert "County" in r.text  # type display name
+    assert "Valid from" in r.text  # validity row present
+
+
+async def test_detail_unknown_id_404(client):
+    r = client.get("/admin/jurisdictions/01JUNKNOWNJUNKNOWNJUNKNOW0/", headers=AUTH_HEADERS)
+    assert r.status_code == 404
+
+
+async def test_detail_redirects_unauthenticated(client, jur_id):
+    r = client.get(f"/admin/jurisdictions/{jur_id['id']}/", follow_redirects=False)
+    assert r.status_code in (302, 307)
+    assert "/__exe.dev/login" in r.headers["location"]

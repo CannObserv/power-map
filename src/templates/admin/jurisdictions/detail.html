@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ jur.name }} — Jurisdiction{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/jurisdictions/">Jurisdictions</a><span class="breadcrumb__sep">›</span>
+  <span id="breadcrumb-current">{{ jur.name }}</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__type">Jurisdiction</span>
+    <h1 id="page-heading">{{ jur.name }}</h1>
+  </div>
+  <div>
+    {% if jur.archived_at %}<span class="badge badge--archived">Archived</span>
+    {% elif jur.superseded_at %}<span class="badge badge--inactive">Superseded</span>
+    {% else %}<span class="badge badge--active">Active</span>{% endif %}
+  </div>
+</div>
+
+<section class="entity-section">
+  <h2>Details</h2>
+  <div class="entity-card">
+    <dl class="detail-list">
+      <dt>Slug</dt><dd><code>{{ jur.slug }}</code></dd>
+      <dt>Type</dt><dd>{{ jur.type_display_name }}</dd>
+      <dt>Valid from</dt><dd>{{ jur.valid_from.strftime('%Y-%m-%d') if jur.valid_from else '—' }}</dd>
+      <dt>Valid until</dt><dd>{{ jur.valid_until.strftime('%Y-%m-%d') if jur.valid_until else '—' }}</dd>
+      {% if jur.superseded_at %}
+      <dt>Superseded at</dt><dd>{{ jur.superseded_at.strftime('%Y-%m-%d %H:%M UTC') }}</dd>
+      {% endif %}
+      <dt>Notes</dt><dd>{{ jur.notes or '—' }}</dd>
+    </dl>
+  </div>
+</section>
+{% endblock %}

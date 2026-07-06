@@ -4,7 +4,7 @@ Phase 1 (#275) adds the read-only browse surface (list + detail). The ``/search/
 typeahead (#264) that feeds the role-type form's jurisdiction picker remains.
 """
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, escape_like, get_admin_user, get_db, is_htmx
@@ -78,4 +78,33 @@ async def jurisdictions_search(
         request,
         "admin/jurisdictions/partials/_search_results.html",
         {"results": results},
+    )
+
+
+@router.get("/{jurisdiction_id}/")
+async def jurisdiction_detail(
+    jurisdiction_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Read-only jurisdiction detail view."""
+    jur = await db.fetchrow(
+        """SELECT j.*, jt.slug AS type_slug, jt.display_name AS type_display_name
+           FROM jurisdictions j
+           JOIN jurisdiction_types jt ON jt.id = j.type_id
+           WHERE j.id = $1""",
+        jurisdiction_id,
+    )
+    if not jur:
+        raise HTTPException(status_code=404, detail="Jurisdiction not found")
+
+    return templates.TemplateResponse(
+        request,
+        "admin/jurisdictions/detail.html",
+        {
+            "user": user,
+            "active_section": "jurisdictions",
+            "jur": jur,
+        },
     )
