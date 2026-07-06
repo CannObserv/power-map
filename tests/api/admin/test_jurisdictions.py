@@ -93,3 +93,16 @@ async def test_list_htmx_returns_region_only(client, jur_id):
     # region partial carries no full-page chrome
     assert "<html" not in r.text.lower()
     assert "admin-sidebar" not in r.text
+
+
+# ---------------------------------------------------------------------------
+# Navigation
+# ---------------------------------------------------------------------------
+
+
+async def test_nav_link_present_and_current(client):
+    r = client.get("/admin/jurisdictions/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    # sidebar link renders and is marked current on the jurisdictions page
+    assert 'href="/admin/jurisdictions/" aria-current="page"' in r.text
+    assert ">Jurisdictions<" in r.text

@@ -22,6 +22,7 @@ async def entities_index(
         SELECT
             (SELECT COUNT(*) FROM people           WHERE archived_at IS NULL) AS people,
             (SELECT COUNT(*) FROM organizations    WHERE archived_at IS NULL) AS orgs,
+            (SELECT COUNT(*) FROM jurisdictions    WHERE archived_at IS NULL) AS jurisdictions,
             (SELECT COUNT(*) FROM roles            WHERE archived_at IS NULL) AS roles,
             (SELECT COUNT(*) FROM role_assignments WHERE archived_at IS NULL) AS assignments
         """
