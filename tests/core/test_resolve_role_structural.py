@@ -311,3 +311,52 @@ async def test_structural_match_without_title_auto_attaches(db):
     assert disp1 is Disposition.NEW
     assert disp2 is Disposition.AUTO_ATTACHED
     assert id1 == id2
+
+
+# ---------------------------------------------------------------------------
+# Jurisdiction-less typed roles — the `member` classifier (#269)
+# ---------------------------------------------------------------------------
+
+
+async def test_member_role_persists_role_type_without_jurisdiction(db):
+    """A `member` role (no jurisdiction) is created with role_type_id set.
+
+    #269's contract: the classifier lands on the row (so memberships aggregate)
+    even though matching stays in title mode — the role carries no jurisdiction
+    and no qualifier.
+    """
+    org = await _org(db)
+    rid, disp, reason = await resolve_role(db, org, "Member", role_type="member")
+    assert disp is Disposition.NEW
+    assert reason is None
+    member_type_id = await db.fetchval("SELECT id FROM role_types WHERE slug='member'")
+    row = await db.fetchrow(
+        "SELECT role_type_id, jurisdiction_id, qualifier FROM roles WHERE id=$1", rid
+    )
+    assert row["role_type_id"] == member_type_id
+    assert row["jurisdiction_id"] is None
+    assert row["qualifier"] is None
+
+
+async def test_member_role_matches_by_title_not_jurisdiction_branch(db):
+    """A re-observed `member` role AUTO_ATTACHes by (org, lower(title))."""
+    org = await _org(db)
+    id1, disp1, _ = await resolve_role(db, org, "Member", role_type="member")
+    id2, disp2, _ = await resolve_role(db, org, "member", role_type="member")
+    assert disp1 is Disposition.NEW
+    assert disp2 is Disposition.AUTO_ATTACHED
+    assert id1 == id2
+
+
+async def test_typed_member_attaches_to_preexisting_untyped_title(db):
+    """(org, title) is the sole key: a `member` observation attaches to a
+    pre-existing untyped role of the same title (left untyped — documents the
+    resolve_role NOTE, #269)."""
+    org = await _org(db)
+    untyped_id, disp1, _ = await resolve_role(db, org, "Member")
+    typed_id, disp2, _ = await resolve_role(db, org, "Member", role_type="member")
+    assert disp1 is Disposition.NEW
+    assert disp2 is Disposition.AUTO_ATTACHED
+    assert typed_id == untyped_id
+    # The matched row keeps its NULL role_type_id (not upgraded in place).
+    assert await db.fetchval("SELECT role_type_id FROM roles WHERE id=$1", typed_id) is None
