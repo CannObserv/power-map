@@ -1,7 +1,7 @@
-"""Admin jurisdiction typeahead — supports the seat picker on roles (#264).
+"""Admin jurisdiction typeahead — supports the role-type picker on roles (#264).
 
 Jurisdictions have no full admin CRUD surface (they arrive via observations);
-this module exposes only the read-only typeahead the role seat form needs.
+this module exposes only the read-only typeahead the role-type form needs.
 """
 
 from fastapi import APIRouter, Depends, Request

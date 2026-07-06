@@ -1,7 +1,7 @@
-"""Integration tests: seat-Role schema (#261).
+"""Integration tests: role structural-fields schema (#261).
 
-role_types classifier, roles seat columns (role_type_id, jurisdiction_id,
-qualifier), the districted-role CHECK, and the split unique indexes.
+role_types classifier, roles structural columns (role_type_id, jurisdiction_id,
+qualifier), the jurisdiction-needs-role-type CHECK, and the split unique indexes.
 """
 
 import asyncpg
@@ -57,11 +57,11 @@ async def test_role_types_seeded(db):
     assert {"state_representative", "state_senator"} <= slugs
 
 
-# --- new seat columns exist ---
+# --- new structural columns exist ---
 
 
 @pytest.mark.parametrize("col", ["role_type_id", "jurisdiction_id", "qualifier"])
-async def test_roles_has_seat_columns(db, col):
+async def test_roles_has_structural_columns(db, col):
     exists = await db.fetchval(
         "SELECT 1 FROM information_schema.columns WHERE table_name='roles' AND column_name=$1",
         col,
@@ -69,10 +69,10 @@ async def test_roles_has_seat_columns(db, col):
     assert exists, f"roles.{col} missing"
 
 
-# --- CHECK: a districted role must name an office ---
+# --- CHECK: a role with a jurisdiction must name an office ---
 
 
-async def test_districted_role_requires_role_type(db):
+async def test_role_with_jurisdiction_requires_role_type(db):
     org = await _make_org(db)
     jur = await _make_jurisdiction(db)
     with pytest.raises(asyncpg.CheckViolationError):
@@ -85,7 +85,7 @@ async def test_districted_role_requires_role_type(db):
         )
 
 
-async def test_districted_role_with_role_type_ok(db):
+async def test_role_with_jurisdiction_and_role_type_ok(db):
     org = await _make_org(db)
     jur = await _make_jurisdiction(db)
     rt = await _role_type_id(db, "state_representative")
@@ -112,13 +112,13 @@ async def test_split_unique_indexes_exist(db):
             "SELECT indexname, indexdef FROM pg_indexes WHERE tablename='roles'"
         )
     }
-    assert "uq_role_seat" in rows
-    assert "jurisdiction_id is not null" in rows["uq_role_seat"]
+    assert "uq_role_structural" in rows
+    assert "jurisdiction_id is not null" in rows["uq_role_structural"]
     assert "uq_role_org_title" in rows
     assert "jurisdiction_id is null" in rows["uq_role_org_title"]
 
 
-async def test_two_seats_same_title_distinct_qualifier_ok(db):
+async def test_two_structural_roles_same_title_distinct_qualifier_ok(db):
     org = await _make_org(db)
     jur = await _make_jurisdiction(db)
     rt = await _role_type_id(db, "state_representative")
@@ -142,7 +142,7 @@ async def test_two_seats_same_title_distinct_qualifier_ok(db):
     assert n == 2
 
 
-async def test_duplicate_seat_rejected(db):
+async def test_duplicate_structural_role_rejected(db):
     org = await _make_org(db)
     jur = await _make_jurisdiction(db)
     rt = await _role_type_id(db, "state_representative")
@@ -171,8 +171,8 @@ async def test_duplicate_seat_rejected(db):
         )
 
 
-async def test_senate_seat_null_qualifier_is_unique_per_district(db):
-    """qualifier NULL: NULLS NOT DISTINCT means one senate seat per district."""
+async def test_senate_role_null_qualifier_is_unique_per_district(db):
+    """qualifier NULL: NULLS NOT DISTINCT means one senator role per district."""
     org = await _make_org(db)
     jur = await _make_jurisdiction(db)
     rt = await _role_type_id(db, "state_senator")
@@ -199,7 +199,7 @@ async def test_senate_seat_null_qualifier_is_unique_per_district(db):
         )
 
 
-async def test_non_districted_duplicate_title_still_rejected(db):
+async def test_role_without_jurisdiction_duplicate_title_still_rejected(db):
     """Title-based identity (jurisdiction NULL) unchanged, case-insensitive."""
     org = await _make_org(db)
     await db.execute(

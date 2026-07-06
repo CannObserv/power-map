@@ -1,6 +1,6 @@
 """Tests for GET /api/v1/role-types (#268).
 
-Public read catalog of the role_types classifier — the seat-match vocabulary
+Public read catalog of the role_types classifier — the role-type vocabulary
 producers attach to. Mirrors the link-types lookup endpoint.
 
 Per-test markers (not a module-level ``pytestmark``): the DB-backed cases carry
@@ -60,39 +60,39 @@ async def test_role_types_response_has_data_list(client, api_key):
 async def test_role_types_items_have_required_fields(client, api_key):
     response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
     item = response.json()["data"][0]
-    assert set(item) == {"id", "slug", "display_name", "is_seat"}
-    assert isinstance(item["is_seat"], bool)
+    assert set(item) == {"id", "slug", "display_name", "expects_jurisdiction"}
+    assert isinstance(item["expects_jurisdiction"], bool)
 
 
 @pytest.mark.integration
-async def test_role_types_seeded_offices_present_and_are_seats(client, api_key):
-    """The #261 seeded offices are present and flagged is_seat=True."""
+async def test_role_types_seeded_offices_present_and_expect_jurisdiction(client, api_key):
+    """The #261 seeded offices are present and flagged expects_jurisdiction=True."""
     response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
     by_slug = {r["slug"]: r for r in response.json()["data"]}
     assert {"state_representative", "state_senator"} <= set(by_slug)
     assert by_slug["state_representative"]["display_name"] == "State Representative"
-    assert by_slug["state_senator"]["is_seat"] is True
-    assert by_slug["state_representative"]["is_seat"] is True
+    assert by_slug["state_senator"]["expects_jurisdiction"] is True
+    assert by_slug["state_representative"]["expects_jurisdiction"] is True
 
 
 @pytest.mark.integration
-async def test_role_types_non_seat_defaults_false(client, api_key, db):
-    """A role_type inserted without is_seat surfaces is_seat=false (the column default)."""
+async def test_role_types_non_structural_defaults_false(client, api_key, db):
+    """A role_type inserted without the flag surfaces expects_jurisdiction=false (default)."""
     rid = generate_id()
     # Per-run-unique slug so a crash-orphaned row can never collide on the next
     # run's slug UNIQUE constraint.
-    slug = f"cr_test_nonseat_{rid[-8:].lower()}"
+    slug = f"cr_test_nonstructural_{rid[-8:].lower()}"
     await db.execute(
         "INSERT INTO role_types (id, slug, display_name) VALUES ($1,$2,$3)",
         rid,
         slug,
-        "CR Test Non-Seat",
+        "CR Test Non-Structural",
     )
     try:
         response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
         by_slug = {r["slug"]: r for r in response.json()["data"]}
         assert slug in by_slug
-        assert by_slug[slug]["is_seat"] is False
+        assert by_slug[slug]["expects_jurisdiction"] is False
     finally:
         await db.execute("DELETE FROM role_types WHERE id=$1", rid)
 

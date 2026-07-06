@@ -67,10 +67,10 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
     # ------------------------------------------------------------------
     # Step A: deduplicate roles
     # ------------------------------------------------------------------
-    # Non-districted roles (#261): identity is (organization_id, lower(title)).
-    # Districted seats are excluded here — collapsing them by title would merge
-    # genuinely distinct seats (two House positions, or different districts that
-    # share the title "State Representative").
+    # Roles without a jurisdiction (#261): identity is (organization_id, lower(title)).
+    # Roles with a jurisdiction are excluded here — collapsing them by title would
+    # merge genuinely distinct roles (two House positions, or different districts
+    # that share the title "State Representative").
     title_groups = await conn.fetch(
         """
         SELECT
@@ -85,10 +85,10 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
         """
     )
 
-    # Districted seats (#261): identity is (org, role_type_id, jurisdiction_id,
-    # qualifier). GROUP BY folds NULL qualifiers together (one senator/district),
-    # matching uq_role_seat's NULLS NOT DISTINCT.
-    seat_groups = await conn.fetch(
+    # Roles with a jurisdiction (#261): identity is (org, role_type_id,
+    # jurisdiction_id, qualifier). GROUP BY folds NULL qualifiers together (one
+    # senator/district), matching uq_role_structural's NULLS NOT DISTINCT.
+    structural_groups = await conn.fetch(
         """
         SELECT
             organization_id,
@@ -102,7 +102,7 @@ async def _do_deduplication(conn: asyncpg.Connection) -> tuple[int, int]:
         """
     )
 
-    for group in [*title_groups, *seat_groups]:
+    for group in [*title_groups, *structural_groups]:
         canonical_id: str = group["canonical_id"]
         dup_ids: list[str] = [i for i in group["all_ids"] if i != canonical_id]
 

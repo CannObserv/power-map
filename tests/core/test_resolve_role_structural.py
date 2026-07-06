@@ -1,9 +1,9 @@
-"""Integration tests: seat-aware resolve_role (#261).
+"""Integration tests: structural-field-aware resolve_role (#261).
 
-Districted seats match by (org, role_type, jurisdiction, qualifier); distinct
-seats sharing a title must not collapse. Non-districted title matching is
-unchanged. A superseded/historical district is a valid seat reference; only a
-soft-deleted (archived) district is rejected.
+Roles with a jurisdiction match by (org, role_type, jurisdiction, qualifier);
+distinct roles sharing a title must not collapse. Title matching for a role
+without a jurisdiction is unchanged. A superseded/historical district is a valid
+jurisdiction reference; only a soft-deleted (archived) district is rejected.
 """
 
 import pytest
@@ -47,7 +47,7 @@ async def _jur(db) -> str:
     return jid
 
 
-async def test_distinct_qualifiers_create_distinct_seats(db):
+async def test_distinct_qualifiers_create_distinct_roles(db):
     org, jur = await _org(db), await _jur(db)
     id1, disp1, _ = await resolve_role(
         db,
@@ -70,7 +70,7 @@ async def test_distinct_qualifiers_create_distinct_seats(db):
     assert id1 != id2
 
 
-async def test_same_seat_auto_attaches(db):
+async def test_same_role_auto_attaches(db):
     org, jur = await _org(db), await _jur(db)
     kw = dict(role_type="state_representative", jurisdiction_id=jur, qualifier="Position 1")
     id1, disp1, _ = await resolve_role(db, org, "State Representative", **kw)
@@ -80,7 +80,7 @@ async def test_same_seat_auto_attaches(db):
     assert id1 == id2
 
 
-async def test_senate_seat_null_qualifier_auto_attaches(db):
+async def test_senate_role_null_qualifier_auto_attaches(db):
     org, jur = await _org(db), await _jur(db)
     kw = dict(role_type="state_senator", jurisdiction_id=jur)
     id1, disp1, _ = await resolve_role(db, org, "State Senator", **kw)
@@ -99,10 +99,10 @@ async def test_title_only_path_unchanged(db):
     assert id1 == id2
 
 
-async def test_title_observation_does_not_attach_to_seat(db):
-    """A title-only resolve must not glue onto a districted seat of the same title."""
+async def test_title_observation_does_not_attach_to_structural_role(db):
+    """A title-only resolve must not glue onto a role with a jurisdiction of the same title."""
     org, jur = await _org(db), await _jur(db)
-    seat_id, _, _ = await resolve_role(
+    structural_id, _, _ = await resolve_role(
         db,
         org,
         "State Representative",
@@ -112,17 +112,17 @@ async def test_title_observation_does_not_attach_to_seat(db):
     )
     title_id, disp, _ = await resolve_role(db, org, "State Representative")
     assert disp is Disposition.NEW
-    assert title_id != seat_id
+    assert title_id != structural_id
 
 
-async def test_districted_requires_role_type(db):
+async def test_role_with_jurisdiction_requires_role_type(db):
     org, jur = await _org(db), await _jur(db)
     role_id, disp, reason = await resolve_role(
         db, org, "State Representative", jurisdiction_id=jur, qualifier="Position 1"
     )
     assert disp is Disposition.REJECTED
     assert role_id == ""
-    assert "role_type" in reason
+    assert reason == "role_type_required_for_jurisdiction"
 
 
 async def test_unknown_jurisdiction_rejected(db):
@@ -147,11 +147,11 @@ async def test_unknown_role_type_rejected(db):
     assert "role_type_not_found" in reason
 
 
-async def test_superseded_jurisdiction_allows_historical_seat(db):
+async def test_superseded_jurisdiction_allows_historical_role(db):
     """A redistricted (superseded, past-valid) district is still referenceable.
 
     Supersession sets superseded_at / valid_until, not archived_at, so a
-    historical seat can be created against the district that was in effect.
+    historical role can be created against the district that was in effect.
     """
     org = await _org(db)
     type_id = await db.fetchval(
@@ -179,7 +179,7 @@ async def test_superseded_jurisdiction_allows_historical_seat(db):
 
 
 async def test_archived_jurisdiction_rejected(db):
-    """A soft-deleted (archived) district is not a valid seat reference."""
+    """A soft-deleted (archived) district is not a valid jurisdiction reference."""
     org = await _org(db)
     type_id = await db.fetchval(
         "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
@@ -204,8 +204,8 @@ async def test_archived_jurisdiction_rejected(db):
     assert "jurisdiction_archived" in reason
 
 
-async def test_qualifier_dropped_for_non_districted_role(db):
-    """resolve_role ignores qualifier without a jurisdiction (it only disambiguates seats)."""
+async def test_qualifier_dropped_for_role_without_jurisdiction(db):
+    """resolve_role ignores qualifier without a jurisdiction (it only disambiguates roles)."""
     org = await _org(db)
     role_id, disp, _ = await resolve_role(db, org, "Speaker", qualifier="Ignored")
     assert disp is Disposition.NEW
@@ -214,7 +214,8 @@ async def test_qualifier_dropped_for_non_districted_role(db):
 
 
 # ---------------------------------------------------------------------------
-# Seat-title synthesis on create (#267): title optional for seats; PM curates it
+# Title synthesis on create (#267): title optional for a role with a
+# jurisdiction; PM curates it
 # ---------------------------------------------------------------------------
 
 
@@ -233,7 +234,7 @@ async def _wa_ld(db, n: int) -> str:
     return jid
 
 
-async def test_seat_create_without_title_synthesizes_senator(db):
+async def test_structural_create_without_title_synthesizes_senator(db):
     org, jur = await _org(db), await _wa_ld(db, 7)
     rid, disp, reason = await resolve_role(
         db, org, None, role_type="state_senator", jurisdiction_id=jur
@@ -243,7 +244,7 @@ async def test_seat_create_without_title_synthesizes_senator(db):
     assert title == "Washington State Senator, LD-7"
 
 
-async def test_seat_create_without_title_synthesizes_representative_position(db):
+async def test_structural_create_without_title_synthesizes_representative_position(db):
     org, jur = await _org(db), await _wa_ld(db, 7)
     rid, disp, _ = await resolve_role(
         db,
@@ -258,7 +259,7 @@ async def test_seat_create_without_title_synthesizes_representative_position(db)
     assert title == "Washington State Representative, LD-7, Position 2"
 
 
-async def test_seat_create_prefers_synthesis_over_supplied_title(db):
+async def test_structural_create_prefers_synthesis_over_supplied_title(db):
     """PM prefers the synthesized title over a supplied one (no upstream drift)."""
     org, jur = await _org(db), await _wa_ld(db, 7)
     rid, disp, _ = await resolve_role(
@@ -269,8 +270,8 @@ async def test_seat_create_prefers_synthesis_over_supplied_title(db):
     assert title == "Washington State Senator, LD-7"
 
 
-async def test_seat_create_unsynthesizable_falls_back_to_supplied_title(db):
-    """A seat that can't be synthesized uses the supplied title as fallback."""
+async def test_structural_create_unsynthesizable_falls_back_to_supplied_title(db):
+    """A role whose title can't be synthesized uses the supplied title as fallback."""
     org, jur = await _org(db), await _jur(db)  # slug ld-<hex>, not usa-wa-ld-N
     rid, disp, _ = await resolve_role(
         db, org, "Fallback Title", role_type="state_senator", jurisdiction_id=jur
@@ -280,20 +281,20 @@ async def test_seat_create_unsynthesizable_falls_back_to_supplied_title(db):
     assert title == "Fallback Title"
 
 
-async def test_seat_create_unsynthesizable_without_title_rejected(db):
+async def test_structural_create_unsynthesizable_without_title_rejected(db):
     """Non-usa-wa-ld jurisdiction can't be synthesized; titleless create is rejected."""
     org, jur = await _org(db), await _jur(db)  # slug ld-<hex>, not usa-wa-ld-N
     rid, disp, reason = await resolve_role(
         db, org, None, role_type="state_senator", jurisdiction_id=jur
     )
     assert disp is Disposition.REJECTED
-    assert reason.startswith("seat_title_unavailable:")
+    assert reason.startswith("role_title_unavailable:")
     assert "state_senator" in reason
     assert rid == ""
 
 
-async def test_non_seat_without_title_rejected(db):
-    """A non-seat role (no jurisdiction) with no title is rejected, not a DB error."""
+async def test_non_structural_without_title_rejected(db):
+    """A role without a jurisdiction and no title is rejected, not a DB error."""
     org = await _org(db)
     rid, disp, reason = await resolve_role(db, org, None)
     assert disp is Disposition.REJECTED
@@ -301,8 +302,8 @@ async def test_non_seat_without_title_rejected(db):
     assert rid == ""
 
 
-async def test_seat_match_without_title_auto_attaches(db):
-    """Title is not the seat match key — a titleless re-observation attaches."""
+async def test_structural_match_without_title_auto_attaches(db):
+    """Title is not the match key — a titleless re-observation attaches."""
     org, jur = await _org(db), await _wa_ld(db, 7)
     kw = dict(role_type="state_senator", jurisdiction_id=jur)
     id1, disp1, _ = await resolve_role(db, org, None, **kw)

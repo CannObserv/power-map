@@ -312,12 +312,12 @@ async def test_detail_etag_304(client, api_key, role_fixtures):
 
 
 # ---------------------------------------------------------------------------
-# #261 — seat fields (role_type, jurisdiction, qualifier) on read
+# #261 — structural fields (role_type, jurisdiction, qualifier) on read
 # ---------------------------------------------------------------------------
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def seat_fixture(db):
+async def structural_fixture(db):
     org_id = generate_id()
     jur_id = generate_id()
     role_id = generate_id()
@@ -350,7 +350,7 @@ async def seat_fixture(db):
     await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
 
 
-async def test_list_plain_role_has_null_seat_fields(client, api_key, role_fixtures):
+async def test_list_plain_role_has_null_structural_fields(client, api_key, role_fixtures):
     r = client.get(
         _LIST,
         params={"organization_id": role_fixtures["org_id"]},
@@ -363,23 +363,23 @@ async def test_list_plain_role_has_null_seat_fields(client, api_key, role_fixtur
     assert item["qualifier"] is None
 
 
-async def test_list_surfaces_seat_fields(client, api_key, seat_fixture):
+async def test_list_surfaces_structural_fields(client, api_key, structural_fixture):
     r = client.get(
         _LIST,
-        params={"organization_id": seat_fixture["org_id"]},
+        params={"organization_id": structural_fixture["org_id"]},
         headers={"X-API-Key": api_key},
     )
-    item = next(i for i in r.json()["data"] if i["id"] == seat_fixture["role_id"])
-    assert item["role_type_id"] == seat_fixture["rt_id"]
+    item = next(i for i in r.json()["data"] if i["id"] == structural_fixture["role_id"])
+    assert item["role_type_id"] == structural_fixture["rt_id"]
     assert item["role_type_slug"] == "state_representative"
-    assert item["jurisdiction_id"] == seat_fixture["jur_id"]
+    assert item["jurisdiction_id"] == structural_fixture["jur_id"]
     assert item["qualifier"] == "Position 1"
 
 
-async def test_detail_surfaces_seat_fields(client, api_key, seat_fixture):
-    r = client.get(f"{_LIST}/{seat_fixture['role_id']}", headers={"X-API-Key": api_key})
+async def test_detail_surfaces_structural_fields(client, api_key, structural_fixture):
+    r = client.get(f"{_LIST}/{structural_fixture['role_id']}", headers={"X-API-Key": api_key})
     body = r.json()
-    assert body["role_type_id"] == seat_fixture["rt_id"]
+    assert body["role_type_id"] == structural_fixture["rt_id"]
     assert body["role_type_slug"] == "state_representative"
-    assert body["jurisdiction_id"] == seat_fixture["jur_id"]
+    assert body["jurisdiction_id"] == structural_fixture["jur_id"]
     assert body["qualifier"] == "Position 1"

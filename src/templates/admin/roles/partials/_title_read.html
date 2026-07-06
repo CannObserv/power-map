@@ -4,7 +4,7 @@
     <h3 class="field-group-label">Title</h3>
     {% if not role.archived_at %}
       {% if role.role_type_id %}
-      <span style="font-size:var(--font-size-xs);color:var(--color-text-muted)">Curated from the seat</span>
+      <span style="font-size:var(--font-size-xs);color:var(--color-text-muted)">Curated from the role type</span>
       {% else %}
       <button type="button" class="btn btn--sm btn--secondary"
               hx-get="/admin/roles/{{ role.id }}/inline/title/edit/"

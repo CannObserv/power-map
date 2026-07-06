@@ -420,12 +420,12 @@ def test_role_request_qualifier_without_jurisdiction_raises():
 
 
 # ---------------------------------------------------------------------------
-# RoleObservationRequest — title optional in seat mode (#267)
+# RoleObservationRequest — title optional with a jurisdiction (#267)
 # ---------------------------------------------------------------------------
 
 
-def test_role_request_seat_mode_title_optional():
-    """A seat observation (jurisdiction_id set) may omit title — PM synthesizes it."""
+def test_role_request_structural_mode_title_optional():
+    """An observation with a jurisdiction_id may omit title — PM synthesizes it."""
     req = RoleObservationRequest(
         organization_id="org1",
         role_type="state_senator",
@@ -434,7 +434,7 @@ def test_role_request_seat_mode_title_optional():
     assert req.title is None
 
 
-def test_role_request_seat_mode_with_qualifier_title_optional():
+def test_role_request_structural_mode_with_qualifier_title_optional():
     req = RoleObservationRequest(
         organization_id="org1",
         role_type="state_representative",
@@ -445,12 +445,12 @@ def test_role_request_seat_mode_with_qualifier_title_optional():
     assert req.qualifier == "Position 2"
 
 
-def test_role_request_non_seat_still_requires_title():
-    """No jurisdiction_id (non-seat role) → title remains required."""
+def test_role_request_non_structural_still_requires_title():
+    """No jurisdiction_id (role without a jurisdiction) → title remains required."""
     with pytest.raises(ValidationError):
         RoleObservationRequest(organization_id="org1")
 
 
-def test_role_request_seat_mode_still_requires_org():
+def test_role_request_structural_mode_still_requires_org():
     with pytest.raises(ValidationError):
         RoleObservationRequest(role_type="state_senator", jurisdiction_id="jur1")

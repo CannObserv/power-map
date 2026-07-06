@@ -450,13 +450,13 @@ async def test_rejected_unknown_org_includes_reason(client, role_write_key):
 
 
 # ---------------------------------------------------------------------------
-# #261 — legislator seat-Roles (role_type + jurisdiction + qualifier)
+# #261 — legislator roles (role_type + jurisdiction + qualifier)
 # ---------------------------------------------------------------------------
 
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def obs_jur(db):
-    """A legislative-district jurisdiction for seat observations."""
+    """A legislative-district jurisdiction for role observations."""
     jid = generate_id()
     type_id = await db.fetchval(
         "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
@@ -473,7 +473,9 @@ async def obs_jur(db):
     await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
 
 
-async def test_new_seat_persists_seat_columns(client, role_write_key, obs_org, obs_jur, db):
+async def test_new_structural_role_persists_structural_columns(
+    client, role_write_key, obs_org, obs_jur, db
+):
     raw, _ = role_write_key
     r = _post(
         client,
@@ -499,7 +501,7 @@ async def test_new_seat_persists_seat_columns(client, role_write_key, obs_org, o
     assert row["role_type_slug"] == "state_representative"
 
 
-async def test_two_positions_are_distinct_seats(client, role_write_key, obs_org, obs_jur):
+async def test_two_positions_are_distinct_roles(client, role_write_key, obs_org, obs_jur):
     raw, _ = role_write_key
     base = {
         "organization_id": obs_org,
@@ -514,7 +516,7 @@ async def test_two_positions_are_distinct_seats(client, role_write_key, obs_org,
     assert r1.json()["entity_id"] != r2.json()["entity_id"]
 
 
-async def test_same_seat_auto_attached(client, role_write_key, obs_org, obs_jur):
+async def test_same_structural_role_auto_attached(client, role_write_key, obs_org, obs_jur):
     raw, _ = role_write_key
     payload = {
         "organization_id": obs_org,
@@ -530,7 +532,7 @@ async def test_same_seat_auto_attached(client, role_write_key, obs_org, obs_jur)
     assert r2.json()["entity_id"] == r1.json()["entity_id"]
 
 
-async def test_seat_unknown_role_type_rejected(client, role_write_key, obs_org, obs_jur):
+async def test_structural_role_unknown_role_type_rejected(client, role_write_key, obs_org, obs_jur):
     raw, _ = role_write_key
     r = _post(
         client,
@@ -548,7 +550,9 @@ async def test_seat_unknown_role_type_rejected(client, role_write_key, obs_org, 
     assert "role_type_not_found" in body["reason"]
 
 
-async def test_districted_without_role_type_rejected(client, role_write_key, obs_org, obs_jur):
+async def test_role_with_jurisdiction_without_role_type_rejected(
+    client, role_write_key, obs_org, obs_jur
+):
     raw, _ = role_write_key
     r = _post(
         client,
@@ -572,13 +576,13 @@ def test_qualifier_without_jurisdiction_is_422(client, role_write_key, obs_org):
 
 
 # ---------------------------------------------------------------------------
-# #267 — seat-title synthesis (title optional for seats)
+# #267 — title synthesis (title optional for a role with a jurisdiction)
 # ---------------------------------------------------------------------------
 
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def obs_wa_jur(db):
-    """A usa-wa-ld-N district so seat titles are synthesizable (#267)."""
+    """A usa-wa-ld-N district so role titles are synthesizable (#267)."""
     jid = generate_id()
     n = int.from_bytes(os.urandom(4), "big")  # far outside real LDs 1..49
     type_id = await db.fetchval(
@@ -596,7 +600,7 @@ async def obs_wa_jur(db):
     await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
 
 
-async def test_titleless_seat_observation_synthesizes_title(
+async def test_titleless_structural_observation_synthesizes_title(
     client, role_write_key, obs_org, obs_wa_jur, db
 ):
     raw, _ = role_write_key
@@ -612,7 +616,7 @@ async def test_titleless_seat_observation_synthesizes_title(
     assert title == f"Washington State Senator, LD-{n}"
 
 
-async def test_titleless_non_seat_observation_is_422(client, role_write_key, obs_org):
+async def test_titleless_non_structural_observation_is_422(client, role_write_key, obs_org):
     """No jurisdiction + no title → validation error (title still required)."""
     raw, _ = role_write_key
     r = _post(client, raw, {"organization_id": obs_org, "role_type": "state_senator"})
