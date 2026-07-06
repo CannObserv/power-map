@@ -41,6 +41,16 @@ async def _party_org(db, name: str) -> str:
     return oid
 
 
+async def _add_canonical_acronym(db, org_id: str, acronym: str) -> None:
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1,$2,$3,TRUE)",
+        generate_id(),
+        org_id,
+        acronym,
+    )
+
+
 async def _party_value(db, org_id: str) -> str | None:
     return await db.fetchval(
         "SELECT i.value FROM identifiers i"
@@ -96,3 +106,20 @@ async def test_backfill_reports_missing_party_org(db):
 
     by_value = {a["value"]: a["status"] for a in actions}
     assert by_value == {"democratic": "missing", "republican": "missing"}
+
+
+async def test_backfill_matches_acronymed_org_by_canonical_name(db):
+    """An Org with a canonical acronym still matches (regression guard).
+
+    v_org_display_names would render this Org as "Washington State Democratic
+    Party (WSDP)"; matching on that composed display name would miss it. The
+    backfill keys on the canonical name row directly, so the acronym is
+    irrelevant and the identifier still attaches.
+    """
+    dem = await _party_org(db, "Washington State Democratic Party")
+    await _add_canonical_acronym(db, dem, "WSDP")
+
+    actions = await backfill_party_identifiers(db, execute=True)
+
+    assert await _party_value(db, dem) == "democratic"
+    assert {a["value"]: a["status"] for a in actions}["democratic"] == "applied"
