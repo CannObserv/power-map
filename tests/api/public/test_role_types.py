@@ -60,8 +60,9 @@ async def test_role_types_response_has_data_list(client, api_key):
 async def test_role_types_items_have_required_fields(client, api_key):
     response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
     item = response.json()["data"][0]
-    assert set(item) == {"id", "slug", "display_name", "expects_jurisdiction"}
+    assert set(item) == {"id", "slug", "display_name", "expects_jurisdiction", "requires_qualifier"}
     assert isinstance(item["expects_jurisdiction"], bool)
+    assert isinstance(item["requires_qualifier"], bool)
 
 
 @pytest.mark.integration
@@ -87,6 +88,21 @@ async def test_role_types_member_seeded_non_jurisdictional(client, api_key):
     assert "member" in by_slug
     assert by_slug["member"]["display_name"] == "Member"
     assert by_slug["member"]["expects_jurisdiction"] is False
+
+
+@pytest.mark.integration
+async def test_role_types_requires_qualifier_seeded(client, api_key):
+    """requires_qualifier (#273) is True only for per-position offices.
+
+    House seats are per-position (Position 1/2) so `state_representative`
+    requires a qualifier; a state senator (one per district) and a plain
+    `member` do not.
+    """
+    response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    by_slug = {r["slug"]: r for r in response.json()["data"]}
+    assert by_slug["state_representative"]["requires_qualifier"] is True
+    assert by_slug["state_senator"]["requires_qualifier"] is False
+    assert by_slug["member"]["requires_qualifier"] is False
 
 
 @pytest.mark.integration

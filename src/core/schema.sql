@@ -166,6 +166,11 @@ CREATE TABLE IF NOT EXISTS role_types (
     -- jurisdiction (structural-tuple match). A hint for producers, not enforced
     -- by resolve_role.
     expects_jurisdiction BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Enforced (#273): a districted seat of this office needs a qualifier
+    -- (e.g. a per-position House seat). resolve_role REJECTS a jurisdictional
+    -- observation of this office with a NULL qualifier — kills the #267
+    -- positionless-seat mint. Unlike expects_jurisdiction, this IS enforced.
+    requires_qualifier BOOLEAN NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -1464,21 +1469,36 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+-- Add requires_qualifier on existing DBs (#273). Fresh DBs already have it from
+-- the CREATE TABLE above.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='role_types'
+          AND column_name='requires_qualifier'
+    ) THEN
+        ALTER TABLE role_types ADD COLUMN requires_qualifier BOOLEAN NOT NULL DEFAULT FALSE;
+    END IF;
+END $$;
+
 -- Role-type classifier seed (#261). Extend as new offices are modeled
 -- (speaker, majority_leader, committee_chair, ...). expects_jurisdiction marks
 -- an office normally attached with a jurisdiction (#268/#271) — the two office
 -- rows are; the upsert backfills it on existing rows. `member` (#269) is the
 -- coarse, jurisdiction-less membership classifier (committee membership, or a
 -- chamber member whose precise seat isn't yet positionable) — expects_jurisdiction
--- is FALSE; it attaches by (org, title) like any plain role.
-INSERT INTO role_types (id, slug, display_name, expects_jurisdiction) VALUES
-    ('01KX0000000000000000000001', 'state_representative', 'State Representative', TRUE),
-    ('01KX0000000000000000000002', 'state_senator',        'State Senator',        TRUE),
-    ('01KX0000000000000000000003', 'member',               'Member',               FALSE)
+-- is FALSE; it attaches by (org, title) like any plain role. requires_qualifier
+-- (#273) is TRUE only for per-position offices: a WA House seat is positioned
+-- (Position 1/2), a state senator is one-per-district (NULL qualifier is valid).
+INSERT INTO role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier) VALUES
+    ('01KX0000000000000000000001', 'state_representative', 'State Representative', TRUE,  TRUE),
+    ('01KX0000000000000000000002', 'state_senator',        'State Senator',        TRUE,  FALSE),
+    ('01KX0000000000000000000003', 'member',               'Member',               FALSE, FALSE)
 ON CONFLICT (id) DO UPDATE SET
     slug                 = EXCLUDED.slug,
     display_name         = EXCLUDED.display_name,
-    expects_jurisdiction = EXCLUDED.expects_jurisdiction;
+    expects_jurisdiction = EXCLUDED.expects_jurisdiction,
+    requires_qualifier   = EXCLUDED.requires_qualifier;
 
 -- =============================================================================
 -- Entity Event Types Seed Data (#170)

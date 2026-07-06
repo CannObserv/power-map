@@ -700,9 +700,10 @@ async def resolve_role(
 
     Returns (role_id, disposition, reason).
     disposition is AUTO_ATTACHED if an active (non-archived) match is found,
-    NEW if created, REJECTED if a referenced entity is missing/archived or a
-    role with a jurisdiction omits its role type. reason is a human-readable
-    string on REJECTED, None otherwise.
+    NEW if created, REJECTED if a referenced entity is missing/archived, a role
+    with a jurisdiction omits its role type, or a jurisdictional observation of a
+    ``requires_qualifier`` office omits the qualifier (``qualifier_required``,
+    #273). reason is a human-readable string on REJECTED, None otherwise.
     """
     org_exists = await conn.fetchval(
         "SELECT 1 FROM organizations WHERE id=$1 AND archived_at IS NULL", organization_id
@@ -712,10 +713,15 @@ async def resolve_role(
         return "", Disposition.REJECTED, f"org_not_found: {organization_id!r}"
 
     role_type_id: str | None = None
+    requires_qualifier = False
     if role_type is not None:
-        role_type_id = await conn.fetchval("SELECT id FROM role_types WHERE slug=$1", role_type)
-        if role_type_id is None:
+        rt = await conn.fetchrow(
+            "SELECT id, requires_qualifier FROM role_types WHERE slug=$1", role_type
+        )
+        if rt is None:
             return "", Disposition.REJECTED, f"role_type_not_found: {role_type!r}"
+        role_type_id = rt["id"]
+        requires_qualifier = rt["requires_qualifier"]
 
     if jurisdiction_id is not None:
         jur = await conn.fetchrow(
@@ -727,6 +733,11 @@ async def resolve_role(
             return "", Disposition.REJECTED, f"jurisdiction_archived: {jurisdiction_id!r}"
         if role_type_id is None:
             return "", Disposition.REJECTED, "role_type_required_for_jurisdiction"
+        # A per-position office (e.g. a WA House seat) needs a qualifier; without
+        # one, a create would mint a spurious positionless seat (#267/#273).
+        # Reject before match/create so the omission is loud, not silently minted.
+        if requires_qualifier and qualifier is None:
+            return "", Disposition.REJECTED, f"qualifier_required: role_type={role_type!r}"
 
     # A qualifier only disambiguates roles with a jurisdiction; drop it for roles
     # without one so it never persists without a jurisdiction. The
