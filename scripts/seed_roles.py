@@ -13,8 +13,8 @@ after a title-convention change does NOT revise existing roles' titles or other
 attributes — it only create-or-attaches.
 
 Usage:
-    uv run python -m scripts.seed_wa_roles <path-to-roles.json>            # dry run
-    uv run python -m scripts.seed_wa_roles <path-to-roles.json> --execute  # commit
+    uv run python -m scripts.seed_roles <path-to-roles.json>            # dry run
+    uv run python -m scripts.seed_roles <path-to-roles.json> --execute  # commit
 """
 
 import argparse

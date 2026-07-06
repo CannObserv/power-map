@@ -335,10 +335,10 @@ uv run "${env_args[@]}" python -m scripts.generate_wa_roles \
     -o data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json
 
 # 2. Dry run — read-only; reports would-create / already-exist / unresolved counts
-uv run "${env_args[@]}" python -m scripts.seed_wa_roles data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json
+uv run "${env_args[@]}" python -m scripts.seed_roles data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json
 
 # 3. Execute — create-or-attach the roles and commit
-uv run "${env_args[@]}" python -m scripts.seed_wa_roles data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json --execute
+uv run "${env_args[@]}" python -m scripts.seed_roles data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json --execute
 ```
 
 Idempotent: roles match on identity (org + role_type + jurisdiction + qualifier), so re-runs

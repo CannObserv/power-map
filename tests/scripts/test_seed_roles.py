@@ -5,7 +5,7 @@ import sys
 import pytest
 import pytest_asyncio
 
-from scripts.seed_wa_roles import main, preview_roles, seed_roles
+from scripts.seed_roles import main, preview_roles, seed_roles
 from src.core.db import generate_id
 
 pytestmark = [pytest.mark.integration]
@@ -164,6 +164,6 @@ async def test_preview_unknown_role_type_is_unresolved(db):
 
 def test_main_missing_file_exits(monkeypatch):
     """main() reports a friendly SystemExit (not a traceback) for a missing seed file."""
-    monkeypatch.setattr(sys, "argv", ["seed_wa_roles", "/no/such/seed.json"])
+    monkeypatch.setattr(sys, "argv", ["seed_roles", "/no/such/seed.json"])
     with pytest.raises(SystemExit):
         main()
