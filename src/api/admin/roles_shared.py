@@ -1,8 +1,9 @@
-"""Shared helpers for role detail and assignment inline routes.
+"""Shared helpers for the role create, detail, and assignment-inline routes.
 
 Extracted here to break the circular import that would arise if
-roles_detail.py and roles_assignments_inline.py imported from each other.
-Both modules import from this one instead.
+roles_detail.py and roles_assignments_inline.py imported from each other, and
+reused by the top-level create route (roles.py) for the role-type catalog and
+the requires_qualifier mirror. Consumers import from this module instead.
 """
 
 import datetime
@@ -41,6 +42,24 @@ def _check_assignment_within_bounds(
 async def fetch_role_types(db):
     """The role_types catalog for the role-type select (shared by create + inline)."""
     return await db.fetch("SELECT id, slug, display_name FROM role_types ORDER BY display_name")
+
+
+_POSITIONLESS_SEAT_ERROR = (
+    "This office needs a position for a districted seat — enter a qualifier (e.g. “Position 1”)."
+)
+
+
+def positionless_seat_error(requires_qualifier: bool, qualifier: str | None) -> str | None:
+    """Admin-facing error when a per-position office lacks a qualifier for a
+    districted seat, else None (#273).
+
+    Mirrors the ``resolve_role`` guard + the ``trg_role_requires_qualifier`` DB
+    trigger so the create and edit routes show one clear message instead of a raw
+    ``CheckViolation`` 500. An empty/whitespace qualifier counts as missing.
+    """
+    if requires_qualifier and not (qualifier or "").strip():
+        return _POSITIONLESS_SEAT_ERROR
+    return None
 
 
 async def _get_role(role_id: str, db):

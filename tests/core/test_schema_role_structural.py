@@ -102,6 +102,65 @@ async def test_role_with_jurisdiction_and_role_type_ok(db):
     )
 
 
+# --- TRIGGER: a requires_qualifier office needs a qualifier for a districted seat (#273) ---
+
+
+async def test_positionless_districted_seat_rejected_by_trigger(db):
+    """DB backstop for resolve_role: a direct INSERT of a requires_qualifier office
+    with a jurisdiction but NULL qualifier is rejected at the data layer (#273)."""
+    org = await _make_org(db)
+    jur = await _make_jurisdiction(db)
+    rt = await _role_type_id(db, "state_representative")
+    with pytest.raises(asyncpg.CheckViolationError):
+        await db.execute(
+            "INSERT INTO roles (id, organization_id, title, role_type_id, jurisdiction_id) "
+            "VALUES ($1,$2,$3,$4,$5)",
+            generate_id(),
+            org,
+            "State Representative",
+            rt,
+            jur,
+        )
+
+
+async def test_senate_districted_seat_null_qualifier_allowed(db):
+    """state_senator (requires_qualifier=False) may keep a NULL qualifier."""
+    org = await _make_org(db)
+    jur = await _make_jurisdiction(db)
+    rt = await _role_type_id(db, "state_senator")
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title, role_type_id, jurisdiction_id) "
+        "VALUES ($1,$2,$3,$4,$5)",
+        generate_id(),
+        org,
+        "State Senator",
+        rt,
+        jur,
+    )
+
+
+async def test_clearing_qualifier_on_districted_seat_rejected_by_trigger(db):
+    """The trigger also fires on UPDATE (not just INSERT): clearing the qualifier of
+    a positioned seat is rejected (#273)."""
+    org = await _make_org(db)
+    jur = await _make_jurisdiction(db)
+    rt = await _role_type_id(db, "state_representative")
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles "
+        "(id, organization_id, title, role_type_id, jurisdiction_id, qualifier) "
+        "VALUES ($1,$2,$3,$4,$5,$6)",
+        rid,
+        org,
+        "State Representative",
+        rt,
+        jur,
+        "Position 1",
+    )
+    with pytest.raises(asyncpg.CheckViolationError):
+        await db.execute("UPDATE roles SET qualifier = NULL WHERE id=$1", rid)
+
+
 # --- split unique indexes ---
 
 

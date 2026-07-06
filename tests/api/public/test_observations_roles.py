@@ -550,6 +550,30 @@ async def test_structural_role_unknown_role_type_rejected(client, role_write_key
     assert "role_type_not_found" in body["reason"]
 
 
+async def test_positionless_house_seat_rejected(client, role_write_key, obs_org, obs_jur):
+    """A per-position office with a jurisdiction but no qualifier is rejected (#273).
+
+    Endpoint-level parity with the resolve_role guard: the absent qualifier is
+    normalized to None at the boundary and rejected rather than minting a
+    positionless seat.
+    """
+    raw, _ = role_write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "organization_id": obs_org,
+            "title": "State Representative",
+            "role_type": "state_representative",
+            "jurisdiction_id": obs_jur,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert "qualifier_required" in body["reason"]
+
+
 async def test_role_with_jurisdiction_without_role_type_rejected(
     client, role_write_key, obs_org, obs_jur
 ):

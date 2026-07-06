@@ -25,6 +25,7 @@ async def list_role_types(
 ) -> RoleTypesResponse:
     """Return all role types (the structural-match vocabulary)."""
     rows = await db.fetch(
-        "SELECT id, slug, display_name, expects_jurisdiction FROM role_types ORDER BY slug"
+        "SELECT id, slug, display_name, expects_jurisdiction, requires_qualifier"
+        " FROM role_types ORDER BY slug"
     )
     return RoleTypesResponse(data=[RoleType(**dict(r)) for r in rows])

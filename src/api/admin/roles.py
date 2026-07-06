@@ -16,7 +16,7 @@ from src.api.admin.deps import (
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.api.admin.roles_queries import query_roles_rows
-from src.api.admin.roles_shared import fetch_role_types
+from src.api.admin.roles_shared import fetch_role_types, positionless_seat_error
 from src.core.db import generate_id
 from src.core.role_title import synthesize_role_title
 
@@ -162,7 +162,10 @@ async def role_create(
         # can't diverge from the canonical form (#264 CR-1, matching the inline
         # editor). Keep/require a manual title only when synthesis is unavailable
         # (non-WA jurisdictions).
-        rt_slug = await db.fetchval("SELECT slug FROM role_types WHERE id=$1", role_type_id_c)
+        rt_row = await db.fetchrow(
+            "SELECT slug, requires_qualifier FROM role_types WHERE id=$1", role_type_id_c
+        )
+        rt_slug = rt_row["slug"] if rt_row else None
         jur_slug = await db.fetchval(
             "SELECT slug FROM jurisdictions WHERE id=$1", jurisdiction_id_c
         )
@@ -171,6 +174,13 @@ async def role_create(
             title_c = synthesized
         elif not title_c:
             return await _reload("Could not auto-generate a title for this role — enter one.")
+        # Mirror the requires_qualifier guard + DB trigger (#273), after the title
+        # check so a missing title still reports first.
+        seat_error = positionless_seat_error(
+            rt_row["requires_qualifier"] if rt_row else False, qualifier_c
+        )
+        if seat_error:
+            return await _reload(seat_error)
     elif not title_c:
         return await _reload("Title is required for a role without a jurisdiction.")
 

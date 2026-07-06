@@ -360,3 +360,66 @@ async def test_typed_member_attaches_to_preexisting_untyped_title(db):
     assert typed_id == untyped_id
     # The matched row keeps its NULL role_type_id (not upgraded in place).
     assert await db.fetchval("SELECT role_type_id FROM roles WHERE id=$1", typed_id) is None
+
+
+# ---------------------------------------------------------------------------
+# requires_qualifier guard — reject positionless districted seats (#273)
+# ---------------------------------------------------------------------------
+
+
+async def test_positionless_house_seat_rejected(db):
+    """A `state_representative` + jurisdiction with NULL qualifier is rejected.
+
+    House seats are per-position; a NULL-qualifier tuple would otherwise mint a
+    spurious positionless seat (#267). requires_qualifier turns that into a loud
+    reject instead of a silent create.
+    """
+    org, jur = await _org(db), await _wa_ld(db, 11)
+    rid, disp, reason = await resolve_role(
+        db, org, None, role_type="state_representative", jurisdiction_id=jur
+    )
+    assert disp is Disposition.REJECTED
+    assert rid == ""
+    assert reason is not None and "qualifier_required" in reason
+    # Nothing minted.
+    assert await db.fetchval("SELECT count(*) FROM roles WHERE organization_id=$1", org) == 0
+
+
+async def test_positioned_house_seat_accepted(db):
+    """The same office with a qualifier is created normally."""
+    org, jur = await _org(db), await _wa_ld(db, 11)
+    rid, disp, _ = await resolve_role(
+        db,
+        org,
+        None,
+        role_type="state_representative",
+        jurisdiction_id=jur,
+        qualifier="Position 1",
+    )
+    assert disp is Disposition.NEW
+    assert rid != ""
+
+
+async def test_senate_seat_null_qualifier_not_rejected(db):
+    """`state_senator` (requires_qualifier=False) still accepts a NULL qualifier."""
+    org, jur = await _org(db), await _wa_ld(db, 11)
+    rid, disp, _ = await resolve_role(db, org, None, role_type="state_senator", jurisdiction_id=jur)
+    assert disp is Disposition.NEW
+    assert rid != ""
+
+
+async def test_positionless_house_seat_empty_qualifier_rejected(db):
+    """An empty/whitespace qualifier is treated as missing, not a distinct seat."""
+    org, jur = await _org(db), await _wa_ld(db, 12)
+    for blank in ("", "   "):
+        rid, disp, reason = await resolve_role(
+            db,
+            org,
+            None,
+            role_type="state_representative",
+            jurisdiction_id=jur,
+            qualifier=blank,
+        )
+        assert disp is Disposition.REJECTED, f"qualifier={blank!r}"
+        assert rid == ""
+        assert reason is not None and "qualifier_required" in reason

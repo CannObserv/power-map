@@ -2,7 +2,10 @@
 
 import datetime as dt
 
-from src.api.admin.roles_shared import _check_assignment_within_bounds
+from src.api.admin.roles_shared import (
+    _check_assignment_within_bounds,
+    positionless_seat_error,
+)
 
 
 def test_bounds_no_constraints_returns_none():
@@ -63,3 +66,23 @@ def test_bounds_within_range_ok():
         )
         is None
     )
+
+
+# --- positionless_seat_error (#273) ---
+
+
+def test_positionless_seat_error_flags_missing_qualifier():
+    """A requires_qualifier office with a missing/blank qualifier returns a message."""
+    assert positionless_seat_error(True, None) is not None
+    assert positionless_seat_error(True, "") is not None
+    assert positionless_seat_error(True, "   ") is not None
+
+
+def test_positionless_seat_error_ok_when_qualifier_present():
+    assert positionless_seat_error(True, "Position 1") is None
+
+
+def test_positionless_seat_error_ignores_non_requiring_office():
+    """An office that doesn't require a qualifier is never flagged."""
+    assert positionless_seat_error(False, None) is None
+    assert positionless_seat_error(False, "Position 1") is None
