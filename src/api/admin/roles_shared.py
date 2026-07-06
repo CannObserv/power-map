@@ -1,8 +1,9 @@
-"""Shared helpers for role detail and assignment inline routes.
+"""Shared helpers for the role create, detail, and assignment-inline routes.
 
 Extracted here to break the circular import that would arise if
-roles_detail.py and roles_assignments_inline.py imported from each other.
-Both modules import from this one instead.
+roles_detail.py and roles_assignments_inline.py imported from each other, and
+reused by the top-level create route (roles.py) for the role-type catalog and
+the requires_qualifier mirror. Consumers import from this module instead.
 """
 
 import datetime
