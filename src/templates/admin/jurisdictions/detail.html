@@ -33,4 +33,84 @@
     </dl>
   </div>
 </section>
+
+<section class="entity-section">
+  <h2>Identifiers</h2>
+  <div class="entity-card">
+    {% if identifiers %}
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th scope="col">Type</th><th scope="col">Value</th></tr></thead>
+        <tbody>
+          {% for i in identifiers %}
+          <tr><td>{{ i.type_name }}</td><td><code>{{ i.value }}</code></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p style="color:var(--color-text-muted)">No identifiers.</p>{% endif %}
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Links</h2>
+  <div class="entity-card">
+    {% if links %}
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th scope="col">Type</th><th scope="col">URL</th></tr></thead>
+        <tbody>
+          {% for l in links %}
+          <tr>
+            <td>{{ l.link_type_name }}</td>
+            <td><a href="{{ l.url }}" target="_blank" rel="noopener noreferrer">{{ l.url }}</a>
+              {% if not l.is_active %}<span class="badge badge--inactive">inactive</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p style="color:var(--color-text-muted)">No links.</p>{% endif %}
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Addresses</h2>
+  <div class="entity-card">
+    {% if addresses %}
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th scope="col">Type</th><th scope="col">Address</th><th scope="col">Effective</th></tr></thead>
+        <tbody>
+          {% for a in addresses %}
+          <tr>
+            <td>{{ a.address_type }}</td>
+            <td>{{ a.standardized or ([a.address_line_1, a.city, a.region, a.postal_code] | select | join(', ')) }}</td>
+            <td>{{ a.valid_from.strftime('%Y-%m-%d') if a.valid_from else '—' }}{% if a.valid_until %} – {{ a.valid_until.strftime('%Y-%m-%d') }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p style="color:var(--color-text-muted)">No addresses.</p>{% endif %}
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Contact methods</h2>
+  <div class="entity-card">
+    {% if contacts %}
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col">Label</th></tr></thead>
+        <tbody>
+          {% for c in contacts %}
+          <tr><td>{{ c.contact_type }}</td><td>{{ c.value }}</td><td>{{ c.display_label or '—' }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p style="color:var(--color-text-muted)">No contact methods.</p>{% endif %}
+  </div>
+</section>
 {% endblock %}

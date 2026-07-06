@@ -131,3 +131,101 @@ async def test_detail_redirects_unauthenticated(client, jur_id):
     r = client.get(f"/admin/jurisdictions/{jur_id['id']}/", follow_redirects=False)
     assert r.status_code in (302, 307)
     assert "/__exe.dev/login" in r.headers["location"]
+
+
+# ---------------------------------------------------------------------------
+# Detail — attachment panels (identifiers / links / addresses / contacts)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def jur_with_attachments(db_pool):
+    """Jurisdiction seeded with one identifier, link, address, and contact."""
+    jid = generate_id()
+    marker = jid[-10:].lower()
+    vals = {
+        "id": jid,
+        "name": f"Attachburg {marker}",
+        "slug": f"attach-{marker}",
+        "identifier": f"ocd-division/country:us/test:{marker}",
+        "link": f"https://{marker}.example.gov",
+        "address": f"{marker} Capitol Way, Olympia, WA 98501",
+        "email": f"info-{marker}@example.gov",
+    }
+    addr_id = generate_id()
+    async with db_pool.acquire() as conn:
+        type_id = await conn.fetchval("SELECT id FROM jurisdiction_types WHERE slug='county'")
+        await conn.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+            jid,
+            vals["slug"],
+            vals["name"],
+            type_id,
+        )
+        ocd_type = await conn.fetchval(
+            "SELECT id FROM entity_identifier_types WHERE slug='jur_ocd'"
+        )
+        await conn.execute(
+            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+            " VALUES ($1,$2,$3,$4)",
+            generate_id(),
+            jid,
+            ocd_type,
+            vals["identifier"],
+        )
+        link_type = await conn.fetchval("SELECT id FROM link_types ORDER BY id LIMIT 1")
+        await conn.execute(
+            "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+            " VALUES ($1,'jurisdiction',$2,$3,$4)",
+            generate_id(),
+            jid,
+            vals["link"],
+            link_type,
+        )
+        await conn.execute(
+            "INSERT INTO addresses (id, standardized, country) VALUES ($1,$2,'US')",
+            addr_id,
+            vals["address"],
+        )
+        await conn.execute(
+            "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type)"
+            " VALUES ($1,'jurisdiction',$2,$3,'mailing')",
+            generate_id(),
+            jid,
+            addr_id,
+        )
+        await conn.execute(
+            "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+            " VALUES ($1,'jurisdiction',$2,'email',$3)",
+            generate_id(),
+            jid,
+            vals["email"],
+        )
+    yield vals
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM identifiers WHERE entity_id=$1", jid)
+        await conn.execute("DELETE FROM links WHERE entity_id=$1", jid)
+        await conn.execute("DELETE FROM contact_methods WHERE entity_id=$1", jid)
+        await conn.execute("DELETE FROM entity_addresses WHERE entity_id=$1", jid)
+        await conn.execute("DELETE FROM addresses WHERE id=$1", addr_id)
+        await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+
+
+async def test_detail_shows_identifier(client, jur_with_attachments):
+    r = client.get(f"/admin/jurisdictions/{jur_with_attachments['id']}/", headers=AUTH_HEADERS)
+    assert jur_with_attachments["identifier"] in r.text
+
+
+async def test_detail_shows_link(client, jur_with_attachments):
+    r = client.get(f"/admin/jurisdictions/{jur_with_attachments['id']}/", headers=AUTH_HEADERS)
+    assert jur_with_attachments["link"] in r.text
+
+
+async def test_detail_shows_address(client, jur_with_attachments):
+    r = client.get(f"/admin/jurisdictions/{jur_with_attachments['id']}/", headers=AUTH_HEADERS)
+    assert jur_with_attachments["address"] in r.text
+
+
+async def test_detail_shows_contact(client, jur_with_attachments):
+    r = client.get(f"/admin/jurisdictions/{jur_with_attachments['id']}/", headers=AUTH_HEADERS)
+    assert jur_with_attachments["email"] in r.text

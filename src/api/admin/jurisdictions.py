@@ -99,6 +99,38 @@ async def jurisdiction_detail(
     if not jur:
         raise HTTPException(status_code=404, detail="Jurisdiction not found")
 
+    identifiers = await db.fetch(
+        """SELECT i.value, eit.slug AS type_slug, eit.display_name AS type_name,
+                  eit.full_name AS type_full_name
+           FROM identifiers i
+           JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
+           WHERE i.entity_id = $1 AND eit.entity_type = 'jurisdiction'
+           ORDER BY eit.slug, i.value""",
+        jurisdiction_id,
+    )
+    links = await db.fetch(
+        """SELECT l.url, l.is_active, lt.display_name AS link_type_name
+           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
+           WHERE l.entity_type = 'jurisdiction' AND l.entity_id = $1
+           ORDER BY lt.display_name, l.url""",
+        jurisdiction_id,
+    )
+    addresses = await db.fetch(
+        """SELECT ea.address_type, ea.display_name, ea.valid_from, ea.valid_until,
+                  a.standardized, a.address_line_1, a.city, a.region, a.postal_code
+           FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
+           WHERE ea.entity_type = 'jurisdiction' AND ea.entity_id = $1
+           ORDER BY ea.valid_from DESC NULLS LAST""",
+        jurisdiction_id,
+    )
+    contacts = await db.fetch(
+        """SELECT contact_type, value, display_label
+           FROM contact_methods
+           WHERE entity_type = 'jurisdiction' AND entity_id = $1
+           ORDER BY contact_type, value""",
+        jurisdiction_id,
+    )
+
     return templates.TemplateResponse(
         request,
         "admin/jurisdictions/detail.html",
@@ -106,5 +138,9 @@ async def jurisdiction_detail(
             "user": user,
             "active_section": "jurisdictions",
             "jur": jur,
+            "identifiers": identifiers,
+            "links": links,
+            "addresses": addresses,
+            "contacts": contacts,
         },
     )
