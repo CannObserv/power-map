@@ -1462,11 +1462,15 @@ END $$;
 
 -- Role-type classifier seed (#261). Extend as new offices are modeled
 -- (speaker, majority_leader, committee_chair, ...). expects_jurisdiction marks
--- an office normally attached with a jurisdiction (#268/#271) — both seeded
--- offices are; the upsert backfills it on existing rows.
+-- an office normally attached with a jurisdiction (#268/#271) — the two office
+-- rows are; the upsert backfills it on existing rows. `member` (#269) is the
+-- coarse, jurisdiction-less membership classifier (committee membership, or a
+-- chamber member whose precise seat isn't yet positionable) — expects_jurisdiction
+-- is FALSE; it attaches by (org, title) like any plain role.
 INSERT INTO role_types (id, slug, display_name, expects_jurisdiction) VALUES
     ('01KX0000000000000000000001', 'state_representative', 'State Representative', TRUE),
-    ('01KX0000000000000000000002', 'state_senator',        'State Senator',        TRUE)
+    ('01KX0000000000000000000002', 'state_senator',        'State Senator',        TRUE),
+    ('01KX0000000000000000000003', 'member',               'Member',               FALSE)
 ON CONFLICT (id) DO UPDATE SET
     slug                 = EXCLUDED.slug,
     display_name         = EXCLUDED.display_name,

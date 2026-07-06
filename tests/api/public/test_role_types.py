@@ -76,6 +76,20 @@ async def test_role_types_seeded_offices_present_and_expect_jurisdiction(client,
 
 
 @pytest.mark.integration
+async def test_role_types_member_seeded_non_jurisdictional(client, api_key):
+    """The #269 `member` classifier is seeded with expects_jurisdiction=False.
+
+    Coarse body/committee membership (person is a member of a body, no precise
+    seat) — a jurisdiction-less classifier, so expects_jurisdiction must be False.
+    """
+    response = client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    by_slug = {r["slug"]: r for r in response.json()["data"]}
+    assert "member" in by_slug
+    assert by_slug["member"]["display_name"] == "Member"
+    assert by_slug["member"]["expects_jurisdiction"] is False
+
+
+@pytest.mark.integration
 async def test_role_types_non_structural_defaults_false(client, api_key, db):
     """A role_type inserted without the flag surfaces expects_jurisdiction=false (default)."""
     rid = generate_id()
