@@ -10,6 +10,7 @@ from src.api.admin import dup_badges as dup_badges_module
 from src.api.admin import entities as entities_module
 from src.api.admin import imports as imports_module
 from src.api.admin import jurisdictions as jurisdictions_module
+from src.api.admin import jurisdictions_addresses as jurisdictions_addresses_module
 from src.api.admin import jurisdictions_contacts as jurisdictions_contacts_module
 from src.api.admin import jurisdictions_identifiers as jurisdictions_identifiers_module
 from src.api.admin import jurisdictions_links as jurisdictions_links_module
@@ -96,6 +97,7 @@ admin_router.include_router(jurisdictions_module.router)
 admin_router.include_router(jurisdictions_contacts_module.router)
 admin_router.include_router(jurisdictions_links_module.router)
 admin_router.include_router(jurisdictions_identifiers_module.router)
+admin_router.include_router(jurisdictions_addresses_module.router)
 admin_router.include_router(roles_module.router)
 admin_router.include_router(roles_detail_module.router)
 admin_router.include_router(roles_assignments_inline_module.router)

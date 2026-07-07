@@ -1,0 +1,75 @@
+{# admin/jurisdictions/partials/_address_form_row.html #}
+<tr id="{% if a and a.id %}address-row-{{ a.id }}{% else %}address-row-new{% endif %}">
+  <td colspan="5" style="padding:var(--space-2) var(--space-4)">
+    <form {% if a and a.id %}
+          hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/addresses/{{ a.id }}/edit-row/"
+          hx-target="#address-row-{{ a.id }}"
+          {% else %}
+          hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/addresses/"
+          hx-target="#address-row-new"
+          {% endif %}
+          hx-swap="outerHTML"
+          style="display:grid;gap:var(--space-2)">
+      {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
+      {% if a and a.id %}<input type="hidden" name="addr_id" value="{{ a.id }}">{% endif %}
+      <div style="display:flex;gap:var(--space-2)">
+        <div class="form-group" style="margin-bottom:0;flex:1">
+          <select name="address_type" aria-label="Address type">
+            {% for t in ('mailing', 'physical', 'other') %}
+            <option value="{{ t }}"{% if a and a.address_type == t %} selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;flex:2">
+          <input type="text" name="display_name" aria-label="Address label"
+                 aria-describedby="address-label-opt-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
+                 placeholder="Label (optional)"
+                 value="{{ a.display_name or '' if a else '' }}">
+          <span class="visually-hidden" id="address-label-opt-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}">Optional</span>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <input type="text" name="country"
+               aria-label="Country (ISO code)"
+               placeholder="Country (ISO code, e.g. US, GB, CA)"
+               maxlength="2"
+               value="{{ a.country or 'US' if a else 'US' }}"
+               hx-get="/admin/jurisdictions/{{ jurisdiction_id }}/addresses/country-format/"
+               hx-trigger="change"
+               hx-target="#address-structured-fields-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
+               hx-swap="innerHTML"
+               hx-include="closest form">
+      </div>
+
+      <div id="address-structured-fields-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}">
+        {% include "admin/jurisdictions/partials/_address_fields_partial.html" %}
+      </div>
+      <div style="display:flex;gap:var(--space-2);align-items:center">
+        <label for="valid-from-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
+               style="font-size:var(--font-size-sm);color:var(--color-text-muted);white-space:nowrap">Valid from</label>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" name="valid_from"
+                 id="valid-from-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
+                 value="{{ a.valid_from if a and a.valid_from else '' }}">
+        </div>
+        <span aria-hidden="true"
+              style="font-size:var(--font-size-sm);color:var(--color-text-muted)">to</span>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" name="valid_until" aria-label="Valid until"
+                 value="{{ a.valid_until if a and a.valid_until else '' }}">
+        </div>
+        <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
+          <button type="submit" class="btn btn--sm btn--primary">Save</button>
+          <button type="button" class="btn btn--sm btn--secondary"
+                  {% if a and a.id %}
+                  hx-get="/admin/jurisdictions/{{ jurisdiction_id }}/addresses/{{ a.id }}/read-row/"
+                  hx-target="#address-row-{{ a.id }}"
+                  hx-swap="outerHTML"
+                  {% else %}
+                  onclick="this.closest('tr').remove(); document.dispatchEvent(new CustomEvent('powerMap:newRowClosed'));"
+                  {% endif %}>Cancel</button>
+        </div>
+      </div>
+    </form>
+  </td>
+</tr>

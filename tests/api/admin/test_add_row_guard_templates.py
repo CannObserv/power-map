@@ -82,6 +82,7 @@ FORM_ROW_PARTIALS = [
     "admin/people/partials/_assignment_form_row.html",
     "admin/roles/partials/_assignment_form_row.html",
     "admin/jurisdictions/partials/_contact_form_row.html",
+    "admin/jurisdictions/partials/_address_form_row.html",
     "admin/jurisdictions/partials/_link_form_row.html",
     "admin/jurisdictions/partials/_identifier_form_row.html",
     "admin/settings/partials/_api_key_edit_row.html",

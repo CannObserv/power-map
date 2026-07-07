@@ -175,6 +175,19 @@ async def jur(db_pool, county_type_id):
             "DELETE FROM links WHERE entity_type='jurisdiction' AND entity_id=$1", jid
         )
         await conn.execute("DELETE FROM identifiers WHERE entity_id=$1", jid)
+        addr_rows = await conn.fetch(
+            "SELECT address_id FROM entity_addresses"
+            " WHERE entity_type='jurisdiction' AND entity_id=$1",
+            jid,
+        )
+        await conn.execute(
+            "DELETE FROM entity_addresses WHERE entity_type='jurisdiction' AND entity_id=$1", jid
+        )
+        if addr_rows:
+            await conn.execute(
+                "DELETE FROM addresses WHERE id = ANY($1::text[])",
+                [r["address_id"] for r in addr_rows],
+            )
         await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
 
 
@@ -447,3 +460,44 @@ async def test_identifier_create(client, jur, db_pool):
             )
             is not None
         )
+
+
+# ---------------------------------------------------------------------------
+# Addresses CRUD (hand-built, normalizer-pinned)
+# ---------------------------------------------------------------------------
+
+
+async def test_address_new_row_form(client, jur, local_address_normalizer):
+    r = client.get(f"/admin/jurisdictions/{jur['id']}/addresses/new-row/", headers=HX)
+    assert r.status_code == 200
+    assert 'name="address_line_1"' in r.text
+
+
+async def test_address_create_and_delete(client, jur, db_pool, local_address_normalizer):
+    # mode=save skips the confirm modal and inserts directly
+    r = client.post(
+        f"/admin/jurisdictions/{jur['id']}/addresses/",
+        headers=HX,
+        data={
+            "address_line_1": "600 Fourth Ave",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98104",
+            "address_type": "mailing",
+            "country": "US",
+            "mode": "save",
+            "standardized": "600 Fourth Ave, Seattle, WA 98104",
+        },
+    )
+    assert r.status_code == 200
+    assert "Seattle" in r.text
+    async with db_pool.acquire() as conn:
+        eaid = await conn.fetchval(
+            "SELECT id FROM entity_addresses WHERE entity_type='jurisdiction' AND entity_id=$1",
+            jur["id"],
+        )
+    assert eaid is not None
+    rd = client.request("DELETE", f"/admin/jurisdictions/{jur['id']}/addresses/{eaid}/", headers=HX)
+    assert rd.status_code == 200
+    async with db_pool.acquire() as conn:
+        assert await conn.fetchval("SELECT id FROM entity_addresses WHERE id=$1", eaid) is None
