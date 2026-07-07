@@ -181,20 +181,24 @@
 </section>
 
 <section class="entity-section">
-  <h2>Affiliated organizations</h2>
-  <div class="entity-card">
-    {% if affiliations %}
-    <div class="table-wrapper">
-      <table class="data-table">
-        <thead><tr><th scope="col">Organization</th><th scope="col">Affiliation</th></tr></thead>
-        <tbody>
-          {% for a in affiliations %}
-          <tr><td><a href="/admin/orgs/{{ a.org_id }}/">{{ a.org_name or '(unnamed)' }}</a></td><td>{{ a.affiliation_type }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}<p style="color:var(--color-text-muted)">No affiliated organizations.</p>{% endif %}
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Affiliated organizations</h2>
+    <button class="btn btn--sm btn--secondary" data-new-row-id="affiliation-row-new"
+            hx-get="/admin/jurisdictions/{{ jur.id }}/affiliations/new-row/"
+            hx-sync="this:drop" hx-target="#affiliations-table tbody" hx-swap="afterbegin"
+            type="button">+ Add affiliation</button>
+  </div>
+  <div class="table-wrapper">
+    <table id="affiliations-table" class="data-table">
+      <thead><tr><th scope="col">Organization</th><th scope="col">Affiliation</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {% for a in affiliations %}
+        {% include "admin/jurisdictions/partials/_affiliation_row.html" %}
+        {% else %}
+        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No affiliated organizations</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </section>
 

@@ -11,6 +11,7 @@ from src.api.admin import entities as entities_module
 from src.api.admin import imports as imports_module
 from src.api.admin import jurisdictions as jurisdictions_module
 from src.api.admin import jurisdictions_addresses as jurisdictions_addresses_module
+from src.api.admin import jurisdictions_affiliations as jurisdictions_affiliations_module
 from src.api.admin import jurisdictions_contacts as jurisdictions_contacts_module
 from src.api.admin import jurisdictions_identifiers as jurisdictions_identifiers_module
 from src.api.admin import jurisdictions_links as jurisdictions_links_module
@@ -100,6 +101,8 @@ admin_router.include_router(jurisdictions_links_module.router)
 admin_router.include_router(jurisdictions_identifiers_module.router)
 admin_router.include_router(jurisdictions_addresses_module.router)
 admin_router.include_router(jurisdictions_relationships_module.router)
+admin_router.include_router(jurisdictions_affiliations_module.jurisdiction_router)
+admin_router.include_router(jurisdictions_affiliations_module.org_router)
 admin_router.include_router(roles_module.router)
 admin_router.include_router(roles_detail_module.router)
 admin_router.include_router(roles_assignments_inline_module.router)

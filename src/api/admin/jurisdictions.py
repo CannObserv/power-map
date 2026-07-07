@@ -441,7 +441,7 @@ async def jurisdiction_detail(
     )
     lineage = await fetch_lineage(db, jurisdiction_id)
     affiliations = await db.fetch(
-        """SELECT o.id AS org_id, dn.display_name AS org_name,
+        """SELECT oja.id AS aff_id, o.id AS org_id, dn.display_name AS org_name,
                   ojat.display_name AS affiliation_type
            FROM organization_jurisdiction_affiliations oja
            JOIN organizations o ON o.id = oja.organization_id
