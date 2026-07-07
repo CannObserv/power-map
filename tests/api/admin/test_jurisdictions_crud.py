@@ -253,3 +253,111 @@ async def test_details_save_invalid_range_rejected(client, jur):
         },
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Archive / unarchive / delete
+# ---------------------------------------------------------------------------
+
+
+async def test_archive_and_unarchive(client, jur, db_pool):
+    r = client.post(
+        f"/admin/jurisdictions/{jur['id']}/archive/", headers=AUTH_HEADERS, follow_redirects=False
+    )
+    assert r.status_code == 303
+    assert "flash=archived" in r.headers["location"]
+    async with db_pool.acquire() as conn:
+        assert (
+            await conn.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"])
+            is not None
+        )
+    # archiving an archived jurisdiction → 409
+    assert (
+        client.post(f"/admin/jurisdictions/{jur['id']}/archive/", headers=AUTH_HEADERS).status_code
+        == 409
+    )
+    # unarchive
+    r3 = client.post(
+        f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=AUTH_HEADERS, follow_redirects=False
+    )
+    assert r3.status_code == 303
+    assert "flash=unarchived" in r3.headers["location"]
+    async with db_pool.acquire() as conn:
+        assert (
+            await conn.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"])
+            is None
+        )
+    # unarchiving an active jurisdiction → 409
+    assert (
+        client.post(
+            f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=AUTH_HEADERS
+        ).status_code
+        == 409
+    )
+
+
+async def test_delete_requires_archived(client, jur):
+    r = client.request("DELETE", f"/admin/jurisdictions/{jur['id']}/", headers=AUTH_HEADERS)
+    assert r.status_code == 409
+
+
+async def test_delete_archived_ok(client, county_type_id, db_pool):
+    jid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+            " VALUES ($1,$2,$3,$4,NOW())",
+            jid,
+            f"del-{jid[-8:].lower()}",
+            "Deletable",
+            county_type_id,
+        )
+    r = client.request(
+        "DELETE",
+        f"/admin/jurisdictions/{jid}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert "flash=deleted" in r.headers["location"]
+    async with db_pool.acquire() as conn:
+        assert await conn.fetchval("SELECT id FROM jurisdictions WHERE id=$1", jid) is None
+        assert (
+            await conn.fetchval(
+                "SELECT 1 FROM deleted_entities WHERE entity_type='jurisdiction' AND entity_id=$1",
+                jid,
+            )
+            == 1
+        )
+
+
+async def test_delete_referenced_returns_409(client, county_type_id, db_pool):
+    jid, oid, rid = generate_id(), generate_id(), generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+            " VALUES ($1,$2,$3,$4,NOW())",
+            jid,
+            f"ref-{jid[-8:].lower()}",
+            "Referenced",
+            county_type_id,
+        )
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        member = await conn.fetchval("SELECT id FROM role_types WHERE slug='member'")
+        await conn.execute(
+            "INSERT INTO roles (id, organization_id, title, role_type_id, jurisdiction_id)"
+            " VALUES ($1,$2,$3,$4,$5)",
+            rid,
+            oid,
+            "Ref Role",
+            member,
+            jid,
+        )
+    try:
+        r = client.request("DELETE", f"/admin/jurisdictions/{jid}/", headers=AUTH_HEADERS)
+        assert r.status_code == 409
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM roles WHERE id=$1", rid)
+            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+            await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jid)

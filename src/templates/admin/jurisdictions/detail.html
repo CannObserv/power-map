@@ -1,5 +1,7 @@
 {% extends "admin/base.html" %}
+{% from "admin/macros/flash.html" import message %}
 {% block title %}{{ jur.name }} — Jurisdiction{% endblock %}
+{% block flash %}{% if flash_msg %}{{ message(flash_msg.level, flash_msg.body) }}{% endif %}{% endblock %}
 {% block breadcrumb %}
   <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
   <a href="/admin/jurisdictions/">Jurisdictions</a><span class="breadcrumb__sep">›</span>
@@ -194,4 +196,44 @@
     {% else %}<p style="color:var(--color-text-muted)">No roles reference this jurisdiction.</p>{% endif %}
   </div>
 </section>
+
+<p style="color:var(--color-text-muted);font-size:var(--font-size-sm);margin-top:var(--space-6)">
+  Metadata &middot; ID: <code>{{ jur.id }}</code>
+  &middot; Created: {{ jur.created_at.strftime('%Y-%m-%d') }}
+  &middot; Updated: {{ jur.updated_at.strftime('%Y-%m-%d') }}
+</p>
+
+<h2>Danger Zone</h2>
+{% if not jur.archived_at %}
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Archive jurisdiction</p>
+    <p class="danger-zone__desc">Hides this jurisdiction from active views but preserves all data.</p>
+  </div>
+  <form method="POST" action="/admin/jurisdictions/{{ jur.id }}/archive/">
+    <button type="submit" class="btn btn--danger">Archive jurisdiction</button>
+  </form>
+</div>
+{% else %}
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Unarchive jurisdiction</p>
+    <p class="danger-zone__desc">Restore this jurisdiction to active views.</p>
+  </div>
+  <form method="POST" action="/admin/jurisdictions/{{ jur.id }}/unarchive/">
+    <button type="submit" class="btn btn--secondary">Unarchive</button>
+  </form>
+</div>
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Delete permanently</p>
+    <p class="danger-zone__desc">Permanently deleting cannot be undone, and is blocked while any role, relationship, or affiliation still references this jurisdiction.</p>
+  </div>
+  <button type="button" class="btn btn--danger"
+          hx-delete="/admin/jurisdictions/{{ jur.id }}/"
+          hx-confirm="Permanently delete this jurisdiction? This cannot be undone.">
+    Delete permanently
+  </button>
+</div>
+{% endif %}
 {% endblock %}

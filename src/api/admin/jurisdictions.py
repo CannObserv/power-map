@@ -8,7 +8,7 @@ from datetime import date
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import (
@@ -18,6 +18,7 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    resolve_query_flash,
 )
 from src.api.admin.jurisdictions_queries import VALID_STATUSES, query_jurisdictions_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
@@ -26,6 +27,12 @@ from src.core.jurisdictions import fetch_lineage
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/jurisdictions", tags=["admin-jurisdictions"])
+
+_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
+    "archived": ("success", "Jurisdiction archived."),
+    "unarchived": ("success", "Jurisdiction unarchived."),
+    "deleted": ("success", "Jurisdiction deleted."),
+}
 
 _JUR_ROW_SQL = """
     SELECT j.*, jt.slug AS type_slug, jt.display_name AS type_display_name
@@ -78,6 +85,7 @@ async def jurisdictions_list(
     type_: str = Query("", alias="type"),
     page: int = Query(1, ge=1),
     page_size: int = Query(PAGE_SIZE_DEFAULT, ge=PAGE_SIZE_MIN, le=PAGE_SIZE_MAX),
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -99,6 +107,7 @@ async def jurisdictions_list(
             "SELECT slug, display_name FROM jurisdiction_types ORDER BY display_name"
         )
     )
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     ctx = {
         "user": user,
         "active_section": "jurisdictions",
@@ -109,11 +118,11 @@ async def jurisdictions_list(
         "type_slug": type_slug or "",
         "page_size": page_size,
         "total": count,
-        "flash_msg": None,
+        "flash_msg": flash_msg,
         **pctx,
     }
     template = "admin/jurisdictions/_region.html" if is_partial else "admin/jurisdictions/list.html"
-    return templates.TemplateResponse(request, template, ctx)
+    return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
 @router.get("/search/")
@@ -356,6 +365,7 @@ async def jurisdiction_details_save(
 async def jurisdiction_detail(
     jurisdiction_id: str,
     request: Request,
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -435,6 +445,7 @@ async def jurisdiction_detail(
         jurisdiction_id,
     )
 
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
         "admin/jurisdictions/detail.html",
@@ -450,5 +461,82 @@ async def jurisdiction_detail(
             "lineage": lineage,
             "affiliations": affiliations,
             "roles": roles,
+            "flash_msg": flash_msg,
         },
+        headers=resp_headers,
     )
+
+
+@router.post("/{jurisdiction_id}/archive/")
+async def jurisdiction_archive(
+    jurisdiction_id: str,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Archive a jurisdiction (soft delete)."""
+    jur = await db.fetchrow(
+        "SELECT id, archived_at FROM jurisdictions WHERE id = $1", jurisdiction_id
+    )
+    if not jur:
+        raise HTTPException(status_code=404, detail="Jurisdiction not found")
+    if jur["archived_at"]:
+        raise HTTPException(status_code=409, detail="Jurisdiction is already archived")
+    await db.execute("UPDATE jurisdictions SET archived_at = NOW() WHERE id = $1", jurisdiction_id)
+    return RedirectResponse(
+        f"/admin/jurisdictions/{jurisdiction_id}/?flash=archived", status_code=303
+    )
+
+
+@router.post("/{jurisdiction_id}/unarchive/")
+async def jurisdiction_unarchive(
+    jurisdiction_id: str,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Restore an archived jurisdiction."""
+    jur = await db.fetchrow(
+        "SELECT id, archived_at FROM jurisdictions WHERE id = $1", jurisdiction_id
+    )
+    if not jur:
+        raise HTTPException(status_code=404, detail="Jurisdiction not found")
+    if not jur["archived_at"]:
+        raise HTTPException(status_code=409, detail="Jurisdiction is not archived")
+    await db.execute("UPDATE jurisdictions SET archived_at = NULL WHERE id = $1", jurisdiction_id)
+    return RedirectResponse(
+        f"/admin/jurisdictions/{jurisdiction_id}/?flash=unarchived", status_code=303
+    )
+
+
+@router.delete("/{jurisdiction_id}/")
+async def jurisdiction_delete(
+    jurisdiction_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Hard delete an archived jurisdiction (emits a tombstone via trigger)."""
+    jur = await db.fetchrow(
+        "SELECT id, archived_at FROM jurisdictions WHERE id = $1", jurisdiction_id
+    )
+    if not jur:
+        raise HTTPException(status_code=404, detail="Jurisdiction not found")
+    if not jur["archived_at"]:
+        raise HTTPException(status_code=409, detail="Jurisdiction must be archived before deletion")
+    try:
+        async with db.transaction():
+            await db.execute("DELETE FROM jurisdictions WHERE id = $1", jurisdiction_id)
+            await db.execute(
+                "INSERT INTO deleted_entities (entity_type, entity_id) VALUES ('jurisdiction', $1)"
+                " ON CONFLICT DO NOTHING",
+                jurisdiction_id,
+            )
+    except asyncpg.ForeignKeyViolationError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete: still referenced by a role, relationship, or affiliation.",
+        ) from exc
+    if is_htmx(request):
+        return Response(
+            status_code=204, headers={"HX-Location": "/admin/jurisdictions/?flash=deleted"}
+        )
+    return RedirectResponse("/admin/jurisdictions/?flash=deleted", status_code=303)
