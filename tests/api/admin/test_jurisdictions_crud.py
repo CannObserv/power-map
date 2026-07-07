@@ -167,6 +167,14 @@ async def jur(db_pool, county_type_id):
         )
     yield {"id": jid, "marker": marker, "slug": f"edit-{marker}"}
     async with db_pool.acquire() as conn:
+        # polymorphic attachments have no FK to jurisdictions — clean by entity_id
+        await conn.execute(
+            "DELETE FROM contact_methods WHERE entity_type='jurisdiction' AND entity_id=$1", jid
+        )
+        await conn.execute(
+            "DELETE FROM links WHERE entity_type='jurisdiction' AND entity_id=$1", jid
+        )
+        await conn.execute("DELETE FROM identifiers WHERE entity_id=$1", jid)
         await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
 
 
@@ -361,3 +369,81 @@ async def test_delete_referenced_returns_409(client, county_type_id, db_pool):
             await conn.execute("DELETE FROM roles WHERE id=$1", rid)
             await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
             await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+
+
+# ---------------------------------------------------------------------------
+# Attachment CRUD (factory-wired: contacts / links / identifiers)
+# ---------------------------------------------------------------------------
+
+HX = {**AUTH_HEADERS, "HX-Request": "true"}
+
+
+async def test_contact_crud(client, jur, db_pool):
+    # new-row form partial
+    r0 = client.get(
+        f"/admin/jurisdictions/{jur['id']}/contacts/new-row/?contact_type=email", headers=HX
+    )
+    assert r0.status_code == 200
+    assert 'name="value"' in r0.text
+    # create
+    r = client.post(
+        f"/admin/jurisdictions/{jur['id']}/contacts/",
+        headers=HX,
+        data={"contact_type": "email", "value": "hall@example.gov", "display_label": "Clerk"},
+    )
+    assert r.status_code == 200
+    assert "hall@example.gov" in r.text
+    async with db_pool.acquire() as conn:
+        cid = await conn.fetchval(
+            "SELECT id FROM contact_methods"
+            " WHERE entity_type='jurisdiction' AND entity_id=$1 AND value=$2",
+            jur["id"],
+            "hall@example.gov",
+        )
+    assert cid is not None
+    # delete
+    rd = client.request("DELETE", f"/admin/jurisdictions/{jur['id']}/contacts/{cid}/", headers=HX)
+    assert rd.status_code == 200
+    async with db_pool.acquire() as conn:
+        assert await conn.fetchval("SELECT id FROM contact_methods WHERE id=$1", cid) is None
+
+
+async def test_link_create(client, jur, db_pool):
+    async with db_pool.acquire() as conn:
+        lt = await conn.fetchval("SELECT id FROM link_types ORDER BY id LIMIT 1")
+    r = client.post(
+        f"/admin/jurisdictions/{jur['id']}/links/",
+        headers=HX,
+        data={"url": "https://jur.example.gov", "link_type_id": lt, "is_active": "true"},
+    )
+    assert r.status_code == 200
+    assert "jur.example.gov" in r.text
+    async with db_pool.acquire() as conn:
+        assert (
+            await conn.fetchval(
+                "SELECT id FROM links WHERE entity_type='jurisdiction' AND entity_id=$1 AND url=$2",
+                jur["id"],
+                "https://jur.example.gov",
+            )
+            is not None
+        )
+
+
+async def test_identifier_create(client, jur, db_pool):
+    async with db_pool.acquire() as conn:
+        it = await conn.fetchval("SELECT id FROM entity_identifier_types WHERE slug='jur_ocd'")
+    r = client.post(
+        f"/admin/jurisdictions/{jur['id']}/identifiers/",
+        headers=HX,
+        data={"entity_identifier_type_id": it, "value": "ocd-division/country:us/x"},
+    )
+    assert r.status_code == 200
+    async with db_pool.acquire() as conn:
+        assert (
+            await conn.fetchval(
+                "SELECT id FROM identifiers WHERE entity_id=$1 AND value=$2",
+                jur["id"],
+                "ocd-division/country:us/x",
+            )
+            is not None
+        )

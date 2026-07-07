@@ -1,0 +1,52 @@
+{# admin/jurisdictions/partials/_link_form_row.html #}
+<tr id="{% if l %}link-row-{{ l.id }}{% else %}link-row-new{% endif %}">
+  <td colspan="4" style="padding:var(--space-2) var(--space-4)">
+    <form {% if l %}
+          hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/links/{{ l.id }}/edit-row/"
+          hx-target="#link-row-{{ l.id }}"
+          {% else %}
+          hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/links/"
+          hx-target="#link-row-new"
+          {% endif %}
+          hx-swap="outerHTML"
+          style="display:flex;gap:var(--space-2);align-items:center">
+      <div class="form-group" style="margin-bottom:0;flex:2;min-width:10rem">
+        <input type="url" name="url" aria-label="URL" required
+               value="{{ l.url if l else '' }}" placeholder="https://">
+      </div>
+      <div class="form-group" style="margin-bottom:0;flex:1;min-width:8rem">
+        <select name="link_type_id" aria-label="Link type">
+          <optgroup label="Social">
+            {% for lt in link_types if lt.is_social %}
+            <option value="{{ lt.id }}"{% if l and l.link_type_id == lt.id %} selected{% endif %}>
+              {{ lt.display_name }}</option>
+            {% endfor %}
+          </optgroup>
+          <optgroup label="General">
+            {% for lt in link_types if not lt.is_social %}
+            <option value="{{ lt.id }}"{% if l and l.link_type_id == lt.id %} selected{% endif %}>
+              {{ lt.display_name }}</option>
+            {% endfor %}
+          </optgroup>
+        </select>
+      </div>
+      <label class="toggle" style="flex-shrink:0">
+        <input type="checkbox" name="is_active" value="true"
+               {% if l and l.is_active or not l %} checked{% endif %}>
+        <span class="toggle__track"><span class="toggle__thumb"></span></span>
+        <span class="toggle__label" style="font-size:var(--font-size-sm);color:var(--color-text-muted)">Active</span>
+      </label>
+      <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
+        <button type="submit" class="btn btn--sm btn--primary">Save</button>
+        <button type="button" class="btn btn--sm btn--secondary"
+                {% if l %}
+                hx-get="/admin/jurisdictions/{{ jurisdiction_id }}/links/{{ l.id }}/read-row/"
+                hx-target="#link-row-{{ l.id }}"
+                hx-swap="outerHTML"
+                {% else %}
+                onclick="this.closest('tr').remove(); document.dispatchEvent(new CustomEvent('powerMap:newRowClosed'));"
+                {% endif %}>Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>
