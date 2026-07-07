@@ -287,3 +287,18 @@ async def test_relationship_delete_emits_change_feed(client, two_jurs, rel_types
     assert r.status_code == 200
     assert await _change_count(db_pool, two_jurs["a"]) > before_a
     assert await _change_count(db_pool, two_jurs["b"]) > before_b
+
+
+async def test_relationship_edit_emits_change_feed(client, two_jurs, rel_types, db_pool):
+    rid = await _make_edge(db_pool, two_jurs["a"], two_jurs["b"], rel_types["asymmetric"])
+    before_a = await _change_count(db_pool, two_jurs["a"])
+    before_b = await _change_count(db_pool, two_jurs["b"])
+    r = client.post(
+        f"/admin/jurisdictions/{two_jurs['a']}/relationships/{rid}/edit-row/",
+        headers=HX,
+        data={"valid_from": "2001-01-01", "valid_until": "", "notes": "ended"},
+    )
+    assert r.status_code == 200
+    # the validity UPDATE touches both endpoints via the trigger
+    assert await _change_count(db_pool, two_jurs["a"]) > before_a
+    assert await _change_count(db_pool, two_jurs["b"]) > before_b

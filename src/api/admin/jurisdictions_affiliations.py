@@ -53,10 +53,14 @@ async def _affiliation_types(db):
     )
 
 
-async def _require(db, table: str, entity_id: str, msg: str):
-    # table is a fixed literal ('jurisdictions' / 'organizations'), never user input.
-    if not await db.fetchrow(f"SELECT id FROM {table} WHERE id=$1", entity_id):
-        raise HTTPException(status_code=404, detail=msg)
+async def _require_jurisdiction(db, jurisdiction_id: str):
+    if not await db.fetchrow("SELECT id FROM jurisdictions WHERE id=$1", jurisdiction_id):
+        raise HTTPException(status_code=404, detail="Jurisdiction not found")
+
+
+async def _require_org(db, org_id: str):
+    if not await db.fetchrow("SELECT id FROM organizations WHERE id=$1", org_id):
+        raise HTTPException(status_code=404, detail="Organization not found")
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +69,15 @@ async def _require(db, table: str, entity_id: str, msg: str):
 
 
 async def _render_jur_form(request, jurisdiction_id, db, *, values, errors, status_code=200):
+    # Keep the org typeahead populated on an error re-render (hidden id alone
+    # would leave the search box blank).
+    org_label = ""
+    org_id = (values.get("organization_id") or "").strip()
+    if org_id:
+        row = await db.fetchrow(
+            "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", org_id
+        )
+        org_label = row["display_name"] if row else ""
     return templates.TemplateResponse(
         request,
         "admin/jurisdictions/partials/_affiliation_form_row.html",
@@ -72,6 +85,7 @@ async def _render_jur_form(request, jurisdiction_id, db, *, values, errors, stat
             "jurisdiction_id": jurisdiction_id,
             "affiliation_types": await _affiliation_types(db),
             "values": values,
+            "org_label": org_label,
             "errors": errors,
         },
         status_code=status_code,
@@ -86,7 +100,7 @@ async def jur_affiliation_new_row(
     db=Depends(get_db),
 ):
     """Empty add-affiliation form row (jurisdiction side)."""
-    await _require(db, "jurisdictions", jurisdiction_id, "Jurisdiction not found")
+    await _require_jurisdiction(db, jurisdiction_id)
     return await _render_jur_form(request, jurisdiction_id, db, values={}, errors={})
 
 
@@ -100,7 +114,7 @@ async def jur_affiliation_create(
     db=Depends(get_db),
 ):
     """Affiliate an organization with this jurisdiction. Dup (org+jur+type) → 409."""
-    await _require(db, "jurisdictions", jurisdiction_id, "Jurisdiction not found")
+    await _require_jurisdiction(db, jurisdiction_id)
     values = {"organization_id": organization_id, "affiliation_type_id": affiliation_type_id}
     errors: dict[str, str] = {}
     if not organization_id.strip():
@@ -170,6 +184,12 @@ async def jur_affiliation_delete(
 
 
 async def _render_org_form(request, org_id, db, *, values, errors, status_code=200):
+    # Keep the jurisdiction typeahead populated on an error re-render.
+    jur_label = ""
+    jid = (values.get("jurisdiction_id") or "").strip()
+    if jid:
+        row = await db.fetchrow("SELECT name FROM jurisdictions WHERE id=$1", jid)
+        jur_label = row["name"] if row else ""
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_jurisdiction_affiliation_form_row.html",
@@ -177,6 +197,7 @@ async def _render_org_form(request, org_id, db, *, values, errors, status_code=2
             "org_id": org_id,
             "affiliation_types": await _affiliation_types(db),
             "values": values,
+            "jur_label": jur_label,
             "errors": errors,
         },
         status_code=status_code,
@@ -191,7 +212,7 @@ async def org_affiliation_new_row(
     db=Depends(get_db),
 ):
     """Empty add-affiliation form row (org side)."""
-    await _require(db, "organizations", org_id, "Organization not found")
+    await _require_org(db, org_id)
     return await _render_org_form(request, org_id, db, values={}, errors={})
 
 
@@ -205,7 +226,7 @@ async def org_affiliation_create(
     db=Depends(get_db),
 ):
     """Affiliate a jurisdiction with this org. Dup (org+jur+type) → 409."""
-    await _require(db, "organizations", org_id, "Organization not found")
+    await _require_org(db, org_id)
     values = {"jurisdiction_id": jurisdiction_id, "affiliation_type_id": affiliation_type_id}
     errors: dict[str, str] = {}
     if not jurisdiction_id.strip():

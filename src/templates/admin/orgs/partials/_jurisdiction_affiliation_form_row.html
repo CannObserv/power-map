@@ -9,6 +9,7 @@
       <div class="form-group" style="margin-bottom:0;position:relative;flex:1;min-width:12rem">
         <label for="jaff-jur-search-new">Jurisdiction</label>
         <input id="jaff-jur-search-new" type="text" autocomplete="off" placeholder="Type to search&hellip;"
+               value="{{ jur_label or '' }}"
                hx-get="/admin/jurisdictions/search/" hx-trigger="input changed delay:200ms"
                hx-target="#jaff-jur-results-new" hx-swap="innerHTML" hx-params="q" name="q"
                role="combobox" aria-expanded="false" aria-haspopup="listbox"

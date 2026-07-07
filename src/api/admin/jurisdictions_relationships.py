@@ -7,14 +7,19 @@ inline-edit validity (the temporal *end* of a relationship), and hard-delete
 ``chk_no_self_rel`` and ``chk_rel_valid_range`` are surfaced as 422.
 """
 
-from datetime import date
-
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    parse_validity_fields,
+)
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -61,26 +66,15 @@ async def _rel_types(db):
     )
 
 
-def _parse_validity(valid_from: str, valid_until: str, errors: dict) -> tuple:
-    """Parse valid_from/valid_until form strings, recording any errors in-place."""
-    vf = vu = None
-    if valid_from.strip():
-        try:
-            vf = date.fromisoformat(valid_from.strip())
-        except ValueError:
-            errors["valid_from"] = "Invalid date (use YYYY-MM-DD)"
-    if valid_until.strip():
-        try:
-            vu = date.fromisoformat(valid_until.strip())
-        except ValueError:
-            errors["valid_until"] = "Invalid date (use YYYY-MM-DD)"
-    if vf and vu and vf > vu:
-        errors["valid_until"] = "Valid-until must not precede valid-from"
-    return vf, vu
-
-
 async def _render_add_form(request, jurisdiction_id, db, *, values, errors, status_code=200):
     jur = await db.fetchrow("SELECT name FROM jurisdictions WHERE id=$1", jurisdiction_id)
+    # Preserve the picked target's label so a validation-error re-render keeps the
+    # typeahead populated (the hidden target_id alone would leave the box blank).
+    target_label = ""
+    target_id = (values.get("target_id") or "").strip()
+    if target_id:
+        t = await db.fetchrow("SELECT name FROM jurisdictions WHERE id=$1", target_id)
+        target_label = t["name"] if t else ""
     return templates.TemplateResponse(
         request,
         "admin/jurisdictions/partials/_relationship_form_row.html",
@@ -89,6 +83,7 @@ async def _render_add_form(request, jurisdiction_id, db, *, values, errors, stat
             "jurisdiction_name": jur["name"] if jur else "This jurisdiction",
             "rel_types": await _rel_types(db),
             "values": values,
+            "target_label": target_label,
             "errors": errors,
             "rel": None,
         },
@@ -138,7 +133,7 @@ async def relationship_create(
         errors["rel_type_id"] = "Select a relationship type"
     if target_id.strip() and target_id.strip() == jurisdiction_id:
         errors["target_id"] = "A jurisdiction can't relate to itself"
-    vf, vu = _parse_validity(valid_from, valid_until, errors)
+    vf, vu = parse_validity_fields(valid_from, valid_until, errors)
     if errors:
         return await _render_add_form(
             request, jurisdiction_id, db, values=values, errors=errors, status_code=422
@@ -236,7 +231,7 @@ async def relationship_edit_row_post(
     """Save a validity/notes edit on an existing edge (its temporal end)."""
     row = await _get_edge_or_404(rel_id, jurisdiction_id, db)
     errors: dict[str, str] = {}
-    vf, vu = _parse_validity(valid_from, valid_until, errors)
+    vf, vu = parse_validity_fields(valid_from, valid_until, errors)
     if errors:
         return templates.TemplateResponse(
             request,
@@ -254,6 +249,9 @@ async def relationship_edit_row_post(
             rel_id,
         )
     except asyncpg.CheckViolationError:
+        # DB-layer backstop for chk_rel_valid_range — parse_validity_fields above
+        # normally rejects an inverted range first, so this fires only on a direct
+        # constraint violation the app didn't pre-check.
         errors["valid_until"] = "Valid-until must not precede valid-from"
         return templates.TemplateResponse(
             request,

@@ -36,6 +36,7 @@
         <div class="form-group" style="margin-bottom:0;position:relative;flex:1;min-width:12rem">
           <label for="rel-target-search-new">Target jurisdiction</label>
           <input id="rel-target-search-new" type="text" autocomplete="off" placeholder="Type to search&hellip;"
+                 value="{{ target_label or '' }}"
                  hx-get="/admin/jurisdictions/search/" hx-trigger="input changed delay:200ms"
                  hx-target="#rel-target-results-new" hx-swap="innerHTML" hx-params="q" name="q"
                  role="combobox" aria-expanded="false" aria-haspopup="listbox"

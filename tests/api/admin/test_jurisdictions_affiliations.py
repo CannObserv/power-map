@@ -201,3 +201,44 @@ async def test_org_affiliation_delete(client, jur_and_org, aff_type_id, db_pool)
             )
             is None
         )
+
+
+# ---------------------------------------------------------------------------
+# Change-feed propagation to the jurisdiction side (touch trigger)
+# ---------------------------------------------------------------------------
+
+
+async def _jur_change_count(db_pool, jurisdiction_id):
+    async with db_pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='jurisdiction' AND entity_id=$1",
+            jurisdiction_id,
+        )
+
+
+async def test_affiliation_add_emits_jurisdiction_change_feed(
+    client, jur_and_org, aff_type_id, db_pool
+):
+    before = await _jur_change_count(db_pool, jur_and_org["jur"])
+    r = client.post(
+        f"/admin/jurisdictions/{jur_and_org['jur']}/affiliations/",
+        headers=HX,
+        data={"organization_id": jur_and_org["org"], "affiliation_type_id": aff_type_id},
+    )
+    assert r.status_code == 200
+    # the affiliated jurisdiction (not just the org) surfaces on the change feed
+    assert await _jur_change_count(db_pool, jur_and_org["jur"]) > before
+
+
+async def test_affiliation_delete_emits_jurisdiction_change_feed(
+    client, jur_and_org, aff_type_id, db_pool
+):
+    aid = generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(_INSERT_AFF, aid, jur_and_org["org"], jur_and_org["jur"], aff_type_id)
+    before = await _jur_change_count(db_pool, jur_and_org["jur"])
+    r = client.request(
+        "DELETE", f"/admin/orgs/{jur_and_org['org']}/jurisdiction-affiliations/{aid}/", headers=HX
+    )
+    assert r.status_code == 200
+    assert await _jur_change_count(db_pool, jur_and_org["jur"]) > before

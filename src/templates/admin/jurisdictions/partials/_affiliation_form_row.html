@@ -9,6 +9,7 @@
       <div class="form-group" style="margin-bottom:0;position:relative;flex:1;min-width:12rem">
         <label for="aff-org-search-new">Organization</label>
         <input id="aff-org-search-new" type="text" autocomplete="off" placeholder="Type to search&hellip;"
+               value="{{ org_label or '' }}"
                hx-get="/admin/orgs/search/" hx-trigger="input changed delay:200ms"
                hx-target="#aff-org-results-new" hx-swap="innerHTML" hx-params="q" name="q"
                role="combobox" aria-expanded="false" aria-haspopup="listbox"
