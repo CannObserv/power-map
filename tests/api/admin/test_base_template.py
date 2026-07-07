@@ -4,7 +4,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from tests.api.admin.conftest import AUTH_HEADERS
+from tests.api.admin.conftest import (
+    AUTH_HEADERS,
+    ENTITY_ORDER_HREFS,
+    assert_render_order,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -99,3 +103,13 @@ def test_people_merge_js_loaded_site_wide_with_defer(client):
     assert "people-merge.js" in response.text
     idx = response.text.find("people-merge.js")
     assert "defer" in response.text[max(0, idx - 100) : idx + 100]
+
+
+def test_sidebar_entity_links_jurisdiction_first(client):
+    """Sidebar entity nav is ordered Jurisdiction, Org, Person, Role, Assignment
+    (#275). The sidebar renders before <main>, so first-occurrence position of
+    each entity list href in that prefix reflects nav order."""
+    response = client.get("/admin/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    sidebar = response.text.split('id="main-content"')[0]
+    assert_render_order(sidebar, ENTITY_ORDER_HREFS)

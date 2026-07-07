@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import app
+from tests.api.admin.conftest import ENTITY_ORDER_HREFS, assert_render_order
 
 pytestmark = pytest.mark.integration
 
@@ -74,3 +75,13 @@ def test_entities_landing_has_jurisdictions_card(client):
     assert response.status_code == 200
     assert "Jurisdictions" in response.text
     assert 'href="/admin/jurisdictions/"' in response.text
+
+
+def test_entities_landing_cards_jurisdiction_first(client):
+    """Entities landing cards are ordered Jurisdiction, Org, Person, Role,
+    Assignment (#275) — the focused mirror of the dashboard's Entities section
+    must not drift from it."""
+    response = client.get("/admin/entities/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    content = response.text.split('id="main-content"')[1]
+    assert_render_order(content, ENTITY_ORDER_HREFS)
