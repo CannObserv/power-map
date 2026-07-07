@@ -6,19 +6,16 @@
 
 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-5)">
 
-  {# People #}
+  {# Jurisdictions #}
   <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
-      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">People</h2>
-      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.people }} records</span>
+      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">Jurisdictions</h2>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.jurisdictions }} records</span>
     </div>
     <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
-      Individuals with roles and organizational relationships.
+      Geographic and governmental units — states, districts, counties.
     </p>
-    <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
-      <a href="/admin/people/" class="btn btn--sm btn--secondary">Manage →</a>
-      <span hx-get="/admin/_dup-badge/people/?variant=card" hx-trigger="load, refreshDupBadge from:body" hx-swap="innerHTML"></span>
-    </div>
+    <a href="/admin/jurisdictions/" class="btn btn--sm btn--secondary">Manage →</a>
   </div>
 
   {# Organizations #}
@@ -36,16 +33,19 @@
     </div>
   </div>
 
-  {# Jurisdictions #}
+  {# People #}
   <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
-      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">Jurisdictions</h2>
-      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.jurisdictions }} records</span>
+      <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">People</h2>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.people }} records</span>
     </div>
     <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
-      Geographic and governmental units — states, districts, counties.
+      Individuals with roles and organizational relationships.
     </p>
-    <a href="/admin/jurisdictions/" class="btn btn--sm btn--secondary">Manage →</a>
+    <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
+      <a href="/admin/people/" class="btn btn--sm btn--secondary">Manage →</a>
+      <span hx-get="/admin/_dup-badge/people/?variant=card" hx-trigger="load, refreshDupBadge from:body" hx-swap="innerHTML"></span>
+    </div>
   </div>
 
   {# Roles #}
