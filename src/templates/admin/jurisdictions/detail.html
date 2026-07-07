@@ -120,16 +120,25 @@
     {% if relationships %}
     <div class="table-wrapper">
       <table class="data-table">
-        <thead><tr><th scope="col">Relationship</th><th scope="col">Jurisdiction</th><th scope="col">Category</th><th scope="col">Effective</th></tr></thead>
+        <thead><tr><th scope="col">Relationship</th><th scope="col">Category</th><th scope="col">Effective</th></tr></thead>
         <tbody>
           {% for rel in relationships %}
-          {% set outgoing = rel.from_id == jur.id %}
-          {% set other_id = rel.to_id if outgoing else rel.from_id %}
-          {% set other_name = rel.to_name if outgoing else rel.from_name %}
           <tr>
-            <td>{{ '→' if outgoing else '←' }} {{ rel.rel_type_name }}{% if rel.is_symmetric %} <span style="color:var(--color-text-muted)">(symmetric)</span>{% endif %}</td>
-            <td><a href="/admin/jurisdictions/{{ other_id }}/">{{ other_name }}</a></td>
-            <td>{{ rel.category }}</td>
+            <td>
+              {% if rel.is_symmetric %}
+                {# symmetric: no direction — double arrow to the other jurisdiction #}
+                {% set other_id = rel.to_id if rel.from_id == jur.id else rel.from_id %}
+                {% set other_name = rel.to_name if rel.from_id == jur.id else rel.from_name %}
+                {{ rel.rel_type_name }} <span style="color:var(--color-text-muted)">↔</span>
+                <a href="/admin/jurisdictions/{{ other_id }}/">{{ other_name }}</a>
+              {% else %}
+                {# asymmetric: full phrase in stored from → to order, current jurisdiction bolded #}
+                {% if rel.from_id == jur.id %}<strong>{{ rel.from_name }}</strong>{% else %}<a href="/admin/jurisdictions/{{ rel.from_id }}/">{{ rel.from_name }}</a>{% endif %}
+                {{ rel.rel_type_name | lower }}
+                {% if rel.to_id == jur.id %}<strong>{{ rel.to_name }}</strong>{% else %}<a href="/admin/jurisdictions/{{ rel.to_id }}/">{{ rel.to_name }}</a>{% endif %}
+              {% endif %}
+            </td>
+            <td>{{ rel.category | title }}</td>
             <td>{{ rel.valid_from.strftime('%Y-%m-%d') if rel.valid_from else '—' }}{% if rel.valid_until %} – {{ rel.valid_until.strftime('%Y-%m-%d') }}{% endif %}</td>
           </tr>
           {% endfor %}

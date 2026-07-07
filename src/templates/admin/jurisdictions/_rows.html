@@ -1,9 +1,8 @@
 {% for j in jurisdictions %}
-<tr class="{% if j.archived_at %}is-archived{% elif j.superseded_at %}is-inactive{% endif %}"
-    data-title="{{ j.name }}" data-jurisdiction-id="{{ j.id }}">
+<tr class="{% if j.archived_at %}is-archived{% elif j.superseded_at %}is-inactive{% endif %}">
   <td>
     <a href="/admin/jurisdictions/{{ j.id }}/">{{ j.name }}</a><br>
-    <span class="text-muted" style="font-size:var(--font-size-sm)">{{ j.slug }}</span>
+    <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ j.slug }}</span>
   </td>
   <td>{{ j.type_display_name }}</td>
   <td>

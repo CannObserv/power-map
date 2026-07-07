@@ -339,9 +339,10 @@ async def jur_with_graph(db_pool):
 async def test_detail_shows_relationships(client, jur_with_graph):
     r = client.get(f"/admin/jurisdictions/{jur_with_graph['ids']['j']}/", headers=AUTH_HEADERS)
     assert jur_with_graph["names"]["r"] in r.text
-    assert "Is Fully Contained By" in r.text
+    # asymmetric edge renders as a full phrase (rel type shown lowercased)
+    assert "is fully contained by" in r.text.lower()
     # lineage-category edges belong to the Lineage panel only, not Relationships
-    assert "Supersedes" not in r.text
+    assert "supersedes" not in r.text.lower()
 
 
 async def test_detail_shows_lineage(client, jur_with_graph):
