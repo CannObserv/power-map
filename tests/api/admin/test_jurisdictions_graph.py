@@ -244,3 +244,46 @@ async def test_relationship_delete_not_found(client, two_jurs):
         headers=HX,
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Change-feed propagation (touch_parent_jurisdiction trigger)
+# ---------------------------------------------------------------------------
+
+
+async def _change_count(db_pool, entity_id):
+    async with db_pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='jurisdiction' AND entity_id=$1",
+            entity_id,
+        )
+
+
+async def test_relationship_add_emits_change_feed(client, two_jurs, rel_types, db_pool):
+    before_a = await _change_count(db_pool, two_jurs["a"])
+    before_b = await _change_count(db_pool, two_jurs["b"])
+    r = client.post(
+        f"/admin/jurisdictions/{two_jurs['a']}/relationships/",
+        headers=HX,
+        data={
+            "target_id": two_jurs["b"],
+            "rel_type_id": rel_types["asymmetric"],
+            "direction": "outgoing",
+        },
+    )
+    assert r.status_code == 200
+    # both endpoints of the edge are touched → each gets a fresh 'updated' change
+    assert await _change_count(db_pool, two_jurs["a"]) > before_a
+    assert await _change_count(db_pool, two_jurs["b"]) > before_b
+
+
+async def test_relationship_delete_emits_change_feed(client, two_jurs, rel_types, db_pool):
+    rid = await _make_edge(db_pool, two_jurs["a"], two_jurs["b"], rel_types["symmetric"])
+    before_a = await _change_count(db_pool, two_jurs["a"])
+    before_b = await _change_count(db_pool, two_jurs["b"])
+    r = client.request(
+        "DELETE", f"/admin/jurisdictions/{two_jurs['a']}/relationships/{rid}/", headers=HX
+    )
+    assert r.status_code == 200
+    assert await _change_count(db_pool, two_jurs["a"]) > before_a
+    assert await _change_count(db_pool, two_jurs["b"]) > before_b
