@@ -1,0 +1,31 @@
+{# admin/jurisdictions/partials/_relationship_row.html — one edge, read view #}
+<tr id="relationship-row-{{ rel.id }}">
+  <td>
+    {% if rel.is_symmetric %}
+      {# symmetric: no direction — double arrow to the other jurisdiction #}
+      {% set other_id = rel.to_id if rel.from_id == jurisdiction_id else rel.from_id %}
+      {% set other_name = rel.to_name if rel.from_id == jurisdiction_id else rel.from_name %}
+      {{ rel.rel_type_name }} <span style="color:var(--color-text-muted)">&harr;</span>
+      <a href="/admin/jurisdictions/{{ other_id }}/">{{ other_name }}</a>
+    {% else %}
+      {# asymmetric: full phrase in stored from -> to order, current bolded #}
+      {% if rel.from_id == jurisdiction_id %}<strong>{{ rel.from_name }}</strong>{% else %}<a href="/admin/jurisdictions/{{ rel.from_id }}/">{{ rel.from_name }}</a>{% endif %}
+      {{ rel.rel_type_name | lower }}
+      {% if rel.to_id == jurisdiction_id %}<strong>{{ rel.to_name }}</strong>{% else %}<a href="/admin/jurisdictions/{{ rel.to_id }}/">{{ rel.to_name }}</a>{% endif %}
+    {% endif %}
+    {% if rel.notes %}<span style="color:var(--color-text-muted);font-size:var(--font-size-sm)"> &middot; {{ rel.notes }}</span>{% endif %}
+  </td>
+  <td>{{ rel.category | title }}</td>
+  <td>{{ rel.valid_from.strftime('%Y-%m-%d') if rel.valid_from else '—' }}{% if rel.valid_until %} &ndash; {{ rel.valid_until.strftime('%Y-%m-%d') }}{% endif %}</td>
+  <td style="white-space:nowrap;text-align:right">
+    <button class="btn btn--sm btn--secondary" type="button"
+            aria-label="Edit {{ rel.rel_type_name }} relationship validity"
+            hx-get="/admin/jurisdictions/{{ jurisdiction_id }}/relationships/{{ rel.id }}/edit-row/"
+            hx-target="#relationship-row-{{ rel.id }}" hx-swap="outerHTML">Edit</button>
+    <button class="btn btn--sm btn--danger" type="button"
+            aria-label="Remove {{ rel.rel_type_name }} relationship"
+            hx-delete="/admin/jurisdictions/{{ jurisdiction_id }}/relationships/{{ rel.id }}/"
+            hx-target="#relationship-row-{{ rel.id }}" hx-swap="outerHTML"
+            hx-confirm="Remove this relationship? This cannot be undone.">Delete</button>
+  </td>
+</tr>

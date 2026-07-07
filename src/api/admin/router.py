@@ -14,6 +14,7 @@ from src.api.admin import jurisdictions_addresses as jurisdictions_addresses_mod
 from src.api.admin import jurisdictions_contacts as jurisdictions_contacts_module
 from src.api.admin import jurisdictions_identifiers as jurisdictions_identifiers_module
 from src.api.admin import jurisdictions_links as jurisdictions_links_module
+from src.api.admin import jurisdictions_relationships as jurisdictions_relationships_module
 from src.api.admin import orgs as orgs_module
 from src.api.admin import orgs_acronyms as orgs_acronyms_module
 from src.api.admin import orgs_addresses as orgs_addresses_module
@@ -98,6 +99,7 @@ admin_router.include_router(jurisdictions_contacts_module.router)
 admin_router.include_router(jurisdictions_links_module.router)
 admin_router.include_router(jurisdictions_identifiers_module.router)
 admin_router.include_router(jurisdictions_addresses_module.router)
+admin_router.include_router(jurisdictions_relationships_module.router)
 admin_router.include_router(roles_module.router)
 admin_router.include_router(roles_detail_module.router)
 admin_router.include_router(roles_assignments_inline_module.router)

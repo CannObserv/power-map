@@ -425,7 +425,7 @@ async def jurisdiction_detail(
     # Lineage-category edges have their own panel (fetch_lineage below), so
     # exclude them here to avoid rendering the same edge in both panels.
     relationships = await db.fetch(
-        """SELECT jr.from_id, jr.to_id,
+        """SELECT jr.id, jr.from_id, jr.to_id, jr.notes,
                   jrt.display_name AS rel_type_name,
                   jrt.category, jrt.is_symmetric,
                   jr.valid_from, jr.valid_until,
