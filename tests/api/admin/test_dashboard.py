@@ -31,10 +31,19 @@ async def seeded_counts(db_pool):
     role_id = generate_id()
     assignment_id = generate_id()
     batch_id = generate_id()
+    jurisdiction_id = generate_id()
 
     async with db_pool.acquire() as conn:
         await conn.execute("INSERT INTO people (id) VALUES ($1)", person_id)
         await conn.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+        jur_type_id = await conn.fetchval("SELECT id FROM jurisdiction_types WHERE slug='county'")
+        await conn.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1, $2, $3, $4)",
+            jurisdiction_id,
+            f"test-dash-{jurisdiction_id[-8:].lower()}",
+            "Test County",
+            jur_type_id,
+        )
         await conn.execute(
             "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
             role_id,
@@ -65,6 +74,7 @@ async def seeded_counts(db_pool):
         await conn.execute("DELETE FROM import_batches WHERE id = $1", batch_id)
         await conn.execute("DELETE FROM role_assignments WHERE id = $1", assignment_id)
         await conn.execute("DELETE FROM roles WHERE id = $1", role_id)
+        await conn.execute("DELETE FROM jurisdictions WHERE id = $1", jurisdiction_id)
         await conn.execute("DELETE FROM organizations WHERE id = $1", org_id)
         await conn.execute("DELETE FROM people WHERE id = $1", person_id)
 
@@ -75,8 +85,8 @@ async def test_dashboard_shows_counts(client, seeded_counts):
     assert resp.status_code == 200
     assert "— records" not in resp.text
     counts = re.findall(r"(\d+) records", resp.text)
-    # People, Organizations, Roles, Assignments, Import History
-    assert len(counts) == 5, f"Expected 5 count boxes, found: {counts}"
+    # People, Organizations, Jurisdictions, Roles, Assignments, Import History
+    assert len(counts) == 6, f"Expected 6 count boxes, found: {counts}"
 
 
 def test_dashboard_has_api_activity_panel(client):

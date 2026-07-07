@@ -1,0 +1,45 @@
+<form id="jurisdiction-details" class="entity-card"
+      hx-post="/admin/jurisdictions/{{ jur_id }}/details/"
+      hx-target="#jurisdiction-details" hx-swap="outerHTML">
+  <div class="form-group">
+    <label for="jd-name">Name <span aria-hidden="true">*</span></label>
+    <input id="jd-name" name="name" type="text" required value="{{ values.name or '' }}">
+    {% if errors.name %}<div class="alert alert--error" role="alert">{{ errors.name }}</div>{% endif %}
+  </div>
+  <div class="form-group">
+    <label for="jd-slug">Slug <span aria-hidden="true">*</span></label>
+    <input id="jd-slug" name="slug" type="text" required value="{{ values.slug or '' }}"
+           aria-describedby="jd-slug-hint">
+    <div class="form-group__hint" id="jd-slug-hint">Caution: changing the slug changes the public <code>/resolve</code> key.</div>
+    {% if errors.slug %}<div class="alert alert--error" role="alert">{{ errors.slug }}</div>{% endif %}
+  </div>
+  <div class="form-group">
+    <label for="jd-type">Type</label>
+    <select id="jd-type" name="type_id">
+      {% for t in types %}
+      <option value="{{ t.id }}" {% if values.type_id == t.id %}selected{% endif %}>{{ t.display_name }}</option>
+      {% endfor %}
+    </select>
+    {% if errors.type_id %}<div class="alert alert--error" role="alert">{{ errors.type_id }}</div>{% endif %}
+  </div>
+  <div class="form-group">
+    <label for="jd-vf">Valid from</label>
+    <input id="jd-vf" name="valid_from" type="date" value="{{ values.valid_from or '' }}">
+    {% if errors.valid_from %}<div class="alert alert--error" role="alert">{{ errors.valid_from }}</div>{% endif %}
+  </div>
+  <div class="form-group">
+    <label for="jd-vu">Valid until</label>
+    <input id="jd-vu" name="valid_until" type="date" value="{{ values.valid_until or '' }}">
+    {% if errors.valid_until %}<div class="alert alert--error" role="alert">{{ errors.valid_until }}</div>{% endif %}
+  </div>
+  <div class="form-group">
+    <label for="jd-notes">Notes</label>
+    <textarea id="jd-notes" name="notes" rows="3">{{ values.notes or '' }}</textarea>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn--primary btn--sm">Save</button>
+    <button type="button" class="btn btn--ghost btn--sm"
+            hx-get="/admin/jurisdictions/{{ jur_id }}/details/"
+            hx-target="#jurisdiction-details" hx-swap="outerHTML">Cancel</button>
+  </div>
+</form>

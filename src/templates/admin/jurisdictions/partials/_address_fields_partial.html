@@ -1,0 +1,48 @@
+{# admin/jurisdictions/partials/_address_fields_partial.html #}
+{# Context: a (existing row or None), field_labels (dict key→label), field_visible (set of visible keys) #}
+{% if "address_line_1" in field_visible %}
+<div class="form-group" style="margin-bottom:0">
+  <input type="text" name="address_line_1"
+         aria-label="{{ field_labels.get('address_line_1', 'Address line 1') }}"
+         placeholder="{{ field_labels.get('address_line_1', 'Address line 1') }}"
+         value="{{ a.address_line_1 or '' if a else '' }}">
+</div>
+{% endif %}
+
+{% if "address_line_2" in field_visible %}
+<div class="form-group" style="margin-bottom:0">
+  <input type="text" name="address_line_2"
+         aria-label="{{ field_labels.get('address_line_2', 'Address line 2') }}"
+         aria-describedby="address-line-2-opt-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}"
+         placeholder="{{ field_labels.get('address_line_2', 'Address line 2') }} (optional)"
+         value="{{ a.address_line_2 or '' if a else '' }}">
+  <span class="visually-hidden" id="address-line-2-opt-{% if a and a.id %}{{ a.id }}{% else %}new{% endif %}">Optional</span>
+</div>
+{% endif %}
+
+<div style="display:flex;gap:var(--space-2)">
+  {% if "city" in field_visible %}
+  <div class="form-group" style="margin-bottom:0;flex:2">
+    <input type="text" name="city"
+           aria-label="{{ field_labels.get('city', 'City') }}"
+           placeholder="{{ field_labels.get('city', 'City') }}"
+           value="{{ a.city or '' if a else '' }}">
+  </div>
+  {% endif %}
+  {% if "region" in field_visible %}
+  <div class="form-group" style="margin-bottom:0;flex:1">
+    <input type="text" name="region"
+           aria-label="{{ field_labels.get('region', 'State') }}"
+           placeholder="{{ field_labels.get('region', 'State') }}"
+           value="{{ a.region or '' if a else '' }}">
+  </div>
+  {% endif %}
+  {% if "postal_code" in field_visible %}
+  <div class="form-group" style="margin-bottom:0;flex:1">
+    <input type="text" name="postal_code"
+           aria-label="{{ field_labels.get('postal_code', 'ZIP') }}"
+           placeholder="{{ field_labels.get('postal_code', 'ZIP') }}"
+           value="{{ a.postal_code or '' if a else '' }}">
+  </div>
+  {% endif %}
+</div>

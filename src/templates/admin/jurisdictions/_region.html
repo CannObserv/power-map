@@ -1,0 +1,19 @@
+{% from "admin/macros/pagination.html" import controls as pagination %}
+{% set _qs = "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode ~ "&type=" ~ type_slug|urlencode ~ "&page_size=" ~ page_size %}
+<div class="table-wrapper" style="position:relative">
+  <table class="data-table" id="jurisdictions-table">
+    <caption>Jurisdictions — {{ total }} record{{ 's' if total != 1 else '' }}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Name</th><th scope="col">Type</th><th scope="col">Status</th>
+        <th scope="col" class="col--date">Valid from</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody id="jurisdictions-table-body">{% include "admin/jurisdictions/_rows.html" %}</tbody>
+  </table>
+</div>
+<div class="pagination--sticky">
+  {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
+               "/admin/jurisdictions/", "#jurisdictions-list-region", _qs) }}
+</div>

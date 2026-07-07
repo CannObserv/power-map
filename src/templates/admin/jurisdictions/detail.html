@@ -1,0 +1,272 @@
+{% extends "admin/base.html" %}
+{% from "admin/macros/flash.html" import message %}
+{% block title %}{{ jur.name }} — Jurisdiction{% endblock %}
+{% block flash %}{% if flash_msg %}{{ message(flash_msg.level, flash_msg.body) }}{% endif %}{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/jurisdictions/">Jurisdictions</a><span class="breadcrumb__sep">›</span>
+  <span id="breadcrumb-current">{{ jur.name }}</span>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__type">Jurisdiction</span>
+    <h1 id="page-heading">{{ jur.name }}</h1>
+  </div>
+  <div>
+    {% if jur.archived_at %}<span class="badge badge--archived">Archived</span>
+    {% elif jur.superseded_at %}<span class="badge badge--inactive">Superseded</span>
+    {% else %}<span class="badge badge--active">Active</span>{% endif %}
+  </div>
+</div>
+
+<section class="entity-section">
+  <h2>Details</h2>
+  {% include "admin/jurisdictions/partials/_details_read.html" %}
+</section>
+
+{% set jurisdiction_id = jur.id %}
+<div id="address-confirm-portal"></div>
+
+<section class="entity-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Identifiers</h2>
+    <button class="btn btn--sm btn--secondary" data-new-row-id="identifier-row-new"
+            hx-get="/admin/jurisdictions/{{ jur.id }}/identifiers/new-row/"
+            hx-sync="this:drop" hx-target="#identifiers-table tbody" hx-swap="afterbegin"
+            type="button">+ Add identifier</button>
+  </div>
+  <div class="table-wrapper">
+    <table id="identifiers-table" class="data-table">
+      <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {% for ident in identifiers %}
+        {% include "admin/jurisdictions/partials/_identifier_row.html" %}
+        {% else %}
+        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No identifiers</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Links</h2>
+    <button class="btn btn--sm btn--secondary" data-new-row-id="link-row-new"
+            hx-get="/admin/jurisdictions/{{ jur.id }}/links/new-row/"
+            hx-sync="this:drop" hx-target="#links-table tbody" hx-swap="afterbegin"
+            type="button">+ Add link</button>
+  </div>
+  <div class="table-wrapper">
+    <table id="links-table" class="data-table">
+      <thead><tr><th scope="col">URL</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {% for l in links %}
+        {% include "admin/jurisdictions/partials/_link_row.html" %}
+        {% else %}
+        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No links</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Addresses</h2>
+    <button class="btn btn--sm btn--secondary" data-new-row-id="address-row-new"
+            hx-get="/admin/jurisdictions/{{ jur.id }}/addresses/new-row/"
+            hx-sync="this:drop" hx-target="#addresses-table tbody" hx-swap="afterbegin"
+            type="button">+ Add address</button>
+  </div>
+  <div class="table-wrapper">
+    <table id="addresses-table" class="data-table">
+      <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col">Validity</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {% for a in addresses %}
+        {% include "admin/jurisdictions/partials/_address_row.html" %}
+        {% else %}
+        <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No addresses</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Contact methods</h2>
+  <div class="entity-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 var(--space-3)">
+      <h3 class="field-group-label">Email</h3>
+      <button class="btn btn--sm btn--secondary" data-new-row-id="email-row-new"
+              hx-get="/admin/jurisdictions/{{ jur.id }}/contacts/new-row/?contact_type=email"
+              hx-sync="this:drop" hx-target="#emails-table tbody" hx-swap="afterbegin"
+              type="button">+ Add email</button>
+    </div>
+    <div class="table-wrapper">
+      <table id="emails-table" class="data-table">
+        <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+          {% for c in email_contacts %}
+          {% include "admin/jurisdictions/partials/_contact_row.html" %}
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No email addresses</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+      <h3 class="field-group-label">Phone</h3>
+      <button class="btn btn--sm btn--secondary" data-new-row-id="phone-row-new"
+              hx-get="/admin/jurisdictions/{{ jur.id }}/contacts/new-row/?contact_type=phone"
+              hx-sync="this:drop" hx-target="#phones-table tbody" hx-swap="afterbegin"
+              type="button">+ Add phone</button>
+    </div>
+    <div class="table-wrapper">
+      <table id="phones-table" class="data-table">
+        <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+          {% for c in phone_contacts %}
+          {% include "admin/jurisdictions/partials/_contact_row.html" %}
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No phone numbers</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Relationships</h2>
+  <div class="entity-card">
+    {% if relationships %}
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th scope="col">Relationship</th><th scope="col">Category</th><th scope="col">Effective</th></tr></thead>
+        <tbody>
+          {% for rel in relationships %}
+          <tr>
+            <td>
+              {% if rel.is_symmetric %}
+                {# symmetric: no direction — double arrow to the other jurisdiction #}
+                {% set other_id = rel.to_id if rel.from_id == jur.id else rel.from_id %}
+                {% set other_name = rel.to_name if rel.from_id == jur.id else rel.from_name %}
+                {{ rel.rel_type_name }} <span style="color:var(--color-text-muted)">↔</span>
+                <a href="/admin/jurisdictions/{{ other_id }}/">{{ other_name }}</a>
+              {% else %}
+                {# asymmetric: full phrase in stored from → to order, current jurisdiction bolded #}
+                {% if rel.from_id == jur.id %}<strong>{{ rel.from_name }}</strong>{% else %}<a href="/admin/jurisdictions/{{ rel.from_id }}/">{{ rel.from_name }}</a>{% endif %}
+                {{ rel.rel_type_name | lower }}
+                {% if rel.to_id == jur.id %}<strong>{{ rel.to_name }}</strong>{% else %}<a href="/admin/jurisdictions/{{ rel.to_id }}/">{{ rel.to_name }}</a>{% endif %}
+              {% endif %}
+            </td>
+            <td>{{ rel.category | title }}</td>
+            <td>{{ rel.valid_from.strftime('%Y-%m-%d') if rel.valid_from else '—' }}{% if rel.valid_until %} – {{ rel.valid_until.strftime('%Y-%m-%d') }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p style="color:var(--color-text-muted)">No relationships.</p>{% endif %}
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Lineage</h2>
+  <div class="entity-card">
+    {% if lineage | length > 1 %}
+    <ol style="margin:0;padding-left:var(--space-5)">
+      {% for l in lineage %}
+      <li>
+        {% if l.id == jur.id %}<strong>{{ l.name }}</strong> <span style="color:var(--color-text-muted)">(this jurisdiction)</span>
+        {% else %}<a href="/admin/jurisdictions/{{ l.id }}/">{{ l.name }}</a>{% endif %}
+        <span style="color:var(--color-text-muted)">· {{ l.type_display_name }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}<p style="color:var(--color-text-muted)">No lineage relationships.</p>{% endif %}
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Affiliated organizations</h2>
+  <div class="entity-card">
+    {% if affiliations %}
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th scope="col">Organization</th><th scope="col">Affiliation</th></tr></thead>
+        <tbody>
+          {% for a in affiliations %}
+          <tr><td><a href="/admin/orgs/{{ a.org_id }}/">{{ a.org_name or '(unnamed)' }}</a></td><td>{{ a.affiliation_type }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p style="color:var(--color-text-muted)">No affiliated organizations.</p>{% endif %}
+  </div>
+</section>
+
+<section class="entity-section">
+  <h2>Referencing roles</h2>
+  <div class="entity-card">
+    {% if roles %}
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th scope="col">Role</th><th scope="col">Organization</th><th scope="col">Qualifier</th></tr></thead>
+        <tbody>
+          {% for r in roles %}
+          <tr>
+            <td><a href="/admin/roles/{{ r.id }}/">{{ r.title or '(untitled)' }}</a></td>
+            <td><a href="/admin/orgs/{{ r.org_id }}/">{{ r.org_name or '(unnamed)' }}</a></td>
+            <td>{{ r.qualifier or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p style="color:var(--color-text-muted)">No roles reference this jurisdiction.</p>{% endif %}
+  </div>
+</section>
+
+<p style="color:var(--color-text-muted);font-size:var(--font-size-sm);margin-top:var(--space-6)">
+  Metadata &middot; ID: <code>{{ jur.id }}</code>
+  &middot; Created: {{ jur.created_at.strftime('%Y-%m-%d') }}
+  &middot; Updated: {{ jur.updated_at.strftime('%Y-%m-%d') }}
+</p>
+
+<h2>Danger Zone</h2>
+{% if not jur.archived_at %}
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Archive jurisdiction</p>
+    <p class="danger-zone__desc">Hides this jurisdiction from active views but preserves all data.</p>
+  </div>
+  <form method="POST" action="/admin/jurisdictions/{{ jur.id }}/archive/">
+    <button type="submit" class="btn btn--danger">Archive jurisdiction</button>
+  </form>
+</div>
+{% else %}
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Unarchive jurisdiction</p>
+    <p class="danger-zone__desc">Restore this jurisdiction to active views.</p>
+  </div>
+  <form method="POST" action="/admin/jurisdictions/{{ jur.id }}/unarchive/">
+    <button type="submit" class="btn btn--secondary">Unarchive</button>
+  </form>
+</div>
+<div class="danger-zone">
+  <div>
+    <p class="danger-zone__label">Delete permanently</p>
+    <p class="danger-zone__desc">Permanently deleting cannot be undone, and is blocked while any role, relationship, or affiliation still references this jurisdiction.</p>
+  </div>
+  <button type="button" class="btn btn--danger"
+          hx-delete="/admin/jurisdictions/{{ jur.id }}/"
+          hx-confirm="Permanently delete this jurisdiction? This cannot be undone.">
+    Delete permanently
+  </button>
+</div>
+{% endif %}
+{% endblock %}

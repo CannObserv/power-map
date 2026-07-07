@@ -1,0 +1,61 @@
+{% extends "admin/base.html" %}
+{% from "admin/macros/flash.html" import message %}
+{% block title %}Jurisdictions{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span><span>Jurisdictions</span>
+{% endblock %}
+{% block flash %}{% if flash_msg %}{{ message(flash_msg.level, flash_msg.body) }}{% endif %}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Jurisdictions</h1>
+  <a href="/admin/jurisdictions/new/" class="btn btn--primary">+ Add jurisdiction</a>
+</div>
+<div class="filter-card">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search by name or slug…"
+         aria-label="Search jurisdictions" class="filter-card__search"
+         hx-get="/admin/jurisdictions/" hx-trigger="input delay:300ms, search"
+         hx-target="#jurisdictions-list-region"
+         hx-include="[name='status'],[name='type'],[name='page_size']" hx-push-url="true">
+  <div class="filter-card__controls">
+    <div class="filter-card__field">
+      <label for="jurisdictions-type-filter">Type</label>
+      <select id="jurisdictions-type-filter" name="type"
+              hx-get="/admin/jurisdictions/" hx-trigger="change"
+              hx-target="#jurisdictions-list-region"
+              hx-include="[name='q'],[name='status'],[name='page_size']" hx-push-url="true">
+        <option value="">All types</option>
+        {% for t in types %}
+        <option value="{{ t.slug }}" {% if type_slug==t.slug %}selected{% endif %}>{{ t.display_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="filter-card__field">
+      <label for="jurisdictions-status-filter">Status</label>
+      <select id="jurisdictions-status-filter" name="status"
+              hx-get="/admin/jurisdictions/" hx-trigger="change"
+              hx-target="#jurisdictions-list-region"
+              hx-include="[name='q'],[name='type'],[name='page_size']" hx-push-url="true">
+        <option value="active"     {% if status=='active'     %}selected{% endif %}>Active</option>
+        <option value="superseded" {% if status=='superseded' %}selected{% endif %}>Superseded</option>
+        <option value="archived"   {% if status=='archived'   %}selected{% endif %}>Archived</option>
+      </select>
+    </div>
+    <div class="filter-card__field">
+      <label for="jurisdictions-page-size">Per page</label>
+      <select id="jurisdictions-page-size" name="page_size"
+              hx-get="/admin/jurisdictions/" hx-trigger="change"
+              hx-target="#jurisdictions-list-region"
+              hx-include="[name='q'],[name='status'],[name='type']"
+              hx-vals='{"page": 1}' hx-push-url="true">
+        <option value="25"  {% if page_size==25  %}selected{% endif %}>25</option>
+        <option value="50"  {% if page_size==50  %}selected{% endif %}>50</option>
+        <option value="100" {% if page_size==100 %}selected{% endif %}>100</option>
+        <option value="250" {% if page_size==250 %}selected{% endif %}>250</option>
+      </select>
+    </div>
+  </div>
+</div>
+<div id="jurisdictions-list-region" aria-live="polite" aria-atomic="false">
+  {% include "admin/jurisdictions/_region.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% for j in jurisdictions %}
+<tr class="{% if j.archived_at %}is-archived{% elif j.superseded_at %}is-inactive{% endif %}">
+  <td>
+    <a href="/admin/jurisdictions/{{ j.id }}/">{{ j.name }}</a><br>
+    <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ j.slug }}</span>
+  </td>
+  <td>{{ j.type_display_name }}</td>
+  <td>
+    {% if j.archived_at %}<span class="badge badge--archived">Archived</span>
+    {% elif j.superseded_at %}<span class="badge badge--inactive">Superseded</span>
+    {% else %}<span class="badge badge--active">Active</span>{% endif %}
+  </td>
+  <td>{{ j.valid_from.strftime('%Y-%m-%d') if j.valid_from else '—' }}</td>
+  <td>
+    <a href="/admin/jurisdictions/{{ j.id }}/" class="btn btn--ghost btn--sm"
+       aria-label="View {{ j.name }}">View</a>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
+{% endfor %}

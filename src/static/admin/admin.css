@@ -276,8 +276,11 @@ a:hover { color: var(--color-brand-hover); }
 .form-group input:disabled, .form-group select:disabled, .form-group textarea:disabled { cursor: not-allowed; }
 .form-group__error { margin-top: var(--space-1); font-size: var(--font-size-sm); color: var(--color-danger); }
 .form-group__hint { margin-top: var(--space-1); font-size: var(--font-size-sm); color: var(--color-text-muted); }
-/* Visually hidden but exposed to assistive tech (e.g. aria-describedby targets). */
-.visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* Visually hidden but exposed to assistive tech (e.g. aria-describedby targets).
+   `.sr-only` is an alias: admin list templates (orgs/people/roles/jurisdictions/
+   settings) use it for their "Actions" column header, which would otherwise
+   render visibly (the class was previously undefined). */
+.visually-hidden, .sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .form-actions { display: flex; gap: var(--space-3); margin-top: var(--space-5); align-items: center; }
 
 /* Typeahead search dropdown */

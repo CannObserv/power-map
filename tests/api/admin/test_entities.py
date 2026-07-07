@@ -63,3 +63,14 @@ def test_entities_sidebar_link_renders(client):
     response = client.get("/admin/entities/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'class="admin-sidebar__section-link" href="/admin/entities/"' in response.text
+
+
+# --- Jurisdictions card ---
+
+
+def test_entities_landing_has_jurisdictions_card(client):
+    """Entities landing shows a Jurisdictions card linking to the list."""
+    response = client.get("/admin/entities/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Jurisdictions" in response.text
+    assert 'href="/admin/jurisdictions/"' in response.text
