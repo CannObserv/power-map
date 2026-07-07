@@ -1,7 +1,11 @@
-"""Admin jurisdiction views — list/browse plus the role-picker typeahead.
+"""Admin jurisdiction views — full CRUD surface plus the role-picker typeahead.
 
-Phase 1 (#275) adds the read-only browse surface (list + detail). The ``/search/``
-typeahead (#264) that feeds the role-type form's jurisdiction picker remains.
+#275 surfaces jurisdictions as a first-class managed entity: list/browse, create,
+detail with inline curatorial edits (name/slug/type/validity/notes + in-place
+header sync) and archive/unarchive/delete. Attachment CRUD (identifiers/links/
+contacts/addresses) lives in the sibling ``jurisdictions_{contacts,links,
+identifiers,addresses}`` modules. The ``/search/`` typeahead (#264) that feeds the
+role-type form's jurisdiction picker remains.
 """
 
 from datetime import date
@@ -222,7 +226,7 @@ async def jurisdiction_create(
             jid,
             slug.strip(),
             name.strip(),
-            type_id,
+            type_id.strip(),
             vf,
             vu,
             notes.strip() or None,
@@ -406,18 +410,18 @@ async def jurisdiction_detail(
            ORDER BY ea.valid_from DESC NULLS LAST""",
         jurisdiction_id,
     )
-    email_contacts = await db.fetch(
+    # Both contact kinds in one round-trip, partitioned below. asyncpg forbids
+    # concurrent queries on a single pooled connection (the route holds exactly
+    # one), so we cut round-trips rather than parallelize with asyncio.gather.
+    contacts = await db.fetch(
         "SELECT id, contact_type, value, display_label FROM contact_methods"
-        " WHERE entity_type='jurisdiction' AND entity_id=$1 AND contact_type='email'"
+        " WHERE entity_type='jurisdiction' AND entity_id=$1"
+        " AND contact_type IN ('email', 'phone')"
         " ORDER BY value",
         jurisdiction_id,
     )
-    phone_contacts = await db.fetch(
-        "SELECT id, contact_type, value, display_label FROM contact_methods"
-        " WHERE entity_type='jurisdiction' AND entity_id=$1 AND contact_type='phone'"
-        " ORDER BY value",
-        jurisdiction_id,
-    )
+    email_contacts = [c for c in contacts if c["contact_type"] == "email"]
+    phone_contacts = [c for c in contacts if c["contact_type"] == "phone"]
     # Lineage-category edges have their own panel (fetch_lineage below), so
     # exclude them here to avoid rendering the same edge in both panels.
     relationships = await db.fetch(
@@ -448,6 +452,9 @@ async def jurisdiction_detail(
            ORDER BY dn.display_name NULLS LAST""",
         jurisdiction_id,
     )
+    # Active roles only (mirrors the role-form picker). NB: an archived role still
+    # holds an FK to this jurisdiction, so it can block hard-delete (409) even
+    # though it is not listed in this panel.
     roles = await db.fetch(
         """SELECT r.id, r.title, r.qualifier,
                   o.id AS org_id, dn.display_name AS org_name

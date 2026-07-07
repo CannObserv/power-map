@@ -501,3 +501,56 @@ async def test_address_create_and_delete(client, jur, db_pool, local_address_nor
     assert rd.status_code == 200
     async with db_pool.acquire() as conn:
         assert await conn.fetchval("SELECT id FROM entity_addresses WHERE id=$1", eaid) is None
+
+
+async def test_address_edit(client, jur, db_pool, local_address_normalizer):
+    # create first (mode=save skips the confirm modal and inserts directly)
+    client.post(
+        f"/admin/jurisdictions/{jur['id']}/addresses/",
+        headers=HX,
+        data={
+            "address_line_1": "600 Fourth Ave",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98104",
+            "address_type": "mailing",
+            "country": "US",
+            "mode": "save",
+            "standardized": "600 Fourth Ave, Seattle, WA 98104",
+        },
+    )
+    async with db_pool.acquire() as conn:
+        eaid = await conn.fetchval(
+            "SELECT id FROM entity_addresses WHERE entity_type='jurisdiction' AND entity_id=$1",
+            jur["id"],
+        )
+    assert eaid is not None
+    # edit: change line/city/type/label — both addresses + entity_addresses update
+    r = client.post(
+        f"/admin/jurisdictions/{jur['id']}/addresses/{eaid}/edit-row/",
+        headers=HX,
+        data={
+            "address_line_1": "1200 Fifth Ave",
+            "city": "Tacoma",
+            "region": "WA",
+            "postal_code": "98402",
+            "address_type": "physical",
+            "display_name": "Annex",
+            "country": "US",
+            "mode": "save",
+            "standardized": "1200 Fifth Ave, Tacoma, WA 98402",
+        },
+    )
+    assert r.status_code == 200
+    assert "Tacoma" in r.text
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT a.address_line_1, a.city, ea.address_type, ea.display_name"
+            " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+            " WHERE ea.id=$1",
+            eaid,
+        )
+    assert row["address_line_1"] == "1200 Fifth Ave"
+    assert row["city"] == "Tacoma"
+    assert row["address_type"] == "physical"
+    assert row["display_name"] == "Annex"

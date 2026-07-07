@@ -385,7 +385,7 @@ async def address_edit_row_post(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Update an jurisdiction address."""
+    """Update a jurisdiction address."""
     existing = await _get_entity_address_or_404(addr_id, jurisdiction_id, db)
     form_echo = {
         "id": addr_id,
@@ -544,7 +544,7 @@ async def address_delete(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Delete an org address and cascade-delete its underlying addresses row."""
+    """Delete a jurisdiction address and cascade-delete its underlying addresses row."""
     existing = await db.fetchrow(
         "SELECT ea.id, ea.address_id FROM entity_addresses ea"
         " WHERE ea.id=$1 AND ea.entity_type='jurisdiction' AND ea.entity_id=$2",
