@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.core.db import generate_id
+from tests.api.admin.conftest import jurisdiction_change_count
 
 pytestmark = [pytest.mark.integration]
 
@@ -251,17 +252,9 @@ async def test_relationship_delete_not_found(client, two_jurs):
 # ---------------------------------------------------------------------------
 
 
-async def _change_count(db_pool, entity_id):
-    async with db_pool.acquire() as conn:
-        return await conn.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='jurisdiction' AND entity_id=$1",
-            entity_id,
-        )
-
-
 async def test_relationship_add_emits_change_feed(client, two_jurs, rel_types, db_pool):
-    before_a = await _change_count(db_pool, two_jurs["a"])
-    before_b = await _change_count(db_pool, two_jurs["b"])
+    before_a = await jurisdiction_change_count(db_pool, two_jurs["a"])
+    before_b = await jurisdiction_change_count(db_pool, two_jurs["b"])
     r = client.post(
         f"/admin/jurisdictions/{two_jurs['a']}/relationships/",
         headers=HX,
@@ -273,26 +266,26 @@ async def test_relationship_add_emits_change_feed(client, two_jurs, rel_types, d
     )
     assert r.status_code == 200
     # both endpoints of the edge are touched → each gets a fresh 'updated' change
-    assert await _change_count(db_pool, two_jurs["a"]) > before_a
-    assert await _change_count(db_pool, two_jurs["b"]) > before_b
+    assert await jurisdiction_change_count(db_pool, two_jurs["a"]) > before_a
+    assert await jurisdiction_change_count(db_pool, two_jurs["b"]) > before_b
 
 
 async def test_relationship_delete_emits_change_feed(client, two_jurs, rel_types, db_pool):
     rid = await _make_edge(db_pool, two_jurs["a"], two_jurs["b"], rel_types["symmetric"])
-    before_a = await _change_count(db_pool, two_jurs["a"])
-    before_b = await _change_count(db_pool, two_jurs["b"])
+    before_a = await jurisdiction_change_count(db_pool, two_jurs["a"])
+    before_b = await jurisdiction_change_count(db_pool, two_jurs["b"])
     r = client.request(
         "DELETE", f"/admin/jurisdictions/{two_jurs['a']}/relationships/{rid}/", headers=HX
     )
     assert r.status_code == 200
-    assert await _change_count(db_pool, two_jurs["a"]) > before_a
-    assert await _change_count(db_pool, two_jurs["b"]) > before_b
+    assert await jurisdiction_change_count(db_pool, two_jurs["a"]) > before_a
+    assert await jurisdiction_change_count(db_pool, two_jurs["b"]) > before_b
 
 
 async def test_relationship_edit_emits_change_feed(client, two_jurs, rel_types, db_pool):
     rid = await _make_edge(db_pool, two_jurs["a"], two_jurs["b"], rel_types["asymmetric"])
-    before_a = await _change_count(db_pool, two_jurs["a"])
-    before_b = await _change_count(db_pool, two_jurs["b"])
+    before_a = await jurisdiction_change_count(db_pool, two_jurs["a"])
+    before_b = await jurisdiction_change_count(db_pool, two_jurs["b"])
     r = client.post(
         f"/admin/jurisdictions/{two_jurs['a']}/relationships/{rid}/edit-row/",
         headers=HX,
@@ -300,5 +293,5 @@ async def test_relationship_edit_emits_change_feed(client, two_jurs, rel_types, 
     )
     assert r.status_code == 200
     # the validity UPDATE touches both endpoints via the trigger
-    assert await _change_count(db_pool, two_jurs["a"]) > before_a
-    assert await _change_count(db_pool, two_jurs["b"]) > before_b
+    assert await jurisdiction_change_count(db_pool, two_jurs["a"]) > before_a
+    assert await jurisdiction_change_count(db_pool, two_jurs["b"]) > before_b

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.core.db import generate_id
+from tests.api.admin.conftest import jurisdiction_change_count
 
 pytestmark = [pytest.mark.integration]
 
@@ -208,18 +209,10 @@ async def test_org_affiliation_delete(client, jur_and_org, aff_type_id, db_pool)
 # ---------------------------------------------------------------------------
 
 
-async def _jur_change_count(db_pool, jurisdiction_id):
-    async with db_pool.acquire() as conn:
-        return await conn.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_type='jurisdiction' AND entity_id=$1",
-            jurisdiction_id,
-        )
-
-
 async def test_affiliation_add_emits_jurisdiction_change_feed(
     client, jur_and_org, aff_type_id, db_pool
 ):
-    before = await _jur_change_count(db_pool, jur_and_org["jur"])
+    before = await jurisdiction_change_count(db_pool, jur_and_org["jur"])
     r = client.post(
         f"/admin/jurisdictions/{jur_and_org['jur']}/affiliations/",
         headers=HX,
@@ -227,7 +220,7 @@ async def test_affiliation_add_emits_jurisdiction_change_feed(
     )
     assert r.status_code == 200
     # the affiliated jurisdiction (not just the org) surfaces on the change feed
-    assert await _jur_change_count(db_pool, jur_and_org["jur"]) > before
+    assert await jurisdiction_change_count(db_pool, jur_and_org["jur"]) > before
 
 
 async def test_affiliation_delete_emits_jurisdiction_change_feed(
@@ -236,9 +229,9 @@ async def test_affiliation_delete_emits_jurisdiction_change_feed(
     aid = generate_id()
     async with db_pool.acquire() as conn:
         await conn.execute(_INSERT_AFF, aid, jur_and_org["org"], jur_and_org["jur"], aff_type_id)
-    before = await _jur_change_count(db_pool, jur_and_org["jur"])
+    before = await jurisdiction_change_count(db_pool, jur_and_org["jur"])
     r = client.request(
         "DELETE", f"/admin/orgs/{jur_and_org['org']}/jurisdiction-affiliations/{aid}/", headers=HX
     )
     assert r.status_code == 200
-    assert await _jur_change_count(db_pool, jur_and_org["jur"]) > before
+    assert await jurisdiction_change_count(db_pool, jur_and_org["jur"]) > before
