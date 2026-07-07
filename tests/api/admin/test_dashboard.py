@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from src.api.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
+from tests.api.admin.conftest import ENTITY_ORDER_HREFS, assert_render_order
 
 pytestmark = [
     pytest.mark.integration,
@@ -85,8 +86,18 @@ async def test_dashboard_shows_counts(client, seeded_counts):
     assert resp.status_code == 200
     assert "— records" not in resp.text
     counts = re.findall(r"(\d+) records", resp.text)
-    # People, Organizations, Jurisdictions, Roles, Assignments, Import History
+    # Jurisdictions, Organizations, People, Roles, Assignments, Import History
     assert len(counts) == 6, f"Expected 6 count boxes, found: {counts}"
+
+
+def test_dashboard_entity_cards_jurisdiction_first(client):
+    """Dashboard entity cards are ordered Jurisdiction, Org, Person, Role,
+    Assignment (#275). Entity list hrefs appear only in the card grid within the
+    <main> region, so first-occurrence position there reflects card order."""
+    resp = client.get("/admin/", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    content = resp.text.split('id="main-content"')[1]
+    assert_render_order(content, ENTITY_ORDER_HREFS)
 
 
 def test_dashboard_has_api_activity_panel(client):
