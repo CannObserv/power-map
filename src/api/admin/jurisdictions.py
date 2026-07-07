@@ -34,8 +34,16 @@ async def jurisdictions_list(
     rows, count, pctx = await query_jurisdictions_rows(
         db, q=q, status=status, type_slug=type_slug, page=page, page_size=page_size
     )
-    types = await db.fetch(
-        "SELECT slug, display_name FROM jurisdiction_types ORDER BY display_name"
+    # The type-filter dropdown lives in list.html, not _region.html, so its
+    # options are only needed on a full-page render — skip the query on HTMX
+    # region swaps (fired on every debounced search keystroke).
+    is_partial = is_htmx(request)
+    types = (
+        []
+        if is_partial
+        else await db.fetch(
+            "SELECT slug, display_name FROM jurisdiction_types ORDER BY display_name"
+        )
     )
     ctx = {
         "user": user,
@@ -50,9 +58,7 @@ async def jurisdictions_list(
         "flash_msg": None,
         **pctx,
     }
-    template = (
-        "admin/jurisdictions/_region.html" if is_htmx(request) else "admin/jurisdictions/list.html"
-    )
+    template = "admin/jurisdictions/_region.html" if is_partial else "admin/jurisdictions/list.html"
     return templates.TemplateResponse(request, template, ctx)
 
 
@@ -101,8 +107,7 @@ async def jurisdiction_detail(
         raise HTTPException(status_code=404, detail="Jurisdiction not found")
 
     identifiers = await db.fetch(
-        """SELECT i.value, eit.slug AS type_slug, eit.display_name AS type_name,
-                  eit.full_name AS type_full_name
+        """SELECT i.value, eit.slug AS type_slug, eit.display_name AS type_name
            FROM identifiers i
            JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
            WHERE i.entity_id = $1 AND eit.entity_type = 'jurisdiction'
@@ -117,7 +122,7 @@ async def jurisdiction_detail(
         jurisdiction_id,
     )
     addresses = await db.fetch(
-        """SELECT ea.address_type, ea.display_name, ea.valid_from, ea.valid_until,
+        """SELECT ea.address_type, ea.valid_from, ea.valid_until,
                   a.standardized, a.address_line_1, a.city, a.region, a.postal_code
            FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
            WHERE ea.entity_type = 'jurisdiction' AND ea.entity_id = $1
@@ -131,17 +136,20 @@ async def jurisdiction_detail(
            ORDER BY contact_type, value""",
         jurisdiction_id,
     )
+    # Lineage-category edges have their own panel (fetch_lineage below), so
+    # exclude them here to avoid rendering the same edge in both panels.
     relationships = await db.fetch(
         """SELECT jr.from_id, jr.to_id,
-                  jrt.slug AS rel_type_slug, jrt.display_name AS rel_type_name,
+                  jrt.display_name AS rel_type_name,
                   jrt.category, jrt.is_symmetric,
-                  jr.valid_from, jr.valid_until, jr.superseded_at,
+                  jr.valid_from, jr.valid_until,
                   jf.name AS from_name, jto.name AS to_name
            FROM jurisdiction_relationships jr
            JOIN jurisdiction_relationship_types jrt ON jrt.id = jr.rel_type_id
            JOIN jurisdictions jf ON jf.id = jr.from_id
            JOIN jurisdictions jto ON jto.id = jr.to_id
-           WHERE jr.from_id = $1 OR jr.to_id = $1
+           WHERE (jr.from_id = $1 OR jr.to_id = $1)
+             AND jrt.category <> 'lineage'
            ORDER BY jrt.category, jrt.display_name, jr.created_at""",
         jurisdiction_id,
     )

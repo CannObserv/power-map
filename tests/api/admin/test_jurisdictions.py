@@ -340,6 +340,8 @@ async def test_detail_shows_relationships(client, jur_with_graph):
     r = client.get(f"/admin/jurisdictions/{jur_with_graph['ids']['j']}/", headers=AUTH_HEADERS)
     assert jur_with_graph["names"]["r"] in r.text
     assert "Is Fully Contained By" in r.text
+    # lineage-category edges belong to the Lineage panel only, not Relationships
+    assert "Supersedes" not in r.text
 
 
 async def test_detail_shows_lineage(client, jur_with_graph):
@@ -355,3 +357,78 @@ async def test_detail_shows_affiliated_org(client, jur_with_graph):
 async def test_detail_shows_referencing_role(client, jur_with_graph):
     r = client.get(f"/admin/jurisdictions/{jur_with_graph['ids']['j']}/", headers=AUTH_HEADERS)
     assert jur_with_graph["names"]["role_title"] in r.text
+
+
+# ---------------------------------------------------------------------------
+# List — route-level status handling
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def jur_status_variants(db_pool):
+    """Active, archived, and superseded jurisdictions under one search marker."""
+    marker = generate_id()[-10:].lower()
+    ids = {"active": generate_id(), "archived": generate_id(), "superseded": generate_id()}
+    names = {
+        "active": f"Statusville {marker} Active",
+        "archived": f"Statusville {marker} Archived",
+        "superseded": f"Statusville {marker} Superseded",
+    }
+    async with db_pool.acquire() as conn:
+        tid = await conn.fetchval("SELECT id FROM jurisdiction_types WHERE slug='county'")
+        await conn.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+            ids["active"],
+            f"stv-{marker}-a",
+            names["active"],
+            tid,
+        )
+        await conn.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+            " VALUES ($1,$2,$3,$4,NOW())",
+            ids["archived"],
+            f"stv-{marker}-x",
+            names["archived"],
+            tid,
+        )
+        await conn.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id, superseded_at)"
+            " VALUES ($1,$2,$3,$4,NOW())",
+            ids["superseded"],
+            f"stv-{marker}-s",
+            names["superseded"],
+            tid,
+        )
+    yield {"marker": marker, "names": names}
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM jurisdictions WHERE id = ANY($1::text[])", list(ids.values())
+        )
+
+
+async def test_list_invalid_status_falls_back_to_active(client, jur_status_variants):
+    """An unknown ?status= normalizes to 'active' (not a filter pass-through)."""
+    v = jur_status_variants
+    r = client.get(
+        "/admin/jurisdictions/",
+        headers=AUTH_HEADERS,
+        params={"q": v["marker"], "status": "bogus"},
+    )
+    assert r.status_code == 200
+    assert v["names"]["active"] in r.text
+    assert v["names"]["archived"] not in r.text
+    assert v["names"]["superseded"] not in r.text
+
+
+async def test_list_superseded_status_filter(client, jur_status_variants):
+    """status=superseded surfaces superseded rows and excludes active/archived."""
+    v = jur_status_variants
+    r = client.get(
+        "/admin/jurisdictions/",
+        headers=AUTH_HEADERS,
+        params={"q": v["marker"], "status": "superseded"},
+    )
+    assert r.status_code == 200
+    assert v["names"]["superseded"] in r.text
+    assert v["names"]["active"] not in r.text
+    assert v["names"]["archived"] not in r.text
