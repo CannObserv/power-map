@@ -1431,7 +1431,12 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     ('01KTVHGATRG3WEN9NXATTA2RA9', 'organization',    'pm_org_id',        'PM Org',        'Power Map Organization ID',             TRUE),
     ('01KTVHGATRG3WEN9NXATTA2RAA', 'person',          'pm_person_id',     'PM Person',     'Power Map Person ID',                   TRUE),
     ('01KTVHGATRG3WEN9NXATTA2RAB', 'jurisdiction',    'pm_jur_id',        'PM Jur',        'Power Map Jurisdiction ID',             TRUE),
-    ('01KTVHGATRG3WEN9NXATTA2RAC', 'role_assignment', 'pm_assignment_id', 'PM Assignment', 'Power Map Role Assignment ID',          TRUE)
+    ('01KTVHGATRG3WEN9NXATTA2RAC', 'role_assignment', 'pm_assignment_id', 'PM Assignment', 'Power Map Role Assignment ID',          TRUE),
+    -- Observo manual speaker labeling (#279): operator-created Person from voice
+    -- diarization. Value is an Observo-generated ULID (opaque, stable per manual
+    -- create). is_internal=FALSE so observations can create a new Person; cross-
+    -- real-person dedupe happens via voice /identify, not this identifier.
+    ('01KWZ3FM3H7M35RFEJWVBRBNZ1', 'person',          'observo_speaker',  'Observo Speaker', 'Observo Manual Speaker Label',       FALSE)
 ON CONFLICT (id) DO UPDATE SET
     entity_type  = EXCLUDED.entity_type,
     slug         = EXCLUDED.slug,

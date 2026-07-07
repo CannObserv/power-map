@@ -825,6 +825,113 @@ async def test_list_include_archived_flag(client, db, read_key, seeded_embedding
 
 
 # ---------------------------------------------------------------------------
+# List — optional source_job_id filter (#279)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_filter_by_source_job_id(client, db, read_key, write_key, seeded_embeddings):
+    """Optional source_job_id narrows list results to that job; omitting returns all."""
+    pid0, _, _, _ = seeded_embeddings
+    # Add one embedding under a different job for the same person.
+    r = client.post(
+        f"/api/v1/people/{pid0}/embeddings",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": _rand_embedding(),
+            "activity_ms": 500,
+            "audio_sample_rate_hz": 16000,
+            "source": {
+                "service": "observo",
+                "job_id": "job_other",
+                "segment": 0,
+                "recorded_at": "2026-06-01T00:00:00Z",
+            },
+        },
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 200, r.text
+    try:
+        # Unfiltered: all of pid0's active rows (3 from job_seed + 1 from job_other).
+        r_all = client.get(
+            f"/api/v1/people/{pid0}/embeddings",
+            params={"model_id": _MODEL_ID},
+            headers={"X-API-Key": read_key},
+        )
+        assert r_all.json()["meta"]["count"] >= 4
+
+        # Filtered to job_seed: only those rows.
+        r_seed = client.get(
+            f"/api/v1/people/{pid0}/embeddings",
+            params={"model_id": _MODEL_ID, "source_job_id": "job_seed"},
+            headers={"X-API-Key": read_key},
+        )
+        assert r_seed.status_code == 200
+        seed_body = r_seed.json()
+        assert seed_body["meta"]["count"] == 3
+        assert all(item["source_job_id"] == "job_seed" for item in seed_body["data"])
+
+        # Filtered to job_other: exactly the one row.
+        r_other = client.get(
+            f"/api/v1/people/{pid0}/embeddings",
+            params={"model_id": _MODEL_ID, "source_job_id": "job_other"},
+            headers={"X-API-Key": read_key},
+        )
+        assert r_other.json()["meta"]["count"] == 1
+        assert r_other.json()["data"][0]["source_job_id"] == "job_other"
+    finally:
+        await db.execute(f"DELETE FROM {_TABLE} WHERE source_job_id='job_other'")
+
+
+def test_list_filter_by_source_job_id_no_match_returns_empty(client, read_key, seeded_embeddings):
+    """Unknown source_job_id yields an empty page (200), not 404."""
+    pid0, _, _, _ = seeded_embeddings
+    r = client.get(
+        f"/api/v1/people/{pid0}/embeddings",
+        params={"model_id": _MODEL_ID, "source_job_id": "no-such-job-xyz"},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    assert r.json()["meta"]["count"] == 0
+    assert r.json()["data"] == []
+
+
+async def test_list_filter_by_source_job_id_respects_archived(
+    client, db, read_key, seeded_embeddings
+):
+    """The source_job_id filter honors the active-only default and include_archived."""
+    pid0, _, embedding_ids, _ = seeded_embeddings
+    eid = embedding_ids[0]  # a job_seed row for pid0
+    await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
+    try:
+        # Default (active-only) + job filter: the archived row is excluded.
+        r_active = client.get(
+            f"/api/v1/people/{pid0}/embeddings",
+            params={"model_id": _MODEL_ID, "source_job_id": "job_seed"},
+            headers={"X-API-Key": read_key},
+        )
+        assert r_active.status_code == 200
+        active = r_active.json()
+        assert active["meta"]["count"] == 2
+        assert all(item["archived_at"] is None for item in active["data"])
+        assert eid not in {item["embedding_id"] for item in active["data"]}
+
+        # include_archived + job filter: the archived row is included.
+        r_all = client.get(
+            f"/api/v1/people/{pid0}/embeddings",
+            params={
+                "model_id": _MODEL_ID,
+                "source_job_id": "job_seed",
+                "include_archived": "true",
+            },
+            headers={"X-API-Key": read_key},
+        )
+        assert r_all.json()["meta"]["count"] == 3
+        assert eid in {item["embedding_id"] for item in r_all.json()["data"]}
+    finally:
+        await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+
+
+# ---------------------------------------------------------------------------
 # Person-existence guard — list and batch delete
 # ---------------------------------------------------------------------------
 

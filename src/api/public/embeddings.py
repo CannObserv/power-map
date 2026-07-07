@@ -422,6 +422,7 @@ async def list_person_embeddings(
     person_id: str,
     model_id: str = Query(...),
     include_archived: bool = Query(default=False),
+    source_job_id: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     _auth: AuthedKey = Depends(require_scope("voice_embeddings:read")),
@@ -431,7 +432,9 @@ async def list_person_embeddings(
     """List voice embeddings for a person.
 
     By default returns only active (non-archived) rows.  Pass
-    ``include_archived=true`` to include archived rows.
+    ``include_archived=true`` to include archived rows.  Pass ``source_job_id``
+    to restrict the list to a single provenance job (index-backed; mirrors the
+    batch-delete surface) — omit it to enumerate the person's full set.
     404 if the person does not exist or is archived.
     """
     meta = _require_model(model_id, registry)
@@ -450,6 +453,7 @@ async def list_person_embeddings(
           FROM {table}
          WHERE person_id = $1
            AND ($2 OR archived_at IS NULL)
+           AND ($5::text IS NULL OR source_job_id = $5)
          ORDER BY created_at DESC
          LIMIT $3 OFFSET $4
         """,
@@ -457,6 +461,7 @@ async def list_person_embeddings(
         include_archived,
         limit + 1,
         offset,
+        source_job_id,
     )
 
     has_more = len(rows) > limit
@@ -466,9 +471,11 @@ async def list_person_embeddings(
         f"""
         SELECT count(*) AS n FROM {table}
          WHERE person_id = $1 AND ($2 OR archived_at IS NULL)
+           AND ($3::text IS NULL OR source_job_id = $3)
         """,
         person_id,
         include_archived,
+        source_job_id,
     )
 
     return EmbeddingListResponse(

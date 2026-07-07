@@ -375,7 +375,7 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 | `DELETE` | `/api/v1/people/{id}/embeddings/{eid}?model_id=` | `voice_embeddings:write` scope | Soft-delete a single embedding (sets `archived_at`). Idempotent — re-deleting returns 200 with existing timestamp. 404 if not found; 422 for unknown model. |
 | `DELETE` | `/api/v1/people/{id}/embeddings?model_id=&source_job_id=` | `voice_embeddings:write` scope | Batch soft-delete all active embeddings for a person matching `source_job_id`. Returns `{archived_count}`. 404 if person unknown or archived; 422 for unknown model. |
 | `POST` | `/api/v1/people/{id}/embeddings/{eid}/restore?model_id=` | `voice_embeddings:write` scope | Restore a soft-deleted embedding (clears `archived_at`). 404 if not found; 409 if already active; 422 for unknown model. |
-| `GET` | `/api/v1/people/{id}/embeddings?model_id=&include_archived=&limit=&offset=` | `voice_embeddings:read` scope | Paginated listing of voice embeddings. `include_archived=true` includes archived rows. 404 if person unknown or archived; 422 for unknown model. |
+| `GET` | `/api/v1/people/{id}/embeddings?model_id=&include_archived=&source_job_id=&limit=&offset=` | `voice_embeddings:read` scope | Paginated listing of voice embeddings. `include_archived=true` includes archived rows. Optional `source_job_id` restricts to a single provenance job (index-backed; omit to enumerate the full set). 404 if person unknown or archived; 422 for unknown model. |
 
 ### Observation write — `POST /people/observations`
 
@@ -385,7 +385,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `identifier_type` | always | Must be a registered person identifier type slug (e.g. `person_wa_pdc`) |
+| `identifier_type` | always | Must be a registered person identifier type slug (e.g. `person_wa_pdc`; `observo_speaker` for Observo operator-labeled voice speakers, value = an opaque Observo ULID) |
 | `identifier_value` | always | Value for the identifier |
 | `names` | optional | List of `{name, name_type, is_canonical?}` — `name_type` must be a valid name type (e.g. `legal`, `preferred`); `is_canonical` defaults to `false`. Exact-match dedup: re-submitting the same name is a no-op. Canonical is scoped per `(person, name_type)` slot — a person may have one canonical `legal` and a separate canonical `preferred`. Unlike org names, person names do **not** auto-promote — a name is canonical only if explicitly submitted with `is_canonical: true`. The hint is ignored if a canonical already exists for that name's slot (never displaces). At most one entry per request may carry `is_canonical: true` (422 otherwise). |
 | `personal_pronouns` | optional | Free-text pronouns string (e.g. `they/them`). Written only if the field is currently null; ignored if already set. |

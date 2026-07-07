@@ -448,6 +448,21 @@ async def test_org_wa_party_identifier_type_seeded(db):
     assert row["is_internal"] is False
 
 
+async def test_observo_speaker_identifier_type_seeded(db):
+    """The #279 observo_speaker identifier type is seeded (person, public).
+
+    Must be is_internal=FALSE so Observo's manual-speaker observations can
+    *create* a new Person (an internal type can only resolve existing PM ULIDs).
+    """
+    row = await db.fetchrow(
+        "SELECT entity_type, is_internal FROM entity_identifier_types"
+        " WHERE slug = 'observo_speaker'"
+    )
+    assert row is not None, "observo_speaker not found — check seed data in schema.sql"
+    assert row["entity_type"] == "person"
+    assert row["is_internal"] is False
+
+
 # ---------------------------------------------------------------------------
 # updated_at trigger
 # ---------------------------------------------------------------------------
