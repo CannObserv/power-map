@@ -1,0 +1,17 @@
+<div id="jurisdiction-details" class="entity-card">
+  <div style="display:flex;justify-content:flex-end;margin-bottom:var(--space-2)">
+    <button class="btn btn--sm btn--secondary"
+            hx-get="/admin/jurisdictions/{{ jur.id }}/details/edit/"
+            hx-target="#jurisdiction-details" hx-swap="outerHTML" type="button">Edit</button>
+  </div>
+  <dl class="detail-grid">
+    <dt>Slug</dt><dd><code>{{ jur.slug }}</code></dd>
+    <dt>Type</dt><dd>{{ jur.type_display_name }}</dd>
+    <dt>Valid from</dt><dd>{{ jur.valid_from.strftime('%Y-%m-%d') if jur.valid_from else '—' }}</dd>
+    <dt>Valid until</dt><dd>{{ jur.valid_until.strftime('%Y-%m-%d') if jur.valid_until else '—' }}</dd>
+    {% if jur.superseded_at %}
+    <dt>Superseded at</dt><dd>{{ jur.superseded_at.strftime('%Y-%m-%d %H:%M UTC') }}</dd>
+    {% endif %}
+    <dt>Notes</dt><dd>{{ jur.notes or '—' }}</dd>
+  </dl>
+</div>

@@ -145,3 +145,111 @@ async def test_create_invalid_validity_range(client, county_type_id):
         },
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Inline details edit (name / slug / type / validity / notes)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def jur(db_pool, county_type_id):
+    """A county jurisdiction to edit; deleted at teardown."""
+    jid = generate_id()
+    marker = jid[-10:].lower()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+            jid,
+            f"edit-{marker}",
+            f"Editburg {marker}",
+            county_type_id,
+        )
+    yield {"id": jid, "marker": marker, "slug": f"edit-{marker}"}
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+
+
+async def test_details_edit_form_prefilled(client, jur):
+    r = client.get(f"/admin/jurisdictions/{jur['id']}/details/edit/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert jur["slug"] in r.text
+    assert 'name="name"' in r.text
+    assert 'name="type_id"' in r.text
+    # slug caveat about the public /resolve key
+    assert "/resolve" in r.text
+
+
+async def test_details_save_updates_db_and_header(client, jur, db_pool):
+    new_name = f"Renamedville {jur['marker']}"
+    r = client.post(
+        f"/admin/jurisdictions/{jur['id']}/details/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "name": new_name,
+            "slug": jur["slug"],
+            "type_id": "",  # keep current type (unchanged) — resolved server-side
+            "valid_from": "1990-05-01",
+            "valid_until": "",
+            "notes": "edited",
+        },
+    )
+    assert r.status_code == 200
+    assert "edited" in r.text  # updated notes render in the details card
+    # the name lives in the page heading (not the card); it rides the header-sync
+    # trigger, which the detail JS applies to #page-heading in place
+    trigger = r.headers.get("HX-Trigger", "")
+    assert "updateJurisdictionHeader" in trigger
+    assert new_name in trigger
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT name, notes, valid_from FROM jurisdictions WHERE id=$1", jur["id"]
+        )
+    assert row["name"] == new_name
+    assert row["notes"] == "edited"
+    assert str(row["valid_from"]) == "1990-05-01"
+
+
+async def test_details_save_duplicate_slug_rejected(
+    client, jur, county_type_id, cleanup_slugs, db_pool
+):
+    other = f"other-{generate_id()[-8:].lower()}"
+    cleanup_slugs.append(other)
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+            generate_id(),
+            other,
+            "Other",
+            county_type_id,
+        )
+    r = client.post(
+        f"/admin/jurisdictions/{jur['id']}/details/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "name": "X",
+            "slug": other,
+            "type_id": "",
+            "valid_from": "",
+            "valid_until": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 422
+    assert "slug" in r.text.lower()
+
+
+async def test_details_save_invalid_range_rejected(client, jur):
+    r = client.post(
+        f"/admin/jurisdictions/{jur['id']}/details/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+        data={
+            "name": "X",
+            "slug": jur["slug"],
+            "type_id": "",
+            "valid_from": "2020-01-01",
+            "valid_until": "2000-01-01",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 422

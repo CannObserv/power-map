@@ -11,7 +11,14 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, escape_like, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    escape_like,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+)
 from src.api.admin.jurisdictions_queries import VALID_STATUSES, query_jurisdictions_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.core.db import generate_id
@@ -19,6 +26,48 @@ from src.core.jurisdictions import fetch_lineage
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/jurisdictions", tags=["admin-jurisdictions"])
+
+_JUR_ROW_SQL = """
+    SELECT j.*, jt.slug AS type_slug, jt.display_name AS type_display_name
+    FROM jurisdictions j
+    JOIN jurisdiction_types jt ON jt.id = j.type_id
+    WHERE j.id = $1
+"""
+
+
+async def _fetch_jur_row(db, jurisdiction_id: str):
+    """Fetch a jurisdiction row joined to its type, or None."""
+    return await db.fetchrow(_JUR_ROW_SQL, jurisdiction_id)
+
+
+def _jur_form_values(jur) -> dict:
+    """Prefill values for the details edit form from a jurisdiction row."""
+    return {
+        "name": jur["name"],
+        "slug": jur["slug"],
+        "type_id": jur["type_id"],
+        "valid_from": jur["valid_from"].isoformat() if jur["valid_from"] else "",
+        "valid_until": jur["valid_until"].isoformat() if jur["valid_until"] else "",
+        "notes": jur["notes"] or "",
+    }
+
+
+def _parse_validity(valid_from: str, valid_until: str, errors: dict) -> tuple:
+    """Parse valid_from/valid_until form strings, recording any errors in-place."""
+    vf = vu = None
+    if valid_from.strip():
+        try:
+            vf = date.fromisoformat(valid_from.strip())
+        except ValueError:
+            errors["valid_from"] = "Invalid date (use YYYY-MM-DD)"
+    if valid_until.strip():
+        try:
+            vu = date.fromisoformat(valid_until.strip())
+        except ValueError:
+            errors["valid_until"] = "Invalid date (use YYYY-MM-DD)"
+    if vf and vu and vf > vu:
+        errors["valid_until"] = "Valid-until must not precede valid-from"
+    return vf, vu
 
 
 @router.get("/")
@@ -151,19 +200,7 @@ async def jurisdiction_create(
     if not type_id.strip():
         errors["type_id"] = "Type is required"
 
-    vf = vu = None
-    if valid_from.strip():
-        try:
-            vf = date.fromisoformat(valid_from.strip())
-        except ValueError:
-            errors["valid_from"] = "Invalid date (use YYYY-MM-DD)"
-    if valid_until.strip():
-        try:
-            vu = date.fromisoformat(valid_until.strip())
-        except ValueError:
-            errors["valid_until"] = "Invalid date (use YYYY-MM-DD)"
-    if vf and vu and vf > vu:
-        errors["valid_until"] = "Valid-until must not precede valid-from"
+    vf, vu = _parse_validity(valid_from, valid_until, errors)
 
     if errors:
         return await _render_jur_form(request, user, db, form=form, errors=errors, status_code=422)
@@ -191,6 +228,130 @@ async def jurisdiction_create(
     return RedirectResponse(f"/admin/jurisdictions/{jid}/", status_code=303)
 
 
+@router.get("/{jurisdiction_id}/details/")
+async def jurisdiction_details_read(
+    jurisdiction_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return the read-only details card partial (Edit-cancel target)."""
+    jur = await _fetch_jur_row(db, jurisdiction_id)
+    if not jur:
+        raise HTTPException(status_code=404, detail="Jurisdiction not found")
+    return templates.TemplateResponse(
+        request, "admin/jurisdictions/partials/_details_read.html", {"jur": jur}
+    )
+
+
+@router.get("/{jurisdiction_id}/details/edit/")
+async def jurisdiction_details_edit(
+    jurisdiction_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Return the inline edit form for the jurisdiction's core (curatorial) fields."""
+    jur = await _fetch_jur_row(db, jurisdiction_id)
+    if not jur:
+        raise HTTPException(status_code=404, detail="Jurisdiction not found")
+    types = await db.fetch(
+        "SELECT id, slug, display_name FROM jurisdiction_types ORDER BY display_name"
+    )
+    return templates.TemplateResponse(
+        request,
+        "admin/jurisdictions/partials/_details_form.html",
+        {"jur_id": jurisdiction_id, "values": _jur_form_values(jur), "types": types, "errors": {}},
+    )
+
+
+@router.post("/{jurisdiction_id}/details/")
+async def jurisdiction_details_save(
+    jurisdiction_id: str,
+    request: Request,
+    name: str = Form(""),
+    slug: str = Form(""),
+    type_id: str = Form(""),
+    valid_from: str = Form(""),
+    valid_until: str = Form(""),
+    notes: str = Form(""),
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Save inline curatorial edits. Empty type_id keeps the current type.
+
+    On an HTMX request returns the updated read partial + an
+    ``updateJurisdictionHeader`` trigger (in-place heading sync); otherwise a
+    redirect to the detail page.
+    """
+    current = await db.fetchrow("SELECT type_id FROM jurisdictions WHERE id = $1", jurisdiction_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Jurisdiction not found")
+
+    values = {
+        "name": name,
+        "slug": slug,
+        "type_id": type_id,
+        "valid_from": valid_from,
+        "valid_until": valid_until,
+        "notes": notes,
+    }
+    errors: dict[str, str] = {}
+    if not name.strip():
+        errors["name"] = "Name is required"
+    if not slug.strip():
+        errors["slug"] = "Slug is required"
+    resolved_type = type_id.strip() or current["type_id"]
+    vf, vu = _parse_validity(valid_from, valid_until, errors)
+
+    async def _rerender():
+        values["type_id"] = resolved_type
+        types = await db.fetch(
+            "SELECT id, slug, display_name FROM jurisdiction_types ORDER BY display_name"
+        )
+        return templates.TemplateResponse(
+            request,
+            "admin/jurisdictions/partials/_details_form.html",
+            {"jur_id": jurisdiction_id, "values": values, "types": types, "errors": errors},
+            status_code=422,
+        )
+
+    if errors:
+        return await _rerender()
+    try:
+        await db.execute(
+            "UPDATE jurisdictions SET name=$1, slug=$2, type_id=$3, valid_from=$4,"
+            " valid_until=$5, notes=$6 WHERE id=$7",
+            name.strip(),
+            slug.strip(),
+            resolved_type,
+            vf,
+            vu,
+            notes.strip() or None,
+            jurisdiction_id,
+        )
+    except asyncpg.UniqueViolationError:
+        errors["slug"] = "A jurisdiction with this slug already exists"
+        return await _rerender()
+    except asyncpg.ForeignKeyViolationError:
+        errors["type_id"] = "Unknown jurisdiction type"
+        return await _rerender()
+
+    updated = await _fetch_jur_row(db, jurisdiction_id)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/jurisdictions/{jurisdiction_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/jurisdictions/partials/_details_read.html",
+        {"jur": updated},
+        headers=flash_trigger(
+            "success",
+            "Details saved.",
+            extra={"updateJurisdictionHeader": {"display": updated["name"]}},
+        ),
+    )
+
+
 @router.get("/{jurisdiction_id}/")
 async def jurisdiction_detail(
     jurisdiction_id: str,
@@ -198,14 +359,8 @@ async def jurisdiction_detail(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Read-only jurisdiction detail view."""
-    jur = await db.fetchrow(
-        """SELECT j.*, jt.slug AS type_slug, jt.display_name AS type_display_name
-           FROM jurisdictions j
-           JOIN jurisdiction_types jt ON jt.id = j.type_id
-           WHERE j.id = $1""",
-        jurisdiction_id,
-    )
+    """Jurisdiction detail view."""
+    jur = await _fetch_jur_row(db, jurisdiction_id)
     if not jur:
         raise HTTPException(status_code=404, detail="Jurisdiction not found")
 

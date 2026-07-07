@@ -20,18 +20,7 @@
 
 <section class="entity-section">
   <h2>Details</h2>
-  <div class="entity-card">
-    <dl class="detail-grid">
-      <dt>Slug</dt><dd><code>{{ jur.slug }}</code></dd>
-      <dt>Type</dt><dd>{{ jur.type_display_name }}</dd>
-      <dt>Valid from</dt><dd>{{ jur.valid_from.strftime('%Y-%m-%d') if jur.valid_from else '—' }}</dd>
-      <dt>Valid until</dt><dd>{{ jur.valid_until.strftime('%Y-%m-%d') if jur.valid_until else '—' }}</dd>
-      {% if jur.superseded_at %}
-      <dt>Superseded at</dt><dd>{{ jur.superseded_at.strftime('%Y-%m-%d %H:%M UTC') }}</dd>
-      {% endif %}
-      <dt>Notes</dt><dd>{{ jur.notes or '—' }}</dd>
-    </dl>
-  </div>
+  {% include "admin/jurisdictions/partials/_details_read.html" %}
 </section>
 
 <section class="entity-section">
