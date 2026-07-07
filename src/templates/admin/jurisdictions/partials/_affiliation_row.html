@@ -1,0 +1,12 @@
+{# admin/jurisdictions/partials/_affiliation_row.html — one affiliated org #}
+<tr id="affiliation-row-{{ a.aff_id }}">
+  <td><a href="/admin/orgs/{{ a.org_id }}/">{{ a.org_name or '(unnamed)' }}</a></td>
+  <td>{{ a.affiliation_type }}</td>
+  <td style="white-space:nowrap;text-align:right">
+    <button class="btn btn--sm btn--danger" type="button"
+            aria-label="Remove {{ a.org_name or 'organization' }} affiliation"
+            hx-delete="/admin/jurisdictions/{{ jurisdiction_id }}/affiliations/{{ a.aff_id }}/"
+            hx-target="#affiliation-row-{{ a.aff_id }}" hx-swap="outerHTML"
+            hx-confirm="Remove this affiliation?">Remove</button>
+  </td>
+</tr>

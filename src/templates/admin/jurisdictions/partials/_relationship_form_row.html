@@ -1,0 +1,122 @@
+{# admin/jurisdictions/partials/_relationship_form_row.html — add a typed edge #}
+<tr id="relationship-row-new">
+  <td colspan="4" style="padding:var(--space-2) var(--space-4)">
+    <form hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/relationships/"
+          hx-target="#relationship-row-new" hx-swap="outerHTML"
+          style="display:grid;gap:var(--space-2)">
+      {% if errors.target_id %}<div class="alert alert--error" role="alert">{{ errors.target_id }}</div>{% endif %}
+      {% if errors.rel_type_id %}<div class="alert alert--error" role="alert">{{ errors.rel_type_id }}</div>{% endif %}
+      {% if errors.valid_from %}<div class="alert alert--error" role="alert">{{ errors.valid_from }}</div>{% endif %}
+      {% if errors.valid_until %}<div class="alert alert--error" role="alert">{{ errors.valid_until }}</div>{% endif %}
+
+      <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="margin-bottom:0">
+          <label for="rel-type-new">Relationship</label>
+          <select id="rel-type-new" name="rel_type_id">
+            <option value="">— select —</option>
+            {% for cat, types in rel_types|groupby('category') %}
+            <optgroup label="{{ cat|title }}">
+              {% for t in types %}
+              <option value="{{ t.id }}" data-symmetric="{{ 't' if t.is_symmetric else 'f' }}"
+                      {% if values.rel_type_id == t.id %}selected{% endif %}>{{ t.display_name }}</option>
+              {% endfor %}
+            </optgroup>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group" id="rel-direction-wrap-new" style="margin-bottom:0" hidden>
+          <label for="rel-direction-new">Direction</label>
+          <select id="rel-direction-new" name="direction">
+            <option value="outgoing" {% if values.direction != 'incoming' %}selected{% endif %}>This &rarr; target</option>
+            <option value="incoming" {% if values.direction == 'incoming' %}selected{% endif %}>Target &rarr; this</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;position:relative;flex:1;min-width:12rem">
+          <label for="rel-target-search-new">Target jurisdiction</label>
+          <input id="rel-target-search-new" type="text" autocomplete="off" placeholder="Type to search&hellip;"
+                 value="{{ target_label or '' }}"
+                 hx-get="/admin/jurisdictions/search/" hx-trigger="input changed delay:200ms"
+                 hx-target="#rel-target-results-new" hx-swap="innerHTML" hx-params="q" name="q"
+                 role="combobox" aria-expanded="false" aria-haspopup="listbox"
+                 aria-controls="rel-target-results-new" aria-autocomplete="list">
+          <input type="hidden" name="target_id" id="rel-target-id-new" value="{{ values.target_id or '' }}">
+          <ul id="rel-target-results-new" class="typeahead-results" role="listbox"></ul>
+        </div>
+      </div>
+
+      <p id="rel-phrase-new" aria-live="polite"
+         style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:0">Pick a relationship type and target.</p>
+
+      <div style="display:flex;gap:var(--space-2);align-items:center">
+        <label for="rel-vf-new" style="font-size:var(--font-size-sm);color:var(--color-text-muted);white-space:nowrap">Valid from</label>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" id="rel-vf-new" name="valid_from" value="{{ values.valid_from or '' }}">
+        </div>
+        <span aria-hidden="true" style="color:var(--color-text-muted)">to</span>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" name="valid_until" aria-label="Valid until" value="{{ values.valid_until or '' }}">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <input type="text" name="notes" aria-label="Notes" placeholder="Notes" value="{{ values.notes or '' }}">
+      </div>
+
+      <div style="display:flex;gap:var(--space-2)">
+        <button type="submit" class="btn btn--sm btn--primary">Add</button>
+        <button type="button" class="btn btn--sm btn--secondary"
+                onclick="this.closest('tr').remove(); document.dispatchEvent(new CustomEvent('powerMap:newRowClosed'));">Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>
+<script>
+  (function () {
+    var jurName = {{ (jurisdiction_name or 'This jurisdiction') | tojson }};
+    var typeSel = document.getElementById('rel-type-new');
+    var dirWrap = document.getElementById('rel-direction-wrap-new');
+    var dirSel = document.getElementById('rel-direction-new');
+    var targetInp = document.getElementById('rel-target-search-new');
+    var phrase = document.getElementById('rel-phrase-new');
+    if (!typeSel) return;
+
+    function selectedIsSymmetric() {
+      var opt = typeSel.options[typeSel.selectedIndex];
+      return opt && opt.dataset.symmetric === 't';
+    }
+    function typeLabel() {
+      var opt = typeSel.options[typeSel.selectedIndex];
+      return opt && opt.value ? opt.textContent.trim() : '';
+    }
+    function updatePhrase() {
+      var t = typeLabel();
+      var target = (targetInp.value || '').trim() || 'target';
+      if (!t) { phrase.textContent = 'Pick a relationship type and target.'; return; }
+      if (selectedIsSymmetric()) {
+        dirWrap.hidden = true;
+        phrase.textContent = jurName + ' ' + t.toLowerCase() + ' ' + target + ' (mutual).';
+      } else {
+        dirWrap.hidden = false;
+        if (dirSel.value === 'incoming') {
+          phrase.textContent = target + ' ' + t.toLowerCase() + ' ' + jurName + '.';
+        } else {
+          phrase.textContent = jurName + ' ' + t.toLowerCase() + ' ' + target + '.';
+        }
+      }
+    }
+    typeSel.addEventListener('change', updatePhrase);
+    dirSel.addEventListener('change', updatePhrase);
+    targetInp.addEventListener('input', updatePhrase);
+
+    if (typeof window.initTypeaheadCombobox === 'function') {
+      window.initTypeaheadCombobox({
+        inputId: 'rel-target-search-new',
+        listboxId: 'rel-target-results-new',
+        hiddenId: 'rel-target-id-new',
+        onSelect: updatePhrase,
+      });
+    }
+    updatePhrase();
+  })();
+</script>

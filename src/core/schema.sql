@@ -1170,6 +1170,38 @@ CREATE OR REPLACE TRIGGER trg_touch_org_on_affiliation_change
     AFTER INSERT OR UPDATE OR DELETE ON organization_jurisdiction_affiliations
     FOR EACH ROW EXECUTE FUNCTION touch_parent_org();
 
+-- Affiliation changes also touch the jurisdiction side so a jurisdiction
+-- subscriber sees org-affiliation edits (symmetry with the relationship-edge
+-- touch below; #275 Phase 3).
+CREATE OR REPLACE FUNCTION touch_jurisdiction_on_affiliation_change()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE jurisdictions SET updated_at = NOW()
+    WHERE id = COALESCE(NEW.jurisdiction_id, OLD.jurisdiction_id);
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_jurisdiction_on_affiliation_change
+    AFTER INSERT OR UPDATE OR DELETE ON organization_jurisdiction_affiliations
+    FOR EACH ROW EXECUTE FUNCTION touch_jurisdiction_on_affiliation_change();
+
+-- Touch both endpoints of a relationship edge so a graph edit surfaces on the
+-- jurisdiction change feed (mirrors touch_parent_org for org affiliations; #275
+-- Phase 3). The UPDATE fires trg_entity_changes_jurisdictions on each endpoint.
+CREATE OR REPLACE FUNCTION touch_parent_jurisdiction()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE jurisdictions SET updated_at = NOW()
+    WHERE id IN (COALESCE(NEW.from_id, OLD.from_id), COALESCE(NEW.to_id, OLD.to_id));
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_jurisdiction_on_relationship_change
+    AFTER INSERT OR UPDATE OR DELETE ON jurisdiction_relationships
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_jurisdiction();
+
 CREATE OR REPLACE FUNCTION touch_parent_person()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN

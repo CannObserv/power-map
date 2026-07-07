@@ -8,7 +8,13 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    is_htmx,
+    parse_validity_fields,
+)
 from src.api.main import app
 from tests.api.admin.conftest import AUTH_HEADERS
 
@@ -154,3 +160,41 @@ def test_admin_dashboard_returns_200_when_authenticated():
         response = client.get("/admin/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Power Map" in response.text
+
+
+# --- parse_validity_fields (shared admin-form validity parser) ---------------
+
+
+def test_parse_validity_fields_valid_dates():
+    errors = {}
+    vf, vu = parse_validity_fields("2001-01-01", "2020-12-31", errors)
+    assert vf.isoformat() == "2001-01-01"
+    assert vu.isoformat() == "2020-12-31"
+    assert errors == {}
+
+
+def test_parse_validity_fields_blank_returns_none_without_error():
+    errors = {}
+    assert parse_validity_fields("", "  ", errors) == (None, None)
+    assert errors == {}
+
+
+def test_parse_validity_fields_malformed_date_records_error():
+    errors = {}
+    vf, _ = parse_validity_fields("not-a-date", "", errors)
+    assert vf is None
+    assert "valid_from" in errors
+
+
+def test_parse_validity_fields_inverted_range_records_error():
+    errors = {}
+    parse_validity_fields("2020-01-01", "2010-01-01", errors)
+    assert "valid_until" in errors
+
+
+def test_parse_validity_fields_one_sided_window_is_ok():
+    errors = {}
+    vf, vu = parse_validity_fields("1990-05-01", "", errors)
+    assert vf.isoformat() == "1990-05-01"
+    assert vu is None
+    assert errors == {}

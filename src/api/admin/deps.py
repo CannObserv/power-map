@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from urllib.parse import quote
 
 from fastapi import Depends, HTTPException, Request
@@ -35,6 +36,30 @@ async def get_admin_user(request: Request) -> AdminUser:
 def is_htmx(request: Request) -> bool:
     """Return True for HTMX non-boosted requests (for partial template selection)."""
     return bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
+
+
+def parse_validity_fields(valid_from: str, valid_until: str, errors: dict) -> tuple:
+    """Parse ``valid_from``/``valid_until`` admin-form strings into dates.
+
+    Records ``valid_from`` / ``valid_until`` keys in ``errors`` in-place for a
+    malformed date or an inverted range. Returns ``(date | None, date | None)``.
+    (Distinct from ``_addresses_shared.parse_validity``, which raises instead of
+    collecting into an errors dict.)
+    """
+    vf = vu = None
+    if valid_from.strip():
+        try:
+            vf = date.fromisoformat(valid_from.strip())
+        except ValueError:
+            errors["valid_from"] = "Invalid date (use YYYY-MM-DD)"
+    if valid_until.strip():
+        try:
+            vu = date.fromisoformat(valid_until.strip())
+        except ValueError:
+            errors["valid_until"] = "Invalid date (use YYYY-MM-DD)"
+    if vf and vu and vf > vu:
+        errors["valid_until"] = "Valid-until must not precede valid-from"
+    return vf, vu
 
 
 def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str, str]:

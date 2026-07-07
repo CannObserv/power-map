@@ -467,6 +467,18 @@ async def org_detail(
     )
     display_name = display_name_row["display_name"] if display_name_row else None
 
+    jur_affiliations = await db.fetch(
+        """SELECT oja.id AS aff_id, j.id AS jurisdiction_id, j.name AS jurisdiction_name,
+                  ojat.display_name AS affiliation_type
+           FROM organization_jurisdiction_affiliations oja
+           JOIN jurisdictions j ON j.id = oja.jurisdiction_id
+           JOIN organization_jurisdiction_affiliation_types ojat
+                ON ojat.id = oja.affiliation_type_id
+           WHERE oja.organization_id = $1
+           ORDER BY j.name""",
+        org_id,
+    )
+
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
@@ -490,6 +502,7 @@ async def org_detail(
             "roles": roles,
             "events": events,
             "parent": parent,
+            "jur_affiliations": jur_affiliations,
             "flash_msg": flash_msg,
         },
         headers=resp_headers,

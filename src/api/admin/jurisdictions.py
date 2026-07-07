@@ -8,8 +8,6 @@ identifiers,addresses}`` modules. The ``/search/`` typeahead (#264) that feeds t
 role-type form's jurisdiction picker remains.
 """
 
-from datetime import date
-
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
@@ -22,6 +20,7 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    parse_validity_fields,
     resolve_query_flash,
 )
 from src.api.admin.jurisdictions_queries import VALID_STATUSES, query_jurisdictions_rows
@@ -61,24 +60,6 @@ def _jur_form_values(jur) -> dict:
         "valid_until": jur["valid_until"].isoformat() if jur["valid_until"] else "",
         "notes": jur["notes"] or "",
     }
-
-
-def _parse_validity(valid_from: str, valid_until: str, errors: dict) -> tuple:
-    """Parse valid_from/valid_until form strings, recording any errors in-place."""
-    vf = vu = None
-    if valid_from.strip():
-        try:
-            vf = date.fromisoformat(valid_from.strip())
-        except ValueError:
-            errors["valid_from"] = "Invalid date (use YYYY-MM-DD)"
-    if valid_until.strip():
-        try:
-            vu = date.fromisoformat(valid_until.strip())
-        except ValueError:
-            errors["valid_until"] = "Invalid date (use YYYY-MM-DD)"
-    if vf and vu and vf > vu:
-        errors["valid_until"] = "Valid-until must not precede valid-from"
-    return vf, vu
 
 
 @router.get("/")
@@ -213,7 +194,7 @@ async def jurisdiction_create(
     if not type_id.strip():
         errors["type_id"] = "Type is required"
 
-    vf, vu = _parse_validity(valid_from, valid_until, errors)
+    vf, vu = parse_validity_fields(valid_from, valid_until, errors)
 
     if errors:
         return await _render_jur_form(request, user, db, form=form, errors=errors, status_code=422)
@@ -315,7 +296,7 @@ async def jurisdiction_details_save(
     if not slug.strip():
         errors["slug"] = "Slug is required"
     resolved_type = type_id.strip() or current["type_id"]
-    vf, vu = _parse_validity(valid_from, valid_until, errors)
+    vf, vu = parse_validity_fields(valid_from, valid_until, errors)
 
     async def _rerender():
         values["type_id"] = resolved_type
@@ -425,7 +406,7 @@ async def jurisdiction_detail(
     # Lineage-category edges have their own panel (fetch_lineage below), so
     # exclude them here to avoid rendering the same edge in both panels.
     relationships = await db.fetch(
-        """SELECT jr.from_id, jr.to_id,
+        """SELECT jr.id, jr.from_id, jr.to_id, jr.notes,
                   jrt.display_name AS rel_type_name,
                   jrt.category, jrt.is_symmetric,
                   jr.valid_from, jr.valid_until,
@@ -441,7 +422,7 @@ async def jurisdiction_detail(
     )
     lineage = await fetch_lineage(db, jurisdiction_id)
     affiliations = await db.fetch(
-        """SELECT o.id AS org_id, dn.display_name AS org_name,
+        """SELECT oja.id AS aff_id, o.id AS org_id, dn.display_name AS org_name,
                   ojat.display_name AS affiliation_type
            FROM organization_jurisdiction_affiliations oja
            JOIN organizations o ON o.id = oja.organization_id

@@ -1,0 +1,47 @@
+{# admin/jurisdictions/partials/_affiliation_form_row.html — affiliate an org #}
+<tr id="affiliation-row-new">
+  <td colspan="3" style="padding:var(--space-2) var(--space-4)">
+    <form hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/affiliations/"
+          hx-target="#affiliation-row-new" hx-swap="outerHTML"
+          style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
+      {% if errors.organization_id %}<div class="alert alert--error" role="alert">{{ errors.organization_id }}</div>{% endif %}
+      {% if errors.affiliation_type_id %}<div class="alert alert--error" role="alert">{{ errors.affiliation_type_id }}</div>{% endif %}
+      <div class="form-group" style="margin-bottom:0;position:relative;flex:1;min-width:12rem">
+        <label for="aff-org-search-new">Organization</label>
+        <input id="aff-org-search-new" type="text" autocomplete="off" placeholder="Type to search&hellip;"
+               value="{{ org_label or '' }}"
+               hx-get="/admin/orgs/search/" hx-trigger="input changed delay:200ms"
+               hx-target="#aff-org-results-new" hx-swap="innerHTML" hx-params="q" name="q"
+               role="combobox" aria-expanded="false" aria-haspopup="listbox"
+               aria-controls="aff-org-results-new" aria-autocomplete="list">
+        <input type="hidden" name="organization_id" id="aff-org-id-new" value="{{ values.organization_id or '' }}">
+        <ul id="aff-org-results-new" class="typeahead-results" role="listbox"></ul>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label for="aff-type-new">Affiliation</label>
+        <select id="aff-type-new" name="affiliation_type_id">
+          <option value="">— select —</option>
+          {% for t in affiliation_types %}
+          <option value="{{ t.id }}" {% if values.affiliation_type_id == t.id %}selected{% endif %}>{{ t.display_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display:flex;gap:var(--space-2)">
+        <button type="submit" class="btn btn--sm btn--primary">Add</button>
+        <button type="button" class="btn btn--sm btn--secondary"
+                onclick="this.closest('tr').remove(); document.dispatchEvent(new CustomEvent('powerMap:newRowClosed'));">Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>
+<script>
+  (function () {
+    if (typeof window.initTypeaheadCombobox === 'function') {
+      window.initTypeaheadCombobox({
+        inputId: 'aff-org-search-new',
+        listboxId: 'aff-org-results-new',
+        hiddenId: 'aff-org-id-new',
+      });
+    }
+  })();
+</script>
