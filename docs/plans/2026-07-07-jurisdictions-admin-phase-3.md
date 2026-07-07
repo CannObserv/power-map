@@ -97,18 +97,15 @@ TDD throughout, mirroring `tests/api/admin/test_orgs*.py` + Phase 2's
    pytest + JS; dev-server smoke on 8001 (add/edit/delete edge + add/remove
    affiliation from both sides).
 
-## Open questions / risks
+## Open questions / risks — RESOLVED (2026-07-07)
 
-- **Relationship change-feed trigger (Step 4)** — add `touch_parent_jurisdiction()`
-  (schema change) so edits emit to the outbox, or accept a documented gap?
-  **Recommend ADD** — keeps jurisdictions gap-free per Phase 2. It is the only
-  schema change in Phase 3 (needs `apply-schema` / restart at ship).
-- **Lineage-category edges in the editor** — the add-form `rel_type` dropdown:
-  include all 4 categories (a lineage edge added here surfaces in the read-only
-  Lineage panel, not Relationships), or exclude `lineage`? **Recommend INCLUDE
-  all**; keep the display split exactly as today.
-- **Direction UX for asymmetric types** — a from/to toggle with a live phrase
-  preview ("{this} contains {target}" ⇄ "{target} contains {this}"). Minor;
-  will keep a simple select if no directional editor exists to mirror.
-- **PR scope** — one PR for all of Phase 3 (relationships + affiliations +
-  reciprocal), matching Phase 1+2 delivery. Confirm.
+- **Relationship change-feed trigger (Step 4)** — **ADD** `touch_parent_jurisdiction()`
+  (schema change) so edits emit to the outbox; keeps jurisdictions gap-free per
+  Phase 2. Only schema change in Phase 3 (needs `apply-schema` / restart at ship).
+- **Lineage-category edges in the editor** — **INCLUDE all** 4 categories in the
+  add-form `rel_type` dropdown; keep the display split (lineage edges surface in
+  the read-only Lineage panel, not Relationships) exactly as today.
+- **Direction UX for asymmetric types** — **from/to toggle with a live phrase
+  preview** ("{this} contains {target}" ⇄ "{target} contains {this}").
+- **PR scope** — **one PR** for all of Phase 3 (relationships + affiliations +
+  reciprocal).
