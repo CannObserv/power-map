@@ -4,12 +4,17 @@ Phase 1 (#275) adds the read-only browse surface (list + detail). The ``/search/
 typeahead (#264) that feeds the role-type form's jurisdiction picker remains.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from datetime import date
+
+import asyncpg
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, escape_like, get_admin_user, get_db, is_htmx
 from src.api.admin.jurisdictions_queries import VALID_STATUSES, query_jurisdictions_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
+from src.core.db import generate_id
 from src.core.jurisdictions import fetch_lineage
 
 templates = Jinja2Templates(directory="src/templates")
@@ -86,6 +91,104 @@ async def jurisdictions_search(
         "admin/jurisdictions/partials/_search_results.html",
         {"results": results},
     )
+
+
+async def _render_jur_form(request, user, db, *, form: dict, errors: dict, status_code: int = 200):
+    """Render the create form with the given field values + errors."""
+    types = await db.fetch(
+        "SELECT id, slug, display_name FROM jurisdiction_types ORDER BY display_name"
+    )
+    return templates.TemplateResponse(
+        request,
+        "admin/jurisdictions/form.html",
+        {
+            "user": user,
+            "active_section": "jurisdictions",
+            "types": types,
+            "form": form,
+            "errors": errors,
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/new/")
+async def jurisdiction_new_form(
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Render the new-jurisdiction form."""
+    return await _render_jur_form(request, user, db, form={}, errors={})
+
+
+@router.post("/new/")
+async def jurisdiction_create(
+    request: Request,
+    slug: str = Form(""),
+    name: str = Form(""),
+    type_id: str = Form(""),
+    valid_from: str = Form(""),
+    valid_until: str = Form(""),
+    notes: str = Form(""),
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Create a jurisdiction. Triggers emit updated_at + the change-feed outbox."""
+    form = {
+        "slug": slug,
+        "name": name,
+        "type_id": type_id,
+        "valid_from": valid_from,
+        "valid_until": valid_until,
+        "notes": notes,
+    }
+    errors: dict[str, str] = {}
+    if not name.strip():
+        errors["name"] = "Name is required"
+    if not slug.strip():
+        errors["slug"] = "Slug is required"
+    if not type_id.strip():
+        errors["type_id"] = "Type is required"
+
+    vf = vu = None
+    if valid_from.strip():
+        try:
+            vf = date.fromisoformat(valid_from.strip())
+        except ValueError:
+            errors["valid_from"] = "Invalid date (use YYYY-MM-DD)"
+    if valid_until.strip():
+        try:
+            vu = date.fromisoformat(valid_until.strip())
+        except ValueError:
+            errors["valid_until"] = "Invalid date (use YYYY-MM-DD)"
+    if vf and vu and vf > vu:
+        errors["valid_until"] = "Valid-until must not precede valid-from"
+
+    if errors:
+        return await _render_jur_form(request, user, db, form=form, errors=errors, status_code=422)
+
+    jid = generate_id()
+    try:
+        await db.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id, valid_from, valid_until, notes)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            jid,
+            slug.strip(),
+            name.strip(),
+            type_id,
+            vf,
+            vu,
+            notes.strip() or None,
+        )
+    except asyncpg.UniqueViolationError:
+        errors["slug"] = "A jurisdiction with this slug already exists"
+        return await _render_jur_form(request, user, db, form=form, errors=errors, status_code=422)
+    except asyncpg.ForeignKeyViolationError:
+        errors["type_id"] = "Unknown jurisdiction type"
+        return await _render_jur_form(request, user, db, form=form, errors=errors, status_code=422)
+
+    return RedirectResponse(f"/admin/jurisdictions/{jid}/", status_code=303)
 
 
 @router.get("/{jurisdiction_id}/")
