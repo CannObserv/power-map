@@ -81,19 +81,18 @@ TDD throughout, mirroring `tests/api/admin/test_orgs*.py`.
    full-CRUD, not read-only). Run `ruff` + full pytest suite; dev-server smoke
    (create → edit → add contact → archive → delete round trip on port 8001).
 
-## Open questions / risks
+## Open questions / risks — RESOLVED (2026-07-07)
 
-- **Header-sync JS** — plan defers `org-detail.js`-style in-place heading update
-  after a name edit (name reflects on next render). Confirm that's acceptable, or
-  add a small `jurisdiction-detail.js`.
-- **slug / type editability** — Phase-1 design approved "editable with a caveat."
-  Confirm both stay editable inline (slug rename changes the public `/resolve`
-  key; type change re-buckets the entity). Easy to lock either post-create if
-  preferred.
+- **Header-sync JS** — ADD IT. Include a small `jurisdiction-detail.js` mirroring
+  `org-detail.js`: a name edit emits an `updateJurisdictionHeader` HX-Trigger
+  (via a `jurisdiction_header_extra`-style helper) and the script updates
+  `#page-heading` / `#breadcrumb-current` / `document.title` in place. Loaded
+  site-wide from `base.html` (boost-safe, per STYLE.md §32). Folds into Step 2.
+- **slug / type editability** — BOTH EDITABLE (with caveat). slug and type are
+  inline-editable; the slug edit form shows a "changes the public `/resolve` key"
+  caveat; slug rename collision → 422. (Step 2.)
+- **Scope** — ONE PR. Whole phase on the branch as a single unit (matches the
+  3-phase plan).
 - **Add-row-guard JS coverage** — `test_add_row_guard_templates.py` enforces a
   form-row partial inventory; new jurisdiction form-row partials must opt into
   the guard or the inventory test fails (intentional gate — budget for it).
-- **Scope**: this is the largest phase (create + 5 edit surfaces + 4 attachment
-  CRUD sets + detail rewiring). If it feels heavy in one PR, it can split at the
-  attachment boundary (steps 1–3 curatorial, 4–6 attachments) — flag if you want
-  that.
