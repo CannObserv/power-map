@@ -1,4 +1,4 @@
-"""Shared helpers for entity address CRUD routers (orgs and people)."""
+"""Shared helpers for entity address CRUD routers (orgs, people, and jurisdictions)."""
 
 from dataclasses import dataclass
 from datetime import date
@@ -41,7 +41,20 @@ class ConfirmPersist:
     longitude: float | None
     components: str | None
 
-    def as_address_columns(self) -> tuple:
+    def as_address_columns(
+        self,
+    ) -> tuple[
+        str | None,
+        str | None,
+        str | None,
+        str | None,
+        str | None,
+        str,
+        str | None,
+        float | None,
+        float | None,
+        str | None,
+    ]:
         """The 10 ``addresses`` column values in INSERT/UPDATE order (#280, CR item 3).
 
         Centralizes column ordering so the persist path's field unpacking lives
@@ -80,7 +93,7 @@ class AddressEchoParams:
     postal_code: str = ""
     addr_id: str = ""
 
-    def as_row(self) -> dict:
+    def as_row(self) -> dict[str, str | None]:
         """Shape as the partial's ``a`` context; blank ``addr_id`` → ``id=None`` (new row)."""
         return {
             "id": self.addr_id or None,
