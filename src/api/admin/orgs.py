@@ -613,6 +613,7 @@ async def children_remove(
 @router.post("/{org_id}/archive/")
 async def org_archive(
     org_id: str,
+    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -623,12 +624,16 @@ async def org_archive(
     if org["archived_at"]:
         raise HTTPException(status_code=409, detail="Organization is already archived")
     await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
-    return RedirectResponse(f"/admin/orgs/{org_id}/?flash=archived", status_code=303)
+    target = f"/admin/orgs/{org_id}/?flash=archived"
+    if is_htmx(request):
+        return Response(status_code=204, headers={"HX-Location": target})
+    return RedirectResponse(target, status_code=303)
 
 
 @router.post("/{org_id}/unarchive/")
 async def org_unarchive(
     org_id: str,
+    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -639,7 +644,10 @@ async def org_unarchive(
     if not org["archived_at"]:
         raise HTTPException(status_code=409, detail="Organization is not archived")
     await db.execute("UPDATE organizations SET archived_at = NULL WHERE id = $1", org_id)
-    return RedirectResponse(f"/admin/orgs/{org_id}/?flash=unarchived", status_code=303)
+    target = f"/admin/orgs/{org_id}/?flash=unarchived"
+    if is_htmx(request):
+        return Response(status_code=204, headers={"HX-Location": target})
+    return RedirectResponse(target, status_code=303)
 
 
 @router.delete("/{org_id}/")

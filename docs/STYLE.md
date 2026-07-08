@@ -1910,9 +1910,16 @@ Every route handler: `user: AdminUser = Depends(get_admin_user)` — `get_admin_
 `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived.
 
 - Hard delete: gated on `archived_at IS NOT NULL` (returns 409 if not archived)
-- `POST /{id}/unarchive/`: sets `archived_at = NULL`, preserves prior `active` state (returns 409 if not archived); redirects to detail with `?flash=unarchived`
+- `POST /{id}/unarchive/`: sets `archived_at = NULL`, preserves prior `active` state (returns 409 if not archived)
 - Archive: returns 409 if already archived — enforced across all entity types (orgs, people, roles, role-assignments)
 - Flash on detail pages: `org_detail`, `person_detail`, `ra_detail` accept `?flash=` param via `resolve_query_flash`; add new flash keys to the module-level `_FLASH_MESSAGES` dict
+
+**Danger Zone interaction model (#281).** All three Danger Zone actions on entity-detail pages (orgs, people, jurisdictions) share one HTMX model. Archive / unarchive / delete are `hx-post` / `hx-delete` buttons (no `<form method="POST">`), and each route branches on `is_htmx(request)`:
+
+- HTMX → `Response(status_code=204, headers={"HX-Location": target})` — client-side full navigation that re-renders the detail (or list, for delete) with `?flash=…`
+- non-HTMX → `RedirectResponse(target, status_code=303)` — same target, graceful degradation without JS
+
+`target` for archive/unarchive is the detail page (`/admin/{entities}/{id}/?flash=archived|unarchived`); for delete it is the list page (`?flash=deleted`). 409-on-already-in-state guards fire before the branch, so they hold for both request kinds. The org "Restore from archive" control in `orgs/partials/_active_toggle.html` follows the same `hx-post` model.
 
 ### HTMX partial responses
 

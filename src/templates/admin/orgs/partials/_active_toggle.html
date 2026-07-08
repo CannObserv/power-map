@@ -19,8 +19,9 @@
     </span>
   </label>
   {% if org.archived_at %}
-  <form method="POST" action="/admin/orgs/{{ org.id }}/unarchive/" style="margin-left:var(--space-5)">
-    <button type="submit" class="btn btn--secondary btn--sm">Restore from archive</button>
-  </form>
+  <button type="button" class="btn btn--secondary btn--sm" style="margin-left:var(--space-5)"
+          hx-post="/admin/orgs/{{ org.id }}/unarchive/">
+    Restore from archive
+  </button>
   {% endif %}
 </div>

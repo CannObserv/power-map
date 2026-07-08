@@ -237,9 +237,10 @@
     <p class="danger-zone__label">Archive jurisdiction</p>
     <p class="danger-zone__desc">Hides this jurisdiction from active views but preserves all data.</p>
   </div>
-  <form method="POST" action="/admin/jurisdictions/{{ jur.id }}/archive/">
-    <button type="submit" class="btn btn--danger">Archive jurisdiction</button>
-  </form>
+  <button type="button" class="btn btn--danger"
+          hx-post="/admin/jurisdictions/{{ jur.id }}/archive/">
+    Archive jurisdiction
+  </button>
 </div>
 {% else %}
 <div class="danger-zone">
@@ -247,9 +248,10 @@
     <p class="danger-zone__label">Unarchive jurisdiction</p>
     <p class="danger-zone__desc">Restore this jurisdiction to active views.</p>
   </div>
-  <form method="POST" action="/admin/jurisdictions/{{ jur.id }}/unarchive/">
-    <button type="submit" class="btn btn--secondary">Unarchive</button>
-  </form>
+  <button type="button" class="btn btn--secondary"
+          hx-post="/admin/jurisdictions/{{ jur.id }}/unarchive/">
+    Unarchive
+  </button>
 </div>
 <div class="danger-zone">
   <div>

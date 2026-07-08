@@ -328,6 +328,7 @@ async def person_detail(
 @router.post("/{person_id}/archive/")
 async def person_archive(
     person_id: str,
+    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -338,12 +339,16 @@ async def person_archive(
     if person["archived_at"]:
         raise HTTPException(status_code=409, detail="Person is already archived")
     await db.execute("UPDATE people SET archived_at = NOW() WHERE id = $1", person_id)
-    return RedirectResponse(f"/admin/people/{person_id}/?flash=archived", status_code=303)
+    target = f"/admin/people/{person_id}/?flash=archived"
+    if is_htmx(request):
+        return Response(status_code=204, headers={"HX-Location": target})
+    return RedirectResponse(target, status_code=303)
 
 
 @router.post("/{person_id}/unarchive/")
 async def person_unarchive(
     person_id: str,
+    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -354,7 +359,10 @@ async def person_unarchive(
     if not person["archived_at"]:
         raise HTTPException(status_code=409, detail="Person is not archived")
     await db.execute("UPDATE people SET archived_at = NULL WHERE id = $1", person_id)
-    return RedirectResponse(f"/admin/people/{person_id}/?flash=unarchived", status_code=303)
+    target = f"/admin/people/{person_id}/?flash=unarchived"
+    if is_htmx(request):
+        return Response(status_code=204, headers={"HX-Location": target})
+    return RedirectResponse(target, status_code=303)
 
 
 @router.delete("/{person_id}/")
