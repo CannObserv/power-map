@@ -109,7 +109,8 @@ async def test_address_form_row_scopes_country_swap_target(client, person_and_ad
 
 
 async def test_address_form_row_country_swap_includes_form_values(client, person_and_address):
-    """#258: country swap carries the form's current values; edit rows carry addr_id."""
+    """#258/#282: country swap carries the form's current values; the edit row targets
+    the addr_id via its hx-post path (no redundant hidden addr_id field)."""
     pid, eaid = person_and_address
     new = client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
     assert new.status_code == 200
@@ -118,7 +119,9 @@ async def test_address_form_row_country_swap_includes_form_values(client, person
     edit = client.get(f"/admin/people/{pid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
     assert edit.status_code == 200
     assert 'hx-include="closest form"' in edit.text
-    assert f'<input type="hidden" name="addr_id" value="{eaid}">' in edit.text
+    # #282: addr_id lives in the POST path, not a redundant hidden field
+    assert 'name="addr_id"' not in edit.text
+    assert f"/admin/people/{pid}/addresses/{eaid}/edit-row/" in edit.text
 
 
 async def test_country_format_preserves_current_values(client, person_and_address):
