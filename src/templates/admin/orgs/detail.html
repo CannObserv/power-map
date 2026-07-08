@@ -364,9 +364,10 @@
     <p class="danger-zone__label">Archive organization</p>
     <p class="danger-zone__desc">Hides this organization from active views but preserves all data.</p>
   </div>
-  <form method="POST" action="/admin/orgs/{{ org.id }}/archive/">
-    <button type="submit" class="btn btn--danger">Archive organization</button>
-  </form>
+  <button type="button" class="btn btn--danger"
+          hx-post="/admin/orgs/{{ org.id }}/archive/">
+    Archive organization
+  </button>
 </div>
 {% else %}
 <div class="danger-zone">

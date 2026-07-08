@@ -178,6 +178,48 @@ async def test_archive_org_redirects_with_flash_query(client, org_id):
     assert response.headers["location"] == f"/admin/orgs/{org_id}/?flash=archived"
 
 
+async def test_archive_org_htmx_returns_hx_location(client, org_id):
+    """HTMX archive returns 204 + HX-Location pointing at detail with flash."""
+    response = client.post(
+        f"/admin/orgs/{org_id}/archive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert response.headers["HX-Location"] == f"/admin/orgs/{org_id}/?flash=archived"
+
+
+async def test_archive_already_archived_org_htmx_returns_409(client, org_id, db_pool):
+    """HTMX re-archive still guarded with 409."""
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
+    response = client.post(
+        f"/admin/orgs/{org_id}/archive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 409
+
+
+async def test_unarchive_org_htmx_returns_hx_location(client, org_id, db_pool):
+    """HTMX unarchive returns 204 + HX-Location pointing at detail with flash."""
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
+    response = client.post(
+        f"/admin/orgs/{org_id}/unarchive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert response.headers["HX-Location"] == f"/admin/orgs/{org_id}/?flash=unarchived"
+
+
+async def test_unarchive_org_htmx_rejects_non_archived(client, org_id):
+    """HTMX unarchive of an active org still guarded with 409."""
+    response = client.post(
+        f"/admin/orgs/{org_id}/unarchive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 409
+
+
 async def test_archived_flash_renders_on_org_detail(client, org_id):
     """Org detail with ?flash=archived renders the success flash."""
     response = client.get(f"/admin/orgs/{org_id}/?flash=archived", headers=AUTH_HEADERS)

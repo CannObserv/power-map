@@ -475,6 +475,7 @@ async def jurisdiction_detail(
 @router.post("/{jurisdiction_id}/archive/")
 async def jurisdiction_archive(
     jurisdiction_id: str,
+    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -487,14 +488,16 @@ async def jurisdiction_archive(
     if jur["archived_at"]:
         raise HTTPException(status_code=409, detail="Jurisdiction is already archived")
     await db.execute("UPDATE jurisdictions SET archived_at = NOW() WHERE id = $1", jurisdiction_id)
-    return RedirectResponse(
-        f"/admin/jurisdictions/{jurisdiction_id}/?flash=archived", status_code=303
-    )
+    target = f"/admin/jurisdictions/{jurisdiction_id}/?flash=archived"
+    if is_htmx(request):
+        return Response(status_code=204, headers={"HX-Location": target})
+    return RedirectResponse(target, status_code=303)
 
 
 @router.post("/{jurisdiction_id}/unarchive/")
 async def jurisdiction_unarchive(
     jurisdiction_id: str,
+    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -507,9 +510,10 @@ async def jurisdiction_unarchive(
     if not jur["archived_at"]:
         raise HTTPException(status_code=409, detail="Jurisdiction is not archived")
     await db.execute("UPDATE jurisdictions SET archived_at = NULL WHERE id = $1", jurisdiction_id)
-    return RedirectResponse(
-        f"/admin/jurisdictions/{jurisdiction_id}/?flash=unarchived", status_code=303
-    )
+    target = f"/admin/jurisdictions/{jurisdiction_id}/?flash=unarchived"
+    if is_htmx(request):
+        return Response(status_code=204, headers={"HX-Location": target})
+    return RedirectResponse(target, status_code=303)
 
 
 @router.delete("/{jurisdiction_id}/")
