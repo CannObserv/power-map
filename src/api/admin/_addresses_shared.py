@@ -16,8 +16,18 @@ class ConfirmPersist:
     A JS-disabled client cannot render the confirm modal, so a ``mode="confirm"``
     submit has no follow-up ``mode="save"`` round trip. Rather than redirect away
     and silently drop the address, ``_maybe_confirm`` returns this marker carrying
-    the normalizer's DB-ready values so the route inserts/updates the row (mirroring
-    the modal's "Accept" path) and redirects as a genuine success.
+    the normalizer's DB-ready values so the route inserts/updates the row and
+    redirects as a genuine success.
+
+    **Auto-accept decision (#280, CR item 1):** the values carried here are the
+    normalizer's *standardized* output — i.e. the non-HTMX path implicitly takes
+    the modal's "Accept standardized" branch on the curator's behalf, because a
+    JS-disabled client can't be shown the accept-standardized-vs-keep-as-entered
+    choice the modal offers. This is a deliberate trade: silent data *loss* (the
+    old bug) is worse than silently applying standardization, and an interactive
+    (HTMX) client still gets the choice. If curator intent must instead be
+    preserved verbatim on the non-HTMX path, build this from the raw submitted
+    values rather than ``normalized_ctx`` at the ``_maybe_confirm`` call sites.
     """
 
     address_line_1: str | None
@@ -30,6 +40,27 @@ class ConfirmPersist:
     latitude: float | None
     longitude: float | None
     components: str | None
+
+    def as_address_columns(self) -> tuple:
+        """The 10 ``addresses`` column values in INSERT/UPDATE order (#280, CR item 3).
+
+        Centralizes column ordering so the persist path's field unpacking lives
+        in one place instead of being duplicated across the six create/edit
+        routes. Order: ``address_line_1, address_line_2, city, region,
+        postal_code, country, standardized, latitude, longitude, components``.
+        """
+        return (
+            self.address_line_1,
+            self.address_line_2,
+            self.city,
+            self.region,
+            self.postal_code,
+            self.country,
+            self.standardized,
+            self.latitude,
+            self.longitude,
+            self.components,
+        )
 
 
 @dataclass(frozen=True)

@@ -60,9 +60,11 @@ and response body (out), times the call, and writes exactly one
 - **Breadth:** all `/api/v1/*` traffic is captured (future endpoints covered
   automatically); the Activity screens default-filter to
   `route_group IN ('observations','changes')` with an "all endpoints" toggle.
-- **Write path:** one inline `INSERT` per request, scoped to `/api/v1/*` only
-  (admin/static never touch the table). If `/changes` poll volume ever proves
-  heavy, swap the inline write for a buffered async writer — not now (YAGNI).
+- **Write path:** one `INSERT` per request, scoped to `/api/v1/*` only
+  (admin/static never touch the table). Originally an inline write; **#262 moved
+  it off the request hot path** to a fire-and-forget `asyncio.create_task` write
+  (params built synchronously on the tail, INSERT scheduled on a background
+  task), so it no longer adds to request tail latency.
 
 **Rejected alternatives:**
 
@@ -209,7 +211,9 @@ consistent with the existing dashboard counts.
 - Per-key rate-limit enforcement or alerting.
 - Time-series charts / graphs (the stats strip is numeric counters only).
 - CSV export.
-- Buffered async log writer (revisit only if poll volume bites).
+- ~~Buffered async log writer (revisit only if poll volume bites).~~ **Shipped in
+  #262** as a fire-and-forget writer (off the hot path); a *buffered/batched*
+  writer remains out of scope unless volume bites further.
 - Logging non-`/api/v1/*` traffic.
 
 ## Files touched

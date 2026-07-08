@@ -286,16 +286,18 @@ async def address_create(
     aid = generate_id()
     eaid = generate_id()
     if persist is not None:
-        _line_1 = persist.address_line_1
-        _line_2 = persist.address_line_2
-        _city = persist.city
-        _region = persist.region
-        _postal = persist.postal_code
-        _country = persist.country
-        _standardized = persist.standardized
-        _latitude = persist.latitude
-        _longitude = persist.longitude
-        _comps = persist.components
+        (
+            _line_1,
+            _line_2,
+            _city,
+            _region,
+            _postal,
+            _country,
+            _standardized,
+            _latitude,
+            _longitude,
+            _comps,
+        ) = persist.as_address_columns()
     else:
         try:
             _standardized, _latitude, _longitude, _comps = _parse_normalizer_fields(
@@ -494,16 +496,18 @@ async def address_edit_row_post(
         elif confirm is not None:
             return confirm
     if persist is not None:
-        _line_1 = persist.address_line_1
-        _line_2 = persist.address_line_2
-        _city = persist.city
-        _region = persist.region
-        _postal = persist.postal_code
-        _country = persist.country
-        _standardized = persist.standardized
-        _latitude = persist.latitude
-        _longitude = persist.longitude
-        _comps = persist.components
+        (
+            _line_1,
+            _line_2,
+            _city,
+            _region,
+            _postal,
+            _country,
+            _standardized,
+            _latitude,
+            _longitude,
+            _comps,
+        ) = persist.as_address_columns()
     else:
         try:
             _standardized, _latitude, _longitude, _comps = _parse_normalizer_fields(
