@@ -307,9 +307,10 @@
     <p class="danger-zone__label">Archive person</p>
     <p class="danger-zone__desc">Hides this person from active views but preserves all data.</p>
   </div>
-  <form method="POST" action="/admin/people/{{ person.id }}/archive/">
-    <button type="submit" class="btn btn--danger">Archive person</button>
-  </form>
+  <button type="button" class="btn btn--danger"
+          hx-post="/admin/people/{{ person.id }}/archive/" hx-swap="none">
+    Archive person
+  </button>
 </div>
 {% else %}
 <div class="danger-zone">
@@ -317,9 +318,10 @@
     <p class="danger-zone__label">Unarchive person</p>
     <p class="danger-zone__desc">Restores this person to active views.</p>
   </div>
-  <form method="POST" action="/admin/people/{{ person.id }}/unarchive/">
-    <button type="submit" class="btn btn--secondary">Unarchive</button>
-  </form>
+  <button type="button" class="btn btn--secondary"
+          hx-post="/admin/people/{{ person.id }}/unarchive/" hx-swap="none">
+    Unarchive
+  </button>
 </div>
 <div class="danger-zone">
   <div>
@@ -327,7 +329,7 @@
     <p class="danger-zone__desc">This person is archived. Permanently deleting cannot be undone.</p>
   </div>
   <button type="button" class="btn btn--danger"
-          hx-delete="/admin/people/{{ person.id }}/"
+          hx-delete="/admin/people/{{ person.id }}/" hx-swap="none"
           hx-confirm="Permanently delete this person? This cannot be undone.">
     Delete permanently
   </button>

@@ -294,9 +294,10 @@ def test_active_toggle_restore_button_inside_archived_block():
     assert "unarchive/" in if_block, "restore form must be inside {% if org.archived_at %} block"
 
 
-def test_active_toggle_restore_button_is_form_post():
-    """Must be a plain form POST — no HTMX, consistent with archive button."""
-    assert 'method="POST"' in ACTIVE_TOGGLE
+def test_active_toggle_restore_button_is_htmx_post():
+    """Must be an hx-post button — no plain form — matching the HTMX archive button (#281)."""
+    assert 'hx-post="/admin/orgs/{{ org.id }}/unarchive/"' in ACTIVE_TOGGLE
+    assert 'method="POST"' not in ACTIVE_TOGGLE
 
 
 def test_active_toggle_restore_button_text():

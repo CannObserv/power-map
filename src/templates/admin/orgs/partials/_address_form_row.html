@@ -11,7 +11,6 @@
           hx-swap="outerHTML"
           style="display:grid;gap:var(--space-2)">
       {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
-      {% if a and a.id %}<input type="hidden" name="addr_id" value="{{ a.id }}">{% endif %}
       <div style="display:flex;gap:var(--space-2)">
         <div class="form-group" style="margin-bottom:0;flex:1">
           <select name="address_type" aria-label="Address type">

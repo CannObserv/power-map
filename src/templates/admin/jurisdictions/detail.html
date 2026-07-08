@@ -237,9 +237,10 @@
     <p class="danger-zone__label">Archive jurisdiction</p>
     <p class="danger-zone__desc">Hides this jurisdiction from active views but preserves all data.</p>
   </div>
-  <form method="POST" action="/admin/jurisdictions/{{ jur.id }}/archive/">
-    <button type="submit" class="btn btn--danger">Archive jurisdiction</button>
-  </form>
+  <button type="button" class="btn btn--danger"
+          hx-post="/admin/jurisdictions/{{ jur.id }}/archive/" hx-swap="none">
+    Archive jurisdiction
+  </button>
 </div>
 {% else %}
 <div class="danger-zone">
@@ -247,9 +248,10 @@
     <p class="danger-zone__label">Unarchive jurisdiction</p>
     <p class="danger-zone__desc">Restore this jurisdiction to active views.</p>
   </div>
-  <form method="POST" action="/admin/jurisdictions/{{ jur.id }}/unarchive/">
-    <button type="submit" class="btn btn--secondary">Unarchive</button>
-  </form>
+  <button type="button" class="btn btn--secondary"
+          hx-post="/admin/jurisdictions/{{ jur.id }}/unarchive/" hx-swap="none">
+    Unarchive
+  </button>
 </div>
 <div class="danger-zone">
   <div>
@@ -257,7 +259,7 @@
     <p class="danger-zone__desc">Permanently deleting cannot be undone, and is blocked while any role, relationship, or affiliation still references this jurisdiction.</p>
   </div>
   <button type="button" class="btn btn--danger"
-          hx-delete="/admin/jurisdictions/{{ jur.id }}/"
+          hx-delete="/admin/jurisdictions/{{ jur.id }}/" hx-swap="none"
           hx-confirm="Permanently delete this jurisdiction? This cannot be undone.">
     Delete permanently
   </button>

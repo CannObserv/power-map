@@ -122,6 +122,48 @@ async def test_archive_person_redirects_with_flash_query(client, person_id):
     assert response.headers["location"] == f"/admin/people/{person_id}/?flash=archived"
 
 
+async def test_archive_person_htmx_returns_hx_location(client, person_id):
+    """HTMX archive returns 204 + HX-Location pointing at detail with flash."""
+    response = client.post(
+        f"/admin/people/{person_id}/archive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert response.headers["HX-Location"] == f"/admin/people/{person_id}/?flash=archived"
+
+
+async def test_archive_already_archived_person_htmx_returns_409(client, person_id, db_pool):
+    """HTMX re-archive still guarded with 409."""
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE people SET archived_at = NOW() WHERE id = $1", person_id)
+    response = client.post(
+        f"/admin/people/{person_id}/archive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 409
+
+
+async def test_unarchive_person_htmx_returns_hx_location(client, person_id, db_pool):
+    """HTMX unarchive returns 204 + HX-Location pointing at detail with flash."""
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE people SET archived_at = NOW() WHERE id = $1", person_id)
+    response = client.post(
+        f"/admin/people/{person_id}/unarchive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert response.headers["HX-Location"] == f"/admin/people/{person_id}/?flash=unarchived"
+
+
+async def test_unarchive_person_htmx_rejects_non_archived(client, person_id):
+    """HTMX unarchive of an active person still guarded with 409."""
+    response = client.post(
+        f"/admin/people/{person_id}/unarchive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 409
+
+
 async def test_archived_flash_renders_on_person_detail(client, person_id):
     """Person detail with ?flash=archived renders the success flash."""
     response = client.get(f"/admin/people/{person_id}/?flash=archived", headers=AUTH_HEADERS)

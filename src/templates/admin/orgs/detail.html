@@ -364,9 +364,10 @@
     <p class="danger-zone__label">Archive organization</p>
     <p class="danger-zone__desc">Hides this organization from active views but preserves all data.</p>
   </div>
-  <form method="POST" action="/admin/orgs/{{ org.id }}/archive/">
-    <button type="submit" class="btn btn--danger">Archive organization</button>
-  </form>
+  <button type="button" class="btn btn--danger"
+          hx-post="/admin/orgs/{{ org.id }}/archive/" hx-swap="none">
+    Archive organization
+  </button>
 </div>
 {% else %}
 <div class="danger-zone">
@@ -375,7 +376,7 @@
     <p class="danger-zone__desc">This organization is archived. Permanently deleting it cannot be undone.</p>
   </div>
   <button type="button" class="btn btn--danger"
-          hx-delete="/admin/orgs/{{ org.id }}/"
+          hx-delete="/admin/orgs/{{ org.id }}/" hx-swap="none"
           hx-confirm="Permanently delete this organization? This cannot be undone.">
     Delete permanently
   </button>

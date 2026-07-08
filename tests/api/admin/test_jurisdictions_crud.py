@@ -317,6 +317,34 @@ async def test_archive_and_unarchive(client, jur, db_pool):
     )
 
 
+async def test_archive_and_unarchive_htmx(client, jur, db_pool):
+    """HTMX archive/unarchive return 204 + HX-Location to detail with flash; guards preserved."""
+    hx = {**AUTH_HEADERS, "HX-Request": "true"}
+    r = client.post(f"/admin/jurisdictions/{jur['id']}/archive/", headers=hx)
+    assert r.status_code == 204
+    assert r.headers["HX-Location"] == f"/admin/jurisdictions/{jur['id']}/?flash=archived"
+    async with db_pool.acquire() as conn:
+        assert (
+            await conn.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"])
+            is not None
+        )
+    # archiving an archived jurisdiction → 409
+    assert client.post(f"/admin/jurisdictions/{jur['id']}/archive/", headers=hx).status_code == 409
+    # unarchive
+    r3 = client.post(f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=hx)
+    assert r3.status_code == 204
+    assert r3.headers["HX-Location"] == f"/admin/jurisdictions/{jur['id']}/?flash=unarchived"
+    async with db_pool.acquire() as conn:
+        assert (
+            await conn.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"])
+            is None
+        )
+    # unarchiving an active jurisdiction → 409
+    assert (
+        client.post(f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=hx).status_code == 409
+    )
+
+
 async def test_delete_requires_archived(client, jur):
     r = client.request("DELETE", f"/admin/jurisdictions/{jur['id']}/", headers=AUTH_HEADERS)
     assert r.status_code == 409
