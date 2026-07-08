@@ -1,0 +1,35 @@
+{# One voice-embedding row. Expects: e (dict), person_id, show_archived_embeddings.
+   Archived rows render dimmed with Restore + Delete-permanently; active rows
+   get Copy + Delete (soft-archive). #}
+{% set qs = '?show_archived_embeddings=1' if show_archived_embeddings else '' %}
+<tr{% if e.archived_at %} style="opacity:.55"{% endif %}>
+  <td>{{ e.model_id }}{% if e.archived_at %} <span class="badge badge--archived">Archived</span>{% endif %}</td>
+  <td><code>{{ e.vector_preview }}…</code></td>
+  <td>{{ e.source_service }} · {{ e.source_job_id }} · {{ e.source_segment }}</td>
+  <td>{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+  <td style="text-align:right;white-space:nowrap">
+    {% if e.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Restore embedding"
+            hx-post="/admin/people/{{ person_id }}/embeddings/{{ e.model_id }}/{{ e.id }}/restore/{{ qs }}"
+            hx-target="#person-embeddings-section"
+            hx-swap="outerHTML">Restore</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Permanently delete embedding"
+            hx-delete="/admin/people/{{ person_id }}/embeddings/{{ e.model_id }}/{{ e.id }}/permanent/{{ qs }}"
+            hx-target="#person-embeddings-section"
+            hx-swap="outerHTML"
+            hx-confirm="Permanently delete this embedding? This cannot be undone.">Delete permanently</button>
+    {% else %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Copy full vector to clipboard"
+            data-embedding-vector-url="/admin/people/{{ person_id }}/embeddings/{{ e.model_id }}/{{ e.id }}/vector/">Copy</button>
+    <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Archive embedding"
+            hx-delete="/admin/people/{{ person_id }}/embeddings/{{ e.model_id }}/{{ e.id }}/{{ qs }}"
+            hx-target="#person-embeddings-section"
+            hx-swap="outerHTML"
+            hx-confirm="Archive this embedding?">Delete</button>
+    {% endif %}
+  </td>
+</tr>

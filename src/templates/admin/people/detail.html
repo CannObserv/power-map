@@ -289,6 +289,9 @@
   </div>
 </section>
 
+{% set person_id = person.id %}
+{% include "admin/people/partials/_embeddings_section.html" %}
+
 <div id="address-confirm-portal"></div>
 
 <p style="color:var(--color-text-muted);font-size:var(--font-size-sm);margin-top:var(--space-6)">

@@ -17,6 +17,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.entity_lookup import search_entities
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
+from src.api.admin.people_embeddings import fetch_person_embeddings
 from src.api.admin.people_queries import query_people_rows
 from src.core.db import generate_id
 
@@ -188,11 +189,14 @@ async def person_detail(
     db=Depends(get_db),
     flash: str | None = Query(None),
     show_historical: bool = Query(False),
+    show_archived_embeddings: bool = Query(False),
 ):
     """Person detail view.
 
     `show_historical=1` reveals legal_only / hidden rows on the names table;
     default keeps them collapsed behind the toggle (issue #123 Phase 2a Task 3).
+    `show_archived_embeddings=1` reveals archived rows in the Voice Embeddings
+    section (#284), mirroring the names-toggle pattern.
     """
 
     person = await db.fetchrow("SELECT * FROM people WHERE id = $1", person_id)
@@ -286,6 +290,13 @@ async def person_detail(
 
     events = await fetch_entity_events(person_id, "person", db)
 
+    embeddings, embeddings_archived_count = await fetch_person_embeddings(
+        db,
+        request.app.state.embedding_registry,
+        person_id,
+        include_archived=show_archived_embeddings,
+    )
+
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
@@ -305,6 +316,9 @@ async def person_detail(
             "identifiers": identifiers,
             "role_assignments": role_assignments,
             "events": events,
+            "embeddings": embeddings,
+            "embeddings_archived_count": embeddings_archived_count,
+            "show_archived_embeddings": show_archived_embeddings,
             "flash_msg": flash_msg,
         },
         headers=resp_headers,

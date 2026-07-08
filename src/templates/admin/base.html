@@ -51,6 +51,9 @@
   {# Entity-event form row wiring (#172): linked-entity typeahead + scope switch.
      Document-delegated; defensive on pages without an event form. #}
   <script src="/static/admin/event-form-row.js?v={{ asset_version }}" defer></script>
+  {# Voice-embeddings copy-to-clipboard (#284). Document-delegated; no-op on
+     pages without a Copy button. #}
+  <script src="/static/admin/embedding-copy.js?v={{ asset_version }}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
