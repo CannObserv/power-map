@@ -1881,7 +1881,7 @@ DROP INDEX IF EXISTS idx_api_key_scopes_key;
 -- Migration (#163): change feed — deleted_entities tombstone + updated_at indexes.
 
 CREATE TABLE IF NOT EXISTS deleted_entities (
-    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('person', 'organization', 'jurisdiction')),
+    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('person', 'organization', 'jurisdiction', 'role', 'role_assignment')),
     entity_id    TEXT        NOT NULL,
     deleted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (entity_type, entity_id)
@@ -1981,6 +1981,28 @@ DO $$ BEGIN
         ALTER TABLE deleted_entities DROP CONSTRAINT deleted_entities_entity_type_check;
         ALTER TABLE deleted_entities ADD CONSTRAINT deleted_entities_entity_type_check
             CHECK (entity_type IN ('person', 'organization', 'jurisdiction'));
+    END IF;
+END $$;
+
+-- =============================================================================
+-- Migration (#277): extend deleted_entities entity_type CHECK to include
+-- 'role' and 'role_assignment' so hard-deletes of those admin entities can emit
+-- a tombstone → 'deleted' entity_changes signal (entity_changes already permits
+-- both types). Same DROP + re-add idiom as #168; keyed on absence of 'role'.
+-- The CREATE TABLE IF NOT EXISTS above carries the full shape for fresh DBs.
+-- =============================================================================
+
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'deleted_entities_entity_type_check'
+          AND check_clause NOT LIKE '%role%'
+    ) THEN
+        ALTER TABLE deleted_entities DROP CONSTRAINT deleted_entities_entity_type_check;
+        ALTER TABLE deleted_entities ADD CONSTRAINT deleted_entities_entity_type_check
+            CHECK (entity_type IN
+                ('person', 'organization', 'jurisdiction', 'role', 'role_assignment'));
     END IF;
 END $$;
 

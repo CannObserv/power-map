@@ -522,6 +522,33 @@ async def test_hard_delete_archived_role_non_htmx_redirects(client, db, role_id)
     assert response.headers.get("location") == "/admin/roles/"
 
 
+async def test_hard_delete_archived_role_writes_tombstone(client, db, role_id):
+    """Hard delete of an archived role writes a deleted_entities tombstone and
+    propagates a 'deleted' entity_changes row (issue #277)."""
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    response = client.delete(
+        f"/admin/roles/{role_id}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert (
+        await db.fetchval(
+            "SELECT 1 FROM deleted_entities WHERE entity_type='role' AND entity_id=$1",
+            role_id,
+        )
+        == 1
+    )
+    assert (
+        await db.fetchval(
+            "SELECT 1 FROM entity_changes"
+            " WHERE entity_type='role' AND entity_id=$1 AND change_kind='deleted'",
+            role_id,
+        )
+        == 1
+    )
+
+
 async def test_roles_list_filters_by_org_name(client, role_id):
     response = client.get("/admin/roles/?org_q=Test", headers=AUTH_HEADERS)
     assert response.status_code == 200
