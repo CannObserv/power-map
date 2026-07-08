@@ -1,14 +1,46 @@
 """Tests for the pure-ASGI request-capture middleware (#260, step 3)."""
 
+import asyncio
 import hashlib
 import json
 import os
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
 
-from src.api.public.middleware import _enrich, route_group_for_path
+from src.api.public.middleware import (
+    RequestLogMiddleware,
+    _enrich,
+    _pending_writes,
+    route_group_for_path,
+)
 from src.core.db import generate_id
+
+
+async def _drain_pending_writes(timeout: float = 5.0):
+    """Await any in-flight fire-and-forget capture writes (test helper)."""
+    if _pending_writes:
+        await asyncio.wait_for(
+            asyncio.gather(*list(_pending_writes), return_exceptions=True), timeout
+        )
+
+
+async def _poll_row(db, sql, *args, tries: int = 50, delay: float = 0.05):
+    """Poll for a capture row written by the fire-and-forget task (#262).
+
+    The capture INSERT now runs on a background task on the app's event loop, so
+    it may land just after the sync TestClient request returns. Retry a few times
+    before giving up rather than assuming the row is present immediately.
+    """
+    row = None
+    for _ in range(tries):
+        row = await db.fetchrow(sql, *args)
+        if row is not None:
+            return row
+        await asyncio.sleep(delay)
+    return row
+
 
 # ---------------------------------------------------------------------------
 # Unit — route classification (no DB)
@@ -40,6 +72,104 @@ def test_route_group_changes():
 )
 def test_route_group_other(path):
     assert route_group_for_path(path) == "other"
+
+
+# ---------------------------------------------------------------------------
+# Unit — fire-and-forget scheduling (#262, no DB)
+# ---------------------------------------------------------------------------
+
+
+async def _run_middleware(monkeypatch, *, downstream=None):
+    """Drive one GET /api/v1/ request through the middleware with a stub app.
+
+    Returns (send_messages, response_returned_at, write_scheduled). ``_write`` is
+    patched so no DB is touched; scheduling is what we assert on.
+    """
+
+    async def _default_app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"{}"})
+
+    app = downstream or _default_app
+    middleware = RequestLogMiddleware(app)
+
+    scope = {
+        "type": "http",
+        "path": "/api/v1/",
+        "method": "GET",
+        "headers": [],
+        "state": {},
+    }
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    await middleware(scope, receive, send)
+    return sent
+
+
+async def test_write_scheduled_not_awaited_in_request_path(monkeypatch):
+    """The INSERT is scheduled as a background task, not awaited synchronously.
+
+    Simulated by a slow ``_write``: the request must return before the write
+    resolves. We assert the middleware call completes with the write still
+    pending, then drain it.
+    """
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_write(_params):
+        started.set()
+        await release.wait()
+
+    with patch.object(RequestLogMiddleware, "_write", side_effect=slow_write, autospec=False):
+        sent = await _run_middleware(monkeypatch)
+        # Response already produced by send()...
+        assert any(m["type"] == "http.response.start" for m in sent)
+        # ...but the write task is still pending (not awaited in the request path).
+        await asyncio.wait_for(started.wait(), timeout=1)
+        assert len(_pending_writes) >= 1
+        assert not all(t.done() for t in _pending_writes)
+        release.set()
+        await _drain_pending_writes()
+
+    assert len(_pending_writes) == 0  # task-reference set drained on completion
+
+
+async def test_capture_failure_is_swallowed(monkeypatch):
+    """A background write failure must never propagate to the request path."""
+
+    async def boom(_self, _params):
+        raise RuntimeError("insert exploded")
+
+    with patch.object(RequestLogMiddleware, "_write", boom):
+        # Request completes normally despite the scheduled write raising.
+        sent = await _run_middleware(monkeypatch)
+        assert any(m["type"] == "http.response.start" and m["status"] == 200 for m in sent)
+        await _drain_pending_writes()
+
+    # No lingering task references and no exception surfaced.
+    assert len(_pending_writes) == 0
+
+
+async def test_write_runs_and_reference_discarded(monkeypatch):
+    """The scheduled write actually runs; its task reference is discarded on done."""
+    calls = []
+
+    async def record_write(_self, params):
+        calls.append(params)
+
+    with patch.object(RequestLogMiddleware, "_write", record_write):
+        await _run_middleware(monkeypatch)
+        await _drain_pending_writes()
+
+    assert len(calls) == 1  # write executed exactly once
+    assert len(_pending_writes) == 0  # reference set cleaned up
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +239,8 @@ async def test_valid_v1_get_logs_row(client, db, plain_key):
     raw, kid = plain_key
     resp = client.get("/api/v1/", headers={"X-API-Key": raw})
     assert resp.status_code == 200
-    row = await db.fetchrow(
-        "SELECT * FROM api_request_log WHERE api_key_id=$1 ORDER BY id DESC LIMIT 1", kid
+    row = await _poll_row(
+        db, "SELECT * FROM api_request_log WHERE api_key_id=$1 ORDER BY id DESC LIMIT 1", kid
     )
     assert row is not None
     assert row["method"] == "GET"
@@ -136,9 +266,10 @@ async def test_non_v1_path_not_logged(client, db):
 async def test_invalid_key_logs_null_key_row(client, db):
     resp = client.get("/api/v1/", headers={"X-API-Key": "pm_definitely_invalid"})
     assert resp.status_code == 401
-    row = await db.fetchrow(
+    row = await _poll_row(
+        db,
         "SELECT * FROM api_request_log WHERE path='/api/v1/' AND status_code=401"
-        " ORDER BY id DESC LIMIT 1"
+        " ORDER BY id DESC LIMIT 1",
     )
     assert row is not None
     assert row["api_key_id"] is None
@@ -154,7 +285,8 @@ async def test_body_tee_preserves_downstream_and_captures_body(client, db, obs_k
     # Downstream read the JSON body and produced a normal ObservationResponse.
     assert resp.status_code == 200
     assert "disposition" in resp.json()
-    row = await db.fetchrow(
+    row = await _poll_row(
+        db,
         "SELECT * FROM api_request_log WHERE api_key_id=$1 AND route_group='observations'"
         " ORDER BY id DESC LIMIT 1",
         kid,
@@ -234,7 +366,8 @@ async def test_observation_new_enriched(client, db, obs_key):
     assert resp.status_code == 200
     body = resp.json()
     assert body["disposition"] == "new"
-    row = await db.fetchrow(
+    row = await _poll_row(
+        db,
         "SELECT * FROM api_request_log WHERE api_key_id=$1 AND route_group='observations'"
         " ORDER BY id DESC LIMIT 1",
         kid,
@@ -252,7 +385,8 @@ async def test_observation_rejected_enriched(client, db, obs_key):
     resp = client.post("/api/v1/people/observations", json=payload, headers={"X-API-Key": raw})
     assert resp.status_code == 200
     assert resp.json()["disposition"] == "rejected"
-    row = await db.fetchrow(
+    row = await _poll_row(
+        db,
         "SELECT * FROM api_request_log WHERE api_key_id=$1 AND route_group='observations'"
         " ORDER BY id DESC LIMIT 1",
         kid,
@@ -267,7 +401,8 @@ async def test_changes_empty_poll_enriched(client, db, plain_key):
     raw, kid = plain_key
     resp = client.get("/api/v1/changes?after=0", headers={"X-API-Key": raw})
     assert resp.status_code == 200
-    row = await db.fetchrow(
+    row = await _poll_row(
+        db,
         "SELECT * FROM api_request_log WHERE api_key_id=$1 AND route_group='changes'"
         " ORDER BY id DESC LIMIT 1",
         kid,

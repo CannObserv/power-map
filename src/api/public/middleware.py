@@ -11,8 +11,17 @@ count) is layered on in ``_enrich`` for the observations/changes route groups.
 
 Capture is strictly best-effort: any failure while recording is swallowed and
 logged, so observability can never break the request path.
+
+The row write is **fire-and-forget** (#262): the middleware builds the INSERT
+parameters synchronously on the request tail (cheap — parsing only, no DB), then
+schedules the pool-acquire + INSERT on a background ``asyncio`` task so it never
+adds to the awaited request latency. Strong refs to in-flight tasks are held in
+``_pending_writes`` (discarded on completion) so they aren't garbage-collected
+mid-flight — the classic ``create_task`` footgun. Best-effort is preserved: the
+swallow-and-log now lives inside the background task.
 """
 
+import asyncio
 import json
 import time
 
@@ -22,6 +31,11 @@ from src.core.logging import get_logger
 logger = get_logger(__name__)
 
 _V1_PREFIX = "/api/v1"
+
+# Strong references to in-flight fire-and-forget capture writes (#262). Without
+# this, ``asyncio`` only keeps a weak ref to the task and may GC it before it
+# runs. Each task discards its own ref via a done-callback.
+_pending_writes: set[asyncio.Task] = set()
 
 _INSERT_SQL = """
     INSERT INTO api_request_log
@@ -151,8 +165,11 @@ class RequestLogMiddleware:
             await self.app(scope, recv, send_wrapper)
         finally:
             latency_ms = int((time.perf_counter() - start) * 1000)
+            # Build INSERT params on the request tail (parsing only, no DB), then
+            # fire-and-forget the write off the hot path (#262). Param assembly is
+            # itself best-effort so a malformed capture can never break the request.
             try:
-                await self._record(
+                params = self._build_params(
                     scope,
                     route_group,
                     capture_bodies,
@@ -162,9 +179,21 @@ class RequestLogMiddleware:
                     latency_ms,
                 )
             except Exception:  # observability must never break the request
-                logger.warning("api_request_log capture failed", exc_info=True)
+                logger.warning("api_request_log param build failed", exc_info=True)
+            else:
+                self._schedule_write(params)
 
-    async def _record(
+    def _schedule_write(self, params: tuple) -> None:
+        """Fire-and-forget the row INSERT on a background task (#262).
+
+        Holds a strong ref to the task in ``_pending_writes`` until it completes
+        so it isn't garbage-collected mid-flight, then discards the ref.
+        """
+        task = asyncio.create_task(self._write(params))
+        _pending_writes.add(task)
+        task.add_done_callback(_pending_writes.discard)
+
+    def _build_params(
         self,
         scope,
         route_group,
@@ -173,7 +202,7 @@ class RequestLogMiddleware:
         status_code,
         response_chunks,
         latency_ms,
-    ):
+    ) -> tuple:
         path = scope.get("path", "")
         method = scope.get("method", "")
         state = scope.get("state") or {}
@@ -201,26 +230,36 @@ class RequestLogMiddleware:
             response_body = None
             enriched = _enrich(route_group, None)
 
-        # Synchronous write on the request tail — deferred hot-path concern (#262):
-        # move to a fire-and-forget / buffered writer if poll cadence bites.
-        pool = db.get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                _INSERT_SQL,
-                api_key_id,
-                method,
-                path,
-                route_group,
-                enriched["entity_type"],
-                status_code,
-                latency_ms,
-                enriched["disposition"],
-                enriched["result_entity_id"],
-                enriched["reason"],
-                enriched["item_count"],
-                enriched["is_empty"],
-                client_ip,
-                user_agent,
-                request_body,
-                response_body,
-            )
+        return (
+            api_key_id,
+            method,
+            path,
+            route_group,
+            enriched["entity_type"],
+            status_code,
+            latency_ms,
+            enriched["disposition"],
+            enriched["result_entity_id"],
+            enriched["reason"],
+            enriched["item_count"],
+            enriched["is_empty"],
+            client_ip,
+            user_agent,
+            request_body,
+            response_body,
+        )
+
+    async def _write(self, params: tuple) -> None:
+        """Execute the ``api_request_log`` INSERT on a dedicated pool connection.
+
+        Runs off the request hot path via ``asyncio.create_task`` (#262). Acquires
+        its own connection from the pool (never a request-scoped one, which may
+        already be released). Best-effort: any failure is swallowed and logged so
+        observability can never break — or, here, outlive — the request.
+        """
+        try:
+            pool = db.get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(_INSERT_SQL, *params)
+        except Exception:  # observability must never break the request
+            logger.warning("api_request_log capture failed", exc_info=True)
