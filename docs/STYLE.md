@@ -2071,6 +2071,15 @@ Caveat: cache is not shared across gunicorn workers — counts may lag by up to 
 - **No dup surface** — jurisdictions have no dup tables (no merge/dismiss, no dup badge).
 - **Shared lineage helper**: the recursive lineage CTE lives once in `src.core.jurisdictions.fetch_lineage`, shared by the public lineage endpoint (#168) and the admin detail — anchor on a resolved id (callers resolve slug→id first).
 
+### Person voice-embeddings section (#284)
+
+`src.api.admin.people_embeddings` adds a **read-only** "Voice Embeddings" section to the Person detail view. No create/paste-in (the row's NOT-NULL voice provenance + `created_by_key_id` FK make console entry impractical); no metadata edit; no similarity search.
+
+- **Registry-driven, multi-model**: `fetch_person_embeddings(db, registry, person_id, include_archived=…)` loops `app.state.embedding_registry.all()` and unions rows across every model table, tagging each with its `model_id`. Table names come **only from the registry** (never user input) — same injection-safe pattern as the public embeddings API. Loaded in the `person_detail` handler and rendered server-side like Identifiers.
+- **Vector column**: only a preview (`left(embedding::text, 10)`) is rendered in-page; the full 256-float literal is fetched on demand from `GET …/{model_id}/{eid}/vector/` (`PlainTextResponse`) by `embedding-copy.js` (document-delegated, site-wide, boost-safe), which writes it to the clipboard and fires a `showFlash` event.
+- **Archived toggle**: `?show_archived_embeddings=1` full-page reload (mirrors the Names `show_historical` pattern) reveals archived rows dimmed; the toggle label shows the archived count.
+- **Lifecycle** (archive-model conventions): Delete soft-archives (409 if already archived); Restore clears `archived_at` (409 if already active); **Delete permanently** hard-deletes and **requires the row be archived first** (409 otherwise). Mutations re-render the `#person-embeddings-table tbody` via `_embedding_rows.html`, passing the current `show_archived_embeddings` state through a query param so the swap stays in the same mode; all carry `flash_trigger` + a `RedirectResponse` non-HTMX fallback.
+
 ---
 
 ## 33. Vitest test conventions

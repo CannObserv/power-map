@@ -30,6 +30,7 @@ from src.api.admin import people as people_module
 from src.api.admin import people_addresses as people_addresses_module
 from src.api.admin import people_assignments as people_assignments_module
 from src.api.admin import people_contacts as people_contacts_module
+from src.api.admin import people_embeddings as people_embeddings_module
 from src.api.admin import people_events as people_events_module
 from src.api.admin import people_identifiers as people_identifiers_module
 from src.api.admin import people_links as people_links_module
@@ -95,6 +96,7 @@ admin_router.include_router(people_links_module.router)
 admin_router.include_router(people_identifiers_module.router)
 admin_router.include_router(people_assignments_module.router)
 admin_router.include_router(people_events_module.router)
+admin_router.include_router(people_embeddings_module.router)
 admin_router.include_router(jurisdictions_module.router)
 admin_router.include_router(jurisdictions_contacts_module.router)
 admin_router.include_router(jurisdictions_links_module.router)

@@ -1,0 +1,8 @@
+{# Voice-embeddings tbody body. Expects: embeddings, person_id,
+   show_archived_embeddings. Rendered inline on the detail page and returned
+   from mutation routes (archive / restore / hard-delete) to swap the tbody. #}
+{% for e in embeddings %}
+{% include "admin/people/partials/_embedding_row.html" %}
+{% else %}
+<tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No embeddings</td></tr>
+{% endfor %}
