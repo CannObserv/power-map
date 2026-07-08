@@ -20,7 +20,7 @@
   </label>
   {% if org.archived_at %}
   <button type="button" class="btn btn--secondary btn--sm" style="margin-left:var(--space-5)"
-          hx-post="/admin/orgs/{{ org.id }}/unarchive/">
+          hx-post="/admin/orgs/{{ org.id }}/unarchive/" hx-swap="none">
     Restore from archive
   </button>
   {% endif %}

@@ -238,7 +238,7 @@
     <p class="danger-zone__desc">Hides this jurisdiction from active views but preserves all data.</p>
   </div>
   <button type="button" class="btn btn--danger"
-          hx-post="/admin/jurisdictions/{{ jur.id }}/archive/">
+          hx-post="/admin/jurisdictions/{{ jur.id }}/archive/" hx-swap="none">
     Archive jurisdiction
   </button>
 </div>
@@ -249,7 +249,7 @@
     <p class="danger-zone__desc">Restore this jurisdiction to active views.</p>
   </div>
   <button type="button" class="btn btn--secondary"
-          hx-post="/admin/jurisdictions/{{ jur.id }}/unarchive/">
+          hx-post="/admin/jurisdictions/{{ jur.id }}/unarchive/" hx-swap="none">
     Unarchive
   </button>
 </div>

@@ -365,7 +365,7 @@
     <p class="danger-zone__desc">Hides this organization from active views but preserves all data.</p>
   </div>
   <button type="button" class="btn btn--danger"
-          hx-post="/admin/orgs/{{ org.id }}/archive/">
+          hx-post="/admin/orgs/{{ org.id }}/archive/" hx-swap="none">
     Archive organization
   </button>
 </div>
