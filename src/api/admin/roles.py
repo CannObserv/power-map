@@ -316,7 +316,14 @@ async def role_delete(
     if not role["archived_at"]:
         raise HTTPException(status_code=409, detail="Role must be archived before deletion")
     try:
-        await db.execute("DELETE FROM roles WHERE id = $1", role_id)
+        async with db.transaction():
+            await db.execute("DELETE FROM roles WHERE id = $1", role_id)
+            # Tombstone (issue #277): emit a 'deleted' signal for subscribers.
+            await db.execute(
+                "INSERT INTO deleted_entities (entity_type, entity_id) VALUES ('role', $1)"
+                " ON CONFLICT DO NOTHING",
+                role_id,
+            )
     except asyncpg.ForeignKeyViolationError:
         raise HTTPException(status_code=409, detail="Cannot delete role with existing assignments")
     if is_htmx(request):

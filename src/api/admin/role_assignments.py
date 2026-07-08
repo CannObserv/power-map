@@ -539,7 +539,14 @@ async def ra_delete(
             status_code=409, detail="Role assignment must be archived before deletion"
         )
 
-    await db.execute("DELETE FROM role_assignments WHERE id = $1", ra_id)
+    async with db.transaction():
+        await db.execute("DELETE FROM role_assignments WHERE id = $1", ra_id)
+        # Tombstone (issue #277): emit a 'deleted' signal for subscribers.
+        await db.execute(
+            "INSERT INTO deleted_entities (entity_type, entity_id)"
+            " VALUES ('role_assignment', $1) ON CONFLICT DO NOTHING",
+            ra_id,
+        )
     if is_htmx(request):
         return Response(
             status_code=204,
