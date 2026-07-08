@@ -70,13 +70,24 @@ async def fetch_person_embeddings(
     return rows, archived_count
 
 
-async def _render_rows(request, db, registry, person_id, *, show_archived, extra_headers=None):
-    """Re-render the embeddings ``<tbody>`` partial after a mutation."""
-    rows, _ = await fetch_person_embeddings(db, registry, person_id, include_archived=show_archived)
+async def _render_section(request, db, registry, person_id, *, show_archived, extra_headers=None):
+    """Re-render the whole embeddings ``<section>`` after a mutation.
+
+    Returns the full section (header + table) rather than just the tbody so the
+    archived-count toggle re-renders with a fresh count (#284 CR item 1).
+    """
+    rows, archived_count = await fetch_person_embeddings(
+        db, registry, person_id, include_archived=show_archived
+    )
     return templates.TemplateResponse(
         request,
-        "admin/people/partials/_embedding_rows.html",
-        {"embeddings": rows, "person_id": person_id, "show_archived_embeddings": show_archived},
+        "admin/people/partials/_embeddings_section.html",
+        {
+            "embeddings": rows,
+            "person_id": person_id,
+            "embeddings_archived_count": archived_count,
+            "show_archived_embeddings": show_archived,
+        },
         headers=extra_headers,
     )
 
@@ -126,14 +137,20 @@ async def archive_embedding(
         raise HTTPException(status_code=404, detail="Embedding not found")
     if existing["archived_at"] is not None:
         raise HTTPException(status_code=409, detail="Embedding is already archived")
-    await db.execute(
-        f"UPDATE {table} SET archived_at = now() WHERE id = $1 AND person_id = $2",
+    # Guard the write on archived_at IS NULL so a concurrent archive can't slip
+    # through the check-then-act window; a lost race resolves to the same 409.
+    updated = await db.fetchrow(
+        f"UPDATE {table} SET archived_at = now()"
+        " WHERE id = $1 AND person_id = $2 AND archived_at IS NULL"
+        " RETURNING id",
         embedding_id,
         person_id,
     )
+    if updated is None:
+        raise HTTPException(status_code=409, detail="Embedding is already archived")
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
-    return await _render_rows(
+    return await _render_section(
         request,
         db,
         registry,
@@ -166,14 +183,19 @@ async def restore_embedding(
         raise HTTPException(status_code=404, detail="Embedding not found")
     if existing["archived_at"] is None:
         raise HTTPException(status_code=409, detail="Embedding is already active")
-    await db.execute(
-        f"UPDATE {table} SET archived_at = NULL WHERE id = $1 AND person_id = $2",
+    # Guard on archived_at IS NOT NULL to close the check-then-act window.
+    updated = await db.fetchrow(
+        f"UPDATE {table} SET archived_at = NULL"
+        " WHERE id = $1 AND person_id = $2 AND archived_at IS NOT NULL"
+        " RETURNING id",
         embedding_id,
         person_id,
     )
+    if updated is None:
+        raise HTTPException(status_code=409, detail="Embedding is already active")
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
-    return await _render_rows(
+    return await _render_section(
         request,
         db,
         registry,
@@ -208,14 +230,22 @@ async def hard_delete_embedding(
         raise HTTPException(
             status_code=409, detail="Archive the embedding before deleting it permanently"
         )
-    await db.execute(
-        f"DELETE FROM {table} WHERE id = $1 AND person_id = $2",
+    # Guard on archived_at IS NOT NULL so a concurrent restore can't let the
+    # DELETE bypass the archive-first invariant; a lost race resolves to 409.
+    deleted = await db.fetchrow(
+        f"DELETE FROM {table}"
+        " WHERE id = $1 AND person_id = $2 AND archived_at IS NOT NULL"
+        " RETURNING id",
         embedding_id,
         person_id,
     )
+    if deleted is None:
+        raise HTTPException(
+            status_code=409, detail="Archive the embedding before deleting it permanently"
+        )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
-    return await _render_rows(
+    return await _render_section(
         request,
         db,
         registry,

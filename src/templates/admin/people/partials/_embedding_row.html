@@ -12,13 +12,13 @@
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Restore embedding"
             hx-post="/admin/people/{{ person_id }}/embeddings/{{ e.model_id }}/{{ e.id }}/restore/{{ qs }}"
-            hx-target="#person-embeddings-table tbody"
-            hx-swap="innerHTML">Restore</button>
+            hx-target="#person-embeddings-section"
+            hx-swap="outerHTML">Restore</button>
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Permanently delete embedding"
             hx-delete="/admin/people/{{ person_id }}/embeddings/{{ e.model_id }}/{{ e.id }}/permanent/{{ qs }}"
-            hx-target="#person-embeddings-table tbody"
-            hx-swap="innerHTML"
+            hx-target="#person-embeddings-section"
+            hx-swap="outerHTML"
             hx-confirm="Permanently delete this embedding? This cannot be undone.">Delete permanently</button>
     {% else %}
     <button type="button" class="btn btn--sm btn--secondary"
@@ -27,8 +27,8 @@
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Archive embedding"
             hx-delete="/admin/people/{{ person_id }}/embeddings/{{ e.model_id }}/{{ e.id }}/{{ qs }}"
-            hx-target="#person-embeddings-table tbody"
-            hx-swap="innerHTML"
+            hx-target="#person-embeddings-section"
+            hx-swap="outerHTML"
             hx-confirm="Archive this embedding?">Delete</button>
     {% endif %}
   </td>

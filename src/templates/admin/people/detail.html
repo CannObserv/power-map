@@ -289,37 +289,8 @@
   </div>
 </section>
 
-<section class="entity-section">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
-    <h2>Voice Embeddings</h2>
-    {% if embeddings_archived_count %}
-      {% if show_archived_embeddings %}
-      <a class="btn btn--sm btn--secondary" href="/admin/people/{{ person.id }}/"
-         aria-label="Hide archived embeddings">Hide archived</a>
-      {% else %}
-      <a class="btn btn--sm btn--secondary"
-         href="/admin/people/{{ person.id }}/?show_archived_embeddings=1"
-         aria-label="Show {{ embeddings_archived_count }} archived embedding(s)"
-      >Show archived ({{ embeddings_archived_count }})</a>
-      {% endif %}
-    {% endif %}
-  </div>
-  <div class="table-wrapper">
-    <table id="person-embeddings-table" class="data-table">
-      <thead><tr>
-        <th scope="col">Model</th>
-        <th scope="col">Vector</th>
-        <th scope="col">Source</th>
-        <th scope="col" style="width:11rem">Created</th>
-        <th scope="col"></th>
-      </tr></thead>
-      <tbody>
-        {% set person_id = person.id %}
-        {% include "admin/people/partials/_embedding_rows.html" %}
-      </tbody>
-    </table>
-  </div>
-</section>
+{% set person_id = person.id %}
+{% include "admin/people/partials/_embeddings_section.html" %}
 
 <div id="address-confirm-portal"></div>
 

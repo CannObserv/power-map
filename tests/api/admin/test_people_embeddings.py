@@ -146,6 +146,13 @@ async def test_show_archived_toggle_reveals_archived(client, db_pool, person_id,
     assert "Hide archived" in r.text
 
 
+async def test_archived_row_renders_restore_and_hard_delete(client, db_pool, person_id, api_key_id):
+    await _insert_embedding(db_pool, person_id, api_key_id, archived=True)
+    r = client.get(f"/admin/people/{person_id}/?show_archived_embeddings=1", headers=AUTH_HEADERS)
+    assert "Restore" in r.text
+    assert "Delete permanently" in r.text
+
+
 # ---------------------------------------------------------------------------
 # Copy
 # ---------------------------------------------------------------------------
@@ -190,6 +197,19 @@ async def test_delete_archives(client, db_pool, person_id, api_key_id):
     )
     assert r.status_code == 200
     assert await _archived_at(db_pool, eid) is not None
+
+
+async def test_archive_response_refreshes_archived_count(client, db_pool, person_id, api_key_id):
+    # Archiving the only active row (0 archived → 1) must re-render the section
+    # header so the "Show archived (N)" toggle appears with a fresh count (#284
+    # CR item 1: whole-section swap, not tbody-only).
+    eid = await _insert_embedding(db_pool, person_id, api_key_id)
+    r = client.delete(
+        f"/admin/people/{person_id}/embeddings/{_MODEL_ID}/{eid}/", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    assert 'id="person-embeddings-section"' in r.text
+    assert "Show archived (1)" in r.text
 
 
 async def test_delete_already_archived_409(client, db_pool, person_id, api_key_id):
