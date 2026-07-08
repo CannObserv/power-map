@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin._addresses_shared import AddressEchoParams, field_context, parse_validity
+from src.api.admin._addresses_shared import (
+    AddressEchoParams,
+    ConfirmPersist,
+    field_context,
+    parse_validity,
+)
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 from src.core.normalizers.address import get_address_normalizer
@@ -68,7 +73,12 @@ async def _maybe_confirm(
     valid_from: str = "",
     valid_until: str = "",
 ):
-    """Call normalizer and return confirm partial if standardized result; else None."""
+    """Call normalizer; decide the confirm-step outcome.
+
+    Returns ``None`` when there's nothing to confirm (no standardized result), a
+    confirm-modal ``TemplateResponse`` for an HTMX client, or a ``ConfirmPersist``
+    marker for a non-HTMX client so the route persists directly (#280).
+    """
     raw = " ".join(
         filter(
             None,
@@ -115,7 +125,21 @@ async def _maybe_confirm(
         "valid_until": valid_until,
     }
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        # No modal to render for a JS-disabled client; persist the normalized
+        # values directly (mirroring the modal "Accept" path) instead of
+        # redirecting away and silently dropping the address (#280).
+        return ConfirmPersist(
+            address_line_1=normalized_ctx["address_line_1"] or None,
+            address_line_2=normalized_ctx["address_line_2"] or None,
+            city=normalized_ctx["city"] or None,
+            region=normalized_ctx["region"] or None,
+            postal_code=normalized_ctx["postal_code"] or None,
+            country=normalized_ctx["country"] or country,
+            standardized=normalized_ctx["standardized"] or None,
+            latitude=normalized_ctx["latitude"],
+            longitude=normalized_ctx["longitude"],
+            components=normalized_ctx["components_json"] or None,
+        )
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_confirm_modal.html",
@@ -247,6 +271,7 @@ async def address_create(
                 **(await field_context(country)),
             },
         )
+    persist: ConfirmPersist | None = None
     if mode == "confirm":
         confirm = await _maybe_confirm(
             request,
@@ -263,39 +288,61 @@ async def address_create(
             valid_from,
             valid_until,
         )
-        if confirm is not None:
+        if isinstance(confirm, ConfirmPersist):
+            persist = confirm  # non-HTMX: persist normalized values directly (#280)
+        elif confirm is not None:
             return confirm
     aid = generate_id()
     eaid = generate_id()
-    try:
-        _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
-            standardized, latitude, longitude, components
-        )
-    except ValueError:
-        if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "admin/orgs/partials/_address_form_row.html",
-            {
-                "org_id": org_id,
-                "a": form_echo,
-                "error": "Invalid address data submitted. Please re-submit the form.",
-                **(await field_context(country)),
-            },
-        )
+    if persist is not None:
+        (
+            _line_1,
+            _line_2,
+            _city,
+            _region,
+            _postal,
+            _country,
+            _standardized,
+            _latitude,
+            _longitude,
+            _components,
+        ) = persist.as_address_columns()
+    else:
+        try:
+            _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
+                standardized, latitude, longitude, components
+            )
+        except ValueError:
+            if not is_htmx(request):
+                return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return templates.TemplateResponse(
+                request,
+                "admin/orgs/partials/_address_form_row.html",
+                {
+                    "org_id": org_id,
+                    "a": form_echo,
+                    "error": "Invalid address data submitted. Please re-submit the form.",
+                    **(await field_context(country)),
+                },
+            )
+        _line_1 = address_line_1.strip() or None
+        _line_2 = address_line_2.strip() or None
+        _city = city.strip() or None
+        _region = region.strip() or None
+        _postal = postal_code.strip() or None
+        _country = country.strip() or "US"
     await db.execute(
         "INSERT INTO addresses"
         " (id, address_line_1, address_line_2, city, region, postal_code,"
         "  country, standardized, latitude, longitude, components)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         aid,
-        address_line_1.strip() or None,
-        address_line_2.strip() or None,
-        city.strip() or None,
-        region.strip() or None,
-        postal_code.strip() or None,
-        country.strip() or "US",
+        _line_1,
+        _line_2,
+        _city,
+        _region,
+        _postal,
+        _country,
         _standardized,
         _latitude,
         _longitude,
@@ -436,6 +483,7 @@ async def address_edit_row_post(
                 **(await field_context(country)),
             },
         )
+    persist: ConfirmPersist | None = None
     if mode == "confirm":
         confirm = await _maybe_confirm(
             request,
@@ -452,36 +500,58 @@ async def address_edit_row_post(
             valid_from,
             valid_until,
         )
-        if confirm is not None:
+        if isinstance(confirm, ConfirmPersist):
+            persist = confirm  # non-HTMX: persist normalized values directly (#280)
+        elif confirm is not None:
             return confirm
-    try:
-        _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
-            standardized, latitude, longitude, components
-        )
-    except ValueError:
-        if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "admin/orgs/partials/_address_form_row.html",
-            {
-                "org_id": org_id,
-                "a": form_echo,
-                "error": "Invalid address data submitted. Please re-submit the form.",
-                **(await field_context(country)),
-            },
-        )
+    if persist is not None:
+        (
+            _line_1,
+            _line_2,
+            _city,
+            _region,
+            _postal,
+            _country,
+            _standardized,
+            _latitude,
+            _longitude,
+            _components,
+        ) = persist.as_address_columns()
+    else:
+        try:
+            _standardized, _latitude, _longitude, _components = _parse_normalizer_fields(
+                standardized, latitude, longitude, components
+            )
+        except ValueError:
+            if not is_htmx(request):
+                return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return templates.TemplateResponse(
+                request,
+                "admin/orgs/partials/_address_form_row.html",
+                {
+                    "org_id": org_id,
+                    "a": form_echo,
+                    "error": "Invalid address data submitted. Please re-submit the form.",
+                    **(await field_context(country)),
+                },
+            )
+        _line_1 = address_line_1.strip() or None
+        _line_2 = address_line_2.strip() or None
+        _city = city.strip() or None
+        _region = region.strip() or None
+        _postal = postal_code.strip() or None
+        _country = country.strip() or "US"
     await db.execute(
         "UPDATE addresses"
         " SET address_line_1=$1, address_line_2=$2, city=$3, region=$4, postal_code=$5,"
         "     country=$6, standardized=$7, latitude=$8, longitude=$9, components=$10"
         " WHERE id=$11",
-        address_line_1.strip() or None,
-        address_line_2.strip() or None,
-        city.strip() or None,
-        region.strip() or None,
-        postal_code.strip() or None,
-        country.strip() or "US",
+        _line_1,
+        _line_2,
+        _city,
+        _region,
+        _postal,
+        _country,
         _standardized,
         _latitude,
         _longitude,
