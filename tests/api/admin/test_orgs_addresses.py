@@ -550,8 +550,11 @@ async def test_address_edit_confirm_shows_confirm_modal(mock_normalizer, client,
 
 
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
-async def test_address_create_confirm_non_htmx_redirects(mock_normalizer, client, org_and_address):
-    oid, _ = org_and_address
+async def test_address_create_confirm_non_htmx_persists_and_redirects(
+    mock_normalizer, client, org_and_address, db_pool
+):
+    """#280: a non-HTMX confirm submit persists the normalized address, no data loss."""
+    oid, existing_eaid = org_and_address
     mock_normalizer.normalize = AsyncMock(
         return_value=MagicMock(
             skipped=False,
@@ -585,9 +588,24 @@ async def test_address_create_confirm_non_htmx_redirects(mock_normalizer, client
     assert r.status_code == 303
     assert r.headers["location"] == f"/admin/orgs/{oid}/"
 
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT a.address_line_1, a.city, a.region, a.postal_code, a.standardized"
+            " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+            " WHERE ea.entity_id=$1 AND ea.id != $2",
+            oid,
+            existing_eaid,
+        )
+    assert row is not None
+    assert row["address_line_1"] == "123 MAIN ST"
+    assert row["standardized"] == "123 MAIN ST SEATTLE WA 98101"
+
 
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
-async def test_address_edit_confirm_non_htmx_redirects(mock_normalizer, client, org_and_address):
+async def test_address_edit_confirm_non_htmx_persists_and_redirects(
+    mock_normalizer, client, org_and_address, db_pool
+):
+    """#280: a non-HTMX confirm edit submit persists the normalized address."""
     oid, eaid = org_and_address
     mock_normalizer.normalize = AsyncMock(
         return_value=MagicMock(
@@ -621,6 +639,17 @@ async def test_address_edit_confirm_non_htmx_redirects(mock_normalizer, client, 
     )
     assert r.status_code == 303
     assert r.headers["location"] == f"/admin/orgs/{oid}/"
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT a.address_line_1, a.city, a.standardized"
+            " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+            " WHERE ea.id=$1",
+            eaid,
+        )
+    assert row is not None
+    assert row["address_line_1"] == "123 MAIN ST"
+    assert row["standardized"] == "123 MAIN ST OLYMPIA WA 98501"
 
 
 @pytest.mark.integration

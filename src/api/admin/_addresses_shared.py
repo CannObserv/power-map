@@ -10,6 +10,29 @@ VALIDITY_ORDER_ERROR = "Valid from must be on or before valid until."
 
 
 @dataclass(frozen=True)
+class ConfirmPersist:
+    """Signal from ``_maybe_confirm`` to persist directly on a non-HTMX submit (#280).
+
+    A JS-disabled client cannot render the confirm modal, so a ``mode="confirm"``
+    submit has no follow-up ``mode="save"`` round trip. Rather than redirect away
+    and silently drop the address, ``_maybe_confirm`` returns this marker carrying
+    the normalizer's DB-ready values so the route inserts/updates the row (mirroring
+    the modal's "Accept" path) and redirects as a genuine success.
+    """
+
+    address_line_1: str | None
+    address_line_2: str | None
+    city: str | None
+    region: str | None
+    postal_code: str | None
+    country: str
+    standardized: str | None
+    latitude: float | None
+    longitude: float | None
+    components: str | None
+
+
+@dataclass(frozen=True)
 class AddressEchoParams:
     """In-progress structured-field values echoed back on a country change (#258).
 

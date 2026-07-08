@@ -1,7 +1,7 @@
 """Integration tests for person addresses — temporal validity window (#181)."""
 
 import re
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -321,3 +321,111 @@ async def test_addresses_create_malformed_date_returns_format_error(
             existing_eaid,
         )
     assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# Non-HTMX confirm-mode persistence (#280 — silent data loss)
+# ---------------------------------------------------------------------------
+
+
+@patch("src.api.admin.people_addresses._NORMALIZER")
+async def test_address_create_confirm_non_htmx_persists_and_redirects(
+    mock_normalizer, client, person_and_address, db_pool
+):
+    """#280: a non-HTMX confirm submit persists the normalized address, no data loss."""
+    pid, existing_eaid = person_and_address
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "123 MAIN ST",
+                "address_line_2": None,
+                "city": "SEATTLE",
+                "region": "WA",
+                "postal_code": "98101",
+                "country": "US",
+                "standardized": "123 MAIN ST SEATTLE WA 98101",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
+    r = client.post(
+        f"/admin/people/{pid}/addresses/",
+        headers=AUTH_HEADERS,  # no HX-Request
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "address_type": "mailing",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/admin/people/{pid}/"
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT a.address_line_1, a.city, a.region, a.postal_code, a.standardized"
+            " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+            " WHERE ea.entity_id=$1 AND ea.id != $2",
+            pid,
+            existing_eaid,
+        )
+    assert row is not None
+    assert row["address_line_1"] == "123 MAIN ST"
+    assert row["standardized"] == "123 MAIN ST SEATTLE WA 98101"
+
+
+@patch("src.api.admin.people_addresses._NORMALIZER")
+async def test_address_edit_confirm_non_htmx_persists_and_redirects(
+    mock_normalizer, client, person_and_address, db_pool
+):
+    """#280: a non-HTMX confirm edit submit persists the normalized address."""
+    pid, eaid = person_and_address
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "123 MAIN ST",
+                "address_line_2": None,
+                "city": "OLYMPIA",
+                "region": "WA",
+                "postal_code": "98501",
+                "country": "US",
+                "standardized": "123 MAIN ST OLYMPIA WA 98501",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
+    r = client.post(
+        f"/admin/people/{pid}/addresses/{eaid}/edit-row/",
+        headers=AUTH_HEADERS,  # no HX-Request
+        data={
+            "address_line_1": "123 Main St",
+            "city": "Olympia",
+            "region": "WA",
+            "postal_code": "98501",
+            "address_type": "mailing",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/admin/people/{pid}/"
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT a.address_line_1, a.city, a.standardized"
+            " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+            " WHERE ea.id=$1",
+            eaid,
+        )
+    assert row is not None
+    assert row["address_line_1"] == "123 MAIN ST"
+    assert row["standardized"] == "123 MAIN ST OLYMPIA WA 98501"
