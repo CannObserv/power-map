@@ -34,6 +34,22 @@ def _require_model(model_id: str, registry: EmbeddingRegistry) -> ModelMeta:
     return meta
 
 
+async def _raise_lost_race(db, table: str, embedding_id: str, person_id: str, conflict: str):
+    """Raise after a guarded write matched nothing: 404 if the row is gone, else 409.
+
+    Re-checks existence so a row hard-deleted between the pre-check SELECT and
+    the guarded write reports 404 rather than a misleading state conflict.
+    """
+    still = await db.fetchval(
+        f"SELECT 1 FROM {table} WHERE id = $1 AND person_id = $2",
+        embedding_id,
+        person_id,
+    )
+    if still is None:
+        raise HTTPException(status_code=404, detail="Embedding not found")
+    raise HTTPException(status_code=409, detail=conflict)
+
+
 async def fetch_person_embeddings(
     db, registry: EmbeddingRegistry, person_id: str, *, include_archived: bool
 ) -> tuple[list[dict], int]:
@@ -147,7 +163,7 @@ async def archive_embedding(
         person_id,
     )
     if updated is None:
-        raise HTTPException(status_code=409, detail="Embedding is already archived")
+        await _raise_lost_race(db, table, embedding_id, person_id, "Embedding is already archived")
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
     return await _render_section(
@@ -192,7 +208,7 @@ async def restore_embedding(
         person_id,
     )
     if updated is None:
-        raise HTTPException(status_code=409, detail="Embedding is already active")
+        await _raise_lost_race(db, table, embedding_id, person_id, "Embedding is already active")
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
     return await _render_section(
@@ -240,8 +256,12 @@ async def hard_delete_embedding(
         person_id,
     )
     if deleted is None:
-        raise HTTPException(
-            status_code=409, detail="Archive the embedding before deleting it permanently"
+        await _raise_lost_race(
+            db,
+            table,
+            embedding_id,
+            person_id,
+            "Archive the embedding before deleting it permanently",
         )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
