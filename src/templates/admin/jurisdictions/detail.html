@@ -259,7 +259,7 @@
     <p class="danger-zone__desc">Permanently deleting cannot be undone, and is blocked while any role, relationship, or affiliation still references this jurisdiction.</p>
   </div>
   <button type="button" class="btn btn--danger"
-          hx-delete="/admin/jurisdictions/{{ jur.id }}/"
+          hx-delete="/admin/jurisdictions/{{ jur.id }}/" hx-swap="none"
           hx-confirm="Permanently delete this jurisdiction? This cannot be undone.">
     Delete permanently
   </button>

@@ -376,7 +376,7 @@
     <p class="danger-zone__desc">This organization is archived. Permanently deleting it cannot be undone.</p>
   </div>
   <button type="button" class="btn btn--danger"
-          hx-delete="/admin/orgs/{{ org.id }}/"
+          hx-delete="/admin/orgs/{{ org.id }}/" hx-swap="none"
           hx-confirm="Permanently delete this organization? This cannot be undone.">
     Delete permanently
   </button>
