@@ -201,17 +201,21 @@ async def jurisdiction_create(
 
     jid = generate_id()
     try:
-        await db.execute(
-            "INSERT INTO jurisdictions (id, slug, name, type_id, valid_from, valid_until, notes)"
-            " VALUES ($1, $2, $3, $4, $5, $6, $7)",
-            jid,
-            slug.strip(),
-            name.strip(),
-            type_id.strip(),
-            vf,
-            vu,
-            notes.strip() or None,
-        )
+        # Savepoint so a unique/FK violation aborts only this write, not the
+        # ambient transaction — keeps the except-block re-render usable (#288).
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO jurisdictions"
+                " (id, slug, name, type_id, valid_from, valid_until, notes)"
+                " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                jid,
+                slug.strip(),
+                name.strip(),
+                type_id.strip(),
+                vf,
+                vu,
+                notes.strip() or None,
+            )
     except asyncpg.UniqueViolationError:
         errors["slug"] = "A jurisdiction with this slug already exists"
         return await _render_jur_form(request, user, db, form=form, errors=errors, status_code=422)
@@ -313,17 +317,19 @@ async def jurisdiction_details_save(
     if errors:
         return await _rerender()
     try:
-        await db.execute(
-            "UPDATE jurisdictions SET name=$1, slug=$2, type_id=$3, valid_from=$4,"
-            " valid_until=$5, notes=$6 WHERE id=$7",
-            name.strip(),
-            slug.strip(),
-            resolved_type,
-            vf,
-            vu,
-            notes.strip() or None,
-            jurisdiction_id,
-        )
+        # Savepoint so a unique/FK violation aborts only this write (see create, #288).
+        async with db.transaction():
+            await db.execute(
+                "UPDATE jurisdictions SET name=$1, slug=$2, type_id=$3, valid_from=$4,"
+                " valid_until=$5, notes=$6 WHERE id=$7",
+                name.strip(),
+                slug.strip(),
+                resolved_type,
+                vf,
+                vu,
+                notes.strip() or None,
+                jurisdiction_id,
+            )
     except asyncpg.UniqueViolationError:
         errors["slug"] = "A jurisdiction with this slug already exists"
         return await _rerender()

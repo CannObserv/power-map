@@ -201,18 +201,22 @@ async def ra_create(
     ra_id = generate_id()
 
     try:
-        await db.execute(
-            """INSERT INTO role_assignments
-               (id, person_id, role_id, is_current, start_date, end_date, notes)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            ra_id,
-            person_id,
-            role_id,
-            is_current_bool,
-            start_date_val,
-            end_date_val,
-            notes or None,
-        )
+        # Savepoint so a CHECK violation aborts only this write, not the ambient
+        # transaction — keeps the except-block re-render queries usable when the
+        # request runs inside a wrapping transaction (test harness, #288).
+        async with db.transaction():
+            await db.execute(
+                """INSERT INTO role_assignments
+                   (id, person_id, role_id, is_current, start_date, end_date, notes)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+                ra_id,
+                person_id,
+                role_id,
+                is_current_bool,
+                start_date_val,
+                end_date_val,
+                notes or None,
+            )
     except asyncpg.exceptions.CheckViolationError:
         people = await _fetch_people(db)
         roles = await _fetch_roles(db)
@@ -304,11 +308,13 @@ async def ra_inline_is_current(
     """Toggle is_current; on CHECK violation, re-render prior state + error flash."""
     new_val = is_current == "true"
     try:
-        updated = await db.fetchval(
-            "UPDATE role_assignments SET is_current=$1 WHERE id=$2 RETURNING id",
-            new_val,
-            ra_id,
-        )
+        # Savepoint: a CHECK violation aborts only this write (see create above).
+        async with db.transaction():
+            updated = await db.fetchval(
+                "UPDATE role_assignments SET is_current=$1 WHERE id=$2 RETURNING id",
+                new_val,
+                ra_id,
+            )
     except asyncpg.exceptions.CheckViolationError as exc:
         if not is_htmx(request):
             raise HTTPException(
@@ -389,12 +395,14 @@ async def ra_inline_dates_post(
     start_val = _parse_date(start_date)
     end_val = _parse_date(end_date)
     try:
-        updated = await db.fetchval(
-            "UPDATE role_assignments SET start_date=$1, end_date=$2 WHERE id=$3 RETURNING id",
-            start_val,
-            end_val,
-            ra_id,
-        )
+        # Savepoint: a CHECK violation aborts only this write (see create above).
+        async with db.transaction():
+            updated = await db.fetchval(
+                "UPDATE role_assignments SET start_date=$1, end_date=$2 WHERE id=$3 RETURNING id",
+                start_val,
+                end_val,
+                ra_id,
+            )
     except asyncpg.exceptions.CheckViolationError as exc:
         if not is_htmx(request):
             raise HTTPException(

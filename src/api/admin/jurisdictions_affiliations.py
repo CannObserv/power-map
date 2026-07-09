@@ -127,14 +127,18 @@ async def jur_affiliation_create(
         )
     aid = generate_id()
     try:
-        await db.execute(
-            "INSERT INTO organization_jurisdiction_affiliations"
-            " (id, organization_id, jurisdiction_id, affiliation_type_id) VALUES ($1, $2, $3, $4)",
-            aid,
-            organization_id,
-            jurisdiction_id,
-            affiliation_type_id,
-        )
+        # Savepoint so a unique/FK violation aborts only this write, not the
+        # ambient transaction — keeps the except-block re-render usable (#288).
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_jurisdiction_affiliations"
+                " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+                " VALUES ($1, $2, $3, $4)",
+                aid,
+                organization_id,
+                jurisdiction_id,
+                affiliation_type_id,
+            )
     except asyncpg.UniqueViolationError:
         errors["organization_id"] = "This organization already has that affiliation here"
         return await _render_jur_form(
@@ -239,14 +243,17 @@ async def org_affiliation_create(
         )
     aid = generate_id()
     try:
-        await db.execute(
-            "INSERT INTO organization_jurisdiction_affiliations"
-            " (id, organization_id, jurisdiction_id, affiliation_type_id) VALUES ($1, $2, $3, $4)",
-            aid,
-            org_id,
-            jurisdiction_id,
-            affiliation_type_id,
-        )
+        # Savepoint so a unique/FK violation aborts only this write (see above, #288).
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO organization_jurisdiction_affiliations"
+                " (id, organization_id, jurisdiction_id, affiliation_type_id)"
+                " VALUES ($1, $2, $3, $4)",
+                aid,
+                org_id,
+                jurisdiction_id,
+                affiliation_type_id,
+            )
     except asyncpg.UniqueViolationError:
         errors["jurisdiction_id"] = "This jurisdiction already has that affiliation here"
         return await _render_org_form(

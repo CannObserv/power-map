@@ -227,7 +227,10 @@ async def link_type_delete(
     if not existing:
         raise HTTPException(status_code=404)
     try:
-        await db.execute("DELETE FROM link_types WHERE id=$1", item_id)
+        # Savepoint so an FK violation (type in use) aborts only this delete, not
+        # the ambient transaction — keeps the except-block response usable (#288).
+        async with db.transaction():
+            await db.execute("DELETE FROM link_types WHERE id=$1", item_id)
     except asyncpg.ForeignKeyViolationError:
         if not is_htmx(request):
             raise HTTPException(status_code=409, detail="Cannot delete: record is in use")
