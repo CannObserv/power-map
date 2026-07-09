@@ -84,6 +84,7 @@ Full conventions → `docs/CONVENTIONS.md`
 - BCP 47 / ISO 15924 lookup tables (`bcp47_locales`, `iso15924_scripts`) are FK-validated on `person_names.locale` / `.script`. After `apply_schema` on a fresh DB, seed via `uv run --group seed scripts/seed_locales_scripts.py` (see `docs/COMMANDS.md`); `apply_schema` logs a WARNING when either table is empty.
 - Integration tests: require `TEST_DATABASE_URL`; never run against the production DB
 - Integration test fixtures: acquire from `db_pool` (session-scoped), not `asyncpg.connect`. Full recipe + the `loop_scope="session"` gotcha → `docs/CONVENTIONS.md`. Reference: `tests/api/admin/test_people_names.py`.
+- Endpoint-test client: prefer the lifespan-less rollback client (`AsyncClient` + `ASGITransport` + `get_db` override yielding a BEGIN/ROLLBACK `db_pool` connection) over per-test `with TestClient(app)` — no per-test `asyncpg.create_pool`, auto rollback, no manual teardown (#288). Pure-unit route tests (mocked `get_db`) use `TestClient(app)` without `with`. Full rationale + recipe → `docs/CONVENTIONS.md` §DB. Reference: `tests/api/admin/test_orgs.py`.
 
 ## Infrastructure
 

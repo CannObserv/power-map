@@ -64,7 +64,8 @@ def org_client():
     app.dependency_overrides[get_org_dup_count] = _zero
     app.dependency_overrides[get_person_dup_count] = _zero
     yield TestClient(app, raise_server_exceptions=True)
-    app.dependency_overrides.clear()
+    for dep in (get_db, get_org_dup_count, get_person_dup_count):
+        app.dependency_overrides.pop(dep, None)
 
 
 @pytest.fixture
@@ -73,7 +74,8 @@ def person_client():
     app.dependency_overrides[get_org_dup_count] = _zero
     app.dependency_overrides[get_person_dup_count] = _zero
     yield TestClient(app, raise_server_exceptions=True)
-    app.dependency_overrides.clear()
+    for dep in (get_db, get_org_dup_count, get_person_dup_count):
+        app.dependency_overrides.pop(dep, None)
 
 
 def test_org_merge_post_returns_200(org_client):
