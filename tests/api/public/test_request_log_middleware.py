@@ -211,7 +211,13 @@ async def plain_key(db):
         raw[:8],
         key_hash,
     )
-    return raw, kid
+    yield raw, kid
+    # Committing fixture: drain in-flight middleware writes first, then delete the
+    # log rows before the key (api_request_log.api_key_id FK → api_keys).
+    await _drain_pending_writes()
+    await db.execute("DELETE FROM api_request_log WHERE api_key_id=$1", kid)
+    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
+    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -242,7 +248,14 @@ async def obs_key(db):
     await db.execute(
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, scope_id
     )
-    return raw, kid
+    yield raw, kid
+    # Committing fixture: drain in-flight middleware writes, then delete in
+    # FK-safe order (log rows + scopes reference the key).
+    await _drain_pending_writes()
+    await db.execute("DELETE FROM api_request_log WHERE api_key_id=$1", kid)
+    await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
+    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
+    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
 
 @pytest.mark.integration
