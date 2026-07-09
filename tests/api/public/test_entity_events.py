@@ -34,9 +34,7 @@ async def api_key(db):
         raw_key[:8],
         key_hash,
     )
-    yield raw_key
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw_key
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -44,9 +42,7 @@ async def person_fixture(db):
     """Create a test person; yield person_id; clean up."""
     person_id = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
-    yield person_id
-    await db.execute("DELETE FROM entity_events WHERE entity_id=$1", person_id)
-    await db.execute("DELETE FROM people WHERE id=$1", person_id)
+    return person_id
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -54,9 +50,7 @@ async def org_fixture(db):
     """Create a test organization; yield org_id; clean up."""
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
-    yield org_id
-    await db.execute("DELETE FROM entity_events WHERE entity_id=$1", org_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+    return org_id
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +73,7 @@ async def _founded_type_id(db) -> str:
 
 async def test_list_person_events_empty(client, api_key, person_fixture):
     """200 with empty data list when no events exist."""
-    r = client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     body = r.json()
     assert body["data"] == []
@@ -106,38 +100,35 @@ async def test_list_person_events_returns_event_with_all_fields(
         person_fixture,
         birth_id,
     )
-    try:
-        r = client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
-        assert r.status_code == 200
-        body = r.json()
-        assert body["meta"]["count"] == 1
-        item = body["data"][0]
+    r = await client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["meta"]["count"] == 1
+    item = body["data"][0]
 
-        assert item["id"] == event_id
-        assert item["visibility"] == "public"
-        assert item["event_place_text"] == "Seattle, WA"
-        assert item["notes"] == "Test note"
-        assert item["created_at"].endswith("Z")
+    assert item["id"] == event_id
+    assert item["visibility"] == "public"
+    assert item["event_place_text"] == "Seattle, WA"
+    assert item["notes"] == "Test note"
+    assert item["created_at"].endswith("Z")
 
-        # inlined event_type
-        et = item["event_type"]
-        assert et["slug"] == "birth"
-        assert "id" in et
-        assert "display_name" in et
+    # inlined event_type
+    et = item["event_type"]
+    assert et["slug"] == "birth"
+    assert "id" in et
+    assert "display_name" in et
 
-        # structured date
-        d = item["date"]
-        assert d["year"] == 1985
-        assert d["month"] == 6
-        assert d["day"] == 15
-        assert d["hour"] is None
-        assert d["minute"] is None
-        assert d["second"] is None
-        assert d["at"] is None
+    # structured date
+    d = item["date"]
+    assert d["year"] == 1985
+    assert d["month"] == 6
+    assert d["day"] == 15
+    assert d["hour"] is None
+    assert d["minute"] is None
+    assert d["second"] is None
+    assert d["at"] is None
 
-        assert item["event_place_address"] is None
-    finally:
-        await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
+    assert item["event_place_address"] is None
 
 
 async def test_list_person_events_excludes_hidden_events(client, api_key, person_fixture, db):
@@ -163,15 +154,11 @@ async def test_list_person_events_excludes_hidden_events(client, api_key, person
         person_fixture,
         birth_id,
     )
-    try:
-        r = client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
-        assert r.status_code == 200
-        ids = [e["id"] for e in r.json()["data"]]
-        assert hidden_id not in ids
-        assert legal_id not in ids
-    finally:
-        await db.execute("DELETE FROM entity_events WHERE id=$1", hidden_id)
-        await db.execute("DELETE FROM entity_events WHERE id=$1", legal_id)
+    r = await client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    ids = [e["id"] for e in r.json()["data"]]
+    assert hidden_id not in ids
+    assert legal_id not in ids
 
 
 async def test_list_person_events_excludes_archived_events(client, api_key, person_fixture, db):
@@ -188,13 +175,10 @@ async def test_list_person_events_excludes_archived_events(client, api_key, pers
         person_fixture,
         birth_id,
     )
-    try:
-        r = client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
-        assert r.status_code == 200
-        ids = [e["id"] for e in r.json()["data"]]
-        assert event_id not in ids
-    finally:
-        await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
+    r = await client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    ids = [e["id"] for e in r.json()["data"]]
+    assert event_id not in ids
 
 
 async def test_list_person_events_pagination(client, api_key, person_fixture, db):
@@ -213,36 +197,32 @@ async def test_list_person_events_pagination(client, api_key, person_fixture, db
             birth_id,
             2000 + i,
         )
-    try:
-        r = client.get(
-            f"/api/v1/people/{person_fixture}/events",
-            params={"limit": 2, "offset": 0},
-            headers={"X-API-Key": api_key},
-        )
-        assert r.status_code == 200
-        body = r.json()
-        assert body["meta"]["limit"] == 2
-        assert body["meta"]["offset"] == 0
-        assert body["meta"]["count"] == 2
-        assert body["meta"]["has_more"] is True
+    r = await client.get(
+        f"/api/v1/people/{person_fixture}/events",
+        params={"limit": 2, "offset": 0},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["meta"]["limit"] == 2
+    assert body["meta"]["offset"] == 0
+    assert body["meta"]["count"] == 2
+    assert body["meta"]["has_more"] is True
 
-        r2 = client.get(
-            f"/api/v1/people/{person_fixture}/events",
-            params={"limit": 2, "offset": 2},
-            headers={"X-API-Key": api_key},
-        )
-        assert r2.status_code == 200
-        body2 = r2.json()
-        assert body2["meta"]["count"] == 1
-        assert body2["meta"]["has_more"] is False
-    finally:
-        for eid in ids:
-            await db.execute("DELETE FROM entity_events WHERE id=$1", eid)
+    r2 = await client.get(
+        f"/api/v1/people/{person_fixture}/events",
+        params={"limit": 2, "offset": 2},
+        headers={"X-API-Key": api_key},
+    )
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["meta"]["count"] == 1
+    assert body2["meta"]["has_more"] is False
 
 
 async def test_list_person_events_404_when_person_not_found(client, api_key):
     """404 when person_id does not exist."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/people/01DOESNOTEXIST00000000000000/events",
         headers={"X-API-Key": api_key},
     )
@@ -251,7 +231,7 @@ async def test_list_person_events_404_when_person_not_found(client, api_key):
 
 async def test_list_person_events_401_with_invalid_key(client):
     """401 when X-API-Key is invalid."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/people/someid/events",
         headers={"X-API-Key": "pm_invalid_key"},
     )
@@ -277,22 +257,19 @@ async def test_list_org_events_returns_org_event(client, api_key, org_fixture, d
         org_fixture,
         founded_id,
     )
-    try:
-        r = client.get(f"/api/v1/orgs/{org_fixture}/events", headers={"X-API-Key": api_key})
-        assert r.status_code == 200
-        body = r.json()
-        assert body["meta"]["count"] == 1
-        item = body["data"][0]
-        assert item["id"] == event_id
-        assert item["event_type"]["slug"] == "founded"
-        assert item["date"]["year"] == 1999
-    finally:
-        await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
+    r = await client.get(f"/api/v1/orgs/{org_fixture}/events", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["meta"]["count"] == 1
+    item = body["data"][0]
+    assert item["id"] == event_id
+    assert item["event_type"]["slug"] == "founded"
+    assert item["date"]["year"] == 1999
 
 
 async def test_list_org_events_404_when_org_not_found(client, api_key):
     """404 when org_id does not exist."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/orgs/01DOESNOTEXIST00000000000000/events",
         headers={"X-API-Key": api_key},
     )
@@ -302,7 +279,7 @@ async def test_list_org_events_404_when_org_not_found(client, api_key):
 @pytest.mark.integration
 async def test_list_org_events_401_with_invalid_key(client):
     """GET /api/v1/orgs/{id}/events with invalid key returns 401."""
-    response = client.get(
+    response = await client.get(
         "/api/v1/orgs/someid/events",
         headers={"X-API-Key": "invalid-key"},
     )
@@ -343,21 +320,17 @@ async def test_list_person_events_includes_event_place_address(client, api_key, 
         birth_id,
         aid,
     )
-    try:
-        r = client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
-        assert r.status_code == 200
-        items = r.json()["data"]
-        item = next((e for e in items if e["id"] == event_id), None)
-        assert item is not None
-        addr = item["event_place_address"]
-        assert addr is not None
-        assert addr["id"] == aid
-        assert addr["city"] == "Austin"
-        assert addr["region"] == "TX"
-        assert addr["precision"] == "city"
-    finally:
-        await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
-        await db.execute("DELETE FROM addresses WHERE id=$1", aid)
+    r = await client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    items = r.json()["data"]
+    item = next((e for e in items if e["id"] == event_id), None)
+    assert item is not None
+    addr = item["event_place_address"]
+    assert addr is not None
+    assert addr["id"] == aid
+    assert addr["city"] == "Austin"
+    assert addr["region"] == "TX"
+    assert addr["precision"] == "city"
 
 
 async def test_list_person_events_event_place_address_null_when_unlinked(
@@ -376,12 +349,9 @@ async def test_list_person_events_event_place_address_null_when_unlinked(
         person_fixture,
         birth_id,
     )
-    try:
-        r = client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
-        assert r.status_code == 200
-        items = r.json()["data"]
-        item = next((e for e in items if e["id"] == event_id), None)
-        assert item is not None
-        assert item["event_place_address"] is None
-    finally:
-        await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
+    r = await client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    items = r.json()["data"]
+    item = next((e for e in items if e["id"] == event_id), None)
+    assert item is not None
+    assert item["event_place_address"] is None

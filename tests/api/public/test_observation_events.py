@@ -33,7 +33,7 @@ async def evt_obs_scope(db):
             "Observations Write",
             "Create and update observations",
         )
-    yield scope_id
+    return scope_id
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -55,10 +55,7 @@ async def evt_write_key(db, evt_obs_scope):
     await db.execute(
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, evt_obs_scope
     )
-    yield raw, kid
-    await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw, kid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -79,9 +76,7 @@ async def evt_read_key(db):
         raw[:8],
         key_hash,
     )
-    yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +104,7 @@ def _unique_id() -> str:
 async def test_people_observation_birth_event_creates_row(client, evt_write_key, db):
     raw, _ = evt_write_key
     value = _unique_id()
-    r = _post_people(
+    r = await _post_people(
         client,
         raw,
         {
@@ -149,11 +144,11 @@ async def test_people_observation_event_dedup(client, evt_write_key, db):
         "events": [{"event_type_slug": "birth", "event_year": 1970}],
     }
 
-    r1 = _post_people(client, raw, payload)
+    r1 = await _post_people(client, raw, payload)
     assert r1.status_code == 200
     eid = r1.json()["entity_id"]
 
-    r2 = _post_people(client, raw, payload)
+    r2 = await _post_people(client, raw, payload)
     assert r2.status_code == 200
 
     count = await db.fetchval(
@@ -174,7 +169,7 @@ async def test_people_observation_conflicting_events_both_land(client, evt_write
     raw, _ = evt_write_key
     value = _unique_id()
 
-    r1 = _post_people(
+    r1 = await _post_people(
         client,
         raw,
         {
@@ -186,7 +181,7 @@ async def test_people_observation_conflicting_events_both_land(client, evt_write
     assert r1.status_code == 200
     eid = r1.json()["entity_id"]
 
-    r2 = _post_people(
+    r2 = await _post_people(
         client,
         raw,
         {
@@ -214,7 +209,7 @@ async def test_people_observation_conflicting_events_both_land(client, evt_write
 async def test_org_observation_founded_event_creates_row(client, evt_write_key, db):
     raw, _ = evt_write_key
     value = _unique_id()
-    r = _post_orgs(
+    r = await _post_orgs(
         client,
         raw,
         {
@@ -249,7 +244,7 @@ async def test_applies_to_mismatch_rejected(client, evt_write_key):
     """founded applies_to=organization; posting to people → rejected."""
     raw, _ = evt_write_key
     value = _unique_id()
-    r = _post_people(
+    r = await _post_people(
         client,
         raw,
         {
@@ -271,7 +266,7 @@ async def test_requires_year_missing_rejected(client, evt_write_key):
     """birth requires_year=TRUE; omitting event_year → rejected."""
     raw, _ = evt_write_key
     value = _unique_id()
-    r = _post_people(
+    r = await _post_people(
         client,
         raw,
         {
@@ -293,7 +288,7 @@ async def test_requires_linked_entity_missing_rejected(client, evt_write_key):
     """marriage requires_linked_entity=TRUE; omitting linked_entity_id → rejected."""
     raw, _ = evt_write_key
     value = _unique_id()
-    r = _post_people(
+    r = await _post_people(
         client,
         raw,
         {
@@ -320,7 +315,7 @@ async def test_event_with_month_but_no_year_is_rejected(client, evt_write_key):
         "identifier_value": value,
         "events": [{"event_type_slug": "birth", "event_year": None, "event_month": 6}],
     }
-    r = _post_people(client, raw, payload)
+    r = await _post_people(client, raw, payload)
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
@@ -339,7 +334,7 @@ async def test_unknown_event_type_slug_is_rejected(client, evt_write_key):
         "identifier_value": value,
         "events": [{"event_type_slug": "nonexistent_type_xyz"}],
     }
-    r = _post_people(client, raw, payload)
+    r = await _post_people(client, raw, payload)
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
@@ -351,7 +346,7 @@ async def test_unknown_event_type_slug_is_rejected(client, evt_write_key):
 
 async def test_events_scope_enforcement(client, evt_read_key):
     """Read-only key → 403."""
-    r = _post_people(
+    r = await _post_people(
         client,
         evt_read_key,
         {
@@ -371,7 +366,7 @@ async def test_events_scope_enforcement(client, evt_read_key):
 async def test_linked_entity_id_without_type_is_422(client, evt_write_key):
     """Providing linked_entity_id without linked_entity_type → 422 (Pydantic validator)."""
     raw, _ = evt_write_key
-    r = _post_people(
+    r = await _post_people(
         client,
         raw,
         {
@@ -391,7 +386,7 @@ async def test_linked_entity_id_without_type_is_422(client, evt_write_key):
 async def test_linked_entity_type_without_id_is_422(client, evt_write_key):
     """Providing linked_entity_type without linked_entity_id → 422 (Pydantic validator)."""
     raw, _ = evt_write_key
-    r = _post_people(
+    r = await _post_people(
         client,
         raw,
         {
@@ -416,7 +411,7 @@ async def test_linked_entity_type_without_id_is_422(client, evt_write_key):
 async def test_event_place_address_id_not_found_is_rejected(client, evt_write_key):
     """Submitting a non-existent event_place_address_id → disposition: rejected."""
     raw, _ = evt_write_key
-    r = _post_people(
+    r = await _post_people(
         client,
         raw,
         {
@@ -445,7 +440,7 @@ async def test_event_place_address_id_low_precision_is_rejected(client, evt_writ
         aid,
     )
     try:
-        r = _post_people(
+        r = await _post_people(
             client,
             raw,
             {
@@ -477,7 +472,7 @@ async def test_event_place_address_id_written_to_db(client, evt_write_key, db):
     )
     value = _unique_id()
     try:
-        r = _post_people(
+        r = await _post_people(
             client,
             raw,
             {

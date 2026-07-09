@@ -31,7 +31,7 @@ async def role_obs_scope(db):
             "Observations Write",
             "Create and update observations",
         )
-    yield scope_id
+    return scope_id
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -53,10 +53,7 @@ async def role_write_key(db, role_obs_scope):
     await db.execute(
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, role_obs_scope
     )
-    yield raw, kid
-    await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw, kid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -77,9 +74,7 @@ async def role_read_key(db):
         raw[:8],
         key_hash,
     )
-    yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -87,9 +82,7 @@ async def obs_org(db):
     """Org used as the owner for role observations."""
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
-    yield org_id
-    await db.execute("DELETE FROM roles WHERE organization_id=$1", org_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+    return org_id
 
 
 # ---------------------------------------------------------------------------
@@ -97,8 +90,8 @@ async def obs_org(db):
 # ---------------------------------------------------------------------------
 
 
-def _post(client, raw_key, payload):
-    return client.post(_BASE, json=payload, headers={"X-API-Key": raw_key})
+async def _post(client, raw_key, payload):
+    return await client.post(_BASE, json=payload, headers={"X-API-Key": raw_key})
 
 
 def _title() -> str:
@@ -110,13 +103,13 @@ def _title() -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_obs_requires_api_key(client):
-    r = client.post(_BASE, json={"organization_id": "x", "title": "x"})
+async def test_obs_requires_api_key(client):
+    r = await client.post(_BASE, json={"organization_id": "x", "title": "x"})
     assert r.status_code == 403
 
 
 async def test_obs_requires_write_scope(client, role_read_key, obs_org):
-    r = _post(client, role_read_key, {"organization_id": obs_org, "title": _title()})
+    r = await _post(client, role_read_key, {"organization_id": obs_org, "title": _title()})
     assert r.status_code == 403
 
 
@@ -127,7 +120,7 @@ async def test_obs_requires_write_scope(client, role_read_key, obs_org):
 
 async def test_new_role_returns_new_disposition(client, role_write_key, obs_org):
     raw, _ = role_write_key
-    r = _post(client, raw, {"organization_id": obs_org, "title": _title()})
+    r = await _post(client, raw, {"organization_id": obs_org, "title": _title()})
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "new"
@@ -138,7 +131,7 @@ async def test_new_role_returns_new_disposition(client, role_write_key, obs_org)
 async def test_new_role_persisted(client, role_write_key, obs_org, db):
     raw, _ = role_write_key
     title = _title()
-    r = _post(client, raw, {"organization_id": obs_org, "title": title})
+    r = await _post(client, raw, {"organization_id": obs_org, "title": title})
     rid = r.json()["entity_id"]
     row = await db.fetchrow("SELECT title, organization_id FROM roles WHERE id=$1", rid)
     assert row["title"] == title
@@ -148,7 +141,7 @@ async def test_new_role_persisted(client, role_write_key, obs_org, db):
 async def test_new_role_with_metadata(client, role_write_key, obs_org, db):
     raw, _ = role_write_key
     title = _title()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -178,11 +171,11 @@ async def test_auto_attached_on_duplicate_title(client, role_write_key, obs_org)
     raw, _ = role_write_key
     title = _title()
     payload = {"organization_id": obs_org, "title": title}
-    r1 = _post(client, raw, payload)
+    r1 = await _post(client, raw, payload)
     assert r1.json()["disposition"] == "new"
     rid = r1.json()["entity_id"]
 
-    r2 = _post(client, raw, payload)
+    r2 = await _post(client, raw, payload)
     assert r2.json()["disposition"] == "auto-attached"
     assert r2.json()["entity_id"] == rid
 
@@ -190,10 +183,10 @@ async def test_auto_attached_on_duplicate_title(client, role_write_key, obs_org)
 async def test_auto_attached_case_insensitive(client, role_write_key, obs_org):
     raw, _ = role_write_key
     base = _title()
-    r1 = _post(client, raw, {"organization_id": obs_org, "title": base})
+    r1 = await _post(client, raw, {"organization_id": obs_org, "title": base})
     rid = r1.json()["entity_id"]
 
-    r2 = _post(client, raw, {"organization_id": obs_org, "title": base.upper()})
+    r2 = await _post(client, raw, {"organization_id": obs_org, "title": base.upper()})
     assert r2.json()["disposition"] == "auto-attached"
     assert r2.json()["entity_id"] == rid
 
@@ -205,7 +198,7 @@ async def test_auto_attached_case_insensitive(client, role_write_key, obs_org):
 
 async def test_rejected_on_unknown_org(client, role_write_key):
     raw, _ = role_write_key
-    r = _post(client, raw, {"organization_id": generate_id(), "title": _title()})
+    r = await _post(client, raw, {"organization_id": generate_id(), "title": _title()})
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
@@ -218,7 +211,7 @@ async def test_rejected_on_unknown_org(client, role_write_key):
 async def test_link_written_on_new_role(client, role_write_key, obs_org, link_type, db):
     raw, _ = role_write_key
     title = _title()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -241,8 +234,8 @@ async def test_link_deduped_on_auto_attached(client, role_write_key, obs_org, db
         "title": title,
         "links": [{"url": "https://example.com/dup", "link_type_slug": "website"}],
     }
-    _post(client, raw, payload)
-    _post(client, raw, payload)
+    await _post(client, raw, payload)
+    await _post(client, raw, payload)
     count = await db.fetchval(
         "SELECT COUNT(*) FROM links l"
         " JOIN roles r ON r.id=l.entity_id"
@@ -262,7 +255,7 @@ async def test_link_deduped_on_auto_attached(client, role_write_key, obs_org, db
 async def test_contact_method_written(client, role_write_key, obs_org, db):
     raw, _ = role_write_key
     title = _title()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -287,11 +280,11 @@ async def test_contact_method_written_on_auto_attached(client, role_write_key, o
         "title": title,
         "contact_methods": [{"contact_type": "email", "value": "first@example.com"}],
     }
-    r1 = _post(client, raw, base_payload)
+    r1 = await _post(client, raw, base_payload)
     assert r1.json()["disposition"] == "new"
     rid = r1.json()["entity_id"]
 
-    r2 = _post(
+    r2 = await _post(
         client,
         raw,
         {
@@ -315,7 +308,7 @@ async def test_contact_method_written_on_auto_attached(client, role_write_key, o
 async def test_address_written(client, role_write_key, obs_org, db, local_address_normalizer):
     raw, _ = role_write_key
     title = _title()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -338,7 +331,7 @@ async def test_address_written_on_auto_attached(
 ):
     raw, _ = role_write_key
     title = _title()
-    r1 = _post(
+    r1 = await _post(
         client,
         raw,
         {
@@ -350,7 +343,7 @@ async def test_address_written_on_auto_attached(
     assert r1.json()["disposition"] == "new"
     rid = r1.json()["entity_id"]
 
-    r2 = _post(
+    r2 = await _post(
         client,
         raw,
         {
@@ -371,10 +364,10 @@ async def test_address_written_on_auto_attached(
 # ---------------------------------------------------------------------------
 
 
-def test_obs_date_order_validation(client, role_write_key):
+async def test_obs_date_order_validation(client, role_write_key):
     """established_on after abolished_on → 422 from Pydantic model validator."""
     raw, _ = role_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -402,14 +395,15 @@ async def pm_target_role(db, obs_org):
         obs_org,
         "PM Target Role",
     )
-    yield role_id
-    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
+    return role_id
 
 
 async def test_pm_role_id_auto_attached(client, role_write_key, pm_target_role):
     """identifier_type=pm_role_id targets an existing role by PM ULID → auto-attached."""
     raw, _ = role_write_key
-    r = _post(client, raw, {"identifier_type": "pm_role_id", "identifier_value": pm_target_role})
+    r = await _post(
+        client, raw, {"identifier_type": "pm_role_id", "identifier_value": pm_target_role}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "auto-attached"
@@ -420,15 +414,17 @@ async def test_pm_role_id_auto_attached(client, role_write_key, pm_target_role):
 async def test_pm_role_id_rejected_on_unknown_ulid(client, role_write_key):
     """identifier_type=pm_role_id with unknown ULID → rejected."""
     raw, _ = role_write_key
-    r = _post(client, raw, {"identifier_type": "pm_role_id", "identifier_value": generate_id()})
+    r = await _post(
+        client, raw, {"identifier_type": "pm_role_id", "identifier_value": generate_id()}
+    )
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
 
-def test_pm_role_id_requires_identifier_value(client, role_write_key):
+async def test_pm_role_id_requires_identifier_value(client, role_write_key):
     """identifier_type=pm_role_id without identifier_value → 422."""
     raw, _ = role_write_key
-    r = _post(client, raw, {"identifier_type": "pm_role_id"})
+    r = await _post(client, raw, {"identifier_type": "pm_role_id"})
     assert r.status_code == 422
 
 
@@ -441,7 +437,7 @@ async def test_rejected_unknown_org_includes_reason(client, role_write_key):
     """Unknown organization_id rejection must include a reason string."""
     raw, _ = role_write_key
     unknown_org_id = generate_id()
-    r = _post(client, raw, {"organization_id": unknown_org_id, "title": "Test Role"})
+    r = await _post(client, raw, {"organization_id": unknown_org_id, "title": "Test Role"})
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "rejected"
@@ -468,16 +464,14 @@ async def obs_jur(db):
         "Test LD (obs)",
         type_id,
     )
-    yield jid
-    await db.execute("DELETE FROM roles WHERE jurisdiction_id=$1", jid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+    return jid
 
 
 async def test_new_structural_role_persists_structural_columns(
     client, role_write_key, obs_org, obs_jur, db
 ):
     raw, _ = role_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -509,8 +503,8 @@ async def test_two_positions_are_distinct_roles(client, role_write_key, obs_org,
         "role_type": "state_representative",
         "jurisdiction_id": obs_jur,
     }
-    r1 = _post(client, raw, {**base, "qualifier": "Position 1"})
-    r2 = _post(client, raw, {**base, "qualifier": "Position 2"})
+    r1 = await _post(client, raw, {**base, "qualifier": "Position 1"})
+    r2 = await _post(client, raw, {**base, "qualifier": "Position 2"})
     assert r1.json()["disposition"] == "new"
     assert r2.json()["disposition"] == "new"
     assert r1.json()["entity_id"] != r2.json()["entity_id"]
@@ -525,8 +519,8 @@ async def test_same_structural_role_auto_attached(client, role_write_key, obs_or
         "jurisdiction_id": obs_jur,
         "qualifier": "Position 1",
     }
-    r1 = _post(client, raw, payload)
-    r2 = _post(client, raw, payload)
+    r1 = await _post(client, raw, payload)
+    r2 = await _post(client, raw, payload)
     assert r1.json()["disposition"] == "new"
     assert r2.json()["disposition"] == "auto-attached"
     assert r2.json()["entity_id"] == r1.json()["entity_id"]
@@ -534,7 +528,7 @@ async def test_same_structural_role_auto_attached(client, role_write_key, obs_or
 
 async def test_structural_role_unknown_role_type_rejected(client, role_write_key, obs_org, obs_jur):
     raw, _ = role_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -558,7 +552,7 @@ async def test_positionless_house_seat_rejected(client, role_write_key, obs_org,
     positionless seat.
     """
     raw, _ = role_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -578,7 +572,7 @@ async def test_role_with_jurisdiction_without_role_type_rejected(
     client, role_write_key, obs_org, obs_jur
 ):
     raw, _ = role_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {"organization_id": obs_org, "title": "State Representative", "jurisdiction_id": obs_jur},
@@ -589,9 +583,9 @@ async def test_role_with_jurisdiction_without_role_type_rejected(
     assert "role_type" in body["reason"]
 
 
-def test_qualifier_without_jurisdiction_is_422(client, role_write_key, obs_org):
+async def test_qualifier_without_jurisdiction_is_422(client, role_write_key, obs_org):
     raw, _ = role_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {"organization_id": obs_org, "title": "State Representative", "qualifier": "Position 1"},
@@ -619,9 +613,7 @@ async def obs_wa_jur(db):
         f"Washington Legislative District {n}",
         type_id,
     )
-    yield jid, n
-    await db.execute("DELETE FROM roles WHERE jurisdiction_id=$1", jid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+    return jid, n
 
 
 async def test_titleless_structural_observation_synthesizes_title(
@@ -629,7 +621,7 @@ async def test_titleless_structural_observation_synthesizes_title(
 ):
     raw, _ = role_write_key
     jid, n = obs_wa_jur
-    r = _post(
+    r = await _post(
         client,
         raw,
         {"organization_id": obs_org, "role_type": "state_senator", "jurisdiction_id": jid},
@@ -643,5 +635,5 @@ async def test_titleless_structural_observation_synthesizes_title(
 async def test_titleless_non_structural_observation_is_422(client, role_write_key, obs_org):
     """No jurisdiction + no title → validation error (title still required)."""
     raw, _ = role_write_key
-    r = _post(client, raw, {"organization_id": obs_org, "role_type": "state_senator"})
+    r = await _post(client, raw, {"organization_id": obs_org, "role_type": "state_senator"})
     assert r.status_code == 422

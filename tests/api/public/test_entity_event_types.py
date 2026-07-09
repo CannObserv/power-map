@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def api_key(db):
-    """Insert a test app_user + api_key; yield raw_key; clean up."""
+    """Insert a test app_user + api_key; return raw_key (rolled back per test)."""
     uid = generate_id()
     kid = generate_id()
     raw_key = "pm_" + os.urandom(16).hex()
@@ -29,20 +29,18 @@ async def api_key(db):
         raw_key[:8],
         key_hash,
     )
-    yield raw_key
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw_key
 
 
 async def test_entity_event_types_with_valid_key_returns_200(client, api_key):
     """GET /api/v1/entity-event-types with valid key returns 200."""
-    response = client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
+    response = await client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
     assert response.status_code == 200
 
 
 async def test_entity_event_types_response_has_data_list(client, api_key):
     """Response has `data` key with list of items."""
-    response = client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
+    response = await client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
     assert response.status_code == 200
     body = response.json()
     assert "data" in body
@@ -51,7 +49,7 @@ async def test_entity_event_types_response_has_data_list(client, api_key):
 
 async def test_entity_event_types_items_have_required_fields(client, api_key):
     """Each item in data list has all required fields."""
-    response = client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
+    response = await client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
     assert response.status_code == 200
     body = response.json()
     if body["data"]:
@@ -69,7 +67,7 @@ async def test_entity_event_types_items_have_required_fields(client, api_key):
 
 async def test_entity_event_types_seed_data_present(client, api_key):
     """Seed data includes 'birth' and 'founded' slugs."""
-    response = client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
+    response = await client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
     assert response.status_code == 200
     body = response.json()
     slugs = {item["slug"] for item in body["data"]}
@@ -85,5 +83,5 @@ def test_entity_event_types_without_key_returns_403(unit_client):
 
 async def test_entity_event_types_with_invalid_key_returns_401(client):
     """GET /api/v1/entity-event-types with invalid key returns 401."""
-    response = client.get("/api/v1/entity-event-types", headers={"X-API-Key": "pm_invalid"})
+    response = await client.get("/api/v1/entity-event-types", headers={"X-API-Key": "pm_invalid"})
     assert response.status_code == 401

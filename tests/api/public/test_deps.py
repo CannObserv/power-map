@@ -27,20 +27,18 @@ async def api_key_pair(db):
         raw_key[:8],
         key_hash,
     )
-    yield raw_key
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw_key
 
 
 @pytest.mark.integration
 async def test_api_root_valid_key_returns_200(client, api_key_pair):
-    response = client.get("/api/v1/", headers={"X-API-Key": api_key_pair})
+    response = await client.get("/api/v1/", headers={"X-API-Key": api_key_pair})
     assert response.status_code == 200
 
 
 @pytest.mark.integration
 async def test_api_valid_key_updates_last_used_at(client, api_key_pair, db):
-    client.get("/api/v1/", headers={"X-API-Key": api_key_pair})
+    await client.get("/api/v1/", headers={"X-API-Key": api_key_pair})
     key_hash = hashlib.sha256(api_key_pair.encode()).hexdigest()
     row = await db.fetchrow("SELECT last_used_at FROM api_keys WHERE key_hash=$1", key_hash)
     assert row["last_used_at"] is not None

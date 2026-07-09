@@ -36,9 +36,7 @@ async def jur_api_key(db):
         raw[:8],
         key_hash,
     )
-    yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -141,7 +139,7 @@ async def jur_fixtures(db):
         "ocd-division/country:us/state:wa",
     )
 
-    yield {
+    return {
         "wa_id": wa_id,
         "ld21_id": ld21_id,
         "old_ld21_id": old_ld21_id,
@@ -149,14 +147,6 @@ async def jur_fixtures(db):
         "rel_is_contained_by_id": rel_is_contained_by_id,
         "rel_supersedes_id": rel_supersedes_id,
     }
-
-    await db.execute("DELETE FROM identifiers WHERE id=$1", identifier_id)
-    await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", rel_supersedes_id)
-    await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", rel_is_contained_by_id)
-    await db.execute(
-        "DELETE FROM jurisdictions WHERE id = ANY($1::text[])",
-        [wa_id, ld21_id, old_ld21_id, archived_id],
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +157,7 @@ async def jur_fixtures(db):
 async def test_list_empty(client, jur_api_key, db):
     """Empty state: no jurisdictions → data=[], has_more=False."""
     # Use a type slug that has no rows to isolate this test from jur_fixtures.
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions?type=judicial_district",
         headers={"X-API-Key": jur_api_key},
     )
@@ -179,14 +169,14 @@ async def test_list_empty(client, jur_api_key, db):
 
 async def test_list_returns_active_by_default(client, jur_api_key, jur_fixtures):
     """Archived jurisdictions excluded from default list."""
-    r = client.get("/api/v1/jurisdictions", headers={"X-API-Key": jur_api_key})
+    r = await client.get("/api/v1/jurisdictions", headers={"X-API-Key": jur_api_key})
     assert r.status_code == 200
     ids = {item["id"] for item in r.json()["data"]}
     assert jur_fixtures["archived_id"] not in ids
 
 
 async def test_list_includes_archived_when_flag_set(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions?include_archived=true",
         headers={"X-API-Key": jur_api_key},
     )
@@ -196,7 +186,7 @@ async def test_list_includes_archived_when_flag_set(client, jur_api_key, jur_fix
 
 
 async def test_list_type_filter(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions?type=state",
         headers={"X-API-Key": jur_api_key},
     )
@@ -209,7 +199,7 @@ async def test_list_type_filter(client, jur_api_key, jur_fixtures):
 
 
 async def test_list_pagination(client, jur_api_key, jur_fixtures):
-    r1 = client.get(
+    r1 = await client.get(
         "/api/v1/jurisdictions?limit=2&offset=0&include_archived=true",
         headers={"X-API-Key": jur_api_key},
     )
@@ -219,7 +209,7 @@ async def test_list_pagination(client, jur_api_key, jur_fixtures):
     assert body1["meta"]["limit"] == 2
 
     if body1["meta"]["has_more"]:
-        r2 = client.get(
+        r2 = await client.get(
             "/api/v1/jurisdictions?limit=2&offset=2&include_archived=true",
             headers={"X-API-Key": jur_api_key},
         )
@@ -230,7 +220,7 @@ async def test_list_pagination(client, jur_api_key, jur_fixtures):
 
 
 async def test_list_response_shape(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions?type=state",
         headers={"X-API-Key": jur_api_key},
     )
@@ -249,7 +239,7 @@ async def test_list_response_shape(client, jur_api_key, jur_fixtures):
 
 
 async def test_get_by_id(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}",
         headers={"X-API-Key": jur_api_key},
     )
@@ -261,13 +251,13 @@ async def test_get_by_id(client, jur_api_key, jur_fixtures):
 
 
 async def test_get_by_slug(client, jur_api_key, jur_fixtures):
-    r = client.get("/api/v1/jurisdictions/usa-wa", headers={"X-API-Key": jur_api_key})
+    r = await client.get("/api/v1/jurisdictions/usa-wa", headers={"X-API-Key": jur_api_key})
     assert r.status_code == 200
     assert r.json()["id"] == jur_fixtures["wa_id"]
 
 
 async def test_get_includes_identifiers(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}",
         headers={"X-API-Key": jur_api_key},
     )
@@ -279,19 +269,21 @@ async def test_get_includes_identifiers(client, jur_api_key, jur_fixtures):
 
 
 async def test_get_not_found(client, jur_api_key):
-    r = client.get("/api/v1/jurisdictions/nonexistent-slug", headers={"X-API-Key": jur_api_key})
+    r = await client.get(
+        "/api/v1/jurisdictions/nonexistent-slug", headers={"X-API-Key": jur_api_key}
+    )
     assert r.status_code == 404
 
 
 async def test_get_etag_304(client, jur_api_key, jur_fixtures):
-    r1 = client.get(
+    r1 = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}",
         headers={"X-API-Key": jur_api_key},
     )
     assert r1.status_code == 200
     etag = r1.headers["ETag"]
 
-    r2 = client.get(
+    r2 = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}",
         headers={"X-API-Key": jur_api_key, "If-None-Match": etag},
     )
@@ -304,7 +296,7 @@ async def test_get_etag_304(client, jur_api_key, jur_fixtures):
 
 
 async def test_resolve_by_slug(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions/resolve?slug=usa-wa",
         headers={"X-API-Key": jur_api_key},
     )
@@ -313,7 +305,7 @@ async def test_resolve_by_slug(client, jur_api_key, jur_fixtures):
 
 
 async def test_resolve_by_identifier(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions/resolve?scheme=jur_ocd&value=ocd-division/country:us/state:wa",
         headers={"X-API-Key": jur_api_key},
     )
@@ -322,7 +314,7 @@ async def test_resolve_by_identifier(client, jur_api_key, jur_fixtures):
 
 
 async def test_resolve_slug_not_found(client, jur_api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions/resolve?slug=does-not-exist",
         headers={"X-API-Key": jur_api_key},
     )
@@ -330,7 +322,7 @@ async def test_resolve_slug_not_found(client, jur_api_key):
 
 
 async def test_resolve_identifier_not_found(client, jur_api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions/resolve?scheme=jur_ocd&value=ocd-division/country:us/state:zz",
         headers={"X-API-Key": jur_api_key},
     )
@@ -338,12 +330,12 @@ async def test_resolve_identifier_not_found(client, jur_api_key):
 
 
 async def test_resolve_no_params_returns_422(client, jur_api_key):
-    r = client.get("/api/v1/jurisdictions/resolve", headers={"X-API-Key": jur_api_key})
+    r = await client.get("/api/v1/jurisdictions/resolve", headers={"X-API-Key": jur_api_key})
     assert r.status_code == 422
 
 
 async def test_resolve_partial_identifier_returns_422(client, jur_api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions/resolve?scheme=jur_ocd",
         headers={"X-API-Key": jur_api_key},
     )
@@ -351,7 +343,7 @@ async def test_resolve_partial_identifier_returns_422(client, jur_api_key):
 
 
 async def test_resolve_both_slug_and_identifier_returns_422(client, jur_api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions/resolve?slug=usa-wa&scheme=jur_ocd&value=x",
         headers={"X-API-Key": jur_api_key},
     )
@@ -365,7 +357,7 @@ async def test_resolve_both_slug_and_identifier_returns_422(client, jur_api_key)
 
 async def test_relationships_empty(client, jur_api_key, jur_fixtures):
     """LD-21 has no governance-category edges — filter should return empty."""
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/relationships?category=governance",
         headers={"X-API-Key": jur_api_key},
     )
@@ -375,7 +367,7 @@ async def test_relationships_empty(client, jur_api_key, jur_fixtures):
 
 async def test_relationships_direction_from(client, jur_api_key, jur_fixtures):
     """LD-21 'from' direction → is_fully_contained_by edge to WA."""
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/relationships?direction=from",
         headers={"X-API-Key": jur_api_key},
     )
@@ -387,7 +379,7 @@ async def test_relationships_direction_from(client, jur_api_key, jur_fixtures):
 
 async def test_relationships_direction_to(client, jur_api_key, jur_fixtures):
     """WA 'to' direction → is_fully_contained_by edge from LD-21."""
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships?direction=to",
         headers={"X-API-Key": jur_api_key},
     )
@@ -398,7 +390,7 @@ async def test_relationships_direction_to(client, jur_api_key, jur_fixtures):
 
 
 async def test_relationships_category_filter(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/relationships?category=lineage",
         headers={"X-API-Key": jur_api_key},
     )
@@ -410,7 +402,7 @@ async def test_relationships_category_filter(client, jur_api_key, jur_fixtures):
 
 
 async def test_relationships_rel_type_filter(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships?rel_type=is_fully_contained_by",
         headers={"X-API-Key": jur_api_key},
     )
@@ -421,7 +413,7 @@ async def test_relationships_rel_type_filter(client, jur_api_key, jur_fixtures):
 
 
 async def test_relationships_not_found_returns_404(client, jur_api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions/nonexistent/relationships",
         headers={"X-API-Key": jur_api_key},
     )
@@ -429,7 +421,7 @@ async def test_relationships_not_found_returns_404(client, jur_api_key):
 
 
 async def test_relationships_response_shape(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/relationships?direction=from",
         headers={"X-API-Key": jur_api_key},
     )
@@ -449,7 +441,7 @@ async def test_relationships_response_shape(client, jur_api_key, jur_fixtures):
 
 async def test_lineage_single_hop(client, jur_api_key, jur_fixtures):
     """LD-21 supersedes old_LD-21 — lineage should include both."""
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/lineage",
         headers={"X-API-Key": jur_api_key},
     )
@@ -463,7 +455,7 @@ async def test_lineage_min_depth_includes_direct_neighbor(client, jur_api_key, j
     # depth=1 → CTE condition is 'l.depth < 1': allows exactly one recursive step
     # (base row at depth=0 triggers it, producing depth=1 neighbors).
     # Minimum enforced by ge=1; there is no way to return only the seed node.
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/lineage?depth=1",
         headers={"X-API-Key": jur_api_key},
     )
@@ -475,7 +467,7 @@ async def test_lineage_min_depth_includes_direct_neighbor(client, jur_api_key, j
 
 async def test_lineage_no_lineage_edges_returns_only_self(client, jur_api_key, jur_fixtures):
     """WA has no lineage edges → lineage returns just WA."""
-    r = client.get(
+    r = await client.get(
         f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/lineage",
         headers={"X-API-Key": jur_api_key},
     )
@@ -485,7 +477,7 @@ async def test_lineage_no_lineage_edges_returns_only_self(client, jur_api_key, j
 
 
 async def test_lineage_not_found_returns_404(client, jur_api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions/nonexistent/lineage",
         headers={"X-API-Key": jur_api_key},
     )
@@ -493,7 +485,7 @@ async def test_lineage_not_found_returns_404(client, jur_api_key):
 
 
 async def test_lineage_by_slug(client, jur_api_key, jur_fixtures):
-    r = client.get(
+    r = await client.get(
         "/api/v1/jurisdictions/usa-wa-ld-21/lineage",
         headers={"X-API-Key": jur_api_key},
     )

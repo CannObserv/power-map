@@ -34,9 +34,7 @@ async def disc_api_key(db):
         raw_key[:8],
         key_hash,
     )
-    yield {"raw_key": raw_key, "key_id": kid}
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return {"raw_key": raw_key, "key_id": kid}
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -145,7 +143,7 @@ async def disc_graph(db):
         role_id,
     )
 
-    yield {
+    return {
         "root_jur_id": root_jur_id,
         "child_jur_id": child_jur_id,
         "spatial_child_jur_id": spatial_child_jur_id,
@@ -156,29 +154,15 @@ async def disc_graph(db):
         "asgn_id": asgn_id,
     }
 
-    await db.execute("DELETE FROM role_assignments WHERE id=$1", asgn_id)
-    await db.execute("DELETE FROM people WHERE id=$1", person_id)
-    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
-    await db.execute("DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", oja_id)
-    await db.execute("UPDATE organizations SET parent_id=NULL WHERE id=$1", child_org_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", child_org_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", root_org_id)
-    await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", spatial_jur_rel_id)
-    await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", jur_rel_id)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", spatial_child_jur_id)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", child_jur_id)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", root_jur_id)
-    await db.execute("DELETE FROM jurisdiction_types WHERE id=$1", jtype_id)
-
 
 # ---------------------------------------------------------------------------
 # Root resolution
 # ---------------------------------------------------------------------------
 
 
-def test_discover_root_jurisdiction_at_hops_zero(client, disc_api_key, disc_graph):
+async def test_discover_root_jurisdiction_at_hops_zero(client, disc_api_key, disc_graph):
     """Root jurisdiction appears at hops_from_root=0."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -195,9 +179,9 @@ def test_discover_root_jurisdiction_at_hops_zero(client, disc_api_key, disc_grap
     assert data[0]["hops_from_root"] == 0
 
 
-def test_discover_root_organization_at_hops_zero(client, disc_api_key, disc_graph):
+async def test_discover_root_organization_at_hops_zero(client, disc_api_key, disc_graph):
     """Root organization appears at hops_from_root=0."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "organization",
@@ -214,9 +198,9 @@ def test_discover_root_organization_at_hops_zero(client, disc_api_key, disc_grap
     assert data[0]["hops_from_root"] == 0
 
 
-def test_discover_root_not_found(client, disc_api_key):
+async def test_discover_root_not_found(client, disc_api_key):
     """Unknown root_id → 404."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -233,9 +217,9 @@ def test_discover_root_not_found(client, disc_api_key):
 # ---------------------------------------------------------------------------
 
 
-def test_discover_lineage_finds_connected_jurisdiction(client, disc_api_key, disc_graph):
+async def test_discover_lineage_finds_connected_jurisdiction(client, disc_api_key, disc_graph):
     """lineage step finds child_jur at hops=1."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -255,9 +239,9 @@ def test_discover_lineage_finds_connected_jurisdiction(client, disc_api_key, dis
     assert child["entity_type"] == "jurisdiction"
 
 
-def test_discover_lineage_finds_spatial_containment_child(client, disc_api_key, disc_graph):
+async def test_discover_lineage_finds_spatial_containment_child(client, disc_api_key, disc_graph):
     """lineage step traverses spatial containment (is_fully_contained_by) edges."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -272,9 +256,9 @@ def test_discover_lineage_finds_spatial_containment_child(client, disc_api_key, 
     assert disc_graph["spatial_child_jur_id"] in ids
 
 
-def test_discover_lineage_invalid_for_org_root(client, disc_api_key, disc_graph):
+async def test_discover_lineage_invalid_for_org_root(client, disc_api_key, disc_graph):
     """lineage follow with root_type=organization → 422."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "organization",
@@ -291,9 +275,9 @@ def test_discover_lineage_invalid_for_org_root(client, disc_api_key, disc_graph)
 # ---------------------------------------------------------------------------
 
 
-def test_discover_affiliated_orgs(client, disc_api_key, disc_graph):
+async def test_discover_affiliated_orgs(client, disc_api_key, disc_graph):
     """affiliated_orgs finds governing org at hops=1."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -312,9 +296,11 @@ def test_discover_affiliated_orgs(client, disc_api_key, disc_graph):
     assert org["hops_from_root"] == 1
 
 
-def test_discover_affiliated_orgs_invalid_without_jurisdiction(client, disc_api_key, disc_graph):
+async def test_discover_affiliated_orgs_invalid_without_jurisdiction(
+    client, disc_api_key, disc_graph
+):
     """affiliated_orgs with root_type=organization and no lineage step → 422."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "organization",
@@ -331,9 +317,9 @@ def test_discover_affiliated_orgs_invalid_without_jurisdiction(client, disc_api_
 # ---------------------------------------------------------------------------
 
 
-def test_discover_org_children(client, disc_api_key, disc_graph):
+async def test_discover_org_children(client, disc_api_key, disc_graph):
     """org_children finds child org."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "organization",
@@ -348,9 +334,9 @@ def test_discover_org_children(client, disc_api_key, disc_graph):
     assert disc_graph["child_org_id"] in ids
 
 
-def test_discover_org_children_invalid_without_org(client, disc_api_key, disc_graph):
+async def test_discover_org_children_invalid_without_org(client, disc_api_key, disc_graph):
     """org_children with root_type=jurisdiction and no affiliated_orgs → 422."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -367,9 +353,9 @@ def test_discover_org_children_invalid_without_org(client, disc_api_key, disc_gr
 # ---------------------------------------------------------------------------
 
 
-def test_discover_roles(client, disc_api_key, disc_graph):
+async def test_discover_roles(client, disc_api_key, disc_graph):
     """roles step finds role for the org."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "organization",
@@ -389,9 +375,9 @@ def test_discover_roles(client, disc_api_key, disc_graph):
 # ---------------------------------------------------------------------------
 
 
-def test_discover_assignments(client, disc_api_key, disc_graph):
+async def test_discover_assignments(client, disc_api_key, disc_graph):
     """assignments step finds role_assignment."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "organization",
@@ -406,9 +392,9 @@ def test_discover_assignments(client, disc_api_key, disc_graph):
     assert disc_graph["asgn_id"] in ids
 
 
-def test_discover_assignments_invalid_without_roles(client, disc_api_key, disc_graph):
+async def test_discover_assignments_invalid_without_roles(client, disc_api_key, disc_graph):
     """assignments without roles in follow list → 422."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "organization",
@@ -425,9 +411,9 @@ def test_discover_assignments_invalid_without_roles(client, disc_api_key, disc_g
 # ---------------------------------------------------------------------------
 
 
-def test_discover_people(client, disc_api_key, disc_graph):
+async def test_discover_people(client, disc_api_key, disc_graph):
     """people step finds person via assignment."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "organization",
@@ -442,9 +428,9 @@ def test_discover_people(client, disc_api_key, disc_graph):
     assert disc_graph["person_id"] in ids
 
 
-def test_discover_people_invalid_without_assignments(client, disc_api_key, disc_graph):
+async def test_discover_people_invalid_without_assignments(client, disc_api_key, disc_graph):
     """people without assignments in follow list → 422."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "organization",
@@ -461,9 +447,9 @@ def test_discover_people_invalid_without_assignments(client, disc_api_key, disc_
 # ---------------------------------------------------------------------------
 
 
-def test_discover_full_chain_from_jurisdiction(client, disc_api_key, disc_graph):
+async def test_discover_full_chain_from_jurisdiction(client, disc_api_key, disc_graph):
     """Full follow chain from jurisdiction root finds all expected entity types."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -491,9 +477,9 @@ def test_discover_full_chain_from_jurisdiction(client, disc_api_key, disc_graph)
 # ---------------------------------------------------------------------------
 
 
-def test_discover_response_has_display_name(client, disc_api_key, disc_graph):
+async def test_discover_response_has_display_name(client, disc_api_key, disc_graph):
     """Each item includes the display_name key."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -507,9 +493,9 @@ def test_discover_response_has_display_name(client, disc_api_key, disc_graph):
         assert "display_name" in item
 
 
-def test_discover_jurisdiction_display_name_is_string(client, disc_api_key, disc_graph):
+async def test_discover_jurisdiction_display_name_is_string(client, disc_api_key, disc_graph):
     """Jurisdiction display_name is the jurisdictions.name value (NOT NULL column)."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={"root_type": "jurisdiction", "root_id": disc_graph["root_jur_id"], "follow": ""},
         headers={"X-API-Key": disc_api_key["raw_key"]},
@@ -519,9 +505,9 @@ def test_discover_jurisdiction_display_name_is_string(client, disc_api_key, disc
     assert item["display_name"] == "Disc Root Jurisdiction"
 
 
-def test_discover_role_display_name_is_string(client, disc_api_key, disc_graph):
+async def test_discover_role_display_name_is_string(client, disc_api_key, disc_graph):
     """Role display_name is the roles.title value (NOT NULL column)."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "organization",
@@ -537,9 +523,9 @@ def test_discover_role_display_name_is_string(client, disc_api_key, disc_graph):
     assert role_item["display_name"] == "Disc Test Role"
 
 
-def test_discover_meta_structure(client, disc_api_key, disc_graph):
+async def test_discover_meta_structure(client, disc_api_key, disc_graph):
     """meta contains limit, offset, count, has_more, truncated."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -558,9 +544,9 @@ def test_discover_meta_structure(client, disc_api_key, disc_graph):
     assert meta["truncated"] is False
 
 
-def test_discover_pagination(client, disc_api_key, disc_graph):
+async def test_discover_pagination(client, disc_api_key, disc_graph):
     """limit=1 with multi-item result → has_more=True, count=1."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -581,9 +567,9 @@ def test_discover_pagination(client, disc_api_key, disc_graph):
 # ---------------------------------------------------------------------------
 
 
-def test_discover_unknown_follow_value(client, disc_api_key, disc_graph):
+async def test_discover_unknown_follow_value(client, disc_api_key, disc_graph):
     """Unknown follow value → 422."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",
@@ -595,9 +581,9 @@ def test_discover_unknown_follow_value(client, disc_api_key, disc_graph):
     assert r.status_code == 422
 
 
-def test_discover_missing_root_type(client, disc_api_key, disc_graph):
+async def test_discover_missing_root_type(client, disc_api_key, disc_graph):
     """Missing root_type → 422."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={"root_id": disc_graph["root_jur_id"], "follow": ""},
         headers={"X-API-Key": disc_api_key["raw_key"]},
@@ -605,9 +591,9 @@ def test_discover_missing_root_type(client, disc_api_key, disc_graph):
     assert r.status_code == 422
 
 
-def test_discover_invalid_root_type(client, disc_api_key, disc_graph):
+async def test_discover_invalid_root_type(client, disc_api_key, disc_graph):
     """Unknown root_type value → 422."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "galaxy",
@@ -619,9 +605,9 @@ def test_discover_invalid_root_type(client, disc_api_key, disc_graph):
     assert r.status_code == 422
 
 
-def test_discover_requires_auth(client, disc_graph):
+async def test_discover_requires_auth(client, disc_graph):
     """No API key → 403 (header absent)."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/subscriptions/discover",
         params={
             "root_type": "jurisdiction",

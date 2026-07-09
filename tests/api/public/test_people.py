@@ -11,6 +11,21 @@ from src.core.db import generate_id
 pytestmark = pytest.mark.integration
 
 
+# This module's etag tests assert that an entity's updated_at (hence its etag)
+# *advances* after a mutation. Postgres now() is fixed at transaction start, so
+# the single-transaction rollback client would freeze it. Shadow db/client with
+# the committing (autocommit) variants so each write is its own transaction and
+# timestamps advance (#288). Rows leak but carry unique ULIDs (session-truncated).
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(committing_db):
+    return committing_db
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def client(committing_client):
+    return committing_client
+
+
 @pytest_asyncio.fixture(loop_scope="session")
 async def api_key(db):
     uid = generate_id()
@@ -27,6 +42,7 @@ async def api_key(db):
         key_hash,
     )
     yield raw_key
+    # Committing fixture (see db/client shadows above): clean up committed rows.
     await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
@@ -102,7 +118,7 @@ async def person_fixture(db):
         "eid_id": eid_id,
         "eid_type_id": eid_type_id,
     }
-
+    # Committing fixture: clean up committed rows to avoid cross-test leakage.
     await db.execute("DELETE FROM identifiers WHERE id=$1", eid_id)
     await db.execute("DELETE FROM person_names WHERE person_id=$1", person_id)
     await db.execute("DELETE FROM people WHERE id=$1", person_id)
@@ -136,7 +152,7 @@ def _search_by_identifier(client, api_key, identifier_type, identifier_value, **
 
 @pytest.mark.integration
 async def test_search_response_envelope(client, api_key, person_fixture):
-    r = _search(client, api_key, "Jane")
+    r = await _search(client, api_key, "Jane")
     assert r.status_code == 200
     body = r.json()
     assert "data" in body
@@ -150,7 +166,7 @@ async def test_search_response_envelope(client, api_key, person_fixture):
 
 @pytest.mark.integration
 async def test_search_meta_reflects_params(client, api_key, person_fixture):
-    r = _search(client, api_key, "Jane", limit=5, offset=0)
+    r = await _search(client, api_key, "Jane", limit=5, offset=0)
     meta = r.json()["meta"]
     assert meta["limit"] == 5
     assert meta["offset"] == 0
@@ -158,14 +174,14 @@ async def test_search_meta_reflects_params(client, api_key, person_fixture):
 
 @pytest.mark.integration
 async def test_search_meta_count_matches_data(client, api_key, person_fixture):
-    r = _search(client, api_key, "Jane")
+    r = await _search(client, api_key, "Jane")
     body = r.json()
     assert body["meta"]["count"] == len(body["data"])
 
 
 @pytest.mark.integration
 async def test_search_has_more_false_when_under_limit(client, api_key, person_fixture):
-    r = _search(client, api_key, "Jane Elizabeth Smith", limit=50)
+    r = await _search(client, api_key, "Jane Elizabeth Smith", limit=50)
     assert r.json()["meta"]["has_more"] is False
 
 
@@ -182,12 +198,8 @@ async def test_search_has_more_true(client, api_key, person_fixture, db):
         name_id,
         second_id,
     )
-    try:
-        r = _search(client, api_key, "Jane", limit=1)
-        assert r.json()["meta"]["has_more"] is True
-    finally:
-        await db.execute("DELETE FROM person_names WHERE person_id=$1", second_id)
-        await db.execute("DELETE FROM people WHERE id=$1", second_id)
+    r = await _search(client, api_key, "Jane", limit=1)
+    assert r.json()["meta"]["has_more"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +209,7 @@ async def test_search_has_more_true(client, api_key, person_fixture, db):
 
 @pytest.mark.integration
 async def test_search_by_canonical_name(client, api_key, person_fixture):
-    r = _search(client, api_key, "Jane Elizabeth")
+    r = await _search(client, api_key, "Jane Elizabeth")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["data"]]
     assert person_fixture["person_id"] in ids
@@ -208,7 +220,7 @@ async def test_search_by_canonical_name(client, api_key, person_fixture):
 
 @pytest.mark.integration
 async def test_search_by_name_variant(client, api_key, person_fixture):
-    r = _search(client, api_key, "Jane Smith")
+    r = await _search(client, api_key, "Jane Smith")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["data"]]
     assert person_fixture["person_id"] in ids
@@ -217,7 +229,7 @@ async def test_search_by_name_variant(client, api_key, person_fixture):
 @pytest.mark.integration
 async def test_search_does_not_match_hidden_names(client, api_key, person_fixture):
     """Hidden name variants must not be searchable by their content."""
-    r = _search(client, api_key, "SecretNameShouldNotAppear")
+    r = await _search(client, api_key, "SecretNameShouldNotAppear")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["data"]]
     assert person_fixture["person_id"] not in ids
@@ -226,7 +238,7 @@ async def test_search_does_not_match_hidden_names(client, api_key, person_fixtur
 @pytest.mark.integration
 async def test_search_does_not_match_legal_only_names(client, api_key, person_fixture):
     """legal_only name variants must not be searchable by their content."""
-    r = _search(client, api_key, "LegalOnlyNameShouldNotAppear")
+    r = await _search(client, api_key, "LegalOnlyNameShouldNotAppear")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["data"]]
     assert person_fixture["person_id"] not in ids
@@ -235,7 +247,7 @@ async def test_search_does_not_match_legal_only_names(client, api_key, person_fi
 @pytest.mark.integration
 async def test_search_excludes_archived_by_default(client, api_key, person_fixture, db):
     await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
-    r = _search(client, api_key, "Jane")
+    r = await _search(client, api_key, "Jane")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["data"]]
     assert person_fixture["person_id"] not in ids
@@ -245,7 +257,7 @@ async def test_search_excludes_archived_by_default(client, api_key, person_fixtu
 @pytest.mark.integration
 async def test_search_include_archived_flag(client, api_key, person_fixture, db):
     await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
-    r = _search(client, api_key, "Jane", include_archived="true")
+    r = await _search(client, api_key, "Jane", include_archived="true")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["data"]]
     assert person_fixture["person_id"] in ids
@@ -255,7 +267,7 @@ async def test_search_include_archived_flag(client, api_key, person_fixture, db)
 @pytest.mark.integration
 async def test_search_archived_result_has_z_suffix_timestamp(client, api_key, person_fixture, db):
     await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
-    r = _search(client, api_key, "Jane", include_archived="true")
+    r = await _search(client, api_key, "Jane", include_archived="true")
     hit = next(p for p in r.json()["data"] if p["id"] == person_fixture["person_id"])
     assert hit["archived_at"].endswith("Z"), f"expected Z suffix, got {hit['archived_at']}"
     await db.execute("UPDATE people SET archived_at=NULL WHERE id=$1", person_fixture["person_id"])
@@ -263,21 +275,21 @@ async def test_search_archived_result_has_z_suffix_timestamp(client, api_key, pe
 
 @pytest.mark.integration
 async def test_search_limit(client, api_key, person_fixture):
-    r = _search(client, api_key, "Jane", limit=1)
+    r = await _search(client, api_key, "Jane", limit=1)
     assert r.status_code == 200
     assert len(r.json()["data"]) <= 1
 
 
 @pytest.mark.integration
 async def test_search_limit_capped_at_50(client, api_key, person_fixture):
-    r = _search(client, api_key, "a", limit=999)
+    r = await _search(client, api_key, "a", limit=999)
     assert r.status_code == 200
     assert r.json()["meta"]["limit"] == 50
 
 
 @pytest.mark.integration
 async def test_search_empty_q_returns_empty_envelope(client, api_key):
-    r = _search(client, api_key, "")
+    r = await _search(client, api_key, "")
     assert r.status_code == 200
     body = r.json()
     assert body["data"] == []
@@ -287,7 +299,7 @@ async def test_search_empty_q_returns_empty_envelope(client, api_key):
 
 @pytest.mark.integration
 async def test_search_empty_q_limit_capped_at_50(client, api_key):
-    r = _search(client, api_key, "", limit=999)
+    r = await _search(client, api_key, "", limit=999)
     assert r.status_code == 200
     assert r.json()["meta"]["limit"] == 50
 
@@ -300,7 +312,7 @@ async def test_search_empty_q_limit_capped_at_50(client, api_key):
 @pytest.mark.integration
 async def test_get_person_by_id_full_record(client, api_key, person_fixture):
     pid = person_fixture["person_id"]
-    r = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     data = r.json()
 
@@ -328,7 +340,9 @@ async def test_get_person_by_id_full_record(client, api_key, person_fixture):
 
 @pytest.mark.integration
 async def test_get_person_by_id_not_found(client, api_key):
-    r = client.get("/api/v1/people/01DOESNOTEXIST00000000000000", headers={"X-API-Key": api_key})
+    r = await client.get(
+        "/api/v1/people/01DOESNOTEXIST00000000000000", headers={"X-API-Key": api_key}
+    )
     assert r.status_code == 404
 
 
@@ -336,7 +350,9 @@ async def test_get_person_by_id_not_found(client, api_key):
 async def test_get_archived_person_still_returned(client, api_key, person_fixture, db):
     """GET by ID returns archived people — caller must check archived_at."""
     await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
-    r = client.get(f"/api/v1/people/{person_fixture['person_id']}", headers={"X-API-Key": api_key})
+    r = await client.get(
+        f"/api/v1/people/{person_fixture['person_id']}", headers={"X-API-Key": api_key}
+    )
     assert r.status_code == 200
     archived_at = r.json()["archived_at"]
     assert archived_at is not None
@@ -348,7 +364,7 @@ async def test_get_archived_person_still_returned(client, api_key, person_fixtur
 async def test_get_person_detail_timestamps(client, api_key, person_fixture):
     """PersonDetail must expose created_at and updated_at with Z-suffix ISO 8601."""
     pid = person_fixture["person_id"]
-    r = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     data = r.json()
     assert "created_at" in data, "created_at missing from PersonDetail"
@@ -360,7 +376,7 @@ async def test_get_person_detail_timestamps(client, api_key, person_fixture):
 @pytest.mark.integration
 async def test_search_people_does_not_expose_timestamps(client, api_key, person_fixture):
     """Search results must not include created_at or updated_at (detail-only fields)."""
-    r = _search(client, api_key, "Jane Elizabeth")
+    r = await _search(client, api_key, "Jane Elizabeth")
     assert r.status_code == 200
     hit = next(p for p in r.json()["data"] if p["id"] == person_fixture["person_id"])
     assert "created_at" not in hit
@@ -371,7 +387,7 @@ async def test_search_people_does_not_expose_timestamps(client, api_key, person_
 async def test_get_person_detail_names_only_public(client, api_key, person_fixture):
     """Detail endpoint must not leak hidden or legal_only name variants."""
     pid = person_fixture["person_id"]
-    r = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     names = r.json()["names"]
     returned_ids = {n["id"] for n in names}
@@ -386,7 +402,7 @@ async def test_get_person_detail_names_only_public(client, api_key, person_fixtu
 
 @pytest.mark.integration
 async def test_identifier_search_returns_correct_person(client, api_key, person_fixture):
-    r = _search_by_identifier(client, api_key, "person_wa_pdc", "PDC-99999")
+    r = await _search_by_identifier(client, api_key, "person_wa_pdc", "PDC-99999")
     assert r.status_code == 200
     body = r.json()
     ids = [p["id"] for p in body["data"]]
@@ -396,7 +412,7 @@ async def test_identifier_search_returns_correct_person(client, api_key, person_
 
 @pytest.mark.integration
 async def test_identifier_search_unknown_type_returns_empty(client, api_key, person_fixture):
-    r = _search_by_identifier(client, api_key, "nonexistent_slug", "PDC-99999")
+    r = await _search_by_identifier(client, api_key, "nonexistent_slug", "PDC-99999")
     assert r.status_code == 200
     assert r.json()["data"] == []
     assert r.json()["meta"]["has_more"] is False
@@ -404,7 +420,7 @@ async def test_identifier_search_unknown_type_returns_empty(client, api_key, per
 
 @pytest.mark.integration
 async def test_identifier_search_unknown_value_returns_empty(client, api_key, person_fixture):
-    r = _search_by_identifier(client, api_key, "person_wa_pdc", "DOES-NOT-EXIST")
+    r = await _search_by_identifier(client, api_key, "person_wa_pdc", "DOES-NOT-EXIST")
     assert r.status_code == 200
     assert r.json()["data"] == []
     assert r.json()["meta"]["has_more"] is False
@@ -412,7 +428,7 @@ async def test_identifier_search_unknown_value_returns_empty(client, api_key, pe
 
 @pytest.mark.integration
 async def test_identifier_search_empty_type_returns_422(client, api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/people/search",
         params={"identifier_type": "", "identifier_value": "PDC-99999"},
         headers={"X-API-Key": api_key},
@@ -422,7 +438,7 @@ async def test_identifier_search_empty_type_returns_422(client, api_key):
 
 @pytest.mark.integration
 async def test_identifier_search_empty_value_returns_422(client, api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/people/search",
         params={"identifier_type": "person_wa_pdc", "identifier_value": ""},
         headers={"X-API-Key": api_key},
@@ -432,7 +448,7 @@ async def test_identifier_search_empty_value_returns_422(client, api_key):
 
 @pytest.mark.integration
 async def test_identifier_search_type_only_returns_422(client, api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/people/search",
         params={"identifier_type": "person_wa_pdc"},
         headers={"X-API-Key": api_key},
@@ -442,7 +458,7 @@ async def test_identifier_search_type_only_returns_422(client, api_key):
 
 @pytest.mark.integration
 async def test_identifier_search_value_only_returns_422(client, api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/people/search",
         params={"identifier_value": "PDC-99999"},
         headers={"X-API-Key": api_key},
@@ -462,30 +478,26 @@ async def test_identifier_search_wins_over_q(client, api_key, person_fixture, db
         other_name_id,
         other_id,
     )
-    try:
-        # q matches both "Jane" people; identifier should narrow to exactly one
-        r = client.get(
-            "/api/v1/people/search",
-            params={
-                "q": "Jane",
-                "identifier_type": "person_wa_pdc",
-                "identifier_value": "PDC-99999",
-            },
-            headers={"X-API-Key": api_key},
-        )
-        assert r.status_code == 200
-        ids = [p["id"] for p in r.json()["data"]]
-        assert person_fixture["person_id"] in ids
-        assert other_id not in ids
-    finally:
-        await db.execute("DELETE FROM person_names WHERE id=$1", other_name_id)
-        await db.execute("DELETE FROM people WHERE id=$1", other_id)
+    # q matches both "Jane" people; identifier should narrow to exactly one
+    r = await client.get(
+        "/api/v1/people/search",
+        params={
+            "q": "Jane",
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": "PDC-99999",
+        },
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200
+    ids = [p["id"] for p in r.json()["data"]]
+    assert person_fixture["person_id"] in ids
+    assert other_id not in ids
 
 
 @pytest.mark.integration
 async def test_identifier_search_excludes_archived_by_default(client, api_key, person_fixture, db):
     await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
-    r = _search_by_identifier(client, api_key, "person_wa_pdc", "PDC-99999")
+    r = await _search_by_identifier(client, api_key, "person_wa_pdc", "PDC-99999")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["data"]]
     assert person_fixture["person_id"] not in ids
@@ -495,7 +507,7 @@ async def test_identifier_search_excludes_archived_by_default(client, api_key, p
 @pytest.mark.integration
 async def test_identifier_search_include_archived(client, api_key, person_fixture, db):
     await db.execute("UPDATE people SET archived_at=NOW() WHERE id=$1", person_fixture["person_id"])
-    r = _search_by_identifier(
+    r = await _search_by_identifier(
         client, api_key, "person_wa_pdc", "PDC-99999", include_archived="true"
     )
     assert r.status_code == 200
@@ -512,7 +524,7 @@ async def test_identifier_search_include_archived(client, api_key, person_fixtur
 @pytest.mark.integration
 async def test_get_person_etag_and_last_modified_present(client, api_key, person_fixture):
     pid = person_fixture["person_id"]
-    r = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     etag = r.headers.get("etag")
     assert etag is not None, "ETag header missing"
@@ -523,7 +535,7 @@ async def test_get_person_etag_and_last_modified_present(client, api_key, person
 @pytest.mark.integration
 async def test_get_person_cache_control_and_vary_present(client, api_key, person_fixture):
     pid = person_fixture["person_id"]
-    r = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     assert r.headers.get("cache-control") == "no-cache"
     assert r.headers.get("vary") == "X-API-Key"
@@ -532,9 +544,9 @@ async def test_get_person_cache_control_and_vary_present(client, api_key, person
 @pytest.mark.integration
 async def test_get_person_304_on_matching_etag(client, api_key, person_fixture):
     pid = person_fixture["person_id"]
-    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     etag = r1.headers["etag"]
-    r2 = client.get(
+    r2 = await client.get(
         f"/api/v1/people/{pid}",
         headers={"X-API-Key": api_key, "If-None-Match": etag},
     )
@@ -547,7 +559,7 @@ async def test_get_person_304_on_matching_etag(client, api_key, person_fixture):
 @pytest.mark.integration
 async def test_get_person_200_on_mismatched_etag(client, api_key, person_fixture):
     pid = person_fixture["person_id"]
-    r = client.get(
+    r = await client.get(
         f"/api/v1/people/{pid}",
         headers={"X-API-Key": api_key, "If-None-Match": '"wrong-etag-value"'},
     )
@@ -558,16 +570,16 @@ async def test_get_person_200_on_mismatched_etag(client, api_key, person_fixture
 @pytest.mark.integration
 async def test_get_person_etag_changes_after_parent_update(client, api_key, person_fixture, db):
     pid = person_fixture["person_id"]
-    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
     await db.execute("UPDATE people SET archived_at = archived_at WHERE id=$1", pid)
 
-    r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r2 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1
 
-    r3 = client.get(
+    r3 = await client.get(
         f"/api/v1/people/{pid}",
         headers={"X-API-Key": api_key, "If-None-Match": etag1},
     )
@@ -578,7 +590,7 @@ async def test_get_person_etag_changes_after_parent_update(client, api_key, pers
 async def test_get_person_etag_changes_after_name_added(client, api_key, person_fixture, db):
     """Touch-parent trigger: adding a name row bumps the person's updated_at."""
     pid = person_fixture["person_id"]
-    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
@@ -590,7 +602,7 @@ async def test_get_person_etag_changes_after_name_added(client, api_key, person_
         pid,
     )
 
-    r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r2 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1
 
     await db.execute("DELETE FROM person_names WHERE id=$1", tmp_id)
@@ -600,7 +612,7 @@ async def test_get_person_etag_changes_after_name_added(client, api_key, person_
 async def test_get_person_etag_changes_after_identifier_added(client, api_key, person_fixture, db):
     """Touch-parent trigger: adding an identifier bumps the person's updated_at."""
     pid = person_fixture["person_id"]
-    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
@@ -613,7 +625,7 @@ async def test_get_person_etag_changes_after_identifier_added(client, api_key, p
         person_fixture["eid_type_id"],
     )
 
-    r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r2 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1
 
     await db.execute("DELETE FROM identifiers WHERE id=$1", tmp_id)
@@ -625,7 +637,7 @@ async def test_get_person_etag_changes_after_event_inserted(client, api_key, per
     pid = person_fixture["person_id"]
     birth_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='birth'")
     assert birth_id is not None, "entity_event_types seed missing"
-    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
@@ -637,11 +649,8 @@ async def test_get_person_etag_changes_after_event_inserted(client, api_key, per
         pid,
         birth_id,
     )
-    try:
-        r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
-        assert r2.headers["etag"] != etag1
-    finally:
-        await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
+    r2 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    assert r2.headers["etag"] != etag1
 
 
 @pytest.mark.integration
@@ -658,17 +667,14 @@ async def test_get_person_etag_changes_after_event_updated(client, api_key, pers
         pid,
         birth_id,
     )
-    try:
-        r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
-        etag1 = r1.headers["etag"]
+    r1 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    etag1 = r1.headers["etag"]
 
-        await db.execute("SELECT pg_sleep(0.001)")
-        await db.execute("UPDATE entity_events SET event_year=1971 WHERE id=$1", ev_id)
+    await db.execute("SELECT pg_sleep(0.001)")
+    await db.execute("UPDATE entity_events SET event_year=1971 WHERE id=$1", ev_id)
 
-        r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
-        assert r2.headers["etag"] != etag1
-    finally:
-        await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
+    r2 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    assert r2.headers["etag"] != etag1
 
 
 @pytest.mark.integration
@@ -686,11 +692,11 @@ async def test_get_person_etag_changes_after_event_deleted(client, api_key, pers
         birth_id,
     )
 
-    r1 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
     await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
 
-    r2 = client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    r2 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1

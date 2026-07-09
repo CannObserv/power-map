@@ -33,7 +33,7 @@ async def jur_obs_scope(db):
             "Observations Write",
             "Create and update observations",
         )
-    yield scope_id
+    return scope_id
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -55,10 +55,7 @@ async def jur_write_key(db, jur_obs_scope):
     await db.execute(
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, jur_obs_scope
     )
-    yield raw, kid
-    await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw, kid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -79,9 +76,7 @@ async def jur_read_key(db):
         raw[:8],
         key_hash,
     )
-    yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +107,7 @@ def _new_ocd(suffix: str) -> dict:
 async def test_new_jurisdiction_returns_new_disposition(client, jur_write_key, db):
     raw, _ = jur_write_key
     suffix = os.urandom(4).hex()
-    r = _post(client, raw, _new_ocd(suffix))
+    r = await _post(client, raw, _new_ocd(suffix))
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "new"
@@ -127,15 +122,11 @@ async def test_new_jurisdiction_returns_new_disposition(client, jur_write_key, d
     assert row["slug"] == f"test-{suffix}"
     assert row["name"] == f"Test Jurisdiction {suffix}"
 
-    # Cleanup
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", body["entity_id"])
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", body["entity_id"])
-
 
 async def test_new_jurisdiction_sets_type(client, jur_write_key, db):
     raw, _ = jur_write_key
     suffix = os.urandom(4).hex()
-    r = _post(client, raw, _new_ocd(suffix))
+    r = await _post(client, raw, _new_ocd(suffix))
     assert r.status_code == 200
     eid = r.json()["entity_id"]
 
@@ -147,9 +138,6 @@ async def test_new_jurisdiction_sets_type(client, jur_write_key, db):
     )
     assert row["type_slug"] == "state"
 
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
-
 
 async def test_new_jurisdiction_with_optional_fields(client, jur_write_key, db):
     raw, _ = jur_write_key
@@ -160,7 +148,7 @@ async def test_new_jurisdiction_with_optional_fields(client, jur_write_key, db):
         "jurisdiction_valid_until": "2030-12-31",
         "jurisdiction_notes": "Test notes",
     }
-    r = _post(client, raw, payload)
+    r = await _post(client, raw, payload)
     assert r.status_code == 200
     eid = r.json()["entity_id"]
 
@@ -170,9 +158,6 @@ async def test_new_jurisdiction_with_optional_fields(client, jur_write_key, db):
     assert str(row["valid_from"]) == "2020-01-01"
     assert str(row["valid_until"]) == "2030-12-31"
     assert row["notes"] == "Test notes"
-
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
 
 
 # ---------------------------------------------------------------------------
@@ -185,12 +170,12 @@ async def test_auto_attached_on_second_observation(client, jur_write_key, db):
     suffix = os.urandom(4).hex()
     payload = _new_ocd(suffix)
 
-    r1 = _post(client, raw, payload)
+    r1 = await _post(client, raw, payload)
     assert r1.status_code == 200
     assert r1.json()["disposition"] == "new"
     eid = r1.json()["entity_id"]
 
-    r2 = _post(client, raw, payload)
+    r2 = await _post(client, raw, payload)
     assert r2.status_code == 200
     assert r2.json()["disposition"] == "auto-attached"
     assert r2.json()["entity_id"] == eid
@@ -199,21 +184,17 @@ async def test_auto_attached_on_second_observation(client, jur_write_key, db):
     count = await db.fetchval("SELECT COUNT(*) FROM jurisdictions WHERE id=$1", eid)
     assert count == 1
 
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
-
 
 async def test_auto_attached_does_not_require_jurisdiction_fields(client, jur_write_key, db):
     """On AUTO_ATTACHED, slug/name/type_slug are not required."""
     raw, _ = jur_write_key
     suffix = os.urandom(4).hex()
 
-    r1 = _post(client, raw, _new_ocd(suffix))
+    r1 = await _post(client, raw, _new_ocd(suffix))
     assert r1.status_code == 200
-    eid = r1.json()["entity_id"]
 
     # Second observation with only identifier fields
-    r2 = _post(
+    r2 = await _post(
         client,
         raw,
         {
@@ -223,9 +204,6 @@ async def test_auto_attached_does_not_require_jurisdiction_fields(client, jur_wr
     )
     assert r2.status_code == 200
     assert r2.json()["disposition"] == "auto-attached"
-
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +221,7 @@ async def test_rejected_when_slug_missing_for_new(client, jur_write_key):
         "jurisdiction_type_slug": "state",
         # jurisdiction_slug omitted
     }
-    r = _post(client, raw, payload)
+    r = await _post(client, raw, payload)
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
@@ -258,7 +236,7 @@ async def test_rejected_when_name_missing_for_new(client, jur_write_key):
         "jurisdiction_type_slug": "state",
         # jurisdiction_name omitted
     }
-    r = _post(client, raw, payload)
+    r = await _post(client, raw, payload)
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
@@ -273,14 +251,14 @@ async def test_rejected_when_type_missing_for_new(client, jur_write_key):
         "jurisdiction_name": "Missing Type",
         # jurisdiction_type_slug omitted
     }
-    r = _post(client, raw, payload)
+    r = await _post(client, raw, payload)
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
 
 async def test_rejected_on_unknown_identifier_type(client, jur_write_key):
     raw, _ = jur_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -302,7 +280,7 @@ async def test_rejected_on_invalid_type_slug(client, jur_write_key):
         **_new_ocd(suffix),
         "jurisdiction_type_slug": "nonexistent_type",
     }
-    r = _post(client, raw, payload)
+    r = await _post(client, raw, payload)
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
@@ -315,7 +293,7 @@ async def test_rejected_on_valid_from_after_valid_until(client, jur_write_key):
         "jurisdiction_valid_from": "2030-01-01",
         "jurisdiction_valid_until": "2020-01-01",
     }
-    r = _post(client, raw, payload)
+    r = await _post(client, raw, payload)
     assert r.status_code == 422
 
 
@@ -327,7 +305,7 @@ async def test_rejected_on_valid_from_after_valid_until(client, jur_write_key):
 async def test_additional_identifier_attached(client, jur_write_key, db):
     raw, _ = jur_write_key
     suffix = os.urandom(4).hex()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -348,9 +326,6 @@ async def test_additional_identifier_attached(client, jur_write_key, db):
     )
     assert count == 1
 
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
-
 
 # ---------------------------------------------------------------------------
 # Links
@@ -360,7 +335,7 @@ async def test_additional_identifier_attached(client, jur_write_key, db):
 async def test_link_attached_to_jurisdiction(client, jur_write_key, db):
     raw, _ = jur_write_key
     suffix = os.urandom(4).hex()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -376,10 +351,6 @@ async def test_link_attached_to_jurisdiction(client, jur_write_key, db):
     )
     assert count == 1
 
-    await db.execute("DELETE FROM links WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
-
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -387,14 +358,14 @@ async def test_link_attached_to_jurisdiction(client, jur_write_key, db):
 
 
 async def test_missing_scope_returns_403(client, jur_read_key):
-    r = _post(client, jur_read_key, _new_ocd(os.urandom(4).hex()))
+    r = await _post(client, jur_read_key, _new_ocd(os.urandom(4).hex()))
     assert r.status_code == 403
 
 
 async def test_rejected_on_wrong_entity_type(client, jur_write_key):
     """Identifier belonging to a person entity → rejected on /jurisdictions/observations."""
     raw, _ = jur_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -412,7 +383,7 @@ async def test_slug_collision_returns_rejected(client, jur_write_key, db):
     suffix = os.urandom(4).hex()
     slug = f"test-collision-{suffix}"
 
-    r1 = _post(
+    r1 = await _post(
         client,
         raw,
         {
@@ -425,9 +396,8 @@ async def test_slug_collision_returns_rejected(client, jur_write_key, db):
     )
     assert r1.status_code == 200
     assert r1.json()["disposition"] == "new"
-    eid = r1.json()["entity_id"]
 
-    r2 = _post(
+    r2 = await _post(
         client,
         raw,
         {
@@ -441,9 +411,6 @@ async def test_slug_collision_returns_rejected(client, jur_write_key, db):
     assert r2.status_code == 200
     assert r2.json()["disposition"] == "rejected"
 
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
-
 
 # ---------------------------------------------------------------------------
 # jur_slug identifier type
@@ -455,7 +422,7 @@ async def test_new_via_jur_slug_returns_new_disposition(client, jur_write_key, d
     raw, _ = jur_write_key
     suffix = os.urandom(4).hex()
     slug = f"test-slug-direct-{suffix}"
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -474,16 +441,13 @@ async def test_new_via_jur_slug_returns_new_disposition(client, jur_write_key, d
     row = await db.fetchrow("SELECT slug FROM jurisdictions WHERE id=$1", body["entity_id"])
     assert row["slug"] == slug
 
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", body["entity_id"])
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", body["entity_id"])
-
 
 async def test_new_via_jur_ocd_auto_registers_jur_slug_identifier(client, jur_write_key, db):
     """NEW via jur_ocd → jur_slug identifier row auto-inserted for cross-type matching."""
     raw, _ = jur_write_key
     suffix = os.urandom(4).hex()
     slug = f"test-slug-reg-{suffix}"
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -505,9 +469,6 @@ async def test_new_via_jur_ocd_auto_registers_jur_slug_identifier(client, jur_wr
     )
     assert count == 1
 
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
-
 
 async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(client, jur_write_key, db):
     """Jurisdiction created via jur_ocd → subsequent jur_slug observation AUTO_ATTACHes."""
@@ -515,7 +476,7 @@ async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(client, jur_write
     suffix = os.urandom(4).hex()
     slug = f"test-slug-attach-{suffix}"
 
-    r1 = _post(
+    r1 = await _post(
         client,
         raw,
         {
@@ -530,7 +491,7 @@ async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(client, jur_write
     assert r1.json()["disposition"] == "new"
     eid = r1.json()["entity_id"]
 
-    r2 = _post(
+    r2 = await _post(
         client,
         raw,
         {"identifier_type": "jur_slug", "identifier_value": slug},
@@ -539,16 +500,13 @@ async def test_auto_attach_via_jur_slug_after_jur_ocd_creation(client, jur_write
     assert r2.json()["disposition"] == "auto-attached"
     assert r2.json()["entity_id"] == eid
 
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
-
 
 async def test_jur_slug_identifier_value_jurisdiction_slug_consistency(client, jur_write_key, db):
     """identifier_type=jur_slug: mismatch → 422; match → new."""
     raw, _ = jur_write_key
 
     # Divergent values are rejected at the Pydantic layer.
-    r_bad = _post(
+    r_bad = await _post(
         client,
         raw,
         {
@@ -564,7 +522,7 @@ async def test_jur_slug_identifier_value_jurisdiction_slug_consistency(client, j
     # Equal values are accepted.
     suffix = os.urandom(4).hex()
     slug = f"test-slug-match-{suffix}"
-    r_ok = _post(
+    r_ok = await _post(
         client,
         raw,
         {
@@ -578,10 +536,6 @@ async def test_jur_slug_identifier_value_jurisdiction_slug_consistency(client, j
     assert r_ok.status_code == 200
     assert r_ok.json()["disposition"] == "new"
 
-    eid = r_ok.json()["entity_id"]
-    await db.execute("DELETE FROM identifiers WHERE entity_id=$1", eid)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", eid)
-
 
 # ---------------------------------------------------------------------------
 # #225 — reason field on rejected observations
@@ -591,7 +545,9 @@ async def test_jur_slug_identifier_value_jurisdiction_slug_consistency(client, j
 async def test_rejected_unknown_type_includes_reason(client, jur_write_key):
     """Unknown identifier type rejection must include a reason string."""
     raw, _ = jur_write_key
-    r = _post(client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"})
+    r = await _post(
+        client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "rejected"

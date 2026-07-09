@@ -32,7 +32,7 @@ async def ppl_obs_scope(db):
             "Observations Write",
             "Create and update observations",
         )
-    yield scope_id
+    return scope_id
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -54,10 +54,7 @@ async def ppl_write_key(db, ppl_obs_scope):
     await db.execute(
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, ppl_obs_scope
     )
-    yield raw, kid
-    await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw, kid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -78,9 +75,7 @@ async def ppl_read_key(db):
         raw[:8],
         key_hash,
     )
-    yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -94,10 +89,7 @@ async def ppl_role_id(db):
         role_id,
         org_id,
     )
-    yield role_id
-    await db.execute("DELETE FROM role_assignments WHERE role_id=$1", role_id)
-    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+    return role_id
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +112,9 @@ def _unique_id() -> str:
 
 async def test_new_person_returns_new_disposition(client, ppl_write_key):
     raw, _ = ppl_write_key
-    r = _post(client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": _unique_id()})
+    r = await _post(
+        client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": _unique_id()}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "new"
@@ -138,12 +132,12 @@ async def test_auto_attached_on_second_observation(client, ppl_write_key):
     value = _unique_id()
     payload = {"identifier_type": "person_wa_pdc", "identifier_value": value}
 
-    r1 = _post(client, raw, payload)
+    r1 = await _post(client, raw, payload)
     assert r1.status_code == 200
     assert r1.json()["disposition"] == "new"
     eid = r1.json()["entity_id"]
 
-    r2 = _post(client, raw, payload)
+    r2 = await _post(client, raw, payload)
     assert r2.status_code == 200
     assert r2.json()["disposition"] == "auto-attached"
     assert r2.json()["entity_id"] == eid
@@ -156,7 +150,9 @@ async def test_auto_attached_on_second_observation(client, ppl_write_key):
 
 async def test_rejected_on_unknown_identifier_type(client, ppl_write_key):
     raw, _ = ppl_write_key
-    r = _post(client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"})
+    r = await _post(
+        client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "rejected"
@@ -166,7 +162,7 @@ async def test_rejected_on_unknown_identifier_type(client, ppl_write_key):
 async def test_rejected_on_wrong_entity_type(client, ppl_write_key):
     """org_ubi is an organization identifier → rejected on /people/observations."""
     raw, _ = ppl_write_key
-    r = _post(client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()})
+    r = await _post(client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()})
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
@@ -179,7 +175,7 @@ async def test_rejected_on_wrong_entity_type(client, ppl_write_key):
 async def test_name_claim_creates_row(client, ppl_write_key, db):
     raw, kid = ppl_write_key
     value = _unique_id()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -208,11 +204,11 @@ async def test_name_claim_no_duplicate(client, ppl_write_key, db):
         "identifier_value": value,
         "names": [{"name": "John Smith", "name_type": "legal"}],
     }
-    r1 = _post(client, raw, payload)
+    r1 = await _post(client, raw, payload)
     assert r1.status_code == 200
     eid = r1.json()["entity_id"]
 
-    r2 = _post(client, raw, payload)
+    r2 = await _post(client, raw, payload)
     assert r2.status_code == 200
 
     count = await db.fetchval(
@@ -229,7 +225,7 @@ async def test_name_claim_no_duplicate(client, ppl_write_key, db):
 async def test_pronouns_set(client, ppl_write_key, db):
     raw, _ = ppl_write_key
     value = _unique_id()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -249,7 +245,7 @@ async def test_pronouns_write_if_null(client, ppl_write_key, db):
     raw, _ = ppl_write_key
     value = _unique_id()
 
-    r1 = _post(
+    r1 = await _post(
         client,
         raw,
         {
@@ -261,7 +257,7 @@ async def test_pronouns_write_if_null(client, ppl_write_key, db):
     assert r1.status_code == 200
     eid = r1.json()["entity_id"]
 
-    r2 = _post(
+    r2 = await _post(
         client,
         raw,
         {
@@ -284,7 +280,7 @@ async def test_pronouns_write_if_null(client, ppl_write_key, db):
 async def test_role_assignment_created(client, ppl_write_key, ppl_role_id, db):
     raw, _ = ppl_write_key
     value = _unique_id()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -312,11 +308,11 @@ async def test_role_assignment_no_duplicate(client, ppl_write_key, ppl_role_id, 
         "identifier_value": value,
         "role_assignments": [{"role_id": ppl_role_id}],
     }
-    r1 = _post(client, raw, payload)
+    r1 = await _post(client, raw, payload)
     assert r1.status_code == 200
     eid = r1.json()["entity_id"]
 
-    r2 = _post(client, raw, payload)
+    r2 = await _post(client, raw, payload)
     assert r2.status_code == 200
 
     count = await db.fetchval(
@@ -337,7 +333,7 @@ async def test_link_attached(client, ppl_write_key, db):
     raw, _ = ppl_write_key
     value = _unique_id()
     url = f"https://example.com/{value}"
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -380,7 +376,7 @@ async def test_additional_identifier_attached(client, ppl_write_key, db):
             slug,
         )
 
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -408,7 +404,7 @@ async def test_additional_identifier_attached(client, ppl_write_key, db):
 
 
 async def test_missing_scope_returns_403(client, ppl_read_key):
-    r = _post(
+    r = await _post(
         client,
         ppl_read_key,
         {"identifier_type": "person_wa_pdc", "identifier_value": _unique_id()},
@@ -424,7 +420,9 @@ async def test_missing_scope_returns_403(client, ppl_read_key):
 async def test_rejected_unknown_type_includes_reason(client, ppl_write_key):
     """Unknown identifier type rejection must include a reason string."""
     raw, _ = ppl_write_key
-    r = _post(client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"})
+    r = await _post(
+        client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "rejected"

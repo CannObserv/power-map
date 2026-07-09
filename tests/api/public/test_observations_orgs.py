@@ -33,7 +33,7 @@ async def org_obs_scope(db):
             "Observations Write",
             "Create and update observations",
         )
-    yield scope_id
+    return scope_id
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -55,10 +55,7 @@ async def org_write_key(db, org_obs_scope):
     await db.execute(
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, org_obs_scope
     )
-    yield raw, kid
-    await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw, kid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -79,9 +76,7 @@ async def org_read_key(db):
         raw[:8],
         key_hash,
     )
-    yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +99,7 @@ def _unique_id() -> str:
 
 async def test_new_org_returns_new_disposition(client, org_write_key):
     raw, _ = org_write_key
-    r = _post(client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()})
+    r = await _post(client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()})
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "new"
@@ -122,12 +117,12 @@ async def test_auto_attached_on_second_observation(client, org_write_key):
     value = _unique_id()
     payload = {"identifier_type": "org_ubi", "identifier_value": value}
 
-    r1 = _post(client, raw, payload)
+    r1 = await _post(client, raw, payload)
     assert r1.status_code == 200
     assert r1.json()["disposition"] == "new"
     eid = r1.json()["entity_id"]
 
-    r2 = _post(client, raw, payload)
+    r2 = await _post(client, raw, payload)
     assert r2.status_code == 200
     assert r2.json()["disposition"] == "auto-attached"
     assert r2.json()["entity_id"] == eid
@@ -140,7 +135,9 @@ async def test_auto_attached_on_second_observation(client, org_write_key):
 
 async def test_rejected_on_unknown_identifier_type(client, org_write_key):
     raw, _ = org_write_key
-    r = _post(client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"})
+    r = await _post(
+        client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "rejected"
@@ -150,7 +147,9 @@ async def test_rejected_on_unknown_identifier_type(client, org_write_key):
 async def test_rejected_on_wrong_entity_type(client, org_write_key):
     """person_wa_pdc is a person identifier → rejected on /orgs/observations."""
     raw, _ = org_write_key
-    r = _post(client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": _unique_id()})
+    r = await _post(
+        client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": _unique_id()}
+    )
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
@@ -164,7 +163,7 @@ async def test_observation_stores_effective_dates(client, org_write_key, db):
     """A name observation carrying effective dates persists them on the new row (#239)."""
     raw, _ = org_write_key
     value = _unique_id()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -195,7 +194,7 @@ async def test_observation_stores_effective_dates(client, org_write_key, db):
 async def test_observation_reversed_effective_dates_rejected(client, org_write_key):
     """effective_start > effective_end is rejected at the request boundary (422), not silently."""
     raw, _ = org_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -220,7 +219,7 @@ async def test_observation_address_validity_window_persisted(
     """An address observation carrying validity dates round-trips them onto the link (#256)."""
     raw, _ = org_write_key
     value = _unique_id()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -251,7 +250,7 @@ async def test_observation_address_validity_window_persisted(
 async def test_observation_address_reversed_validity_rejected(client, org_write_key):
     """An address with valid_from > valid_until is rejected at the boundary (422) (#256)."""
     raw, _ = org_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -273,7 +272,7 @@ async def test_observation_address_reversed_validity_rejected(client, org_write_
 async def test_org_acronym_created(client, org_write_key, db):
     raw, _ = org_write_key
     value = _unique_id()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -302,11 +301,11 @@ async def test_org_acronym_no_duplicate(client, org_write_key, db):
         "identifier_value": value,
         "org_acronyms": [{"acronym": "NDO", "is_canonical": False}],
     }
-    r1 = _post(client, raw, payload)
+    r1 = await _post(client, raw, payload)
     assert r1.status_code == 200
     eid = r1.json()["entity_id"]
 
-    r2 = _post(client, raw, payload)
+    r2 = await _post(client, raw, payload)
     assert r2.status_code == 200
 
     count = await db.fetchval(
@@ -320,7 +319,7 @@ async def test_org_acronym_explicit_canonical_hint(client, org_write_key, db):
     """Explicit is_canonical=True on one acronym → only that one is canonical; others are not."""
     raw, _ = org_write_key
     value = _unique_id()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -347,7 +346,7 @@ async def test_org_second_acronym_not_canonical(client, org_write_key, db):
     raw, _ = org_write_key
     value = _unique_id()
     # First observation — auto-promotes "FIRST" to canonical.
-    r1 = _post(
+    r1 = await _post(
         client,
         raw,
         {
@@ -360,7 +359,7 @@ async def test_org_second_acronym_not_canonical(client, org_write_key, db):
     eid = r1.json()["entity_id"]
 
     # Second observation — "SECOND" cannot claim canonical; one already exists.
-    r2 = _post(
+    r2 = await _post(
         client,
         raw,
         {
@@ -386,11 +385,13 @@ async def test_org_second_acronym_not_canonical(client, org_write_key, db):
 async def test_org_parent_by_id(client, org_write_key, db):
     raw, _ = org_write_key
 
-    r_parent = _post(client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()})
+    r_parent = await _post(
+        client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()}
+    )
     assert r_parent.status_code == 200
     parent_id = r_parent.json()["entity_id"]
 
-    r_child = _post(
+    r_child = await _post(
         client,
         raw,
         {
@@ -436,7 +437,7 @@ async def test_org_parent_by_name_ambiguous_rejected(client, org_write_key, db):
     )
 
     try:
-        r = _post(
+        r = await _post(
             client,
             raw,
             {
@@ -457,7 +458,7 @@ async def test_org_parent_by_name_ambiguous_rejected(client, org_write_key, db):
 async def test_xor_org_parent_two_fields_returns_422(client, org_write_key):
     """Supplying two parent fields → 422 at schema validation."""
     raw, _ = org_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -479,7 +480,7 @@ async def test_link_attached(client, org_write_key, db):
     raw, _ = org_write_key
     value = _unique_id()
     url = f"https://example.com/{value}"
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -520,7 +521,7 @@ async def test_additional_identifier_attached(client, org_write_key, db):
             slug,
         )
 
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -550,7 +551,7 @@ async def test_additional_identifier_attached(client, org_write_key, db):
 
 
 async def test_missing_scope_returns_403(client, org_read_key):
-    r = _post(
+    r = await _post(
         client, org_read_key, {"identifier_type": "org_ubi", "identifier_value": _unique_id()}
     )
     assert r.status_code == 403
@@ -580,12 +581,7 @@ async def obs_jur_fixtures(db):
         "Obs Test Jurisdiction",
         jtype_id,
     )
-    yield {"jur_id": jur_id}
-    await db.execute(
-        "DELETE FROM organization_jurisdiction_affiliations WHERE jurisdiction_id=$1", jur_id
-    )
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jur_id)
-    await db.execute("DELETE FROM jurisdiction_types WHERE id=$1", jtype_id)
+    return {"jur_id": jur_id}
 
 
 async def test_observation_creates_jurisdiction_affiliation(
@@ -595,7 +591,7 @@ async def test_observation_creates_jurisdiction_affiliation(
     raw_key, _ = org_write_key
     uid_val = _unique_id()
 
-    r = _post(
+    r = await _post(
         client,
         raw_key,
         {
@@ -627,7 +623,7 @@ async def test_observation_creates_jurisdiction_affiliation(
 
 async def test_observation_invalid_jurisdiction_id_returns_rejected(client, org_write_key, db):
     raw_key, _ = org_write_key
-    r = _post(
+    r = await _post(
         client,
         raw_key,
         {
@@ -650,7 +646,7 @@ async def test_observation_invalid_affiliation_type_returns_rejected(
 ):
     jur_id = obs_jur_fixtures["jur_id"]
     raw_key, _ = org_write_key
-    r = _post(
+    r = await _post(
         client,
         raw_key,
         {
@@ -676,7 +672,7 @@ async def test_pm_org_id_auto_attached_on_existing_org(client, org_write_key, db
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
 
     raw, _ = org_write_key
-    r = _post(client, raw, {"identifier_type": "pm_org_id", "identifier_value": org_id})
+    r = await _post(client, raw, {"identifier_type": "pm_org_id", "identifier_value": org_id})
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "auto-attached"
@@ -687,7 +683,9 @@ async def test_pm_org_id_auto_attached_on_existing_org(client, org_write_key, db
 async def test_pm_org_id_rejected_on_unknown_ulid(client, org_write_key):
     """identifier_type=pm_org_id with unknown ULID → rejected (never creates entity)."""
     raw, _ = org_write_key
-    r = _post(client, raw, {"identifier_type": "pm_org_id", "identifier_value": generate_id()})
+    r = await _post(
+        client, raw, {"identifier_type": "pm_org_id", "identifier_value": generate_id()}
+    )
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
 
@@ -708,7 +706,7 @@ async def test_pm_org_id_suppressed_in_detail_response(client, org_write_key, or
         org_id,
     )
 
-    r = client.get(f"/api/v1/orgs/{org_id}", headers={"X-API-Key": org_read_key})
+    r = await client.get(f"/api/v1/orgs/{org_id}", headers={"X-API-Key": org_read_key})
     assert r.status_code == 200
     slugs = [i["type_slug"] for i in r.json()["identifiers"]]
     assert "pm_org_id" not in slugs
@@ -722,7 +720,7 @@ async def test_pm_org_id_suppressed_in_detail_response(client, org_write_key, or
 async def test_org_wa_legislature_chamber_accepted(client, org_write_key):
     """org_wa_legislature_chamber must be registered and accept org observations."""
     raw, _ = org_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {"identifier_type": "org_wa_legislature_chamber", "identifier_value": "house"},
@@ -736,7 +734,7 @@ async def test_org_wa_legislature_chamber_accepted(client, org_write_key):
 async def test_org_wa_legislature_accepted(client, org_write_key):
     """org_wa_legislature must be registered and accept org observations."""
     raw, _ = org_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {"identifier_type": "org_wa_legislature", "identifier_value": "usa_wa_legislature"},
@@ -755,7 +753,9 @@ async def test_org_wa_legislature_accepted(client, org_write_key):
 async def test_rejected_unknown_type_includes_reason(client, org_write_key):
     """Unknown identifier type rejection must include a reason string."""
     raw, _ = org_write_key
-    r = _post(client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"})
+    r = await _post(
+        client, raw, {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "rejected"
@@ -766,7 +766,7 @@ async def test_rejected_unknown_type_includes_reason(client, org_write_key):
 async def test_rejected_wrong_entity_type_includes_reason(client, org_write_key):
     """Wrong-entity-type rejection must include a reason string."""
     raw, _ = org_write_key
-    r = _post(client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": "v"})
+    r = await _post(client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": "v"})
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "rejected"
@@ -776,7 +776,7 @@ async def test_rejected_wrong_entity_type_includes_reason(client, org_write_key)
 async def test_rejected_unknown_additional_identifier_includes_reason(client, org_write_key):
     """Unknown additional identifier type must surface a reason."""
     raw, _ = org_write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -805,7 +805,7 @@ async def test_observation_sets_active_false(client, org_write_key, db):
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
     try:
         raw, _ = org_write_key
-        r = _post(
+        r = await _post(
             client,
             raw,
             {"identifier_type": "pm_org_id", "identifier_value": org_id, "active": False},
@@ -824,7 +824,7 @@ async def test_observation_sets_active_true_reactivates(client, org_write_key, d
     await db.execute("INSERT INTO organizations (id, active) VALUES ($1, FALSE)", org_id)
     try:
         raw, _ = org_write_key
-        r = _post(
+        r = await _post(
             client,
             raw,
             {"identifier_type": "pm_org_id", "identifier_value": org_id, "active": True},
@@ -843,7 +843,7 @@ async def test_observation_omitted_active_leaves_org_unchanged(client, org_write
     await db.execute("INSERT INTO organizations (id, active) VALUES ($1, FALSE)", org_id)
     try:
         raw, _ = org_write_key
-        r = _post(client, raw, {"identifier_type": "pm_org_id", "identifier_value": org_id})
+        r = await _post(client, raw, {"identifier_type": "pm_org_id", "identifier_value": org_id})
         assert r.status_code == 200
         assert r.json()["disposition"] == "auto-attached"
         row = await db.fetchrow("SELECT active FROM organizations WHERE id=$1", org_id)
@@ -870,7 +870,7 @@ async def test_observation_active_on_archived_org_rejected(client, org_write_key
     )
     try:
         raw, _ = org_write_key
-        r = _post(
+        r = await _post(
             client,
             raw,
             {"identifier_type": "org_ubi", "identifier_value": ubi_val, "active": False},
@@ -910,7 +910,7 @@ async def test_observation_active_on_archived_org_is_atomic(client, org_write_ke
     )
     try:
         raw, _ = org_write_key
-        r = _post(
+        r = await _post(
             client,
             raw,
             {
@@ -942,7 +942,7 @@ async def test_observation_active_change_emits_entity_change(client, org_write_k
     try:
         before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
         raw, _ = org_write_key
-        r = _post(
+        r = await _post(
             client,
             raw,
             {"identifier_type": "pm_org_id", "identifier_value": org_id, "active": False},
@@ -967,7 +967,7 @@ async def test_observation_active_noop_emits_no_entity_change(client, org_write_
     try:
         before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
         raw, _ = org_write_key
-        r = _post(
+        r = await _post(
             client,
             raw,
             {"identifier_type": "pm_org_id", "identifier_value": org_id, "active": False},

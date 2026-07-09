@@ -12,6 +12,21 @@ from src.core.db import generate_id
 pytestmark = pytest.mark.integration
 
 
+# This module's etag tests assert that an entity's updated_at (hence its etag)
+# *advances* after a mutation. Postgres now() is fixed at transaction start, so
+# the single-transaction rollback client would freeze it. Shadow db/client with
+# the committing (autocommit) variants so each write is its own transaction and
+# timestamps advance (#288). Rows leak but carry unique ULIDs (session-truncated).
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(committing_db):
+    return committing_db
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def client(committing_client):
+    return committing_client
+
+
 @pytest_asyncio.fixture(loop_scope="session")
 async def api_key(db):
     uid = generate_id()
@@ -28,6 +43,8 @@ async def api_key(db):
         key_hash,
     )
     yield raw_key
+    # Committing fixture (see db/client shadows above): clean up so committed
+    # rows don't leak into other tests' searches.
     await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
@@ -94,7 +111,7 @@ async def org_fixture(db):
         "eid_id": eid_id,
         "eid_type_id": eid_type_id,
     }
-
+    # Committing fixture: clean up committed rows to avoid cross-test leakage.
     await db.execute("DELETE FROM identifiers WHERE id=$1", eid_id)
     await db.execute("DELETE FROM organization_acronyms WHERE id=$1", acronym_id)
     await db.execute("DELETE FROM organization_names WHERE id IN ($1,$2)", name_id, former_id)
@@ -129,7 +146,7 @@ def _search_by_identifier(client, api_key, identifier_type, identifier_value, **
 
 @pytest.mark.integration
 async def test_search_response_envelope(client, api_key, org_fixture):
-    r = _search(client, api_key, "Television")
+    r = await _search(client, api_key, "Television")
     assert r.status_code == 200
     body = r.json()
     assert "data" in body
@@ -143,7 +160,7 @@ async def test_search_response_envelope(client, api_key, org_fixture):
 
 @pytest.mark.integration
 async def test_search_meta_reflects_params(client, api_key, org_fixture):
-    r = _search(client, api_key, "Television", limit=5, offset=0)
+    r = await _search(client, api_key, "Television", limit=5, offset=0)
     meta = r.json()["meta"]
     assert meta["limit"] == 5
     assert meta["offset"] == 0
@@ -151,21 +168,21 @@ async def test_search_meta_reflects_params(client, api_key, org_fixture):
 
 @pytest.mark.integration
 async def test_search_meta_count_matches_data(client, api_key, org_fixture):
-    r = _search(client, api_key, "Television")
+    r = await _search(client, api_key, "Television")
     body = r.json()
     assert body["meta"]["count"] == len(body["data"])
 
 
 @pytest.mark.integration
 async def test_search_has_more_false_when_under_limit(client, api_key, org_fixture):
-    r = _search(client, api_key, "Television", limit=50)
+    r = await _search(client, api_key, "Television", limit=50)
     assert r.json()["meta"]["has_more"] is False
 
 
 @pytest.mark.integration
 async def test_search_has_more_true_when_exactly_limit_plus_one(client, api_key, org_fixture):
     # limit=1 with at least 1 result; has_more depends on total matching rows
-    r = _search(client, api_key, "Television", limit=1)
+    r = await _search(client, api_key, "Television", limit=1)
     body = r.json()
     assert len(body["data"]) == 1
     # has_more is True only if more rows exist; with a single fixture org it's False
@@ -179,7 +196,7 @@ async def test_search_has_more_true_when_exactly_limit_plus_one(client, api_key,
 
 @pytest.mark.integration
 async def test_search_by_canonical_name(client, api_key, org_fixture):
-    r = _search(client, api_key, "Television")
+    r = await _search(client, api_key, "Television")
     assert r.status_code == 200
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
@@ -193,7 +210,7 @@ async def test_search_by_canonical_name(client, api_key, org_fixture):
 
 @pytest.mark.integration
 async def test_search_by_acronym(client, api_key, org_fixture):
-    r = _search(client, api_key, "TVW")
+    r = await _search(client, api_key, "TVW")
     assert r.status_code == 200
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
@@ -201,7 +218,7 @@ async def test_search_by_acronym(client, api_key, org_fixture):
 
 @pytest.mark.integration
 async def test_search_by_name_variant(client, api_key, org_fixture):
-    r = _search(client, api_key, "TV Washington")
+    r = await _search(client, api_key, "TV Washington")
     assert r.status_code == 200
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
@@ -212,7 +229,7 @@ async def test_search_excludes_archived(client, api_key, org_fixture, db):
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
     )
-    r = _search(client, api_key, "Television")
+    r = await _search(client, api_key, "Television")
     assert r.status_code == 200
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] not in ids
@@ -224,7 +241,7 @@ async def test_search_include_archived_flag(client, api_key, org_fixture, db):
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
     )
-    r = _search(client, api_key, "Television", include_archived="true")
+    r = await _search(client, api_key, "Television", include_archived="true")
     assert r.status_code == 200
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
@@ -236,7 +253,7 @@ async def test_search_archived_result_has_z_suffix_timestamp(client, api_key, or
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
     )
-    r = _search(client, api_key, "Television", include_archived="true")
+    r = await _search(client, api_key, "Television", include_archived="true")
     hit = next(o for o in r.json()["data"] if o["id"] == org_fixture["org_id"])
     assert hit["archived_at"].endswith("Z"), f"expected Z suffix, got {hit['archived_at']}"
     await db.execute("UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"])
@@ -244,21 +261,21 @@ async def test_search_archived_result_has_z_suffix_timestamp(client, api_key, or
 
 @pytest.mark.integration
 async def test_search_limit(client, api_key, org_fixture):
-    r = _search(client, api_key, "Television", limit=1)
+    r = await _search(client, api_key, "Television", limit=1)
     assert r.status_code == 200
     assert len(r.json()["data"]) <= 1
 
 
 @pytest.mark.integration
 async def test_search_limit_capped_at_50(client, api_key, org_fixture):
-    r = _search(client, api_key, "a", limit=999)
+    r = await _search(client, api_key, "a", limit=999)
     assert r.status_code == 200
     assert r.json()["meta"]["limit"] == 50
 
 
 @pytest.mark.integration
 async def test_search_empty_q_returns_empty_envelope(client, api_key):
-    r = _search(client, api_key, "")
+    r = await _search(client, api_key, "")
     assert r.status_code == 200
     body = r.json()
     assert body["data"] == []
@@ -268,7 +285,7 @@ async def test_search_empty_q_returns_empty_envelope(client, api_key):
 
 @pytest.mark.integration
 async def test_search_limit_capped_at_50_for_empty_q(client, api_key):
-    r = _search(client, api_key, "", limit=999)
+    r = await _search(client, api_key, "", limit=999)
     assert r.status_code == 200
     assert r.json()["meta"]["limit"] == 50
 
@@ -281,7 +298,7 @@ async def test_search_limit_capped_at_50_for_empty_q(client, api_key):
 @pytest.mark.integration
 async def test_get_org_by_id_full_record(client, api_key, org_fixture):
     oid = org_fixture["org_id"]
-    r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     data = r.json()
 
@@ -329,7 +346,7 @@ async def test_get_org_name_effective_dates_exposed(client, api_key, org_fixture
         date(2023, 1, 9),
         org_fixture["name_id"],
     )
-    r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     by_id = {n["id"]: n for n in r.json()["names"]}
 
@@ -344,7 +361,9 @@ async def test_get_org_name_effective_dates_exposed(client, api_key, org_fixture
 
 @pytest.mark.integration
 async def test_get_org_by_id_not_found(client, api_key):
-    r = client.get("/api/v1/orgs/01DOESNOTEXIST00000000000000", headers={"X-API-Key": api_key})
+    r = await client.get(
+        "/api/v1/orgs/01DOESNOTEXIST00000000000000", headers={"X-API-Key": api_key}
+    )
     assert r.status_code == 404
 
 
@@ -354,7 +373,7 @@ async def test_get_archived_org_still_returned(client, api_key, org_fixture, db)
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
     )
-    r = client.get(f"/api/v1/orgs/{org_fixture['org_id']}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/orgs/{org_fixture['org_id']}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     archived_at = r.json()["archived_at"]
     assert archived_at is not None
@@ -366,7 +385,7 @@ async def test_get_archived_org_still_returned(client, api_key, org_fixture, db)
 async def test_get_org_detail_timestamps(client, api_key, org_fixture):
     """OrgDetail must expose created_at and updated_at with Z-suffix ISO 8601."""
     oid = org_fixture["org_id"]
-    r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     data = r.json()
     assert "created_at" in data, "created_at missing from OrgDetail"
@@ -378,7 +397,7 @@ async def test_get_org_detail_timestamps(client, api_key, org_fixture):
 @pytest.mark.integration
 async def test_search_orgs_does_not_expose_timestamps(client, api_key, org_fixture):
     """Search results must not include created_at or updated_at (detail-only fields)."""
-    r = _search(client, api_key, "Television")
+    r = await _search(client, api_key, "Television")
     assert r.status_code == 200
     hit = next(o for o in r.json()["data"] if o["id"] == org_fixture["org_id"])
     assert "created_at" not in hit
@@ -394,7 +413,7 @@ async def test_search_orgs_does_not_expose_timestamps(client, api_key, org_fixtu
 async def test_get_org_detail_exposes_active_default_true(client, api_key, org_fixture):
     """OrgDetail surfaces active; a fresh org defaults to active=True."""
     oid = org_fixture["org_id"]
-    r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     data = r.json()
     assert "active" in data, "active missing from OrgDetail"
@@ -407,7 +426,7 @@ async def test_get_org_detail_reflects_inactive(client, api_key, org_fixture, db
     oid = org_fixture["org_id"]
     await db.execute("UPDATE organizations SET active=FALSE WHERE id=$1", oid)
     try:
-        r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+        r = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
         assert r.status_code == 200
         assert r.json()["active"] is False
     finally:
@@ -417,7 +436,7 @@ async def test_get_org_detail_reflects_inactive(client, api_key, org_fixture, db
 @pytest.mark.integration
 async def test_search_orgs_does_not_expose_active(client, api_key, org_fixture):
     """active is a detail-only field; search results must not include it."""
-    r = _search(client, api_key, "Television")
+    r = await _search(client, api_key, "Television")
     assert r.status_code == 200
     hit = next(o for o in r.json()["data"] if o["id"] == org_fixture["org_id"])
     assert "active" not in hit
@@ -430,7 +449,7 @@ async def test_search_orgs_does_not_expose_active(client, api_key, org_fixture):
 
 @pytest.mark.integration
 async def test_identifier_search_returns_correct_org(client, api_key, org_fixture):
-    r = _search_by_identifier(client, api_key, "wa_sos", "12345")
+    r = await _search_by_identifier(client, api_key, "wa_sos", "12345")
     assert r.status_code == 200
     body = r.json()
     ids = [o["id"] for o in body["data"]]
@@ -440,7 +459,7 @@ async def test_identifier_search_returns_correct_org(client, api_key, org_fixtur
 
 @pytest.mark.integration
 async def test_identifier_search_unknown_type_returns_empty(client, api_key, org_fixture):
-    r = _search_by_identifier(client, api_key, "nonexistent_slug", "12345")
+    r = await _search_by_identifier(client, api_key, "nonexistent_slug", "12345")
     assert r.status_code == 200
     assert r.json()["data"] == []
     assert r.json()["meta"]["has_more"] is False
@@ -448,7 +467,7 @@ async def test_identifier_search_unknown_type_returns_empty(client, api_key, org
 
 @pytest.mark.integration
 async def test_identifier_search_unknown_value_returns_empty(client, api_key, org_fixture):
-    r = _search_by_identifier(client, api_key, "wa_sos", "DOES-NOT-EXIST")
+    r = await _search_by_identifier(client, api_key, "wa_sos", "DOES-NOT-EXIST")
     assert r.status_code == 200
     assert r.json()["data"] == []
     assert r.json()["meta"]["has_more"] is False
@@ -456,7 +475,7 @@ async def test_identifier_search_unknown_value_returns_empty(client, api_key, or
 
 @pytest.mark.integration
 async def test_identifier_search_empty_type_returns_422(client, api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/orgs/search",
         params={"identifier_type": "", "identifier_value": "12345"},
         headers={"X-API-Key": api_key},
@@ -466,7 +485,7 @@ async def test_identifier_search_empty_type_returns_422(client, api_key):
 
 @pytest.mark.integration
 async def test_identifier_search_empty_value_returns_422(client, api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/orgs/search",
         params={"identifier_type": "wa_sos", "identifier_value": ""},
         headers={"X-API-Key": api_key},
@@ -476,7 +495,7 @@ async def test_identifier_search_empty_value_returns_422(client, api_key):
 
 @pytest.mark.integration
 async def test_identifier_search_type_only_returns_422(client, api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/orgs/search",
         params={"identifier_type": "wa_sos"},
         headers={"X-API-Key": api_key},
@@ -486,7 +505,7 @@ async def test_identifier_search_type_only_returns_422(client, api_key):
 
 @pytest.mark.integration
 async def test_identifier_search_value_only_returns_422(client, api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/orgs/search",
         params={"identifier_value": "12345"},
         headers={"X-API-Key": api_key},
@@ -508,7 +527,7 @@ async def test_identifier_search_wins_over_q(client, api_key, org_fixture, db):
     )
     try:
         # q matches both "Television" orgs; identifier should narrow to exactly one
-        r = client.get(
+        r = await client.get(
             "/api/v1/orgs/search",
             params={"q": "Television", "identifier_type": "wa_sos", "identifier_value": "12345"},
             headers={"X-API-Key": api_key},
@@ -527,7 +546,7 @@ async def test_identifier_search_excludes_archived_by_default(client, api_key, o
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
     )
-    r = _search_by_identifier(client, api_key, "wa_sos", "12345")
+    r = await _search_by_identifier(client, api_key, "wa_sos", "12345")
     assert r.status_code == 200
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] not in ids
@@ -539,7 +558,7 @@ async def test_identifier_search_include_archived(client, api_key, org_fixture, 
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]
     )
-    r = _search_by_identifier(client, api_key, "wa_sos", "12345", include_archived="true")
+    r = await _search_by_identifier(client, api_key, "wa_sos", "12345", include_archived="true")
     assert r.status_code == 200
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
@@ -554,7 +573,7 @@ async def test_identifier_search_include_archived(client, api_key, org_fixture, 
 @pytest.mark.integration
 async def test_get_org_etag_and_last_modified_present(client, api_key, org_fixture):
     oid = org_fixture["org_id"]
-    r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     etag = r.headers.get("etag")
     assert etag is not None, "ETag header missing"
@@ -565,7 +584,7 @@ async def test_get_org_etag_and_last_modified_present(client, api_key, org_fixtu
 @pytest.mark.integration
 async def test_get_org_cache_control_and_vary_present(client, api_key, org_fixture):
     oid = org_fixture["org_id"]
-    r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     assert r.headers.get("cache-control") == "no-cache"
     assert r.headers.get("vary") == "X-API-Key"
@@ -574,9 +593,9 @@ async def test_get_org_cache_control_and_vary_present(client, api_key, org_fixtu
 @pytest.mark.integration
 async def test_get_org_304_on_matching_etag(client, api_key, org_fixture):
     oid = org_fixture["org_id"]
-    r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     etag = r1.headers["etag"]
-    r2 = client.get(
+    r2 = await client.get(
         f"/api/v1/orgs/{oid}",
         headers={"X-API-Key": api_key, "If-None-Match": etag},
     )
@@ -589,7 +608,7 @@ async def test_get_org_304_on_matching_etag(client, api_key, org_fixture):
 @pytest.mark.integration
 async def test_get_org_200_on_mismatched_etag(client, api_key, org_fixture):
     oid = org_fixture["org_id"]
-    r = client.get(
+    r = await client.get(
         f"/api/v1/orgs/{oid}",
         headers={"X-API-Key": api_key, "If-None-Match": '"wrong-etag-value"'},
     )
@@ -600,16 +619,16 @@ async def test_get_org_200_on_mismatched_etag(client, api_key, org_fixture):
 @pytest.mark.integration
 async def test_get_org_etag_changes_after_parent_update(client, api_key, org_fixture, db):
     oid = org_fixture["org_id"]
-    r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
     await db.execute("UPDATE organizations SET parent_id = parent_id WHERE id=$1", oid)
 
-    r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r2 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1
 
-    r3 = client.get(
+    r3 = await client.get(
         f"/api/v1/orgs/{oid}",
         headers={"X-API-Key": api_key, "If-None-Match": etag1},
     )
@@ -620,7 +639,7 @@ async def test_get_org_etag_changes_after_parent_update(client, api_key, org_fix
 async def test_get_org_etag_changes_after_name_added(client, api_key, org_fixture, db):
     """Touch-parent trigger: adding a name row bumps the org's updated_at."""
     oid = org_fixture["org_id"]
-    r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
@@ -632,7 +651,7 @@ async def test_get_org_etag_changes_after_name_added(client, api_key, org_fixtur
         oid,
     )
 
-    r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r2 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1
 
     await db.execute("DELETE FROM organization_names WHERE id=$1", tmp_id)
@@ -642,7 +661,7 @@ async def test_get_org_etag_changes_after_name_added(client, api_key, org_fixtur
 async def test_get_org_etag_changes_after_acronym_added(client, api_key, org_fixture, db):
     """Touch-parent trigger: adding an acronym row bumps the org's updated_at."""
     oid = org_fixture["org_id"]
-    r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
@@ -654,7 +673,7 @@ async def test_get_org_etag_changes_after_acronym_added(client, api_key, org_fix
         oid,
     )
 
-    r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r2 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1
 
     await db.execute("DELETE FROM organization_acronyms WHERE id=$1", tmp_id)
@@ -664,7 +683,7 @@ async def test_get_org_etag_changes_after_acronym_added(client, api_key, org_fix
 async def test_get_org_etag_changes_after_identifier_added(client, api_key, org_fixture, db):
     """Touch-parent trigger: adding an identifier bumps the org's updated_at."""
     oid = org_fixture["org_id"]
-    r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
@@ -677,7 +696,7 @@ async def test_get_org_etag_changes_after_identifier_added(client, api_key, org_
         org_fixture["eid_type_id"],
     )
 
-    r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r2 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1
 
     await db.execute("DELETE FROM identifiers WHERE id=$1", tmp_id)
@@ -689,7 +708,7 @@ async def test_get_org_etag_changes_after_event_inserted(client, api_key, org_fi
     oid = org_fixture["org_id"]
     founded_id = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='founded'")
     assert founded_id is not None, "entity_event_types seed missing"
-    r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
@@ -702,7 +721,7 @@ async def test_get_org_etag_changes_after_event_inserted(client, api_key, org_fi
         founded_id,
     )
     try:
-        r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+        r2 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
         assert r2.headers["etag"] != etag1
     finally:
         await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
@@ -723,13 +742,13 @@ async def test_get_org_etag_changes_after_event_updated(client, api_key, org_fix
         founded_id,
     )
     try:
-        r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+        r1 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
         etag1 = r1.headers["etag"]
 
         await db.execute("SELECT pg_sleep(0.001)")
         await db.execute("UPDATE entity_events SET event_year=1991 WHERE id=$1", ev_id)
 
-        r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+        r2 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
         assert r2.headers["etag"] != etag1
     finally:
         await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
@@ -750,13 +769,13 @@ async def test_get_org_etag_changes_after_event_deleted(client, api_key, org_fix
         founded_id,
     )
 
-    r1 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     etag1 = r1.headers["etag"]
 
     await db.execute("SELECT pg_sleep(0.001)")
     await db.execute("DELETE FROM entity_events WHERE id=$1", ev_id)
 
-    r2 = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+    r2 = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1
 
 
@@ -800,6 +819,7 @@ async def jur_affiliation_fixtures(db, org_fixture):
         at_row["id"],
     )
     yield {"org_id": org_id, "jur_id": jur_id, "jur_slug": f"test-jur-{jur_id[:8]}"}
+    # Committing fixture: clean up committed rows to avoid cross-test leakage.
     await db.execute("DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id)
     await db.execute("DELETE FROM jurisdictions WHERE id=$1", jur_id)
     await db.execute("DELETE FROM jurisdiction_types WHERE id=$1", jtype_id)
@@ -812,7 +832,7 @@ async def test_get_org_detail_includes_jurisdiction_affiliations(
     org_id = jur_affiliation_fixtures["org_id"]
     jur_id = jur_affiliation_fixtures["jur_id"]
 
-    r = client.get(f"/api/v1/orgs/{org_id}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/orgs/{org_id}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     body = r.json()
     assert "jurisdiction_affiliations" in body
@@ -829,7 +849,7 @@ async def test_get_org_detail_no_affiliations_returns_empty_array(client, api_ke
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     try:
-        r = client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
+        r = await client.get(f"/api/v1/orgs/{oid}", headers={"X-API-Key": api_key})
         assert r.status_code == 200
         assert r.json()["jurisdiction_affiliations"] == []
     finally:
@@ -841,7 +861,7 @@ async def test_search_jurisdiction_filter_by_slug(client, api_key, jur_affiliati
     slug = jur_affiliation_fixtures["jur_slug"]
     org_id = jur_affiliation_fixtures["org_id"]
 
-    r = client.get(
+    r = await client.get(
         "/api/v1/orgs/search",
         params={"jurisdiction": slug},
         headers={"X-API-Key": api_key},
@@ -856,7 +876,7 @@ async def test_search_jurisdiction_filter_by_ulid(client, api_key, jur_affiliati
     jur_id = jur_affiliation_fixtures["jur_id"]
     org_id = jur_affiliation_fixtures["org_id"]
 
-    r = client.get(
+    r = await client.get(
         "/api/v1/orgs/search",
         params={"jurisdiction": jur_id},
         headers={"X-API-Key": api_key},
@@ -868,7 +888,7 @@ async def test_search_jurisdiction_filter_by_ulid(client, api_key, jur_affiliati
 
 @pytest.mark.integration
 async def test_search_jurisdiction_filter_unknown_slug_returns_empty(client, api_key):
-    r = client.get(
+    r = await client.get(
         "/api/v1/orgs/search",
         params={"jurisdiction": "no-such-jurisdiction"},
         headers={"X-API-Key": api_key},
@@ -910,7 +930,7 @@ async def test_search_q_with_jurisdiction_filters_by_name(
         at_row["id"],
     )
     try:
-        r = client.get(
+        r = await client.get(
             "/api/v1/orgs/search",
             params={"q": "Television", "jurisdiction": slug},
             headers={"X-API-Key": api_key},
@@ -934,7 +954,7 @@ async def test_search_q_with_jurisdiction_excludes_nonmatching_name(
     """q + jurisdiction: a q that matches no name in the jurisdiction returns an empty result."""
     slug = jur_affiliation_fixtures["jur_slug"]
 
-    r = client.get(
+    r = await client.get(
         "/api/v1/orgs/search",
         params={"q": "zzznotreal", "jurisdiction": slug},
         headers={"X-API-Key": api_key},
@@ -951,7 +971,7 @@ async def test_search_jurisdiction_with_empty_q_returns_affiliation_scoped(
     slug = jur_affiliation_fixtures["jur_slug"]
     org_id = jur_affiliation_fixtures["org_id"]
 
-    r = client.get(
+    r = await client.get(
         "/api/v1/orgs/search",
         params={"q": "", "jurisdiction": slug},
         headers={"X-API-Key": api_key},
@@ -999,7 +1019,7 @@ async def test_search_jurisdiction_filter_registered_type_not_default(
         at_row["id"],
     )
     try:
-        r = client.get(
+        r = await client.get(
             "/api/v1/orgs/search",
             params={"jurisdiction": jur_slug},
             headers={"X-API-Key": api_key},

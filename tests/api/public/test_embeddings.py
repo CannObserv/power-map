@@ -66,9 +66,7 @@ async def write_key(db):
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,'voice_embeddings:write')",
         kid,
     )
-    yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -91,9 +89,7 @@ async def read_key(db):
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,'voice_embeddings:read')",
         kid,
     )
-    yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -112,9 +108,7 @@ async def unscoped_key(db):
         raw[:8],
         khash,
     )
-    yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -123,9 +117,7 @@ async def two_people(db):
     ids = [generate_id(), generate_id()]
     for pid in ids:
         await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
-    yield ids
-    for pid in ids:
-        await db.execute("DELETE FROM people WHERE id=$1", pid)
+    return ids
 
 
 # ---------------------------------------------------------------------------
@@ -133,8 +125,8 @@ async def two_people(db):
 # ---------------------------------------------------------------------------
 
 
-def test_identify_requires_read_scope(client, unscoped_key):
-    r = client.post(
+async def test_identify_requires_read_scope(client, unscoped_key):
+    r = await client.post(
         "/api/v1/people/identify",
         json={"model_id": _MODEL_ID, "embedding": _rand_embedding()},
         headers={"X-API-Key": unscoped_key},
@@ -150,9 +142,9 @@ def test_identify_rejects_missing_key(unit_client):
     assert r.status_code == 403
 
 
-def test_write_requires_write_scope(client, read_key):
+async def test_write_requires_write_scope(client, read_key):
     pid = generate_id()
-    r = client.post(
+    r = await client.post(
         f"/api/v1/people/{pid}/embeddings",
         json={
             "model_id": _MODEL_ID,
@@ -196,8 +188,8 @@ def test_write_rejects_missing_key(unit_client):
 # ---------------------------------------------------------------------------
 
 
-def test_identify_empty_returns_empty_matches(client, read_key):
-    r = client.post(
+async def test_identify_empty_returns_empty_matches(client, read_key):
+    r = await client.post(
         "/api/v1/people/identify",
         json={"model_id": _MODEL_ID, "embedding": _rand_embedding()},
         headers={"X-API-Key": read_key},
@@ -207,8 +199,8 @@ def test_identify_empty_returns_empty_matches(client, read_key):
     assert data["matches"] == []
 
 
-def test_identify_unknown_model_returns_empty(client, read_key):
-    r = client.post(
+async def test_identify_unknown_model_returns_empty(client, read_key):
+    r = await client.post(
         "/api/v1/people/identify",
         json={"model_id": "no-such-model", "embedding": _rand_embedding()},
         headers={"X-API-Key": read_key},
@@ -217,8 +209,8 @@ def test_identify_unknown_model_returns_empty(client, read_key):
     assert r.json()["matches"] == []
 
 
-def test_identify_dim_mismatch_422(client, read_key):
-    r = client.post(
+async def test_identify_dim_mismatch_422(client, read_key):
+    r = await client.post(
         "/api/v1/people/identify",
         json={"model_id": _MODEL_ID, "embedding": _rand_embedding(dim=64)},
         headers={"X-API-Key": read_key},
@@ -226,9 +218,9 @@ def test_identify_dim_mismatch_422(client, read_key):
     assert r.status_code == 422
 
 
-def test_identify_top_k_clamped(client, read_key):
+async def test_identify_top_k_clamped(client, read_key):
     """top_k > 25 is silently clamped; should not 422."""
-    r = client.post(
+    r = await client.post(
         "/api/v1/people/identify",
         json={"model_id": _MODEL_ID, "embedding": _rand_embedding(), "top_k": 999},
         headers={"X-API-Key": read_key},
@@ -241,8 +233,8 @@ def test_identify_top_k_clamped(client, read_key):
 # ---------------------------------------------------------------------------
 
 
-def test_write_404_unknown_person(client, write_key):
-    r = client.post(
+async def test_write_404_unknown_person(client, write_key):
+    r = await client.post(
         f"/api/v1/people/{generate_id()}/embeddings",
         json={
             "model_id": _MODEL_ID,
@@ -261,9 +253,9 @@ def test_write_404_unknown_person(client, write_key):
     assert r.status_code == 404
 
 
-def test_write_422_dim_mismatch(client, write_key, two_people):
+async def test_write_422_dim_mismatch(client, write_key, two_people):
     pid = two_people[0]
-    r = client.post(
+    r = await client.post(
         f"/api/v1/people/{pid}/embeddings",
         json={
             "model_id": _MODEL_ID,
@@ -282,9 +274,9 @@ def test_write_422_dim_mismatch(client, write_key, two_people):
     assert r.status_code == 422
 
 
-def test_write_422_unknown_model(client, write_key, two_people):
+async def test_write_422_unknown_model(client, write_key, two_people):
     pid = two_people[0]
-    r = client.post(
+    r = await client.post(
         f"/api/v1/people/{pid}/embeddings",
         json={
             "model_id": "no-such-model",
@@ -327,7 +319,7 @@ async def seeded_embeddings(db, two_people, write_key, client):
         (pid1, _rand_embedding(), "observo", "job_seed", 4),
     ]
     for pid, emb, svc, job, seg in seedings:
-        r = client.post(
+        r = await client.post(
             f"/api/v1/people/{pid}/embeddings",
             json={
                 "model_id": _MODEL_ID,
@@ -346,21 +338,19 @@ async def seeded_embeddings(db, two_people, write_key, client):
         assert r.status_code == 200, r.text
         embedding_ids.append(r.json()["embedding_id"])
 
-    yield pid0, pid1, embedding_ids, query_vec
-
-    await db.execute(f"DELETE FROM {_TABLE} WHERE source_job_id='job_seed'")
+    return pid0, pid1, embedding_ids, query_vec
 
 
-def test_write_returns_embedding_id(seeded_embeddings):
+async def test_write_returns_embedding_id(seeded_embeddings):
     _, _, embedding_ids, _ = seeded_embeddings
     assert len(embedding_ids) == 5
     for eid in embedding_ids:
         assert len(eid) == 26
 
 
-def test_write_duplicate_returns_200_with_same_id(client, write_key, seeded_embeddings):
+async def test_write_duplicate_returns_200_with_same_id(client, write_key, seeded_embeddings):
     pid0, _, embedding_ids, query_vec = seeded_embeddings
-    r = client.post(
+    r = await client.post(
         f"/api/v1/people/{pid0}/embeddings",
         json={
             "model_id": _MODEL_ID,
@@ -380,9 +370,9 @@ def test_write_duplicate_returns_200_with_same_id(client, write_key, seeded_embe
     assert r.json()["embedding_id"] == embedding_ids[0]
 
 
-def test_identify_returns_top_k_matches(client, read_key, seeded_embeddings):
+async def test_identify_returns_top_k_matches(client, read_key, seeded_embeddings):
     _, _, _, query_vec = seeded_embeddings
-    r = client.post(
+    r = await client.post(
         "/api/v1/people/identify",
         json={"model_id": _MODEL_ID, "embedding": query_vec, "top_k": 3},
         headers={"X-API-Key": read_key},
@@ -410,7 +400,7 @@ async def test_identify_excludes_archived(
         embedding_ids,
     )
     try:
-        r = client.post(
+        r = await client.post(
             "/api/v1/people/identify",
             json={"model_id": _MODEL_ID, "embedding": query_vec},
             headers={"X-API-Key": read_key},
@@ -429,26 +419,26 @@ async def test_identify_excludes_archived(
 # ---------------------------------------------------------------------------
 
 
-def test_person_detail_has_voice_embeddings_count(client, read_key, seeded_embeddings):
+async def test_person_detail_has_voice_embeddings_count(client, read_key, seeded_embeddings):
     pid0, _, _, _ = seeded_embeddings
-    r = client.get(f"/api/v1/people/{pid0}", headers={"X-API-Key": read_key})
+    r = await client.get(f"/api/v1/people/{pid0}", headers={"X-API-Key": read_key})
     assert r.status_code == 200
     data = r.json()
     assert "voice_embeddings_count" in data
     assert data["voice_embeddings_count"] == 3
 
 
-def test_person_detail_voice_count_zero_for_no_embeddings(client, read_key, two_people):
+async def test_person_detail_voice_count_zero_for_no_embeddings(client, read_key, two_people):
     pid0 = two_people[0]
     # Before seeded_embeddings runs, count should be 0.
     # This test is order-sensitive; run it before seeding if possible.
     # As a sanity check we just assert the field exists and is an int.
-    r = client.get(f"/api/v1/people/{pid0}", headers={"X-API-Key": read_key})
+    r = await client.get(f"/api/v1/people/{pid0}", headers={"X-API-Key": read_key})
     assert r.status_code == 200
     assert isinstance(r.json()["voice_embeddings_count"], int)
 
 
-def test_person_detail_voice_count_sums_across_models(client, read_key, seeded_embeddings):
+async def test_person_detail_voice_count_sums_across_models(client, read_key, seeded_embeddings):
     """voice_embeddings_count sums counts from all queryable models.
 
     Both registry entries point at the same physical table (_TABLE) — a
@@ -471,7 +461,7 @@ def test_person_detail_voice_count_sums_across_models(client, read_key, seeded_e
 
     app.dependency_overrides[_get_registry] = lambda: dual
     try:
-        r = client.get(f"/api/v1/people/{pid0}", headers={"X-API-Key": read_key})
+        r = await client.get(f"/api/v1/people/{pid0}", headers={"X-API-Key": read_key})
     finally:
         app.dependency_overrides.pop(_get_registry, None)
 
@@ -488,12 +478,11 @@ def test_person_detail_voice_count_sums_across_models(client, read_key, seeded_e
 async def archived_person(db):
     pid = generate_id()
     await db.execute("INSERT INTO people (id, archived_at) VALUES ($1, now())", pid)
-    yield pid
-    await db.execute("DELETE FROM people WHERE id=$1", pid)
+    return pid
 
 
-def test_write_404_archived_person(client, write_key, archived_person):
-    r = client.post(
+async def test_write_404_archived_person(client, write_key, archived_person):
+    r = await client.post(
         f"/api/v1/people/{archived_person}/embeddings",
         json={
             "model_id": _MODEL_ID,
@@ -525,7 +514,7 @@ async def archivable_embedding(db, two_people, write_key, client):
     the identify / count tests.
     """
     pid = two_people[0]
-    r = client.post(
+    r = await client.post(
         f"/api/v1/people/{pid}/embeddings",
         json={
             "model_id": _MODEL_ID,
@@ -543,8 +532,7 @@ async def archivable_embedding(db, two_people, write_key, client):
     )
     assert r.status_code == 200, r.text
     eid = r.json()["embedding_id"]
-    yield pid, eid
-    await db.execute(f"DELETE FROM {_TABLE} WHERE id=$1", eid)
+    return pid, eid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -554,7 +542,7 @@ async def batch_job_embeddings(db, two_people, write_key, client):
     job_id = "job_batch_test"
     eids: list[str] = []
     for seg in range(2):
-        r = client.post(
+        r = await client.post(
             f"/api/v1/people/{pid}/embeddings",
             json={
                 "model_id": _MODEL_ID,
@@ -572,8 +560,7 @@ async def batch_job_embeddings(db, two_people, write_key, client):
         )
         assert r.status_code == 200, r.text
         eids.append(r.json()["embedding_id"])
-    yield pid, job_id, eids
-    await db.execute(f"DELETE FROM {_TABLE} WHERE source_job_id=$1", job_id)
+    return pid, job_id, eids
 
 
 # ---------------------------------------------------------------------------
@@ -581,9 +568,9 @@ async def batch_job_embeddings(db, two_people, write_key, client):
 # ---------------------------------------------------------------------------
 
 
-def test_delete_single_requires_write_scope(client, read_key, two_people):
+async def test_delete_single_requires_write_scope(client, read_key, two_people):
     pid = two_people[0]
-    r = client.delete(
+    r = await client.delete(
         f"/api/v1/people/{pid}/embeddings/{generate_id()}",
         params={"model_id": _MODEL_ID},
         headers={"X-API-Key": read_key},
@@ -591,9 +578,9 @@ def test_delete_single_requires_write_scope(client, read_key, two_people):
     assert r.status_code == 403
 
 
-def test_delete_single_422_unknown_model(client, write_key, two_people):
+async def test_delete_single_422_unknown_model(client, write_key, two_people):
     pid = two_people[0]
-    r = client.delete(
+    r = await client.delete(
         f"/api/v1/people/{pid}/embeddings/{generate_id()}",
         params={"model_id": "no-such-model"},
         headers={"X-API-Key": write_key},
@@ -601,9 +588,9 @@ def test_delete_single_422_unknown_model(client, write_key, two_people):
     assert r.status_code == 422
 
 
-def test_delete_single_404_unknown_embedding(client, write_key, two_people):
+async def test_delete_single_404_unknown_embedding(client, write_key, two_people):
     pid = two_people[0]
-    r = client.delete(
+    r = await client.delete(
         f"/api/v1/people/{pid}/embeddings/{generate_id()}",
         params={"model_id": _MODEL_ID},
         headers={"X-API-Key": write_key},
@@ -615,7 +602,7 @@ async def test_delete_single_archives_embedding(client, db, write_key, archivabl
     pid, eid = archivable_embedding
     await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
     try:
-        r = client.delete(
+        r = await client.delete(
             f"/api/v1/people/{pid}/embeddings/{eid}",
             params={"model_id": _MODEL_ID},
             headers={"X-API-Key": write_key},
@@ -633,7 +620,7 @@ async def test_delete_single_idempotent(client, db, write_key, archivable_embedd
     pid, eid = archivable_embedding
     await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
     try:
-        first = client.delete(
+        first = await client.delete(
             f"/api/v1/people/{pid}/embeddings/{eid}",
             params={"model_id": _MODEL_ID},
             headers={"X-API-Key": write_key},
@@ -641,7 +628,7 @@ async def test_delete_single_idempotent(client, db, write_key, archivable_embedd
         assert first.status_code == 200
         first_ts = first.json()["archived_at"]
 
-        second = client.delete(
+        second = await client.delete(
             f"/api/v1/people/{pid}/embeddings/{eid}",
             params={"model_id": _MODEL_ID},
             headers={"X-API-Key": write_key},
@@ -657,9 +644,9 @@ async def test_delete_single_idempotent(client, db, write_key, archivable_embedd
 # ---------------------------------------------------------------------------
 
 
-def test_batch_delete_requires_write_scope(client, read_key, two_people):
+async def test_batch_delete_requires_write_scope(client, read_key, two_people):
     pid = two_people[0]
-    r = client.delete(
+    r = await client.delete(
         f"/api/v1/people/{pid}/embeddings",
         params={"model_id": _MODEL_ID, "source_job_id": "any-job"},
         headers={"X-API-Key": read_key},
@@ -667,9 +654,9 @@ def test_batch_delete_requires_write_scope(client, read_key, two_people):
     assert r.status_code == 403
 
 
-def test_batch_delete_422_unknown_model(client, write_key, two_people):
+async def test_batch_delete_422_unknown_model(client, write_key, two_people):
     pid = two_people[0]
-    r = client.delete(
+    r = await client.delete(
         f"/api/v1/people/{pid}/embeddings",
         params={"model_id": "no-such-model", "source_job_id": "any-job"},
         headers={"X-API-Key": write_key},
@@ -677,9 +664,9 @@ def test_batch_delete_422_unknown_model(client, write_key, two_people):
     assert r.status_code == 422
 
 
-def test_restore_requires_write_scope(client, read_key, two_people):
+async def test_restore_requires_write_scope(client, read_key, two_people):
     pid = two_people[0]
-    r = client.post(
+    r = await client.post(
         f"/api/v1/people/{pid}/embeddings/{generate_id()}/restore",
         params={"model_id": _MODEL_ID},
         headers={"X-API-Key": read_key},
@@ -696,7 +683,7 @@ async def test_batch_delete_archives_by_job(client, db, write_key, batch_job_emb
     pid, job_id, eids = batch_job_embeddings
     await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE source_job_id=$1", job_id)
     try:
-        r = client.delete(
+        r = await client.delete(
             f"/api/v1/people/{pid}/embeddings",
             params={"model_id": _MODEL_ID, "source_job_id": job_id},
             headers={"X-API-Key": write_key},
@@ -709,9 +696,9 @@ async def test_batch_delete_archives_by_job(client, db, write_key, batch_job_emb
         await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE source_job_id=$1", job_id)
 
 
-def test_batch_delete_zero_when_no_matches(client, write_key, two_people):
+async def test_batch_delete_zero_when_no_matches(client, write_key, two_people):
     pid = two_people[0]
-    r = client.delete(
+    r = await client.delete(
         f"/api/v1/people/{pid}/embeddings",
         params={"model_id": _MODEL_ID, "source_job_id": "no-such-job-xyz"},
         headers={"X-API-Key": write_key},
@@ -725,9 +712,9 @@ def test_batch_delete_zero_when_no_matches(client, write_key, two_people):
 # ---------------------------------------------------------------------------
 
 
-def test_restore_404_unknown_embedding(client, write_key, two_people):
+async def test_restore_404_unknown_embedding(client, write_key, two_people):
     pid = two_people[0]
-    r = client.post(
+    r = await client.post(
         f"/api/v1/people/{pid}/embeddings/{generate_id()}/restore",
         params={"model_id": _MODEL_ID},
         headers={"X-API-Key": write_key},
@@ -739,7 +726,7 @@ async def test_restore_reactivates_archived_embedding(client, db, write_key, arc
     pid, eid = archivable_embedding
     await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
     try:
-        r = client.post(
+        r = await client.post(
             f"/api/v1/people/{pid}/embeddings/{eid}/restore",
             params={"model_id": _MODEL_ID},
             headers={"X-API-Key": write_key},
@@ -755,7 +742,7 @@ async def test_restore_reactivates_archived_embedding(client, db, write_key, arc
 async def test_restore_409_already_active(client, db, write_key, archivable_embedding):
     pid, eid = archivable_embedding
     await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
-    r = client.post(
+    r = await client.post(
         f"/api/v1/people/{pid}/embeddings/{eid}/restore",
         params={"model_id": _MODEL_ID},
         headers={"X-API-Key": write_key},
@@ -768,9 +755,9 @@ async def test_restore_409_already_active(client, db, write_key, archivable_embe
 # ---------------------------------------------------------------------------
 
 
-def test_list_requires_read_scope(client, unscoped_key, two_people):
+async def test_list_requires_read_scope(client, unscoped_key, two_people):
     pid = two_people[0]
-    r = client.get(
+    r = await client.get(
         f"/api/v1/people/{pid}/embeddings",
         params={"model_id": _MODEL_ID},
         headers={"X-API-Key": unscoped_key},
@@ -778,9 +765,9 @@ def test_list_requires_read_scope(client, unscoped_key, two_people):
     assert r.status_code == 403
 
 
-def test_list_422_unknown_model(client, read_key, two_people):
+async def test_list_422_unknown_model(client, read_key, two_people):
     pid = two_people[0]
-    r = client.get(
+    r = await client.get(
         f"/api/v1/people/{pid}/embeddings",
         params={"model_id": "no-such-model"},
         headers={"X-API-Key": read_key},
@@ -788,9 +775,9 @@ def test_list_422_unknown_model(client, read_key, two_people):
     assert r.status_code == 422
 
 
-def test_list_active_only_by_default(client, read_key, seeded_embeddings):
+async def test_list_active_only_by_default(client, read_key, seeded_embeddings):
     pid0, _, _, _ = seeded_embeddings
-    r = client.get(
+    r = await client.get(
         f"/api/v1/people/{pid0}/embeddings",
         params={"model_id": _MODEL_ID},
         headers={"X-API-Key": read_key},
@@ -807,12 +794,12 @@ async def test_list_include_archived_flag(client, db, read_key, seeded_embedding
     eid = embedding_ids[0]
     await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
     try:
-        r_active = client.get(
+        r_active = await client.get(
             f"/api/v1/people/{pid0}/embeddings",
             params={"model_id": _MODEL_ID},
             headers={"X-API-Key": read_key},
         )
-        r_all = client.get(
+        r_all = await client.get(
             f"/api/v1/people/{pid0}/embeddings",
             params={"model_id": _MODEL_ID, "include_archived": "true"},
             headers={"X-API-Key": read_key},
@@ -833,7 +820,7 @@ async def test_list_filter_by_source_job_id(client, db, read_key, write_key, see
     """Optional source_job_id narrows list results to that job; omitting returns all."""
     pid0, _, _, _ = seeded_embeddings
     # Add one embedding under a different job for the same person.
-    r = client.post(
+    r = await client.post(
         f"/api/v1/people/{pid0}/embeddings",
         json={
             "model_id": _MODEL_ID,
@@ -852,7 +839,7 @@ async def test_list_filter_by_source_job_id(client, db, read_key, write_key, see
     assert r.status_code == 200, r.text
     try:
         # Unfiltered: all of pid0's active rows (3 from job_seed + 1 from job_other).
-        r_all = client.get(
+        r_all = await client.get(
             f"/api/v1/people/{pid0}/embeddings",
             params={"model_id": _MODEL_ID},
             headers={"X-API-Key": read_key},
@@ -860,7 +847,7 @@ async def test_list_filter_by_source_job_id(client, db, read_key, write_key, see
         assert r_all.json()["meta"]["count"] >= 4
 
         # Filtered to job_seed: only those rows.
-        r_seed = client.get(
+        r_seed = await client.get(
             f"/api/v1/people/{pid0}/embeddings",
             params={"model_id": _MODEL_ID, "source_job_id": "job_seed"},
             headers={"X-API-Key": read_key},
@@ -871,7 +858,7 @@ async def test_list_filter_by_source_job_id(client, db, read_key, write_key, see
         assert all(item["source_job_id"] == "job_seed" for item in seed_body["data"])
 
         # Filtered to job_other: exactly the one row.
-        r_other = client.get(
+        r_other = await client.get(
             f"/api/v1/people/{pid0}/embeddings",
             params={"model_id": _MODEL_ID, "source_job_id": "job_other"},
             headers={"X-API-Key": read_key},
@@ -882,10 +869,12 @@ async def test_list_filter_by_source_job_id(client, db, read_key, write_key, see
         await db.execute(f"DELETE FROM {_TABLE} WHERE source_job_id='job_other'")
 
 
-def test_list_filter_by_source_job_id_no_match_returns_empty(client, read_key, seeded_embeddings):
+async def test_list_filter_by_source_job_id_no_match_returns_empty(
+    client, read_key, seeded_embeddings
+):
     """Unknown source_job_id yields an empty page (200), not 404."""
     pid0, _, _, _ = seeded_embeddings
-    r = client.get(
+    r = await client.get(
         f"/api/v1/people/{pid0}/embeddings",
         params={"model_id": _MODEL_ID, "source_job_id": "no-such-job-xyz"},
         headers={"X-API-Key": read_key},
@@ -904,7 +893,7 @@ async def test_list_filter_by_source_job_id_respects_archived(
     await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
     try:
         # Default (active-only) + job filter: the archived row is excluded.
-        r_active = client.get(
+        r_active = await client.get(
             f"/api/v1/people/{pid0}/embeddings",
             params={"model_id": _MODEL_ID, "source_job_id": "job_seed"},
             headers={"X-API-Key": read_key},
@@ -916,7 +905,7 @@ async def test_list_filter_by_source_job_id_respects_archived(
         assert eid not in {item["embedding_id"] for item in active["data"]}
 
         # include_archived + job filter: the archived row is included.
-        r_all = client.get(
+        r_all = await client.get(
             f"/api/v1/people/{pid0}/embeddings",
             params={
                 "model_id": _MODEL_ID,
@@ -936,8 +925,8 @@ async def test_list_filter_by_source_job_id_respects_archived(
 # ---------------------------------------------------------------------------
 
 
-def test_list_404_unknown_person(client, read_key):
-    r = client.get(
+async def test_list_404_unknown_person(client, read_key):
+    r = await client.get(
         f"/api/v1/people/{generate_id()}/embeddings",
         params={"model_id": _MODEL_ID},
         headers={"X-API-Key": read_key},
@@ -945,8 +934,8 @@ def test_list_404_unknown_person(client, read_key):
     assert r.status_code == 404
 
 
-def test_list_404_archived_person(client, read_key, archived_person):
-    r = client.get(
+async def test_list_404_archived_person(client, read_key, archived_person):
+    r = await client.get(
         f"/api/v1/people/{archived_person}/embeddings",
         params={"model_id": _MODEL_ID},
         headers={"X-API-Key": read_key},
@@ -954,8 +943,8 @@ def test_list_404_archived_person(client, read_key, archived_person):
     assert r.status_code == 404
 
 
-def test_batch_delete_404_unknown_person(client, write_key):
-    r = client.delete(
+async def test_batch_delete_404_unknown_person(client, write_key):
+    r = await client.delete(
         f"/api/v1/people/{generate_id()}/embeddings",
         params={"model_id": _MODEL_ID, "source_job_id": "any-job"},
         headers={"X-API-Key": write_key},
@@ -963,8 +952,8 @@ def test_batch_delete_404_unknown_person(client, write_key):
     assert r.status_code == 404
 
 
-def test_batch_delete_404_archived_person(client, write_key, archived_person):
-    r = client.delete(
+async def test_batch_delete_404_archived_person(client, write_key, archived_person):
+    r = await client.delete(
         f"/api/v1/people/{archived_person}/embeddings",
         params={"model_id": _MODEL_ID, "source_job_id": "any-job"},
         headers={"X-API-Key": write_key},
@@ -981,7 +970,7 @@ def test_batch_delete_404_archived_person(client, write_key, archived_person):
 async def patchable_embedding(db, two_people, write_key, client):
     """Active embedding for PATCH metadata tests (audio_sample_rate_hz=44100 initially)."""
     pid = two_people[0]
-    r = client.post(
+    r = await client.post(
         f"/api/v1/people/{pid}/embeddings",
         json={
             "model_id": _MODEL_ID,
@@ -999,8 +988,7 @@ async def patchable_embedding(db, two_people, write_key, client):
     )
     assert r.status_code == 200, r.text
     eid = r.json()["embedding_id"]
-    yield pid, eid
-    await db.execute(f"DELETE FROM {_TABLE} WHERE id=$1", eid)
+    return pid, eid
 
 
 async def test_write_on_archived_slot_returns_409(client, db, write_key, patchable_embedding):
@@ -1008,7 +996,7 @@ async def test_write_on_archived_slot_returns_409(client, db, write_key, patchab
     pid, eid = patchable_embedding
     await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
     try:
-        r = client.post(
+        r = await client.post(
             f"/api/v1/people/{pid}/embeddings",
             json={
                 "model_id": _MODEL_ID,
@@ -1035,9 +1023,9 @@ async def test_write_on_archived_slot_returns_409(client, db, write_key, patchab
 # ---------------------------------------------------------------------------
 
 
-def test_patch_requires_write_scope(client, read_key, two_people):
+async def test_patch_requires_write_scope(client, read_key, two_people):
     pid = two_people[0]
-    r = client.patch(
+    r = await client.patch(
         f"/api/v1/people/{pid}/embeddings/{generate_id()}",
         params={"model_id": _MODEL_ID},
         json={"audio_sample_rate_hz": 48000},
@@ -1046,9 +1034,9 @@ def test_patch_requires_write_scope(client, read_key, two_people):
     assert r.status_code == 403
 
 
-def test_patch_422_unknown_model(client, write_key, two_people):
+async def test_patch_422_unknown_model(client, write_key, two_people):
     pid = two_people[0]
-    r = client.patch(
+    r = await client.patch(
         f"/api/v1/people/{pid}/embeddings/{generate_id()}",
         params={"model_id": "no-such-model"},
         json={"audio_sample_rate_hz": 48000},
@@ -1057,9 +1045,9 @@ def test_patch_422_unknown_model(client, write_key, two_people):
     assert r.status_code == 422
 
 
-def test_patch_422_empty_body(client, write_key, patchable_embedding):
+async def test_patch_422_empty_body(client, write_key, patchable_embedding):
     pid, eid = patchable_embedding
-    r = client.patch(
+    r = await client.patch(
         f"/api/v1/people/{pid}/embeddings/{eid}",
         params={"model_id": _MODEL_ID},
         json={},
@@ -1068,9 +1056,9 @@ def test_patch_422_empty_body(client, write_key, patchable_embedding):
     assert r.status_code == 422
 
 
-def test_patch_404_unknown_embedding(client, write_key, two_people):
+async def test_patch_404_unknown_embedding(client, write_key, two_people):
     pid = two_people[0]
-    r = client.patch(
+    r = await client.patch(
         f"/api/v1/people/{pid}/embeddings/{generate_id()}",
         params={"model_id": _MODEL_ID},
         json={"audio_sample_rate_hz": 48000},
@@ -1083,7 +1071,7 @@ async def test_patch_409_archived(client, db, write_key, patchable_embedding):
     pid, eid = patchable_embedding
     await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
     try:
-        r = client.patch(
+        r = await client.patch(
             f"/api/v1/people/{pid}/embeddings/{eid}",
             params={"model_id": _MODEL_ID},
             json={"audio_sample_rate_hz": 48000},
@@ -1094,9 +1082,9 @@ async def test_patch_409_archived(client, db, write_key, patchable_embedding):
         await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
 
 
-def test_patch_updates_audio_sample_rate(client, write_key, patchable_embedding):
+async def test_patch_updates_audio_sample_rate(client, write_key, patchable_embedding):
     pid, eid = patchable_embedding
-    r = client.patch(
+    r = await client.patch(
         f"/api/v1/people/{pid}/embeddings/{eid}",
         params={"model_id": _MODEL_ID},
         json={"audio_sample_rate_hz": 48000},
@@ -1110,9 +1098,9 @@ def test_patch_updates_audio_sample_rate(client, write_key, patchable_embedding)
     assert isinstance(data["activity_ms"], int)  # untouched, but present
 
 
-def test_patch_updates_activity_ms(client, write_key, patchable_embedding):
+async def test_patch_updates_activity_ms(client, write_key, patchable_embedding):
     pid, eid = patchable_embedding
-    r = client.patch(
+    r = await client.patch(
         f"/api/v1/people/{pid}/embeddings/{eid}",
         params={"model_id": _MODEL_ID},
         json={"activity_ms": 750},
@@ -1122,11 +1110,11 @@ def test_patch_updates_activity_ms(client, write_key, patchable_embedding):
     assert r.json()["activity_ms"] == 750
 
 
-def test_patch_updates_recorded_at(client, write_key, patchable_embedding):
+async def test_patch_updates_recorded_at(client, write_key, patchable_embedding):
     pid, eid = patchable_embedding
     # Use non-zero microseconds so isoformat() preserves the fractional part
     new_ts = "2026-06-15T10:00:00.123456Z"
-    r = client.patch(
+    r = await client.patch(
         f"/api/v1/people/{pid}/embeddings/{eid}",
         params={"model_id": _MODEL_ID},
         json={"recorded_at": new_ts},
@@ -1136,9 +1124,9 @@ def test_patch_updates_recorded_at(client, write_key, patchable_embedding):
     assert r.json()["recorded_at"] == new_ts
 
 
-def test_patch_multi_field(client, write_key, patchable_embedding):
+async def test_patch_multi_field(client, write_key, patchable_embedding):
     pid, eid = patchable_embedding
-    r = client.patch(
+    r = await client.patch(
         f"/api/v1/people/{pid}/embeddings/{eid}",
         params={"model_id": _MODEL_ID},
         json={"activity_ms": 100, "audio_sample_rate_hz": 8000},

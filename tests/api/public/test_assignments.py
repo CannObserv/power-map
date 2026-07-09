@@ -37,9 +37,7 @@ async def api_key(db):
         raw_key[:8],
         key_hash,
     )
-    yield raw_key
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw_key
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -124,7 +122,7 @@ async def assignment_fixtures(db, link_type):
         addr_id,
     )
 
-    yield {
+    return {
         "person1": person1,
         "person2": person2,
         "org1": org1,
@@ -135,28 +133,19 @@ async def assignment_fixtures(db, link_type):
         "a3": a3,
     }
 
-    await db.execute("DELETE FROM entity_addresses WHERE id=$1", ea_id)
-    await db.execute("DELETE FROM addresses WHERE id=$1", addr_id)
-    await db.execute("DELETE FROM contact_methods WHERE id=$1", cm_id)
-    await db.execute("DELETE FROM links WHERE id=$1", link_id)
-    await db.execute("DELETE FROM role_assignments WHERE id IN ($1,$2,$3)", a1, a2, a3)
-    await db.execute("DELETE FROM roles WHERE id IN ($1,$2)", role1, role2)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org1)
-    await db.execute("DELETE FROM people WHERE id IN ($1,$2)", person1, person2)
-
 
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
 
 
-def test_list_requires_api_key(client):
-    r = client.get(_LIST)
+async def test_list_requires_api_key(client):
+    r = await client.get(_LIST)
     assert r.status_code == 403
 
 
-def test_detail_requires_api_key(client):
-    r = client.get(f"{_LIST}/{generate_id()}")
+async def test_detail_requires_api_key(client):
+    r = await client.get(f"{_LIST}/{generate_id()}")
     assert r.status_code == 403
 
 
@@ -165,8 +154,8 @@ def test_detail_requires_api_key(client):
 # ---------------------------------------------------------------------------
 
 
-def test_list_returns_active_by_default(client, api_key, assignment_fixtures):
-    r = client.get(
+async def test_list_returns_active_by_default(client, api_key, assignment_fixtures):
+    r = await client.get(
         _LIST,
         params={"person_id": assignment_fixtures["person1"]},
         headers={"X-API-Key": api_key},
@@ -178,8 +167,8 @@ def test_list_returns_active_by_default(client, api_key, assignment_fixtures):
     assert assignment_fixtures["a3"] not in ids  # archived, excluded by default
 
 
-def test_list_include_archived(client, api_key, assignment_fixtures):
-    r = client.get(
+async def test_list_include_archived(client, api_key, assignment_fixtures):
+    r = await client.get(
         _LIST,
         params={"person_id": assignment_fixtures["person2"], "include_archived": "true"},
         headers={"X-API-Key": api_key},
@@ -189,8 +178,8 @@ def test_list_include_archived(client, api_key, assignment_fixtures):
     assert assignment_fixtures["a3"] in ids
 
 
-def test_list_filter_by_person_id(client, api_key, assignment_fixtures):
-    r = client.get(
+async def test_list_filter_by_person_id(client, api_key, assignment_fixtures):
+    r = await client.get(
         _LIST,
         params={"person_id": assignment_fixtures["person1"]},
         headers={"X-API-Key": api_key},
@@ -202,8 +191,8 @@ def test_list_filter_by_person_id(client, api_key, assignment_fixtures):
     assert assignment_fixtures["a3"] not in ids  # person2, archived
 
 
-def test_list_filter_by_role_id(client, api_key, assignment_fixtures):
-    r = client.get(
+async def test_list_filter_by_role_id(client, api_key, assignment_fixtures):
+    r = await client.get(
         _LIST,
         params={"role_id": assignment_fixtures["role2"]},
         headers={"X-API-Key": api_key},
@@ -214,8 +203,8 @@ def test_list_filter_by_role_id(client, api_key, assignment_fixtures):
     assert assignment_fixtures["a1"] not in ids
 
 
-def test_list_meta_shape(client, api_key, assignment_fixtures):
-    r = client.get(_LIST, headers={"X-API-Key": api_key})
+async def test_list_meta_shape(client, api_key, assignment_fixtures):
+    r = await client.get(_LIST, headers={"X-API-Key": api_key})
     assert r.status_code == 200
     meta = r.json()["meta"]
     assert "limit" in meta
@@ -224,8 +213,8 @@ def test_list_meta_shape(client, api_key, assignment_fixtures):
     assert "has_more" in meta
 
 
-def test_list_item_shape(client, api_key, assignment_fixtures):
-    r = client.get(
+async def test_list_item_shape(client, api_key, assignment_fixtures):
+    r = await client.get(
         _LIST,
         params={"person_id": assignment_fixtures["person1"]},
         headers={"X-API-Key": api_key},
@@ -242,8 +231,8 @@ def test_list_item_shape(client, api_key, assignment_fixtures):
     assert "archived_at" in item
 
 
-def test_list_pagination(client, api_key, assignment_fixtures):
-    r = client.get(_LIST, params={"limit": 1, "offset": 0}, headers={"X-API-Key": api_key})
+async def test_list_pagination(client, api_key, assignment_fixtures):
+    r = await client.get(_LIST, params={"limit": 1, "offset": 0}, headers={"X-API-Key": api_key})
     assert r.status_code == 200
     body = r.json()
     assert body["meta"]["count"] == 1
@@ -255,14 +244,14 @@ def test_list_pagination(client, api_key, assignment_fixtures):
 # ---------------------------------------------------------------------------
 
 
-def test_detail_404_on_unknown(client, api_key):
-    r = client.get(f"{_LIST}/{generate_id()}", headers={"X-API-Key": api_key})
+async def test_detail_404_on_unknown(client, api_key):
+    r = await client.get(f"{_LIST}/{generate_id()}", headers={"X-API-Key": api_key})
     assert r.status_code == 404
 
 
-def test_detail_shape(client, api_key, assignment_fixtures):
+async def test_detail_shape(client, api_key, assignment_fixtures):
     a1 = assignment_fixtures["a1"]
-    r = client.get(f"{_LIST}/{a1}", headers={"X-API-Key": api_key})
+    r = await client.get(f"{_LIST}/{a1}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     body = r.json()
     assert body["id"] == a1
@@ -277,24 +266,24 @@ def test_detail_shape(client, api_key, assignment_fixtures):
     assert "addresses" in body
 
 
-def test_detail_includes_link(client, api_key, assignment_fixtures):
-    r = client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
+async def test_detail_includes_link(client, api_key, assignment_fixtures):
+    r = await client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
     links = r.json()["links"]
     assert len(links) == 1
     assert links[0]["url"] == "https://assignment.example.com"
     assert "link_type_slug" in links[0]
 
 
-def test_detail_includes_contact_method(client, api_key, assignment_fixtures):
-    r = client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
+async def test_detail_includes_contact_method(client, api_key, assignment_fixtures):
+    r = await client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
     cms = r.json()["contact_methods"]
     assert len(cms) == 1
     assert cms[0]["value"] == "a1@example.com"
 
 
-def test_detail_contact_method_includes_display_label(client, api_key, assignment_fixtures):
+async def test_detail_contact_method_includes_display_label(client, api_key, assignment_fixtures):
     """display_label is returned in the contact_methods array."""
-    r = client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
+    r = await client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
     cm = r.json()["contact_methods"][0]
     assert "display_label" in cm
     assert cm["display_label"] == "Legislator Direct"
@@ -327,38 +316,31 @@ async def test_detail_contact_method_display_label_null_when_unset(client, api_k
         cm_id,
         assignment_id,
     )
-    try:
-        r = client.get(f"{_LIST}/{assignment_id}", headers={"X-API-Key": api_key})
-        cm = r.json()["contact_methods"][0]
-        assert "display_label" in cm
-        assert cm["display_label"] is None
-    finally:
-        await db.execute("DELETE FROM contact_methods WHERE id=$1", cm_id)
-        await db.execute("DELETE FROM role_assignments WHERE id=$1", assignment_id)
-        await db.execute("DELETE FROM people WHERE id=$1", person_id)
-        await db.execute("DELETE FROM roles WHERE id=$1", role_id)
-        await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+    r = await client.get(f"{_LIST}/{assignment_id}", headers={"X-API-Key": api_key})
+    cm = r.json()["contact_methods"][0]
+    assert "display_label" in cm
+    assert cm["display_label"] is None
 
 
-def test_detail_includes_address(client, api_key, assignment_fixtures):
-    r = client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
+async def test_detail_includes_address(client, api_key, assignment_fixtures):
+    r = await client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
     addrs = r.json()["addresses"]
     assert len(addrs) == 1
     assert addrs[0]["raw_input"] == "1 Assignment Ave"
 
 
-def test_detail_address_includes_validity_window(client, api_key, assignment_fixtures):
+async def test_detail_address_includes_validity_window(client, api_key, assignment_fixtures):
     """valid_from/valid_until surface as ISO dates on assignment addresses (#181)."""
-    r = client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
+    r = await client.get(f"{_LIST}/{assignment_fixtures['a1']}", headers={"X-API-Key": api_key})
     addrs = r.json()["addresses"]
     assert addrs[0]["valid_from"] == "2024-01-01"
     assert addrs[0]["valid_until"] == "2025-06-30"
 
 
-def test_detail_etag_304(client, api_key, assignment_fixtures):
+async def test_detail_etag_304(client, api_key, assignment_fixtures):
     a1 = assignment_fixtures["a1"]
-    r1 = client.get(f"{_LIST}/{a1}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"{_LIST}/{a1}", headers={"X-API-Key": api_key})
     assert r1.status_code == 200
     etag = r1.headers["etag"]
-    r2 = client.get(f"{_LIST}/{a1}", headers={"X-API-Key": api_key, "if-none-match": etag})
+    r2 = await client.get(f"{_LIST}/{a1}", headers={"X-API-Key": api_key, "if-none-match": etag})
     assert r2.status_code == 304

@@ -34,9 +34,7 @@ async def api_key(db):
         raw_key[:8],
         key_hash,
     )
-    yield {"raw_key": raw_key, "key_id": kid}
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return {"raw_key": raw_key, "key_id": kid}
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -81,7 +79,7 @@ async def change_fixtures(db, api_key):
     unsubscribed_id = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", unsubscribed_id)
 
-    yield {
+    return {
         "before_seq": before_seq,
         "person_id": person_id,
         "org_id": org_id,
@@ -89,21 +87,15 @@ async def change_fixtures(db, api_key):
         "unsubscribed_id": unsubscribed_id,
     }
 
-    await db.execute("DELETE FROM api_key_entity_subscriptions WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM people WHERE id=$1", person_id)
-    await db.execute("DELETE FROM people WHERE id=$1", unsubscribed_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
-    await db.execute("DELETE FROM deleted_entities WHERE entity_id=$1", deleted_person_id)
-
 
 # ---------------------------------------------------------------------------
 # Happy path
 # ---------------------------------------------------------------------------
 
 
-def test_changes_returns_subscribed_entities(client, api_key, change_fixtures):
+async def test_changes_returns_subscribed_entities(client, api_key, change_fixtures):
     """Subscribed entities appear in the feed after their creation seq_id."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"], "limit": 100},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -114,9 +106,9 @@ def test_changes_returns_subscribed_entities(client, api_key, change_fixtures):
     assert change_fixtures["org_id"] in ids
 
 
-def test_changes_excludes_unsubscribed_entities(client, api_key, change_fixtures):
+async def test_changes_excludes_unsubscribed_entities(client, api_key, change_fixtures):
     """Entities not in the subscription set are excluded from the feed."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"], "limit": 100},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -126,9 +118,9 @@ def test_changes_excludes_unsubscribed_entities(client, api_key, change_fixtures
     assert change_fixtures["unsubscribed_id"] not in ids
 
 
-def test_changes_includes_subscribed_deleted_entities(client, api_key, change_fixtures):
+async def test_changes_includes_subscribed_deleted_entities(client, api_key, change_fixtures):
     """Subscribed deleted entities appear with change_kind='deleted'."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"], "limit": 100},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -144,9 +136,9 @@ def test_changes_includes_subscribed_deleted_entities(client, api_key, change_fi
     assert deleted[0]["entity_type"] == "person"
 
 
-def test_changes_updated_kind(client, api_key, change_fixtures):
+async def test_changes_updated_kind(client, api_key, change_fixtures):
     """Live subscribed entities appear with change_kind='updated'."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"], "limit": 100},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -157,9 +149,9 @@ def test_changes_updated_kind(client, api_key, change_fixtures):
     assert live[0]["change_kind"] == "updated"
 
 
-def test_changes_ordered_by_seq_id(client, api_key, change_fixtures):
+async def test_changes_ordered_by_seq_id(client, api_key, change_fixtures):
     """Results are ordered by outbox seq_id ASC."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"], "limit": 100},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -169,9 +161,9 @@ def test_changes_ordered_by_seq_id(client, api_key, change_fixtures):
     assert seq_ids == sorted(seq_ids)
 
 
-def test_changes_meta_structure(client, api_key, change_fixtures):
+async def test_changes_meta_structure(client, api_key, change_fixtures):
     """meta contains limit, count, has_more, next_after (integer)."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"]},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -185,9 +177,9 @@ def test_changes_meta_structure(client, api_key, change_fixtures):
     assert isinstance(meta["next_after"], int)
 
 
-def test_changes_next_after_advances(client, api_key, change_fixtures):
+async def test_changes_next_after_advances(client, api_key, change_fixtures):
     """next_after equals the seq_id of the last returned item."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"], "limit": 1},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -197,9 +189,9 @@ def test_changes_next_after_advances(client, api_key, change_fixtures):
     assert body["meta"]["next_after"] == body["data"][0]["seq_id"]
 
 
-def test_changes_default_limit(client, api_key, change_fixtures):
+async def test_changes_default_limit(client, api_key, change_fixtures):
     """Default limit is 50."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"]},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -207,9 +199,9 @@ def test_changes_default_limit(client, api_key, change_fixtures):
     assert r.json()["meta"]["limit"] == 50
 
 
-def test_changes_has_more_pagination(client, api_key, change_fixtures):
+async def test_changes_has_more_pagination(client, api_key, change_fixtures):
     """limit=1 with multiple subscribed results → has_more=True, count=1."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"], "limit": 1},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -220,9 +212,9 @@ def test_changes_has_more_pagination(client, api_key, change_fixtures):
     assert body["meta"]["count"] == 1
 
 
-def test_changes_after_cursor_exclusive(client, api_key, change_fixtures):
+async def test_changes_after_cursor_exclusive(client, api_key, change_fixtures):
     """after= is exclusive (>); items at or before next_after are excluded on next page."""
-    r1 = client.get(
+    r1 = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"], "limit": 1},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -230,7 +222,7 @@ def test_changes_after_cursor_exclusive(client, api_key, change_fixtures):
     first_item = r1.json()["data"][0]
     next_after = r1.json()["meta"]["next_after"]
 
-    r2 = client.get(
+    r2 = await client.get(
         "/api/v1/changes",
         params={"after": next_after, "limit": 100},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -239,9 +231,9 @@ def test_changes_after_cursor_exclusive(client, api_key, change_fixtures):
     assert first_item["entity_id"] not in ids
 
 
-def test_changes_after_zero_returns_all(client, api_key, change_fixtures):
+async def test_changes_after_zero_returns_all(client, api_key, change_fixtures):
     """after=0 returns all subscribed events regardless of seq_id."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": 0, "limit": 1000},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -251,9 +243,9 @@ def test_changes_after_zero_returns_all(client, api_key, change_fixtures):
     assert change_fixtures["person_id"] in ids
 
 
-def test_changes_empty_when_after_beyond_max(client, api_key, change_fixtures):
+async def test_changes_empty_when_after_beyond_max(client, api_key, change_fixtures):
     """after= beyond the current max seq_id → empty data, next_after echoes the param."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": 999_999_999},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -270,13 +262,13 @@ def test_changes_empty_when_after_beyond_max(client, api_key, change_fixtures):
 # ---------------------------------------------------------------------------
 
 
-def test_changes_missing_after_param(client, api_key):
-    r = client.get("/api/v1/changes", headers={"X-API-Key": api_key["raw_key"]})
+async def test_changes_missing_after_param(client, api_key):
+    r = await client.get("/api/v1/changes", headers={"X-API-Key": api_key["raw_key"]})
     assert r.status_code == 422
 
 
-def test_changes_negative_after(client, api_key):
-    r = client.get(
+async def test_changes_negative_after(client, api_key):
+    r = await client.get(
         "/api/v1/changes",
         params={"after": -1},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -284,8 +276,8 @@ def test_changes_negative_after(client, api_key):
     assert r.status_code == 422
 
 
-def test_changes_limit_too_large(client, api_key):
-    r = client.get(
+async def test_changes_limit_too_large(client, api_key):
+    r = await client.get(
         "/api/v1/changes",
         params={"after": 0, "limit": 1001},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -293,8 +285,8 @@ def test_changes_limit_too_large(client, api_key):
     assert r.status_code == 422
 
 
-def test_changes_limit_zero(client, api_key):
-    r = client.get(
+async def test_changes_limit_zero(client, api_key):
+    r = await client.get(
         "/api/v1/changes",
         params={"after": 0, "limit": 0},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -326,18 +318,11 @@ async def role_change_fixtures(db, api_key):
         kid,
         role_id,
     )
-    yield {"before_seq": before_seq, "role_id": role_id}
-    await db.execute(
-        "DELETE FROM api_key_entity_subscriptions WHERE api_key_id=$1 AND entity_id=$2",
-        kid,
-        role_id,
-    )
-    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+    return {"before_seq": before_seq, "role_id": role_id}
 
 
-def test_changes_includes_roles(client, api_key, role_change_fixtures):
-    r = client.get(
+async def test_changes_includes_roles(client, api_key, role_change_fixtures):
+    r = await client.get(
         "/api/v1/changes",
         params={"after": role_change_fixtures["before_seq"], "limit": 100},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -379,18 +364,11 @@ async def jurisdiction_change_fixtures(db, api_key):
         kid,
         jid,
     )
-    yield {"before_seq": before_seq, "jurisdiction_id": jid}
-    await db.execute(
-        "DELETE FROM api_key_entity_subscriptions WHERE api_key_id=$1 AND entity_id=$2",
-        kid,
-        jid,
-    )
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
-    await db.execute("DELETE FROM jurisdiction_types WHERE id=$1", jtype_id)
+    return {"before_seq": before_seq, "jurisdiction_id": jid}
 
 
-def test_changes_includes_jurisdictions(client, api_key, jurisdiction_change_fixtures):
-    r = client.get(
+async def test_changes_includes_jurisdictions(client, api_key, jurisdiction_change_fixtures):
+    r = await client.get(
         "/api/v1/changes",
         params={"after": jurisdiction_change_fixtures["before_seq"], "limit": 100},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -408,9 +386,9 @@ def test_changes_includes_jurisdictions(client, api_key, jurisdiction_change_fix
 # ---------------------------------------------------------------------------
 
 
-def test_changes_genuine_delete_has_null_merged_into(client, api_key, change_fixtures):
+async def test_changes_genuine_delete_has_null_merged_into(client, api_key, change_fixtures):
     """A genuine deletion (not a merge) has merged_into=null in the change feed."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": change_fixtures["before_seq"], "limit": 100},
         headers={"X-API-Key": api_key["raw_key"]},
@@ -452,21 +430,12 @@ async def merge_change_fixtures(db, api_key):
         winner_id,
     )
 
-    yield {"before_seq": before_seq, "winner_id": winner_id, "loser_id": loser_id}
-
-    await db.execute(
-        "DELETE FROM api_key_entity_subscriptions WHERE api_key_id=$1 AND entity_id=$2",
-        kid,
-        loser_id,
-    )
-    await db.execute("DELETE FROM deleted_entities WHERE entity_id=$1", loser_id)
-    await db.execute("DELETE FROM entity_changes WHERE entity_id=$1", loser_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", winner_id)
+    return {"before_seq": before_seq, "winner_id": winner_id, "loser_id": loser_id}
 
 
-def test_changes_merge_delete_carries_merged_into(client, api_key, merge_change_fixtures):
+async def test_changes_merge_delete_carries_merged_into(client, api_key, merge_change_fixtures):
     """Merge tombstone carries merged_into=winner_id in the change feed."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/changes",
         params={"after": merge_change_fixtures["before_seq"], "limit": 100},
         headers={"X-API-Key": api_key["raw_key"]},

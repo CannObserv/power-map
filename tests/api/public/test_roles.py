@@ -35,9 +35,7 @@ async def api_key(db):
         raw_key[:8],
         key_hash,
     )
-    yield raw_key
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw_key
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -106,7 +104,7 @@ async def role_fixtures(db, link_type):
         addr_id,
     )
 
-    yield {
+    return {
         "org_id": org_id,
         "r1": r1,
         "r2": r2,
@@ -117,26 +115,19 @@ async def role_fixtures(db, link_type):
         "r1_addr_type": "physical",
     }
 
-    await db.execute("DELETE FROM entity_addresses WHERE entity_id=$1", r1)
-    await db.execute("DELETE FROM addresses WHERE id=$1", addr_id)
-    await db.execute("DELETE FROM contact_methods WHERE entity_id=$1 AND entity_type='role'", r1)
-    await db.execute("DELETE FROM links WHERE entity_id=$1 AND entity_type='role'", r1)
-    await db.execute("DELETE FROM roles WHERE organization_id=$1", org_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
-
 
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
 
 
-def test_list_requires_api_key(client):
-    r = client.get(_LIST)
+async def test_list_requires_api_key(client):
+    r = await client.get(_LIST)
     assert r.status_code == 403
 
 
-def test_detail_requires_api_key(client):
-    r = client.get(f"{_LIST}/{generate_id()}")
+async def test_detail_requires_api_key(client):
+    r = await client.get(f"{_LIST}/{generate_id()}")
     assert r.status_code == 403
 
 
@@ -146,7 +137,7 @@ def test_detail_requires_api_key(client):
 
 
 async def test_list_returns_paginated_roles(client, api_key, role_fixtures):
-    r = client.get(
+    r = await client.get(
         _LIST,
         params={"organization_id": role_fixtures["org_id"]},
         headers={"X-API-Key": api_key},
@@ -163,7 +154,7 @@ async def test_list_returns_paginated_roles(client, api_key, role_fixtures):
 
 
 async def test_list_shape(client, api_key, role_fixtures):
-    r = client.get(
+    r = await client.get(
         _LIST,
         params={"organization_id": role_fixtures["org_id"]},
         headers={"X-API-Key": api_key},
@@ -176,7 +167,7 @@ async def test_list_shape(client, api_key, role_fixtures):
 
 
 async def test_list_filter_by_organization_id(client, api_key, role_fixtures):
-    r = client.get(
+    r = await client.get(
         _LIST,
         params={"organization_id": role_fixtures["org_id"]},
         headers={"X-API-Key": api_key},
@@ -188,7 +179,7 @@ async def test_list_filter_by_organization_id(client, api_key, role_fixtures):
 
 
 async def test_list_include_archived(client, api_key, role_fixtures):
-    r = client.get(
+    r = await client.get(
         _LIST,
         params={"organization_id": role_fixtures["org_id"], "include_archived": "true"},
         headers={"X-API-Key": api_key},
@@ -198,7 +189,7 @@ async def test_list_include_archived(client, api_key, role_fixtures):
 
 
 async def test_list_pagination_meta(client, api_key, role_fixtures):
-    r = client.get(
+    r = await client.get(
         _LIST,
         params={"organization_id": role_fixtures["org_id"], "limit": 1},
         headers={"X-API-Key": api_key},
@@ -216,7 +207,7 @@ async def test_list_pagination_meta(client, api_key, role_fixtures):
 
 async def test_detail_returns_role(client, api_key, role_fixtures):
     rid = role_fixtures["r1"]
-    r = client.get(f"{_LIST}/{rid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"{_LIST}/{rid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     body = r.json()
     assert body["id"] == rid
@@ -228,14 +219,14 @@ async def test_detail_returns_role(client, api_key, role_fixtures):
 
 
 async def test_detail_404_on_unknown(client, api_key):
-    r = client.get(f"{_LIST}/{generate_id()}", headers={"X-API-Key": api_key})
+    r = await client.get(f"{_LIST}/{generate_id()}", headers={"X-API-Key": api_key})
     assert r.status_code == 404
 
 
 async def test_detail_includes_arrays(client, api_key, role_fixtures):
     """Detail response includes populated links, contact_methods, and addresses."""
     rid = role_fixtures["r1"]
-    r = client.get(f"{_LIST}/{rid}", headers={"X-API-Key": api_key})
+    r = await client.get(f"{_LIST}/{rid}", headers={"X-API-Key": api_key})
     assert r.status_code == 200
     body = r.json()
 
@@ -255,7 +246,7 @@ async def test_detail_includes_arrays(client, api_key, role_fixtures):
 
 async def test_detail_address_includes_validity_window(client, api_key, role_fixtures):
     """valid_from/valid_until surface as ISO dates on role addresses (#181)."""
-    r = client.get(f"/api/v1/roles/{role_fixtures['r1']}", headers={"X-API-Key": api_key})
+    r = await client.get(f"/api/v1/roles/{role_fixtures['r1']}", headers={"X-API-Key": api_key})
     addrs = r.json()["addresses"]
     assert addrs[0]["valid_from"] == "2024-01-01"
     assert addrs[0]["valid_until"] == "2025-06-30"
@@ -263,7 +254,7 @@ async def test_detail_address_includes_validity_window(client, api_key, role_fix
 
 async def test_detail_contact_method_includes_display_label(client, api_key, role_fixtures):
     """display_label is returned in the contact_methods array."""
-    r = client.get(f"{_LIST}/{role_fixtures['r1']}", headers={"X-API-Key": api_key})
+    r = await client.get(f"{_LIST}/{role_fixtures['r1']}", headers={"X-API-Key": api_key})
     cm = r.json()["contact_methods"][0]
     assert "display_label" in cm
     assert cm["display_label"] == role_fixtures["r1_cm_display_label"]
@@ -287,24 +278,19 @@ async def test_detail_contact_method_display_label_null_when_unset(client, api_k
         cm_id,
         role_id,
     )
-    try:
-        r = client.get(f"{_LIST}/{role_id}", headers={"X-API-Key": api_key})
-        cm = r.json()["contact_methods"][0]
-        assert "display_label" in cm
-        assert cm["display_label"] is None
-    finally:
-        await db.execute("DELETE FROM contact_methods WHERE id=$1", cm_id)
-        await db.execute("DELETE FROM roles WHERE id=$1", role_id)
-        await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+    r = await client.get(f"{_LIST}/{role_id}", headers={"X-API-Key": api_key})
+    cm = r.json()["contact_methods"][0]
+    assert "display_label" in cm
+    assert cm["display_label"] is None
 
 
 async def test_detail_etag_304(client, api_key, role_fixtures):
     rid = role_fixtures["r1"]
-    r1 = client.get(f"{_LIST}/{rid}", headers={"X-API-Key": api_key})
+    r1 = await client.get(f"{_LIST}/{rid}", headers={"X-API-Key": api_key})
     assert r1.status_code == 200
     etag = r1.headers["ETag"]
 
-    r2 = client.get(
+    r2 = await client.get(
         f"{_LIST}/{rid}",
         headers={"X-API-Key": api_key, "If-None-Match": etag},
     )
@@ -344,14 +330,11 @@ async def structural_fixture(db):
         jur_id,
         "Position 1",
     )
-    yield {"org_id": org_id, "jur_id": jur_id, "role_id": role_id, "rt_id": rt_id}
-    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
-    await db.execute("DELETE FROM jurisdictions WHERE id=$1", jur_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+    return {"org_id": org_id, "jur_id": jur_id, "role_id": role_id, "rt_id": rt_id}
 
 
 async def test_list_plain_role_has_null_structural_fields(client, api_key, role_fixtures):
-    r = client.get(
+    r = await client.get(
         _LIST,
         params={"organization_id": role_fixtures["org_id"]},
         headers={"X-API-Key": api_key},
@@ -364,7 +347,7 @@ async def test_list_plain_role_has_null_structural_fields(client, api_key, role_
 
 
 async def test_list_surfaces_structural_fields(client, api_key, structural_fixture):
-    r = client.get(
+    r = await client.get(
         _LIST,
         params={"organization_id": structural_fixture["org_id"]},
         headers={"X-API-Key": api_key},
@@ -377,7 +360,7 @@ async def test_list_surfaces_structural_fields(client, api_key, structural_fixtu
 
 
 async def test_detail_surfaces_structural_fields(client, api_key, structural_fixture):
-    r = client.get(f"{_LIST}/{structural_fixture['role_id']}", headers={"X-API-Key": api_key})
+    r = await client.get(f"{_LIST}/{structural_fixture['role_id']}", headers={"X-API-Key": api_key})
     body = r.json()
     assert body["role_type_id"] == structural_fixture["rt_id"]
     assert body["role_type_slug"] == "state_representative"

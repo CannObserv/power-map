@@ -33,7 +33,7 @@ async def scope_fixture(db):
             "Observations Write",
             "Create and update observations",
         )
-    yield scope_id
+    return scope_id
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -58,11 +58,7 @@ async def api_key_with_scope(db, scope_fixture):
         kid,
         scope_fixture,
     )
-    yield raw_key, kid
-
-    await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw_key, kid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -85,10 +81,7 @@ async def api_key_without_scope(db, scope_fixture):
         key_hash,
     )
     # Note: NO api_key_scopes row inserted
-    yield raw_key, kid
-
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw_key, kid
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +95,7 @@ async def test_valid_key_with_correct_scope_returns_user_id(
 ):
     """Test route using require_scope with valid key + matching scope → 200."""
     raw_key, _ = api_key_with_scope
-    r = client.get(
+    r = await client.get(
         "/api/v1/_test/require_scope",
         headers={"X-API-Key": raw_key},
     )
@@ -118,7 +111,7 @@ async def test_valid_key_without_scope_returns_403(client, api_key_without_scope
     Expects 403 'Insufficient scope'.
     """
     raw_key, _ = api_key_without_scope
-    r = client.get(
+    r = await client.get(
         "/api/v1/_test/require_scope",
         headers={"X-API-Key": raw_key},
     )
@@ -131,7 +124,7 @@ async def test_valid_key_without_scope_returns_403(client, api_key_without_scope
 @pytest.mark.integration
 async def test_invalid_key_returns_401(client, scope_fixture):
     """Test route using require_scope with invalid key → 401."""
-    r = client.get(
+    r = await client.get(
         "/api/v1/_test/require_scope",
         headers={"X-API-Key": "pm_invalid_key_123456"},
     )
@@ -144,7 +137,7 @@ async def test_invalid_key_returns_401(client, scope_fixture):
 @pytest.mark.integration
 async def test_missing_key_returns_403_not_authenticated(client, scope_fixture):
     """Test route using require_scope with no key → 403 'Not authenticated'."""
-    r = client.get("/api/v1/_test/require_scope")
+    r = await client.get("/api/v1/_test/require_scope")
     assert r.status_code == 403
     body = r.json()
     assert "detail" in body

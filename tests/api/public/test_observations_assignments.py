@@ -32,7 +32,7 @@ async def obs_scope(db):
             "Observations Write",
             "Create and update observations",
         )
-    yield scope_id
+    return scope_id
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -53,10 +53,7 @@ async def write_key(db, obs_scope):
     await db.execute(
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, obs_scope
     )
-    yield raw, kid
-    await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw, kid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -76,9 +73,7 @@ async def read_key(db):
         raw[:8],
         key_hash,
     )
-    yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -94,12 +89,7 @@ async def obs_entities(db):
         role_id,
         org_id,
     )
-    yield {"person_id": person_id, "role_id": role_id, "org_id": org_id}
-    await db.execute("DELETE FROM role_assignments WHERE person_id=$1", person_id)
-    await db.execute("DELETE FROM role_assignments WHERE role_id=$1", role_id)
-    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
-    await db.execute("DELETE FROM people WHERE id=$1", person_id)
+    return {"person_id": person_id, "role_id": role_id, "org_id": org_id}
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +97,8 @@ async def obs_entities(db):
 # ---------------------------------------------------------------------------
 
 
-def _post(client, raw_key, payload):
-    return client.post(_BASE, json=payload, headers={"X-API-Key": raw_key})
+async def _post(client, raw_key, payload):
+    return await client.post(_BASE, json=payload, headers={"X-API-Key": raw_key})
 
 
 def _base_payload(entities: dict) -> dict:
@@ -124,13 +114,13 @@ def _base_payload(entities: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_obs_requires_api_key(client):
-    r = client.post(_BASE, json={"person_id": "x", "role_id": "x"})
+async def test_obs_requires_api_key(client):
+    r = await client.post(_BASE, json={"person_id": "x", "role_id": "x"})
     assert r.status_code == 403
 
 
 async def test_obs_requires_write_scope(client, read_key, obs_entities):
-    r = _post(client, read_key, _base_payload(obs_entities))
+    r = await _post(client, read_key, _base_payload(obs_entities))
     assert r.status_code == 403
 
 
@@ -141,7 +131,7 @@ async def test_obs_requires_write_scope(client, read_key, obs_entities):
 
 async def test_new_returns_new_disposition(client, write_key, obs_entities):
     raw, _ = write_key
-    r = _post(client, raw, _base_payload(obs_entities))
+    r = await _post(client, raw, _base_payload(obs_entities))
     assert r.status_code == 200
     body = r.json()
     assert body["disposition"] == "new"
@@ -159,7 +149,7 @@ async def test_new_persisted(client, write_key, obs_entities, db):
         "is_current": False,
         "notes": "Test assignment notes",
     }
-    r = _post(client, raw, payload)
+    r = await _post(client, raw, payload)
     assert r.status_code == 200
     aid = r.json()["entity_id"]
     row = await db.fetchrow(
@@ -185,7 +175,7 @@ async def test_new_null_start_date(client, write_key, obs_entities, db):
         role_null,
         obs_entities["org_id"],
     )
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -197,8 +187,6 @@ async def test_new_null_start_date(client, write_key, obs_entities, db):
     )
     assert r.status_code == 200
     assert r.json()["disposition"] == "new"
-    await db.execute("DELETE FROM role_assignments WHERE role_id=$1", role_null)
-    await db.execute("DELETE FROM roles WHERE id=$1", role_null)
 
 
 # ---------------------------------------------------------------------------
@@ -214,11 +202,11 @@ async def test_auto_attached_on_same_natural_key(client, write_key, obs_entities
         "role_id": obs_entities["role_id"],
         "start_date": "2025-01-01",
     }
-    r1 = _post(client, raw, payload)
+    r1 = await _post(client, raw, payload)
     assert r1.json()["disposition"] == "new"
     aid = r1.json()["entity_id"]
 
-    r2 = _post(client, raw, payload)
+    r2 = await _post(client, raw, payload)
     assert r2.json()["disposition"] == "auto-attached"
     assert r2.json()["entity_id"] == aid
 
@@ -241,16 +229,13 @@ async def test_auto_attached_null_start_date_dedup(client, write_key, obs_entiti
         "role_id": role_b,
         "start_date": None,
     }
-    r1 = _post(client, raw, payload)
+    r1 = await _post(client, raw, payload)
     assert r1.json()["disposition"] == "new"
     aid = r1.json()["entity_id"]
 
-    r2 = _post(client, raw, payload)
+    r2 = await _post(client, raw, payload)
     assert r2.json()["disposition"] == "auto-attached"
     assert r2.json()["entity_id"] == aid
-
-    await db.execute("DELETE FROM role_assignments WHERE role_id=$1", role_b)
-    await db.execute("DELETE FROM roles WHERE id=$1", role_b)
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +245,7 @@ async def test_auto_attached_null_start_date_dedup(client, write_key, obs_entiti
 
 async def test_rejected_on_unknown_person(client, write_key, obs_entities):
     raw, _ = write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {"person_id": generate_id(), "role_id": obs_entities["role_id"]},
@@ -271,7 +256,7 @@ async def test_rejected_on_unknown_person(client, write_key, obs_entities):
 
 async def test_rejected_on_unknown_role(client, write_key, obs_entities):
     raw, _ = write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {"person_id": obs_entities["person_id"], "role_id": generate_id()},
@@ -285,10 +270,10 @@ async def test_rejected_on_unknown_role(client, write_key, obs_entities):
 # ---------------------------------------------------------------------------
 
 
-def test_is_current_with_end_date_rejected(client, write_key, obs_entities):
+async def test_is_current_with_end_date_rejected(client, write_key, obs_entities):
     """is_current=True + end_date set → 422 from model validator."""
     raw, _ = write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -301,10 +286,10 @@ def test_is_current_with_end_date_rejected(client, write_key, obs_entities):
     assert r.status_code == 422
 
 
-def test_date_order_validation(client, write_key, obs_entities):
+async def test_date_order_validation(client, write_key, obs_entities):
     """start_date after end_date → 422."""
     raw, _ = write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -324,7 +309,7 @@ def test_date_order_validation(client, write_key, obs_entities):
 
 async def test_link_written_on_new(client, write_key, obs_entities, link_type, db):
     raw, _ = write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -350,8 +335,8 @@ async def test_link_deduped_on_auto_attached(client, write_key, obs_entities, db
         "start_date": "2025-08-01",
         "links": [{"url": "https://example.com/dup-asgn", "link_type_slug": "website"}],
     }
-    _post(client, raw, payload)
-    _post(client, raw, payload)
+    await _post(client, raw, payload)
+    await _post(client, raw, payload)
     count = await db.fetchval(
         "SELECT COUNT(*) FROM links l"
         " JOIN role_assignments ra ON ra.id=l.entity_id"
@@ -369,7 +354,7 @@ async def test_link_deduped_on_auto_attached(client, write_key, obs_entities, db
 
 async def test_contact_method_written(client, write_key, obs_entities, db):
     raw, _ = write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -395,7 +380,7 @@ async def test_contact_method_written(client, write_key, obs_entities, db):
 
 async def test_address_written(client, write_key, obs_entities, db, local_address_normalizer):
     raw, _ = write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -437,9 +422,7 @@ async def changes_api_key(db):
         raw_key[:8],
         key_hash,
     )
-    yield {"raw_key": raw_key, "key_id": kid}
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return {"raw_key": raw_key, "key_id": kid}
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -469,20 +452,11 @@ async def asgn_change_fixtures(db, changes_api_key):
         kid,
         asgn_id,
     )
-    yield {"before_seq": before_seq, "asgn_id": asgn_id}
-    await db.execute(
-        "DELETE FROM api_key_entity_subscriptions WHERE api_key_id=$1 AND entity_id=$2",
-        kid,
-        asgn_id,
-    )
-    await db.execute("DELETE FROM role_assignments WHERE id=$1", asgn_id)
-    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
-    await db.execute("DELETE FROM people WHERE id=$1", person_id)
+    return {"before_seq": before_seq, "asgn_id": asgn_id}
 
 
 async def test_changes_includes_role_assignments(client, changes_api_key, asgn_change_fixtures):
-    r = client.get(
+    r = await client.get(
         _CHANGES,
         params={"after": asgn_change_fixtures["before_seq"], "limit": 100},
         headers={"X-API-Key": changes_api_key["raw_key"]},
@@ -521,17 +495,13 @@ async def pm_target_assignment(db):
         person_id,
         role_id,
     )
-    yield asgn_id
-    await db.execute("DELETE FROM role_assignments WHERE id=$1", asgn_id)
-    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
-    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
-    await db.execute("DELETE FROM people WHERE id=$1", person_id)
+    return asgn_id
 
 
 async def test_pm_assignment_id_auto_attached(client, write_key, pm_target_assignment):
     """pm_assignment_id targets an existing assignment by PM ULID → auto-attached."""
     raw, _ = write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -549,7 +519,7 @@ async def test_pm_assignment_id_auto_attached(client, write_key, pm_target_assig
 async def test_pm_assignment_id_rejected_on_unknown_ulid(client, write_key):
     """identifier_type=pm_assignment_id with unknown ULID → rejected."""
     raw, _ = write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -561,10 +531,10 @@ async def test_pm_assignment_id_rejected_on_unknown_ulid(client, write_key):
     assert r.json()["disposition"] == "rejected"
 
 
-def test_pm_assignment_id_requires_identifier_value(client, write_key):
+async def test_pm_assignment_id_requires_identifier_value(client, write_key):
     """identifier_type=pm_assignment_id without identifier_value → 422."""
     raw, _ = write_key
-    r = _post(client, raw, {"identifier_type": "pm_assignment_id"})
+    r = await _post(client, raw, {"identifier_type": "pm_assignment_id"})
     assert r.status_code == 422
 
 
@@ -610,7 +580,7 @@ async def test_pm_assignment_id_backfills_null_start_date(
     asgn_id = undated_assignment["asgn_id"]
     person_id = undated_assignment["person_id"]
 
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -635,7 +605,7 @@ async def test_pm_assignment_id_backfills_end_date(client, write_key, undated_as
     """pm_assignment_id + end_date closes an open tenure in place (#289)."""
     raw, _ = write_key
     asgn_id = undated_assignment["asgn_id"]
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -665,7 +635,7 @@ async def test_pm_assignment_id_backfill_end_date_on_current_rejected(
         obs_entities["person_id"],
         obs_entities["role_id"],
     )
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -686,7 +656,7 @@ async def test_pm_assignment_id_backfill_end_date_on_current_rejected(
 async def test_new_create_rolls_back_when_side_data_rejected(client, write_key, obs_entities, db):
     """#289 dir.6: a bad link in the same payload rolls back the NEW assignment too."""
     raw, _ = write_key
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -711,7 +681,7 @@ async def test_pm_assignment_id_backfill_end_date_conflict_rejected(
     """A different end_date on an already-ended tenure → rejected, row untouched."""
     raw, _ = write_key
     asgn_id = undated_assignment["asgn_id"]
-    _post(
+    await _post(
         client,
         raw,
         {
@@ -720,7 +690,7 @@ async def test_pm_assignment_id_backfill_end_date_conflict_rejected(
             "end_date": "2019-01-13",
         },
     )
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -744,8 +714,8 @@ async def test_pm_assignment_id_backfill_idempotent(client, write_key, undated_a
         "identifier_value": asgn_id,
         "start_date": "2013-01-14",
     }
-    assert _post(client, raw, payload).json()["disposition"] == "auto-attached"
-    r2 = _post(client, raw, payload)
+    assert (await _post(client, raw, payload)).json()["disposition"] == "auto-attached"
+    r2 = await _post(client, raw, payload)
     assert r2.json()["disposition"] == "auto-attached"
     row = await db.fetchrow("SELECT start_date FROM role_assignments WHERE id=$1", asgn_id)
     assert str(row["start_date"]) == "2013-01-14"
@@ -757,7 +727,7 @@ async def test_pm_assignment_id_backfill_conflict_rejected(
     """A different start_date on an already-dated row → rejected, row untouched."""
     raw, _ = write_key
     asgn_id = undated_assignment["asgn_id"]
-    _post(
+    await _post(
         client,
         raw,
         {
@@ -766,7 +736,7 @@ async def test_pm_assignment_id_backfill_conflict_rejected(
             "start_date": "2013-01-14",
         },
     )
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -790,10 +760,10 @@ async def test_pm_assignment_id_backfill_sibling_collision_rejected(
     raw, _ = write_key
     base = {"person_id": obs_entities["person_id"], "role_id": obs_entities["role_id"]}
 
-    undated_id = _post(client, raw, {**base, "start_date": None}).json()["entity_id"]
-    _post(client, raw, {**base, "start_date": "2013-01-14"})  # sibling occupies the date
+    undated_id = (await _post(client, raw, {**base, "start_date": None})).json()["entity_id"]
+    await _post(client, raw, {**base, "start_date": "2013-01-14"})  # sibling occupies the date
 
-    r = _post(
+    r = await _post(
         client,
         raw,
         {
@@ -814,9 +784,9 @@ async def test_returning_legislator_tenures_coexist(client, write_key, obs_entit
     person_id = obs_entities["person_id"]
     base = {"person_id": person_id, "role_id": obs_entities["role_id"]}
 
-    r_undated = _post(client, raw, {**base, "start_date": None})
-    r_first = _post(client, raw, {**base, "start_date": "2013-01-14"})
-    r_second = _post(client, raw, {**base, "start_date": "2021-01-11"})
+    r_undated = await _post(client, raw, {**base, "start_date": None})
+    r_first = await _post(client, raw, {**base, "start_date": "2013-01-14"})
+    r_second = await _post(client, raw, {**base, "start_date": "2021-01-11"})
 
     ids = {r.json()["entity_id"] for r in (r_undated, r_first, r_second)}
     assert all(r.json()["disposition"] == "new" for r in (r_undated, r_first, r_second))
@@ -841,7 +811,7 @@ async def test_rejected_unknown_person_includes_reason(client, write_key, obs_en
     """Unknown person_id rejection must include a reason string."""
     raw, _ = write_key
     unknown_person_id = generate_id()
-    r = _post(
+    r = await _post(
         client,
         raw,
         {"person_id": unknown_person_id, "role_id": obs_entities["role_id"]},

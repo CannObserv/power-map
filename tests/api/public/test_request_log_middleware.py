@@ -179,6 +179,22 @@ async def test_write_runs_and_reference_discarded(monkeypatch):
 pytestmark_integration = pytest.mark.integration
 
 
+# The request-log middleware writes its row on a background task via the *global*
+# pool (a deliberately separate, committed connection — never the request-scoped
+# one). That connection can't see rows created in the rollback client's
+# uncommitted transaction, so the api_key would FK-fail and no row would be
+# written. Shadow db/client with the committing (autocommit) variants so the
+# api_key is committed and visible to the middleware's connection (#288).
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(committing_db):
+    return committing_db
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def client(committing_client):
+    return committing_client
+
+
 @pytest_asyncio.fixture(loop_scope="session")
 async def plain_key(db):
     """A valid API key with no scopes (enough for require_api_key routes)."""
@@ -195,9 +211,7 @@ async def plain_key(db):
         raw[:8],
         key_hash,
     )
-    yield raw, kid
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw, kid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -228,16 +242,13 @@ async def obs_key(db):
     await db.execute(
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, scope_id
     )
-    yield raw, kid
-    await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    return raw, kid
 
 
 @pytest.mark.integration
 async def test_valid_v1_get_logs_row(client, db, plain_key):
     raw, kid = plain_key
-    resp = client.get("/api/v1/", headers={"X-API-Key": raw})
+    resp = await client.get("/api/v1/", headers={"X-API-Key": raw})
     assert resp.status_code == 200
     row = await _poll_row(
         db, "SELECT * FROM api_request_log WHERE api_key_id=$1 ORDER BY id DESC LIMIT 1", kid
@@ -257,14 +268,14 @@ async def test_valid_v1_get_logs_row(client, db, plain_key):
 @pytest.mark.integration
 async def test_non_v1_path_not_logged(client, db):
     before = await db.fetchval("SELECT COUNT(*) FROM api_request_log WHERE path LIKE '/admin%'")
-    client.get("/admin/")  # 307 redirect (no exe.dev headers) — must not be logged
+    await client.get("/admin/")  # 307 redirect (no exe.dev headers) — must not be logged
     after = await db.fetchval("SELECT COUNT(*) FROM api_request_log WHERE path LIKE '/admin%'")
     assert after == before
 
 
 @pytest.mark.integration
 async def test_invalid_key_logs_null_key_row(client, db):
-    resp = client.get("/api/v1/", headers={"X-API-Key": "pm_definitely_invalid"})
+    resp = await client.get("/api/v1/", headers={"X-API-Key": "pm_definitely_invalid"})
     assert resp.status_code == 401
     row = await _poll_row(
         db,
@@ -281,7 +292,9 @@ async def test_body_tee_preserves_downstream_and_captures_body(client, db, obs_k
     """POSTing a body: downstream must still parse it (normal response) and we capture it."""
     raw, kid = obs_key
     payload = {"identifier_type": "definitely_unknown_type", "identifier_value": "x123"}
-    resp = client.post("/api/v1/people/observations", json=payload, headers={"X-API-Key": raw})
+    resp = await client.post(
+        "/api/v1/people/observations", json=payload, headers={"X-API-Key": raw}
+    )
     # Downstream read the JSON body and produced a normal ObservationResponse.
     assert resp.status_code == 200
     assert "disposition" in resp.json()
@@ -362,7 +375,9 @@ def test_enrich_other_and_nondict_noop():
 async def test_observation_new_enriched(client, db, obs_key):
     raw, kid = obs_key
     payload = {"identifier_type": "person_wa_pdc", "identifier_value": "arl_" + os.urandom(6).hex()}
-    resp = client.post("/api/v1/people/observations", json=payload, headers={"X-API-Key": raw})
+    resp = await client.post(
+        "/api/v1/people/observations", json=payload, headers={"X-API-Key": raw}
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["disposition"] == "new"
@@ -382,7 +397,9 @@ async def test_observation_new_enriched(client, db, obs_key):
 async def test_observation_rejected_enriched(client, db, obs_key):
     raw, kid = obs_key
     payload = {"identifier_type": "zzz_nonexistent_xyz", "identifier_value": "v"}
-    resp = client.post("/api/v1/people/observations", json=payload, headers={"X-API-Key": raw})
+    resp = await client.post(
+        "/api/v1/people/observations", json=payload, headers={"X-API-Key": raw}
+    )
     assert resp.status_code == 200
     assert resp.json()["disposition"] == "rejected"
     row = await _poll_row(
@@ -399,7 +416,7 @@ async def test_observation_rejected_enriched(client, db, obs_key):
 @pytest.mark.integration
 async def test_changes_empty_poll_enriched(client, db, plain_key):
     raw, kid = plain_key
-    resp = client.get("/api/v1/changes?after=0", headers={"X-API-Key": raw})
+    resp = await client.get("/api/v1/changes?after=0", headers={"X-API-Key": raw})
     assert resp.status_code == 200
     row = await _poll_row(
         db,
