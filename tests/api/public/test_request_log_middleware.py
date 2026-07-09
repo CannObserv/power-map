@@ -213,8 +213,12 @@ async def plain_key(db):
     )
     yield raw, kid
     # Committing fixture: drain in-flight middleware writes first, then delete the
-    # log rows before the key (api_request_log.api_key_id FK → api_keys).
-    await _drain_pending_writes()
+    # log rows before the key (api_request_log.api_key_id FK → api_keys). Best
+    # effort — a stalled write must not turn teardown into an error.
+    try:
+        await _drain_pending_writes()
+    except TimeoutError:
+        pass
     await db.execute("DELETE FROM api_request_log WHERE api_key_id=$1", kid)
     await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
@@ -250,8 +254,12 @@ async def obs_key(db):
     )
     yield raw, kid
     # Committing fixture: drain in-flight middleware writes, then delete in
-    # FK-safe order (log rows + scopes reference the key).
-    await _drain_pending_writes()
+    # FK-safe order (log rows + scopes reference the key). Best effort — a stalled
+    # write must not turn teardown into an error.
+    try:
+        await _drain_pending_writes()
+    except TimeoutError:
+        pass
     await db.execute("DELETE FROM api_request_log WHERE api_key_id=$1", kid)
     await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
     await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
