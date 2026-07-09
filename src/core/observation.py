@@ -1185,6 +1185,10 @@ async def resolve_assignment(
             notes,
         )
     except asyncpg.UniqueViolationError:
+        # Callers may run this inside an ambient transaction (e.g. the assignment
+        # observation handler). Do NOT issue further SQL after this point — the
+        # failed INSERT has aborted the transaction, so the caller must roll back;
+        # any query here would raise InFailedSQLTransaction instead of rejecting.
         logger.warning(
             "UniqueViolation creating role_assignment person=%r role=%r start=%r",
             person_id,
@@ -1201,3 +1205,83 @@ async def resolve_assignment(
         start_date,
     )
     return assignment_id, Disposition.NEW, None
+
+
+async def backfill_assignment_dates(
+    conn, assignment_id: str, start_date: date | None, end_date: date | None
+) -> None:
+    """Backfill undated bounds onto an existing tenure in place (NULL → dated, #289).
+
+    Out-of-band from observation match-or-create: dates an existing tenure by id
+    without minting a new row. Promotes ``start_date`` and/or ``end_date`` from
+    NULL to the supplied value; a supplied value equal to the current one is a
+    no-op. **Must be called inside the caller's transaction** so a rejection rolls
+    the whole observation back and nothing is half-written.
+
+    Raises ``ObservationRejected`` (the handler maps it to a ``rejected``
+    response) when:
+
+    - the addressed row is archived or gone (``assignment_not_found``) — a
+      defense-in-depth guard; the pm_assignment_id resolver already filters
+      archived rows before this is reached;
+    - a supplied bound differs from a non-NULL value already on the row
+      (``start_date_conflict`` / ``end_date_conflict``);
+    - promoting ``start_date`` collides with a sibling tenure sharing
+      (person, role, start_date) (``start_date_conflict``).
+
+    ``is_current`` is intentionally not backfillable — its ``False`` default is
+    indistinguishable from "omitted". An ``end_date`` that contradicts an
+    ``is_current`` row surfaces as a DB check violation the handler reports as
+    ``db_constraint_violation``.
+    """
+    if start_date is None and end_date is None:
+        return
+
+    row = await conn.fetchrow(
+        "SELECT start_date, end_date FROM role_assignments WHERE id=$1 AND archived_at IS NULL",
+        assignment_id,
+    )
+    if row is None:
+        raise ObservationRejected("assignment_not_found")
+
+    for field, provided, current in (
+        ("start_date", start_date, row["start_date"]),
+        ("end_date", end_date, row["end_date"]),
+    ):
+        if provided is not None and current is not None and provided != current:
+            logger.warning(
+                "backfill %s conflict assignment=%s current=%s requested=%s",
+                field,
+                assignment_id,
+                current,
+                provided,
+            )
+            raise ObservationRejected(f"{field}_conflict")
+
+    new_start = start_date if start_date is not None else row["start_date"]
+    new_end = end_date if end_date is not None else row["end_date"]
+    if new_start == row["start_date"] and new_end == row["end_date"]:
+        return  # idempotent — bounds already as supplied
+
+    try:
+        await conn.execute(
+            "UPDATE role_assignments SET start_date=$2, end_date=$3"
+            " WHERE id=$1 AND archived_at IS NULL",
+            assignment_id,
+            new_start,
+            new_end,
+        )
+    except asyncpg.UniqueViolationError as exc:
+        logger.warning(
+            "backfill start_date collides with sibling tenure assignment=%s start=%s",
+            assignment_id,
+            new_start,
+        )
+        raise ObservationRejected("start_date_conflict") from exc
+
+    logger.info(
+        "Backfilled role_assignment id=%s start_date=%s end_date=%s",
+        assignment_id,
+        new_start,
+        new_end,
+    )

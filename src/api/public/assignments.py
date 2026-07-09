@@ -16,6 +16,8 @@ from src.api.public.schemas import (
 )
 from src.core.observation import (
     Disposition,
+    ObservationRejected,
+    backfill_assignment_dates,
     resolve_assignment,
     resolve_entity,
     write_addresses,
@@ -184,31 +186,42 @@ async def submit_assignment_observation(
     """Submit an assignment observation.
 
     Resolves by (person_id, role_id, start_date) or by pm_assignment_id.
+    In pm_assignment_id mode a supplied start_date/end_date backfills an undated
+    tenure in place (NULL → dated, #289); a conflicting bound is rejected.
     """
-    if req.identifier_type == "pm_assignment_id":
-        assignment_id, _, disposition, reason = await resolve_entity(
-            db, "pm_assignment_id", req.identifier_value
-        )
-        if disposition is Disposition.REJECTED:
-            return ObservationResponse(disposition="rejected", reason=reason)
-    else:
-        assignment_id, disposition, reason = await resolve_assignment(
-            db,
-            req.person_id,
-            req.role_id,
-            req.start_date,
-            end_date=req.end_date,
-            is_current=req.is_current,
-            notes=req.notes,
-        )
-        if disposition is Disposition.REJECTED:
-            return ObservationResponse(disposition="rejected", reason=reason)
-
+    is_pm_native = req.identifier_type == "pm_assignment_id"
     try:
+        # Resolution + all writes share one transaction so any rejection or
+        # constraint failure rolls the whole observation back — nothing
+        # half-written (a REJECTED disposition is raised to trigger rollback).
         async with db.transaction():
+            if is_pm_native:
+                assignment_id, _, disposition, reason = await resolve_entity(
+                    db, "pm_assignment_id", req.identifier_value
+                )
+                if disposition is Disposition.REJECTED:
+                    raise ObservationRejected(reason)
+                # #289: an id-addressed observation may carry a start_date/end_date
+                # to date an undated tenure in place (NULL → dated), out of band
+                # from matching.
+                await backfill_assignment_dates(db, assignment_id, req.start_date, req.end_date)
+            else:
+                assignment_id, disposition, reason = await resolve_assignment(
+                    db,
+                    req.person_id,
+                    req.role_id,
+                    req.start_date,
+                    end_date=req.end_date,
+                    is_current=req.is_current,
+                    notes=req.notes,
+                )
+                if disposition is Disposition.REJECTED:
+                    raise ObservationRejected(reason)
             await write_links(db, assignment_id, "role_assignment", req.links)
             await write_contact_methods(db, assignment_id, "role_assignment", req.contact_methods)
             await write_addresses(db, assignment_id, "role_assignment", req.addresses)
+    except ObservationRejected as exc:
+        return ObservationResponse(disposition="rejected", reason=exc.detail)
     except (
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,
