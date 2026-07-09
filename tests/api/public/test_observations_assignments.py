@@ -653,6 +653,58 @@ async def test_pm_assignment_id_backfills_end_date(client, write_key, undated_as
     assert str(row["end_date"]) == "2019-01-13"
 
 
+async def test_pm_assignment_id_backfill_end_date_on_current_rejected(
+    client, write_key, obs_entities, db
+):
+    """end_date backfill onto an is_current tenure hits chk_current_no_end_date → rejected."""
+    raw, _ = write_key
+    asgn_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current) VALUES ($1,$2,$3,TRUE)",
+        asgn_id,
+        obs_entities["person_id"],
+        obs_entities["role_id"],
+    )
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "end_date": "2020-01-01",
+        },
+    )
+    assert r.json()["disposition"] == "rejected"
+    assert r.json()["reason"] == "db_constraint_violation"
+    row = await db.fetchrow(
+        "SELECT end_date, is_current FROM role_assignments WHERE id=$1", asgn_id
+    )
+    assert row["end_date"] is None  # rolled back
+    assert row["is_current"] is True
+
+
+async def test_new_create_rolls_back_when_side_data_rejected(client, write_key, obs_entities, db):
+    """#289 dir.6: a bad link in the same payload rolls back the NEW assignment too."""
+    raw, _ = write_key
+    r = _post(
+        client,
+        raw,
+        {
+            "person_id": obs_entities["person_id"],
+            "role_id": obs_entities["role_id"],
+            "start_date": "2022-06-01",
+            "links": [{"url": "https://x.example", "link_type_slug": "___nonexistent___"}],
+        },
+    )
+    assert r.json()["disposition"] == "rejected"
+    rows = await db.fetch(
+        "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+        obs_entities["person_id"],
+        obs_entities["role_id"],
+    )
+    assert rows == []  # create rolled back with the side-data failure
+
+
 async def test_pm_assignment_id_backfill_end_date_conflict_rejected(
     client, write_key, undated_assignment, db
 ):
