@@ -1201,3 +1201,57 @@ async def resolve_assignment(
         start_date,
     )
     return assignment_id, Disposition.NEW, None
+
+
+async def backfill_assignment_start_date(
+    conn, assignment_id: str, start_date: date | None
+) -> tuple[Disposition, str | None]:
+    """Promote an undated assignment's start_date (NULL → dated) in place (#289).
+
+    Out-of-band from observation match-or-create: dates an existing tenure by id
+    without minting a new row. Returns (disposition, reason):
+
+    - ``start_date`` is None → no-op AUTO_ATTACHED (nothing to backfill).
+    - row's start_date is NULL → set it; AUTO_ATTACHED.
+    - row's start_date already equals ``start_date`` → idempotent AUTO_ATTACHED.
+    - row already carries a different start_date, or the promotion would collide
+      with a sibling tenure sharing (person, role, start_date) → REJECTED with
+      reason ``start_date_conflict``; the row is left untouched.
+    """
+    if start_date is None:
+        return Disposition.AUTO_ATTACHED, None
+
+    current = await conn.fetchval(
+        "SELECT start_date FROM role_assignments WHERE id=$1", assignment_id
+    )
+    if current == start_date:
+        return Disposition.AUTO_ATTACHED, None
+    if current is not None:
+        logger.warning(
+            "backfill start_date conflict assignment=%s current=%s requested=%s",
+            assignment_id,
+            current,
+            start_date,
+        )
+        return Disposition.REJECTED, "start_date_conflict"
+
+    try:
+        await conn.execute(
+            "UPDATE role_assignments SET start_date=$2 WHERE id=$1",
+            assignment_id,
+            start_date,
+        )
+    except asyncpg.UniqueViolationError:
+        logger.warning(
+            "backfill start_date collides with sibling tenure assignment=%s start=%s",
+            assignment_id,
+            start_date,
+        )
+        return Disposition.REJECTED, "start_date_conflict"
+
+    logger.info(
+        "Backfilled role_assignment id=%s start_date=%s (NULL → dated)",
+        assignment_id,
+        start_date,
+    )
+    return Disposition.AUTO_ATTACHED, None

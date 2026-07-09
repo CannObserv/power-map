@@ -16,6 +16,7 @@ from src.api.public.schemas import (
 )
 from src.core.observation import (
     Disposition,
+    backfill_assignment_start_date,
     resolve_assignment,
     resolve_entity,
     write_addresses,
@@ -184,10 +185,19 @@ async def submit_assignment_observation(
     """Submit an assignment observation.
 
     Resolves by (person_id, role_id, start_date) or by pm_assignment_id.
+    In pm_assignment_id mode a supplied start_date backfills an undated tenure
+    in place (NULL → dated, #289); a conflicting start_date is rejected.
     """
     if req.identifier_type == "pm_assignment_id":
         assignment_id, _, disposition, reason = await resolve_entity(
             db, "pm_assignment_id", req.identifier_value
+        )
+        if disposition is Disposition.REJECTED:
+            return ObservationResponse(disposition="rejected", reason=reason)
+        # #289: an id-addressed observation may carry a start_date to date an
+        # undated tenure in place (NULL → dated), out of band from matching.
+        disposition, reason = await backfill_assignment_start_date(
+            db, assignment_id, req.start_date
         )
         if disposition is Disposition.REJECTED:
             return ObservationResponse(disposition="rejected", reason=reason)

@@ -569,6 +569,166 @@ def test_pm_assignment_id_requires_identifier_value(client, write_key):
 
 
 # ---------------------------------------------------------------------------
+# #289 — backfill start_date onto an undated tenure via pm_assignment_id
+# (NULL → dated promotion, out of band from match-or-create)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def undated_assignment(db):
+    """Fresh isolated undated (NULL start_date) assignment per test."""
+    person_id = generate_id()
+    org_id = generate_id()
+    role_id = generate_id()
+    asgn_id = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,$3)",
+        role_id,
+        org_id,
+        "Backfill Test Role",
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1,$2,$3)",
+        asgn_id,
+        person_id,
+        role_id,
+    )
+    yield {"asgn_id": asgn_id, "person_id": person_id, "role_id": role_id}
+    await db.execute("DELETE FROM role_assignments WHERE person_id=$1", person_id)
+    await db.execute("DELETE FROM roles WHERE id=$1", role_id)
+    await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+    await db.execute("DELETE FROM people WHERE id=$1", person_id)
+
+
+async def test_pm_assignment_id_backfills_null_start_date(
+    client, write_key, undated_assignment, db
+):
+    """pm_assignment_id + start_date sets the date on an undated row — same row, no new row."""
+    raw, _ = write_key
+    asgn_id = undated_assignment["asgn_id"]
+    person_id = undated_assignment["person_id"]
+
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "start_date": "2013-01-14",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["entity_id"] == asgn_id
+
+    rows = await db.fetch(
+        "SELECT id, start_date FROM role_assignments WHERE person_id=$1", person_id
+    )
+    assert len(rows) == 1  # promoted in place, not duplicated
+    assert str(rows[0]["start_date"]) == "2013-01-14"
+
+
+async def test_pm_assignment_id_backfill_idempotent(client, write_key, undated_assignment, db):
+    """Re-sending the same start_date via pm_assignment_id → auto-attached, unchanged."""
+    raw, _ = write_key
+    asgn_id = undated_assignment["asgn_id"]
+    payload = {
+        "identifier_type": "pm_assignment_id",
+        "identifier_value": asgn_id,
+        "start_date": "2013-01-14",
+    }
+    assert _post(client, raw, payload).json()["disposition"] == "auto-attached"
+    r2 = _post(client, raw, payload)
+    assert r2.json()["disposition"] == "auto-attached"
+    row = await db.fetchrow("SELECT start_date FROM role_assignments WHERE id=$1", asgn_id)
+    assert str(row["start_date"]) == "2013-01-14"
+
+
+async def test_pm_assignment_id_backfill_conflict_rejected(
+    client, write_key, undated_assignment, db
+):
+    """A different start_date on an already-dated row → rejected, row untouched."""
+    raw, _ = write_key
+    asgn_id = undated_assignment["asgn_id"]
+    _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "start_date": "2013-01-14",
+        },
+    )
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "start_date": "2020-05-01",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "start_date_conflict"
+    row = await db.fetchrow("SELECT start_date FROM role_assignments WHERE id=$1", asgn_id)
+    assert str(row["start_date"]) == "2013-01-14"  # unchanged
+
+
+async def test_pm_assignment_id_backfill_sibling_collision_rejected(
+    client, write_key, obs_entities, db
+):
+    """Backfilling an undated row onto a date a sibling tenure already holds → rejected."""
+    raw, _ = write_key
+    base = {"person_id": obs_entities["person_id"], "role_id": obs_entities["role_id"]}
+
+    undated_id = _post(client, raw, {**base, "start_date": None}).json()["entity_id"]
+    _post(client, raw, {**base, "start_date": "2013-01-14"})  # sibling occupies the date
+
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": undated_id,
+            "start_date": "2013-01-14",
+        },
+    )
+    assert r.json()["disposition"] == "rejected"
+    assert r.json()["reason"] == "start_date_conflict"
+    row = await db.fetchrow("SELECT start_date FROM role_assignments WHERE id=$1", undated_id)
+    assert row["start_date"] is None  # undated row untouched
+
+
+async def test_returning_legislator_tenures_coexist(client, write_key, obs_entities, db):
+    """#289 regression: undated + two dated tenures for one (person, role) coexist as 3 rows."""
+    raw, _ = write_key
+    person_id = obs_entities["person_id"]
+    base = {"person_id": person_id, "role_id": obs_entities["role_id"]}
+
+    r_undated = _post(client, raw, {**base, "start_date": None})
+    r_first = _post(client, raw, {**base, "start_date": "2013-01-14"})
+    r_second = _post(client, raw, {**base, "start_date": "2021-01-11"})
+
+    ids = {r.json()["entity_id"] for r in (r_undated, r_first, r_second)}
+    assert all(r.json()["disposition"] == "new" for r in (r_undated, r_first, r_second))
+    assert len(ids) == 3  # three distinct assignment rows
+
+    rows = await db.fetch(
+        "SELECT start_date FROM role_assignments WHERE person_id=$1 AND role_id=$2"
+        " AND archived_at IS NULL",
+        person_id,
+        obs_entities["role_id"],
+    )
+    starts = {str(r["start_date"]) for r in rows}
+    assert starts == {"None", "2013-01-14", "2021-01-11"}
+
+
+# ---------------------------------------------------------------------------
 # #225 — reason field on rejected observations
 # ---------------------------------------------------------------------------
 

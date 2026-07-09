@@ -612,7 +612,7 @@ Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 Two mutually exclusive resolution modes:
 
 - **Standard** — match or create by `(person_id, role_id, start_date)`. `NULL` start_date is a distinct known value (NULLS NOT DISTINCT), meaning "unknown start" is itself a unique slot.
-- **PM-native** — attach to a known assignment by its PM ULID. Supply `identifier_type="pm_assignment_id"` + `identifier_value=<assignment ULID>`. Never creates; returns `rejected` if the ULID is unknown or archived.
+- **PM-native** — attach to a known assignment by its PM ULID. Supply `identifier_type="pm_assignment_id"` + `identifier_value=<assignment ULID>`. Never creates; returns `rejected` if the ULID is unknown or archived. A supplied `start_date` **backfills an undated tenure in place** (`NULL` → dated, #289): if the row's start_date is `NULL` it is set; if it already equals the supplied date the write is idempotent; a *different* existing date — or one already held by a sibling tenure — is `rejected` with reason `start_date_conflict` and the row is left untouched. This is the out-of-band way to date an existing tenure without minting a new dated row.
 
 **Request fields:**
 
@@ -622,7 +622,7 @@ Two mutually exclusive resolution modes:
 | `identifier_value` | PM-native mode | Assignment ULID. Required when `identifier_type` is present. |
 | `person_id` | standard mode | ULID of the person. Must exist and be active; unknown/archived person → `rejected`. |
 | `role_id` | standard mode | ULID of the role. Must exist and be active; unknown/archived role → `rejected`. |
-| `start_date` | optional | ISO 8601 date (nullable). `NULL` = unknown start date. Only written on NEW. |
+| `start_date` | optional | ISO 8601 date (nullable). `NULL` = unknown start date. Written on NEW; in PM-native mode also backfills an undated tenure (`NULL` → dated, #289). |
 | `end_date` | optional | ISO 8601 date. Must be >= `start_date` when both set. Only written on NEW. |
 | `is_current` | optional | `false` by default. Cannot be `true` when `end_date` is also set. Only written on NEW. |
 | `notes` | optional | Free text. Only written on NEW. |
@@ -636,7 +636,7 @@ Two mutually exclusive resolution modes:
 |-------------|-----------|
 | `new` | No active assignment with this `(person_id, role_id, start_date)` found; assignment created (standard mode only) |
 | `auto-attached` | Active assignment already exists (standard) or known ULID supplied (PM-native); attribute writes still applied |
-| `rejected` | Person or role unknown/archived; unknown/archived ULID (PM-native); `is_current` + `end_date` conflict; DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
+| `rejected` | Person or role unknown/archived; unknown/archived ULID (PM-native); PM-native `start_date` backfill conflicts with an existing/sibling date (`start_date_conflict`); `is_current` + `end_date` conflict; DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **Changes feed:** `role_assignment` entities appear in `GET /api/v1/changes` with `entity_type: "role_assignment"`.
 
