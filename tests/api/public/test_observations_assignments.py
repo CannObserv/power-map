@@ -631,6 +631,58 @@ async def test_pm_assignment_id_backfills_null_start_date(
     assert str(rows[0]["start_date"]) == "2013-01-14"
 
 
+async def test_pm_assignment_id_backfills_end_date(client, write_key, undated_assignment, db):
+    """pm_assignment_id + end_date closes an open tenure in place (#289)."""
+    raw, _ = write_key
+    asgn_id = undated_assignment["asgn_id"]
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "start_date": "2013-01-14",
+            "end_date": "2019-01-13",
+        },
+    )
+    assert r.json()["disposition"] == "auto-attached"
+    row = await db.fetchrow(
+        "SELECT start_date, end_date FROM role_assignments WHERE id=$1", asgn_id
+    )
+    assert str(row["start_date"]) == "2013-01-14"
+    assert str(row["end_date"]) == "2019-01-13"
+
+
+async def test_pm_assignment_id_backfill_end_date_conflict_rejected(
+    client, write_key, undated_assignment, db
+):
+    """A different end_date on an already-ended tenure → rejected, row untouched."""
+    raw, _ = write_key
+    asgn_id = undated_assignment["asgn_id"]
+    _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "end_date": "2019-01-13",
+        },
+    )
+    r = _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "end_date": "2020-01-01",
+        },
+    )
+    assert r.json()["disposition"] == "rejected"
+    assert r.json()["reason"] == "end_date_conflict"
+    row = await db.fetchrow("SELECT end_date FROM role_assignments WHERE id=$1", asgn_id)
+    assert str(row["end_date"]) == "2019-01-13"  # unchanged
+
+
 async def test_pm_assignment_id_backfill_idempotent(client, write_key, undated_assignment, db):
     """Re-sending the same start_date via pm_assignment_id → auto-attached, unchanged."""
     raw, _ = write_key

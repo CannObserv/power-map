@@ -16,7 +16,8 @@ from src.api.public.schemas import (
 )
 from src.core.observation import (
     Disposition,
-    backfill_assignment_start_date,
+    ObservationRejected,
+    backfill_assignment_dates,
     resolve_assignment,
     resolve_entity,
     write_addresses,
@@ -185,19 +186,13 @@ async def submit_assignment_observation(
     """Submit an assignment observation.
 
     Resolves by (person_id, role_id, start_date) or by pm_assignment_id.
-    In pm_assignment_id mode a supplied start_date backfills an undated tenure
-    in place (NULL → dated, #289); a conflicting start_date is rejected.
+    In pm_assignment_id mode a supplied start_date/end_date backfills an undated
+    tenure in place (NULL → dated, #289); a conflicting bound is rejected.
     """
-    if req.identifier_type == "pm_assignment_id":
+    is_pm_native = req.identifier_type == "pm_assignment_id"
+    if is_pm_native:
         assignment_id, _, disposition, reason = await resolve_entity(
             db, "pm_assignment_id", req.identifier_value
-        )
-        if disposition is Disposition.REJECTED:
-            return ObservationResponse(disposition="rejected", reason=reason)
-        # #289: an id-addressed observation may carry a start_date to date an
-        # undated tenure in place (NULL → dated), out of band from matching.
-        disposition, reason = await backfill_assignment_start_date(
-            db, assignment_id, req.start_date
         )
         if disposition is Disposition.REJECTED:
             return ObservationResponse(disposition="rejected", reason=reason)
@@ -216,9 +211,17 @@ async def submit_assignment_observation(
 
     try:
         async with db.transaction():
+            # #289: an id-addressed observation may carry a start_date/end_date to
+            # date an undated tenure in place (NULL → dated), out of band from
+            # matching. Inside the transaction so a conflict rolls the whole
+            # observation back (nothing half-written).
+            if is_pm_native:
+                await backfill_assignment_dates(db, assignment_id, req.start_date, req.end_date)
             await write_links(db, assignment_id, "role_assignment", req.links)
             await write_contact_methods(db, assignment_id, "role_assignment", req.contact_methods)
             await write_addresses(db, assignment_id, "role_assignment", req.addresses)
+    except ObservationRejected as exc:
+        return ObservationResponse(disposition="rejected", reason=exc.detail)
     except (
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,

@@ -22,6 +22,7 @@ from src.core.db import generate_id
 from src.core.observation import (
     IdentifierConflict,
     ObservationRejected,
+    backfill_assignment_dates,
     write_additional_identifiers,
     write_addresses,
     write_contact_methods,
@@ -984,6 +985,27 @@ async def test_write_role_assignments_open_noop(db, person_id, role_id):
         role_id,
     )
     assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# backfill_assignment_dates (#289)
+# ---------------------------------------------------------------------------
+
+
+async def test_backfill_assignment_dates_rejects_archived(db, person_id, role_id):
+    """Defense-in-depth: an archived target is rejected, not silently mutated."""
+    ra_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, archived_at)"
+        " VALUES ($1, $2, $3, NOW())",
+        ra_id,
+        person_id,
+        role_id,
+    )
+    with pytest.raises(ObservationRejected, match="assignment_not_found"):
+        await backfill_assignment_dates(db, ra_id, date(2013, 1, 14), None)
+    row = await db.fetchrow("SELECT start_date FROM role_assignments WHERE id=$1", ra_id)
+    assert row["start_date"] is None  # untouched
 
 
 # ---------------------------------------------------------------------------
