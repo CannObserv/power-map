@@ -1185,6 +1185,10 @@ async def resolve_assignment(
             notes,
         )
     except asyncpg.UniqueViolationError:
+        # Callers may run this inside an ambient transaction (e.g. the assignment
+        # observation handler). Do NOT issue further SQL after this point — the
+        # failed INSERT has aborted the transaction, so the caller must roll back;
+        # any query here would raise InFailedSQLTransaction instead of rejecting.
         logger.warning(
             "UniqueViolation creating role_assignment person=%r role=%r start=%r",
             person_id,
