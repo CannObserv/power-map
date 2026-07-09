@@ -54,13 +54,16 @@ async def _zero():
     return 0
 
 
+# No `with` on TestClient → no lifespan → no app pool created. get_db is fully
+# mocked, so these smoke handlers never touch a real connection; entering the
+# lifespan would needlessly pay the ~170 ms pool create/introspect and couple
+# these "fully mocked DB" tests to a live database (#288).
 @pytest.fixture
 def org_client():
     app.dependency_overrides[get_db] = _org_merge_db
     app.dependency_overrides[get_org_dup_count] = _zero
     app.dependency_overrides[get_person_dup_count] = _zero
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+    yield TestClient(app, raise_server_exceptions=True)
     app.dependency_overrides.clear()
 
 
@@ -69,8 +72,7 @@ def person_client():
     app.dependency_overrides[get_db] = _person_merge_db
     app.dependency_overrides[get_org_dup_count] = _zero
     app.dependency_overrides[get_person_dup_count] = _zero
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+    yield TestClient(app, raise_server_exceptions=True)
     app.dependency_overrides.clear()
 
 

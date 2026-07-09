@@ -31,11 +31,14 @@ async def _zero():
 
 @pytest.fixture
 def client():
+    # No `with` → no lifespan → no app pool created. get_db is fully mocked, so
+    # the app never touches a real connection. Avoids the ~170 ms pool
+    # create/introspect and the real-DB dependency this file's docstring already
+    # disclaims (#288).
     app.dependency_overrides[get_db] = _mock_get_db
     app.dependency_overrides[get_org_dup_count] = _zero
     app.dependency_overrides[get_person_dup_count] = _zero
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+    yield TestClient(app, raise_server_exceptions=True)
     app.dependency_overrides.clear()
 
 
