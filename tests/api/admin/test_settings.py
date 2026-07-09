@@ -4,8 +4,9 @@ import re
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
+from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
 from src.core.types import ORG_NAME_TYPES, PERSON_NAME_TYPES
@@ -22,21 +23,36 @@ AUTH_HEADERS = {
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
     async with db_pool.acquire() as conn:
-        yield conn
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
+@pytest_asyncio.fixture(loop_scope="session")
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
         yield c
+    app.dependency_overrides.pop(get_db, None)
 
 
 # --- Landing page ---
 
 
 async def test_settings_landing_returns_200(client):
-    response = client.get("/admin/settings/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     # Verify all 6 cards render
     for label in (
@@ -56,7 +72,7 @@ async def test_settings_landing_returns_200(client):
 
 
 async def test_settings_landing_redirects_unauthenticated(client):
-    response = client.get("/admin/settings/", follow_redirects=False)
+    response = await client.get("/admin/settings/", follow_redirects=False)
     assert response.status_code in (302, 307)
     assert "/__exe.dev/login" in response.headers["location"]
 
@@ -81,7 +97,7 @@ async def test_settings_landing_renders_every_person_name_type_as_badge(client):
     Person Name Types card. Guards against the pre-#135 rot where the
     settings page hardcoded only 5 of the 12 (then current) types and
     drifted silently as new types were added."""
-    response = client.get("/admin/settings/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     block = _name_types_section(response.text, "Person Name Types")
     for t in PERSON_NAME_TYPES:
@@ -91,7 +107,7 @@ async def test_settings_landing_renders_every_person_name_type_as_badge(client):
 
 
 async def test_settings_landing_renders_every_org_name_type_as_badge(client):
-    response = client.get("/admin/settings/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     block = _name_types_section(response.text, "Organization Name Types")
     for t in ORG_NAME_TYPES:
@@ -104,7 +120,7 @@ async def test_settings_landing_renders_every_org_name_type_as_badge(client):
 
 
 async def test_link_types_page_returns_200(client):
-    response = client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "General" in response.text
     assert "Social" in response.text
@@ -112,13 +128,13 @@ async def test_link_types_page_returns_200(client):
 
 async def test_link_types_page_has_aria_current(client):
     """Link types sidebar item is marked aria-current on the link types page."""
-    response = client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'aria-current="page"' in response.text
 
 
 async def test_link_types_page_redirects_unauthenticated(client):
-    response = client.get("/admin/settings/link-types/", follow_redirects=False)
+    response = await client.get("/admin/settings/link-types/", follow_redirects=False)
     assert response.status_code in (302, 307)
 
 
@@ -126,13 +142,13 @@ async def test_link_types_page_redirects_unauthenticated(client):
 
 
 async def test_identifier_types_page_returns_200(client):
-    response = client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
     assert response.status_code == 200
 
 
 async def test_identifier_types_page_has_aria_current(client):
     """Identifier types sidebar item is marked aria-current on the identifier types page."""
-    response = client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'aria-current="page"' in response.text
 
@@ -141,20 +157,20 @@ async def test_identifier_types_page_has_aria_current(client):
 
 
 async def test_link_type_new_row_general(client):
-    response = client.get("/admin/settings/link-types/general/new-row/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/link-types/general/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "display_name" in response.text
     assert "slug" in response.text
 
 
 async def test_link_type_new_row_social(client):
-    response = client.get("/admin/settings/link-types/social/new-row/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/link-types/social/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "display_name" in response.text
 
 
 async def test_link_type_new_row_invalid_scope(client):
-    response = client.get("/admin/settings/link-types/bad/new-row/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/link-types/bad/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 404
 
 
@@ -163,7 +179,7 @@ async def test_link_type_new_row_invalid_scope(client):
 
 async def test_create_general_link_type(client, db):
     slug = f"test-general-{generate_id()}"
-    response = client.post(
+    response = await client.post(
         "/admin/settings/link-types/general/",
         headers=AUTH_HEADERS,
         data={"display_name": "Test General", "slug": slug},
@@ -175,7 +191,7 @@ async def test_create_general_link_type(client, db):
 
 async def test_create_social_link_type(client, db):
     slug = f"test-social-{generate_id()}"
-    response = client.post(
+    response = await client.post(
         "/admin/settings/link-types/social/",
         headers=AUTH_HEADERS,
         data={"display_name": "Test Social", "slug": slug},
@@ -197,7 +213,7 @@ async def test_link_type_edit_row_get(client, db):
         f"edit-me-{lid}",
     )
     try:
-        response = client.get(
+        response = await client.get(
             f"/admin/settings/link-types/general/{lid}/edit-row/", headers=AUTH_HEADERS
         )
         assert response.status_code == 200
@@ -215,7 +231,7 @@ async def test_link_type_edit_row_post(client, db):
         f"before-{lid}",
     )
     try:
-        response = client.post(
+        response = await client.post(
             f"/admin/settings/link-types/general/{lid}/edit-row/",
             headers=AUTH_HEADERS,
             data={"display_name": "After", "slug": f"after-{lid}"},
@@ -235,7 +251,7 @@ async def test_link_type_read_row(client, db):
         f"read-me-{lid}",
     )
     try:
-        response = client.get(
+        response = await client.get(
             f"/admin/settings/link-types/general/{lid}/read-row/", headers=AUTH_HEADERS
         )
         assert response.status_code == 200
@@ -255,7 +271,9 @@ async def test_delete_general_link_type(client, db):
         "Delete Me",
         f"del-{lid}",
     )
-    response = client.delete(f"/admin/settings/link-types/general/{lid}/", headers=AUTH_HEADERS)
+    response = await client.delete(
+        f"/admin/settings/link-types/general/{lid}/", headers=AUTH_HEADERS
+    )
     assert response.status_code == 200
     row = await db.fetchrow("SELECT id FROM link_types WHERE id=$1", lid)
     assert row is None
@@ -281,7 +299,7 @@ async def test_delete_link_type_in_use_htmx_returns_flash(client, db):
         lid,
     )
     try:
-        response = client.delete(
+        response = await client.delete(
             f"/admin/settings/link-types/general/{lid}/",
             headers={**AUTH_HEADERS, "HX-Request": "true"},
         )
@@ -317,7 +335,9 @@ async def test_delete_link_type_in_use_non_htmx_returns_409(client, db):
         lid,
     )
     try:
-        response = client.delete(f"/admin/settings/link-types/general/{lid}/", headers=AUTH_HEADERS)
+        response = await client.delete(
+            f"/admin/settings/link-types/general/{lid}/", headers=AUTH_HEADERS
+        )
         assert response.status_code == 409
     finally:
         await db.execute("DELETE FROM links WHERE id=$1", link_id)
@@ -328,7 +348,7 @@ async def test_delete_link_type_in_use_non_htmx_returns_409(client, db):
 async def test_create_link_type_non_htmx_redirects(client, db):
     """Non-HTMX POST create redirects to link-types page."""
     slug = f"test-nonhtmx-{generate_id()}"
-    response = client.post(
+    response = await client.post(
         "/admin/settings/link-types/general/",
         headers=AUTH_HEADERS,  # no HX-Request header
         data={"display_name": "Non-HTMX Test", "slug": slug},
@@ -349,7 +369,7 @@ async def test_link_type_edit_row_post_non_htmx_redirects(client, db):
         f"nonhtmx-edit-{lid}",
     )
     try:
-        response = client.post(
+        response = await client.post(
             f"/admin/settings/link-types/general/{lid}/edit-row/",
             headers=AUTH_HEADERS,  # no HX-Request header
             data={"display_name": "Non-HTMX Edited", "slug": f"nonhtmx-edited-{lid}"},
@@ -374,7 +394,7 @@ async def test_identifier_type_edit_row_post_non_htmx_redirects(client, db):
         "organization",
     )
     try:
-        response = client.post(
+        response = await client.post(
             f"/admin/settings/identifier-types/{iid}/edit-row/",
             headers=AUTH_HEADERS,  # no HX-Request header
             data={
@@ -392,7 +412,7 @@ async def test_identifier_type_edit_row_post_non_htmx_redirects(client, db):
 
 
 async def test_identifier_type_new_row(client):
-    response = client.get("/admin/settings/identifier-types/new-row/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/settings/identifier-types/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "display_name" in response.text
     for et in ("organization", "person", "role_assignment", "jurisdiction"):
@@ -402,7 +422,7 @@ async def test_identifier_type_new_row(client):
 async def test_create_identifier_type_non_htmx_redirects(client, db):
     """Non-HTMX POST create for identifier type redirects to listing page."""
     slug = f"test-id-nonhtmx-{generate_id()}"
-    response = client.post(
+    response = await client.post(
         "/admin/settings/identifier-types/",
         headers=AUTH_HEADERS,  # no HX-Request header
         data={
@@ -431,7 +451,7 @@ async def test_identifier_type_read_row(client, db):
         "organization",
     )
     try:
-        response = client.get(
+        response = await client.get(
             f"/admin/settings/identifier-types/{iid}/read-row/", headers=AUTH_HEADERS
         )
         assert response.status_code == 200
@@ -463,7 +483,7 @@ async def test_delete_identifier_type_in_use_htmx_returns_flash(client, db):
         iid,
     )
     try:
-        response = client.delete(
+        response = await client.delete(
             f"/admin/settings/identifier-types/{iid}/",
             headers={**AUTH_HEADERS, "HX-Request": "true"},
         )
@@ -501,7 +521,9 @@ async def test_delete_identifier_type_in_use_non_htmx_returns_409(client, db):
         iid,
     )
     try:
-        response = client.delete(f"/admin/settings/identifier-types/{iid}/", headers=AUTH_HEADERS)
+        response = await client.delete(
+            f"/admin/settings/identifier-types/{iid}/", headers=AUTH_HEADERS
+        )
         assert response.status_code == 409
     finally:
         await db.execute("DELETE FROM identifiers WHERE id=$1", identifier_id)
@@ -531,7 +553,7 @@ async def test_link_type_usage_count_shown(client, db):
         lid,
     )
     try:
-        response = client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
+        response = await client.get("/admin/settings/link-types/", headers=AUTH_HEADERS)
         assert response.status_code == 200
         assert ">1<" in response.text  # usage count visible
     finally:
@@ -545,7 +567,7 @@ async def test_link_type_usage_count_shown(client, db):
 
 async def test_create_identifier_type(client, db):
     slug = f"test-id-{generate_id()}"
-    response = client.post(
+    response = await client.post(
         "/admin/settings/identifier-types/",
         headers=AUTH_HEADERS,
         data={
@@ -572,7 +594,7 @@ async def test_identifier_type_edit_row_get(client, db):
         "organization",
     )
     try:
-        response = client.get(
+        response = await client.get(
             f"/admin/settings/identifier-types/{iid}/edit-row/", headers=AUTH_HEADERS
         )
         assert response.status_code == 200
@@ -593,7 +615,7 @@ async def test_identifier_type_edit_row_post(client, db):
         "organization",
     )
     try:
-        response = client.post(
+        response = await client.post(
             f"/admin/settings/identifier-types/{iid}/edit-row/",
             headers=AUTH_HEADERS,
             data={
@@ -622,7 +644,7 @@ async def test_identifier_type_edit_row_get_shows_jurisdiction_option(client, db
         "jurisdiction",
     )
     try:
-        response = client.get(
+        response = await client.get(
             f"/admin/settings/identifier-types/{iid}/edit-row/", headers=AUTH_HEADERS
         )
         assert response.status_code == 200
@@ -645,7 +667,7 @@ async def test_identifier_type_edit_row_post_jurisdiction_round_trips(client, db
         "organization",
     )
     try:
-        response = client.post(
+        response = await client.post(
             f"/admin/settings/identifier-types/{iid}/edit-row/",
             headers=AUTH_HEADERS,
             data={
@@ -664,7 +686,7 @@ async def test_identifier_type_edit_row_post_jurisdiction_round_trips(client, db
 
 async def test_create_identifier_type_invalid_entity_type_returns_422(client):
     """CREATE with an unrecognised entity_type must return 422 before hitting the DB."""
-    response = client.post(
+    response = await client.post(
         "/admin/settings/identifier-types/",
         headers=AUTH_HEADERS,
         data={
@@ -690,7 +712,7 @@ async def test_identifier_type_edit_row_post_invalid_entity_type_returns_422(cli
         "organization",
     )
     try:
-        response = client.post(
+        response = await client.post(
             f"/admin/settings/identifier-types/{iid}/edit-row/",
             headers=AUTH_HEADERS,
             data={
@@ -718,7 +740,7 @@ async def test_delete_identifier_type(client, db):
         "Delete Full",
         "organization",
     )
-    response = client.delete(f"/admin/settings/identifier-types/{iid}/", headers=AUTH_HEADERS)
+    response = await client.delete(f"/admin/settings/identifier-types/{iid}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     row = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE id=$1", iid)
     assert row is None
@@ -746,7 +768,7 @@ async def test_identifier_type_usage_count_shown(client, db):
         iid,
     )
     try:
-        response = client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
+        response = await client.get("/admin/settings/identifier-types/", headers=AUTH_HEADERS)
         assert response.status_code == 200
         assert ">1<" in response.text
     finally:

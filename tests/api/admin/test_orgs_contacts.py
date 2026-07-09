@@ -4,8 +4,9 @@ import json
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
+from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -16,43 +17,61 @@ AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def org_and_contact(db_pool):
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def org_and_contact(db):
     oid, cid = generate_id(), generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-        await conn.execute(
-            "INSERT INTO contact_methods"
-            " (id, entity_type, entity_id, contact_type, value)"
-            " VALUES ($1, 'organization', $2, 'phone', '+13605551234')",
-            cid,
-            oid,
-        )
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await db.execute(
+        "INSERT INTO contact_methods"
+        " (id, entity_type, entity_id, contact_type, value)"
+        " VALUES ($1, 'organization', $2, 'phone', '+13605551234')",
+        cid,
+        oid,
+    )
 
-    yield oid, cid
-
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM contact_methods WHERE entity_id=$1", oid)
-        await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+    return oid, cid
 
 
 async def test_contacts_new_row_returns_form(client, org_and_contact):
     oid, _ = org_and_contact
-    r = client.get(f"/admin/orgs/{oid}/contacts/new-row/?contact_type=email", headers=HTMX_HEADERS)
+    r = await client.get(
+        f"/admin/orgs/{oid}/contacts/new-row/?contact_type=email", headers=HTMX_HEADERS
+    )
     assert r.status_code == 200
     assert "<form" in r.text
 
 
 async def test_contacts_new_row_email_has_hidden_type(client, org_and_contact):
     oid, _ = org_and_contact
-    r = client.get(
+    r = await client.get(
         f"/admin/orgs/{oid}/contacts/new-row/?contact_type=email",
         headers=HTMX_HEADERS,
     )
@@ -64,7 +83,7 @@ async def test_contacts_new_row_email_has_hidden_type(client, org_and_contact):
 
 async def test_contacts_new_row_phone_has_hidden_type(client, org_and_contact):
     oid, _ = org_and_contact
-    r = client.get(
+    r = await client.get(
         f"/admin/orgs/{oid}/contacts/new-row/?contact_type=phone",
         headers=HTMX_HEADERS,
     )
@@ -77,7 +96,7 @@ async def test_contacts_new_row_phone_has_hidden_type(client, org_and_contact):
 async def test_contacts_update_does_not_change_type(client, org_and_contact):
     """contact_type is immutable — edit route ignores any type in POST data."""
     oid, cid = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/{cid}/edit-row/",
         headers=HTMX_HEADERS,
         data={"value": "+12065559876"},  # no contact_type submitted
@@ -88,7 +107,7 @@ async def test_contacts_update_does_not_change_type(client, org_and_contact):
 
 async def test_contacts_create(client, org_and_contact):
     oid, _ = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/",
         headers=HTMX_HEADERS,
         data={"contact_type": "email", "value": "info@example.com"},
@@ -99,7 +118,7 @@ async def test_contacts_create(client, org_and_contact):
 
 async def test_contacts_read_row_returns_row(client, org_and_contact):
     oid, cid = org_and_contact
-    r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/read-row/", headers=HTMX_HEADERS)
+    r = await client.get(f"/admin/orgs/{oid}/contacts/{cid}/read-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "+13605551234" in r.text
     assert "<form" not in r.text
@@ -107,14 +126,14 @@ async def test_contacts_read_row_returns_row(client, org_and_contact):
 
 async def test_contacts_edit_row_returns_form(client, org_and_contact):
     oid, cid = org_and_contact
-    r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/edit-row/", headers=HTMX_HEADERS)
+    r = await client.get(f"/admin/orgs/{oid}/contacts/{cid}/edit-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<form" in r.text
 
 
 async def test_contacts_update(client, org_and_contact):
     oid, cid = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/{cid}/edit-row/",
         headers=HTMX_HEADERS,
         data={"value": "+12065559876"},
@@ -125,19 +144,19 @@ async def test_contacts_update(client, org_and_contact):
 
 async def test_contacts_delete(client, org_and_contact):
     oid, cid = org_and_contact
-    r = client.delete(f"/admin/orgs/{oid}/contacts/{cid}/", headers=HTMX_HEADERS)
+    r = await client.delete(f"/admin/orgs/{oid}/contacts/{cid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
 
 
 async def test_contacts_delete_unknown_returns_404(client, org_and_contact):
     oid, _ = org_and_contact
-    r = client.delete(f"/admin/orgs/{oid}/contacts/{generate_id()}/", headers=HTMX_HEADERS)
+    r = await client.delete(f"/admin/orgs/{oid}/contacts/{generate_id()}/", headers=HTMX_HEADERS)
     assert r.status_code == 404
 
 
 async def test_contacts_form_row_has_form_group(client, org_and_contact):
     oid, _ = org_and_contact
-    r = client.get(
+    r = await client.get(
         f"/admin/orgs/{oid}/contacts/new-row/?contact_type=email",
         headers=HTMX_HEADERS,
     )
@@ -147,7 +166,7 @@ async def test_contacts_form_row_has_form_group(client, org_and_contact):
 async def test_contacts_edit_row_no_type_select(client, org_and_contact):
     """Edit form must not contain a contact_type <select> (type is immutable)."""
     oid, cid = org_and_contact
-    r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/edit-row/", headers=HTMX_HEADERS)
+    r = await client.get(f"/admin/orgs/{oid}/contacts/{cid}/edit-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert 'name="contact_type"' not in r.text or "<select" not in r.text
 
@@ -155,7 +174,7 @@ async def test_contacts_edit_row_no_type_select(client, org_and_contact):
 async def test_contacts_read_row_no_type_cell(client, org_and_contact):
     """Read row must not render a standalone type cell (rows live in typed tables)."""
     oid, cid = org_and_contact
-    r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/read-row/", headers=HTMX_HEADERS)
+    r = await client.get(f"/admin/orgs/{oid}/contacts/{cid}/read-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<td>phone</td>" not in r.text
 
@@ -163,7 +182,7 @@ async def test_contacts_read_row_no_type_cell(client, org_and_contact):
 async def test_contacts_new_row_invalid_type_returns_422(client, org_and_contact):
     """Invalid contact_type query param must return 422 (Literal validation)."""
     oid, _ = org_and_contact
-    r = client.get(
+    r = await client.get(
         f"/admin/orgs/{oid}/contacts/new-row/?contact_type=fax",
         headers=HTMX_HEADERS,
     )
@@ -172,7 +191,7 @@ async def test_contacts_new_row_invalid_type_returns_422(client, org_and_contact
 
 async def test_contacts_create_returns_success_flash(client, org_and_contact):
     oid, _ = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/",
         headers=HTMX_HEADERS,
         data={"contact_type": "email", "value": "flash@example.com"},
@@ -185,7 +204,7 @@ async def test_contacts_create_returns_success_flash(client, org_and_contact):
 
 async def test_contacts_update_returns_success_flash(client, org_and_contact):
     oid, cid = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/{cid}/edit-row/",
         headers=HTMX_HEADERS,
         data={"value": "+13605559999"},
@@ -198,7 +217,7 @@ async def test_contacts_update_returns_success_flash(client, org_and_contact):
 
 async def test_contacts_delete_returns_info_flash(client, org_and_contact):
     oid, cid = org_and_contact
-    r = client.delete(f"/admin/orgs/{oid}/contacts/{cid}/", headers=HTMX_HEADERS)
+    r = await client.delete(f"/admin/orgs/{oid}/contacts/{cid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "info"
@@ -212,7 +231,7 @@ async def test_contacts_delete_returns_info_flash(client, org_and_contact):
 async def test_contact_create_email_invalid_returns_form_with_error(client, org_and_contact):
     """Invalid email must re-render the form row with an inline error, not a bare 422."""
     oid, _ = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/",
         headers=HTMX_HEADERS,
         data={"contact_type": "email", "value": "not-an-email"},
@@ -225,7 +244,7 @@ async def test_contact_create_email_invalid_returns_form_with_error(client, org_
 async def test_contact_create_email_invalid_preserves_input_value(client, org_and_contact):
     """Invalid submission repopulates the input with what the user typed."""
     oid, _ = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/",
         headers=HTMX_HEADERS,
         data={"contact_type": "email", "value": "bad@@email"},
@@ -237,7 +256,7 @@ async def test_contact_create_email_invalid_preserves_input_value(client, org_an
 async def test_contact_create_email_normalizes(client, org_and_contact):
     """Valid email is normalized (domain lowercased, local part normalized) before storage."""
     oid, _ = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/",
         headers=HTMX_HEADERS,
         data={"contact_type": "email", "value": "Info@Example.COM"},
@@ -249,7 +268,7 @@ async def test_contact_create_email_normalizes(client, org_and_contact):
 async def test_contact_new_row_email_input_has_type_email(client, org_and_contact):
     """Email form row must use type='email' for HTML5 browser validation hint."""
     oid, _ = org_and_contact
-    r = client.get(
+    r = await client.get(
         f"/admin/orgs/{oid}/contacts/new-row/?contact_type=email",
         headers=HTMX_HEADERS,
     )
@@ -260,7 +279,7 @@ async def test_contact_new_row_email_input_has_type_email(client, org_and_contac
 async def test_contact_new_row_phone_input_has_type_text(client, org_and_contact):
     """Phone form row must use type='text' (not email) for the value input."""
     oid, _ = org_and_contact
-    r = client.get(
+    r = await client.get(
         f"/admin/orgs/{oid}/contacts/new-row/?contact_type=phone",
         headers=HTMX_HEADERS,
     )
@@ -276,7 +295,7 @@ async def test_contact_new_row_phone_input_has_type_text(client, org_and_contact
 async def test_contact_create_phone_invalid_returns_form_with_error(client, org_and_contact):
     """Invalid phone must re-render the form row with an inline error."""
     oid, _ = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/",
         headers=HTMX_HEADERS,
         data={"contact_type": "phone", "value": "not-a-phone"},
@@ -289,7 +308,7 @@ async def test_contact_create_phone_invalid_returns_form_with_error(client, org_
 async def test_contact_create_phone_normalizes_to_e164(client, org_and_contact):
     """Valid phone in formatted input is stored as E.164 and flash shows normalized value."""
     oid, _ = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/",
         headers=HTMX_HEADERS,
         data={"contact_type": "phone", "value": "(206) 555-1234"},
@@ -303,7 +322,7 @@ async def test_contact_create_phone_normalizes_to_e164(client, org_and_contact):
 async def test_contact_edit_phone_invalid_returns_form_with_error(client, org_and_contact):
     """Invalid phone on edit must re-render the form row with an inline error."""
     oid, cid = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/{cid}/edit-row/",
         headers=HTMX_HEADERS,
         data={"value": "zzz"},
@@ -316,7 +335,7 @@ async def test_contact_edit_phone_invalid_returns_form_with_error(client, org_an
 async def test_contact_edit_phone_normalizes_to_e164(client, org_and_contact):
     """Valid phone on edit is stored as E.164."""
     oid, cid = org_and_contact
-    r = client.post(
+    r = await client.post(
         f"/admin/orgs/{oid}/contacts/{cid}/edit-row/",
         headers=HTMX_HEADERS,
         data={"value": "360-555-4321"},

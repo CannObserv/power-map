@@ -12,8 +12,9 @@ The person detail names table must:
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
+from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -24,14 +25,35 @@ pytestmark = [
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def person_with_two_visuals_and_readings(db_pool):
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_with_two_visuals_and_readings(db):
     """One person with:
       - Visual A (legal, canonical) + Reading A (romanization, child of A)
       - Visual B (preferred) + MRZ B (mrz, child of B) + Reading B (reading, child of B)
@@ -50,48 +72,47 @@ async def person_with_two_visuals_and_readings(db_pool):
     nid_b_mrz = generate_id()
     nid_b_reading = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-        await conn.execute(
-            "INSERT INTO person_names"
-            " (id, person_id, name, name_type, is_canonical, visibility)"
-            " VALUES ($1, $2, 'Visual A Smoketest', 'legal', TRUE, 'public')",
-            nid_a_visual,
-            pid,
-        )
-        await conn.execute(
-            "INSERT INTO person_names"
-            " (id, person_id, name, name_type, is_canonical, visibility, reading_of_id)"
-            " VALUES ($1, $2, 'reading-a', 'romanization', FALSE, 'public', $3)",
-            nid_a_reading,
-            pid,
-            nid_a_visual,
-        )
-        await conn.execute(
-            "INSERT INTO person_names"
-            " (id, person_id, name, name_type, is_canonical, visibility)"
-            " VALUES ($1, $2, 'Visual B Smoketest', 'preferred', FALSE, 'public')",
-            nid_b_visual,
-            pid,
-        )
-        await conn.execute(
-            "INSERT INTO person_names"
-            " (id, person_id, name, name_type, is_canonical, visibility, reading_of_id)"
-            " VALUES ($1, $2, 'MRZ-B', 'mrz', FALSE, 'public', $3)",
-            nid_b_mrz,
-            pid,
-            nid_b_visual,
-        )
-        await conn.execute(
-            "INSERT INTO person_names"
-            " (id, person_id, name, name_type, is_canonical, visibility, reading_of_id)"
-            " VALUES ($1, $2, 'reading-b', 'reading', FALSE, 'public', $3)",
-            nid_b_reading,
-            pid,
-            nid_b_visual,
-        )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, is_canonical, visibility)"
+        " VALUES ($1, $2, 'Visual A Smoketest', 'legal', TRUE, 'public')",
+        nid_a_visual,
+        pid,
+    )
+    await db.execute(
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, is_canonical, visibility, reading_of_id)"
+        " VALUES ($1, $2, 'reading-a', 'romanization', FALSE, 'public', $3)",
+        nid_a_reading,
+        pid,
+        nid_a_visual,
+    )
+    await db.execute(
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, is_canonical, visibility)"
+        " VALUES ($1, $2, 'Visual B Smoketest', 'preferred', FALSE, 'public')",
+        nid_b_visual,
+        pid,
+    )
+    await db.execute(
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, is_canonical, visibility, reading_of_id)"
+        " VALUES ($1, $2, 'MRZ-B', 'mrz', FALSE, 'public', $3)",
+        nid_b_mrz,
+        pid,
+        nid_b_visual,
+    )
+    await db.execute(
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, is_canonical, visibility, reading_of_id)"
+        " VALUES ($1, $2, 'reading-b', 'reading', FALSE, 'public', $3)",
+        nid_b_reading,
+        pid,
+        nid_b_visual,
+    )
 
-    yield {
+    return {
         "pid": pid,
         "a_visual": nid_a_visual,
         "a_reading": nid_a_reading,
@@ -99,10 +120,6 @@ async def person_with_two_visuals_and_readings(db_pool):
         "b_mrz": nid_b_mrz,
         "b_reading": nid_b_reading,
     }
-
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-        await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
 def _row_positions(html: str, ids: list[str]) -> dict[str, int]:
@@ -115,7 +132,7 @@ def _row_positions(html: str, ids: list[str]) -> dict[str, int]:
 
 async def test_visual_row_precedes_its_readings(client, person_with_two_visuals_and_readings):
     f = person_with_two_visuals_and_readings
-    r = client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
+    r = await client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     pos = _row_positions(
         r.text,
@@ -135,7 +152,7 @@ async def test_canonical_visual_row_precedes_non_canonical(
 ):
     """Canonical=TRUE comes first among the visual rows."""
     f = person_with_two_visuals_and_readings
-    r = client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
+    r = await client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
     pos = _row_positions(r.text, [f["a_visual"], f["b_visual"]])
     assert pos[f["a_visual"]] < pos[f["b_visual"]], pos
 
@@ -146,7 +163,7 @@ async def test_children_sorted_by_name_type_within_group(
 ):
     """B's children: 'mrz' < 'reading' alphabetically."""
     f = person_with_two_visuals_and_readings
-    r = client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
+    r = await client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
     pos = _row_positions(r.text, [f["b_mrz"], f["b_reading"]])
     assert pos[f["b_mrz"]] < pos[f["b_reading"]], pos
 
@@ -159,7 +176,7 @@ async def test_subtitle_shows_parent_name_for_linked_rows(
     person_with_two_visuals_and_readings,
 ):
     f = person_with_two_visuals_and_readings
-    r = client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
+    r = await client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
     # Reading A's subtitle should reference its parent visible name.
     assert "↳ romanization of:" in r.text
     assert "Visual A Smoketest" in r.text  # the parent name renders as <em> body
@@ -174,7 +191,7 @@ async def test_subtitle_absent_for_unlinked_rows(
 ):
     """Visual rows don't have a reading_of_id and shouldn't render the subtitle."""
     f = person_with_two_visuals_and_readings
-    r = client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
+    r = await client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
     # The "↳" arrow only appears for linked rows; with 3 children we expect 3 occurrences.
     assert r.text.count("↳") == 3, r.text.count("↳")
 
@@ -187,7 +204,7 @@ async def test_parent_delete_confirm_mentions_cascade(
     person_with_two_visuals_and_readings,
 ):
     f = person_with_two_visuals_and_readings
-    r = client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
+    r = await client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
     # Visual A has 1 child (Reading A); confirm copy mentions it.
     assert "1 linked reading row" in r.text or "1 linked reading rows" in r.text
     # Visual B has 2 children; confirm copy mentions it.
@@ -201,7 +218,7 @@ async def test_child_delete_confirm_uses_default_copy(
     """Reading rows have no children themselves; their delete confirm
     should be the default 'Delete this name?' copy."""
     f = person_with_two_visuals_and_readings
-    r = client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
+    r = await client.get(f"/admin/people/{f['pid']}/", headers=AUTH_HEADERS)
     # The default "Delete this name?" should appear at least 3 times
     # (once per child row, since none of them have descendants).
     assert r.text.count('hx-confirm="Delete this name?"') >= 3
@@ -221,7 +238,7 @@ async def test_post_edit_tbody_includes_reading_of_subtitle(
     re-renders would drop the subtitle until the next full page reload."""
     f = person_with_two_visuals_and_readings
     # Edit the canonical visual A — the response is the full tbody partial.
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{f['pid']}/names/{f['a_visual']}/edit-row/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
@@ -244,7 +261,7 @@ async def test_post_edit_tbody_includes_cascade_hint(
     """After editing a name, the cascade-aware delete confirm must
     survive on parent rows (re-renders used to drop reading_child_count)."""
     f = person_with_two_visuals_and_readings
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{f['pid']}/names/{f['b_visual']}/edit-row/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
@@ -267,7 +284,7 @@ async def test_post_create_tbody_includes_reading_of_subtitle(
     also surface the linked-row subtitle in the post-mutation tbody
     re-render (same enrichment path as edit)."""
     f = person_with_two_visuals_and_readings
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{f['pid']}/names/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
@@ -292,7 +309,7 @@ async def test_post_delete_tbody_includes_reading_of_subtitle(
     linked-row subtitle on surviving rows."""
     f = person_with_two_visuals_and_readings
     # Delete one of the reading children of B; A→Reading A linkage stays.
-    r = client.delete(
+    r = await client.delete(
         f"/admin/people/{f['pid']}/names/{f['b_mrz']}/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )
@@ -308,7 +325,7 @@ async def test_post_delete_tbody_includes_cascade_hint(
     """Cascade hint on parent rows must survive a delete re-render
     (B still has 1 child after deleting MRZ-B)."""
     f = person_with_two_visuals_and_readings
-    r = client.delete(
+    r = await client.delete(
         f"/admin/people/{f['pid']}/names/{f['b_mrz']}/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )

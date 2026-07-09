@@ -2,8 +2,9 @@
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
+from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -12,26 +13,36 @@ pytestmark = [pytest.mark.integration]
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
-
-
 @pytest_asyncio.fixture(loop_scope="session")
-async def county_type_id(db_pool):
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
     async with db_pool.acquire() as conn:
-        return await conn.fetchval("SELECT id FROM jurisdiction_types WHERE slug='county'")
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def cleanup_slugs(db_pool):
-    """Collect slugs created by a test; delete them at teardown."""
-    slugs: list[str] = []
-    yield slugs
-    if slugs:
-        async with db_pool.acquire() as conn:
-            await conn.execute("DELETE FROM jurisdictions WHERE slug = ANY($1::text[])", slugs)
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def county_type_id(db):
+    return await db.fetchval("SELECT id FROM jurisdiction_types WHERE slug='county'")
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +51,7 @@ async def cleanup_slugs(db_pool):
 
 
 async def test_new_form_returns_200(client):
-    r = client.get("/admin/jurisdictions/new/", headers=AUTH_HEADERS)
+    r = await client.get("/admin/jurisdictions/new/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert 'name="slug"' in r.text
     assert 'name="name"' in r.text
@@ -49,16 +60,15 @@ async def test_new_form_returns_200(client):
 
 
 async def test_new_form_redirects_unauthenticated(client):
-    r = client.get("/admin/jurisdictions/new/", follow_redirects=False)
+    r = await client.get("/admin/jurisdictions/new/", follow_redirects=False)
     assert r.status_code in (302, 307)
     assert "/__exe.dev/login" in r.headers["location"]
 
 
-async def test_create_valid(client, county_type_id, cleanup_slugs, db_pool):
+async def test_create_valid(client, county_type_id, db):
     marker = generate_id()[-10:].lower()
     slug = f"crt-{marker}"
-    cleanup_slugs.append(slug)
-    r = client.post(
+    r = await client.post(
         "/admin/jurisdictions/new/",
         headers=AUTH_HEADERS,
         data={
@@ -73,10 +83,7 @@ async def test_create_valid(client, county_type_id, cleanup_slugs, db_pool):
     )
     assert r.status_code == 303
     assert r.headers["location"].startswith("/admin/jurisdictions/")
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT name, notes, valid_from FROM jurisdictions WHERE slug=$1", slug
-        )
+    row = await db.fetchrow("SELECT name, notes, valid_from FROM jurisdictions WHERE slug=$1", slug)
     assert row is not None
     assert row["name"] == f"Createburg {marker}"
     assert row["notes"] == "seeded by test"
@@ -84,7 +91,7 @@ async def test_create_valid(client, county_type_id, cleanup_slugs, db_pool):
 
 
 async def test_create_missing_name(client, county_type_id):
-    r = client.post(
+    r = await client.post(
         "/admin/jurisdictions/new/",
         headers=AUTH_HEADERS,
         data={"slug": "x-missing-name", "name": "", "type_id": county_type_id},
@@ -94,7 +101,7 @@ async def test_create_missing_name(client, county_type_id):
 
 
 async def test_create_missing_slug(client, county_type_id):
-    r = client.post(
+    r = await client.post(
         "/admin/jurisdictions/new/",
         headers=AUTH_HEADERS,
         data={"slug": "", "name": "No Slug", "type_id": county_type_id},
@@ -103,7 +110,7 @@ async def test_create_missing_slug(client, county_type_id):
 
 
 async def test_create_missing_type(client):
-    r = client.post(
+    r = await client.post(
         "/admin/jurisdictions/new/",
         headers=AUTH_HEADERS,
         data={"slug": "x-missing-type", "name": "No Type", "type_id": ""},
@@ -111,19 +118,17 @@ async def test_create_missing_type(client):
     assert r.status_code == 422
 
 
-async def test_create_duplicate_slug(client, county_type_id, cleanup_slugs, db_pool):
+async def test_create_duplicate_slug(client, county_type_id, db):
     marker = generate_id()[-10:].lower()
     slug = f"dup-{marker}"
-    cleanup_slugs.append(slug)
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
-            generate_id(),
-            slug,
-            "Existing",
-            county_type_id,
-        )
-    r = client.post(
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        generate_id(),
+        slug,
+        "Existing",
+        county_type_id,
+    )
+    r = await client.post(
         "/admin/jurisdictions/new/",
         headers=AUTH_HEADERS,
         data={"slug": slug, "name": "Duplicate", "type_id": county_type_id},
@@ -133,7 +138,7 @@ async def test_create_duplicate_slug(client, county_type_id, cleanup_slugs, db_p
 
 
 async def test_create_invalid_validity_range(client, county_type_id):
-    r = client.post(
+    r = await client.post(
         "/admin/jurisdictions/new/",
         headers=AUTH_HEADERS,
         data={
@@ -153,46 +158,22 @@ async def test_create_invalid_validity_range(client, county_type_id):
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def jur(db_pool, county_type_id):
-    """A county jurisdiction to edit; deleted at teardown."""
+async def jur(db, county_type_id):
+    """A county jurisdiction to edit; rolled back with the test transaction."""
     jid = generate_id()
     marker = jid[-10:].lower()
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
-            jid,
-            f"edit-{marker}",
-            f"Editburg {marker}",
-            county_type_id,
-        )
-    yield {"id": jid, "marker": marker, "slug": f"edit-{marker}"}
-    async with db_pool.acquire() as conn:
-        # polymorphic attachments have no FK to jurisdictions — clean by entity_id
-        await conn.execute(
-            "DELETE FROM contact_methods WHERE entity_type='jurisdiction' AND entity_id=$1", jid
-        )
-        await conn.execute(
-            "DELETE FROM links WHERE entity_type='jurisdiction' AND entity_id=$1", jid
-        )
-        await conn.execute("DELETE FROM identifiers WHERE entity_id=$1", jid)
-        addr_rows = await conn.fetch(
-            "SELECT address_id FROM entity_addresses"
-            " WHERE entity_type='jurisdiction' AND entity_id=$1",
-            jid,
-        )
-        await conn.execute(
-            "DELETE FROM entity_addresses WHERE entity_type='jurisdiction' AND entity_id=$1", jid
-        )
-        if addr_rows:
-            await conn.execute(
-                "DELETE FROM addresses WHERE id = ANY($1::text[])",
-                [r["address_id"] for r in addr_rows],
-            )
-        await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        jid,
+        f"edit-{marker}",
+        f"Editburg {marker}",
+        county_type_id,
+    )
+    return {"id": jid, "marker": marker, "slug": f"edit-{marker}"}
 
 
 async def test_details_edit_form_prefilled(client, jur):
-    r = client.get(f"/admin/jurisdictions/{jur['id']}/details/edit/", headers=AUTH_HEADERS)
+    r = await client.get(f"/admin/jurisdictions/{jur['id']}/details/edit/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert jur["slug"] in r.text
     assert 'name="name"' in r.text
@@ -201,9 +182,9 @@ async def test_details_edit_form_prefilled(client, jur):
     assert "/resolve" in r.text
 
 
-async def test_details_save_updates_db_and_header(client, jur, db_pool):
+async def test_details_save_updates_db_and_header(client, jur, db):
     new_name = f"Renamedville {jur['marker']}"
-    r = client.post(
+    r = await client.post(
         f"/admin/jurisdictions/{jur['id']}/details/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
@@ -222,29 +203,24 @@ async def test_details_save_updates_db_and_header(client, jur, db_pool):
     trigger = r.headers.get("HX-Trigger", "")
     assert "updateJurisdictionHeader" in trigger
     assert new_name in trigger
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT name, notes, valid_from FROM jurisdictions WHERE id=$1", jur["id"]
-        )
+    row = await db.fetchrow(
+        "SELECT name, notes, valid_from FROM jurisdictions WHERE id=$1", jur["id"]
+    )
     assert row["name"] == new_name
     assert row["notes"] == "edited"
     assert str(row["valid_from"]) == "1990-05-01"
 
 
-async def test_details_save_duplicate_slug_rejected(
-    client, jur, county_type_id, cleanup_slugs, db_pool
-):
+async def test_details_save_duplicate_slug_rejected(client, jur, county_type_id, db):
     other = f"other-{generate_id()[-8:].lower()}"
-    cleanup_slugs.append(other)
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
-            generate_id(),
-            other,
-            "Other",
-            county_type_id,
-        )
-    r = client.post(
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        generate_id(),
+        other,
+        "Other",
+        county_type_id,
+    )
+    r = await client.post(
         f"/admin/jurisdictions/{jur['id']}/details/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
@@ -261,7 +237,7 @@ async def test_details_save_duplicate_slug_rejected(
 
 
 async def test_details_save_invalid_range_rejected(client, jur):
-    r = client.post(
+    r = await client.post(
         f"/admin/jurisdictions/{jur['id']}/details/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={
@@ -281,87 +257,74 @@ async def test_details_save_invalid_range_rejected(client, jur):
 # ---------------------------------------------------------------------------
 
 
-async def test_archive_and_unarchive(client, jur, db_pool):
-    r = client.post(
+async def test_archive_and_unarchive(client, jur, db):
+    r = await client.post(
         f"/admin/jurisdictions/{jur['id']}/archive/", headers=AUTH_HEADERS, follow_redirects=False
     )
     assert r.status_code == 303
     assert "flash=archived" in r.headers["location"]
-    async with db_pool.acquire() as conn:
-        assert (
-            await conn.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"])
-            is not None
-        )
+    assert (
+        await db.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"])
+        is not None
+    )
     # archiving an archived jurisdiction → 409
     assert (
-        client.post(f"/admin/jurisdictions/{jur['id']}/archive/", headers=AUTH_HEADERS).status_code
-        == 409
-    )
+        await client.post(f"/admin/jurisdictions/{jur['id']}/archive/", headers=AUTH_HEADERS)
+    ).status_code == 409
     # unarchive
-    r3 = client.post(
+    r3 = await client.post(
         f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=AUTH_HEADERS, follow_redirects=False
     )
     assert r3.status_code == 303
     assert "flash=unarchived" in r3.headers["location"]
-    async with db_pool.acquire() as conn:
-        assert (
-            await conn.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"])
-            is None
-        )
+    assert await db.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"]) is None
     # unarchiving an active jurisdiction → 409
     assert (
-        client.post(
-            f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=AUTH_HEADERS
-        ).status_code
-        == 409
-    )
+        await client.post(f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=AUTH_HEADERS)
+    ).status_code == 409
 
 
-async def test_archive_and_unarchive_htmx(client, jur, db_pool):
+async def test_archive_and_unarchive_htmx(client, jur, db):
     """HTMX archive/unarchive return 204 + HX-Location to detail with flash; guards preserved."""
     hx = {**AUTH_HEADERS, "HX-Request": "true"}
-    r = client.post(f"/admin/jurisdictions/{jur['id']}/archive/", headers=hx)
+    r = await client.post(f"/admin/jurisdictions/{jur['id']}/archive/", headers=hx)
     assert r.status_code == 204
     assert r.headers["HX-Location"] == f"/admin/jurisdictions/{jur['id']}/?flash=archived"
-    async with db_pool.acquire() as conn:
-        assert (
-            await conn.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"])
-            is not None
-        )
+    assert (
+        await db.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"])
+        is not None
+    )
     # archiving an archived jurisdiction → 409
-    assert client.post(f"/admin/jurisdictions/{jur['id']}/archive/", headers=hx).status_code == 409
+    assert (
+        await client.post(f"/admin/jurisdictions/{jur['id']}/archive/", headers=hx)
+    ).status_code == 409
     # unarchive
-    r3 = client.post(f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=hx)
+    r3 = await client.post(f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=hx)
     assert r3.status_code == 204
     assert r3.headers["HX-Location"] == f"/admin/jurisdictions/{jur['id']}/?flash=unarchived"
-    async with db_pool.acquire() as conn:
-        assert (
-            await conn.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"])
-            is None
-        )
+    assert await db.fetchval("SELECT archived_at FROM jurisdictions WHERE id=$1", jur["id"]) is None
     # unarchiving an active jurisdiction → 409
     assert (
-        client.post(f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=hx).status_code == 409
-    )
+        await client.post(f"/admin/jurisdictions/{jur['id']}/unarchive/", headers=hx)
+    ).status_code == 409
 
 
 async def test_delete_requires_archived(client, jur):
-    r = client.request("DELETE", f"/admin/jurisdictions/{jur['id']}/", headers=AUTH_HEADERS)
+    r = await client.request("DELETE", f"/admin/jurisdictions/{jur['id']}/", headers=AUTH_HEADERS)
     assert r.status_code == 409
 
 
-async def test_delete_archived_ok(client, county_type_id, db_pool):
+async def test_delete_archived_ok(client, county_type_id, db):
     jid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
-            " VALUES ($1,$2,$3,$4,NOW())",
-            jid,
-            f"del-{jid[-8:].lower()}",
-            "Deletable",
-            county_type_id,
-        )
-    r = client.request(
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+        " VALUES ($1,$2,$3,$4,NOW())",
+        jid,
+        f"del-{jid[-8:].lower()}",
+        "Deletable",
+        county_type_id,
+    )
+    r = await client.request(
         "DELETE",
         f"/admin/jurisdictions/{jid}/",
         headers=AUTH_HEADERS,
@@ -369,47 +332,39 @@ async def test_delete_archived_ok(client, county_type_id, db_pool):
     )
     assert r.status_code == 303
     assert "flash=deleted" in r.headers["location"]
-    async with db_pool.acquire() as conn:
-        assert await conn.fetchval("SELECT id FROM jurisdictions WHERE id=$1", jid) is None
-        assert (
-            await conn.fetchval(
-                "SELECT 1 FROM deleted_entities WHERE entity_type='jurisdiction' AND entity_id=$1",
-                jid,
-            )
-            == 1
+    assert await db.fetchval("SELECT id FROM jurisdictions WHERE id=$1", jid) is None
+    assert (
+        await db.fetchval(
+            "SELECT 1 FROM deleted_entities WHERE entity_type='jurisdiction' AND entity_id=$1",
+            jid,
         )
+        == 1
+    )
 
 
-async def test_delete_referenced_returns_409(client, county_type_id, db_pool):
+async def test_delete_referenced_returns_409(client, county_type_id, db):
     jid, oid, rid = generate_id(), generate_id(), generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
-            " VALUES ($1,$2,$3,$4,NOW())",
-            jid,
-            f"ref-{jid[-8:].lower()}",
-            "Referenced",
-            county_type_id,
-        )
-        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-        member = await conn.fetchval("SELECT id FROM role_types WHERE slug='member'")
-        await conn.execute(
-            "INSERT INTO roles (id, organization_id, title, role_type_id, jurisdiction_id)"
-            " VALUES ($1,$2,$3,$4,$5)",
-            rid,
-            oid,
-            "Ref Role",
-            member,
-            jid,
-        )
-    try:
-        r = client.request("DELETE", f"/admin/jurisdictions/{jid}/", headers=AUTH_HEADERS)
-        assert r.status_code == 409
-    finally:
-        async with db_pool.acquire() as conn:
-            await conn.execute("DELETE FROM roles WHERE id=$1", rid)
-            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
-            await conn.execute("DELETE FROM jurisdictions WHERE id=$1", jid)
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+        " VALUES ($1,$2,$3,$4,NOW())",
+        jid,
+        f"ref-{jid[-8:].lower()}",
+        "Referenced",
+        county_type_id,
+    )
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    member = await db.fetchval("SELECT id FROM role_types WHERE slug='member'")
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title, role_type_id, jurisdiction_id)"
+        " VALUES ($1,$2,$3,$4,$5)",
+        rid,
+        oid,
+        "Ref Role",
+        member,
+        jid,
+    )
+    r = await client.request("DELETE", f"/admin/jurisdictions/{jid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 409
 
 
 # ---------------------------------------------------------------------------
@@ -419,75 +374,71 @@ async def test_delete_referenced_returns_409(client, county_type_id, db_pool):
 HX = {**AUTH_HEADERS, "HX-Request": "true"}
 
 
-async def test_contact_crud(client, jur, db_pool):
+async def test_contact_crud(client, jur, db):
     # new-row form partial
-    r0 = client.get(
+    r0 = await client.get(
         f"/admin/jurisdictions/{jur['id']}/contacts/new-row/?contact_type=email", headers=HX
     )
     assert r0.status_code == 200
     assert 'name="value"' in r0.text
     # create
-    r = client.post(
+    r = await client.post(
         f"/admin/jurisdictions/{jur['id']}/contacts/",
         headers=HX,
         data={"contact_type": "email", "value": "hall@example.gov", "display_label": "Clerk"},
     )
     assert r.status_code == 200
     assert "hall@example.gov" in r.text
-    async with db_pool.acquire() as conn:
-        cid = await conn.fetchval(
-            "SELECT id FROM contact_methods"
-            " WHERE entity_type='jurisdiction' AND entity_id=$1 AND value=$2",
-            jur["id"],
-            "hall@example.gov",
-        )
+    cid = await db.fetchval(
+        "SELECT id FROM contact_methods"
+        " WHERE entity_type='jurisdiction' AND entity_id=$1 AND value=$2",
+        jur["id"],
+        "hall@example.gov",
+    )
     assert cid is not None
     # delete
-    rd = client.request("DELETE", f"/admin/jurisdictions/{jur['id']}/contacts/{cid}/", headers=HX)
+    rd = await client.request(
+        "DELETE", f"/admin/jurisdictions/{jur['id']}/contacts/{cid}/", headers=HX
+    )
     assert rd.status_code == 200
-    async with db_pool.acquire() as conn:
-        assert await conn.fetchval("SELECT id FROM contact_methods WHERE id=$1", cid) is None
+    assert await db.fetchval("SELECT id FROM contact_methods WHERE id=$1", cid) is None
 
 
-async def test_link_create(client, jur, db_pool):
-    async with db_pool.acquire() as conn:
-        lt = await conn.fetchval("SELECT id FROM link_types ORDER BY id LIMIT 1")
-    r = client.post(
+async def test_link_create(client, jur, db):
+    lt = await db.fetchval("SELECT id FROM link_types ORDER BY id LIMIT 1")
+    r = await client.post(
         f"/admin/jurisdictions/{jur['id']}/links/",
         headers=HX,
         data={"url": "https://jur.example.gov", "link_type_id": lt, "is_active": "true"},
     )
     assert r.status_code == 200
     assert "jur.example.gov" in r.text
-    async with db_pool.acquire() as conn:
-        assert (
-            await conn.fetchval(
-                "SELECT id FROM links WHERE entity_type='jurisdiction' AND entity_id=$1 AND url=$2",
-                jur["id"],
-                "https://jur.example.gov",
-            )
-            is not None
+    assert (
+        await db.fetchval(
+            "SELECT id FROM links WHERE entity_type='jurisdiction' AND entity_id=$1 AND url=$2",
+            jur["id"],
+            "https://jur.example.gov",
         )
+        is not None
+    )
 
 
-async def test_identifier_create(client, jur, db_pool):
-    async with db_pool.acquire() as conn:
-        it = await conn.fetchval("SELECT id FROM entity_identifier_types WHERE slug='jur_ocd'")
-    r = client.post(
+async def test_identifier_create(client, jur, db):
+    it = await db.fetchval("SELECT id FROM entity_identifier_types WHERE slug='jur_ocd'")
+    r = await client.post(
         f"/admin/jurisdictions/{jur['id']}/identifiers/",
         headers=HX,
         data={"entity_identifier_type_id": it, "value": "ocd-division/country:us/x"},
     )
     assert r.status_code == 200
-    async with db_pool.acquire() as conn:
-        assert (
-            await conn.fetchval(
-                "SELECT id FROM identifiers WHERE entity_id=$1 AND value=$2",
-                jur["id"],
-                "ocd-division/country:us/x",
-            )
-            is not None
+    assert (
+        await db.fetchval(
+            "SELECT id FROM identifiers WHERE entity_id=$1 AND value=$2",
+            jur["id"],
+            "ocd-division/country:us/x",
         )
+        is not None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -496,14 +447,14 @@ async def test_identifier_create(client, jur, db_pool):
 
 
 async def test_address_new_row_form(client, jur, local_address_normalizer):
-    r = client.get(f"/admin/jurisdictions/{jur['id']}/addresses/new-row/", headers=HX)
+    r = await client.get(f"/admin/jurisdictions/{jur['id']}/addresses/new-row/", headers=HX)
     assert r.status_code == 200
     assert 'name="address_line_1"' in r.text
 
 
-async def test_address_create_and_delete(client, jur, db_pool, local_address_normalizer):
+async def test_address_create_and_delete(client, jur, db, local_address_normalizer):
     # mode=save skips the confirm modal and inserts directly
-    r = client.post(
+    r = await client.post(
         f"/admin/jurisdictions/{jur['id']}/addresses/",
         headers=HX,
         data={
@@ -519,21 +470,21 @@ async def test_address_create_and_delete(client, jur, db_pool, local_address_nor
     )
     assert r.status_code == 200
     assert "Seattle" in r.text
-    async with db_pool.acquire() as conn:
-        eaid = await conn.fetchval(
-            "SELECT id FROM entity_addresses WHERE entity_type='jurisdiction' AND entity_id=$1",
-            jur["id"],
-        )
+    eaid = await db.fetchval(
+        "SELECT id FROM entity_addresses WHERE entity_type='jurisdiction' AND entity_id=$1",
+        jur["id"],
+    )
     assert eaid is not None
-    rd = client.request("DELETE", f"/admin/jurisdictions/{jur['id']}/addresses/{eaid}/", headers=HX)
+    rd = await client.request(
+        "DELETE", f"/admin/jurisdictions/{jur['id']}/addresses/{eaid}/", headers=HX
+    )
     assert rd.status_code == 200
-    async with db_pool.acquire() as conn:
-        assert await conn.fetchval("SELECT id FROM entity_addresses WHERE id=$1", eaid) is None
+    assert await db.fetchval("SELECT id FROM entity_addresses WHERE id=$1", eaid) is None
 
 
-async def test_address_edit(client, jur, db_pool, local_address_normalizer):
+async def test_address_edit(client, jur, db, local_address_normalizer):
     # create first (mode=save skips the confirm modal and inserts directly)
-    client.post(
+    await client.post(
         f"/admin/jurisdictions/{jur['id']}/addresses/",
         headers=HX,
         data={
@@ -547,14 +498,13 @@ async def test_address_edit(client, jur, db_pool, local_address_normalizer):
             "standardized": "600 Fourth Ave, Seattle, WA 98104",
         },
     )
-    async with db_pool.acquire() as conn:
-        eaid = await conn.fetchval(
-            "SELECT id FROM entity_addresses WHERE entity_type='jurisdiction' AND entity_id=$1",
-            jur["id"],
-        )
+    eaid = await db.fetchval(
+        "SELECT id FROM entity_addresses WHERE entity_type='jurisdiction' AND entity_id=$1",
+        jur["id"],
+    )
     assert eaid is not None
     # edit: change line/city/type/label — both addresses + entity_addresses update
-    r = client.post(
+    r = await client.post(
         f"/admin/jurisdictions/{jur['id']}/addresses/{eaid}/edit-row/",
         headers=HX,
         data={
@@ -571,13 +521,12 @@ async def test_address_edit(client, jur, db_pool, local_address_normalizer):
     )
     assert r.status_code == 200
     assert "Tacoma" in r.text
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT a.address_line_1, a.city, ea.address_type, ea.display_name"
-            " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
-            " WHERE ea.id=$1",
-            eaid,
-        )
+    row = await db.fetchrow(
+        "SELECT a.address_line_1, a.city, ea.address_type, ea.display_name"
+        " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+        " WHERE ea.id=$1",
+        eaid,
+    )
     assert row["address_line_1"] == "1200 Fifth Ave"
     assert row["city"] == "Tacoma"
     assert row["address_type"] == "physical"

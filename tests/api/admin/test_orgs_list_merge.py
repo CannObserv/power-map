@@ -18,8 +18,9 @@ import re
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
+from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -39,47 +40,55 @@ LIST_TARGET_HEADERS = {**HTMX_HEADERS, "HX-Target": "orgs-list-region"}
 EDIT_ANCHOR = 'class="btn btn--ghost btn--sm" aria-label="Edit'
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def org_pair(db_pool):
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def org_pair(db):
     """Two near-dup orgs with a unique discriminator token for filter tests."""
     id_a, id_b = generate_id(), generate_id()
     if id_a > id_b:
         id_a, id_b = id_b, id_a
 
-    async with db_pool.acquire() as conn:
-        for oid, name in [
-            (id_a, "Xyzzy Merge Holdings"),
-            (id_b, "Xyzzy Merge Holdings LLC"),
-        ]:
-            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-            await conn.execute(
-                "INSERT INTO organization_names"
-                " (id, organization_id, name, is_canonical)"
-                " VALUES ($1, $2, $3, TRUE)",
-                generate_id(),
-                oid,
-                name,
-            )
-
-    yield id_a, id_b
-
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "DELETE FROM duplicate_dismissals"
-            " WHERE entity_a_id=$1 OR entity_b_id=$1"
-            " OR entity_a_id=$2 OR entity_b_id=$2",
-            id_a,
-            id_b,
+    for oid, name in [
+        (id_a, "Xyzzy Merge Holdings"),
+        (id_b, "Xyzzy Merge Holdings LLC"),
+    ]:
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await db.execute(
+            "INSERT INTO organization_names"
+            " (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, $3, TRUE)",
+            generate_id(),
+            oid,
+            name,
         )
-        for oid in [id_a, id_b]:
-            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
-            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+    return id_a, id_b
 
 
 # ── List template additions ─────────────────────────────────────────────────
@@ -87,20 +96,20 @@ async def org_pair(db_pool):
 
 async def test_orgs_list_renders_merge_button(client):
     """The list page must include the Merge toggle button."""
-    response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/orgs/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'id="orgs-merge-btn"' in response.text
 
 
 async def test_orgs_list_renders_merge_btn_wrapper(client):
     """Wrapper element required for disabled-cursor/title affordance."""
-    response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/orgs/", headers=AUTH_HEADERS)
     assert 'id="orgs-merge-btn-wrap"' in response.text
 
 
 async def test_orgs_list_loads_merge_js(client):
     """The Orgs list page must serve the orgs merge assets (loaded site-wide)."""
-    response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/orgs/", headers=AUTH_HEADERS)
     assert "orgs-merge.js" in response.text
     assert "merge-mode.js" in response.text
 
@@ -108,14 +117,14 @@ async def test_orgs_list_loads_merge_js(client):
 async def test_orgs_merge_js_loaded_exactly_once(client):
     """orgs-merge.js must load exactly once — a duplicate load double-binds the
     document-level listeners and turns Merge into a no-op (cf. #249)."""
-    response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/orgs/", headers=AUTH_HEADERS)
     tags = re.findall(r"<script[^>]+orgs-merge\.js", response.text)
     assert len(tags) == 1
 
 
 async def test_orgs_list_renders_merge_bar(client):
     """Merge action bar markup must be present (hidden via inline display:none)."""
-    response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/orgs/", headers=AUTH_HEADERS)
     assert 'id="orgs-merge-bar"' in response.text
     assert "merge-bar__keep-a" in response.text
     assert "merge-bar__keep-b" in response.text
@@ -123,13 +132,13 @@ async def test_orgs_list_renders_merge_bar(client):
 
 async def test_orgs_list_tbody_has_known_id(client):
     """`#orgs-table-body` is the table anchor; renaming silently breaks merge JS."""
-    response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
+    response = await client.get("/admin/orgs/", headers=AUTH_HEADERS)
     assert 'id="orgs-table-body"' in response.text
 
 
 async def test_orgs_list_rows_have_merge_checkboxes(client, org_pair):
     """Each row must carry the merge-select checkbox + data-org-id."""
-    response = client.get("/admin/orgs/?q=Xyzzy", headers=AUTH_HEADERS)
+    response = await client.get("/admin/orgs/?q=Xyzzy", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert 'name="merge-select"' in response.text
     assert "data-org-id=" in response.text
@@ -137,7 +146,7 @@ async def test_orgs_list_rows_have_merge_checkboxes(client, org_pair):
 
 async def test_orgs_list_rows_have_data_title(client, org_pair):
     """JS reads `data-title` from `<tr>` to label the Keep buttons."""
-    response = client.get("/admin/orgs/?q=Xyzzy", headers=AUTH_HEADERS)
+    response = await client.get("/admin/orgs/?q=Xyzzy", headers=AUTH_HEADERS)
     assert 'data-title="Xyzzy Merge Holdings"' in response.text
 
 
@@ -148,7 +157,7 @@ async def test_merge_with_list_target_returns_region_partial(client, org_pair):
     """HX-Target=orgs-list-region must return the region partial (table +
     caption + sticky pagination), not the duplicates region."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/?q=Xyzzy"},
         follow_redirects=False,
@@ -165,10 +174,10 @@ async def test_merge_with_list_target_returns_region_partial(client, org_pair):
 async def test_merge_with_list_target_refreshes_total_count(client, org_pair):
     """Caption shows post-merge total (loser hard-deleted)."""
     id_a, id_b = org_pair
-    pre = client.get("/admin/orgs/?q=Xyzzy", headers=HTMX_HEADERS)
+    pre = await client.get("/admin/orgs/?q=Xyzzy", headers=HTMX_HEADERS)
     assert "Organizations &mdash; 2 record" in pre.text or "Organizations — 2 record" in pre.text
 
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/?q=Xyzzy"},
         follow_redirects=False,
@@ -182,7 +191,7 @@ async def test_merge_with_list_target_refreshes_total_count(client, org_pair):
 async def test_merge_with_list_target_includes_winner_row(client, org_pair):
     """Refreshed list must still include the winner (it survived)."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/?q=Xyzzy"},
         follow_redirects=False,
@@ -194,7 +203,7 @@ async def test_merge_with_list_target_includes_winner_row(client, org_pair):
 async def test_merge_with_list_target_excludes_loser_row(client, org_pair):
     """Loser must not appear in the refreshed rows (hard-deleted)."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/?q=Xyzzy"},
         follow_redirects=False,
@@ -206,7 +215,7 @@ async def test_merge_with_list_target_excludes_loser_row(client, org_pair):
 async def test_merge_with_list_target_sends_flash(client, org_pair):
     """List-flow merge must trigger a success flash via HX-Trigger."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/"},
         follow_redirects=False,
@@ -221,7 +230,7 @@ async def test_merge_with_list_target_sends_flash(client, org_pair):
 async def test_merge_with_list_target_emits_refresh_dup_badge(client, org_pair):
     """List-flow merge response must include refreshDupBadge in HX-Trigger."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/"},
         follow_redirects=False,
@@ -237,7 +246,7 @@ async def test_merge_with_list_target_emits_refresh_dup_badge(client, org_pair):
 async def test_merge_preserves_q_filter(client, org_pair):
     """HX-Current-URL `?q=zzz_nomatch` must filter the winner out of refreshed rows."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/?q=zzz_nomatch"},
         follow_redirects=False,
@@ -249,7 +258,7 @@ async def test_merge_preserves_q_filter(client, org_pair):
 async def test_merge_preserves_status_filter(client, org_pair):
     """HX-Current-URL `?status=archived` filters winner (active) out of the rows."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/?status=archived"},
         follow_redirects=False,
@@ -264,7 +273,7 @@ async def test_merge_preserves_inactive_status_filter(client, org_pair):
     Guards against copy-pasting People's two-value status set (which would
     collapse `inactive` → `active` and wrongly include the winner)."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/?status=inactive"},
         follow_redirects=False,
@@ -277,7 +286,7 @@ async def test_merge_preserves_inactive_status_filter(client, org_pair):
 async def test_merge_handles_missing_hx_current_url(client, org_pair):
     """Missing HX-Current-URL falls back to defaults (active status, q="")."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers=LIST_TARGET_HEADERS,
         follow_redirects=False,
@@ -289,7 +298,7 @@ async def test_merge_handles_missing_hx_current_url(client, org_pair):
 async def test_merge_handles_malformed_hx_current_url(client, org_pair):
     """A malformed HX-Current-URL must not crash — fall back to defaults."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "::not a url::"},
         follow_redirects=False,
@@ -303,7 +312,7 @@ async def test_merge_handles_malformed_hx_current_url(client, org_pair):
 async def test_merge_without_list_target_returns_duplicates_region(client, org_pair):
     """HTMX merge with no HX-Target keeps the existing duplicates-flow behavior."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers=HTMX_HEADERS,  # no HX-Target
         follow_redirects=False,
@@ -315,7 +324,7 @@ async def test_merge_without_list_target_returns_duplicates_region(client, org_p
 async def test_non_htmx_merge_still_redirects(client, org_pair):
     """Non-HTMX caller still gets the 303 redirect to the duplicates page."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers=AUTH_HEADERS,
         follow_redirects=False,
@@ -349,7 +358,7 @@ async def test_merge_branches_on_hx_target_header(
 ):
     """Same POST + fresh fixture, only HX-Target differs → distinct responses."""
     id_a, id_b = org_pair
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{id_a}/merge/{id_b}/",
         headers={**HTMX_HEADERS, **extra_headers},
         follow_redirects=False,
@@ -363,37 +372,27 @@ async def test_merge_branches_on_hx_target_header(
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def org_batch(db_pool):
+async def org_batch(db):
     """12 orgs sharing a unique prefix — exercises pagination without depending
     on the live row count. page_size=10 + page=2 gives 2 rows; merging two on
     page 1 leaves 11 rows, so page 2 then shows exactly 1."""
     prefix = "Pgorg"
     ids = sorted([generate_id() for _ in range(12)])
 
-    async with db_pool.acquire() as conn:
-        for i, oid in enumerate(ids):
-            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-            await conn.execute(
-                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
-                " VALUES ($1, $2, $3, TRUE)",
-                generate_id(),
-                oid,
-                f"{prefix} Org {i:02d}",  # 00..11 — stable sort
-            )
+    for i, oid in enumerate(ids):
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await db.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, $3, TRUE)",
+            generate_id(),
+            oid,
+            f"{prefix} Org {i:02d}",  # 00..11 — stable sort
+        )
 
-    yield prefix, ids
-
-    async with db_pool.acquire() as conn:
-        for oid in ids:
-            await conn.execute(
-                "DELETE FROM duplicate_dismissals WHERE entity_a_id=$1 OR entity_b_id=$1",
-                oid,
-            )
-            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
-            await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+    return prefix, ids
 
 
-async def test_list_merge_reports_dropped_role_assignments(client, db_pool):
+async def test_list_merge_reports_dropped_role_assignments(client, db):
     """CR #2: when a list-flow merge drops a conflicting role assignment,
     the flash body must surface the count (parity with the detail-flow
     `org_merge_with`, which already reports it)."""
@@ -401,66 +400,53 @@ async def test_list_merge_reports_dropped_role_assignments(client, db_pool):
     role_a, role_b = generate_id(), generate_id()
     person_id = generate_id()
 
-    async with db_pool.acquire() as conn:
-        for oid, name in [
-            (id_a, "Dropcount Org A"),
-            (id_b, "Dropcount Org B"),
-        ]:
-            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-            await conn.execute(
-                "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
-                " VALUES ($1, $2, $3, TRUE)",
-                generate_id(),
-                oid,
-                name,
-            )
-        # Same-title roles (winner "Director" vs loser "director") → conflict.
-        for rid, oid, title in [(role_a, id_a, "Director"), (role_b, id_b, "director")]:
-            await conn.execute(
-                "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-                rid,
-                oid,
-                title,
-            )
-        await conn.execute("INSERT INTO people (id) VALUES ($1)", person_id)
-        await conn.execute(
-            "INSERT INTO person_names (id, person_id, name, is_canonical)"
-            " VALUES ($1, $2, 'Dropcount Person', TRUE)",
+    for oid, name in [
+        (id_a, "Dropcount Org A"),
+        (id_b, "Dropcount Org B"),
+    ]:
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await db.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, $3, TRUE)",
+            generate_id(),
+            oid,
+            name,
+        )
+    # Same-title roles (winner "Director" vs loser "director") → conflict.
+    for rid, oid, title in [(role_a, id_a, "Director"), (role_b, id_b, "director")]:
+        await db.execute(
+            "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+            rid,
+            oid,
+            title,
+        )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, is_canonical)"
+        " VALUES ($1, $2, 'Dropcount Person', TRUE)",
+        generate_id(),
+        person_id,
+    )
+    # Person assigned to BOTH roles at the same start_date → loser assignment
+    # is a duplicate of the winner's and gets dropped during merge.
+    for rid in (role_a, role_b):
+        await db.execute(
+            "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+            " VALUES ($1, $2, $3, '2021-01-01')",
             generate_id(),
             person_id,
+            rid,
         )
-        # Person assigned to BOTH roles at the same start_date → loser assignment
-        # is a duplicate of the winner's and gets dropped during merge.
-        for rid in (role_a, role_b):
-            await conn.execute(
-                "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
-                " VALUES ($1, $2, $3, '2021-01-01')",
-                generate_id(),
-                person_id,
-                rid,
-            )
 
-    try:
-        response = client.post(
-            f"/admin/orgs/{id_a}/merge/{id_b}/",
-            headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/"},
-            follow_redirects=False,
-        )
-        assert response.status_code == 200
-        payload = json.loads(response.headers["HX-Trigger"])
-        # Exact wording incl. count + singular form (one assignment dropped).
-        assert "1 duplicate role assignment dropped" in payload["showFlash"]["body"]
-    finally:
-        async with db_pool.acquire() as conn:
-            await conn.execute("DELETE FROM role_assignments WHERE person_id=$1", person_id)
-            for rid in (role_a, role_b):
-                await conn.execute("DELETE FROM roles WHERE id=$1", rid)
-            await conn.execute("DELETE FROM person_names WHERE person_id=$1", person_id)
-            await conn.execute("DELETE FROM people WHERE id=$1", person_id)
-            # id_b is hard-deleted by the merge; clean both defensively.
-            for oid in (id_a, id_b):
-                await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
-                await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
+    response = await client.post(
+        f"/admin/orgs/{id_a}/merge/{id_b}/",
+        headers={**LIST_TARGET_HEADERS, "HX-Current-URL": "/admin/orgs/"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    payload = json.loads(response.headers["HX-Trigger"])
+    # Exact wording incl. count + singular form (one assignment dropped).
+    assert "1 duplicate role assignment dropped" in payload["showFlash"]["body"]
 
 
 async def test_merge_preserves_page_and_page_size_from_hx_current_url(client, org_batch):
@@ -469,7 +455,7 @@ async def test_merge_preserves_page_and_page_size_from_hx_current_url(client, or
     prefix, ids = org_batch
     winner_id, loser_id = ids[0], ids[1]  # merge two on page 1
 
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{winner_id}/merge/{loser_id}/",
         headers={
             **LIST_TARGET_HEADERS,
@@ -491,7 +477,7 @@ async def test_merge_handles_overflow_page_from_hx_current_url(client, org_batch
     clamps to the last valid page rather than returning an empty result."""
     prefix, ids = org_batch
     # 12 rows @ page_size 10 → pages 1 (10) + 2 (2). Merge the 2 on page 2.
-    response = client.post(
+    response = await client.post(
         f"/admin/orgs/{ids[10]}/merge/{ids[11]}/",
         headers={
             **LIST_TARGET_HEADERS,

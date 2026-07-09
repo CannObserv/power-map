@@ -5,20 +5,52 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
+import pytest_asyncio
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from src.api.admin.deps import (
     AdminUser,
     flash_trigger,
     get_admin_user,
+    get_db,
     is_htmx,
     parse_validity_fields,
 )
 from src.api.main import app
 from tests.api.admin.conftest import AUTH_HEADERS
 
+# Module-level client WITHOUT `with` → no lifespan → no app pool. The sync
+# unit tests below never touch the DB (auth/redirect/helper logic only).
 _client = TestClient(app, raise_server_exceptions=False)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
 
 
 def test_admin_root_redirects_when_unauthenticated():
@@ -155,9 +187,8 @@ def test_flash_trigger_extra_multiple_keys():
 
 
 @pytest.mark.integration
-def test_admin_dashboard_returns_200_when_authenticated():
-    with TestClient(app) as client:
-        response = client.get("/admin/", headers=AUTH_HEADERS)
+async def test_admin_dashboard_returns_200_when_authenticated(client):
+    response = await client.get("/admin/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Power Map" in response.text
 

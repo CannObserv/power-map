@@ -7,8 +7,9 @@ the "und-x-icu" collation. ASCII-default sort places "Zebra" before
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
+from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -19,45 +20,60 @@ pytestmark = [
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def people_with_diacritic_names(db_pool):
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def people_with_diacritic_names(db):
     """Three people: 'Zebra', 'Åberg', 'Aaron' — ICU sort: Aaron, Åberg, Zebra."""
     p_aaron = generate_id()
     p_aberg = generate_id()
     p_zebra = generate_id()
 
-    async with db_pool.acquire() as conn:
-        for pid, label in (
-            (p_aaron, "Aaron Smoketest"),
-            (p_aberg, "Åberg Smoketest"),
-            (p_zebra, "Zebra Smoketest"),
-        ):
-            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-            await conn.execute(
-                "INSERT INTO person_names"
-                " (id, person_id, name, name_type, is_canonical, visibility)"
-                " VALUES ($1, $2, $3, 'legal', TRUE, 'public')",
-                generate_id(),
-                pid,
-                label,
-            )
+    for pid, label in (
+        (p_aaron, "Aaron Smoketest"),
+        (p_aberg, "Åberg Smoketest"),
+        (p_zebra, "Zebra Smoketest"),
+    ):
+        await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await db.execute(
+            "INSERT INTO person_names"
+            " (id, person_id, name, name_type, is_canonical, visibility)"
+            " VALUES ($1, $2, $3, 'legal', TRUE, 'public')",
+            generate_id(),
+            pid,
+            label,
+        )
 
     yield p_aaron, p_aberg, p_zebra
 
-    async with db_pool.acquire() as conn:
-        for pid in (p_aaron, p_aberg, p_zebra):
-            await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-            await conn.execute("DELETE FROM people WHERE id=$1", pid)
-
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def person_with_sort_as_override(db_pool):
+async def person_with_sort_as_override(db):
     """One person: visible name 'van der Meer', sort_as 'Meer, van der'.
 
     Default sort by name puts 'van der Meer' near 'v'. With sort_as,
@@ -65,22 +81,17 @@ async def person_with_sort_as_override(db_pool):
     """
     pid = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-        await conn.execute(
-            "INSERT INTO person_names"
-            " (id, person_id, name, name_type, is_canonical, visibility, sort_as)"
-            " VALUES ($1, $2, 'van der Meer Smoketest', 'legal', TRUE, 'public',"
-            " 'Meer, van der Smoketest')",
-            generate_id(),
-            pid,
-        )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, is_canonical, visibility, sort_as)"
+        " VALUES ($1, $2, 'van der Meer Smoketest', 'legal', TRUE, 'public',"
+        " 'Meer, van der Smoketest')",
+        generate_id(),
+        pid,
+    )
 
     yield pid
-
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-        await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
 def _name_positions(html: str, names: list[str]) -> dict[str, int]:
@@ -92,7 +103,7 @@ def _name_positions(html: str, names: list[str]) -> dict[str, int]:
 
 
 async def test_people_list_sorts_diacritics_with_und_x_icu(client, people_with_diacritic_names):
-    r = client.get("/admin/people/?q=Smoketest", headers=AUTH_HEADERS)
+    r = await client.get("/admin/people/?q=Smoketest", headers=AUTH_HEADERS)
     assert r.status_code == 200
     pos = _name_positions(r.text, ["Aaron Smoketest", "Åberg Smoketest", "Zebra Smoketest"])
     # ICU "und": Aaron < Åberg < Zebra (A-with-ring near A).
@@ -102,7 +113,7 @@ async def test_people_list_sorts_diacritics_with_und_x_icu(client, people_with_d
 
 
 async def test_people_search_sorts_diacritics_with_und_x_icu(client, people_with_diacritic_names):
-    r = client.get("/admin/people/search/?q=Smoketest", headers=AUTH_HEADERS)
+    r = await client.get("/admin/people/search/?q=Smoketest", headers=AUTH_HEADERS)
     assert r.status_code == 200
     pos = _name_positions(r.text, ["Aaron Smoketest", "Åberg Smoketest", "Zebra Smoketest"])
     assert pos["Aaron Smoketest"] < pos["Åberg Smoketest"] < pos["Zebra Smoketest"], pos
@@ -118,7 +129,7 @@ async def test_sort_as_overrides_visible_name_in_list(
 ):
     """`van der Meer Smoketest` with sort_as='Meer, van der Smoketest'
     should sort under 'M', between 'Aaron' and 'Zebra' — not under 'V'."""
-    r = client.get("/admin/people/?q=Smoketest", headers=AUTH_HEADERS)
+    r = await client.get("/admin/people/?q=Smoketest", headers=AUTH_HEADERS)
     pos = _name_positions(
         r.text,
         [

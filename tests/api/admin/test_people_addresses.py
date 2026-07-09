@@ -5,8 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
+from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -17,73 +18,61 @@ AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
-
-
-@pytest_asyncio.fixture(scope="module", loop_scope="session", autouse=True)
-async def _no_address_leak(db_pool):
-    """Guard against re-introducing the address teardown leak (#150).
-
-    Snapshots the ``addresses`` rowcount before this module's tests run and
-    asserts equality after — fails loudly if any fixture in this module
-    stops cleaning up newly-created ``addresses`` rows.
-    """
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
     async with db_pool.acquire() as conn:
-        before = await conn.fetchval("SELECT COUNT(*) FROM addresses")
-    yield
-    async with db_pool.acquire() as conn:
-        after = await conn.fetchval("SELECT COUNT(*) FROM addresses")
-    assert after == before, (
-        f"person_and_address fixture leaked {after - before} addresses row(s) — see #150"
-    )
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def person_and_address(db_pool):
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_and_address(db):
     pid = generate_id()
     aid = generate_id()
     eaid = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-        await conn.execute(
-            "INSERT INTO addresses (id, address_line_1, city, region, postal_code, country)"
-            " VALUES ($1, '123 Main St', 'Olympia', 'WA', '98501', 'US')",
-            aid,
-        )
-        await conn.execute(
-            "INSERT INTO entity_addresses"
-            " (id, entity_type, entity_id, address_id, address_type)"
-            " VALUES ($1, 'person', $2, $3, 'mailing')",
-            eaid,
-            pid,
-            aid,
-        )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO addresses (id, address_line_1, city, region, postal_code, country)"
+        " VALUES ($1, '123 Main St', 'Olympia', 'WA', '98501', 'US')",
+        aid,
+    )
+    await db.execute(
+        "INSERT INTO entity_addresses"
+        " (id, entity_type, entity_id, address_id, address_type)"
+        " VALUES ($1, 'person', $2, $3, 'mailing')",
+        eaid,
+        pid,
+        aid,
+    )
 
     yield pid, eaid
-
-    async with db_pool.acquire() as conn, conn.transaction():
-        rows = await conn.fetch("SELECT address_id FROM entity_addresses WHERE entity_id=$1", pid)
-        address_ids = [r["address_id"] for r in rows]
-        await conn.execute("DELETE FROM entity_addresses WHERE entity_id=$1", pid)
-        if address_ids:
-            await conn.execute(
-                "DELETE FROM addresses WHERE id = ANY($1::text[])"
-                " AND NOT EXISTS ("
-                "SELECT 1 FROM entity_addresses ea WHERE ea.address_id = addresses.id"
-                ")",
-                address_ids,
-            )
-        await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
 async def test_address_form_row_type_and_label_lead_panel(client, person_and_address):
     """#181 follow-up: type + label on the first line, ahead of country and validity."""
     pid, _ = person_and_address
-    r = client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
+    r = await client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     type_pos = r.text.index('name="address_type"')
     label_pos = r.text.index('name="display_name"')
@@ -96,13 +85,13 @@ async def test_address_form_row_type_and_label_lead_panel(client, person_and_add
 async def test_address_form_row_scopes_country_swap_target(client, person_and_address):
     """CR round 1: country swap target is row-scoped; no page-global hx-include."""
     pid, eaid = person_and_address
-    new = client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
+    new = await client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
     assert new.status_code == 200
     assert 'id="address-structured-fields-new"' in new.text
     assert 'hx-target="#address-structured-fields-new"' in new.text
     assert 'hx-include="[name=' not in new.text
     assert 'id="address-country-input"' not in new.text
-    edit = client.get(f"/admin/people/{pid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
+    edit = await client.get(f"/admin/people/{pid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
     assert edit.status_code == 200
     assert f'id="address-structured-fields-{eaid}"' in edit.text
     assert f'hx-target="#address-structured-fields-{eaid}"' in edit.text
@@ -112,11 +101,11 @@ async def test_address_form_row_country_swap_includes_form_values(client, person
     """#258/#282: country swap carries the form's current values; the edit row targets
     the addr_id via its hx-post path (no redundant hidden addr_id field)."""
     pid, eaid = person_and_address
-    new = client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
+    new = await client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
     assert new.status_code == 200
     assert 'hx-include="closest form"' in new.text
     assert 'name="addr_id"' not in new.text
-    edit = client.get(f"/admin/people/{pid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
+    edit = await client.get(f"/admin/people/{pid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
     assert edit.status_code == 200
     assert 'hx-include="closest form"' in edit.text
     # #282: addr_id lives in the POST path, not a redundant hidden field
@@ -142,7 +131,7 @@ async def test_country_format_preserves_current_values(client, person_and_addres
             }
         ),
     ):
-        r = client.get(
+        r = await client.get(
             f"/admin/people/{pid}/addresses/country-format/",
             params={
                 "country": "CA",
@@ -180,7 +169,7 @@ async def test_country_format_drops_field_absent_from_new_format(client, person_
             }
         ),
     ):
-        r = client.get(
+        r = await client.get(
             f"/admin/people/{pid}/addresses/country-format/",
             params={"country": "JP", "region": "WA", "city": "Kyoto"},
             headers=HTMX_HEADERS,
@@ -194,22 +183,22 @@ async def test_country_format_drops_field_absent_from_new_format(client, person_
 async def test_address_form_row_validity_labels(client, person_and_address):
     """#181 follow-up: visible 'Valid from' label + aria-hidden 'to' separator."""
     pid, eaid = person_and_address
-    new = client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
+    new = await client.get(f"/admin/people/{pid}/addresses/new-row/", headers=HTMX_HEADERS)
     assert new.status_code == 200
     assert '<label for="valid-from-new"' in new.text
     assert ">Valid from</label>" in new.text
     assert 'id="valid-from-new"' in new.text
     assert re.search(r'<span aria-hidden="true"[^>]*>\s*to</span>', new.text)
     assert 'aria-label="Valid until"' in new.text
-    edit = client.get(f"/admin/people/{pid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
+    edit = await client.get(f"/admin/people/{pid}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS)
     assert edit.status_code == 200
     assert f'<label for="valid-from-{eaid}"' in edit.text
     assert f'id="valid-from-{eaid}"' in edit.text
 
 
-async def test_addresses_create_with_validity_window(client, person_and_address, db_pool):
+async def test_addresses_create_with_validity_window(client, person_and_address, db):
     pid, existing_eaid = person_and_address
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/addresses/",
         headers=HTMX_HEADERS,
         data={
@@ -227,21 +216,20 @@ async def test_addresses_create_with_validity_window(client, person_and_address,
     assert "2024-01-01" in r.text
     assert "2025-06-30" in r.text
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT ea.valid_from, ea.valid_until FROM entity_addresses ea"
-            " WHERE ea.entity_id=$1 AND ea.id != $2",
-            pid,
-            existing_eaid,
-        )
+    row = await db.fetchrow(
+        "SELECT ea.valid_from, ea.valid_until FROM entity_addresses ea"
+        " WHERE ea.entity_id=$1 AND ea.id != $2",
+        pid,
+        existing_eaid,
+    )
     assert row is not None
     assert str(row["valid_from"]) == "2024-01-01"
     assert str(row["valid_until"]) == "2025-06-30"
 
 
-async def test_addresses_update_validity_window(client, person_and_address, db_pool):
+async def test_addresses_update_validity_window(client, person_and_address, db):
     pid, eaid = person_and_address
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/addresses/{eaid}/edit-row/",
         headers=HTMX_HEADERS,
         data={
@@ -257,17 +245,16 @@ async def test_addresses_update_validity_window(client, person_and_address, db_p
     assert r.status_code == 200
     assert "2020-05-01" in r.text
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT valid_from, valid_until FROM entity_addresses WHERE id=$1", eaid
-        )
+    row = await db.fetchrow(
+        "SELECT valid_from, valid_until FROM entity_addresses WHERE id=$1", eaid
+    )
     assert str(row["valid_from"]) == "2020-05-01"
     assert row["valid_until"] is None
 
 
-async def test_addresses_create_inverted_range_returns_error(client, person_and_address, db_pool):
+async def test_addresses_create_inverted_range_returns_error(client, person_and_address, db):
     pid, existing_eaid = person_and_address
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/addresses/",
         headers=HTMX_HEADERS,
         data={
@@ -285,21 +272,18 @@ async def test_addresses_create_inverted_range_returns_error(client, person_and_
     assert "alert--error" in r.text
     assert "on or before" in r.text
 
-    async with db_pool.acquire() as conn:
-        count = await conn.fetchval(
-            "SELECT count(*) FROM entity_addresses WHERE entity_id=$1 AND id != $2",
-            pid,
-            existing_eaid,
-        )
+    count = await db.fetchval(
+        "SELECT count(*) FROM entity_addresses WHERE entity_id=$1 AND id != $2",
+        pid,
+        existing_eaid,
+    )
     assert count == 0
 
 
-async def test_addresses_create_malformed_date_returns_format_error(
-    client, person_and_address, db_pool
-):
+async def test_addresses_create_malformed_date_returns_format_error(client, person_and_address, db):
     """Malformed date input gets a format message, not the range-order message (#181 CR)."""
     pid, existing_eaid = person_and_address
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/addresses/",
         headers=HTMX_HEADERS,
         data={
@@ -317,12 +301,11 @@ async def test_addresses_create_malformed_date_returns_format_error(
     assert "YYYY-MM-DD" in r.text
     assert "on or before" not in r.text
 
-    async with db_pool.acquire() as conn:
-        count = await conn.fetchval(
-            "SELECT count(*) FROM entity_addresses WHERE entity_id=$1 AND id != $2",
-            pid,
-            existing_eaid,
-        )
+    count = await db.fetchval(
+        "SELECT count(*) FROM entity_addresses WHERE entity_id=$1 AND id != $2",
+        pid,
+        existing_eaid,
+    )
     assert count == 0
 
 
@@ -333,7 +316,7 @@ async def test_addresses_create_malformed_date_returns_format_error(
 
 @patch("src.api.admin.people_addresses._NORMALIZER")
 async def test_address_create_confirm_non_htmx_persists_and_redirects(
-    mock_normalizer, client, person_and_address, db_pool
+    mock_normalizer, client, person_and_address, db
 ):
     """#280: a non-HTMX confirm submit persists the normalized address, no data loss."""
     pid, existing_eaid = person_and_address
@@ -355,7 +338,7 @@ async def test_address_create_confirm_non_htmx_persists_and_redirects(
             validation_detail=None,
         )
     )
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/addresses/",
         headers=AUTH_HEADERS,  # no HX-Request
         data={
@@ -370,14 +353,13 @@ async def test_address_create_confirm_non_htmx_persists_and_redirects(
     assert r.status_code == 303
     assert r.headers["location"] == f"/admin/people/{pid}/"
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT a.address_line_1, a.city, a.region, a.postal_code, a.standardized"
-            " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
-            " WHERE ea.entity_id=$1 AND ea.id != $2",
-            pid,
-            existing_eaid,
-        )
+    row = await db.fetchrow(
+        "SELECT a.address_line_1, a.city, a.region, a.postal_code, a.standardized"
+        " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+        " WHERE ea.entity_id=$1 AND ea.id != $2",
+        pid,
+        existing_eaid,
+    )
     assert row is not None
     assert row["address_line_1"] == "123 MAIN ST"
     assert row["standardized"] == "123 MAIN ST SEATTLE WA 98101"
@@ -385,7 +367,7 @@ async def test_address_create_confirm_non_htmx_persists_and_redirects(
 
 @patch("src.api.admin.people_addresses._NORMALIZER")
 async def test_address_edit_confirm_non_htmx_persists_and_redirects(
-    mock_normalizer, client, person_and_address, db_pool
+    mock_normalizer, client, person_and_address, db
 ):
     """#280: a non-HTMX confirm edit submit persists the normalized address."""
     pid, eaid = person_and_address
@@ -407,7 +389,7 @@ async def test_address_edit_confirm_non_htmx_persists_and_redirects(
             validation_detail=None,
         )
     )
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/addresses/{eaid}/edit-row/",
         headers=AUTH_HEADERS,  # no HX-Request
         data={
@@ -422,13 +404,12 @@ async def test_address_edit_confirm_non_htmx_persists_and_redirects(
     assert r.status_code == 303
     assert r.headers["location"] == f"/admin/people/{pid}/"
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT a.address_line_1, a.city, a.standardized"
-            " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
-            " WHERE ea.id=$1",
-            eaid,
-        )
+    row = await db.fetchrow(
+        "SELECT a.address_line_1, a.city, a.standardized"
+        " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+        " WHERE ea.id=$1",
+        eaid,
+    )
     assert row is not None
     assert row["address_line_1"] == "123 MAIN ST"
     assert row["standardized"] == "123 MAIN ST OLYMPIA WA 98501"

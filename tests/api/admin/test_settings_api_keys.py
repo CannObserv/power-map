@@ -6,8 +6,9 @@ import os
 import asyncpg
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
+from src.api.admin.deps import get_db
 from src.api.admin.settings_api_keys import generate_api_key
 from src.api.main import app
 from src.core.db import generate_id
@@ -24,14 +25,29 @@ AUTH_HEADERS = {
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
     async with db_pool.acquire() as conn:
-        yield conn
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
+@pytest_asyncio.fixture(loop_scope="session")
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
         yield c
+    app.dependency_overrides.pop(get_db, None)
 
 
 # --- Schema ---
@@ -60,18 +76,19 @@ async def test_api_keys_key_hash_unique(db):
         "pm_abc123",
         "deadbeef" * 8,
     )
+    # Savepoint so the deliberate duplicate aborts only this INSERT, not the
+    # surrounding rollback transaction (#288). Cleanup is handled by rollback.
     with pytest.raises(asyncpg.UniqueViolationError):
-        await db.execute(
-            "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-            " VALUES ($1,$2,$3,$4,$5)",
-            kid2,
-            uid,
-            "key2",
-            "pm_abc124",
-            "deadbeef" * 8,
-        )
-    await db.execute("DELETE FROM api_keys WHERE user_id=$1", uid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
+                " VALUES ($1,$2,$3,$4,$5)",
+                kid2,
+                uid,
+                "key2",
+                "pm_abc124",
+                "deadbeef" * 8,
+            )
 
 
 # --- provision_app_user ---
@@ -161,23 +178,23 @@ async def _make_user_and_key(db, label="My Key"):
 
 
 async def test_api_keys_list_requires_auth(client):
-    r = client.get("/admin/settings/api-keys/", follow_redirects=False)
+    r = await client.get("/admin/settings/api-keys/", follow_redirects=False)
     assert r.status_code in (302, 307)
 
 
 async def test_api_keys_list_returns_200(client):
-    r = client.get("/admin/settings/api-keys/", headers=AUTH_HEADERS)
+    r = await client.get("/admin/settings/api-keys/", headers=AUTH_HEADERS)
     assert r.status_code == 200
 
 
 async def test_api_keys_new_row_returns_form(client):
-    r = client.get("/admin/settings/api-keys/new-row/", headers=AUTH_HEADERS)
+    r = await client.get("/admin/settings/api-keys/new-row/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert "label" in r.text
 
 
 async def test_api_keys_create_returns_modal(client, db):
-    r = client.post(
+    r = await client.post(
         "/admin/settings/api-keys/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={"label": "Test Key"},
@@ -191,7 +208,7 @@ async def test_api_keys_create_returns_modal(client, db):
 
 
 async def test_api_keys_create_non_htmx_redirects(client, db):
-    r = client.post(
+    r = await client.post(
         "/admin/settings/api-keys/",
         headers=AUTH_HEADERS,
         data={"label": "Non-HTMX Key"},
@@ -206,7 +223,7 @@ async def test_api_keys_create_non_htmx_redirects(client, db):
 async def test_api_keys_edit_row_get(client, db):
     uid, kid, _ = await _make_user_and_key(db)
     try:
-        r = client.get(f"/admin/settings/api-keys/{kid}/edit-row/", headers=AUTH_HEADERS)
+        r = await client.get(f"/admin/settings/api-keys/{kid}/edit-row/", headers=AUTH_HEADERS)
         assert r.status_code == 200
         assert "My Key" in r.text
     finally:
@@ -217,7 +234,7 @@ async def test_api_keys_edit_row_get(client, db):
 async def test_api_keys_edit_row_post(client, db):
     uid, kid, _ = await _make_user_and_key(db)
     try:
-        r = client.post(
+        r = await client.post(
             f"/admin/settings/api-keys/{kid}/edit-row/",
             headers={**AUTH_HEADERS, "HX-Request": "true"},
             data={"label": "Renamed Key"},
@@ -232,7 +249,7 @@ async def test_api_keys_edit_row_post(client, db):
 async def test_api_keys_read_row(client, db):
     uid, kid, _ = await _make_user_and_key(db)
     try:
-        r = client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
+        r = await client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
         assert r.status_code == 200
         assert "My Key" in r.text
     finally:
@@ -243,7 +260,7 @@ async def test_api_keys_read_row(client, db):
 async def test_api_keys_delete(client, db):
     uid, kid, _ = await _make_user_and_key(db)
     try:
-        r = client.delete(
+        r = await client.delete(
             f"/admin/settings/api-keys/{kid}/",
             headers={**AUTH_HEADERS, "HX-Request": "true"},
         )
@@ -256,7 +273,7 @@ async def test_api_keys_delete(client, db):
 
 
 async def test_api_keys_delete_404_when_not_found(client, db):
-    r = client.delete(
+    r = await client.delete(
         "/admin/settings/api-keys/nonexistent/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )
@@ -264,7 +281,7 @@ async def test_api_keys_delete_404_when_not_found(client, db):
 
 
 async def test_api_keys_create_empty_label_rejected(client, db):
-    r = client.post(
+    r = await client.post(
         "/admin/settings/api-keys/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={"label": "   "},
@@ -275,7 +292,7 @@ async def test_api_keys_create_empty_label_rejected(client, db):
 async def test_api_keys_edit_row_empty_label_rejected(client, db):
     uid, kid, _ = await _make_user_and_key(db)
     try:
-        r = client.post(
+        r = await client.post(
             f"/admin/settings/api-keys/{kid}/edit-row/",
             headers={**AUTH_HEADERS, "HX-Request": "true"},
             data={"label": "   "},
@@ -305,7 +322,7 @@ async def test_api_keys_edit_other_users_key_returns_404(client, db):
     )
     try:
         # AUTH_HEADERS authenticates as usr_test, not other_uid
-        r = client.post(
+        r = await client.post(
             f"/admin/settings/api-keys/{kid}/edit-row/",
             headers={**AUTH_HEADERS, "HX-Request": "true"},
             data={"label": "Hijacked"},
@@ -334,7 +351,7 @@ async def test_api_keys_delete_other_users_key_returns_404(client, db):
         key_hash,
     )
     try:
-        r = client.delete(
+        r = await client.delete(
             f"/admin/settings/api-keys/{kid}/",
             headers={**AUTH_HEADERS, "HX-Request": "true"},
         )

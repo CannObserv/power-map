@@ -2,8 +2,9 @@
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
+from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -14,58 +15,67 @@ AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def person_and_event_type(db_pool):
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_and_event_type(db):
     """One person + one event type seeded for all tests."""
     pid = generate_id()
     etid = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-        await conn.execute(
-            "INSERT INTO entity_event_types (id, slug, display_name, applies_to)"
-            " VALUES ($1, $2, $3, 'person')",
-            etid,
-            f"test-event-{etid[:8]}",
-            "Test Event",
-        )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO entity_event_types (id, slug, display_name, applies_to)"
+        " VALUES ($1, $2, $3, 'person')",
+        etid,
+        f"test-event-{etid[:8]}",
+        "Test Event",
+    )
 
     yield pid, etid
 
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "DELETE FROM entity_events WHERE entity_id=$1 AND entity_type='person'", pid
-        )
-        await conn.execute("DELETE FROM entity_event_types WHERE id=$1", etid)
-        await conn.execute("DELETE FROM people WHERE id=$1", pid)
-
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def person_with_event(db_pool, person_and_event_type):
+async def person_with_event(db, person_and_event_type):
     """Person with a single non-archived event."""
     pid, etid = person_and_event_type
     eid = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO entity_events"
-            " (id, entity_type, entity_id, event_type_id, event_year, visibility)"
-            " VALUES ($1, 'person', $2, $3, 2020, 'public')",
-            eid,
-            pid,
-            etid,
-        )
+    await db.execute(
+        "INSERT INTO entity_events"
+        " (id, entity_type, entity_id, event_type_id, event_year, visibility)"
+        " VALUES ($1, 'person', $2, $3, 2020, 'public')",
+        eid,
+        pid,
+        etid,
+    )
 
     yield pid, etid, eid
-
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
 
 
 # ---------------------------------------------------------------------------
@@ -75,14 +85,14 @@ async def person_with_event(db_pool, person_and_event_type):
 
 async def test_event_new_row_returns_form(client, person_and_event_type):
     pid, _ = person_and_event_type
-    r = client.get(f"/admin/people/{pid}/events/new-row/", headers=HTMX_HEADERS)
+    r = await client.get(f"/admin/people/{pid}/events/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<form" in r.text
 
 
 async def test_event_new_row_no_auth_returns_307(client, person_and_event_type):
     pid, _ = person_and_event_type
-    r = client.get(f"/admin/people/{pid}/events/new-row/", follow_redirects=False)
+    r = await client.get(f"/admin/people/{pid}/events/new-row/", follow_redirects=False)
     assert r.status_code == 307
 
 
@@ -91,9 +101,9 @@ async def test_event_new_row_no_auth_returns_307(client, person_and_event_type):
 # ---------------------------------------------------------------------------
 
 
-async def test_event_create_returns_read_row(client, person_and_event_type, db_pool):
+async def test_event_create_returns_read_row(client, person_and_event_type, db):
     pid, etid = person_and_event_type
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/",
         headers=HTMX_HEADERS,
         data={
@@ -109,31 +119,22 @@ async def test_event_create_returns_read_row(client, person_and_event_type, db_p
     assert "Test Event" in r.text
     assert "HX-Trigger" in r.headers
 
-    # Clean up
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "DELETE FROM entity_events"
-            " WHERE entity_id=$1 AND entity_type='person' AND notes='Test note'",
-            pid,
-        )
 
-
-async def test_event_create_requires_year_for_typed_event(client, db_pool):
+async def test_event_create_requires_year_for_typed_event(client, db):
     """Event type with requires_year=True must reject missing year."""
     pid = generate_id()
     etid = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-        await conn.execute(
-            "INSERT INTO entity_event_types"
-            " (id, slug, display_name, applies_to, requires_year)"
-            " VALUES ($1, $2, 'Dated Event', 'person', TRUE)",
-            etid,
-            f"dated-event-{etid[:8]}",
-        )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO entity_event_types"
+        " (id, slug, display_name, applies_to, requires_year)"
+        " VALUES ($1, $2, 'Dated Event', 'person', TRUE)",
+        etid,
+        f"dated-event-{etid[:8]}",
+    )
 
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/",
         headers=HTMX_HEADERS,
         data={"event_type_id": etid, "event_year": "", "visibility": "public"},
@@ -141,37 +142,28 @@ async def test_event_create_requires_year_for_typed_event(client, db_pool):
     assert r.status_code == 200
     assert "Year is required" in r.text
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM entity_event_types WHERE id=$1", etid)
-        await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
-
-async def test_event_create_requires_linked_entity_for_typed_event(client, db_pool):
+async def test_event_create_requires_linked_entity_for_typed_event(client, db):
     """Event type with requires_linked_entity=True must reject missing linked_entity_id."""
     pid = generate_id()
     etid = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-        await conn.execute(
-            "INSERT INTO entity_event_types"
-            " (id, slug, display_name, applies_to, requires_linked_entity)"
-            " VALUES ($1, $2, 'Linked Event', 'person', TRUE)",
-            etid,
-            f"linked-event-{etid[:8]}",
-        )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO entity_event_types"
+        " (id, slug, display_name, applies_to, requires_linked_entity)"
+        " VALUES ($1, $2, 'Linked Event', 'person', TRUE)",
+        etid,
+        f"linked-event-{etid[:8]}",
+    )
 
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/",
         headers=HTMX_HEADERS,
         data={"event_type_id": etid, "linked_entity_id": "", "visibility": "public"},
     )
     assert r.status_code == 200
     assert "Linked entity is required" in r.text
-
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM entity_event_types WHERE id=$1", etid)
-        await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +173,7 @@ async def test_event_create_requires_linked_entity_for_typed_event(client, db_po
 
 async def test_event_read_row_returns_row(client, person_with_event):
     pid, etid, eid = person_with_event
-    r = client.get(f"/admin/people/{pid}/events/{eid}/read-row/", headers=HTMX_HEADERS)
+    r = await client.get(f"/admin/people/{pid}/events/{eid}/read-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<form" not in r.text
     assert "Test Event" in r.text
@@ -189,7 +181,7 @@ async def test_event_read_row_returns_row(client, person_with_event):
 
 async def test_event_edit_row_returns_form(client, person_with_event):
     pid, etid, eid = person_with_event
-    r = client.get(f"/admin/people/{pid}/events/{eid}/edit-row/", headers=HTMX_HEADERS)
+    r = await client.get(f"/admin/people/{pid}/events/{eid}/edit-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "<form" in r.text
 
@@ -201,7 +193,7 @@ async def test_event_edit_row_returns_form(client, person_with_event):
 
 async def test_event_update_saves_and_returns_read_row(client, person_with_event):
     pid, etid, eid = person_with_event
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/{eid}/edit-row/",
         headers=HTMX_HEADERS,
         data={
@@ -216,30 +208,29 @@ async def test_event_update_saves_and_returns_read_row(client, person_with_event
     assert "<form" not in r.text
 
 
-async def test_event_edit_requires_year_for_typed_event(client, db_pool, person_and_event_type):
+async def test_event_edit_requires_year_for_typed_event(client, db, person_and_event_type):
     """POST edit-row with requires_year event type and no year returns form with error."""
     pid, _ = person_and_event_type
     etid = generate_id()
     eid = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO entity_event_types"
-            " (id, slug, display_name, applies_to, requires_year)"
-            " VALUES ($1, $2, 'Dated Edit Event', 'person', TRUE)",
-            etid,
-            f"dated-edit-event-{etid[:8]}",
-        )
-        await conn.execute(
-            "INSERT INTO entity_events"
-            " (id, entity_type, entity_id, event_type_id, event_year, visibility)"
-            " VALUES ($1, 'person', $2, $3, 2020, 'public')",
-            eid,
-            pid,
-            etid,
-        )
+    await db.execute(
+        "INSERT INTO entity_event_types"
+        " (id, slug, display_name, applies_to, requires_year)"
+        " VALUES ($1, $2, 'Dated Edit Event', 'person', TRUE)",
+        etid,
+        f"dated-edit-event-{etid[:8]}",
+    )
+    await db.execute(
+        "INSERT INTO entity_events"
+        " (id, entity_type, entity_id, event_type_id, event_year, visibility)"
+        " VALUES ($1, 'person', $2, $3, 2020, 'public')",
+        eid,
+        pid,
+        etid,
+    )
 
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/{eid}/edit-row/",
         headers=HTMX_HEADERS,
         data={"event_type_id": etid, "event_year": "", "visibility": "public"},
@@ -247,78 +238,65 @@ async def test_event_edit_requires_year_for_typed_event(client, db_pool, person_
     assert r.status_code == 200
     assert "Year is required" in r.text
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
-        await conn.execute("DELETE FROM entity_event_types WHERE id=$1", etid)
-
 
 # ---------------------------------------------------------------------------
 # Archive / Unarchive
 # ---------------------------------------------------------------------------
 
 
-async def test_event_archive_sets_archived_at(client, person_with_event, db_pool):
+async def test_event_archive_sets_archived_at(client, person_with_event, db):
     pid, etid, eid = person_with_event
-    r = client.post(f"/admin/people/{pid}/events/{eid}/archive/", headers=HTMX_HEADERS)
+    r = await client.post(f"/admin/people/{pid}/events/{eid}/archive/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "HX-Trigger" in r.headers
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT archived_at FROM entity_events WHERE id=$1", eid)
+    row = await db.fetchrow("SELECT archived_at FROM entity_events WHERE id=$1", eid)
     assert row["archived_at"] is not None
 
     # Restore for subsequent tests
-    async with db_pool.acquire() as conn:
-        await conn.execute("UPDATE entity_events SET archived_at=NULL WHERE id=$1", eid)
+    await db.execute("UPDATE entity_events SET archived_at=NULL WHERE id=$1", eid)
 
 
-async def test_event_archive_already_archived_returns_409(client, db_pool, person_and_event_type):
+async def test_event_archive_already_archived_returns_409(client, db, person_and_event_type):
     pid, etid = person_and_event_type
     eid = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO entity_events"
-            " (id, entity_type, entity_id, event_type_id, visibility, archived_at)"
-            " VALUES ($1, 'person', $2, $3, 'public', NOW())",
-            eid,
-            pid,
-            etid,
-        )
+    await db.execute(
+        "INSERT INTO entity_events"
+        " (id, entity_type, entity_id, event_type_id, visibility, archived_at)"
+        " VALUES ($1, 'person', $2, $3, 'public', NOW())",
+        eid,
+        pid,
+        etid,
+    )
 
-    r = client.post(f"/admin/people/{pid}/events/{eid}/archive/", headers=HTMX_HEADERS)
+    r = await client.post(f"/admin/people/{pid}/events/{eid}/archive/", headers=HTMX_HEADERS)
     assert r.status_code == 409
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
 
-
-async def test_event_unarchive_clears_archived_at(client, db_pool, person_and_event_type):
+async def test_event_unarchive_clears_archived_at(client, db, person_and_event_type):
     pid, etid = person_and_event_type
     eid = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO entity_events"
-            " (id, entity_type, entity_id, event_type_id, visibility, archived_at)"
-            " VALUES ($1, 'person', $2, $3, 'public', NOW())",
-            eid,
-            pid,
-            etid,
-        )
+    await db.execute(
+        "INSERT INTO entity_events"
+        " (id, entity_type, entity_id, event_type_id, visibility, archived_at)"
+        " VALUES ($1, 'person', $2, $3, 'public', NOW())",
+        eid,
+        pid,
+        etid,
+    )
 
-    r = client.post(f"/admin/people/{pid}/events/{eid}/unarchive/", headers=HTMX_HEADERS)
+    r = await client.post(f"/admin/people/{pid}/events/{eid}/unarchive/", headers=HTMX_HEADERS)
     assert r.status_code == 200
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT archived_at FROM entity_events WHERE id=$1", eid)
-        await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+    row = await db.fetchrow("SELECT archived_at FROM entity_events WHERE id=$1", eid)
     assert row["archived_at"] is None
 
 
 async def test_event_unarchive_not_archived_returns_409(client, person_with_event):
     pid, etid, eid = person_with_event
-    r = client.post(f"/admin/people/{pid}/events/{eid}/unarchive/", headers=HTMX_HEADERS)
+    r = await client.post(f"/admin/people/{pid}/events/{eid}/unarchive/", headers=HTMX_HEADERS)
     assert r.status_code == 409
 
 
@@ -329,31 +307,29 @@ async def test_event_unarchive_not_archived_returns_409(client, person_with_even
 
 async def test_event_delete_not_archived_returns_409(client, person_with_event):
     pid, etid, eid = person_with_event
-    r = client.delete(f"/admin/people/{pid}/events/{eid}/", headers=HTMX_HEADERS)
+    r = await client.delete(f"/admin/people/{pid}/events/{eid}/", headers=HTMX_HEADERS)
     assert r.status_code == 409
 
 
-async def test_event_delete_archived_succeeds(client, db_pool, person_and_event_type):
+async def test_event_delete_archived_succeeds(client, db, person_and_event_type):
     pid, etid = person_and_event_type
     eid = generate_id()
 
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO entity_events"
-            " (id, entity_type, entity_id, event_type_id, visibility, archived_at)"
-            " VALUES ($1, 'person', $2, $3, 'public', NOW())",
-            eid,
-            pid,
-            etid,
-        )
+    await db.execute(
+        "INSERT INTO entity_events"
+        " (id, entity_type, entity_id, event_type_id, visibility, archived_at)"
+        " VALUES ($1, 'person', $2, $3, 'public', NOW())",
+        eid,
+        pid,
+        etid,
+    )
 
-    r = client.delete(f"/admin/people/{pid}/events/{eid}/", headers=HTMX_HEADERS)
+    r = await client.delete(f"/admin/people/{pid}/events/{eid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert r.text == ""
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT id FROM entity_events WHERE id=$1", eid)
-    assert row is None
+    row = await db.fetchrow("SELECT id FROM entity_events WHERE id=$1", eid)
+    assert row is None  # hard-deleted
 
 
 # ---------------------------------------------------------------------------
@@ -362,41 +338,35 @@ async def test_event_delete_archived_succeeds(client, db_pool, person_and_event_
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def address_city(db_pool):
+async def address_city(db):
     """A street-precision address row."""
     aid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO addresses"
-            " (id, raw_input, city, region, country, standardized, precision)"
-            " VALUES ($1, 'Portland OR', 'Portland', 'OR', 'US',"
-            " '1 Main St, Portland, OR', 'street')",
-            aid,
-        )
+    await db.execute(
+        "INSERT INTO addresses"
+        " (id, raw_input, city, region, country, standardized, precision)"
+        " VALUES ($1, 'Portland OR', 'Portland', 'OR', 'US',"
+        " '1 Main St, Portland, OR', 'street')",
+        aid,
+    )
     yield aid
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def address_low_precision(db_pool):
+async def address_low_precision(db):
     """A region-precision address row — below the city threshold."""
     aid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO addresses"
-            " (id, raw_input, region, country, precision)"
-            " VALUES ($1, 'Oregon', 'OR', 'US', 'region')",
-            aid,
-        )
+    await db.execute(
+        "INSERT INTO addresses"
+        " (id, raw_input, region, country, precision)"
+        " VALUES ($1, 'Oregon', 'OR', 'US', 'region')",
+        aid,
+    )
     yield aid
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM addresses WHERE id=$1", aid)
 
 
-async def test_event_create_links_address(client, person_and_event_type, address_city, db_pool):
+async def test_event_create_links_address(client, person_and_event_type, address_city, db):
     pid, etid = person_and_event_type
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/",
         headers=HTMX_HEADERS,
         data={
@@ -411,15 +381,11 @@ async def test_event_create_links_address(client, person_and_event_type, address
     assert r.status_code == 200
     assert "<form" not in r.text
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT event_place_address_id FROM entity_events"
-            " WHERE entity_id=$1 AND notes='PeopleAddrLinkTest'",
-            pid,
-        )
-        await conn.execute(
-            "DELETE FROM entity_events WHERE entity_id=$1 AND notes='PeopleAddrLinkTest'", pid
-        )
+    row = await db.fetchrow(
+        "SELECT event_place_address_id FROM entity_events"
+        " WHERE entity_id=$1 AND notes='PeopleAddrLinkTest'",
+        pid,
+    )
     assert row is not None
     assert row["event_place_address_id"] == address_city
 
@@ -428,7 +394,7 @@ async def test_event_create_address_low_precision_returns_form_error(
     client, person_and_event_type, address_low_precision
 ):
     pid, etid = person_and_event_type
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/",
         headers=HTMX_HEADERS,
         data={
@@ -444,7 +410,7 @@ async def test_event_create_address_low_precision_returns_form_error(
 
 async def test_event_create_address_not_found_returns_form_error(client, person_and_event_type):
     pid, etid = person_and_event_type
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/",
         headers=HTMX_HEADERS,
         data={
@@ -458,9 +424,9 @@ async def test_event_create_address_not_found_returns_form_error(client, person_
     assert "not found" in r.text.lower()
 
 
-async def test_event_edit_links_address(client, person_with_event, address_city, db_pool):
+async def test_event_edit_links_address(client, person_with_event, address_city, db):
     pid, etid, eid = person_with_event
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/{eid}/edit-row/",
         headers=HTMX_HEADERS,
         data={
@@ -473,30 +439,25 @@ async def test_event_edit_links_address(client, person_with_event, address_city,
     assert r.status_code == 200
     assert "<form" not in r.text
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT event_place_address_id FROM entity_events WHERE id=$1", eid
-        )
-        await conn.execute("UPDATE entity_events SET event_place_address_id=NULL WHERE id=$1", eid)
+    row = await db.fetchrow("SELECT event_place_address_id FROM entity_events WHERE id=$1", eid)
     assert row["event_place_address_id"] == address_city
 
 
-async def test_event_edit_clears_address(client, person_and_event_type, address_city, db_pool):
+async def test_event_edit_clears_address(client, person_and_event_type, address_city, db):
     pid, etid = person_and_event_type
     eid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO entity_events"
-            " (id, entity_type, entity_id, event_type_id, event_year,"
-            "  event_place_address_id, visibility)"
-            " VALUES ($1, 'person', $2, $3, 1990, $4, 'public')",
-            eid,
-            pid,
-            etid,
-            address_city,
-        )
+    await db.execute(
+        "INSERT INTO entity_events"
+        " (id, entity_type, entity_id, event_type_id, event_year,"
+        "  event_place_address_id, visibility)"
+        " VALUES ($1, 'person', $2, $3, 1990, $4, 'public')",
+        eid,
+        pid,
+        etid,
+        address_city,
+    )
 
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/{eid}/edit-row/",
         headers=HTMX_HEADERS,
         data={
@@ -508,37 +469,27 @@ async def test_event_edit_clears_address(client, person_and_event_type, address_
     )
     assert r.status_code == 200
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT event_place_address_id FROM entity_events WHERE id=$1", eid
-        )
-        await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+    row = await db.fetchrow("SELECT event_place_address_id FROM entity_events WHERE id=$1", eid)
     assert row["event_place_address_id"] is None
 
 
-async def test_event_read_row_shows_address_city(
-    client, person_and_event_type, address_city, db_pool
-):
+async def test_event_read_row_shows_address_city(client, person_and_event_type, address_city, db):
     pid, etid = person_and_event_type
     eid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO entity_events"
-            " (id, entity_type, entity_id, event_type_id, event_year,"
-            "  event_place_address_id, visibility)"
-            " VALUES ($1, 'person', $2, $3, 1990, $4, 'public')",
-            eid,
-            pid,
-            etid,
-            address_city,
-        )
+    await db.execute(
+        "INSERT INTO entity_events"
+        " (id, entity_type, entity_id, event_type_id, event_year,"
+        "  event_place_address_id, visibility)"
+        " VALUES ($1, 'person', $2, $3, 1990, $4, 'public')",
+        eid,
+        pid,
+        etid,
+        address_city,
+    )
 
-    r = client.get(f"/admin/people/{pid}/events/{eid}/read-row/", headers=HTMX_HEADERS)
+    r = await client.get(f"/admin/people/{pid}/events/{eid}/read-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert "Portland" in r.text
-
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
 
 
 # ---------------------------------------------------------------------------
@@ -547,31 +498,26 @@ async def test_event_read_row_shows_address_city(
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def linkable_org(db_pool):
+async def linkable_org(db):
     """An organization with a display name, usable as a linked entity."""
     oid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-        await conn.execute(
-            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
-            " VALUES ($1, $2, 'Linked Target Org', TRUE)",
-            generate_id(),
-            oid,
-        )
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+        " VALUES ($1, $2, 'Linked Target Org', TRUE)",
+        generate_id(),
+        oid,
+    )
 
     yield oid, "Linked Target Org"
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
-        await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
-
 
 async def test_event_create_accepts_valid_linked_entity(
-    client, person_and_event_type, linkable_org, db_pool
+    client, person_and_event_type, linkable_org, db
 ):
     pid, etid = person_and_event_type
     oid, _ = linkable_org
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/",
         headers=HTMX_HEADERS,
         data={
@@ -584,20 +530,19 @@ async def test_event_create_accepts_valid_linked_entity(
     )
     assert r.status_code == 200
     assert "Linked entity" not in r.text  # no validation error
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT linked_entity_type, linked_entity_id FROM entity_events"
-            " WHERE entity_id=$1 AND linked_entity_id=$2",
-            pid,
-            oid,
-        )
+    row = await db.fetchrow(
+        "SELECT linked_entity_type, linked_entity_id FROM entity_events"
+        " WHERE entity_id=$1 AND linked_entity_id=$2",
+        pid,
+        oid,
+    )
     assert row is not None
     assert row["linked_entity_type"] == "organization"
 
 
 async def test_event_create_rejects_unknown_linked_entity(client, person_and_event_type):
     pid, etid = person_and_event_type
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/",
         headers=HTMX_HEADERS,
         data={
@@ -612,29 +557,24 @@ async def test_event_create_rejects_unknown_linked_entity(client, person_and_eve
     assert "Linked entity not found" in r.text
 
 
-async def test_event_create_rejects_type_mismatch(client, person_and_event_type, db_pool):
+async def test_event_create_rejects_type_mismatch(client, person_and_event_type, db):
     """An id that exists as a person must not validate when type says organization."""
     pid, etid = person_and_event_type
     other_pid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO people (id) VALUES ($1)", other_pid)
-    try:
-        r = client.post(
-            f"/admin/people/{pid}/events/",
-            headers=HTMX_HEADERS,
-            data={
-                "event_type_id": etid,
-                "event_year": "2020",
-                "linked_entity_type": "organization",
-                "linked_entity_id": other_pid,
-                "visibility": "public",
-            },
-        )
-        assert r.status_code == 200
-        assert "Linked entity not found" in r.text
-    finally:
-        async with db_pool.acquire() as conn:
-            await conn.execute("DELETE FROM people WHERE id=$1", other_pid)
+    await db.execute("INSERT INTO people (id) VALUES ($1)", other_pid)
+    r = await client.post(
+        f"/admin/people/{pid}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2020",
+            "linked_entity_type": "organization",
+            "linked_entity_id": other_pid,
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "Linked entity not found" in r.text
 
 
 async def test_event_create_rejects_linked_id_without_type(
@@ -642,7 +582,7 @@ async def test_event_create_rejects_linked_id_without_type(
 ):
     pid, etid = person_and_event_type
     oid, _ = linkable_org
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/",
         headers=HTMX_HEADERS,
         data={
@@ -658,34 +598,29 @@ async def test_event_create_rejects_linked_id_without_type(
 
 
 async def test_event_edit_row_prefills_linked_entity_name(
-    client, person_and_event_type, linkable_org, db_pool
+    client, person_and_event_type, linkable_org, db
 ):
     pid, etid = person_and_event_type
     oid, oname = linkable_org
     eid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO entity_events"
-            " (id, entity_type, entity_id, event_type_id, event_year,"
-            "  linked_entity_type, linked_entity_id, visibility)"
-            " VALUES ($1, 'person', $2, $3, 2020, 'organization', $4, 'public')",
-            eid,
-            pid,
-            etid,
-            oid,
-        )
-    try:
-        r = client.get(f"/admin/people/{pid}/events/{eid}/edit-row/", headers=HTMX_HEADERS)
-        assert r.status_code == 200
-        assert oname in r.text  # display name, not the raw ULID
-    finally:
-        async with db_pool.acquire() as conn:
-            await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+    await db.execute(
+        "INSERT INTO entity_events"
+        " (id, entity_type, entity_id, event_type_id, event_year,"
+        "  linked_entity_type, linked_entity_id, visibility)"
+        " VALUES ($1, 'person', $2, $3, 2020, 'organization', $4, 'public')",
+        eid,
+        pid,
+        etid,
+        oid,
+    )
+    r = await client.get(f"/admin/people/{pid}/events/{eid}/edit-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert oname in r.text  # display name, not the raw ULID
 
 
 async def test_event_edit_rejects_unknown_linked_entity(client, person_with_event):
     pid, etid, eid = person_with_event
-    r = client.post(
+    r = await client.post(
         f"/admin/people/{pid}/events/{eid}/edit-row/",
         headers=HTMX_HEADERS,
         data={
@@ -700,9 +635,7 @@ async def test_event_edit_rejects_unknown_linked_entity(client, person_with_even
     assert "Linked entity not found" in r.text
 
 
-async def test_event_edit_unchanged_dangling_link_still_saves(
-    client, person_and_event_type, db_pool
-):
+async def test_event_edit_unchanged_dangling_link_still_saves(client, person_and_event_type, db):
     """Editing an unrelated field must not re-validate an unchanged (dangling) link.
 
     A linked target can be hard-deleted or merged away after the link is made,
@@ -711,37 +644,31 @@ async def test_event_edit_unchanged_dangling_link_still_saves(
     """
     pid, etid = person_and_event_type
     eid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO entity_events"
-            " (id, entity_type, entity_id, event_type_id, event_year,"
-            "  linked_entity_type, linked_entity_id, visibility)"
-            " VALUES ($1, 'person', $2, $3, 2020, 'organization', 'org_ghost_deleted', 'public')",
-            eid,
-            pid,
-            etid,
-        )
-    try:
-        r = client.post(
-            f"/admin/people/{pid}/events/{eid}/edit-row/",
-            headers=HTMX_HEADERS,
-            data={
-                "event_type_id": etid,
-                "event_year": "2021",
-                "linked_entity_type": "organization",
-                "linked_entity_id": "org_ghost_deleted",  # unchanged dangling link
-                "visibility": "public",
-            },
-        )
-        assert r.status_code == 200
-        assert "Linked entity not found" not in r.text
-        assert "<form" not in r.text  # read-row returned ⇒ saved
-        async with db_pool.acquire() as conn:
-            yr = await conn.fetchval("SELECT event_year FROM entity_events WHERE id=$1", eid)
-        assert yr == 2021
-    finally:
-        async with db_pool.acquire() as conn:
-            await conn.execute("DELETE FROM entity_events WHERE id=$1", eid)
+    await db.execute(
+        "INSERT INTO entity_events"
+        " (id, entity_type, entity_id, event_type_id, event_year,"
+        "  linked_entity_type, linked_entity_id, visibility)"
+        " VALUES ($1, 'person', $2, $3, 2020, 'organization', 'org_ghost_deleted', 'public')",
+        eid,
+        pid,
+        etid,
+    )
+    r = await client.post(
+        f"/admin/people/{pid}/events/{eid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2021",
+            "linked_entity_type": "organization",
+            "linked_entity_id": "org_ghost_deleted",  # unchanged dangling link
+            "visibility": "public",
+        },
+    )
+    assert r.status_code == 200
+    assert "Linked entity not found" not in r.text
+    assert "<form" not in r.text  # read-row returned ⇒ saved
+    yr = await db.fetchval("SELECT event_year FROM entity_events WHERE id=$1", eid)
+    assert yr == 2021
 
 
 async def test_event_form_linked_typeahead_hx_include_is_row_scoped(client, person_and_event_type):
@@ -750,7 +677,7 @@ async def test_event_form_linked_typeahead_hx_include_is_row_scoped(client, pers
     name selector — otherwise concurrently-open rows cross-contaminate scope.
     """
     pid, _ = person_and_event_type
-    r = client.get(f"/admin/people/{pid}/events/new-row/", headers=HTMX_HEADERS)
+    r = await client.get(f"/admin/people/{pid}/events/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert 'id="linked-entity-type-new"' in r.text
     assert 'hx-include="#linked-entity-type-new"' in r.text

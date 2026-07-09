@@ -9,8 +9,9 @@ import os
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
+from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -28,91 +29,99 @@ def _vec_literal(fill: float = 0.125) -> str:
     return "[" + ",".join(str(fill) for _ in range(_DIM)) + "]"
 
 
-@pytest.fixture
-def client():
-    with TestClient(app) as c:
-        yield c
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def api_key_id(db_pool):
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def api_key_id(db):
     """Seed an app_user + api_key to satisfy created_by_key_id (NOT NULL FK)."""
     uid = generate_id()
     kid = generate_id()
     raw = "pm_" + os.urandom(16).hex()
     khash = hashlib.sha256(raw.encode()).hexdigest()
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "e284@test.com")
-        await conn.execute(
-            "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-            " VALUES ($1,$2,$3,$4,$5)",
-            kid,
-            uid,
-            "Embed Test Key",
-            raw[:8],
-            khash,
-        )
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "e284@test.com")
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        uid,
+        "Embed Test Key",
+        raw[:8],
+        khash,
+    )
     yield kid
-    async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM api_keys WHERE id=$1", kid)
-        await conn.execute("DELETE FROM app_users WHERE id=$1", uid)
 
 
-async def _insert_embedding(db_pool, person_id, key_id, *, archived=False, job_id="job_ABC"):
+async def _insert_embedding(db, person_id, key_id, *, archived=False, job_id="job_ABC"):
     eid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            f"""
-            INSERT INTO {_TABLE}
-                (id, person_id, embedding, embedding_dim, activity_ms,
-                 audio_sample_rate_hz, source_service, source_job_id,
-                 source_segment, recorded_at, created_by_key_id, archived_at)
-            VALUES ($1,$2,$3::vector,$4,$5,$6,$7,$8,$9, now(), $10,
-                    CASE WHEN $11 THEN now() ELSE NULL END)
-            """,
-            eid,
-            person_id,
-            _vec_literal(),
-            _DIM,
-            1000,
-            16000,
-            "observo",
-            job_id,
-            3,
-            key_id,
-            archived,
-        )
+    await db.execute(
+        f"""
+        INSERT INTO {_TABLE}
+            (id, person_id, embedding, embedding_dim, activity_ms,
+             audio_sample_rate_hz, source_service, source_job_id,
+             source_segment, recorded_at, created_by_key_id, archived_at)
+        VALUES ($1,$2,$3::vector,$4,$5,$6,$7,$8,$9, now(), $10,
+                CASE WHEN $11 THEN now() ELSE NULL END)
+        """,
+        eid,
+        person_id,
+        _vec_literal(),
+        _DIM,
+        1000,
+        16000,
+        "observo",
+        job_id,
+        3,
+        key_id,
+        archived,
+    )
     return eid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def person_id(db_pool, api_key_id):
+async def person_id(db, api_key_id):
     # Depend on api_key_id purely for teardown ordering: this fixture must
     # delete its embeddings (which FK the key) before api_key_id drops the key.
     pid = generate_id()
-    async with db_pool.acquire() as conn:
-        await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
-        await conn.execute(
-            "INSERT INTO person_names (id, person_id, name, is_canonical)"
-            " VALUES ($1,$2,'Embed Subject',TRUE)",
-            generate_id(),
-            pid,
-        )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, is_canonical)"
+        " VALUES ($1,$2,'Embed Subject',TRUE)",
+        generate_id(),
+        pid,
+    )
     yield pid
-    async with db_pool.acquire() as conn:
-        await conn.execute(f"DELETE FROM {_TABLE} WHERE person_id=$1", pid)
-        await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-        await conn.execute("DELETE FROM people WHERE id=$1", pid)
 
 
-async def _archived_at(db_pool, eid):
-    async with db_pool.acquire() as conn:
-        return await conn.fetchval(f"SELECT archived_at FROM {_TABLE} WHERE id=$1", eid)
+async def _archived_at(db, eid):
+    return await db.fetchval(f"SELECT archived_at FROM {_TABLE} WHERE id=$1", eid)
 
 
-async def _exists(db_pool, eid):
-    async with db_pool.acquire() as conn:
-        return await conn.fetchval(f"SELECT 1 FROM {_TABLE} WHERE id=$1", eid) is not None
+async def _exists(db, eid):
+    return await db.fetchval(f"SELECT 1 FROM {_TABLE} WHERE id=$1", eid) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -120,9 +129,9 @@ async def _exists(db_pool, eid):
 # ---------------------------------------------------------------------------
 
 
-async def test_detail_shows_embeddings_section(client, db_pool, person_id, api_key_id):
-    await _insert_embedding(db_pool, person_id, api_key_id)
-    r = client.get(f"/admin/people/{person_id}/", headers=AUTH_HEADERS)
+async def test_detail_shows_embeddings_section(client, db, person_id, api_key_id):
+    await _insert_embedding(db, person_id, api_key_id)
+    r = await client.get(f"/admin/people/{person_id}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert "Voice Embeddings" in r.text
     assert _MODEL_ID in r.text
@@ -130,25 +139,29 @@ async def test_detail_shows_embeddings_section(client, db_pool, person_id, api_k
     assert "job_ABC" in r.text
 
 
-async def test_active_only_by_default(client, db_pool, person_id, api_key_id):
-    active = await _insert_embedding(db_pool, person_id, api_key_id, job_id="job_ACTIVE")
-    await _insert_embedding(db_pool, person_id, api_key_id, archived=True, job_id="job_ARCH")
-    r = client.get(f"/admin/people/{person_id}/", headers=AUTH_HEADERS)
+async def test_active_only_by_default(client, db, person_id, api_key_id):
+    active = await _insert_embedding(db, person_id, api_key_id, job_id="job_ACTIVE")
+    await _insert_embedding(db, person_id, api_key_id, archived=True, job_id="job_ARCH")
+    r = await client.get(f"/admin/people/{person_id}/", headers=AUTH_HEADERS)
     assert "job_ACTIVE" in r.text
     assert "job_ARCH" not in r.text
     assert active  # sanity
 
 
-async def test_show_archived_toggle_reveals_archived(client, db_pool, person_id, api_key_id):
-    await _insert_embedding(db_pool, person_id, api_key_id, archived=True, job_id="job_ARCH")
-    r = client.get(f"/admin/people/{person_id}/?show_archived_embeddings=1", headers=AUTH_HEADERS)
+async def test_show_archived_toggle_reveals_archived(client, db, person_id, api_key_id):
+    await _insert_embedding(db, person_id, api_key_id, archived=True, job_id="job_ARCH")
+    r = await client.get(
+        f"/admin/people/{person_id}/?show_archived_embeddings=1", headers=AUTH_HEADERS
+    )
     assert "job_ARCH" in r.text
     assert "Hide archived" in r.text
 
 
-async def test_archived_row_renders_restore_and_hard_delete(client, db_pool, person_id, api_key_id):
-    await _insert_embedding(db_pool, person_id, api_key_id, archived=True)
-    r = client.get(f"/admin/people/{person_id}/?show_archived_embeddings=1", headers=AUTH_HEADERS)
+async def test_archived_row_renders_restore_and_hard_delete(client, db, person_id, api_key_id):
+    await _insert_embedding(db, person_id, api_key_id, archived=True)
+    r = await client.get(
+        f"/admin/people/{person_id}/?show_archived_embeddings=1", headers=AUTH_HEADERS
+    )
     assert "Restore" in r.text
     assert "Delete permanently" in r.text
 
@@ -158,9 +171,9 @@ async def test_archived_row_renders_restore_and_hard_delete(client, db_pool, per
 # ---------------------------------------------------------------------------
 
 
-async def test_copy_endpoint_returns_full_vector(client, db_pool, person_id, api_key_id):
-    eid = await _insert_embedding(db_pool, person_id, api_key_id)
-    r = client.get(
+async def test_copy_endpoint_returns_full_vector(client, db, person_id, api_key_id):
+    eid = await _insert_embedding(db, person_id, api_key_id)
+    r = await client.get(
         f"/admin/people/{person_id}/embeddings/{_MODEL_ID}/{eid}/vector/", headers=AUTH_HEADERS
     )
     assert r.status_code == 200
@@ -169,16 +182,16 @@ async def test_copy_endpoint_returns_full_vector(client, db_pool, person_id, api
     assert body.count(",") == _DIM - 1
 
 
-async def test_copy_unknown_model_404(client, db_pool, person_id, api_key_id):
-    eid = await _insert_embedding(db_pool, person_id, api_key_id)
-    r = client.get(
+async def test_copy_unknown_model_404(client, db, person_id, api_key_id):
+    eid = await _insert_embedding(db, person_id, api_key_id)
+    r = await client.get(
         f"/admin/people/{person_id}/embeddings/nope-model/{eid}/vector/", headers=AUTH_HEADERS
     )
     assert r.status_code == 404
 
 
 async def test_copy_missing_row_404(client, person_id):
-    r = client.get(
+    r = await client.get(
         f"/admin/people/{person_id}/embeddings/{_MODEL_ID}/{generate_id()}/vector/",
         headers=AUTH_HEADERS,
     )
@@ -190,21 +203,21 @@ async def test_copy_missing_row_404(client, person_id):
 # ---------------------------------------------------------------------------
 
 
-async def test_delete_archives(client, db_pool, person_id, api_key_id):
-    eid = await _insert_embedding(db_pool, person_id, api_key_id)
-    r = client.delete(
+async def test_delete_archives(client, db, person_id, api_key_id):
+    eid = await _insert_embedding(db, person_id, api_key_id)
+    r = await client.delete(
         f"/admin/people/{person_id}/embeddings/{_MODEL_ID}/{eid}/", headers=HTMX_HEADERS
     )
     assert r.status_code == 200
-    assert await _archived_at(db_pool, eid) is not None
+    assert await _archived_at(db, eid) is not None
 
 
-async def test_archive_response_refreshes_archived_count(client, db_pool, person_id, api_key_id):
+async def test_archive_response_refreshes_archived_count(client, db, person_id, api_key_id):
     # Archiving the only active row (0 archived → 1) must re-render the section
     # header so the "Show archived (N)" toggle appears with a fresh count (#284
     # CR item 1: whole-section swap, not tbody-only).
-    eid = await _insert_embedding(db_pool, person_id, api_key_id)
-    r = client.delete(
+    eid = await _insert_embedding(db, person_id, api_key_id)
+    r = await client.delete(
         f"/admin/people/{person_id}/embeddings/{_MODEL_ID}/{eid}/", headers=HTMX_HEADERS
     )
     assert r.status_code == 200
@@ -212,9 +225,9 @@ async def test_archive_response_refreshes_archived_count(client, db_pool, person
     assert "Show archived (1)" in r.text
 
 
-async def test_delete_already_archived_409(client, db_pool, person_id, api_key_id):
-    eid = await _insert_embedding(db_pool, person_id, api_key_id, archived=True)
-    r = client.delete(
+async def test_delete_already_archived_409(client, db, person_id, api_key_id):
+    eid = await _insert_embedding(db, person_id, api_key_id, archived=True)
+    r = await client.delete(
         f"/admin/people/{person_id}/embeddings/{_MODEL_ID}/{eid}/", headers=HTMX_HEADERS
     )
     assert r.status_code == 409
@@ -225,18 +238,18 @@ async def test_delete_already_archived_409(client, db_pool, person_id, api_key_i
 # ---------------------------------------------------------------------------
 
 
-async def test_restore_unarchives(client, db_pool, person_id, api_key_id):
-    eid = await _insert_embedding(db_pool, person_id, api_key_id, archived=True)
-    r = client.post(
+async def test_restore_unarchives(client, db, person_id, api_key_id):
+    eid = await _insert_embedding(db, person_id, api_key_id, archived=True)
+    r = await client.post(
         f"/admin/people/{person_id}/embeddings/{_MODEL_ID}/{eid}/restore/", headers=HTMX_HEADERS
     )
     assert r.status_code == 200
-    assert await _archived_at(db_pool, eid) is None
+    assert await _archived_at(db, eid) is None
 
 
-async def test_restore_active_409(client, db_pool, person_id, api_key_id):
-    eid = await _insert_embedding(db_pool, person_id, api_key_id)
-    r = client.post(
+async def test_restore_active_409(client, db, person_id, api_key_id):
+    eid = await _insert_embedding(db, person_id, api_key_id)
+    r = await client.post(
         f"/admin/people/{person_id}/embeddings/{_MODEL_ID}/{eid}/restore/", headers=HTMX_HEADERS
     )
     assert r.status_code == 409
@@ -247,22 +260,22 @@ async def test_restore_active_409(client, db_pool, person_id, api_key_id):
 # ---------------------------------------------------------------------------
 
 
-async def test_hard_delete_active_409(client, db_pool, person_id, api_key_id):
-    eid = await _insert_embedding(db_pool, person_id, api_key_id)
-    r = client.delete(
+async def test_hard_delete_active_409(client, db, person_id, api_key_id):
+    eid = await _insert_embedding(db, person_id, api_key_id)
+    r = await client.delete(
         f"/admin/people/{person_id}/embeddings/{_MODEL_ID}/{eid}/permanent/", headers=HTMX_HEADERS
     )
     assert r.status_code == 409
-    assert await _exists(db_pool, eid)
+    assert await _exists(db, eid)
 
 
-async def test_hard_delete_archived_removes_row(client, db_pool, person_id, api_key_id):
-    eid = await _insert_embedding(db_pool, person_id, api_key_id, archived=True)
-    r = client.delete(
+async def test_hard_delete_archived_removes_row(client, db, person_id, api_key_id):
+    eid = await _insert_embedding(db, person_id, api_key_id, archived=True)
+    r = await client.delete(
         f"/admin/people/{person_id}/embeddings/{_MODEL_ID}/{eid}/permanent/", headers=HTMX_HEADERS
     )
     assert r.status_code == 200
-    assert not await _exists(db_pool, eid)
+    assert not await _exists(db, eid)
 
 
 # ---------------------------------------------------------------------------
@@ -270,8 +283,8 @@ async def test_hard_delete_archived_removes_row(client, db_pool, person_id, api_
 # ---------------------------------------------------------------------------
 
 
-def test_vector_requires_admin_auth(client):
-    r = client.get(
+async def test_vector_requires_admin_auth(client):
+    r = await client.get(
         f"/admin/people/{generate_id()}/embeddings/{_MODEL_ID}/{generate_id()}/vector/",
         follow_redirects=False,
     )
