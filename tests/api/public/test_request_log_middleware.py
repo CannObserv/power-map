@@ -13,17 +13,19 @@ from src.api.public.middleware import (
     RequestLogMiddleware,
     _enrich,
     _pending_writes,
+    drain_pending_writes,
     route_group_for_path,
 )
 from src.core.db import generate_id
 
 
 async def _drain_pending_writes(timeout: float = 5.0):
-    """Await any in-flight fire-and-forget capture writes (test helper)."""
-    if _pending_writes:
-        await asyncio.wait_for(
-            asyncio.gather(*list(_pending_writes), return_exceptions=True), timeout
-        )
+    """Await any in-flight fire-and-forget capture writes (test helper).
+
+    Thin wrapper over the production ``drain_pending_writes`` (#286) so the
+    fixtures/tests exercise the same drain the ASGI shutdown hook uses.
+    """
+    await drain_pending_writes(timeout)
 
 
 async def _poll_row(db, sql, *args, tries: int = 50, delay: float = 0.05):
@@ -170,6 +172,59 @@ async def test_write_runs_and_reference_discarded(monkeypatch):
 
     assert len(calls) == 1  # write executed exactly once
     assert len(_pending_writes) == 0  # reference set cleaned up
+
+
+# ---------------------------------------------------------------------------
+# Unit — shutdown drain (#286, no DB)
+# ---------------------------------------------------------------------------
+
+
+async def test_drain_awaits_in_flight_writes(monkeypatch):
+    """``drain_pending_writes`` awaits a scheduled write to completion.
+
+    Restores the pre-#262 durable-on-return contract for graceful shutdown:
+    the row write finishes before the drain returns.
+    """
+    started = asyncio.Event()
+    completed = []
+
+    async def slow_write(_self, _params):
+        started.set()
+        await asyncio.sleep(0.05)
+        completed.append(True)
+
+    with patch.object(RequestLogMiddleware, "_write", slow_write):
+        await _run_middleware(monkeypatch)
+        await asyncio.wait_for(started.wait(), timeout=1)
+        assert not completed  # not yet done when drain begins
+        await drain_pending_writes()
+
+    assert completed == [True]  # write finished during the drain
+    assert len(_pending_writes) == 0
+
+
+async def test_drain_is_bounded_and_swallows_timeout(monkeypatch):
+    """A stalled write must not hang shutdown; the drain returns within its bound."""
+    release = asyncio.Event()
+
+    async def stalled_write(_self, _params):
+        await release.wait()  # never released during the drain
+
+    with patch.object(RequestLogMiddleware, "_write", stalled_write):
+        await _run_middleware(monkeypatch)
+        # Bounded: returns (no raise) even though the write never completes.
+        await asyncio.wait_for(drain_pending_writes(timeout=0.1), timeout=1)
+        # Cleanup: release the stalled task so it doesn't leak into other tests.
+        release.set()
+        await _drain_pending_writes()
+
+    assert len(_pending_writes) == 0
+
+
+async def test_drain_noop_when_nothing_pending():
+    """Draining with an empty pending set returns immediately without error."""
+    assert len(_pending_writes) == 0
+    await drain_pending_writes()
 
 
 # ---------------------------------------------------------------------------

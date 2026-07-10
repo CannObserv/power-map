@@ -19,6 +19,11 @@ adds to the awaited request latency. Strong refs to in-flight tasks are held in
 ``_pending_writes`` (discarded on completion) so they aren't garbage-collected
 mid-flight — the classic ``create_task`` footgun. Best-effort is preserved: the
 swallow-and-log now lives inside the background task.
+
+On *graceful* shutdown the ASGI lifespan calls ``drain_pending_writes`` (#286)
+to flush any in-flight writes before the pool closes, restoring the pre-#262
+durable-on-return contract for the deploy/restart path. A hard crash still drops
+in-flight rows — acceptable under the best-effort posture.
 """
 
 import asyncio
@@ -34,8 +39,39 @@ _V1_PREFIX = "/api/v1"
 
 # Strong references to in-flight fire-and-forget capture writes (#262). Without
 # this, ``asyncio`` only keeps a weak ref to the task and may GC it before it
-# runs. Each task discards its own ref via a done-callback.
+# runs. Each task discards its own ref via a done-callback. Per-worker: each
+# uvicorn worker process owns its own set and drains it independently (#286).
 _pending_writes: set[asyncio.Task] = set()
+
+_DRAIN_TIMEOUT_S = 5.0
+
+
+async def drain_pending_writes(timeout: float = _DRAIN_TIMEOUT_S) -> None:
+    """Await in-flight fire-and-forget capture writes on shutdown (#286).
+
+    Wired into the ASGI lifespan **before** the pool closes, this restores the
+    pre-#262 durable-on-return contract for *graceful* shutdown (deploy,
+    ``systemctl restart``, SIGTERM): rows scheduled but not yet flushed get a
+    bounded window to land instead of being silently dropped.
+
+    Bounded and best-effort — a stalled write can't hang the deploy, and any
+    failure (including timeout) is swallowed and logged. A hard crash
+    (SIGKILL/OOM) still loses in-flight rows, consistent with #262's best-effort
+    posture. Per-worker: drains only this process's ``_pending_writes``.
+    """
+    if not _pending_writes:
+        return
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*list(_pending_writes), return_exceptions=True), timeout
+        )
+    except TimeoutError:
+        logger.warning(
+            "api_request_log drain timed out after %ss; %d write(s) may be lost",
+            timeout,
+            len(_pending_writes),
+        )
+
 
 _INSERT_SQL = """
     INSERT INTO api_request_log
