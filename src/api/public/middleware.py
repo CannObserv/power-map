@@ -46,6 +46,14 @@ _pending_writes: set[asyncio.Task] = set()
 _DRAIN_TIMEOUT_S = 5.0
 
 
+def _unfinished(task: asyncio.Task) -> bool:
+    """True if a capture write didn't finish cleanly (still running, cancelled,
+    or errored). The short-circuit keeps ``.exception()`` off cancelled tasks,
+    which would otherwise re-raise ``CancelledError``.
+    """
+    return not task.done() or task.cancelled() or task.exception() is not None
+
+
 async def drain_pending_writes(timeout: float = _DRAIN_TIMEOUT_S) -> None:
     """Await in-flight fire-and-forget capture writes on shutdown (#286).
 
@@ -68,10 +76,8 @@ async def drain_pending_writes(timeout: float = _DRAIN_TIMEOUT_S) -> None:
         # Count from the snapshot, not the live set: the timeout cancels the
         # gather (and its children), whose done-callbacks discard from
         # _pending_writes on the next loop tick — reading the set here would
-        # under-report. A write is "lost" if it didn't finish cleanly: still
-        # running, cancelled, or ended in an exception. The short-circuit keeps
-        # ``.exception()`` off cancelled tasks (which would re-raise).
-        lost = sum(1 for t in pending if not t.done() or t.cancelled() or t.exception() is not None)
+        # under-report.
+        lost = sum(1 for t in pending if _unfinished(t))
         logger.warning(
             "api_request_log drain timed out after %ss; %d write(s) may be lost",
             timeout,
