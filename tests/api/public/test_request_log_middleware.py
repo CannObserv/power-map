@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 import pytest_asyncio
 
+from src.api.public import middleware as mw
 from src.api.public.middleware import (
     RequestLogMiddleware,
     _enrich,
@@ -257,6 +258,96 @@ async def test_drain_timeout_logs_accurate_lost_count(caplog):
         await _drain_pending_writes()
 
     assert len(_pending_writes) == 0
+
+
+# ---------------------------------------------------------------------------
+# Unit — in-flight cap / backpressure shedding (#290, no DB)
+# ---------------------------------------------------------------------------
+
+
+async def test_writes_up_to_cap_not_shed(monkeypatch):
+    """At or under the cap, every write is scheduled — nothing is shed."""
+    monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 3)
+    monkeypatch.setattr(mw, "_shed_count", 0)
+    release = asyncio.Event()
+
+    async def blocked_write(_self, _params):
+        await release.wait()
+
+    inst = RequestLogMiddleware(None)
+    with patch.object(RequestLogMiddleware, "_write", blocked_write):
+        for _ in range(3):
+            inst._schedule_write(("p",))
+        assert len(_pending_writes) == 3  # all scheduled
+        assert mw._shed_count == 0  # none shed
+        release.set()
+        await _drain_pending_writes()
+
+    assert len(_pending_writes) == 0
+
+
+async def test_pending_writes_bounded_by_cap(monkeypatch):
+    """A burst past the cap sheds incoming writes (drop-newest) instead of
+    piling unbounded tasks onto ``pool.acquire()``; the in-flight set never
+    exceeds the cap and the overflow is counted."""
+    monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 3)
+    monkeypatch.setattr(mw, "_shed_count", 0)
+    release = asyncio.Event()
+
+    async def blocked_write(_self, _params):
+        await release.wait()  # keep every scheduled write in-flight during the burst
+
+    inst = RequestLogMiddleware(None)
+    with patch.object(RequestLogMiddleware, "_write", blocked_write):
+        for _ in range(10):
+            inst._schedule_write(("p",))
+        assert len(_pending_writes) == 3  # capped — never exceeds the soft cap
+        assert mw._shed_count == 7  # 10 scheduled − 3 admitted
+        release.set()
+        await _drain_pending_writes()
+
+    assert len(_pending_writes) == 0
+
+
+async def test_shed_writes_counted_and_warned(monkeypatch, caplog):
+    """A shed write is never silent: it increments the cumulative count and the
+    first shed emits a warning carrying that running total."""
+    monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 1)
+    monkeypatch.setattr(mw, "_shed_count", 0)
+    release = asyncio.Event()
+
+    async def blocked_write(_self, _params):
+        await release.wait()
+
+    inst = RequestLogMiddleware(None)
+    with patch.object(RequestLogMiddleware, "_write", blocked_write):
+        with caplog.at_level(logging.WARNING):
+            inst._schedule_write(("keep",))  # fills the cap
+            inst._schedule_write(("shed",))  # over cap → shed + warn
+        assert mw._shed_count == 1
+        assert "1 write(s) shed" in caplog.text
+        release.set()
+        await _drain_pending_writes()
+
+    assert len(_pending_writes) == 0
+
+
+async def test_shed_warning_throttled(monkeypatch, caplog):
+    """A sustained overflow must not emit one warning per shed. Warn on the
+    first shed, then once per ``_SHED_WARN_EVERY``, always with the total."""
+    monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 0)  # everything sheds
+    monkeypatch.setattr(mw, "_shed_count", 0)
+    monkeypatch.setattr(mw, "_SHED_WARN_EVERY", 5)
+
+    inst = RequestLogMiddleware(None)
+    with caplog.at_level(logging.WARNING):
+        for _ in range(11):
+            inst._schedule_write(("shed",))  # cap 0 → never scheduled, always shed
+
+    warns = [r for r in caplog.records if "shed" in r.getMessage().lower()]
+    assert mw._shed_count == 11
+    assert len(warns) == 3  # sheds #1, #5, #10 — first + every 5th, not 11
+    assert len(_pending_writes) == 0  # nothing was ever scheduled
 
 
 # ---------------------------------------------------------------------------

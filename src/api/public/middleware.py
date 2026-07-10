@@ -24,10 +24,17 @@ On *graceful* shutdown the ASGI lifespan calls ``drain_pending_writes`` (#286)
 to flush any in-flight writes before the pool closes, restoring the pre-#262
 durable-on-return contract for the deploy/restart path. A hard crash still drops
 in-flight rows — acceptable under the best-effort posture.
+
+The in-flight set is bounded by ``_MAX_PENDING_WRITES`` (#290): a burst that
+would otherwise spawn unbounded tasks all queued on ``pool.acquire()`` instead
+sheds the newest writes once the cap is reached, keeping the older (closer to
+landing) ones. Shed writes are counted and warned (throttled), never silently
+dropped — consistent with the best-effort contract.
 """
 
 import asyncio
 import json
+import os
 import time
 
 import src.core.db as db
@@ -44,6 +51,26 @@ _V1_PREFIX = "/api/v1"
 _pending_writes: set[asyncio.Task] = set()
 
 _DRAIN_TIMEOUT_S = 5.0
+
+# Soft cap on in-flight capture writes (#290). When the in-flight set is at the
+# cap, an incoming write is *shed* (drop-newest) rather than piling another task
+# onto ``pool.acquire()`` — the oldest in-flight writes are closest to landing,
+# so those are the ones worth keeping. Shedding telemetry never affects the
+# request (best-effort contract). Tune relative to ``DB_POOL_MAX_SIZE``: a
+# shallow cap sheds early and protects handler acquire latency. The cap bounds
+# acquire-queue depth + task/memory growth under a burst; it does not by itself
+# resolve request/capture pool contention (that's #290 item 2).
+_MAX_PENDING_WRITES = int(os.environ.get("API_REQUEST_LOG_MAX_PENDING", "50"))
+
+# Cumulative count of capture writes shed since process start (#290). Shed
+# writes are never silent — surfaced via the throttled warning in
+# ``_schedule_write``. Per-worker, like ``_pending_writes``.
+_shed_count = 0
+
+# Warn on the first shed, then once per this many further sheds. A sustained
+# overflow must not become a log storm, but the running total is always carried
+# so shedding can never hide behind throttling.
+_SHED_WARN_EVERY = 100
 
 
 def _unfinished(task: asyncio.Task) -> bool:
@@ -236,7 +263,25 @@ class RequestLogMiddleware:
 
         Holds a strong ref to the task in ``_pending_writes`` until it completes
         so it isn't garbage-collected mid-flight, then discards the ref.
+
+        Backpressure (#290): if the in-flight set is already at
+        ``_MAX_PENDING_WRITES`` the incoming write is shed (drop-newest) instead
+        of scheduling another task that would only queue on ``pool.acquire()``.
+        The check + ``create_task`` run to completion between ``await`` points on
+        the single event loop, so the cap can't be raced past. Shed writes are
+        counted and surfaced via a throttled warning — never silently dropped.
         """
+        if len(_pending_writes) >= _MAX_PENDING_WRITES:
+            global _shed_count
+            _shed_count += 1
+            if _shed_count == 1 or _shed_count % _SHED_WARN_EVERY == 0:
+                logger.warning(
+                    "api_request_log capture shedding: in-flight writes at cap "
+                    "(%d); %d write(s) shed since startup",
+                    _MAX_PENDING_WRITES,
+                    _shed_count,
+                )
+            return
         task = asyncio.create_task(self._write(params))
         _pending_writes.add(task)
         task.add_done_callback(_pending_writes.discard)
