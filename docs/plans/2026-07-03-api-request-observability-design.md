@@ -213,7 +213,9 @@ consistent with the existing dashboard counts.
 - CSV export.
 - ~~Buffered async log writer (revisit only if poll volume bites).~~ **Shipped in
   #262** as a fire-and-forget writer (off the hot path); a *buffered/batched*
-  writer remains out of scope unless volume bites further.
+  writer remains out of scope unless volume bites further. **#286** added a
+  bounded graceful-shutdown drain so in-flight capture rows aren't dropped on
+  deploy/restart (a hard crash still loses them — accepted best-effort).
 - Logging non-`/api/v1/*` traffic.
 
 ## Files touched

@@ -59,17 +59,23 @@ async def drain_pending_writes(timeout: float = _DRAIN_TIMEOUT_S) -> None:
     (SIGKILL/OOM) still loses in-flight rows, consistent with #262's best-effort
     posture. Per-worker: drains only this process's ``_pending_writes``.
     """
-    if not _pending_writes:
+    pending = list(_pending_writes)
+    if not pending:
         return
     try:
-        await asyncio.wait_for(
-            asyncio.gather(*list(_pending_writes), return_exceptions=True), timeout
-        )
+        await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout)
     except TimeoutError:
+        # Count from the snapshot, not the live set: the timeout cancels the
+        # gather (and its children), whose done-callbacks discard from
+        # _pending_writes on the next loop tick — reading the set here would
+        # under-report. A write is "lost" if it didn't finish cleanly: still
+        # running, cancelled, or ended in an exception. The short-circuit keeps
+        # ``.exception()`` off cancelled tasks (which would re-raise).
+        lost = sum(1 for t in pending if not t.done() or t.cancelled() or t.exception() is not None)
         logger.warning(
             "api_request_log drain timed out after %ss; %d write(s) may be lost",
             timeout,
-            len(_pending_writes),
+            lost,
         )
 
 

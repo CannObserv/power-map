@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import os
 from unittest.mock import patch
 
@@ -225,6 +226,37 @@ async def test_drain_noop_when_nothing_pending():
     """Draining with an empty pending set returns immediately without error."""
     assert len(_pending_writes) == 0
     await drain_pending_writes()
+
+
+async def test_drain_timeout_logs_accurate_lost_count(caplog):
+    """The timeout warning reports how many writes were actually lost, not the
+    total scheduled — a completed write in the same batch must not be counted."""
+    release = asyncio.Event()
+    calls = {"n": 0}
+
+    async def mixed_write(_self, _params):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            await release.wait()  # first write stalls past the drain timeout
+        # second write returns immediately (completes within the window)
+
+    async def _noop_app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"{}"})
+
+    mw = RequestLogMiddleware(_noop_app)
+    with patch.object(RequestLogMiddleware, "_write", mixed_write):
+        mw._schedule_write(("stalls",))  # scheduled first → stalls
+        mw._schedule_write(("completes",))  # scheduled second → completes
+        with caplog.at_level(logging.WARNING):
+            await drain_pending_writes(timeout=0.1)
+        # Exactly one write was lost; the other completed. Naive len() would say 2.
+        assert "1 write(s) may be lost" in caplog.text
+        # Cleanup: release the stalled task so it can't leak into other tests.
+        release.set()
+        await _drain_pending_writes()
+
+    assert len(_pending_writes) == 0
 
 
 # ---------------------------------------------------------------------------
