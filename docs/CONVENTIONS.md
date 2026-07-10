@@ -230,7 +230,16 @@ screens and the dashboard API-activity panel.
   merged; the log record must survive. The UI resolves it to an admin link and
   shows "(removed)" on a 404.
 - **Best-effort** — a capture failure is swallowed and logged; observability must
-  never break the request path.
+  never break the request path. The row write is **fire-and-forget** (#262):
+  params are built on the request tail, then the pool-acquire + INSERT run on a
+  background `asyncio` task so capture never adds to request latency. Graceful
+  shutdown drains in-flight writes before the pool closes (#286,
+  `drain_pending_writes`); a hard crash (SIGKILL/OOM) drops them. Under load the
+  in-flight set is **bounded** by `API_REQUEST_LOG_MAX_PENDING` (#290): above the
+  cap, incoming writes are *shed* (drop-newest, keeping the older writes closest
+  to landing) rather than piling onto `pool.acquire()`. So `api_request_log` can
+  legitimately under-count during sustained high traffic even with zero errors —
+  shed volume is counted and surfaced via a rate-limited `WARNING`.
 - **Retention** — pruned on the same 90-day window as the outbox by
   `scripts/prune_outbox.py` (see `docs/COMMANDS.md`).
 

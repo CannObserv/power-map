@@ -265,10 +265,21 @@ async def test_drain_timeout_logs_accurate_lost_count(caplog):
 # ---------------------------------------------------------------------------
 
 
-async def test_writes_up_to_cap_not_shed(monkeypatch):
-    """At or under the cap, every write is scheduled — nothing is shed."""
-    monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 3)
+@pytest.fixture
+def reset_shed(monkeypatch):
+    """Reset the module-global shed accounting so each test starts clean.
+
+    ``_report_shedding`` mutates these via ``global`` (untracked by monkeypatch),
+    so a prior test's residual could leak in; pin all three up front.
+    """
     monkeypatch.setattr(mw, "_shed_count", 0)
+    monkeypatch.setattr(mw, "_shed_reported", 0)
+    monkeypatch.setattr(mw, "_shed_last_warn_s", None)
+
+
+async def test_writes_up_to_cap_not_shed(reset_shed, monkeypatch, caplog):
+    """At or under the cap, every write is scheduled — nothing is shed or warned."""
+    monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 3)
     release = asyncio.Event()
 
     async def blocked_write(_self, _params):
@@ -276,22 +287,23 @@ async def test_writes_up_to_cap_not_shed(monkeypatch):
 
     inst = RequestLogMiddleware(None)
     with patch.object(RequestLogMiddleware, "_write", blocked_write):
-        for _ in range(3):
-            inst._schedule_write(("p",))
+        with caplog.at_level(logging.WARNING):
+            for _ in range(3):
+                inst._schedule_write(("p",))
         assert len(_pending_writes) == 3  # all scheduled
         assert mw._shed_count == 0  # none shed
+        assert "shed" not in caplog.text.lower()  # steady state is silent
         release.set()
         await _drain_pending_writes()
 
     assert len(_pending_writes) == 0
 
 
-async def test_pending_writes_bounded_by_cap(monkeypatch):
+async def test_pending_writes_bounded_by_cap(reset_shed, monkeypatch):
     """A burst past the cap sheds incoming writes (drop-newest) instead of
     piling unbounded tasks onto ``pool.acquire()``; the in-flight set never
     exceeds the cap and the overflow is counted."""
     monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 3)
-    monkeypatch.setattr(mw, "_shed_count", 0)
     release = asyncio.Event()
 
     async def blocked_write(_self, _params):
@@ -309,11 +321,10 @@ async def test_pending_writes_bounded_by_cap(monkeypatch):
     assert len(_pending_writes) == 0
 
 
-async def test_shed_writes_counted_and_warned(monkeypatch, caplog):
+async def test_shed_writes_counted_and_warned(reset_shed, monkeypatch, caplog):
     """A shed write is never silent: it increments the cumulative count and the
     first shed emits a warning carrying that running total."""
     monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 1)
-    monkeypatch.setattr(mw, "_shed_count", 0)
     release = asyncio.Event()
 
     async def blocked_write(_self, _params):
@@ -332,22 +343,54 @@ async def test_shed_writes_counted_and_warned(monkeypatch, caplog):
     assert len(_pending_writes) == 0
 
 
-async def test_shed_warning_throttled(monkeypatch, caplog):
-    """A sustained overflow must not emit one warning per shed. Warn on the
-    first shed, then once per ``_SHED_WARN_EVERY``, always with the total."""
+async def test_shed_warning_rate_limited_by_interval(reset_shed, monkeypatch, caplog):
+    """A sustained overflow must not emit one warning per shed — warnings are
+    rate-limited to once per ``_SHED_WARN_INTERVAL_S`` while the count keeps
+    climbing accurately."""
     monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 0)  # everything sheds
-    monkeypatch.setattr(mw, "_shed_count", 0)
-    monkeypatch.setattr(mw, "_SHED_WARN_EVERY", 5)
+    clock = {"t": 0.0}
+    monkeypatch.setattr(mw.time, "monotonic", lambda: clock["t"])
 
     inst = RequestLogMiddleware(None)
     with caplog.at_level(logging.WARNING):
-        for _ in range(11):
-            inst._schedule_write(("shed",))  # cap 0 → never scheduled, always shed
+        for _ in range(5):
+            inst._schedule_write(("shed",))  # #1 warns (onset); #2–5 within interval, gated
+        clock["t"] = mw._SHED_WARN_INTERVAL_S  # interval elapses
+        for _ in range(5):
+            inst._schedule_write(("shed",))  # first past interval warns; rest gated
 
     warns = [r for r in caplog.records if "shed" in r.getMessage().lower()]
-    assert mw._shed_count == 11
-    assert len(warns) == 3  # sheds #1, #5, #10 — first + every 5th, not 11
+    assert mw._shed_count == 10  # every shed counted
+    assert len(warns) == 2  # one per interval window, not per shed
     assert len(_pending_writes) == 0  # nothing was ever scheduled
+
+
+async def test_shed_summary_flushed_on_burst_end(reset_shed, monkeypatch, caplog):
+    """When a burst subsides, the remainder shed after the onset warning is
+    flushed on the first post-interval admit — no burst stays hidden."""
+    monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 0)  # burst: everything sheds
+    clock = {"t": 0.0}
+    monkeypatch.setattr(mw.time, "monotonic", lambda: clock["t"])
+
+    async def noop_write(_self, _params):
+        return
+
+    inst = RequestLogMiddleware(None)
+    with patch.object(RequestLogMiddleware, "_write", noop_write):
+        with caplog.at_level(logging.WARNING):
+            for _ in range(4):
+                inst._schedule_write(("shed",))  # #1 warns (onset); #2–4 gated within interval
+            # Burst ends: cap restored, interval elapses, next admit flushes the tail.
+            monkeypatch.setattr(mw, "_MAX_PENDING_WRITES", 10)
+            clock["t"] = mw._SHED_WARN_INTERVAL_S
+            inst._schedule_write(("recover",))  # admit → trailing-edge summary
+            await _drain_pending_writes()
+
+    warns = [r for r in caplog.records if "shed" in r.getMessage().lower()]
+    assert mw._shed_count == 4
+    assert len(warns) == 2  # onset warn (1) + trailing flush of the remaining 3
+    assert "3 write(s) shed since last report, 4 since startup" in caplog.text
+    assert len(_pending_writes) == 0
 
 
 # ---------------------------------------------------------------------------

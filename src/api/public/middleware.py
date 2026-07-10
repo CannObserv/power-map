@@ -62,15 +62,50 @@ _DRAIN_TIMEOUT_S = 5.0
 # resolve request/capture pool contention (that's #290 item 2).
 _MAX_PENDING_WRITES = int(os.environ.get("API_REQUEST_LOG_MAX_PENDING", "50"))
 
-# Cumulative count of capture writes shed since process start (#290). Shed
-# writes are never silent — surfaced via the throttled warning in
-# ``_schedule_write``. Per-worker, like ``_pending_writes``.
+# Shed accounting (#290). ``_shed_count`` is the cumulative number of capture
+# writes shed since process start; ``_shed_reported`` is how much of that has
+# already been surfaced in a warning. The gap between them is unreported shed
+# volume awaiting the next report. Per-worker, like ``_pending_writes``.
 _shed_count = 0
+_shed_reported = 0
+# Monotonic timestamp of the last shed warning; ``None`` until the first shed
+# ever (so a fake clock reading 0.0 in tests still counts as "never warned").
+_shed_last_warn_s: float | None = None
 
-# Warn on the first shed, then once per this many further sheds. A sustained
-# overflow must not become a log storm, but the running total is always carried
-# so shedding can never hide behind throttling.
-_SHED_WARN_EVERY = 100
+# Shed warnings are rate-limited to at most one per this interval, so neither a
+# sustained saturation (many sheds) nor oscillation right at the cap (rapid
+# shed/admit alternation) can turn into a log storm. Each warning carries the
+# volume since the last report, and a trailing report on the first post-interval
+# admit flushes a finished burst's remainder — so no burst stays hidden.
+_SHED_WARN_INTERVAL_S = 10.0
+
+
+def _report_shedding() -> None:
+    """Surface accumulated capture-write shedding, rate-limited (#290).
+
+    No-op when nothing is unreported (the steady state — one cheap subtraction on
+    the schedule path). Otherwise warns at most once per ``_SHED_WARN_INTERVAL_S``,
+    always reporting the volume shed since the last report plus the running total
+    since startup. Called on both the shed path (so onset + sustained shedding
+    surface) and the admit path (so the tail of a finished burst flushes on the
+    first post-interval recovery instead of waiting for the next shed).
+    """
+    global _shed_reported, _shed_last_warn_s
+    unreported = _shed_count - _shed_reported
+    if unreported <= 0:
+        return
+    now = time.monotonic()
+    if _shed_last_warn_s is not None and now - _shed_last_warn_s < _SHED_WARN_INTERVAL_S:
+        return
+    logger.warning(
+        "api_request_log capture shedding: in-flight writes at cap (%d); "
+        "%d write(s) shed since last report, %d since startup",
+        _MAX_PENDING_WRITES,
+        unreported,
+        _shed_count,
+    )
+    _shed_reported = _shed_count
+    _shed_last_warn_s = now
 
 
 def _unfinished(task: asyncio.Task) -> bool:
@@ -269,19 +304,16 @@ class RequestLogMiddleware:
         of scheduling another task that would only queue on ``pool.acquire()``.
         The check + ``create_task`` run to completion between ``await`` points on
         the single event loop, so the cap can't be raced past. Shed writes are
-        counted and surfaced via a throttled warning — never silently dropped.
+        counted and surfaced via a rate-limited warning — never silently dropped.
         """
         if len(_pending_writes) >= _MAX_PENDING_WRITES:
             global _shed_count
             _shed_count += 1
-            if _shed_count == 1 or _shed_count % _SHED_WARN_EVERY == 0:
-                logger.warning(
-                    "api_request_log capture shedding: in-flight writes at cap "
-                    "(%d); %d write(s) shed since startup",
-                    _MAX_PENDING_WRITES,
-                    _shed_count,
-                )
+            _report_shedding()
             return
+        # Admit path: flush the tail of any just-ended shedding burst (no-op in
+        # the steady state where nothing has been shed).
+        _report_shedding()
         task = asyncio.create_task(self._write(params))
         _pending_writes.add(task)
         task.add_done_callback(_pending_writes.discard)
