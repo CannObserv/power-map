@@ -355,3 +355,96 @@ async def test_list_person_events_event_place_address_null_when_unlinked(
     item = next((e for e in items if e["id"] == event_id), None)
     assert item is not None
     assert item["event_place_address"] is None
+
+
+# ---------------------------------------------------------------------------
+# Conditional requests — ETag / 304 (#292)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_person_event(db, person_id, year=1985):
+    birth_id = await _birth_type_id(db)
+    event_id = generate_id()
+    await db.execute(
+        """
+        INSERT INTO entity_events
+            (id, entity_type, entity_id, event_type_id, event_year, visibility)
+        VALUES ($1, 'person', $2, $3, $4, 'public')
+        """,
+        event_id,
+        person_id,
+        birth_id,
+        year,
+    )
+    return event_id
+
+
+async def test_person_events_200_carries_cache_headers(client, api_key, person_fixture, db):
+    await _seed_person_event(db, person_fixture)
+    r = await client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    assert r.headers.get("etag")
+    assert r.headers.get("last-modified")
+    assert r.headers.get("cache-control") == "no-cache"
+    assert r.headers.get("vary") == "X-API-Key"
+
+
+async def test_person_events_if_none_match_returns_304(client, api_key, person_fixture, db):
+    await _seed_person_event(db, person_fixture)
+    url = f"/api/v1/people/{person_fixture}/events"
+    first = await client.get(url, headers={"X-API-Key": api_key})
+    etag = first.headers["etag"]
+    r = await client.get(url, headers={"X-API-Key": api_key, "If-None-Match": etag})
+    assert r.status_code == 304
+    assert r.headers.get("etag") == etag
+
+
+async def test_person_events_empty_list_still_revalidates(client, api_key, person_fixture):
+    """The 99.9%-empty-poll case must be 304-able too; no Last-Modified without events."""
+    url = f"/api/v1/people/{person_fixture}/events"
+    first = await client.get(url, headers={"X-API-Key": api_key})
+    assert first.status_code == 200
+    etag = first.headers["etag"]
+    assert "last-modified" not in first.headers
+    r = await client.get(url, headers={"X-API-Key": api_key, "If-None-Match": etag})
+    assert r.status_code == 304
+
+
+async def test_person_events_etag_changes_when_event_added(client, api_key, person_fixture, db):
+    url = f"/api/v1/people/{person_fixture}/events"
+    await _seed_person_event(db, person_fixture, year=1985)
+    first = await client.get(url, headers={"X-API-Key": api_key})
+    etag = first.headers["etag"]
+    await _seed_person_event(db, person_fixture, year=1990)
+    r = await client.get(url, headers={"X-API-Key": api_key, "If-None-Match": etag})
+    assert r.status_code == 200
+    assert r.headers["etag"] != etag
+
+
+async def test_person_events_etag_varies_by_pagination(client, api_key, person_fixture, db):
+    await _seed_person_event(db, person_fixture, year=1985)
+    await _seed_person_event(db, person_fixture, year=1990)
+    url = f"/api/v1/people/{person_fixture}/events"
+    r1 = await client.get(url, params={"limit": 1}, headers={"X-API-Key": api_key})
+    r2 = await client.get(url, params={"limit": 2}, headers={"X-API-Key": api_key})
+    assert r1.headers["etag"] != r2.headers["etag"]
+
+
+async def test_org_events_if_none_match_returns_304(client, api_key, org_fixture, db):
+    founded_id = await _founded_type_id(db)
+    await db.execute(
+        """
+        INSERT INTO entity_events
+            (id, entity_type, entity_id, event_type_id, event_year, visibility)
+        VALUES ($1, 'organization', $2, $3, 1999, 'public')
+        """,
+        generate_id(),
+        org_fixture,
+        founded_id,
+    )
+    url = f"/api/v1/orgs/{org_fixture}/events"
+    first = await client.get(url, headers={"X-API-Key": api_key})
+    assert first.status_code == 200
+    etag = first.headers["etag"]
+    r = await client.get(url, headers={"X-API-Key": api_key, "If-None-Match": etag})
+    assert r.status_code == 304

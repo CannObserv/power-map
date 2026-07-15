@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, identifier_filter, require_api_key, require_scope
-from src.api.public.events import row_to_event
+from src.api.public.events import (
+    events_cache_headers,
+    events_collection_validator,
+    row_to_event,
+)
 from src.api.public.schemas import (
     EntityEventsResponse,
     ObservationResponse,
@@ -373,6 +377,8 @@ async def get_org(
 )
 async def list_org_events(
     org_id: str,
+    request: Request,
+    response: Response,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     _: str = Depends(require_api_key),
@@ -382,6 +388,13 @@ async def list_org_events(
     exists = await db.fetchval("SELECT 1 FROM organizations WHERE id = $1", org_id)
     if not exists:
         raise HTTPException(status_code=404, detail="Organization not found")
+
+    etag, last = await events_collection_validator(db, org_id, "organization", limit, offset)
+    cache_headers = events_cache_headers(etag, last)
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+    for k, v in cache_headers.items():
+        response.headers[k] = v
 
     rows = await db.fetch(
         """
