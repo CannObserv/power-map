@@ -1,7 +1,8 @@
 """Pydantic response models for the public API v1."""
 
 from datetime import date, datetime
-from typing import Literal
+from types import MappingProxyType
+from typing import Final, Literal
 
 from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
@@ -21,7 +22,11 @@ def make_etag(entity_id: str, updated_at: datetime) -> str:
 
 # OpenAPI declaration for endpoints supporting If-None-Match revalidation
 # (#292 CR): spread into the route decorator via ``responses=NOT_MODIFIED``.
-NOT_MODIFIED = {304: {"description": "Not modified — the If-None-Match ETag still matches."}}
+# Immutable (MappingProxyType + Final): shared by seven route decorators — an
+# in-place mutation anywhere would silently change them all.
+NOT_MODIFIED: Final = MappingProxyType(
+    {304: {"description": "Not modified — the If-None-Match ETag still matches."}}
+)
 
 
 class OrgSearchResult(BaseModel):
