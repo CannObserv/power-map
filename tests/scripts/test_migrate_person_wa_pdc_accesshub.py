@@ -1,6 +1,6 @@
 """Tests for scripts/migrate_person_wa_pdc_accesshub.py (#295).
 
-Retypes the 60 legacy accesshub (lobbyist) URL-form ``person_wa_pdc`` values:
+Retypes the legacy accesshub (lobbyist) URL-form ``person_wa_pdc`` values:
 the person-stable ``agent_id`` from PDC's Lobbyist Agents dataset is minted
 under ``person_wa_pdc_lobbyist_agent``, the raw URL is preserved as a
 ``wa_pdc`` link, and the URL-form identifier row is deleted. Core logic takes
@@ -29,25 +29,39 @@ OSULLIVAN_URL = "https://accesshub.pdc.wa.gov/node/17873"
 COLMAN_PM_ID = "01KV6PR0HJCAJPWJQ63FC1YT7Q"
 COLMAN_URL = "https://accesshub.pdc.wa.gov/node/46208"
 
-# Deferred: PM duplicate pair (merge first) and ambiguous agent match.
-DOTY_PM_ID = "01KV6PQPJTEBKM13599W3E3CC1"
-DOTY_URL = "https://accesshub.pdc.wa.gov/node/17496"
+# "Dylan Doty" (01KV6PQPJTEBKM13599W3E3CC1) was merged into "J. Dylan Doty"
+# on 2026-07-15 — the survivor carries BOTH legacy URL rows (node + vid).
+MERGED_DOTY_PM_ID = "01KV6PQPJTEBKM13599W3E3CC1"
 J_DOTY_PM_ID = "01KV6PQQHGTVCNSTV8NHWNAJNB"
+J_DOTY_NODE_URL = "https://accesshub.pdc.wa.gov/node/17496"
+J_DOTY_VID_URL = (
+    "https://accesshub.pdc.wa.gov/reports/lobbyist_agent_picture.html"
+    "?vid=29261&firstname=J%20DYLAN&middlename=&lastname=DOTY"
+)
 MORAN_PM_ID = "01KV6PQVRNHXC0H5B4W36TESY2"
 
 
-def test_retypes_table_covers_the_60_people():
-    """55 retype + 2 link_only (Colman, Goldberg) + 3 deferred (Doty pair, Moran)."""
-    assert len(RETYPES) == 60
+def test_retypes_table_covers_the_59_people():
+    """57 retype + 2 link_only (Colman, Goldberg); no deferred rows remain.
+
+    The original 60 dropped to 59 when "Dylan Doty" was merged into
+    "J. Dylan Doty" (2026-07-15); the survivor's entry covers both URLs.
+    Mike Moran resolved to the MICHAEL M MORAN lineage (filer 17823).
+    """
+    assert len(RETYPES) == 59
     by_treatment: dict[str, int] = {}
     for r in RETYPES:
         by_treatment[r["treatment"]] = by_treatment.get(r["treatment"], 0) + 1
-    assert by_treatment == {"retype": 55, "link_only": 2, "deferred": 3}
-    deferred = {r["person_id"] for r in RETYPES if r["treatment"] == "deferred"}
-    assert deferred == {DOTY_PM_ID, J_DOTY_PM_ID, MORAN_PM_ID}
+    assert by_treatment == {"retype": 57, "link_only": 2}
+    assert MERGED_DOTY_PM_ID not in {r["person_id"] for r in RETYPES}
+    j_doty = next(r for r in RETYPES if r["person_id"] == J_DOTY_PM_ID)
+    assert j_doty["urls"] == (J_DOTY_NODE_URL, J_DOTY_VID_URL)
+    assert j_doty["agent_ids"] == ("266", "429")
+    moran = next(r for r in RETYPES if r["person_id"] == MORAN_PM_ID)
+    assert moran["agent_ids"] == ("758", "759")
     link_only = {r["person_id"] for r in RETYPES if r["treatment"] == "link_only"}
     assert COLMAN_PM_ID in link_only
-    # retype rows carry at least one agent_id; link_only/deferred mint nothing
+    # retype rows carry at least one agent_id; link_only rows mint nothing
     assert all(r["agent_ids"] for r in RETYPES if r["treatment"] == "retype")
     assert all(not r["agent_ids"] for r in RETYPES if r["treatment"] != "retype")
 
@@ -146,16 +160,35 @@ async def test_link_only_preserves_url_without_minting(db):
     assert await _links(db, COLMAN_PM_ID) == [COLMAN_URL]
 
 
-async def test_deferred_person_is_never_touched(db):
-    """Dylan Doty (duplicate-person pair, merge first) stays exactly as-is."""
-    await _person_with_pdc(db, DOTY_PM_ID, DOTY_URL)
+async def test_multi_url_survivor_retypes_both_rows(db):
+    """J. Dylan Doty post-merge carries two URL rows — both retyped at once."""
+    await _person_with_pdc(db, J_DOTY_PM_ID, J_DOTY_NODE_URL)
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " SELECT $1, $2, t.id, $3 FROM entity_identifier_types t"
+        " WHERE t.slug = 'person_wa_pdc'",
+        generate_id(),
+        J_DOTY_PM_ID,
+        J_DOTY_VID_URL,
+    )
 
     actions = await migrate_accesshub_identifiers(db, execute=True)
 
-    assert _status(actions, DOTY_PM_ID) == "deferred"
-    assert await _values(db, DOTY_PM_ID, "person_wa_pdc") == [DOTY_URL]
-    assert await _values(db, DOTY_PM_ID, "person_wa_pdc_lobbyist_agent") == []
-    assert await _links(db, DOTY_PM_ID) == []
+    assert _status(actions, J_DOTY_PM_ID) == "applied"
+    assert await _values(db, J_DOTY_PM_ID, "person_wa_pdc") == []
+    assert await _values(db, J_DOTY_PM_ID, "person_wa_pdc_lobbyist_agent") == ["266", "429"]
+    assert await _links(db, J_DOTY_PM_ID) == sorted([J_DOTY_NODE_URL, J_DOTY_VID_URL])
+
+
+async def test_multi_url_person_with_only_one_row_is_ambiguous(db):
+    """Fewer rows than the audited URL set → ambiguous, untouched."""
+    await _person_with_pdc(db, J_DOTY_PM_ID, J_DOTY_NODE_URL)
+
+    actions = await migrate_accesshub_identifiers(db, execute=True)
+
+    assert _status(actions, J_DOTY_PM_ID) == "ambiguous"
+    assert await _values(db, J_DOTY_PM_ID, "person_wa_pdc") == [J_DOTY_NODE_URL]
+    assert await _values(db, J_DOTY_PM_ID, "person_wa_pdc_lobbyist_agent") == []
 
 
 async def test_dry_run_makes_no_changes(db):
@@ -199,9 +232,8 @@ async def test_unexpected_value_is_a_conflict(db):
 async def test_missing_person_is_reported(db):
     actions = await migrate_accesshub_identifiers(db, execute=True)
 
-    non_deferred = [a for a in actions if a["status"] != "deferred"]
-    assert {a["status"] for a in non_deferred} == {"missing"}
-    assert len(actions) == 60
+    assert {a["status"] for a in actions} == {"missing"}
+    assert len(actions) == 59
 
 
 async def test_multiple_rows_are_ambiguous(db):
