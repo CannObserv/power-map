@@ -1436,7 +1436,12 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     -- diarization. Value is an Observo-generated ULID (opaque, stable per manual
     -- create). is_internal=FALSE so observations can create a new Person; cross-
     -- real-person dedupe happens via voice /identify, not this identifier.
-    ('01KWZ3FM3H7M35RFEJWVBRBNZ1', 'person',          'observo_speaker',  'Observo Speaker', 'Observo Manual Speaker Label',       FALSE)
+    ('01KWZ3FM3H7M35RFEJWVBRBNZ1', 'person',          'observo_speaker',  'Observo Speaker', 'Observo Manual Speaker Label',       FALSE),
+    -- WA PDC filer registration key (#293): person_wa_pdc holds PDC's numeric
+    -- person_id (person-stable key); the per-filer registration key extracted
+    -- from the legacy URL-form values lives here. Backfilled by
+    -- scripts/migrate_person_wa_pdc_identifiers.py.
+    ('01KXK8AYH1MTCEZ9E5G2VR28KE', 'person',          'person_wa_pdc_filer', 'WA PDC Filer', 'Washington State Public Disclosure Commission Filer ID', FALSE)
 ON CONFLICT (id) DO UPDATE SET
     entity_type  = EXCLUDED.entity_type,
     slug         = EXCLUDED.slug,
