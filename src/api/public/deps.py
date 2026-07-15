@@ -1,6 +1,8 @@
 """Public API authentication dependency."""
 
 import hashlib
+import os
+import time
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Query, Request
@@ -10,6 +12,36 @@ from src.api.deps import get_db
 from src.api.public import ratelimit
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+# last_used_at debounce (#292): the column is a display-only freshness stamp,
+# but it was UPDATEd on every authenticated request — 1.7M single-row updates
+# in the audited week. Stamp at most once per window per worker instead.
+# Per-worker cache (like the limiter buckets): with --workers 2 the row may be
+# stamped twice per window — harmless for a display timestamp. Memory is
+# bounded by the number of issued keys. 0 disables the debounce.
+_LAST_USED_DEBOUNCE_S = float(os.environ.get("API_KEY_LAST_USED_DEBOUNCE_S", "60"))
+_last_used_stamps: dict[str, float] = {}
+
+
+def reset_last_used_stamps() -> None:
+    """Clear the debounce cache (tests)."""
+    _last_used_stamps.clear()
+
+
+def _should_stamp_last_used(api_key_id: str, now_s: float | None = None) -> bool:
+    """True when this key's last_used_at hasn't been stamped within the window.
+
+    Records the stamp time on a True return, so callers must only invoke it
+    when they will actually run the UPDATE. ``now_s`` injects a clock for tests.
+    """
+    if _LAST_USED_DEBOUNCE_S <= 0:
+        return True
+    now = time.monotonic() if now_s is None else now_s
+    last = _last_used_stamps.get(api_key_id)
+    if last is not None and now - last < _LAST_USED_DEBOUNCE_S:
+        return False
+    _last_used_stamps[api_key_id] = now
+    return True
 
 
 @dataclass
@@ -56,7 +88,8 @@ async def _resolve_api_key(
                     "X-RateLimit-Remaining": str(decision.remaining),
                 },
             )
-    await db.execute("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"])
+    if _should_stamp_last_used(row["id"]):
+        await db.execute("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"])
     return row
 
 
