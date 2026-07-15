@@ -29,6 +29,7 @@ PETERSON_URL_2X = (
     "https://www.pdc.wa.gov/browse/campaign-explorer/candidate"
     "?filer_id=PETES%20%20026&election_year=2020"
 )
+HOVER_PM_ID = "01KV6PQKMA50ZMHKYY3R7YJ455"
 
 
 # ---------------------------------------------------------------------------
@@ -58,9 +59,45 @@ def test_extract_filer_ids_url_without_filer_id_yields_nothing():
     assert extract_filer_ids("https://www.pdc.wa.gov/browse?election_year=2020") == []
 
 
-def test_migrations_table_covers_the_12_people():
-    assert len(MIGRATIONS) == 12
-    assert {m["person_id"] for m in MIGRATIONS} >= {RAMEL_PM_ID, PETERSON_PM_ID}
+def test_extract_filer_ids_semicolon_joined_urls():
+    """Andy Hover's batch-2 value: two URLs joined by ' ; '."""
+    value = (
+        "https://www.pdc.wa.gov/browse/campaign-explorer/candidate"
+        "?filer_id=HOVEA%20%20862&election_year=2016 ; "
+        "https://www.pdc.wa.gov/browse/campaign-explorer/candidate"
+        "?filer_id=HOVEA%20%20862&election_year=2020"
+    )
+    assert extract_filer_ids(value) == ["HOVEA  862"]
+
+
+def test_extract_filer_ids_plus_encoded_padding():
+    """Brad Klippert's batch-2 value pads the filer_id with '+' instead of %20."""
+    value = (
+        "https://www.pdc.wa.gov/browse/campaign-explorer/candidate"
+        "?filer_id=KLIPB++336&election_year=2018"
+    )
+    assert extract_filer_ids(value) == ["KLIPB  336"]
+
+
+def test_extract_filer_ids_contributions_download_url():
+    """Sam Hunt's batch-2 value is a reports/contributions_download link."""
+    value = (
+        "https://www.pdc.wa.gov/reports/contributions_download"
+        "?filer_id=HUNTS%20%20506&election_year=2020"
+    )
+    assert extract_filer_ids(value) == ["HUNTS  506"]
+
+
+def test_migrations_table_covers_the_31_people():
+    """12 from the #293 issue table + 19 from the batch-2 audit comment.
+
+    Michelle Caldier (01KV6PQVP1CG9GKQ4VSB3S5C64) is deliberately absent:
+    her target numeric value already sits on a different PM person (a
+    duplicate-person pair needing the merge workflow first).
+    """
+    assert len(MIGRATIONS) == 31
+    assert {m["person_id"] for m in MIGRATIONS} >= {RAMEL_PM_ID, PETERSON_PM_ID, HOVER_PM_ID}
+    assert "01KV6PQVP1CG9GKQ4VSB3S5C64" not in {m["person_id"] for m in MIGRATIONS}
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +215,24 @@ async def test_migrate_reports_missing_person(db):
     actions = await migrate_pdc_identifiers(db, execute=True)
 
     assert {a["status"] for a in actions} == {"missing"}
-    assert len(actions) == 12
+    assert len(actions) == 31
+
+
+async def test_migrate_skips_when_numeric_value_on_another_person(db):
+    """Target numeric already on a different person (duplicate pair) → collision.
+
+    Guard for the Michelle Caldier case: migrating would put the same
+    identifier value on two people, breaking value-based resolution.
+    """
+    await _person_with_pdc(db, RAMEL_PM_ID, RAMEL_URL)
+    other = generate_id()
+    await _person_with_pdc(db, other, "30420")
+
+    actions = await migrate_pdc_identifiers(db, execute=True)
+
+    assert _status(actions, RAMEL_PM_ID) == "collision"
+    assert await _values(db, RAMEL_PM_ID, "person_wa_pdc") == [RAMEL_URL]
+    assert await _values(db, RAMEL_PM_ID, "person_wa_pdc_filer") == []
 
 
 async def test_migrate_skips_ambiguous_multiple_rows(db):
