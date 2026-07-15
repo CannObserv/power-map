@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException, Query, Request
 from fastapi.security import APIKeyHeader
 
 from src.api.deps import get_db
+from src.api.public import ratelimit
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -19,12 +20,20 @@ class AuthedKey:
     key_id: str
 
 
-async def _resolve_api_key(raw_key: str | None, db, request: Request | None = None) -> dict:
-    """Validate raw key, update last_used_at, return the api_keys row.
+async def _resolve_api_key(
+    raw_key: str | None, db, request: Request | None = None, method: str | None = None
+) -> dict:
+    """Validate raw key, enforce the rate limit, update last_used_at, return the row.
 
-    Raises 403 when raw_key is None, 401 when key hash is not found. On success,
-    stashes ``request.state.api_key_id`` so the capture middleware (#260) can
-    record request identity without re-hashing the key.
+    Raises 403 when raw_key is None, 401 when key hash is not found, 429 when
+    the key's token bucket (#292) is exhausted. On success (and on 429), stashes
+    ``request.state.api_key_id`` so the capture middleware (#260) can record
+    request identity without re-hashing the key — throttled requests stay
+    attributed in ``api_request_log``.
+
+    ``method`` is normally derived from ``request``; the explicit parameter is
+    a test seam (unit tests pass ``request=None``). When neither is supplied the
+    limiter is skipped — production always has a real Request.
     """
     if raw_key is None:
         raise HTTPException(status_code=403, detail="Not authenticated")
@@ -32,9 +41,22 @@ async def _resolve_api_key(raw_key: str | None, db, request: Request | None = No
     row = await db.fetchrow("SELECT id, user_id FROM api_keys WHERE key_hash = $1", key_hash)
     if not row:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    await db.execute("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"])
     if request is not None:
         request.state.api_key_id = row["id"]
+    effective_method = method or getattr(request, "method", None)
+    if effective_method is not None:
+        decision = ratelimit.check(row["id"], effective_method)
+        if not decision.allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={
+                    "Retry-After": str(decision.retry_after_s),
+                    "X-RateLimit-Limit": str(decision.limit),
+                    "X-RateLimit-Remaining": str(decision.remaining),
+                },
+            )
+    await db.execute("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"])
     return row
 
 
