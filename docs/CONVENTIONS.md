@@ -6,7 +6,7 @@ Reference for public API, database, and ingestion patterns. For admin dashboard 
 
 ## Public API
 
-- Auth: `X-API-Key` header → `require_api_key` dep (in `src.api.public.deps`); 403 on missing, 401 on invalid; updates `api_keys.last_used_at`
+- Auth: `X-API-Key` header → `require_api_key` dep (in `src.api.public.deps`); 403 on missing, 401 on invalid, 429 on rate limit (#292 — per-key read/write token buckets in `src.api.public.ratelimit`, checked in `_resolve_api_key`; per-worker, env-tunable via `RATE_LIMIT_*`); updates `api_keys.last_used_at` (debounced, `API_KEY_LAST_USED_DEBOUNCE_S`, default 60s)
 - Versioning: path-based (`/api/v1/`). Bump the prefix when introducing breaking changes
 - Response models: all routes must declare a Pydantic `response_model` (in `schemas.py`) and an explicit `operation_id`; `dict[str, Any]` return types are not allowed — OpenAPI schema must be fully typed
 - List endpoints: return `{"data": [...], "meta": {"limit", "offset", "count", "has_more"}}`; fetch `limit + 1` rows to compute `has_more` without a `COUNT(*)` query; return only `limit` rows in `data`

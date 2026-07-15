@@ -8,7 +8,7 @@
 
 Every request requires `X-API-Key: <token>`. Missing header → 403; invalid key → 401.
 
-Keys are stored as SHA-256 hashes — the raw token is never persisted after issuance. Each valid request updates `last_used_at` on the key row; the maintainer can review per-key usage in the admin dashboard to identify inactive keys.
+Keys are stored as SHA-256 hashes — the raw token is never persisted after issuance. Valid requests refresh `last_used_at` on the key row (debounced to at most once per minute, #292); the maintainer can review per-key usage in the admin dashboard to identify inactive keys.
 
 ---
 
@@ -27,7 +27,24 @@ Read endpoints are accessible with any valid key. Write endpoints require an add
 
 ## Rate Limits
 
-None are enforced at the application layer. Implement client-side throttling to avoid saturating the DB connection pool under sustained load.
+Per-key token-bucket rate limiting is enforced at the application layer (#292). Each API key has two independent buckets:
+
+| Bucket | Applies to | Sustained rate | Burst capacity |
+|--------|-----------|----------------|----------------|
+| read | `GET` / `HEAD` | 2 req/s | 120 |
+| write | everything else | 1 req/s | 60 |
+
+An exhausted bucket returns **`429 Too Many Requests`** with:
+
+| Header | Meaning |
+|--------|---------|
+| `Retry-After` | Seconds until the next request will be accepted |
+| `X-RateLimit-Limit` | Bucket burst capacity |
+| `X-RateLimit-Remaining` | Tokens remaining (0 on a 429) |
+
+On 429, back off for at least `Retry-After` seconds — hammering a drained bucket earns only more 429s. The limits are a backstop against runaway clients, not a precise quota: enforcement is per server worker, so short bursts may admit slightly more than the configured rate. Design your client for the documented numbers.
+
+To reduce request volume in the first place: poll `GET /api/v1/changes` for deltas instead of re-fetching entities, and use `If-None-Match` conditional requests (see the caching sections) so unchanged resources cost a 304 instead of a full transfer.
 
 ---
 
@@ -367,7 +384,7 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 |--------|------|------|-------------|
 | `GET` | `/api/v1/people/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `include_archived`, `limit`, `offset`. |
 | `GET` | `/api/v1/people/{id}` | API key | Detail by ULID. Returns public name variants, identifiers, `voice_embeddings_count`, `created_at`, and `updated_at`. ETag caching — see caching section above. |
-| `GET` | `/api/v1/people/{id}/events` | API key | Paginated lifecycle events for a person. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. |
+| `GET` | `/api/v1/people/{id}/events` | API key | Paginated lifecycle events for a person. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. ETag caching — see the events response-shape section. |
 | `POST` | `/api/v1/people/observations` | `observations:write` scope | Submit a person identity observation. |
 | `POST` | `/api/v1/people/identify` | `voice_embeddings:read` scope | Identify a person by voice embedding similarity. Returns top-k matches ordered by cosine similarity. Body: `{model_id, embedding, top_k?}`. Unknown model → empty matches; dimension mismatch → 422. |
 | `POST` | `/api/v1/people/{id}/embeddings` | `voice_embeddings:write` scope | Write a voice embedding observation for a person. Idempotent on `(source_service, source_job_id, source_segment, person_id)` — duplicate against an *active* row returns 200 with the original row's ID. 404 if person is unknown or archived; 409 if the conflicting row is archived (restore or change provenance key first); 422 on dimension mismatch or unknown/write-disabled model. |
@@ -416,7 +433,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 |--------|------|------|-------------|
 | `GET` | `/api/v1/orgs/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `jurisdiction` (slug or ULID — filters to orgs with a `governing` affiliation for that jurisdiction), `include_archived`, `limit`, `offset`. |
 | `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, identifiers, jurisdiction affiliations, `active`, `created_at`, and `updated_at`. ETag caching — see caching section above. |
-| `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. |
+| `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. ETag caching — see the events response-shape section. |
 | `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
 
 ### Detail — `GET /api/v1/orgs/{id}`
@@ -653,6 +670,8 @@ Two mutually exclusive resolution modes:
 | `GET` | `/api/v1/entity-event-types` | API key | Unpaginated list of all event type vocabulary entries. |
 
 ### Response shape — `GET /people/{id}/events` and `GET /orgs/{id}/events`
+
+Both events endpoints support conditional requests (#292): every 200 response carries `ETag`, `Cache-Control: no-cache`, `Vary: X-API-Key`, and (when the entity has at least one visible event) `Last-Modified`. Pass the ETag back as `If-None-Match` to receive `304 Not Modified` when the collection is unchanged — including the empty-collection case. The ETag covers the entity's whole visible-events set plus the `limit`/`offset` pair, so it changes when an event is added, edited, archived, or hidden.
 
 Standard paginated envelope. Each item:
 
