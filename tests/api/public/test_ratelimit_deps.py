@@ -23,13 +23,6 @@ pytestmark = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def _fresh_buckets():
-    rl.reset()
-    yield
-    rl.reset()
-
-
 @pytest.fixture
 def tiny_read_limit(monkeypatch):
     """Read bucket: burst 2, negligible refill — third GET must 429."""

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, require_api_key, require_scope
 from src.api.public.schemas import (
+    NOT_MODIFIED,
     JurisdictionLineageResponse,
     JurisdictionListResponse,
     JurisdictionObservationRequest,
@@ -204,6 +205,7 @@ async def list_jurisdictions(
     "/{jurisdiction_id}",
     response_model=JurisdictionResponse,
     operation_id="getJurisdiction",
+    responses=NOT_MODIFIED,
 )
 async def get_jurisdiction(
     jurisdiction_id: str,

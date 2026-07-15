@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from src.api.deps import get_db
 from src.api.public.deps import require_api_key, require_scope
 from src.api.public.schemas import (
+    NOT_MODIFIED,
     AssignmentDetail,
     AssignmentListResponse,
     AssignmentObservationRequest,
@@ -130,6 +131,7 @@ async def _fetch_arrays(assignment_id: str, db: Any) -> tuple:
     "/{assignment_id}",
     response_model=AssignmentDetail,
     operation_id="getAssignment",
+    responses=NOT_MODIFIED,
 )
 async def get_assignment(
     assignment_id: str,

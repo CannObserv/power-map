@@ -19,6 +19,11 @@ def make_etag(entity_id: str, updated_at: datetime) -> str:
     return f'"{entity_id}-{ts_ms}"'
 
 
+# OpenAPI declaration for endpoints supporting If-None-Match revalidation
+# (#292 CR): spread into the route decorator via ``responses=NOT_MODIFIED``.
+NOT_MODIFIED = {304: {"description": "Not modified — the If-None-Match ETag still matches."}}
+
+
 class OrgSearchResult(BaseModel):
     """Single item in a search response."""
 

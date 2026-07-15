@@ -13,6 +13,7 @@ from src.api.public.events import (
     row_to_event,
 )
 from src.api.public.schemas import (
+    NOT_MODIFIED,
     EntityEventsResponse,
     ObservationResponse,
     PeopleObservationRequest,
@@ -202,6 +203,7 @@ async def search_people(
     "/{person_id}",
     response_model=PersonDetail,
     operation_id="getPerson",
+    responses=NOT_MODIFIED,
 )
 async def get_person(
     person_id: str,
@@ -255,6 +257,7 @@ async def get_person(
     "/{person_id}/events",
     response_model=EntityEventsResponse,
     operation_id="listPersonEvents",
+    responses=NOT_MODIFIED,
 )
 async def list_person_events(
     person_id: str,

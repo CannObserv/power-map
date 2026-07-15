@@ -15,7 +15,18 @@ from src.api.public.role_types import router as role_types_router
 from src.api.public.roles import router as roles_router
 from src.api.public.subscriptions import router as subscriptions_router
 
-router = APIRouter(prefix="/api/v1", tags=["public-api"])
+# Every route depends on the auth choke point, so every route can 429 (#292);
+# declared once here so the whole public surface documents the throttle contract.
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["public-api"],
+    responses={
+        429: {
+            "description": "Rate limit exceeded — back off for Retry-After seconds. "
+            "See PUBLIC_API.md § Rate Limits."
+        }
+    },
+)
 router.include_router(assignments_router)
 router.include_router(changes_router)
 # Within subscriptions_router, GET /subscriptions/discover is defined before

@@ -20,9 +20,27 @@ from httpx import ASGITransport, AsyncClient
 
 from src.api.deps import get_db
 from src.api.main import app
+from src.api.public import deps as public_deps
+from src.api.public import ratelimit
 from src.core import db as core_db
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limit_state():
+    """Fresh limiter buckets + last_used_at debounce stamps per test (#292).
+
+    Both live in per-worker module dicts keyed by api_key_id. Tests mint fresh
+    ULID keys so cross-test bleed is unlikely, but a session-scoped key fixture
+    or a request-heavy test could otherwise flake mysteriously — reset both
+    unconditionally.
+    """
+    ratelimit.reset()
+    public_deps.reset_last_used_stamps()
+    yield
+    ratelimit.reset()
+    public_deps.reset_last_used_stamps()
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)

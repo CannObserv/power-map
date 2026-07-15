@@ -7,8 +7,6 @@ Direct-call unit tests with a mocked db — the rollback-client fixtures freeze
 ``NOW()``, so DB-level timing assertions can't distinguish anyway.
 """
 
-import pytest
-
 from src.api.public import deps as deps_mod
 from src.api.public.deps import _resolve_api_key
 
@@ -22,13 +20,6 @@ class _FakeDB:
 
     async def execute(self, query, *args):
         self.executed.append((query, args))
-
-
-@pytest.fixture(autouse=True)
-def _fresh_stamps():
-    deps_mod.reset_last_used_stamps()
-    yield
-    deps_mod.reset_last_used_stamps()
 
 
 async def test_first_request_stamps_last_used():

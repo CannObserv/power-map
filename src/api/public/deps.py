@@ -1,4 +1,4 @@
-"""Public API authentication dependency."""
+"""Public API authentication deps: key auth, rate limiting (#292), last_used_at debounce."""
 
 import hashlib
 import os

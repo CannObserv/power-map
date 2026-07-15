@@ -1,19 +1,13 @@
 """Unit tests for the per-key token-bucket rate limiter (#292).
 
 Pure unit — no DB, no app. The clock is injected via ``now_s`` so refill math
-is deterministic; ``reset()`` clears bucket state between tests.
+is deterministic; bucket state is reset by the package-wide autouse fixture in
+``conftest.py``.
 """
 
 import pytest
 
 from src.api.public import ratelimit as rl
-
-
-@pytest.fixture(autouse=True)
-def _fresh_buckets():
-    rl.reset()
-    yield
-    rl.reset()
 
 
 @pytest.fixture

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, require_api_key, require_scope
 from src.api.public.schemas import (
+    NOT_MODIFIED,
     ObservationResponse,
     RoleDetail,
     RoleListResponse,
@@ -131,6 +132,7 @@ async def _fetch_role_arrays(role_id: str, db: Any) -> tuple:
     "/{role_id}",
     response_model=RoleDetail,
     operation_id="getRole",
+    responses=NOT_MODIFIED,
 )
 async def get_role(
     role_id: str,

@@ -13,6 +13,7 @@ from src.api.public.events import (
     row_to_event,
 )
 from src.api.public.schemas import (
+    NOT_MODIFIED,
     EntityEventsResponse,
     ObservationResponse,
     OrganizationObservationRequest,
@@ -301,6 +302,7 @@ async def _search_by_jurisdiction(
     "/{org_id}",
     response_model=OrgDetail,
     operation_id="getOrg",
+    responses=NOT_MODIFIED,
 )
 async def get_org(
     org_id: str,
@@ -374,6 +376,7 @@ async def get_org(
     "/{org_id}/events",
     response_model=EntityEventsResponse,
     operation_id="listOrgEvents",
+    responses=NOT_MODIFIED,
 )
 async def list_org_events(
     org_id: str,
