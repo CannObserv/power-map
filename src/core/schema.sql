@@ -1448,7 +1448,14 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     -- legacy accesshub node URLs, which keyed the lobbyist FIRM's directory
     -- page, not the person. Backfilled by
     -- scripts/migrate_person_wa_pdc_accesshub.py.
-    ('01KXKPV2N8WK22EAQ0Q1NZG7RJ', 'person',          'person_wa_pdc_lobbyist_agent', 'WA PDC Lobbyist Agent', 'Washington State Public Disclosure Commission Lobbyist Agent ID', FALSE)
+    ('01KXKPV2N8WK22EAQ0Q1NZG7RJ', 'person',          'person_wa_pdc_lobbyist_agent', 'WA PDC Lobbyist Agent', 'Washington State Public Disclosure Commission Lobbyist Agent ID', FALSE),
+    -- WA PDC campaign-finance committee key (#296): org_wa_pdc holds the numeric
+    -- LOBBYIST firm filer_id; a PAC/committee's CAMPAIGN-FINANCE filer_id is a
+    -- distinct PDC subsystem and lives here (value convention: the bare
+    -- space-padded committee filer_id, e.g. 'LABORG 503', mirroring
+    -- person_wa_pdc_filer). Backfilled from legacy campaign-explorer committee
+    -- URLs by scripts/cleanup_org_wa_pdc_remnants.py.
+    ('01KXKZY20D3FT8VN9310XKJQX0', 'organization',    'org_wa_pdc_committee', 'WA PDC Committee', 'Washington State Public Disclosure Commission Campaign-Finance Committee Filer ID', FALSE)
 ON CONFLICT (id) DO UPDATE SET
     entity_type  = EXCLUDED.entity_type,
     slug         = EXCLUDED.slug,
