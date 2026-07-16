@@ -1,9 +1,13 @@
 """FastAPI application entry point."""
 
+import math
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import src.core.db as db
@@ -42,6 +46,32 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="power-map", version="0.1.0", lifespan=lifespan)
+
+
+def _sanitize_nonfinite(obj: object) -> object:
+    """Replace non-finite floats with their string form for JSON encoding.
+
+    Starlette's JSONResponse renders with ``allow_nan=False``, so a 422 whose
+    echoed ``input`` contains NaN/Infinity (json.loads accepts those literals,
+    #299) would crash the error response into a 500.
+    """
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return str(obj)
+    if isinstance(obj, list):
+        return [_sanitize_nonfinite(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _sanitize_nonfinite(v) for k, v in obj.items()}
+    return obj
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    """Default 422 shape, with non-finite floats in the payload made JSON-safe."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": _sanitize_nonfinite(jsonable_encoder(exc.errors()))},
+    )
+
 
 # Capture public API request/response telemetry (#260). Early-returns for any
 # non-/api/v1 path, so admin/static traffic is untouched.

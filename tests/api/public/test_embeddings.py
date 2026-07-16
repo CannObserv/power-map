@@ -1,6 +1,7 @@
 """Tests for POST /api/v1/people/identify and POST /api/v1/people/{id}/embeddings."""
 
 import hashlib
+import json
 import os
 import random
 
@@ -229,6 +230,95 @@ async def test_identify_top_k_clamped(client, read_key):
 
 
 # ---------------------------------------------------------------------------
+# Input-embedding validation (#299) — zero-norm and non-finite vectors
+# ---------------------------------------------------------------------------
+
+
+async def test_identify_422_zero_vector(client, read_key):
+    """cosine(0, x) is NaN — reject the zero vector at validation, not as null similarity."""
+    r = await client.post(
+        "/api/v1/people/identify",
+        json={"model_id": _MODEL_ID, "embedding": [0.0] * _DIM},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_identify_422_nan_element(client, read_key):
+    """Server-side json.loads accepts NaN literals; must 422, not 500 at the pgvector layer.
+
+    httpx's json= refuses to serialize NaN, so build the raw body with
+    stdlib json.dumps (allow_nan=True default emits the bare ``NaN`` literal).
+    """
+    vec = _rand_embedding()
+    vec[3] = float("nan")
+    r = await client.post(
+        "/api/v1/people/identify",
+        content=json.dumps({"model_id": _MODEL_ID, "embedding": vec}),
+        headers={"X-API-Key": read_key, "Content-Type": "application/json"},
+    )
+    assert r.status_code == 422
+
+
+async def test_identify_422_infinity_element(client, read_key):
+    vec = _rand_embedding()
+    vec[0] = float("inf")
+    r = await client.post(
+        "/api/v1/people/identify",
+        content=json.dumps({"model_id": _MODEL_ID, "embedding": vec}),
+        headers={"X-API-Key": read_key, "Content-Type": "application/json"},
+    )
+    assert r.status_code == 422
+
+
+async def test_write_422_zero_vector(client, write_key, two_people):
+    """Write path must also reject zero vectors — a stored zero vector poisons reads with NaN."""
+    pid = two_people[0]
+    r = await client.post(
+        f"/api/v1/people/{pid}/embeddings",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": [0.0] * _DIM,
+            "activity_ms": 500,
+            "audio_sample_rate_hz": 16000,
+            "source": {
+                "service": "observo",
+                "job_id": "j_zero",
+                "segment": 0,
+                "recorded_at": "2026-01-01T00:00:00Z",
+            },
+        },
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_write_422_nan_element(client, write_key, two_people):
+    pid = two_people[0]
+    vec = _rand_embedding()
+    vec[-1] = float("nan")
+    r = await client.post(
+        f"/api/v1/people/{pid}/embeddings",
+        content=json.dumps(
+            {
+                "model_id": _MODEL_ID,
+                "embedding": vec,
+                "activity_ms": 500,
+                "audio_sample_rate_hz": 16000,
+                "source": {
+                    "service": "observo",
+                    "job_id": "j_nan",
+                    "segment": 0,
+                    "recorded_at": "2026-01-01T00:00:00Z",
+                },
+            }
+        ),
+        headers={"X-API-Key": write_key, "Content-Type": "application/json"},
+    )
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # write — 404 / 422
 # ---------------------------------------------------------------------------
 
@@ -411,6 +501,195 @@ async def test_identify_excludes_archived(
         await db.execute(
             f"UPDATE {_TABLE} SET archived_at = NULL WHERE id = ANY($1::text[])",
             embedding_ids,
+        )
+
+
+# ---------------------------------------------------------------------------
+# POST /people/verify — closed-set verification (#299)
+# ---------------------------------------------------------------------------
+
+
+async def test_verify_requires_read_scope(client, unscoped_key, two_people):
+    r = await client.post(
+        "/api/v1/people/verify",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": _rand_embedding(),
+            "person_ids": [two_people[0]],
+        },
+        headers={"X-API-Key": unscoped_key},
+    )
+    assert r.status_code == 403
+
+
+def test_verify_rejects_missing_key(unit_client):
+    r = unit_client.post(
+        "/api/v1/people/verify",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": _rand_embedding(),
+            "person_ids": [generate_id()],
+        },
+    )
+    assert r.status_code == 403
+
+
+async def test_verify_422_unknown_model(client, read_key, two_people):
+    """Unlike identify's matches:[] convention, verify 422s on an unknown model —
+    an all-null response would be indistinguishable from 'roster has no enrollments'."""
+    r = await client.post(
+        "/api/v1/people/verify",
+        json={
+            "model_id": "no-such-model",
+            "embedding": _rand_embedding(),
+            "person_ids": [two_people[0]],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_verify_422_dim_mismatch(client, read_key, two_people):
+    r = await client.post(
+        "/api/v1/people/verify",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": _rand_embedding(dim=64),
+            "person_ids": [two_people[0]],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_verify_422_zero_vector(client, read_key, two_people):
+    r = await client.post(
+        "/api/v1/people/verify",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": [0.0] * _DIM,
+            "person_ids": [two_people[0]],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_verify_422_empty_person_ids(client, read_key):
+    r = await client.post(
+        "/api/v1/people/verify",
+        json={"model_id": _MODEL_ID, "embedding": _rand_embedding(), "person_ids": []},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_verify_422_over_cap(client, read_key):
+    r = await client.post(
+        "/api/v1/people/verify",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": _rand_embedding(),
+            "person_ids": [generate_id() for _ in range(26)],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_verify_scores_full_roster_in_request_order(client, db, read_key, seeded_embeddings):
+    """One result per requested id, in request order; best enrollment wins.
+
+    pid0 has 3 enrollments (one identical to the query vector → similarity 1.0,
+    winning embedding_id = its enrollment); pid1 has 2; a fresh person has none
+    → similarity/embedding_id null with n_embeddings 0.
+    """
+    pid0, pid1, embedding_ids, query_vec = seeded_embeddings
+    empty_pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", empty_pid)
+
+    r = await client.post(
+        "/api/v1/people/verify",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": query_vec,
+            "person_ids": [pid1, empty_pid, pid0],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    results = r.json()["results"]
+    assert [x["person_id"] for x in results] == [pid1, empty_pid, pid0]
+
+    by_pid = {x["person_id"]: x for x in results}
+    assert by_pid[pid0]["n_embeddings"] == 3
+    assert abs(by_pid[pid0]["similarity"] - 1.0) < 1e-4
+    assert by_pid[pid0]["embedding_id"] == embedding_ids[0]
+
+    assert by_pid[pid1]["n_embeddings"] == 2
+    assert by_pid[pid1]["similarity"] is not None
+    assert by_pid[pid1]["embedding_id"] in embedding_ids[3:5]
+
+    assert by_pid[empty_pid]["n_embeddings"] == 0
+    assert by_pid[empty_pid]["similarity"] is None
+    assert by_pid[empty_pid]["embedding_id"] is None
+
+
+async def test_verify_unknown_person_id_yields_zero_row(client, read_key, seeded_embeddings):
+    """An id that matches no person at all still gets its result row (no 404)."""
+    ghost = generate_id()
+    _, _, _, query_vec = seeded_embeddings
+    r = await client.post(
+        "/api/v1/people/verify",
+        json={"model_id": _MODEL_ID, "embedding": query_vec, "person_ids": [ghost]},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    results = r.json()["results"]
+    assert results == [
+        {"person_id": ghost, "similarity": None, "embedding_id": None, "n_embeddings": 0}
+    ]
+
+
+async def test_verify_dedupes_person_ids(client, read_key, seeded_embeddings):
+    """Duplicate ids collapse to one result, first-occurrence order preserved."""
+    pid0, pid1, _, query_vec = seeded_embeddings
+    r = await client.post(
+        "/api/v1/people/verify",
+        json={
+            "model_id": _MODEL_ID,
+            "embedding": query_vec,
+            "person_ids": [pid1, pid0, pid1, pid0],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    assert [x["person_id"] for x in r.json()["results"]] == [pid1, pid0]
+
+
+async def test_verify_excludes_archived_embeddings(client, db, read_key, seeded_embeddings):
+    """Archived enrollments neither score nor count."""
+    pid0, _, embedding_ids, query_vec = seeded_embeddings
+    pid0_eids = embedding_ids[:3]
+    await db.execute(
+        f"UPDATE {_TABLE} SET archived_at = now() WHERE id = ANY($1::text[])",
+        pid0_eids,
+    )
+    try:
+        r = await client.post(
+            "/api/v1/people/verify",
+            json={"model_id": _MODEL_ID, "embedding": query_vec, "person_ids": [pid0]},
+            headers={"X-API-Key": read_key},
+        )
+        assert r.status_code == 200
+        (res,) = r.json()["results"]
+        assert res["n_embeddings"] == 0
+        assert res["similarity"] is None
+        assert res["embedding_id"] is None
+    finally:
+        await db.execute(
+            f"UPDATE {_TABLE} SET archived_at = NULL WHERE id = ANY($1::text[])",
+            pid0_eids,
         )
 
 
@@ -983,6 +1262,75 @@ async def test_list_filter_by_source_job_id_respects_archived(
         assert eid in {item["embedding_id"] for item in r_all.json()["data"]}
     finally:
         await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+
+
+# ---------------------------------------------------------------------------
+# List — optional source_segment filter (#299)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_filter_by_source_segment(client, read_key, seeded_embeddings):
+    """source_job_id + source_segment narrows to the exact provenance row."""
+    pid0, _, embedding_ids, _ = seeded_embeddings
+    r = await client.get(
+        f"/api/v1/people/{pid0}/embeddings",
+        params={"model_id": _MODEL_ID, "source_job_id": "job_seed", "source_segment": 1},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["meta"]["count"] == 1
+    assert body["data"][0]["embedding_id"] == embedding_ids[1]
+    assert body["data"][0]["source_segment"] == 1
+
+
+async def test_list_filter_source_segment_finds_archived_row(
+    client, db, read_key, seeded_embeddings
+):
+    """The observo 409-recovery shape: one call finds the archived provenance row."""
+    pid0, _, embedding_ids, _ = seeded_embeddings
+    eid = embedding_ids[2]  # job_seed segment 2
+    await db.execute(f"UPDATE {_TABLE} SET archived_at=now() WHERE id=$1", eid)
+    try:
+        r = await client.get(
+            f"/api/v1/people/{pid0}/embeddings",
+            params={
+                "model_id": _MODEL_ID,
+                "source_job_id": "job_seed",
+                "source_segment": 2,
+                "include_archived": "true",
+            },
+            headers={"X-API-Key": read_key},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["meta"]["count"] == 1
+        assert body["data"][0]["embedding_id"] == eid
+        assert body["data"][0]["archived_at"] is not None
+
+        # Active-only default excludes it.
+        r_active = await client.get(
+            f"/api/v1/people/{pid0}/embeddings",
+            params={"model_id": _MODEL_ID, "source_job_id": "job_seed", "source_segment": 2},
+            headers={"X-API-Key": read_key},
+        )
+        assert r_active.json()["meta"]["count"] == 0
+    finally:
+        await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
+
+
+async def test_list_filter_source_segment_without_job(client, read_key, seeded_embeddings):
+    """source_segment composes independently of source_job_id (person-scoped anyway)."""
+    pid0, _, embedding_ids, _ = seeded_embeddings
+    r = await client.get(
+        f"/api/v1/people/{pid0}/embeddings",
+        params={"model_id": _MODEL_ID, "source_segment": 0},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["meta"]["count"] >= 1
+    assert all(item["source_segment"] == 0 for item in body["data"])
 
 
 # ---------------------------------------------------------------------------

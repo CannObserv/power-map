@@ -17,6 +17,9 @@ from src.api.public.schemas import (
     IdentifyRequest,
     IdentifyResponse,
     SearchMeta,
+    VerifyRequest,
+    VerifyResponse,
+    VerifyResult,
 )
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
@@ -96,6 +99,83 @@ async def identify_person(
                 recorded_at=r["recorded_at"],
             )
             for r in rows
+        ]
+    )
+
+
+@router.post(
+    "/verify",
+    response_model=VerifyResponse,
+    operation_id="verifyPersonByVoice",
+)
+async def verify_person(
+    body: VerifyRequest,
+    _auth: AuthedKey = Depends(require_scope("voice_embeddings:read")),
+    db=Depends(get_db),
+    registry: EmbeddingRegistry = Depends(_get_registry),
+) -> VerifyResponse:
+    """Score the query embedding against a declared candidate set (#299).
+
+    Closed-set verification, not open-set identification: one result per
+    requested person_id, always, in request order (duplicates deduped, first
+    occurrence wins).  ``similarity`` is the best (max cosine) across the
+    person's active embeddings under ``model_id``; ``embedding_id`` is the
+    winning enrollment.  A person with no active embeddings — including an
+    unknown or archived person id — returns ``similarity: null,
+    embedding_id: null, n_embeddings: 0``.  No server-side thresholding.
+
+    Unlike identify's ``matches: []`` convention, an unknown or non-queryable
+    model is a 422 — an all-null response would be indistinguishable from
+    "no candidate has enrollments".  422 also on dimension mismatch.
+    """
+    meta = registry.get(body.model_id)
+    if meta is None or not meta.is_queryable:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown or non-queryable embedding model '{body.model_id}'",
+        )
+
+    if len(body.embedding) != meta.dimension:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Embedding dimension {len(body.embedding)} does not match "
+            f"model '{meta.model_id}' expected {meta.dimension}",
+        )
+
+    ordered_ids = list(dict.fromkeys(body.person_ids))
+
+    table = meta.table_name  # registry-controlled — not user input
+    op = meta.operator
+    vec = _vec_str(body.embedding)
+
+    # Aggregate form deliberately avoids the HNSW index (exact scores, no ANN
+    # recall loss on a filtered scan); the person_id btree bounds the work to
+    # the candidates' own rows.
+    rows = await db.fetch(
+        f"""
+        SELECT person_id,
+               count(*) AS n_embeddings,
+               1 - min(embedding {op} $1::vector) AS similarity,
+               (array_agg(id ORDER BY embedding {op} $1::vector))[1] AS embedding_id
+          FROM {table}
+         WHERE archived_at IS NULL
+           AND person_id = ANY($2::text[])
+         GROUP BY person_id
+        """,
+        vec,
+        ordered_ids,
+    )
+    scored = {r["person_id"]: r for r in rows}
+
+    return VerifyResponse(
+        results=[
+            VerifyResult(
+                person_id=pid,
+                similarity=float(scored[pid]["similarity"]) if pid in scored else None,
+                embedding_id=scored[pid]["embedding_id"] if pid in scored else None,
+                n_embeddings=scored[pid]["n_embeddings"] if pid in scored else 0,
+            )
+            for pid in ordered_ids
         ]
     )
 
@@ -423,6 +503,7 @@ async def list_person_embeddings(
     model_id: str = Query(...),
     include_archived: bool = Query(default=False),
     source_job_id: str | None = Query(default=None),
+    source_segment: int | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     _auth: AuthedKey = Depends(require_scope("voice_embeddings:read")),
@@ -434,7 +515,9 @@ async def list_person_embeddings(
     By default returns only active (non-archived) rows.  Pass
     ``include_archived=true`` to include archived rows.  Pass ``source_job_id``
     to restrict the list to a single provenance job (index-backed; mirrors the
-    batch-delete surface) — omit it to enumerate the person's full set.
+    batch-delete surface) — omit it to enumerate the person's full set.  Pass
+    ``source_segment`` with ``source_job_id`` to pinpoint one provenance row
+    (#299 — e.g. finding the archived row behind a write 409 in a single call).
     404 if the person does not exist or is archived.
     """
     meta = _require_model(model_id, registry)
@@ -454,6 +537,7 @@ async def list_person_embeddings(
          WHERE person_id = $1
            AND ($2 OR archived_at IS NULL)
            AND ($5::text IS NULL OR source_job_id = $5)
+           AND ($6::int IS NULL OR source_segment = $6)
          -- id (ULID PK) is a unique tiebreaker: required so offset pagination
          -- is stable when rows share a created_at, e.g. bulk-ingested from one
          -- job (#297).
@@ -465,6 +549,7 @@ async def list_person_embeddings(
         limit + 1,
         offset,
         source_job_id,
+        source_segment,
     )
 
     has_more = len(rows) > limit
@@ -475,10 +560,12 @@ async def list_person_embeddings(
         SELECT count(*) AS n FROM {table}
          WHERE person_id = $1 AND ($2 OR archived_at IS NULL)
            AND ($3::text IS NULL OR source_job_id = $3)
+           AND ($4::int IS NULL OR source_segment = $4)
         """,
         person_id,
         include_archived,
         source_job_id,
+        source_segment,
     )
 
     return EmbeddingListResponse(

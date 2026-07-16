@@ -1,12 +1,41 @@
 """Pydantic response models for the public API v1."""
 
+import math
 from datetime import date, datetime
 from types import MappingProxyType
-from typing import Final, Literal
+from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 EntityType = Literal["person", "organization", "jurisdiction", "role", "role_assignment"]
+
+
+def _validate_embedding_values(v: list[float]) -> list[float]:
+    """Reject non-finite elements and the zero vector (#299).
+
+    Python's json.loads accepts bare ``NaN``/``Infinity`` literals, so they
+    survive ``list[float]`` validation and would otherwise error deep in the
+    pgvector layer (500). A zero-norm vector makes cosine similarity NaN,
+    which serializes as ``similarity: null`` and breaks the response contract.
+    """
+    if any(not math.isfinite(x) for x in v):
+        raise ValueError("embedding must contain only finite values")
+    if all(x == 0.0 for x in v):
+        raise ValueError("embedding must not be the zero vector")
+    return v
+
+
+# Shared by identify / verify / write request models — every embedding that
+# crosses the API boundary is finite and non-zero, so cosine similarity over
+# stored vectors can never be NaN.
+EmbeddingVector = Annotated[list[float], AfterValidator(_validate_embedding_values)]
 
 
 def fmt_ts(v: datetime | None) -> str | None:
@@ -200,7 +229,7 @@ class EmbeddingWriteRequest(BaseModel):
     """Request body for POST /api/v1/people/{id}/embeddings."""
 
     model_id: str
-    embedding: list[float]
+    embedding: EmbeddingVector
     activity_ms: int = Field(ge=0)
     audio_sample_rate_hz: int = Field(gt=0)
     source: EmbeddingSource
@@ -301,7 +330,7 @@ class IdentifyRequest(BaseModel):
     """Request body for POST /api/v1/people/identify."""
 
     model_id: str
-    embedding: list[float]
+    embedding: EmbeddingVector
     top_k: int = 5
 
 
@@ -324,6 +353,40 @@ class IdentifyResponse(BaseModel):
     """Response envelope for POST /api/v1/people/identify."""
 
     matches: list[IdentifyMatch]
+
+
+class VerifyRequest(BaseModel):
+    """Request body for POST /api/v1/people/verify — closed-set verification (#299).
+
+    Scores the query embedding against a small declared candidate set instead
+    of the global top-K. Duplicate ``person_ids`` are deduped (first occurrence
+    wins); the cap keeps the exact per-person scan bounded.
+    """
+
+    model_id: str
+    embedding: EmbeddingVector
+    person_ids: list[str] = Field(min_length=1, max_length=25)
+
+
+class VerifyResult(BaseModel):
+    """Per-candidate verification score.
+
+    One result per requested person_id, always — a person with no active
+    embeddings under the model (or an unknown/archived person id) comes back
+    with ``similarity: null, embedding_id: null, n_embeddings: 0`` so callers
+    can distinguish absence from a low score.
+    """
+
+    person_id: str
+    similarity: float | None
+    embedding_id: str | None
+    n_embeddings: int
+
+
+class VerifyResponse(BaseModel):
+    """Response envelope for POST /api/v1/people/verify — results in request order."""
+
+    results: list[VerifyResult]
 
 
 class LinkType(BaseModel):
