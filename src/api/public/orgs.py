@@ -218,7 +218,8 @@ async def search_orgs(
           AND o.search_tsv @@ _q.tsq
         ORDER BY
             ts_rank(o.search_tsv, _q.tsq) DESC,
-            n.name NULLS LAST
+            n.name NULLS LAST,
+            o.id  -- unique tiebreaker: stable offset pagination under rank/name ties (#297)
         LIMIT $2 OFFSET $4
         """,
         q.strip(),
@@ -276,7 +277,8 @@ async def _search_by_jurisdiction(
           AND ($5::text IS NULL OR o.search_tsv @@ plainto_tsquery('pm_simple', $5))
         ORDER BY
             ts_rank(o.search_tsv, plainto_tsquery('pm_simple', $5)) DESC NULLS LAST,
-            n.name NULLS LAST
+            n.name NULLS LAST,
+            o.id  -- unique tiebreaker: stable offset pagination under rank/name ties (#297)
         LIMIT $3 OFFSET $4
         """,
         jurisdiction,
@@ -421,8 +423,9 @@ async def list_org_events(
           AND ee.entity_type = 'organization'
           AND ee.visibility = 'public'
           AND ee.archived_at IS NULL
+        -- ee.id: unique tiebreaker for stable offset pagination under date/created_at ties (#297)
         ORDER BY ee.event_year DESC NULLS LAST, ee.event_month DESC NULLS LAST,
-                 ee.event_day DESC NULLS LAST, ee.created_at DESC
+                 ee.event_day DESC NULLS LAST, ee.created_at DESC, ee.id DESC
         LIMIT $2 OFFSET $3
         """,
         org_id,

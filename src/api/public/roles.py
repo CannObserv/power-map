@@ -69,7 +69,8 @@ async def list_roles(
         LEFT JOIN role_types rt ON rt.id = r.role_type_id
         WHERE ($1::TEXT IS NULL OR r.organization_id = $1)
           AND ($2 OR r.archived_at IS NULL)
-        ORDER BY r.organization_id, r.title
+        -- r.id: unique tiebreaker for stable offset pagination under (org, title) ties (#297)
+        ORDER BY r.organization_id, r.title, r.id
         LIMIT $3 OFFSET $4
         """,
         organization_id,

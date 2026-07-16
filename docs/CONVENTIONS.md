@@ -10,6 +10,7 @@ Reference for public API, database, and ingestion patterns. For admin dashboard 
 - Versioning: path-based (`/api/v1/`). Bump the prefix when introducing breaking changes
 - Response models: all routes must declare a Pydantic `response_model` (in `schemas.py`) and an explicit `operation_id`; `dict[str, Any]` return types are not allowed — OpenAPI schema must be fully typed
 - List endpoints: return `{"data": [...], "meta": {"limit", "offset", "count", "has_more"}}`; fetch `limit + 1` rows to compute `has_more` without a `COUNT(*)` query; return only `limit` rows in `data`
+- Stable pagination: every paginated `ORDER BY` **must end with a unique column** (usually the PK, e.g. `, id` / `, o.id`). Ordering by non-unique keys alone (name, rank, `created_at`) lets Postgres return tied rows in a different order per query, so offset windows overlap and gap — consumers paging the full list silently skip and duplicate rows (#297). Append the tiebreaker even when a partial unique index makes ties rare (archived rows, jurisdictional variants), since offset pagination must be total-ordered across *all* returned rows
 - Single-resource endpoints: return the resource object directly (no envelope)
 - Timestamps: use `datetime` fields in Pydantic response models + `@field_serializer` calling `fmt_ts()` from `schemas.py`; ISO 8601 with `Z` suffix; never pre-serialize as `str` in handlers
 - CORS: not required — the public API is server-to-server only (no browser callers)

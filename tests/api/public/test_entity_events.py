@@ -448,3 +448,54 @@ async def test_org_events_if_none_match_returns_304(client, api_key, org_fixture
     etag = first.headers["etag"]
     r = await client.get(url, headers={"X-API-Key": api_key, "If-None-Match": etag})
     assert r.status_code == 304
+
+
+# ---------------------------------------------------------------------------
+# Stable pagination under tied date + created_at sort key (#297)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_events_pagination_stable_under_tied_sort_key(
+    client, api_key, person_fixture, db
+):
+    """Offset pagination is complete + duplicate-free when events tie on the sort key.
+
+    Undated events (NULL year/month/day) inserted together share one created_at
+    (Postgres now() is constant within the rollback transaction), so every row
+    ties on (event_year, event_month, event_day, created_at). Without the ee.id
+    tiebreaker, offset windows over them skip and duplicate. This shape backs
+    both the person- and org-events lists.
+    """
+    birth_id = await _birth_type_id(db)
+    event_ids = [generate_id() for _ in range(12)]
+    for eid in event_ids:
+        await db.execute(
+            "INSERT INTO entity_events"
+            " (id, entity_type, entity_id, event_type_id, visibility)"
+            " VALUES ($1, 'person', $2, $3, 'public')",
+            eid,
+            person_fixture,
+            birth_id,
+        )
+
+    limit = 3
+    collected: list[str] = []
+    offset = 0
+    while True:
+        r = await client.get(
+            f"/api/v1/people/{person_fixture}/events",
+            params={"limit": limit, "offset": offset},
+            headers={"X-API-Key": api_key},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        collected.extend(item["id"] for item in body["data"])
+        if not body["meta"]["has_more"]:
+            break
+        offset += limit
+
+    # Complete and duplicate-free: every seeded event appears exactly once.
+    assert len(collected) == len(event_ids)
+    assert set(collected) == set(event_ids)
+    # Deterministic total order: full tie → ee.id DESC.
+    assert collected == sorted(event_ids, reverse=True)

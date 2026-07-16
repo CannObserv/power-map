@@ -344,3 +344,63 @@ async def test_detail_etag_304(client, api_key, assignment_fixtures):
     etag = r1.headers["etag"]
     r2 = await client.get(f"{_LIST}/{a1}", headers={"X-API-Key": api_key, "if-none-match": etag})
     assert r2.status_code == 304
+
+
+# ---------------------------------------------------------------------------
+# Stable pagination under tied (person, role, start_date) sort key (#297)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_pagination_stable_under_tied_sort_key(client, api_key, db):
+    """Offset pagination is complete + duplicate-free when assignments tie on the sort key.
+
+    The active-row unique index on (person_id, role_id, start_date) does not
+    cover archived rows, so multiple archived assignments can tie on the full
+    ORDER BY key. Without the id tiebreaker, offset windows over them skip and
+    duplicate. Seed archived duplicates and page with include_archived=true.
+    """
+    person_id = generate_id()
+    org_id = generate_id()
+    role_id = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Director')", role_id, org_id
+    )
+
+    assignment_ids = [generate_id() for _ in range(10)]
+    for aid in assignment_ids:
+        await db.execute(
+            "INSERT INTO role_assignments (id, person_id, role_id, start_date, archived_at)"
+            " VALUES ($1,$2,$3,DATE '2023-01-01',NOW())",
+            aid,
+            person_id,
+            role_id,
+        )
+
+    limit = 3
+    collected: list[str] = []
+    offset = 0
+    while True:
+        r = await client.get(
+            _LIST,
+            params={
+                "person_id": person_id,
+                "include_archived": "true",
+                "limit": limit,
+                "offset": offset,
+            },
+            headers={"X-API-Key": api_key},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        collected.extend(item["id"] for item in body["data"])
+        if not body["meta"]["has_more"]:
+            break
+        offset += limit
+
+    # Complete and duplicate-free: every seeded assignment appears exactly once.
+    assert len(collected) == len(assignment_ids)
+    assert set(collected) == set(assignment_ids)
+    # Deterministic total order: full tie → id ascending.
+    assert collected == sorted(assignment_ids)

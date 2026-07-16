@@ -700,3 +700,60 @@ async def test_get_person_etag_changes_after_event_deleted(client, api_key, pers
 
     r2 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
     assert r2.headers["etag"] != etag1
+
+
+# ---------------------------------------------------------------------------
+# Stable pagination under tied (rank, display_name) sort key (#297)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_search_pagination_stable_under_tied_rank_and_name(client, api_key, db):
+    """Offset pagination is complete + duplicate-free when many people tie on (rank, name).
+
+    Without a unique tiebreaker in ORDER BY, tied rows come back in a
+    query-dependent order, so offset windows over the search results skip and
+    duplicate people. Seed 12 people sharing one identical canonical name
+    (identical ts_rank + identical display_name → full tie), then page the
+    search at a small limit.
+    """
+    token = "Qwendolyne"  # rare token so only these fixtures match
+    person_ids = [generate_id() for _ in range(12)]
+    name_ids = [generate_id() for _ in range(12)]
+    try:
+        for pid, nid in zip(person_ids, name_ids, strict=True):
+            await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+            await db.execute(
+                "INSERT INTO person_names"
+                " (id, person_id, name, name_type, is_canonical, visibility)"
+                " VALUES ($1,$2,$3,'legal',TRUE,'public')",
+                nid,
+                pid,
+                token,
+            )
+
+        limit = 3
+        collected: list[str] = []
+        offset = 0
+        while True:
+            r = await client.get(
+                "/api/v1/people/search",
+                params={"q": token, "limit": limit, "offset": offset},
+                headers={"X-API-Key": api_key},
+            )
+            assert r.status_code == 200
+            body = r.json()
+            collected.extend(item["id"] for item in body["data"])
+            if not body["meta"]["has_more"]:
+                break
+            offset += limit
+
+        # Complete and duplicate-free: every seeded person appears exactly once.
+        assert len(collected) == len(person_ids)
+        assert set(collected) == set(person_ids)
+        # Deterministic total order: tied (rank, name) → p.id ascending.
+        seeded_slice = [pid for pid in collected if pid in set(person_ids)]
+        assert seeded_slice == sorted(person_ids)
+    finally:
+        await db.execute("DELETE FROM person_names WHERE id = ANY($1::text[])", name_ids)
+        await db.execute("DELETE FROM people WHERE id = ANY($1::text[])", person_ids)

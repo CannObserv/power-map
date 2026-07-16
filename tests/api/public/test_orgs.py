@@ -1031,3 +1031,59 @@ async def test_search_jurisdiction_filter_registered_type_not_default(
         await db.execute("DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id)
         await db.execute("DELETE FROM jurisdictions WHERE id=$1", jur_id)
         await db.execute("DELETE FROM jurisdiction_types WHERE id=$1", jtype_id)
+
+
+# ---------------------------------------------------------------------------
+# Stable pagination under tied (rank, name) sort key (#297)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_search_pagination_stable_under_tied_rank_and_name(client, api_key, db):
+    """Offset pagination is complete + duplicate-free when many orgs tie on (rank, name).
+
+    Without a unique tiebreaker in ORDER BY, tied rows come back in a
+    query-dependent order, so offset windows over the search results skip and
+    duplicate orgs. Seed 12 orgs sharing one identical canonical name (identical
+    ts_rank + identical name → full tie), then page the search at a small limit.
+    """
+    token = "Zzyzxatron"  # rare token so only these fixtures match
+    org_ids = [generate_id() for _ in range(12)]
+    name_ids = [generate_id() for _ in range(12)]
+    try:
+        for oid, nid in zip(org_ids, name_ids, strict=True):
+            await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            await db.execute(
+                "INSERT INTO organization_names"
+                " (id, organization_id, name, name_type, is_canonical)"
+                " VALUES ($1,$2,$3,'legal',TRUE)",
+                nid,
+                oid,
+                token,
+            )
+
+        limit = 3
+        collected: list[str] = []
+        offset = 0
+        while True:
+            r = await client.get(
+                "/api/v1/orgs/search",
+                params={"q": token, "limit": limit, "offset": offset},
+                headers={"X-API-Key": api_key},
+            )
+            assert r.status_code == 200
+            body = r.json()
+            collected.extend(item["id"] for item in body["data"])
+            if not body["meta"]["has_more"]:
+                break
+            offset += limit
+
+        # Complete and duplicate-free: every seeded org appears exactly once.
+        assert len(collected) == len(org_ids)
+        assert set(collected) == set(org_ids)
+        # Deterministic total order: tied (rank, name) → o.id ascending.
+        seeded_slice = [oid for oid in collected if oid in set(org_ids)]
+        assert seeded_slice == sorted(org_ids)
+    finally:
+        await db.execute("DELETE FROM organization_names WHERE id = ANY($1::text[])", name_ids)
+        await db.execute("DELETE FROM organizations WHERE id = ANY($1::text[])", org_ids)

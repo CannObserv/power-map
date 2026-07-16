@@ -67,7 +67,9 @@ async def list_assignments(
         WHERE ($1::TEXT IS NULL OR person_id = $1)
           AND ($2::TEXT IS NULL OR role_id = $2)
           AND ($3 OR archived_at IS NULL)
-        ORDER BY person_id, role_id, start_date
+        -- id: unique tiebreaker for stable offset pagination; the active-row unique
+        -- index doesn't cover archived rows, which can tie on (person, role, start) (#297)
+        ORDER BY person_id, role_id, start_date, id
         LIMIT $4 OFFSET $5
         """,
         person_id,
