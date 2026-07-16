@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.core.anomaly import HOURLY_REQUEST_THRESHOLD, key_activity
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/activity/requests", tags=["admin-activity-requests"])
@@ -104,6 +105,20 @@ async def request_list(
     )
     window_hours = _WINDOWS.get(window, 24)
     stats = await db.fetchrow(_STATS_SQL, window_hours)
+    # Per-key breakdown (#294) — hot keys visible at a glance; a per-hour rate
+    # at/above the anomaly threshold highlights the row.
+    per_key = [
+        {
+            "api_key_id": a.api_key_id,
+            "key_label": a.key_label,
+            "request_count": a.request_count,
+            "throttled_count": a.throttled_count,
+            "last_seen": a.last_seen,
+            "per_hour": round(a.request_count / window_hours, 1),
+            "hot": a.request_count / window_hours >= HOURLY_REQUEST_THRESHOLD,
+        }
+        for a in await key_activity(db, window_hours=window_hours)
+    ]
     keys = await db.fetch(
         "SELECT DISTINCT k.id, k.label FROM api_keys k "
         "JOIN api_request_log r ON r.api_key_id = k.id ORDER BY k.label"
@@ -119,6 +134,7 @@ async def request_list(
             "page": page,
             "page_size": PAGE_SIZE,
             "stats": stats,
+            "per_key": per_key,
             "keys": keys,
             "filters": {
                 "group": group or "",

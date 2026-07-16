@@ -243,6 +243,12 @@ screens and the dashboard API-activity panel.
   shed volume is counted and surfaced via a rate-limited `WARNING`.
 - **Retention** — pruned on the same 90-day window as the outbox by
   `scripts/prune_outbox.py` (see `docs/COMMANDS.md`).
+- **Anomaly surfacing** (#294) — per-key aggregates via
+  `src.core.anomaly.key_activity` back both the admin per-key panel and the
+  hourly `power-map-anomaly.timer` check (`scripts/check_api_anomalies.py`,
+  WARNING + exit 2 at/above `API_ANOMALY_HOURLY_THRESHOLD` req/hr; see
+  `docs/COMMANDS.md`). Threshold is deliberately below the rate-limit ceiling —
+  rationale in `src/core/anomaly.py`.
 
 ## Unique Indexes (PostgreSQL 15+)
 

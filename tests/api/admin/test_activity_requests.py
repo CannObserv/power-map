@@ -286,6 +286,70 @@ async def test_detail_resolves_role_assignment_link(client, db):
     assert f"/admin/role-assignments/{ra_id}/" in resp.text
 
 
+# ---------------------------------------------------------------------------
+# Per-key traffic panel (#294)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_second_key(db, label):
+    """Insert a second app user + API key; return the key id."""
+    uid, kid = generate_id(), generate_id()
+    raw = "pm_" + os.urandom(8).hex()
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, f"{uid}@pk.test")
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        uid,
+        label,
+        raw[:8],
+        hashlib.sha256(raw.encode()).hexdigest(),
+    )
+    return kid
+
+
+async def test_per_key_panel_lists_hottest_key_first(client, db, seeded_log):
+    """Per-key panel rows are ordered by request count desc — hot key on top."""
+    hot_kid = await _seed_second_key(db, "Hot Key")
+    for _ in range(9):
+        await _insert_log(db, api_key_id=hot_kid, method="GET", path="/api/v1/changes")
+    resp = await client.get(_BASE, headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    hot_pos = resp.text.index(f'data-key-row="{hot_kid}"')
+    seeded_pos = resp.text.index(f'data-key-row="{seeded_log["key"]}"')
+    assert hot_pos < seeded_pos
+
+
+async def test_per_key_panel_shows_request_and_throttled_counts(client, db, seeded_log):
+    kid = await _seed_second_key(db, "Bursty Key")
+    await _insert_log(db, api_key_id=kid)
+    await _insert_log(db, api_key_id=kid, status_code=429)
+    await _insert_log(db, api_key_id=kid, status_code=429)
+    resp = await client.get(_BASE, headers=AUTH_HEADERS)
+    assert f'data-key-row="{kid}" data-requests="3" data-throttled="2"' in resp.text
+
+
+async def test_per_key_panel_groups_unauthenticated(client, db, seeded_log):
+    """Rows with NULL api_key_id (invalid/absent key) surface as an anonymous bucket."""
+    await _insert_log(db, api_key_id=None, status_code=401)
+    resp = await client.get(_BASE, headers=AUTH_HEADERS)
+    assert 'data-key-row="anon"' in resp.text
+
+
+async def test_per_key_panel_respects_window_param(client, db, seeded_log):
+    """A key whose only traffic is older than the window drops out of the panel."""
+    stale_kid = await _seed_second_key(db, "Stale Key")
+    await db.execute(
+        "INSERT INTO api_request_log (api_key_id, method, path, route_group, status_code,"
+        " latency_ms, occurred_at) VALUES ($1,'GET','/api/v1/changes','changes',200,1,"
+        " NOW() - INTERVAL '3 days')",
+        stale_kid,
+    )
+    resp = await client.get(_BASE + "?window=24h", headers=AUTH_HEADERS)
+    assert f'data-key-row="{stale_kid}"' not in resp.text
+    resp = await client.get(_BASE + "?window=7d", headers=AUTH_HEADERS)
+    assert f'data-key-row="{stale_kid}"' in resp.text
+
+
 async def test_sidebar_sublink_renders_on_non_activity_page(client, seeded_log):
     """The API Requests sidebar sublink renders on other admin pages, un-highlighted (#260 CR)."""
     # dashboard, active_section='dashboard'

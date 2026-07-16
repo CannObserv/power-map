@@ -1,11 +1,15 @@
 """Integration tests for admin activity landing screen."""
 
+import hashlib
+import os
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from src.api.admin.deps import get_db
 from src.api.main import app
+from src.core.db import generate_id
 
 pytestmark = pytest.mark.integration
 
@@ -56,6 +60,30 @@ async def test_activity_has_api_requests_card(client):
     assert response.status_code == 200
     assert "API Requests" in response.text
     assert 'href="/admin/activity/requests/"' in response.text
+
+
+async def test_activity_landing_shows_busiest_key(client, db):
+    """API Requests card surfaces the busiest key of the last 24h (#294)."""
+    uid, kid = generate_id(), generate_id()
+    raw = "pm_" + os.urandom(8).hex()
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "busy@test.com")
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        uid,
+        "Busiest Key",
+        raw[:8],
+        hashlib.sha256(raw.encode()).hexdigest(),
+    )
+    for _ in range(3):
+        await db.execute(
+            "INSERT INTO api_request_log (api_key_id, method, path, route_group,"
+            " status_code, latency_ms) VALUES ($1,'GET','/api/v1/changes','changes',200,1)",
+            kid,
+        )
+    response = await client.get("/admin/activity/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Busiest Key" in response.text
 
 
 async def test_activity_landing_redirects_unauthenticated(client):

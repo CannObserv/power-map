@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly power-map per-key API anomaly check (issue #294)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+# Spread the run off the exact hour boundary to avoid contention.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

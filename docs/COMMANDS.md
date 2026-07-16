@@ -385,6 +385,42 @@ sudo systemctl start power-map-prune.service   # run once, now
 sudo journalctl -u power-map-prune -f          # logs (rows pruned per run)
 ```
 
+## Per-key API anomaly check (issue #294)
+
+`scripts/check_api_anomalies.py` queries `api_request_log` for the trailing hour,
+grouped per API key, and logs a journal `WARNING` for every key at/above the
+threshold (default 5000/hr; env `API_ANOMALY_HOURLY_THRESHOLD`). Exits 2 when
+anomalous so the systemd unit shows failed (`systemctl --failed`; future
+`OnFailure=` hook). The threshold is deliberately **below** the rate-limit
+ceiling (2 workers × 2/s ≈ 14.4k/hr) — the 2026-07-11 runaway ran at ~17.5k/hr,
+so a "well above ceiling" threshold would have missed it. Human-facing layer:
+Admin → Activity → API Requests per-key panel.
+
+Manual run:
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.check_api_anomalies
+uv run "${env_args[@]}" python -m scripts.check_api_anomalies --threshold 1000
+```
+
+Scheduled (production): an hourly systemd timer. Install / update:
+
+```bash
+sudo cp infra/power-map-anomaly.service infra/power-map-anomaly.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now power-map-anomaly.timer
+
+# Inspect
+systemctl list-timers power-map-anomaly.timer    # next/last run
+sudo systemctl start power-map-anomaly.service   # run once, now
+sudo journalctl -u power-map-anomaly -f          # WARNINGs per anomalous key
+```
+
 ## Git Submodules
 
 ```bash

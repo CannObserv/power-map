@@ -2189,11 +2189,20 @@ Observability of public API traffic, under the **Activity** section
 `docs/CONVENTIONS.md` § "API request log" for the capture/data contract.
 
 - **Landing card** — `admin/activity/index.html` gains an "API Requests" card
-  with a 24h pulse subtitle (`N requests · M rejected`) linking to the list.
+  with a 24h pulse subtitle (`N requests · M rejected`) linking to the list, plus
+  a "Busiest key (24h)" line (#294) so a runaway client is visible from the
+  landing page.
 - **Dashboard panel** — `admin/dashboard.html` Activity grid gains an
   "API Activity (24h)" card: total requests, observation dispositions (new /
   attached / **rejected**), changes polls/rows, error rate, last-request time.
   Rejections and a non-zero error rate render in `--color-danger`.
+- **Per-key panel** (#294) — on the list page, between the stats strip and the
+  filter form: one row per key active in the window (hottest first, from
+  `src.core.anomaly.key_activity`), showing label (links to the key-filtered
+  list), request count, req/hr, 429 count (danger-colored when non-zero), and
+  last-seen. Rows at/above `API_ANOMALY_HOURLY_THRESHOLD` req/hr get the problem
+  tint + a "hot" badge. NULL-key traffic aggregates into a "— (no key)" row
+  (`data-key-row="anon"`). Same 24h/7d window as the stats strip.
 - **List** — `/admin/activity/requests/`. Stats strip (24h/7d window toggle via
   `request.url.include_query_params`), filter form (endpoint group defaulting to
   observations+changes, key **by label**, status class, disposition, free-text

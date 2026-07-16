@@ -27,6 +27,19 @@ async def activity_index(
                AND disposition = 'rejected') AS req_rejected_24h
         """
     )
+    # Busiest key of the last 24h (#294) — a runaway client is visible from the
+    # landing page, not only after drilling into the request log.
+    busiest = await db.fetchrow(
+        """
+        SELECT k.label AS key_label, COUNT(*) AS request_count
+        FROM api_request_log r
+        LEFT JOIN api_keys k ON k.id = r.api_key_id
+        WHERE r.occurred_at >= NOW() - INTERVAL '24 hours'
+        GROUP BY r.api_key_id, k.label
+        ORDER BY request_count DESC, r.api_key_id
+        LIMIT 1
+        """
+    )
     return templates.TemplateResponse(
         request,
         "admin/activity/index.html",
@@ -34,5 +47,6 @@ async def activity_index(
             "user": user,
             "active_section": "activity",
             "counts": counts,
+            "busiest": busiest,
         },
     )

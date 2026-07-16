@@ -32,6 +32,43 @@
   </div>
 </section>
 
+{# ---- Per-key traffic (#294) ------------------------------------------ #}
+<section aria-label="Per-key traffic" style="margin-bottom:var(--space-5)">
+  <div class="table-wrapper">
+    <table class="data-table">
+      <caption>Per-key traffic — same window as the summary above; hottest key first</caption>
+      <thead>
+        <tr>
+          <th scope="col">Key</th>
+          <th scope="col">Requests</th>
+          <th scope="col">Req/hr</th>
+          <th scope="col">429s</th>
+          <th scope="col">Last seen (UTC)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for k in per_key %}
+        <tr data-key-row="{{ k.api_key_id or 'anon' }}" data-requests="{{ k.request_count }}" data-throttled="{{ k.throttled_count }}"
+            {% if k.hot %}style="background:rgba(220,38,38,0.06)"{% endif %}>
+          <td>
+            {% if k.api_key_id %}
+            <a href="/admin/activity/requests/?group=all&key={{ k.api_key_id }}&window={{ filters.window }}">{{ k.key_label }}</a>
+            {% else %}<span style="color:var(--color-text-muted)">— (no key)</span>{% endif %}
+            {% if k.hot %}<span class="badge badge--archived">hot</span>{% endif %}
+          </td>
+          <td>{{ k.request_count }}</td>
+          <td>{{ k.per_hour }}</td>
+          <td {% if k.throttled_count %}style="color:var(--color-danger);font-weight:700"{% endif %}>{{ k.throttled_count }}</td>
+          <td>{{ k.last_seen.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No traffic in this window</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
 {# ---- Filters -------------------------------------------------------- #}
 <form method="get" action="/admin/activity/requests/"
   style="display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:end;margin-bottom:var(--space-4)">
