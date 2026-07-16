@@ -2753,14 +2753,13 @@ $$ LANGUAGE plpgsql;
 -- The original seed (#188) predates the embeddings list endpoint (#279) and
 -- closed-set verify (#299). These descriptions surface in the admin
 -- key-management UI, so they must state the full blast radius of a
--- biometric-data grant. Guarded UPDATEs keep re-application a no-op.
+-- biometric-data grant. Plain UPDATEs — the table has no updated_at trigger,
+-- so re-application is naturally a no-op (CR #299 round 2).
 
 UPDATE api_key_scope_types
    SET description = 'Read voice embedding data via POST /api/v1/people/identify, POST /api/v1/people/verify, and GET /api/v1/people/{id}/embeddings'
- WHERE id = 'voice_embeddings:read'
-   AND description IS DISTINCT FROM 'Read voice embedding data via POST /api/v1/people/identify, POST /api/v1/people/verify, and GET /api/v1/people/{id}/embeddings';
+ WHERE id = 'voice_embeddings:read';
 
 UPDATE api_key_scope_types
    SET description = 'Write, patch, archive (single + batch), and restore voice embedding observations via the /api/v1/people/{id}/embeddings endpoints'
- WHERE id = 'voice_embeddings:write'
-   AND description IS DISTINCT FROM 'Write, patch, archive (single + batch), and restore voice embedding observations via the /api/v1/people/{id}/embeddings endpoints';
+ WHERE id = 'voice_embeddings:write';

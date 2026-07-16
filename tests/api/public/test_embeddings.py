@@ -703,7 +703,7 @@ async def test_verify_tied_distances_deterministic_winner(
     """Identical enrollments (exact distance tie) must yield a stable embedding_id.
 
     The winner is the oldest enrollment (ascending ULID) — pinned so repeated
-    verify calls with the same inputs return byte-identical results.
+    verify calls with the same inputs return the same winning embedding_id.
     """
     pid = two_people[0]
     vec = _rand_embedding()
