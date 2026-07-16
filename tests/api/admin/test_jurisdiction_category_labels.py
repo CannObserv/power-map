@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin import assets
-from tests.api.jinja_templates_walker import walk_admin_jinja_templates
+from tests.api.admin_jinja_walker import walk_admin_jinja_templates
 
 TEMPLATES = Path("src/templates")
 CATEGORY_TEMPLATES = [
