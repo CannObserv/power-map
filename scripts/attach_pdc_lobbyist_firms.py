@@ -437,7 +437,9 @@ WHERE i.entity_identifier_type_id = $1 AND i.value = $2
 # node == filer_id, so this catches those orgs regardless of run order. Matched
 # on the ``/node/N`` path segment so it is host-agnostic — both the accesshub
 # host and PDC's ``legacy-lobbyist`` redirect host resolve, matching what
-# retype's ``extract_node_id`` accepts.
+# retype's ``extract_node_id`` accepts. $2 (filer_id) is interpolated into the
+# regex unescaped; safe because every FIRMS filer_id is digits-only (asserted by
+# test_firms_table_is_well_formed) — revisit if a non-digit key is ever added.
 _ORG_BY_LEGACY_NODE_SQL = """
 SELECT i.entity_id
 FROM identifiers i
