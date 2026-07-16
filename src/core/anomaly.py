@@ -24,8 +24,9 @@ from datetime import datetime
 
 import asyncpg
 
-#: Requests per key per hour at (or above) which a key is anomalous.
-#: Env-tunable; see AGENTS.md § Environment Variables.
+#: Requests per key per hour at (or above) which a key is anomalous. <= 0
+#: disables anomaly surfacing (mirrors the RATE_LIMIT_* "refill <= 0 disables"
+#: convention). Env-tunable; see AGENTS.md § Environment Variables.
 HOURLY_REQUEST_THRESHOLD = int(os.environ.get("API_ANOMALY_HOURLY_THRESHOLD", "5000"))
 
 
@@ -59,8 +60,8 @@ async def key_activity(conn: asyncpg.Connection, *, window_hours: int) -> list[K
     """Per-key request counts over the trailing window, hottest key first.
 
     Rows with a NULL ``api_key_id`` (unauthenticated / invalid key) aggregate
-    into a single bucket with ``api_key_id=None``. Served by
-    ``idx_arl_key_occurred``.
+    into a single bucket with ``api_key_id=None``. The planner serves the
+    ``occurred_at`` range via ``idx_arl_occurred`` and hash-aggregates the keys.
     """
     rows = await conn.fetch(_KEY_ACTIVITY_SQL, window_hours)
     return [

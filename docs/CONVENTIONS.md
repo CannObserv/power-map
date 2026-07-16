@@ -246,9 +246,9 @@ screens and the dashboard API-activity panel.
 - **Anomaly surfacing** (#294) — per-key aggregates via
   `src.core.anomaly.key_activity` back both the admin per-key panel and the
   hourly `power-map-anomaly.timer` check (`scripts/check_api_anomalies.py`,
-  WARNING + exit 2 at/above `API_ANOMALY_HOURLY_THRESHOLD` req/hr; see
-  `docs/COMMANDS.md`). Threshold is deliberately below the rate-limit ceiling —
-  rationale in `src/core/anomaly.py`.
+  WARNING + exit 3 at/above `API_ANOMALY_HOURLY_THRESHOLD` req/hr, `<= 0`
+  disables; see `docs/COMMANDS.md`). Threshold is deliberately below the
+  rate-limit ceiling — rationale in `src/core/anomaly.py`.
 
 ## Unique Indexes (PostgreSQL 15+)
 

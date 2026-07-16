@@ -106,7 +106,10 @@ async def request_list(
     window_hours = _WINDOWS.get(window, 24)
     stats = await db.fetchrow(_STATS_SQL, window_hours)
     # Per-key breakdown (#294) — hot keys visible at a glance; a per-hour rate
-    # at/above the anomaly threshold highlights the row.
+    # at/above the anomaly threshold highlights the row. The rate is a
+    # window-average, so a short burst dilutes across a wide window — the hourly
+    # anomaly timer (scripts/check_api_anomalies.py) is the burst detector.
+    # Threshold <= 0 disables highlighting (RATE_LIMIT_* convention).
     per_key = [
         {
             "api_key_id": a.api_key_id,
@@ -115,7 +118,8 @@ async def request_list(
             "throttled_count": a.throttled_count,
             "last_seen": a.last_seen,
             "per_hour": round(a.request_count / window_hours, 1),
-            "hot": a.request_count / window_hours >= HOURLY_REQUEST_THRESHOLD,
+            "hot": HOURLY_REQUEST_THRESHOLD > 0
+            and a.request_count / window_hours >= HOURLY_REQUEST_THRESHOLD,
         }
         for a in await key_activity(db, window_hours=window_hours)
     ]

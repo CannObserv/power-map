@@ -4,18 +4,21 @@ Queries ``api_request_log`` for the trailing hour, grouped per API key, and
 emits a journal ``WARNING`` for every key at or above the threshold. Wired to
 ``infra/power-map-anomaly.timer`` (hourly, mirrors ``power-map-prune.timer``).
 
-Exits 2 when any key is anomalous so the systemd unit shows as failed —
+Exits 3 when any key is anomalous so the systemd unit shows as failed —
 visible in ``systemctl --failed`` and a hook for future ``OnFailure=``
-alerting. A journal WARNING alone has the same visibility problem the #292 /
+alerting. Exit 3 (not 2) keeps anomalies distinguishable from argparse usage
+errors. A journal WARNING alone has the same visibility problem the #292 /
 2026-07-11 incidents had (nobody watches the journal); the admin per-key panel
 is the human-facing layer.
 
 Threshold default (5000/hr) is deliberately below the rate-limit ceiling —
-rationale in ``src.core.anomaly``.
+rationale in ``src.core.anomaly``. A threshold <= 0 disables the check
+(mirrors the ``RATE_LIMIT_*`` "refill <= 0 disables" convention).
 
 Usage:
     uv run python -m scripts.check_api_anomalies                    # env/default threshold
     uv run python -m scripts.check_api_anomalies --threshold 5000
+    uv run python -m scripts.check_api_anomalies --threshold 0      # disabled, exit 0
 """
 
 import argparse
@@ -57,7 +60,14 @@ def report(activities: list[KeyActivity], *, threshold: int) -> int:
 
 
 async def run(*, threshold: int) -> int:
-    """Fetch the trailing hour's per-key activity and report; return anomaly count."""
+    """Fetch the trailing hour's per-key activity and report; return anomaly count.
+
+    A threshold <= 0 disables the check entirely (no DB query, always 0).
+    """
+    if threshold <= 0:
+        logger.info("Anomaly check disabled (threshold %d <= 0)", threshold)
+        return 0
+
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL not set")
@@ -71,7 +81,7 @@ async def run(*, threshold: int) -> int:
 
 
 def main() -> None:
-    """CLI entry point — exits 2 when any key is anomalous (systemd failure hook)."""
+    """CLI entry point — exits 3 when any key is anomalous (systemd failure hook)."""
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -79,16 +89,14 @@ def main() -> None:
         type=int,
         default=HOURLY_REQUEST_THRESHOLD,
         help=(
-            "Requests per key per hour at/above which to WARN "
+            "Requests per key per hour at/above which to WARN; <= 0 disables "
             f"(default {HOURLY_REQUEST_THRESHOLD}; env API_ANOMALY_HOURLY_THRESHOLD)"
         ),
     )
     args = parser.parse_args()
-    if args.threshold < 1:
-        parser.error("--threshold must be >= 1")
     anomalous = asyncio.run(run(threshold=args.threshold))
     if anomalous:
-        sys.exit(2)
+        sys.exit(3)
 
 
 if __name__ == "__main__":

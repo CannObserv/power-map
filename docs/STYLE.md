@@ -2201,8 +2201,11 @@ Observability of public API traffic, under the **Activity** section
   `src.core.anomaly.key_activity`), showing label (links to the key-filtered
   list), request count, req/hr, 429 count (danger-colored when non-zero), and
   last-seen. Rows at/above `API_ANOMALY_HOURLY_THRESHOLD` req/hr get the problem
-  tint + a "hot" badge. NULL-key traffic aggregates into a "— (no key)" row
-  (`data-key-row="anon"`). Same 24h/7d window as the stats strip.
+  tint + a "hot" badge (threshold `<= 0` disables highlighting). The req/hr rate
+  is a **window-average** — a short burst dilutes across a wide window, so the
+  hourly anomaly timer, not this panel, is the burst detector. NULL-key traffic
+  aggregates into a "— (no key)" row (`data-key-row="anon"`). Same 24h/7d window
+  as the stats strip.
 - **List** — `/admin/activity/requests/`. Stats strip (24h/7d window toggle via
   `request.url.include_query_params`), filter form (endpoint group defaulting to
   observations+changes, key **by label**, status class, disposition, free-text

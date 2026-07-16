@@ -52,7 +52,7 @@
             {% if k.hot %}style="background:rgba(220,38,38,0.06)"{% endif %}>
           <td>
             {% if k.api_key_id %}
-            <a href="/admin/activity/requests/?group=all&key={{ k.api_key_id }}&window={{ filters.window }}">{{ k.key_label }}</a>
+            <a href="/admin/activity/requests/?group=all&amp;key={{ k.api_key_id }}&amp;window={{ filters.window }}">{{ k.key_label }}</a>
             {% else %}<span style="color:var(--color-text-muted)">— (no key)</span>{% endif %}
             {% if k.hot %}<span class="badge badge--archived">hot</span>{% endif %}
           </td>

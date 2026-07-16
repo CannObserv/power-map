@@ -389,8 +389,9 @@ sudo journalctl -u power-map-prune -f          # logs (rows pruned per run)
 
 `scripts/check_api_anomalies.py` queries `api_request_log` for the trailing hour,
 grouped per API key, and logs a journal `WARNING` for every key at/above the
-threshold (default 5000/hr; env `API_ANOMALY_HOURLY_THRESHOLD`). Exits 2 when
-anomalous so the systemd unit shows failed (`systemctl --failed`; future
+threshold (default 5000/hr; env `API_ANOMALY_HOURLY_THRESHOLD`; `<= 0` disables).
+Exits 3 when anomalous — distinct from argparse usage errors (exit 2) — so the
+systemd unit shows failed (`systemctl --failed`; future
 `OnFailure=` hook). The threshold is deliberately **below** the rate-limit
 ceiling (2 workers × 2/s ≈ 14.4k/hr) — the 2026-07-11 runaway ran at ~17.5k/hr,
 so a "well above ceiling" threshold would have missed it. Human-facing layer:

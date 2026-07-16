@@ -335,6 +335,28 @@ async def test_per_key_panel_groups_unauthenticated(client, db, seeded_log):
     assert 'data-key-row="anon"' in resp.text
 
 
+async def test_per_key_panel_hot_badge_at_threshold(client, db, seeded_log, monkeypatch):
+    """A key at/above the per-hour threshold gets the hot badge."""
+    monkeypatch.setattr("src.api.admin.activity_requests.HOURLY_REQUEST_THRESHOLD", 1)
+    kid = await _seed_second_key(db, "Runaway Key")
+    for _ in range(30):  # 30 req / 24h window = 1.25/hr >= 1
+        await _insert_log(db, api_key_id=kid)
+    resp = await client.get(_BASE, headers=AUTH_HEADERS)
+    row_start = resp.text.index(f'data-key-row="{kid}"')
+    row = resp.text[row_start : resp.text.index("</tr>", row_start)]
+    assert ">hot</span>" in row
+
+
+async def test_per_key_panel_zero_threshold_disables_hot(client, db, seeded_log, monkeypatch):
+    """Threshold <= 0 disables hot highlighting (RATE_LIMIT_* convention), not all-hot."""
+    monkeypatch.setattr("src.api.admin.activity_requests.HOURLY_REQUEST_THRESHOLD", 0)
+    kid = await _seed_second_key(db, "Zero Threshold Key")
+    for _ in range(30):
+        await _insert_log(db, api_key_id=kid)
+    resp = await client.get(_BASE, headers=AUTH_HEADERS)
+    assert ">hot</span>" not in resp.text
+
+
 async def test_per_key_panel_respects_window_param(client, db, seeded_log):
     """A key whose only traffic is older than the window drops out of the panel."""
     stale_kid = await _seed_second_key(db, "Stale Key")

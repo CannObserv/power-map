@@ -10,6 +10,7 @@ EnvironmentFile=/etc/power-map/.env
 EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 # Logs a WARNING per key at/above the threshold (default 5000/hr; env
-# API_ANOMALY_HOURLY_THRESHOLD) and exits 2 — the unit shows as failed, so
-# anomalies surface in `systemctl --failed` and can drive OnFailure= later.
+# API_ANOMALY_HOURLY_THRESHOLD, <= 0 disables) and exits 3 — the unit shows as
+# failed, so anomalies surface in `systemctl --failed` and can drive
+# OnFailure= later. Exit 3 (not 2) stays distinct from argparse usage errors.
 ExecStart=uv run python -m scripts.check_api_anomalies
