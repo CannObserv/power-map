@@ -10,6 +10,12 @@ router = APIRouter(prefix="/imports", tags=["admin-imports"])
 
 PAGE_SIZE = 50
 
+# id: unique tiebreaker — (batch_id, source_row) is not unique (one source row can
+# yield multiple provenance rows), so offset pagination needs a total order (#297).
+_PROVENANCE_LIST_SQL = (
+    "SELECT * FROM import_provenance WHERE batch_id = $1 ORDER BY source_row, id LIMIT $2 OFFSET $3"
+)
+
 
 @router.get("/")
 async def imports_list(
@@ -54,15 +60,7 @@ async def import_detail(
     if not batch:
         raise HTTPException(status_code=404, detail="Import batch not found")
     offset = (page - 1) * PAGE_SIZE
-    provenance = await db.fetch(
-        # id: unique tiebreaker — (batch_id, source_row) is not unique, so offset
-        # pagination needs a total order (#297)
-        "SELECT * FROM import_provenance"
-        " WHERE batch_id = $1 ORDER BY source_row, id LIMIT $2 OFFSET $3",
-        batch_id,
-        PAGE_SIZE,
-        offset,
-    )
+    provenance = await db.fetch(_PROVENANCE_LIST_SQL, batch_id, PAGE_SIZE, offset)
     total = await db.fetchval(
         "SELECT COUNT(*) FROM import_provenance WHERE batch_id = $1", batch_id
     )

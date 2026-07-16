@@ -70,7 +70,7 @@ The `/docs` spec documents the `q`, `limit`, `offset`, `include_archived`, `iden
 - **`jurisdiction` returns results with an empty `q`.** When `jurisdiction` is provided, omitting or blanking `q` returns the full jurisdiction-scoped cohort. `q` acts as an additional name filter on top of the jurisdiction scope, not as a precondition for the query to execute.
 - **`identifier_type` + `identifier_value` take precedence over `q`.** When both are supplied, they perform an exact identifier lookup and return at most one result with `has_more: false`; `q`, `limit`, and `offset` are accepted but have no effect.
 - **`include_archived: false` is a silent filter.** Archived entities are excluded by default with no signal in the response that a matching archived record exists. Pass `include_archived=true` to include them.
-- **`q` uses full-text search, not substring matching.** The `q` parameter is tokenized at word boundaries (`plainto_tsquery`); multi-word queries are AND. Consequences: partial-word queries (`"approp"`) will not match `"Appropriations"`; punctuation is stripped so `"Jr."` and `"Jr"` match identically; person name search is accent-insensitive (`"Hernandez"` matches `"Hernández"`). Results are ordered by relevance rank then name.
+- **`q` uses full-text search, not substring matching.** The `q` parameter is tokenized at word boundaries (`plainto_tsquery`); multi-word queries are AND. Consequences: partial-word queries (`"approp"`) will not match `"Appropriations"`; punctuation is stripped so `"Jr."` and `"Jr"` match identically; person name search is accent-insensitive (`"Hernandez"` matches `"Hernández"`). Results are ordered by relevance rank, then name, then a stable `id` tiebreaker — so offset pagination is complete and duplicate-free even when many results share a rank and name.
 - **`q` searches all name variants and notes, not just canonical names.** Organizations: all name variants (legal, dba, former), all acronyms, and notes. People: all public name variants and notes (hidden and legal-only names are excluded from the search index).
 
 Iteration pattern:
@@ -506,6 +506,8 @@ Upserts an organization by identifier using the same match-or-create semantics a
 
 ### List — `GET /api/v1/roles`
 
+Ordered by `(organization_id, title, id)` — the `id` tiebreaker gives a stable total order, so offset pagination is complete even when rows share an org and title.
+
 Query parameters:
 
 | Parameter | Default | Notes |
@@ -602,6 +604,8 @@ Two mutually exclusive resolution modes:
 
 ### List — `GET /api/v1/assignments`
 
+Ordered by `(person_id, role_id, start_date, id)` — the `id` tiebreaker gives a stable total order, so offset pagination is complete even when rows share those keys (e.g. archived duplicates).
+
 Query parameters:
 
 | Parameter | Default | Notes |
@@ -675,7 +679,7 @@ Two mutually exclusive resolution modes:
 
 Both events endpoints support conditional requests (#292): every 200 response carries `ETag`, `Cache-Control: no-cache`, `Vary: X-API-Key`, and (when the entity has at least one visible event) `Last-Modified`. Pass the ETag back as `If-None-Match` to receive `304 Not Modified` when the collection is unchanged — including the empty-collection case. The ETag covers the entity's whole visible-events set plus the `limit`/`offset` pair, so it changes when an event is added, edited, archived, or hidden.
 
-Standard paginated envelope. Each item:
+Standard paginated envelope, newest first — ordered by event date (year, month, day) descending, then `created_at` descending, then an `id` tiebreaker for a stable total order, so offset pagination is complete even when events share a date. Each item:
 
 | Field | Type | Notes |
 |-------|------|-------|

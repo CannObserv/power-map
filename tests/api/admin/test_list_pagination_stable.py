@@ -14,6 +14,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from src.api.admin.deps import get_db
+from src.api.admin.imports import _PROVENANCE_LIST_SQL
 from src.api.admin.orgs_queries import query_orgs_rows
 from src.api.admin.people_queries import query_people_rows
 from src.api.admin.role_assignments import _LIST_ORDER, _LIST_SELECT
@@ -193,14 +194,17 @@ async def test_admin_imports_batches_list_stable_under_tied_imported_at(db, clie
     """imports_list handler: batches sharing imported_at enumerate completely across pages.
 
     PAGE_SIZE is 50, so seed 55 batches at one imported_at to force a page
-    boundary; batch ids are extractable from the row hrefs.
+    boundary; batch ids are extractable from the row hrefs. The shared
+    imported_at is far-future so the seeded rows sort first (ORDER BY
+    imported_at DESC) regardless of any other batches, keeping them within the
+    first two pages.
     """
     batch_ids = [generate_id() for _ in range(55)]
     for bid in batch_ids:
         await db.execute(
             "INSERT INTO import_batches"
             " (id, source_file, file_hash, imported_at, row_count, loaded_count, error_count)"
-            " VALUES ($1, 'tie.csv', $2, TIMESTAMPTZ '2026-07-07T00:23:12.311563Z', 0, 0, 0)",
+            " VALUES ($1, 'tie.csv', $2, TIMESTAMPTZ '2999-01-01T00:00:00Z', 0, 0, 0)",
             bid,
             bid,  # unique file_hash per row (NOT NULL); irrelevant to ordering
         )
@@ -217,3 +221,44 @@ async def test_admin_imports_batches_list_stable_under_tied_imported_at(db, clie
     # Complete and duplicate-free across the two pages.
     assert set(seen_seeded) == seeded
     assert len(seen_seeded) == len(batch_ids)
+
+
+async def test_admin_imports_provenance_list_stable_under_tied_source_row(db):
+    """_PROVENANCE_LIST_SQL: provenance rows sharing source_row enumerate completely.
+
+    import_provenance has no UNIQUE (batch_id, source_row) — one source row can
+    yield several provenance rows — so rows tie on the ORDER BY source_row key.
+    Without the id tiebreaker offset paging skips and duplicates. Runs the real
+    handler SQL (imported constant) so it can't drift from production.
+    """
+    batch_id = generate_id()
+    await db.execute(
+        "INSERT INTO import_batches"
+        " (id, source_file, file_hash, imported_at, row_count, loaded_count, error_count)"
+        " VALUES ($1, 'p.csv', $1, NOW(), 0, 0, 0)",
+        batch_id,
+    )
+    prov_ids = sorted(generate_id() for _ in range(50))
+    for pid in reversed(prov_ids):
+        await db.execute(
+            "INSERT INTO import_provenance"
+            " (id, batch_id, source_row, entity_type, entity_id, action, raw_data)"
+            " VALUES ($1, $2, 7, 'organization', $3, 'created', '{}'::jsonb)",
+            pid,
+            batch_id,
+            generate_id(),
+        )
+
+    page_size = 3
+    collected: list[str] = []
+    offset = 0
+    while True:
+        rows = await db.fetch(_PROVENANCE_LIST_SQL, batch_id, page_size, offset)
+        collected.extend(r["id"] for r in rows)
+        if len(rows) < page_size:
+            break
+        offset += page_size
+
+    assert len(collected) == len(prov_ids)
+    assert set(collected) == set(prov_ids)
+    assert collected == sorted(prov_ids)  # tied source_row → id ascending
