@@ -78,7 +78,13 @@ _QUERY = {
 # floor, but only when the *full* sweep ran (a filtered `-k` subset skips the
 # check). Catches a mass regression — a form that silently stops rendering
 # controls would still pass every per-route check vacuously (#246 CR). Floor is
-# well below the ~376 currently rendered, so it flags a collapse, not drift.
+# well below the ~345 currently rendered, so it flags a collapse, not drift.
+#
+# xdist caveat: these are process-global counters. Under `pytest-xdist` (not
+# used yet — see #288) each worker runs only a shard, so `_routes_executed`
+# never reaches len(ADMIN_GET_PATHS) on any worker and the floor check silently
+# no-ops. Before enabling xdist, move the aggregate to a cross-worker mechanism
+# (e.g. a `pytest_sessionfinish` hook) or the backstop disappears without warning.
 _MIN_TOTAL_CONTROLS = 250
 _control_total = 0
 _routes_executed = 0
