@@ -9,6 +9,7 @@ import pytest
 import pytest_asyncio
 
 from src.api.main import app
+from src.api.public.embeddings import _get_registry as _emb_get_registry
 from src.api.public.people import _get_registry
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
@@ -665,6 +666,79 @@ async def test_verify_dedupes_person_ids(client, read_key, seeded_embeddings):
     )
     assert r.status_code == 200
     assert [x["person_id"] for x in r.json()["results"]] == [pid1, pid0]
+
+
+async def test_verify_422_non_queryable_model(client, read_key, two_people):
+    """A registered but non-queryable model 422s, same as an unknown one."""
+    non_queryable = ModelMeta(
+        model_id=_MODEL_ID,
+        table_name=_TABLE,
+        dimension=_DIM,
+        metric="cosine",
+        accepts_writes=True,
+        is_queryable=False,
+        operator="<=>",
+    )
+    app.dependency_overrides[_emb_get_registry] = lambda: EmbeddingRegistry(
+        {_MODEL_ID: non_queryable}
+    )
+    try:
+        r = await client.post(
+            "/api/v1/people/verify",
+            json={
+                "model_id": _MODEL_ID,
+                "embedding": _rand_embedding(),
+                "person_ids": [two_people[0]],
+            },
+            headers={"X-API-Key": read_key},
+        )
+    finally:
+        app.dependency_overrides.pop(_emb_get_registry, None)
+    assert r.status_code == 422
+
+
+async def test_verify_tied_distances_deterministic_winner(
+    client, db, read_key, write_key, two_people
+):
+    """Identical enrollments (exact distance tie) must yield a stable embedding_id.
+
+    The winner is the oldest enrollment (ascending ULID) — pinned so repeated
+    verify calls with the same inputs return byte-identical results.
+    """
+    pid = two_people[0]
+    vec = _rand_embedding()
+    eids = []
+    for seg in range(2):
+        r = await client.post(
+            f"/api/v1/people/{pid}/embeddings",
+            json={
+                "model_id": _MODEL_ID,
+                "embedding": vec,
+                "activity_ms": 500,
+                "audio_sample_rate_hz": 16000,
+                "source": {
+                    "service": "observo",
+                    "job_id": "job_tie",
+                    "segment": seg,
+                    "recorded_at": "2026-06-01T00:00:00Z",
+                },
+            },
+            headers={"X-API-Key": write_key},
+        )
+        assert r.status_code == 200, r.text
+        eids.append(r.json()["embedding_id"])
+
+    expected_winner = min(eids)
+    for _ in range(3):
+        r = await client.post(
+            "/api/v1/people/verify",
+            json={"model_id": _MODEL_ID, "embedding": vec, "person_ids": [pid]},
+            headers={"X-API-Key": read_key},
+        )
+        assert r.status_code == 200
+        (res,) = r.json()["results"]
+        assert abs(res["similarity"] - 1.0) < 1e-4
+        assert res["embedding_id"] == expected_winner
 
 
 async def test_verify_excludes_archived_embeddings(client, db, read_key, seeded_embeddings):

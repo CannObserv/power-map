@@ -65,7 +65,7 @@ def _sanitize_nonfinite(obj: object) -> object:
 
 
 @app.exception_handler(RequestValidationError)
-async def _validation_error_handler(request: Request, exc: RequestValidationError):
+async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     """Default 422 shape, with non-finite floats in the payload made JSON-safe."""
     return JSONResponse(
         status_code=422,

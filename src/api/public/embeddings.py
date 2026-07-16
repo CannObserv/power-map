@@ -51,7 +51,8 @@ async def identify_person(
     """Return the top-k persons whose stored embeddings best match the query vector.
 
     Returns ``matches: []`` when the model is unknown or has no active embeddings.
-    422 when the embedding dimension does not match the model's expected dimension.
+    422 when the embedding dimension does not match the model's expected
+    dimension, or the embedding is invalid (zero vector, non-finite values).
     """
     top_k = min(max(body.top_k, 1), 25)
 
@@ -156,7 +157,9 @@ async def verify_person(
         SELECT person_id,
                count(*) AS n_embeddings,
                1 - min(embedding {op} $1::vector) AS similarity,
-               (array_agg(id ORDER BY embedding {op} $1::vector))[1] AS embedding_id
+               -- id breaks exact-distance ties (identical enrollments) so the
+               -- winning embedding_id is deterministic across calls (CR #299)
+               (array_agg(id ORDER BY embedding {op} $1::vector, id))[1] AS embedding_id
           FROM {table}
          WHERE archived_at IS NULL
            AND person_id = ANY($2::text[])
@@ -199,7 +202,8 @@ async def write_person_embedding(
     the existing row's id.  409 if the conflicting row is archived (restore or
     change the provenance key first).
     404 if the person does not exist or is archived.
-    422 on dimension mismatch or unknown/write-disabled model.
+    422 on dimension mismatch, unknown/write-disabled model, or invalid
+    embedding (zero vector, non-finite values).
     """
     meta = registry.get(body.model_id)
     if meta is None or not meta.accepts_writes:

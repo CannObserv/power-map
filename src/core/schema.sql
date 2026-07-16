@@ -2137,6 +2137,7 @@ CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_hnsw
 -- New API scopes
 -- ---------------------------------------------------------------------------
 
+-- Descriptions superseded by migration #299 below (list + verify endpoints added).
 INSERT INTO api_key_scope_types (id, display_name, description) VALUES
     ('voice_embeddings:write',
      'Voice Embeddings: Write',
@@ -2745,3 +2746,21 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- =============================================================================
+-- Migration (#299): voice_embeddings scope descriptions — name every gated route
+-- =============================================================================
+-- The original seed (#188) predates the embeddings list endpoint (#279) and
+-- closed-set verify (#299). These descriptions surface in the admin
+-- key-management UI, so they must state the full blast radius of a
+-- biometric-data grant. Guarded UPDATEs keep re-application a no-op.
+
+UPDATE api_key_scope_types
+   SET description = 'Read voice embedding data via POST /api/v1/people/identify, POST /api/v1/people/verify, and GET /api/v1/people/{id}/embeddings'
+ WHERE id = 'voice_embeddings:read'
+   AND description IS DISTINCT FROM 'Read voice embedding data via POST /api/v1/people/identify, POST /api/v1/people/verify, and GET /api/v1/people/{id}/embeddings';
+
+UPDATE api_key_scope_types
+   SET description = 'Write, patch, archive (single + batch), and restore voice embedding observations via the /api/v1/people/{id}/embeddings endpoints'
+ WHERE id = 'voice_embeddings:write'
+   AND description IS DISTINCT FROM 'Write, patch, archive (single + batch), and restore voice embedding observations via the /api/v1/people/{id}/embeddings endpoints';

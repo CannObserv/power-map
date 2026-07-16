@@ -44,6 +44,23 @@ async def test_api_key_scope_types_seed_description(db_pool):
 
 
 @pytest.mark.integration
+async def test_voice_embeddings_scope_descriptions_name_all_routes(db_pool):
+    """Scope descriptions surface in the admin key-management UI — they must
+    state the full blast radius of a biometric-data grant (#299 CR)."""
+    async with db_pool.acquire() as conn:
+        read = await conn.fetchval(
+            "SELECT description FROM api_key_scope_types WHERE id = 'voice_embeddings:read'"
+        )
+        write = await conn.fetchval(
+            "SELECT description FROM api_key_scope_types WHERE id = 'voice_embeddings:write'"
+        )
+    for fragment in ("identify", "verify", "embeddings"):
+        assert fragment in read, f"read scope description missing '{fragment}': {read}"
+    for fragment in ("write", "patch", "archive", "restore"):
+        assert fragment in write.lower(), f"write scope description missing '{fragment}': {write}"
+
+
+@pytest.mark.integration
 async def test_api_key_scopes_fk_enforced(db_pool):
     """Insert with invalid scope_id must raise."""
     import asyncpg
