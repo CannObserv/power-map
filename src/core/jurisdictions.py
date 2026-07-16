@@ -9,7 +9,7 @@ from typing import Any
 
 # Display labels for jurisdiction_relationship_types.category (#278). Single
 # source of truth for every surface that renders a category (admin templates
-# via the `category_label` Jinja filter; future public/graph surfaces). Keys
+# via the `rel_category_label` Jinja filter; future public/graph surfaces). Keys
 # must exactly match the schema CHECK enum — tests/core/test_jurisdictions.py
 # enforces the sync. i18n, if it comes, hooks in here.
 RELATIONSHIP_CATEGORY_LABELS: dict[str, str] = {

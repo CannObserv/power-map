@@ -24,12 +24,12 @@ hash either: it cache-busts on every restart even when asset bytes are
 unchanged. That's intentional — restart-time freshness in dev contexts where
 git is unavailable beats stale-cache surprises.
 
-This module also hosts ``inject_array_cap_into_admin_templates``: a sibling
-injector that exposes the Python ``ARRAY_CAP`` constant (source of truth in
-``src.api.admin.people_name_parts``) as a Jinja env global so the parts editor
-template can render ``data-cardstack-cap="{{ ARRAY_CAP }}"`` without
-hardcoding the cap. Same walk pattern as ``asset_version``; same startup
-call-site in ``src.api.main``.
+This module also hosts the sibling injectors that expose other Python
+constants to admin Jinja envs — ``ARRAY_CAP`` (parts editor cap),
+``NON_DECOMPOSABLE_TYPES`` (suggest-decomposition gating), and the
+``rel_category_label`` filter (jurisdiction relationship category display
+labels, #278). All use the same walk pattern as ``asset_version`` and the
+same startup call-site in ``src.api.main``.
 """
 
 import importlib
@@ -76,13 +76,15 @@ def register_array_cap_global(templates: Jinja2Templates, cap: int = ARRAY_CAP) 
     templates.env.globals["ARRAY_CAP"] = cap
 
 
-def register_category_label_filter(templates: Jinja2Templates) -> None:
-    """Inject the ``category_label`` filter into a Jinja2Templates instance.
+def register_rel_category_label_filter(templates: Jinja2Templates) -> None:
+    """Inject the ``rel_category_label`` filter into a Jinja2Templates instance.
 
     Maps ``jurisdiction_relationship_types.category`` slugs to display labels
-    via ``src.core.jurisdictions.relationship_category_label`` (#278).
+    via ``src.core.jurisdictions.relationship_category_label`` (#278). Named
+    ``rel_``-specific because the filter namespace is shared by every admin
+    env — a future non-relationship "category" concept gets its own filter.
     """
-    templates.env.filters["category_label"] = relationship_category_label
+    templates.env.filters["rel_category_label"] = relationship_category_label
 
 
 def register_non_decomposable_types_global(
@@ -147,13 +149,13 @@ def inject_non_decomposable_types_into_admin_templates() -> None:
         register_non_decomposable_types_global(templates)
 
 
-def inject_category_label_into_admin_templates() -> None:
-    """Set the ``category_label`` filter on every admin Jinja2Templates instance.
+def inject_rel_category_label_into_admin_templates() -> None:
+    """Set the ``rel_category_label`` filter on every admin Jinja2Templates instance.
 
     Lets the jurisdiction relationship partials render category slugs via
-    ``{{ rel.category | category_label }}`` instead of title-casing the raw
-    slug (#278). Same walk pattern as ``asset_version``; called once at app
-    startup from ``src/api/main.py``.
+    ``{{ rel.category | rel_category_label }}`` instead of title-casing the
+    raw slug (#278). Same walk pattern as ``asset_version``; called once at
+    app startup from ``src/api/main.py``.
     """
     for templates in _walk_admin_jinja_templates():
-        register_category_label_filter(templates)
+        register_rel_category_label_filter(templates)

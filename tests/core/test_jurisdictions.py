@@ -17,11 +17,21 @@ SCHEMA = Path("src/core/schema.sql")
 
 
 def _schema_category_enum() -> set[str]:
-    """Parse the category CHECK enum out of schema.sql."""
+    """Parse the category CHECK enum out of schema.sql.
+
+    Requires exactly one ``CHECK (category IN (...))`` in the file: a second
+    ``category`` column on another table would make first-match parsing
+    silently enforce the wrong enum, so ambiguity fails loudly instead —
+    anchor this parser to the ``jurisdiction_relationship_types`` DDL if
+    that ever happens.
+    """
     sql = SCHEMA.read_text()
-    match = re.search(r"CHECK \(category IN \(([^)]*)\)\)", sql)
-    assert match, "category CHECK enum not found in schema.sql"
-    return {value.strip().strip("'") for value in match.group(1).split(",")}
+    matches = re.findall(r"CHECK \(category IN \(([^)]*)\)\)", sql)
+    assert len(matches) == 1, (
+        f"expected exactly one 'CHECK (category IN (...))' in schema.sql, found "
+        f"{len(matches)} — anchor this parser to jurisdiction_relationship_types"
+    )
+    return {value.strip().strip("'") for value in matches[0].split(",")}
 
 
 def test_labels_cover_schema_category_enum_exactly():
