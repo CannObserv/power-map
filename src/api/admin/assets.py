@@ -40,6 +40,7 @@ import time
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.people_name_parts import ARRAY_CAP
+from src.core.jurisdictions import relationship_category_label
 from src.core.logging import get_logger
 from src.core.normalizers.person_name import NON_DECOMPOSABLE_TYPES
 
@@ -73,6 +74,15 @@ def register_asset_version_global(templates: Jinja2Templates, version: str = ASS
 def register_array_cap_global(templates: Jinja2Templates, cap: int = ARRAY_CAP) -> None:
     """Inject ``ARRAY_CAP`` into a Jinja2Templates instance's globals."""
     templates.env.globals["ARRAY_CAP"] = cap
+
+
+def register_category_label_filter(templates: Jinja2Templates) -> None:
+    """Inject the ``category_label`` filter into a Jinja2Templates instance.
+
+    Maps ``jurisdiction_relationship_types.category`` slugs to display labels
+    via ``src.core.jurisdictions.relationship_category_label`` (#278).
+    """
+    templates.env.filters["category_label"] = relationship_category_label
 
 
 def register_non_decomposable_types_global(
@@ -135,3 +145,15 @@ def inject_non_decomposable_types_into_admin_templates() -> None:
     """
     for templates in _walk_admin_jinja_templates():
         register_non_decomposable_types_global(templates)
+
+
+def inject_category_label_into_admin_templates() -> None:
+    """Set the ``category_label`` filter on every admin Jinja2Templates instance.
+
+    Lets the jurisdiction relationship partials render category slugs via
+    ``{{ rel.category | category_label }}`` instead of title-casing the raw
+    slug (#278). Same walk pattern as ``asset_version``; called once at app
+    startup from ``src/api/main.py``.
+    """
+    for templates in _walk_admin_jinja_templates():
+        register_category_label_filter(templates)

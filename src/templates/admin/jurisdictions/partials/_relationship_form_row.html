@@ -15,7 +15,7 @@
           <select id="rel-type-new" name="rel_type_id">
             <option value="">— select —</option>
             {% for cat, types in rel_types|groupby('category') %}
-            <optgroup label="{{ cat|title }}">
+            <optgroup label="{{ cat | category_label }}">
               {% for t in types %}
               <option value="{{ t.id }}" data-symmetric="{{ 't' if t.is_symmetric else 'f' }}"
                       {% if values.rel_type_id == t.id %}selected{% endif %}>{{ t.display_name }}</option>

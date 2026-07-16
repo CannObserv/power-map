@@ -7,6 +7,29 @@ so the recursive-CTE traversal has a single definition.
 
 from typing import Any
 
+# Display labels for jurisdiction_relationship_types.category (#278). Single
+# source of truth for every surface that renders a category (admin templates
+# via the `category_label` Jinja filter; future public/graph surfaces). Keys
+# must exactly match the schema CHECK enum — tests/core/test_jurisdictions.py
+# enforces the sync. i18n, if it comes, hooks in here.
+RELATIONSHIP_CATEGORY_LABELS: dict[str, str] = {
+    "spatial": "Spatial",
+    "governance": "Governance",
+    "functional": "Functional",
+    "lineage": "Lineage",
+}
+
+
+def relationship_category_label(slug: str) -> str:
+    """Return the display label for a relationship-category slug.
+
+    Unknown slugs fall back to title-cased words so rendering degrades
+    gracefully if the schema enum grows before the mapping does (the sync
+    test turns that drift into a failure).
+    """
+    return RELATIONSHIP_CATEGORY_LABELS.get(slug, slug.replace("_", " ").title())
+
+
 _LINEAGE_SQL = """
 WITH RECURSIVE lineage AS (
     SELECT

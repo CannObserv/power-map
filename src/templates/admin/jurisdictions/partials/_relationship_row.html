@@ -15,7 +15,7 @@
     {% endif %}
     {% if rel.notes %}<span style="color:var(--color-text-muted);font-size:var(--font-size-sm)"> &middot; {{ rel.notes }}</span>{% endif %}
   </td>
-  <td>{{ rel.category | title }}</td>
+  <td>{{ rel.category | category_label }}</td>
   <td>{{ rel.valid_from.strftime('%Y-%m-%d') if rel.valid_from else '—' }}{% if rel.valid_until %} &ndash; {{ rel.valid_until.strftime('%Y-%m-%d') }}{% endif %}</td>
   <td style="white-space:nowrap;text-align:right">
     <button class="btn btn--sm btn--secondary" type="button"

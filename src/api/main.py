@@ -14,6 +14,7 @@ import src.core.db as db
 from src.api.admin.assets import (
     inject_array_cap_into_admin_templates,
     inject_asset_version_into_admin_templates,
+    inject_category_label_into_admin_templates,
     inject_non_decomposable_types_into_admin_templates,
 )
 from src.api.admin.router import admin_router
@@ -26,6 +27,7 @@ configure_logging()
 inject_asset_version_into_admin_templates()
 inject_array_cap_into_admin_templates()
 inject_non_decomposable_types_into_admin_templates()
+inject_category_label_into_admin_templates()
 
 
 @asynccontextmanager
