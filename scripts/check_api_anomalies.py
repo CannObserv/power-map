@@ -35,12 +35,16 @@ logger = get_logger(__name__)
 
 
 def report(activities: list[KeyActivity], *, threshold: int) -> int:
-    """Log a WARNING per anomalous key; return how many keys were anomalous."""
+    """Log a WARNING per anomalous key; return how many keys were anomalous.
+
+    Internal to ``run()``, which owns the window (trailing hour) and guards
+    the disabled case — callers must not pass a threshold <= 0.
+    """
     anomalous = [a for a in activities if a.request_count >= threshold]
     for a in anomalous:
         label = a.key_label if a.api_key_id else "unauthenticated (no valid key)"
         logger.warning(
-            "API key anomaly: %s (%s) made %d requests in the last hour "
+            "API key anomaly: %s (%s) made %d requests in the checked window "
             "(threshold %d; %d throttled with 429)",
             label,
             a.api_key_id or "-",
@@ -51,7 +55,8 @@ def report(activities: list[KeyActivity], *, threshold: int) -> int:
     if not anomalous:
         total = sum(a.request_count for a in activities)
         logger.info(
-            "No per-key anomalies — %d request(s) across %d key(s) in the last hour (threshold %d)",
+            "No per-key anomalies — %d request(s) across %d key(s) in the checked window "
+            "(threshold %d)",
             total,
             len(activities),
             threshold,
