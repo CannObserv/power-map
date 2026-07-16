@@ -182,7 +182,7 @@ async def test_subscriptions_list_pagination_stable_under_tied_created_at(client
     """
     kid = sub_api_key["key_id"]
     shared_ts = datetime(2026, 7, 7, 0, 23, 12, 311563, tzinfo=UTC)
-    entity_ids = sorted(generate_id() for _ in range(30))
+    entity_ids = sorted(generate_id() for _ in range(50))
     # Insert in reverse-sorted order so heap/insertion order != the sorted order
     # the fix's tiebreaker must impose; a non-deterministic sort would surface
     # a different sequence than sorted(entity_ids).
@@ -215,7 +215,7 @@ async def test_subscriptions_list_pagination_stable_under_tied_created_at(client
         return collected
 
     # Unfiltered branch.
-    collected = await enumerate_pages({"limit": 7})
+    collected = await enumerate_pages({"limit": 3})
     # Complete and duplicate-free: every seeded id appears exactly once.
     assert len(collected) == len(entity_ids)
     assert set(collected) == set(entity_ids)
@@ -223,7 +223,7 @@ async def test_subscriptions_list_pagination_stable_under_tied_created_at(client
     assert collected == entity_ids
 
     # entity_type-filtered branch has its own ORDER BY — same guarantee.
-    filtered = await enumerate_pages({"limit": 7, "entity_type": "person"})
+    filtered = await enumerate_pages({"limit": 3, "entity_type": "person"})
     assert filtered == entity_ids
 
 

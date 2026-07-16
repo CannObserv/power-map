@@ -21,7 +21,8 @@ async def imports_list(
     """List all import batches, most recent first."""
     offset = (page - 1) * PAGE_SIZE
     batches = await db.fetch(
-        "SELECT * FROM import_batches ORDER BY imported_at DESC LIMIT $1 OFFSET $2",
+        # id: unique tiebreaker for stable offset pagination under non-unique imported_at (#297)
+        "SELECT * FROM import_batches ORDER BY imported_at DESC, id DESC LIMIT $1 OFFSET $2",
         PAGE_SIZE,
         offset,
     )
@@ -54,8 +55,10 @@ async def import_detail(
         raise HTTPException(status_code=404, detail="Import batch not found")
     offset = (page - 1) * PAGE_SIZE
     provenance = await db.fetch(
+        # id: unique tiebreaker — (batch_id, source_row) is not unique, so offset
+        # pagination needs a total order (#297)
         "SELECT * FROM import_provenance"
-        " WHERE batch_id = $1 ORDER BY source_row LIMIT $2 OFFSET $3",
+        " WHERE batch_id = $1 ORDER BY source_row, id LIMIT $2 OFFSET $3",
         batch_id,
         PAGE_SIZE,
         offset,

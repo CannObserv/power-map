@@ -826,7 +826,7 @@ async def test_list_pagination_stable_under_tied_created_at(
     # Seed 12 embeddings for one person, then force one shared created_at so the
     # sort key ties across every row.
     embedding_ids: list[str] = []
-    for seg in range(12):
+    for seg in range(50):
         r = await client.post(
             f"/api/v1/people/{pid}/embeddings",
             json={

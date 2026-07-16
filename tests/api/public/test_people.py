@@ -718,8 +718,8 @@ async def test_search_pagination_stable_under_tied_rank_and_name(client, api_key
     search at a small limit.
     """
     token = "Qwendolyne"  # rare token so only these fixtures match
-    person_ids = [generate_id() for _ in range(12)]
-    name_ids = [generate_id() for _ in range(12)]
+    person_ids = [generate_id() for _ in range(50)]
+    name_ids = [generate_id() for _ in range(50)]
     try:
         for pid, nid in zip(person_ids, name_ids, strict=True):
             await db.execute("INSERT INTO people (id) VALUES ($1)", pid)

@@ -366,3 +366,56 @@ async def test_detail_surfaces_structural_fields(client, api_key, structural_fix
     assert body["role_type_slug"] == "state_representative"
     assert body["jurisdiction_id"] == structural_fixture["jur_id"]
     assert body["qualifier"] == "Position 1"
+
+
+# ---------------------------------------------------------------------------
+# Stable pagination under tied (organization_id, title) sort key (#297)
+# ---------------------------------------------------------------------------
+
+
+async def test_list_pagination_stable_under_tied_org_and_title(client, api_key, db):
+    """Offset pagination is complete + duplicate-free when roles tie on (org, title).
+
+    uq_role_org_title is partial (WHERE archived_at IS NULL AND jurisdiction_id
+    IS NULL), so archived plain roles can share (organization_id, title) and thus
+    tie on the list's full ORDER BY key. Without the r.id tiebreaker, offset
+    windows over them skip and duplicate. Seed 50 archived same-title roles under
+    one org and page with include_archived=true.
+    """
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    role_ids = sorted(generate_id() for _ in range(50))
+    for rid in reversed(role_ids):
+        await db.execute(
+            "INSERT INTO roles (id, organization_id, title, archived_at)"
+            " VALUES ($1,$2,'Tied Title',NOW())",
+            rid,
+            org_id,
+        )
+
+    limit = 3
+    collected: list[str] = []
+    offset = 0
+    while True:
+        r = await client.get(
+            "/api/v1/roles",
+            params={
+                "organization_id": org_id,
+                "include_archived": "true",
+                "limit": limit,
+                "offset": offset,
+            },
+            headers={"X-API-Key": api_key},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        collected.extend(item["id"] for item in body["data"])
+        if not body["meta"]["has_more"]:
+            break
+        offset += limit
+
+    # Complete and duplicate-free: every seeded role appears exactly once.
+    assert len(collected) == len(role_ids)
+    assert set(collected) == set(role_ids)
+    # Deterministic total order: tied (org, title) → r.id ascending.
+    assert collected == sorted(role_ids)

@@ -52,7 +52,7 @@ async def query_orgs_rows(
             FROM organizations o
             LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
             {where}
-            ORDER BY dn.display_name NULLS LAST
+            ORDER BY dn.display_name NULLS LAST, o.id
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
         *list_params,
     )

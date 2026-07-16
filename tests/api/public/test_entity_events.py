@@ -467,7 +467,7 @@ async def test_list_events_pagination_stable_under_tied_sort_key(
     both the person- and org-events lists.
     """
     birth_id = await _birth_type_id(db)
-    event_ids = [generate_id() for _ in range(12)]
+    event_ids = [generate_id() for _ in range(50)]
     for eid in event_ids:
         await db.execute(
             "INSERT INTO entity_events"

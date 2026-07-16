@@ -58,7 +58,7 @@ async def query_roles_rows(
             LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
             LEFT JOIN role_types rt ON rt.id = r.role_type_id
             {where}
-            ORDER BY dn.display_name NULLS LAST, r.title
+            ORDER BY dn.display_name NULLS LAST, r.title, r.id
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
         *list_params,
     )

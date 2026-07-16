@@ -1048,8 +1048,8 @@ async def test_search_pagination_stable_under_tied_rank_and_name(client, api_key
     ts_rank + identical name → full tie), then page the search at a small limit.
     """
     token = "Zzyzxatron"  # rare token so only these fixtures match
-    org_ids = [generate_id() for _ in range(12)]
-    name_ids = [generate_id() for _ in range(12)]
+    org_ids = [generate_id() for _ in range(50)]
+    name_ids = [generate_id() for _ in range(50)]
     try:
         for oid, nid in zip(org_ids, name_ids, strict=True):
             await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)

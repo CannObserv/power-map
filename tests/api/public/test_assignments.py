@@ -368,7 +368,7 @@ async def test_list_pagination_stable_under_tied_sort_key(client, api_key, db):
         "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Director')", role_id, org_id
     )
 
-    assignment_ids = [generate_id() for _ in range(10)]
+    assignment_ids = [generate_id() for _ in range(50)]
     for aid in assignment_ids:
         await db.execute(
             "INSERT INTO role_assignments (id, person_id, role_id, start_date, archived_at)"

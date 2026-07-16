@@ -47,7 +47,7 @@ async def query_people_rows(
             FROM people p
             LEFT JOIN v_person_display_names n ON n.person_id = p.id
             {where}
-            ORDER BY n.sort_key COLLATE "und-x-icu" NULLS LAST
+            ORDER BY n.sort_key COLLATE "und-x-icu" NULLS LAST, p.id
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
         *list_params,
     )

@@ -80,7 +80,10 @@ _LIST_SELECT = """
     LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
 """
 
-_LIST_ORDER = "ORDER BY ra.is_current DESC, person_name NULLS LAST, ra.start_date DESC NULLS LAST"
+# ra.id: unique tiebreaker for stable offset pagination under the non-unique sort keys (#297)
+_LIST_ORDER = (
+    "ORDER BY ra.is_current DESC, person_name NULLS LAST, ra.start_date DESC NULLS LAST, ra.id"
+)
 
 
 @router.get("/")
