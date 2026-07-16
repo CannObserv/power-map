@@ -811,6 +811,71 @@ async def test_list_include_archived_flag(client, db, read_key, seeded_embedding
         await db.execute(f"UPDATE {_TABLE} SET archived_at=NULL WHERE id=$1", eid)
 
 
+async def test_list_pagination_stable_under_tied_created_at(
+    client, db, read_key, write_key, two_people
+):
+    """Offset pagination is deterministic and complete when rows share created_at (#297).
+
+    Bulk-ingested embeddings from one job can land at an identical ``created_at``.
+    With ``ORDER BY created_at DESC`` alone, Postgres may return tied rows in a
+    different order per query, so offset windows overlap and gap — the client
+    sees duplicates and silently skips others. The unique PK ``id`` must break
+    the tie so the total order is deterministic.
+    """
+    pid = two_people[0]
+    # Seed 12 embeddings for one person, then force one shared created_at so the
+    # sort key ties across every row.
+    embedding_ids: list[str] = []
+    for seg in range(12):
+        r = await client.post(
+            f"/api/v1/people/{pid}/embeddings",
+            json={
+                "model_id": _MODEL_ID,
+                "embedding": _rand_embedding(),
+                "activity_ms": 500,
+                "audio_sample_rate_hz": 16000,
+                "source": {
+                    "service": "observo",
+                    "job_id": "job_tied",
+                    "segment": 900 + seg,
+                    "recorded_at": "2026-06-01T00:00:00Z",
+                },
+            },
+            headers={"X-API-Key": write_key},
+        )
+        assert r.status_code == 200, r.text
+        embedding_ids.append(r.json()["embedding_id"])
+
+    await db.execute(
+        f"UPDATE {_TABLE} SET created_at = '2026-07-07T00:23:12.311563Z'"
+        " WHERE id = ANY($1::text[])",
+        embedding_ids,
+    )
+
+    limit = 3
+    collected: list[str] = []
+    offset = 0
+    while True:
+        r = await client.get(
+            f"/api/v1/people/{pid}/embeddings",
+            params={"model_id": _MODEL_ID, "limit": limit, "offset": offset},
+            headers={"X-API-Key": read_key},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        collected.extend(item["embedding_id"] for item in body["data"])
+        if not body["meta"]["has_more"]:
+            break
+        offset += limit
+
+    # Complete and duplicate-free: every seeded id appears exactly once.
+    assert len(collected) == len(embedding_ids)
+    assert set(collected) == set(embedding_ids)
+    # Deterministic total order: tied created_at → id DESC (ULIDs ascending in
+    # insertion order, so newest-first is reverse-sorted).
+    assert collected == sorted(embedding_ids, reverse=True)
+
+
 # ---------------------------------------------------------------------------
 # List — optional source_job_id filter (#279)
 # ---------------------------------------------------------------------------

@@ -454,7 +454,10 @@ async def list_person_embeddings(
          WHERE person_id = $1
            AND ($2 OR archived_at IS NULL)
            AND ($5::text IS NULL OR source_job_id = $5)
-         ORDER BY created_at DESC
+         -- id (ULID PK) is a unique tiebreaker: required so offset pagination
+         -- is stable when rows share a created_at, e.g. bulk-ingested from one
+         -- job (#297).
+         ORDER BY created_at DESC, id DESC
          LIMIT $3 OFFSET $4
         """,
         person_id,

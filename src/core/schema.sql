@@ -2309,6 +2309,12 @@ CREATE TABLE IF NOT EXISTS api_key_entity_subscriptions (
 CREATE INDEX IF NOT EXISTS idx_sub_entity
     ON api_key_entity_subscriptions (entity_id, api_key_id);
 
+-- Backs GET /api/v1/subscriptions list ordering: WHERE api_key_id ORDER BY
+-- created_at, entity_id (#297). Lets the paged scan avoid a sort step as a
+-- key's subscription set grows.
+CREATE INDEX IF NOT EXISTS idx_sub_key_created
+    ON api_key_entity_subscriptions (api_key_id, created_at, entity_id);
+
 -- ---------------------------------------------------------------------------
 -- New scope: subscriptions:write
 -- ---------------------------------------------------------------------------
