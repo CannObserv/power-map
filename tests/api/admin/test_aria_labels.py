@@ -115,9 +115,10 @@ def _has_accessible_name(tag: str, pos: int, text: str, labeled_ids: set[str]) -
 
     Heuristic, per-file, regex/substring-based — accepted limitations (none
     triggered by current templates, verified 2026-06; see GH #244). The
-    render-based a11y harness (GH #246) is the authoritative fix for all three;
-    #1 alone could also be closed by a single-file ancestry parser (it is
-    in-file, not cross-template):
+    rendered-DOM sweep (GH #246, ``test_a11y_render.py`` + ``a11y.py``) is the
+    authoritative check for all three — it resolves real ancestry and id
+    references over every admin GET route's rendered output. This lint stays
+    as the fast pre-render first line:
 
       1. Two controls under one wrapping ``<label>`` both pass, though only the
          first labelable descendant actually receives the accessible name.

@@ -641,8 +641,11 @@ descriptor, same rule as row-action buttons (SC 2.4.6):
 <input type="checkbox" name="merge-select" aria-label="Select {{ role.title or '(untitled)' }} for merge">
 ```
 
-Do **not** rely on `title` for the accessible name (see *`title` attributes* below). Static
-linting enforced by `tests/api/admin/test_aria_labels.py`.
+Do **not** rely on `title` for the accessible name (see *`title` attributes* below). Enforced
+at two tiers (#246): static template lint in `tests/api/admin/test_aria_labels.py` (fast,
+pre-render, per-file heuristic) and the authoritative rendered-DOM sweep in
+`tests/api/admin/test_a11y_render.py` (integration tier — fetches every admin GET route and
+resolves label ancestry and id references against real output).
 
 ### Optional-field cue
 
