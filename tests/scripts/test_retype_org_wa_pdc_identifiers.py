@@ -143,6 +143,20 @@ async def test_collision_when_numeric_already_on_another_org(db):
     assert await _key_values(db, other) == ["17398"]
 
 
+async def test_intra_batch_duplicate_node_is_a_dry_run_collision(db):
+    """Two orgs with the same node URL are flagged as collisions in dry run."""
+    a = await _org_with_key(db, "https://accesshub.pdc.wa.gov/node/17398")
+    b = await _org_with_key(db, "https://accesshub.pdc.wa.gov/node/17398")
+
+    actions = await retype_org_wa_pdc(db, execute=False)
+
+    assert _status(actions, a) == "collision"
+    assert _status(actions, b) == "collision"
+    # nothing retyped
+    assert await _key_values(db, a) == ["https://accesshub.pdc.wa.gov/node/17398"]
+    assert await _key_values(db, b) == ["https://accesshub.pdc.wa.gov/node/17398"]
+
+
 async def test_dry_run_makes_no_changes(db):
     url = "https://accesshub.pdc.wa.gov/node/17398"
     org_id = await _org_with_key(db, url)

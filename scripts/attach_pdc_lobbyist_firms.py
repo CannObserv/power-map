@@ -10,7 +10,9 @@ verified firm keys to org grain:
 1. Find-or-create the firm Organization and attach ``org_wa_pdc`` = ``filer_id``.
 2. Add a person->firm affiliation: a plain "Lobbyist" role at the firm (shared
    by every agent of that firm) plus a ``role_assignment`` bounded by the firm's
-   ``bp5b-jrti`` employment years (``min(year)-01-01`` .. ``max(year)-12-31``).
+   ``bp5b-jrti`` employment years. Start is ``min(year)-01-01``; a firm still
+   active in the current year (``max(year) >= this year``) is modeled as ongoing
+   (``is_current``, no end_date), and a lapsed firm gets ``max(year)-12-31``.
 
 Scope is Tier A — the 21 distinct-*named* firms. Self-named solo registrations
 (firm name == person name, e.g. "Nancy Sapiro", "Neil Beaver") are deliberately
@@ -49,7 +51,7 @@ import argparse
 import asyncio
 import os
 from collections import Counter
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Literal, TypedDict
 
 import asyncpg
@@ -396,6 +398,7 @@ MemberStatus = Literal[
     "person_missing",
     "agent_missing",
     "skipped_org",
+    "org_error",
 ]
 
 
@@ -423,8 +426,23 @@ _AGENT_TYPE_ID_SQL = (
 )
 
 _ORG_BY_KEY_SQL = """
-SELECT entity_id FROM identifiers
-WHERE entity_identifier_type_id = $1 AND value = $2
+SELECT i.entity_id
+FROM identifiers i
+JOIN organizations o ON o.id = i.entity_id AND o.archived_at IS NULL
+WHERE i.entity_identifier_type_id = $1 AND i.value = $2
+"""
+
+# The firm key may still be in the legacy node-URL form if the org-key retype
+# (scripts/retype_org_wa_pdc_identifiers) has not run yet; for the Tier-A firms
+# node == filer_id, so this catches those orgs regardless of run order. Matched
+# on the ``/node/N`` path segment so it is host-agnostic — both the accesshub
+# host and PDC's ``legacy-lobbyist`` redirect host resolve, matching what
+# retype's ``extract_node_id`` accepts.
+_ORG_BY_LEGACY_NODE_SQL = """
+SELECT i.entity_id
+FROM identifiers i
+JOIN organizations o ON o.id = i.entity_id AND o.archived_at IS NULL
+WHERE i.entity_identifier_type_id = $1 AND i.value ~ ('(^|/)node/' || $2 || '/?$')
 """
 
 _ORG_BY_NAME_SQL = """
@@ -439,11 +457,6 @@ SELECT 1 FROM identifiers
 WHERE entity_identifier_type_id = $1 AND entity_id = $2
 LIMIT 1
 """
-
-# The firm key may still be in the legacy accesshub node-URL form if the
-# org-key retype (scripts/retype_org_wa_pdc_identifiers) has not run yet; for the
-# Tier-A firms node == filer_id, so this catches those orgs regardless of order.
-_LEGACY_NODE_URL = "https://accesshub.pdc.wa.gov/node/{filer_id}"
 
 _PERSON_ALIVE_SQL = "SELECT 1 FROM people WHERE id = $1 AND archived_at IS NULL"
 
@@ -479,7 +492,7 @@ VALUES ($1, $2, $3, $4)
 
 _INSERT_ASSIGNMENT_SQL = """
 INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date, notes)
-VALUES ($1, $2, $3, FALSE, $4, $5, $6)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 """
 
 
@@ -499,9 +512,7 @@ async def _resolve_org(
     org_id = await conn.fetchval(_ORG_BY_KEY_SQL, org_type_id, firm["filer_id"])
     if org_id is not None:
         return "exists", org_id
-    legacy = await conn.fetchval(
-        _ORG_BY_KEY_SQL, org_type_id, _LEGACY_NODE_URL.format(filer_id=firm["filer_id"])
-    )
+    legacy = await conn.fetchval(_ORG_BY_LEGACY_NODE_SQL, org_type_id, firm["filer_id"])
     if legacy is not None:
         return "exists", legacy
 
@@ -545,6 +556,7 @@ async def _affiliate_member(
     org_status: OrgStatus,
     org_id: str | None,
     agent_type_id: str,
+    current_year: int,
     *,
     execute: bool,
 ) -> MemberStatus:
@@ -585,13 +597,20 @@ async def _affiliate_member(
 
     role_id, disposition, reason = await resolve_role(conn, org_id, LOBBYIST_ROLE_TITLE)
     if disposition is Disposition.REJECTED:
-        # org was just created/confirmed alive, so this should not happen.
+        # Only reachable if the resolved org is missing/archived — an org-side
+        # failure, not a person one (the archived_at guard on _ORG_BY_KEY_SQL
+        # makes this a should-never-happen backstop).
         logger.error("resolve_role rejected for %s at %s: %s", member["name"], org_id, reason)
-        return "person_missing"
+        return "org_error"
 
     if await conn.fetchval(_ASSIGNMENT_EXISTS_SQL, member["person_id"], role_id):
         return "exists"
 
+    # A firm whose latest employment year is the current year (or later) is still
+    # an active registration — model it as ongoing (is_current, no end_date)
+    # rather than asserting a future Dec-31 end. Only genuinely lapsed firms
+    # (year_max in the past) get a concrete end_date.
+    ongoing = member["year_max"] >= current_year
     notes = (
         f"WA PDC lobbyist agent {', '.join(member['agent_ids'])} at firm filer_id "
         f"{firm['filer_id']}; employment years {member['year_min']}-{member['year_max']} "
@@ -602,22 +621,26 @@ async def _affiliate_member(
         generate_id(),
         member["person_id"],
         role_id,
+        ongoing,
         date(member["year_min"], 1, 1),
-        date(member["year_max"], 12, 31),
+        None if ongoing else date(member["year_max"], 12, 31),
         notes,
     )
     logger.info(
-        "Affiliated %s (%s) to %r (%s-%s)",
+        "Affiliated %s (%s) to %r (%s-%s%s)",
         member["name"],
         member["person_id"],
         firm["name"],
         member["year_min"],
         member["year_max"],
+        ", ongoing" if ongoing else "",
     )
     return "applied"
 
 
-async def attach_lobbyist_firms(conn: asyncpg.Connection, *, execute: bool) -> list[FirmAction]:
+async def attach_lobbyist_firms(
+    conn: asyncpg.Connection, *, execute: bool, today: date | None = None
+) -> list[FirmAction]:
     """Create firm orgs + person->firm affiliations per the #296 Tier-A crosswalk.
 
     Returns one ``FirmAction`` per firm. ``org_status`` is ``created`` /
@@ -627,8 +650,12 @@ async def attach_lobbyist_firms(conn: asyncpg.Connection, *, execute: bool) -> l
     member's ``status`` is
     ``applied`` / ``planned`` / ``exists`` / ``no_agent`` (org-only person) /
     ``person_missing`` / ``agent_missing`` (person lacks the #295 identifier) /
-    ``skipped_org`` (firm org was a name_conflict). Only ``created`` /
-    ``applied`` mutate.
+    ``skipped_org`` (firm org was a name_conflict) / ``org_error`` (resolve_role
+    rejected the org). Only ``created`` / ``adopted`` / ``applied`` mutate.
+
+    ``today`` sets the reference for "is this firm still active" (defaults to the
+    UTC date); a firm whose latest employment year is ``today``'s year or later
+    is modeled as ongoing rather than given a future end_date.
     """
     org_type_id = await conn.fetchval(_ORG_TYPE_ID_SQL)
     agent_type_id = await conn.fetchval(_AGENT_TYPE_ID_SQL)
@@ -637,6 +664,7 @@ async def attach_lobbyist_firms(conn: asyncpg.Connection, *, execute: bool) -> l
             "org_wa_pdc / person_wa_pdc_lobbyist_agent identifier type not found — "
             "run apply_schema first"
         )
+    current_year = (today or datetime.now(UTC).date()).year
 
     actions: list[FirmAction] = []
     for firm in FIRMS:
@@ -644,7 +672,14 @@ async def attach_lobbyist_firms(conn: asyncpg.Connection, *, execute: bool) -> l
         members: list[MemberAction] = []
         for member in firm["members"]:
             status = await _affiliate_member(
-                conn, firm, member, org_status, org_id, agent_type_id, execute=execute
+                conn,
+                firm,
+                member,
+                org_status,
+                org_id,
+                agent_type_id,
+                current_year,
+                execute=execute,
             )
             members.append(
                 {"name": member["name"], "person_id": member["person_id"], "status": status}

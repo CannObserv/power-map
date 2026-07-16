@@ -145,10 +145,11 @@ def _member_status(result, filer_id: str, person_id: str) -> str:
     return next(m["status"] for m in firm["members"] if m["person_id"] == person_id)
 
 
-async def test_creates_org_key_role_and_assignment(db):
+async def test_creates_org_key_and_ongoing_assignment_for_active_firm(db):
+    """Boswell's latest employment year (2026) is the reference year → ongoing."""
     await _seed_member(db, BOSWELL_PERSON, BOSWELL_AGENT)
 
-    result = await attach_lobbyist_firms(db, execute=True)
+    result = await attach_lobbyist_firms(db, execute=True, today=date(2026, 7, 16))
 
     assert _org_status(result, BOSWELL_FILER) == "created"
     assert _member_status(result, BOSWELL_FILER, BOSWELL_PERSON) == "applied"
@@ -162,6 +163,19 @@ async def test_creates_org_key_role_and_assignment(db):
     a = assigns[0]
     assert a["organization_id"] == org_id
     assert a["title"] == LOBBYIST_ROLE_TITLE
+    assert a["start_date"] == date(2016, 1, 1)
+    assert a["end_date"] is None
+    assert a["is_current"] is True
+
+
+async def test_lapsed_firm_gets_closed_end_date(db):
+    """When the reference year is past the firm's last year, close the window."""
+    await _seed_member(db, BOSWELL_PERSON, BOSWELL_AGENT)
+
+    result = await attach_lobbyist_firms(db, execute=True, today=date(2030, 1, 1))
+
+    assert _member_status(result, BOSWELL_FILER, BOSWELL_PERSON) == "applied"
+    a = (await _assignments(db, BOSWELL_PERSON))[0]
     assert a["start_date"] == date(2016, 1, 1)
     assert a["end_date"] == date(2026, 12, 31)
     assert a["is_current"] is False
@@ -319,6 +333,21 @@ async def test_reuses_org_matched_by_key(db):
     assert _member_status(result, BOSWELL_FILER, BOSWELL_PERSON) == "applied"
     assigns = await _assignments(db, BOSWELL_PERSON)
     assert assigns[0]["organization_id"] == existing
+
+
+async def test_archived_org_with_key_is_not_reused(db):
+    """An archived org carrying the key is ignored — a fresh active org is created."""
+    archived = await _make_named_org(db, "Old Boswell Consulting", key=BOSWELL_FILER)
+    await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", archived)
+    await _seed_member(db, BOSWELL_PERSON, BOSWELL_AGENT)
+
+    result = await attach_lobbyist_firms(db, execute=True)
+
+    assert _org_status(result, BOSWELL_FILER) == "created"
+    assert _member_status(result, BOSWELL_FILER, BOSWELL_PERSON) == "applied"
+    new_org = (await _assignments(db, BOSWELL_PERSON))[0]["organization_id"]
+    assert new_org != archived
+    assert await db.fetchval("SELECT archived_at FROM organizations WHERE id = $1", new_org) is None
 
 
 async def test_missing_person_is_reported(db):

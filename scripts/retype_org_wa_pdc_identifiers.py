@@ -33,7 +33,7 @@ import argparse
 import asyncio
 import os
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import Literal, TypedDict
 from urllib.parse import parse_qs, urlsplit
 
@@ -141,8 +141,21 @@ async def retype_org_wa_pdc(conn: asyncpg.Connection, *, execute: bool) -> list[
             "org_wa_pdc identifier type or wa_pdc link type not found — run apply_schema first"
         )
 
+    rows = await conn.fetch(_ALL_ROWS_SQL, type_id)
+
+    # Pre-scan for intra-batch collisions: a node ID that decodes from URL-form
+    # values on more than one distinct org is ambiguous — retyping either would
+    # try to claim the same numeric key. Detecting it here (not just via the DB
+    # holder check, which only sees rows already written) surfaces the collision
+    # in dry run as well as execute.
+    batch_node_orgs: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        nid = extract_node_id(row["value"])
+        if nid is not None:
+            batch_node_orgs[nid].add(row["entity_id"])
+
     actions: list[OrgKeyAction] = []
-    for row in await conn.fetch(_ALL_ROWS_SQL, type_id):
+    for row in rows:
         org_id, value = row["entity_id"], row["value"]
         node_id = extract_node_id(value)
         action: OrgKeyAction = {
@@ -167,6 +180,17 @@ async def retype_org_wa_pdc(conn: asyncpg.Connection, *, execute: bool) -> list[
             else:
                 logger.warning("org %s: non-key value %r — skipping", org_id, value)
                 action["status"] = "skipped_freetext"
+            continue
+
+        others = batch_node_orgs[node_id] - {org_id}
+        if others:
+            logger.warning(
+                "org %s: node_id=%s also on org(s) %s in this batch — collision, skipping",
+                org_id,
+                node_id,
+                sorted(others),
+            )
+            action["status"] = "collision"
             continue
 
         holders = await conn.fetch(_VALUE_ON_OTHER_ORG_SQL, type_id, node_id, org_id)
