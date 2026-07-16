@@ -152,6 +152,8 @@ Before receiving events from the change feed, a key must subscribe to the entiti
 }
 ```
 
+Ordered by `(created_at, entity_id)` — a stable total order (`entity_id` is unique per key). Offset pagination over the full list is deterministic and complete even when many rows share a `created_at` (e.g. a bulk subscribe), so a consumer can page from `offset=0` and enumerate its entire subscription set without duplicates or gaps.
+
 ### Bulk DELETE — request
 
 Pass the JSON body via an HTTP DELETE with `Content-Type: application/json`:

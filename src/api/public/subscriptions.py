@@ -372,7 +372,10 @@ async def list_subscriptions(
             "SELECT entity_id, entity_type, created_at"
             " FROM api_key_entity_subscriptions"
             " WHERE api_key_id = $1 AND entity_type = $2"
-            " ORDER BY created_at ASC"
+            # entity_id is a unique tiebreaker (PK is (api_key_id, entity_id)):
+            # required so offset pagination is stable when many rows share a
+            # created_at, e.g. bulk-subscribe inserts (#297).
+            " ORDER BY created_at ASC, entity_id ASC"
             " LIMIT $3 OFFSET $4",
             auth.key_id,
             entity_type,
@@ -384,7 +387,10 @@ async def list_subscriptions(
             "SELECT entity_id, entity_type, created_at"
             " FROM api_key_entity_subscriptions"
             " WHERE api_key_id = $1"
-            " ORDER BY created_at ASC"
+            # entity_id is a unique tiebreaker (PK is (api_key_id, entity_id)):
+            # required so offset pagination is stable when many rows share a
+            # created_at, e.g. bulk-subscribe inserts (#297).
+            " ORDER BY created_at ASC, entity_id ASC"
             " LIMIT $2 OFFSET $3",
             auth.key_id,
             limit + 1,

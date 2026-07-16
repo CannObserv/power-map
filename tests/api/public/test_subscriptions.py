@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -163,6 +164,67 @@ async def test_subscriptions_list_pagination(client, sub_api_key, sub_entities):
         json={"entity_ids": [person_id, org_id]},
         headers={"X-API-Key": sub_api_key["raw_key"]},
     )
+
+
+async def test_subscriptions_list_pagination_stable_under_tied_created_at(client, db, sub_api_key):
+    """Offset pagination is deterministic and complete when rows share created_at (#297).
+
+    Bulk-subscribe inserts land many rows at an identical ``created_at``. With
+    ``ORDER BY created_at`` alone, Postgres may return tied rows in a different
+    order per query, so offset windows overlap and gap — the client sees
+    duplicates and silently skips others. A unique tiebreaker (``entity_id``,
+    which is unique per key via the PK) must make the total order deterministic.
+
+    Seed rows directly with one shared timestamp, in an order that is *not*
+    entity_id-sorted, then page the full list at a small limit and assert the
+    enumeration is complete, duplicate-free, and in ``(created_at, entity_id)``
+    order.
+    """
+    kid = sub_api_key["key_id"]
+    shared_ts = datetime(2026, 7, 7, 0, 23, 12, 311563, tzinfo=UTC)
+    entity_ids = sorted(generate_id() for _ in range(30))
+    # Insert in reverse-sorted order so heap/insertion order != the sorted order
+    # the fix's tiebreaker must impose; a non-deterministic sort would surface
+    # a different sequence than sorted(entity_ids).
+    for eid in reversed(entity_ids):
+        await db.execute(
+            "INSERT INTO api_key_entity_subscriptions"
+            " (api_key_id, entity_id, entity_type, created_at)"
+            " VALUES ($1, $2, 'person', $3)",
+            kid,
+            eid,
+            shared_ts,
+        )
+
+    async def enumerate_pages(params: dict) -> list[str]:
+        limit = params["limit"]
+        collected: list[str] = []
+        offset = 0
+        while True:
+            r = await client.get(
+                "/api/v1/subscriptions",
+                params={**params, "offset": offset},
+                headers={"X-API-Key": sub_api_key["raw_key"]},
+            )
+            assert r.status_code == 200
+            body = r.json()
+            collected.extend(item["entity_id"] for item in body["data"])
+            if not body["meta"]["has_more"]:
+                break
+            offset += limit
+        return collected
+
+    # Unfiltered branch.
+    collected = await enumerate_pages({"limit": 7})
+    # Complete and duplicate-free: every seeded id appears exactly once.
+    assert len(collected) == len(entity_ids)
+    assert set(collected) == set(entity_ids)
+    # Deterministic total order: all share created_at, so entity_id ascending.
+    assert collected == entity_ids
+
+    # entity_type-filtered branch has its own ORDER BY — same guarantee.
+    filtered = await enumerate_pages({"limit": 7, "entity_type": "person"})
+    assert filtered == entity_ids
 
 
 # ---------------------------------------------------------------------------
