@@ -32,6 +32,7 @@ from src.api.main import app
 from src.core.db import generate_id
 from tests.api.admin.a11y import (
     controls_missing_accessible_name,
+    count_controls,
     dangling_id_refs,
     is_full_document,
 )
@@ -72,10 +73,27 @@ _QUERY = {
     "/admin/jurisdictions/{entity_id}/contacts/new-row/": "?contact_type=phone",
 }
 
-# Routes that hard-require an HTMX request (400 otherwise).
+# Aggregate control-coverage guard. Each rendered route adds its control count
+# to this accumulator; a module-teardown fixture asserts the total clears a
+# floor, but only when the *full* sweep ran (a filtered `-k` subset skips the
+# check). Catches a mass regression — a form that silently stops rendering
+# controls would still pass every per-route check vacuously (#246 CR). Floor is
+# well below the ~376 currently rendered, so it flags a collapse, not drift.
+_MIN_TOTAL_CONTROLS = 250
+_control_total = 0
+_routes_executed = 0
+
+
+# Routes that only render their partial for an HTMX request. Without HX-Request
+# they either 400 (dup badges) or 303-redirect to a list page (api-key detail).
+# The sweep must exercise the *partial*, not the redirect target, so send the
+# header. Redirect-following is OFF (see the client fixture) precisely so a route
+# that 3xx's here fails the 200 gate loudly instead of silently re-testing
+# wherever it points.
 _EXTRA_HEADERS = {
     "/admin/_dup-badge/orgs/": {"HX-Request": "true"},
     "/admin/_dup-badge/people/": {"HX-Request": "true"},
+    "/admin/settings/api-keys/{key_id}/detail/": {"HX-Request": "true"},
 }
 
 
@@ -100,8 +118,11 @@ async def client(db):
         yield db
 
     app.dependency_overrides[get_db] = _get_db_override
+    # follow_redirects=False on purpose: a route that 3xx's must fail the 200
+    # gate, not silently pass by following the redirect to some other page
+    # (which masks HTMX-only partials — a 303 to the list page still 200s).
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=False
     ) as c:
         yield c
     app.dependency_overrides.pop(get_db, None)
@@ -386,8 +407,23 @@ def _param_values(path: str, s: dict) -> dict:
     return values
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _assert_control_floor():
+    """After the module's tests run, assert aggregate control coverage cleared
+    the floor — but only when the whole sweep ran (a filtered subset can't reach
+    it and would false-fail)."""
+    yield
+    if _routes_executed == len(ADMIN_GET_PATHS):
+        assert _control_total >= _MIN_TOTAL_CONTROLS, (
+            f"rendered only {_control_total} controls across {_routes_executed} routes"
+            f" (floor {_MIN_TOTAL_CONTROLS}) — a form may have silently stopped rendering"
+        )
+
+
 @pytest.mark.parametrize("path", ADMIN_GET_PATHS)
 async def test_admin_route_renders_accessible_dom(path, client, seed):
+    global _control_total, _routes_executed
+    _routes_executed += 1
     url = path.format_map(_param_values(path, seed)) + _QUERY.get(path, "")
     resp = await client.get(url, headers=AUTH_HEADERS | _EXTRA_HEADERS.get(path, {}))
     assert resp.status_code == 200, f"{url} -> {resp.status_code}: {resp.text[:300]}"
@@ -396,6 +432,8 @@ async def test_admin_route_renders_accessible_dom(path, client, seed):
         return  # nothing to check on non-HTML responses (e.g. JSON vectors)
 
     html = resp.text
+    _control_total += count_controls(html)
+
     missing = controls_missing_accessible_name(html)
     assert not missing, f"{url}: controls missing accessible name:\n  " + "\n  ".join(missing)
 

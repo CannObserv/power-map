@@ -48,6 +48,22 @@ def _is_labelable(el: _Element) -> bool:
     return not (el.tag == "input" and (el.get("type") or "").lower() == "hidden")
 
 
+def _is_checked_control(el: _Element) -> bool:
+    """True for an input/select/textarea that must carry an accessible name
+    (hidden inputs excluded — they have no perceivable UI to name)."""
+    if not isinstance(el.tag, str) or el.tag not in _CHECKED_TAGS:
+        return False
+    return not (el.tag == "input" and (el.get("type") or "").lower() == "hidden")
+
+
+def count_controls(html: str) -> int:
+    """Number of name-requiring controls (input/select/textarea, excl. hidden)
+    in the rendered tree. Lets a caller track aggregate control coverage across
+    many renders so a mass drop (a form that silently stopped rendering) is
+    visible rather than trivially green."""
+    return sum(1 for el in _parse(html).iter() if _is_checked_control(el))
+
+
 def _labeled_control(label: _Element) -> _Element | None:
     """The control a wrapping <label> names: its **first** labelable descendant
     in tree order — unless a ``for`` attribute redirects the association."""
@@ -81,9 +97,7 @@ def controls_missing_accessible_name(html: str) -> list[str]:
     label_for_ids = {lab.get("for") for lab in root.iter("label") if lab.get("for")}
     missing: list[str] = []
     for el in root.iter():
-        if not isinstance(el.tag, str) or el.tag not in _CHECKED_TAGS:
-            continue
-        if el.tag == "input" and (el.get("type") or "").lower() == "hidden":
+        if not _is_checked_control(el):
             continue
         named = (
             bool((el.get("aria-label") or "").strip())
@@ -99,7 +113,13 @@ def controls_missing_accessible_name(html: str) -> list[str]:
 def dangling_id_refs(html: str) -> list[str]:
     """id references (<label for>, aria-labelledby/-describedby tokens) that
     resolve to no element id. Only meaningful on **full documents** — an HTMX
-    fragment may legitimately reference ids rendered by its parent page."""
+    fragment may legitimately reference ids rendered by its parent page.
+
+    Corollary: on a fragment, an ``aria-labelledby``/``for`` target is *trusted,
+    not verified* — a typo'd reference in a partial passes both this check (which
+    the caller skips for fragments) and the accessible-name check (which accepts
+    ``aria-labelledby`` by presence). Verifying fragment-local references needs
+    the assembled parent DOM, which is the browser tier's job (GH #300)."""
     root = _parse(html)
     ids = {el.get("id") for el in root.iter() if isinstance(el.tag, str) and el.get("id")}
     problems: list[str] = []

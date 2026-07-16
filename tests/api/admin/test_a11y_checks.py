@@ -12,6 +12,7 @@ Each of the three #244 static-lint blind spots has a dedicated case:
 
 from tests.api.admin.a11y import (
     controls_missing_accessible_name,
+    count_controls,
     dangling_id_refs,
     is_full_document,
 )
@@ -143,6 +144,22 @@ def test_resolved_refs_produce_no_problems():
         '<input aria-labelledby="lbl" aria-describedby="hint" name="q">'
     )
     assert dangling_id_refs(html) == []
+
+
+# --- control counting --------------------------------------------------------
+
+
+def test_count_controls_counts_named_controls_excluding_hidden():
+    html = (
+        '<input name="a"><select name="b"></select><textarea name="c"></textarea>'
+        '<input type="hidden" name="h"><button>x</button>'
+    )
+    # a, b, c count; hidden and button do not.
+    assert count_controls(html) == 3
+
+
+def test_count_controls_zero_on_control_free_markup():
+    assert count_controls("<div><p>No controls here</p></div>") == 0
 
 
 # --- document detection ------------------------------------------------------
