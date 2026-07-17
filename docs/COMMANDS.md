@@ -346,6 +346,29 @@ attach rather than duplicate. Seeder, not updater — it does not revise existin
 titles/attributes. Merging existing (idiosyncratic) legislator Roles onto these roles is
 separate (#265).
 
+## Archive legacy legislator roles (idempotent, #265)
+
+Validates each active legacy (`role_type_id IS NULL`) legislator assignment on the WA
+House / Senate / Legislature orgs against the enriched seat-assignments, migrates its
+ancillary data (links + contacts + field_confidence → the matched typed assignment;
+`role_wa_pdc` URLs → person-level `person_wa_pdc_filer` identifier + `wa_pdc` link),
+then archives the assignment; a legacy role is archived once it has no active
+assignments left. Coverage-gated: staff/leadership titles are excluded (→ #266) and
+unmatched rows are kept for a later re-run (e.g. after upstream backfills more history).
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+# Dry run — read-only; per-row statuses + full ancillary accounting
+uv run "${env_args[@]}" python -m scripts.archive_legacy_legislator_roles
+
+# Execute — migrate ancillary data + archive, in one transaction
+uv run "${env_args[@]}" python -m scripts.archive_legacy_legislator_roles --execute
+```
+
 ## Outbox + tombstone TTL prune (issue #204)
 
 `scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)

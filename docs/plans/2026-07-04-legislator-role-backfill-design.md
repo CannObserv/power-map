@@ -2,8 +2,12 @@
 
 - **Date:** 2026-07-04
 - **Issue:** #265 (follow-on to #261 seat model, #263 seat seed)
-- **Status:** Decided — audit + document now; archival deferred to a post-enrichment follow-up
-- **Blocked on:** USA-WA sister-repo automated observations (position-bearing enrichment)
+- **Status:** Implemented — enrichment landed 2026-07-16/17 (House 2019+, Senate 1991+;
+  usa-wa#97); validator/archiver is `scripts/archive_legacy_legislator_roles.py`
+  (see `docs/COMMANDS.md`). PDC open question resolved: filer IDs are campaign identity →
+  rescued to person-level `person_wa_pdc_filer` + `wa_pdc` link. Pre-2019 House rows
+  (4 ex-reps) stay unarchived pending an upstream House-depth follow-up; re-run then.
+- **Blocked on:** ~~USA-WA sister-repo automated observations (position-bearing enrichment)~~ landed
 
 ## Goal
 
