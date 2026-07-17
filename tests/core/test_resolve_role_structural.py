@@ -99,6 +99,37 @@ async def test_title_only_path_unchanged(db):
     assert id1 == id2
 
 
+async def test_typed_observation_upgrades_untyped_match(db):
+    """A typed observation fills role_type_id on a matched untyped role (#266).
+
+    Ongoing ingest self-classifies: a pre-existing free-text role AUTO_ATTACHes
+    and gets its NULL role_type_id upgraded in place.
+    """
+    org = await _org(db)
+    untyped_id, disp0, _ = await resolve_role(db, org, "Chair")
+    assert disp0 is Disposition.NEW
+    assert await db.fetchval("SELECT role_type_id FROM roles WHERE id=$1", untyped_id) is None
+
+    matched_id, disp1, _ = await resolve_role(db, org, "Chair", role_type="committee_chair")
+    assert disp1 is Disposition.AUTO_ATTACHED
+    assert matched_id == untyped_id
+    rt_id = await db.fetchval("SELECT role_type_id FROM roles WHERE id=$1", untyped_id)
+    expected = await db.fetchval("SELECT id FROM role_types WHERE slug='committee_chair'")
+    assert rt_id == expected
+
+
+async def test_typed_observation_does_not_reclassify_typed_match(db):
+    """Upgrade-on-match only fills a NULL role_type_id — never reclassifies (#266)."""
+    org = await _org(db)
+    first_id, _, _ = await resolve_role(db, org, "Chair", role_type="committee_chair")
+    orig = await db.fetchval("SELECT role_type_id FROM roles WHERE id=$1", first_id)
+
+    same_id, disp, _ = await resolve_role(db, org, "Chair", role_type="committee_vice_chair")
+    assert same_id == first_id
+    assert disp is Disposition.AUTO_ATTACHED
+    assert await db.fetchval("SELECT role_type_id FROM roles WHERE id=$1", first_id) == orig
+
+
 async def test_title_observation_does_not_attach_to_structural_role(db):
     """A title-only resolve must not glue onto a role with a jurisdiction of the same title."""
     org, jur = await _org(db), await _jur(db)
@@ -350,16 +381,18 @@ async def test_member_role_matches_by_title_not_jurisdiction_branch(db):
 
 async def test_typed_member_attaches_to_preexisting_untyped_title(db):
     """(org, title) is the sole key: a `member` observation attaches to a
-    pre-existing untyped role of the same title (left untyped — documents the
-    resolve_role NOTE, #269)."""
+    pre-existing untyped role of the same title — and upgrades it in place
+    (upgrade-on-match, #266, supersedes the #269 leave-untyped behavior)."""
     org = await _org(db)
     untyped_id, disp1, _ = await resolve_role(db, org, "Member")
     typed_id, disp2, _ = await resolve_role(db, org, "Member", role_type="member")
     assert disp1 is Disposition.NEW
     assert disp2 is Disposition.AUTO_ATTACHED
     assert typed_id == untyped_id
-    # The matched row keeps its NULL role_type_id (not upgraded in place).
-    assert await db.fetchval("SELECT role_type_id FROM roles WHERE id=$1", typed_id) is None
+    # The matched row's NULL role_type_id is now filled in place (#266).
+    rt_id = await db.fetchval("SELECT role_type_id FROM roles WHERE id=$1", typed_id)
+    expected = await db.fetchval("SELECT id FROM role_types WHERE slug='member'")
+    assert rt_id == expected
 
 
 # ---------------------------------------------------------------------------

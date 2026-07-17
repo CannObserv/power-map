@@ -698,6 +698,10 @@ async def resolve_role(
     reference — historical roles can be created against the district that was in
     effect. Only a truly archived (soft-deleted) district is rejected.
 
+    A typed observation that matches an *untyped* non-jurisdictional role fills
+    its ``role_type_id`` in place (upgrade-on-match, #266) — only a NULL is filled,
+    never a reclassification — so ongoing ingest self-classifies legacy rows.
+
     Returns (role_id, disposition, reason).
     disposition is AUTO_ATTACHED if an active (non-archived) match is found,
     NEW if created, REJECTED if a referenced entity is missing/archived, a role
@@ -749,14 +753,15 @@ async def resolve_role(
         qualifier = None
 
     # NOTE: title-mode matching below keys on (org, lower(title)) and ignores
-    # role_type_id — by design. Typed jurisdiction-less roles now exist (the
-    # `member` classifier, #269): role_type_id is persisted on create (below), so
-    # the classifier lands on the row and aggregates cleanly, but it is *not* a
-    # match key here — (org, title) stays the sole key, so a producer's emitter
-    # needs no change. One consequence: a pre-existing *untyped* role with the
-    # same (org, title) AUTO_ATTACHes and is left untyped (role_type_id not
-    # upgraded in place). Benign for greenfield ingest (fresh orgs); revisit with
-    # an upgrade-on-match if untyped duplicates of a typed role need reconciling.
+    # role_type_id — by design (#266). role_type_id is persisted on create and
+    # aggregates cleanly, but it is *not* a match key — (org, title) stays the
+    # sole key, so a producer's emitter needs no change, and the DB uq_role_org_title
+    # (unique on (org, title) regardless of role_type) already forbids two
+    # same-title non-jurisdictional roles from coexisting. (The original #266 ask —
+    # adding role_type to the match key — was withdrawn as moot given that index.)
+    # A pre-existing *untyped* role matched by a *typed* observation is upgraded in
+    # place below (role_type_id NULL → filled, never reclassified), so ongoing
+    # ingest self-classifies legacy free-text rows.
 
     if jurisdiction_id is not None:
         existing = await conn.fetchrow(
@@ -772,12 +777,32 @@ async def resolve_role(
         )
     else:
         existing = await conn.fetchrow(
-            "SELECT id FROM roles WHERE organization_id=$1 AND lower(title)=lower($2)"
+            "SELECT id, role_type_id FROM roles"
+            " WHERE organization_id=$1 AND lower(title)=lower($2)"
             " AND jurisdiction_id IS NULL AND archived_at IS NULL",
             organization_id,
             title,
         )
     if existing:
+        # Upgrade-on-match (#266): a typed observation that lands on an untyped
+        # non-jurisdictional role fills role_type_id in place, so ongoing ingest
+        # self-classifies legacy free-text rows. Only a NULL is filled — never a
+        # reclassification of an already-typed row (which would silently rewrite a
+        # human/prior classification). The jurisdictional branch already matches on
+        # role_type, so this applies solely to the (org, title) path.
+        if (
+            jurisdiction_id is None
+            and role_type_id is not None
+            and existing["role_type_id"] is None
+        ):
+            await conn.execute(
+                "UPDATE roles SET role_type_id=$1 WHERE id=$2", role_type_id, existing["id"]
+            )
+            logger.info(
+                "Upgraded untyped role id=%s to role_type=%s via matched observation",
+                existing["id"],
+                role_type,
+            )
         return existing["id"], Disposition.AUTO_ATTACHED, None
 
     if jurisdiction_id is not None:
