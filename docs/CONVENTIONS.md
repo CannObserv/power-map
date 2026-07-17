@@ -267,6 +267,19 @@ screens and the dashboard API-activity panel.
 
 **Bootstrap sequence for a dirty DB:** (1) run `scripts/deduplicate_roles.py --execute` to collapse duplicates, (2) re-run `apply_schema` (or restart the service) to create the indexes, (3) verify with `\d roles` / `\d role_assignments` in psql.
 
+### Role-type vocabulary — governance (#266)
+
+`role_types` is a **flat, global aggregation key** — its stated purpose is to let "all X across orgs/jurisdictions" aggregate without matching free-text titles. It is *not* a label for every distinct office. New slugs are gated by four rules so the catalog doesn't proliferate into a WA-flavored, domain-ambiguous grab-bag:
+
+1. **Aggregation test — a slug exists only if you would query "all of them" across orgs/jurisdictions.** If the answer is no, it stays a free-text `roles.title` and gets no type. A one-off, non-recurring position doesn't earn a type until it recurs; a coarse *category* whose members you'd query together (`chamber_officer` covers a chamber's institutional officers — Secretary of the Senate, a future Chief Clerk) does earn one even at one row today, because the category — not the single title — is the aggregation. This is the primary guardrail against proliferation.
+2. **Domain-prefix convention.** Every non-jurisdictional slug is prefixed by the org-kind it attaches to: `committee_`, `chamber_`, `legislature_`, `party_` (corporate/advocacy `org_*` is reserved for #303). The prefix disambiguates a bare noun that means different things per domain (a `member` on a committee vs a party) and yields coarse rollups for free (`WHERE slug LIKE 'legislature_%'`) — so you rarely need a separate coarse type. The two jurisdictional seat types (`state_representative`, `state_senator`) predate this convention and are **grandfathered unprefixed** — renaming a public-API-visible slug (`GET /api/v1/role-types`) is breaking and buys nothing.
+3. **Concept in the type, jurisdiction label in the renderer.** Types stay jurisdiction-neutral; WA-specific titles live in `src/core/role_title.py`. Don't mint `wa_speaker` — the type is the concept, the label is rendered (or, for coarse types, carried by the free-text title).
+4. **Coarse where a long tail exists.** When distinct titles share a domain but few would ever be aggregated individually (the committee-staff tail: `Counsel`, `Research Analyst`, `Fiscal Coordinator`, …), use one coarse type (`legislature_staff`) + the specific free-text title, not a slug per title. Coarse types set `expects_jurisdiction=FALSE`; the specific office is not structurally recoverable (accepted tradeoff — e.g. `chamber_leader` aggregates "all chamber leaders" but not "all Speakers cross-state").
+
+**Reserved, not seeded.** Obvious near-term peers of a seeded concept (`chamber_majority_leader`, `chamber_minority_leader`, `chamber_president_pro_tempore`, `chamber_speaker_pro_tempore`) are documented here but **seeded only on first observation** — don't front-load the vocabulary ahead of data (rule 1).
+
+**Current catalog (post-#266):** `state_representative`, `state_senator` (jurisdictional seats, grandfathered); `chamber_leader`, `chamber_officer` (coarse); `committee_chair`, `committee_vice_chair`, `committee_ranking_member`, `committee_assistant_ranking_member`, `committee_member`; `legislature_staff` (coarse); `party_member` (coarse). The pre-#266 coarse `member` was split into `committee_member` + `party_member` and dropped.
+
 ### `pg_trgm` extension
 
 Enabled via `CREATE EXTENSION IF NOT EXISTS pg_trgm` in `apply_schema`. Required for org duplicate detection (`similarity()` function). Re-run `apply_schema` (or restart) to install on existing databases. Gracefully degrades to `org_dup_count = 0` if not installed.
