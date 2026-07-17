@@ -77,9 +77,15 @@ def parse_legacy_title(title: str) -> SeatTitle | None:
 
 
 def filer_id_from_url(value: str) -> str | None:
-    """Return the decoded ``filer_id`` from a PDC URL, or None if not parseable."""
+    """Return the decoded ``filer_id`` from a PDC URL, or None if not parseable.
+
+    Host-allowlisted to ``pdc.wa.gov`` (+ subdomains) so a stray non-PDC URL
+    surfaces as ``conflict`` instead of minting a wrong filer identifier.
+    """
     parts = urlsplit(value.strip())
     if parts.scheme not in ("http", "https"):
+        return None
+    if parts.netloc != "pdc.wa.gov" and not parts.netloc.endswith(".pdc.wa.gov"):
         return None
     filers = parse_qs(parts.query).get("filer_id", [])
     return filers[0] if filers else None
@@ -111,6 +117,7 @@ class _Context(NamedTuple):
     """Resolved IDs the queries key on."""
 
     org_ids: list[str]  # house + senate + legislature
+    org_by_chamber: dict[Chamber, str]
     role_type_by_chamber: dict[Chamber, str]
     role_wa_pdc_type_id: str
     person_filer_type_id: str
@@ -128,7 +135,7 @@ _LEGISLATURE_ORG_SQL = """
 SELECT i.entity_id
 FROM identifiers i
 JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
-WHERE t.slug = 'org_wa_legislature'
+WHERE t.slug = 'org_wa_legislature' AND i.value = 'usa_wa_legislature'
 """
 
 _LEGACY_ASSIGNMENTS_SQL = """
@@ -153,6 +160,7 @@ FROM role_assignments ra
 JOIN roles r ON r.id = ra.role_id
 JOIN jurisdictions j ON j.id = r.jurisdiction_id
 WHERE ra.person_id = $1 AND r.role_type_id = $2 AND j.slug = $3
+  AND r.organization_id = $4
   AND ra.archived_at IS NULL AND r.archived_at IS NULL
 ORDER BY ra.is_current DESC, ra.start_date DESC NULLS LAST, ra.id
 LIMIT 1
@@ -163,6 +171,7 @@ SELECT ra.id
 FROM role_assignments ra
 JOIN roles r ON r.id = ra.role_id
 WHERE ra.person_id = $1 AND r.role_type_id = $2
+  AND r.organization_id = $3
   AND ra.archived_at IS NULL AND r.archived_at IS NULL
 ORDER BY ra.is_current DESC, ra.start_date DESC NULLS LAST, ra.id
 LIMIT 1
@@ -234,6 +243,11 @@ WHERE entity_type = 'role_assignment' AND entity_id = $1
 _REPOINT_FC_SQL = "UPDATE field_confidence SET entity_id = $2 WHERE id = $1"
 _DELETE_FC_SQL = "DELETE FROM field_confidence WHERE id = $1"
 
+_RECORD_CHANGE_SQL = """
+INSERT INTO entity_changes (entity_type, entity_id, change_kind)
+VALUES ($1, $2, 'updated')
+"""
+
 _ARCHIVE_ASSIGNMENT_SQL = "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1"
 _ARCHIVE_ROLE_SQL = "UPDATE roles SET archived_at = NOW() WHERE id = $1"
 
@@ -269,9 +283,9 @@ async def _resolve_context(conn: asyncpg.Connection) -> _Context:
     }
     wa_pdc_link_type_id = await conn.fetchval("SELECT id FROM link_types WHERE slug = 'wa_pdc'")
     missing = (
-        {"state_representative", "state_senator"} - role_types.keys()
-        or {"role_wa_pdc", "person_wa_pdc_filer"} - identifier_types.keys()
-        or ({"wa_pdc"} if wa_pdc_link_type_id is None else set())
+        ({"state_representative", "state_senator"} - role_types.keys())
+        | ({"role_wa_pdc", "person_wa_pdc_filer"} - identifier_types.keys())
+        | ({"wa_pdc"} if wa_pdc_link_type_id is None else set())
     )
     if missing:
         raise RuntimeError(f"missing catalog rows {missing} — run apply_schema first")
@@ -282,6 +296,10 @@ async def _resolve_context(conn: asyncpg.Connection) -> _Context:
             orgs_by_value["usa_wa_senate"][0],
             legislature_rows[0],
         ],
+        org_by_chamber={
+            "house": orgs_by_value["usa_wa_house"][0],
+            "senate": orgs_by_value["usa_wa_senate"][0],
+        },
         role_type_by_chamber={
             "house": role_types["state_representative"],
             "senate": role_types["state_senator"],
@@ -295,13 +313,18 @@ async def _resolve_context(conn: asyncpg.Connection) -> _Context:
 async def _find_target(
     conn: asyncpg.Connection, ctx: _Context, person_id: str, seat: SeatTitle
 ) -> str | None:
-    """Best typed seat-assignment covering this person, seat-level when district known."""
+    """Best typed seat-assignment covering this person, seat-level when district known.
+
+    Both matches are restricted to the WA chamber org — the role_types catalog
+    is generic, so a same-typed seat on another org must never validate a row.
+    """
     role_type_id = ctx.role_type_by_chamber[seat.chamber]
+    org_id = ctx.org_by_chamber[seat.chamber]
     if seat.district is not None:
         return await conn.fetchval(
-            _MATCH_SEAT_SQL, person_id, role_type_id, f"usa-wa-ld-{seat.district}"
+            _MATCH_SEAT_SQL, person_id, role_type_id, f"usa-wa-ld-{seat.district}", org_id
         )
-    return await conn.fetchval(_MATCH_CHAMBER_SQL, person_id, role_type_id)
+    return await conn.fetchval(_MATCH_CHAMBER_SQL, person_id, role_type_id, org_id)
 
 
 async def _rescue_pdc(
@@ -349,7 +372,11 @@ async def _migrate_rows(
 ) -> tuple[int, int]:
     """Re-point ancillary rows from ``source`` to ``target``; delete exact duplicates.
 
-    With ``execute=False`` only classifies (moved, deduped) — no mutation.
+    With ``execute=False`` only classifies (moved, deduped) — no mutation. Dry-run
+    classification reads the target's *current* state, so when two planned
+    assignments carry an identical row toward the same target, both count as
+    moved (execute would move one and dedupe the other) — totals may overstate
+    ``moved`` by the overlap; archive/keep decisions are unaffected.
     """
     moved = deduped = 0
     for row in await conn.fetch(rows_sql, source):
@@ -465,6 +492,15 @@ async def archive_legacy_legislator_roles(conn: asyncpg.Connection, *, execute: 
             action["status"] = "planned"
             continue
 
+        # Outbox events for the entities whose payloads changed (observation.py
+        # convention): the target assignment when rows moved onto it, the person
+        # when a PDC rescue touched them. The legacy assignment's own archive
+        # UPDATE below is covered by trg_entity_changes_role_assignments.
+        if migrated["links"] + migrated["contacts"] + migrated["fc"] > 0:
+            await conn.execute(_RECORD_CHANGE_SQL, "role_assignment", target)
+        if migrated["pdc"] > 0:
+            await conn.execute(_RECORD_CHANGE_SQL, "person", row["person_id"])
+
         await conn.execute(_ARCHIVE_ASSIGNMENT_SQL, row["assignment_id"])
         action["status"] = "archived"
         logger.info("Archived %r assignment %s → %s", row["title"], row["assignment_id"], target)
@@ -503,8 +539,9 @@ async def run(*, execute: bool) -> None:
             report = await archive_legacy_legislator_roles(conn, execute=False)
 
         counts = Counter(a["status"] for a in report["actions"])
+        # conflict rows are already logged as warnings in the main loop
         for action in report["actions"]:
-            if action["status"] in ("unmatched", "conflict", "excluded"):
+            if action["status"] in ("unmatched", "excluded"):
                 logger.info(
                     "%s: %r assignment %s (person %s)",
                     action["status"],

@@ -320,6 +320,48 @@ async def test_wrong_chamber_is_unmatched(db, orgs):
     assert _action(report, legacy_assign)["status"] == "unmatched"
 
 
+async def test_generic_title_ignores_seats_on_foreign_orgs(db, orgs):
+    person = await _person(db)
+    legacy_role = await _legacy_role(db, orgs["senate"], "Senator")
+    legacy_assign = await _assign(db, person, legacy_role)
+    foreign = await _org(db, "Test Other-State Senate")  # no chamber identifier
+    seat = await _seat(db, foreign, "senate", 11)
+    await _assign(db, person, seat, current=True)
+
+    report = await archive_legacy_legislator_roles(db, execute=True)
+
+    assert _action(report, legacy_assign)["status"] == "unmatched"
+
+
+async def test_district_title_ignores_seats_on_foreign_orgs(db, orgs):
+    person = await _person(db)
+    legacy_role = await _legacy_role(db, orgs["senate"], "Senator, District 5")
+    legacy_assign = await _assign(db, person, legacy_role)
+    foreign = await _org(db, "Test Other-State Senate")
+    seat = await _seat(db, foreign, "senate", 5)  # matching LD slug, wrong org
+    await _assign(db, person, seat, current=True)
+
+    report = await archive_legacy_legislator_roles(db, execute=True)
+
+    assert _action(report, legacy_assign)["status"] == "unmatched"
+
+
+async def test_resolver_ignores_foreign_legislature_identifier_values(db, orgs):
+    other = await _org(db, "Test Other Legislature")
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        other,
+        await _identifier_type_id(db, "org_wa_legislature"),
+        "usa_or_legislature",  # different value must not trip the exactly-one check
+    )
+
+    report = await archive_legacy_legislator_roles(db, execute=False)
+
+    assert report["actions"] == []
+
+
 async def test_staff_title_is_excluded_and_untouched(db, orgs):
     person = await _person(db)
     legacy_role = await _legacy_role(db, orgs["senate"], "Secretary of the Senate")
@@ -497,6 +539,30 @@ async def test_unparseable_pdc_value_is_conflict_and_kept(db, orgs):
     # nothing migrated, nothing deleted
     assert await db.fetchval("SELECT COUNT(*) FROM identifiers WHERE id = $1", pdc_row) == 1
     assert await db.fetchval("SELECT entity_id FROM links WHERE id = $1", link) == legacy_assign
+
+
+async def test_migration_emits_outbox_events_for_target_and_person(db, orgs):
+    person = await _person(db)
+    legacy_role = await _legacy_role(db, orgs["senate"], "Senator, District 5")
+    legacy_assign = await _assign(db, person, legacy_role)
+    seat = await _seat(db, orgs["senate"], "senate", 5)
+    target = await _assign(db, person, seat, current=True)
+    await _link(db, legacy_assign, "https://sdc.wastateleg.org/test")
+    await _role_pdc(db, legacy_assign, _PDC_URL)
+
+    async def _events(entity_id: str) -> int:
+        return await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_id = $1 AND change_kind = 'updated'",
+            entity_id,
+        )
+
+    target_before, person_before = await _events(target), await _events(person)
+    await archive_legacy_legislator_roles(db, execute=True)
+
+    # target gained links, person gained a filer identifier + wa_pdc link —
+    # both must surface on the outbox (observation.py convention)
+    assert await _events(target) > target_before
+    assert await _events(person) > person_before
 
 
 # ---------------------------------------------------------------------------

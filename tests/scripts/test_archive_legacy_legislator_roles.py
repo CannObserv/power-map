@@ -89,11 +89,17 @@ def test_parse_legacy_title_excluded(title: str) -> None:
             "?filer_id=HUNTS%20%20506&election_year=2020",
             "HUNTS  506",
         ),
+        # bare-host and subdomain PDC URLs are accepted
+        ("https://pdc.wa.gov/x?filer_id=ABC", "ABC"),
+        ("https://accesshub.pdc.wa.gov/x?filer_id=ABC", "ABC"),
         # bare numeric (person_wa_pdc style) — not a URL, no rescue
         ("463", None),
         # URL without filer_id param
         ("https://www.pdc.wa.gov/browse/campaign-explorer/candidate?election_year=2020", None),
         ("", None),
+        # non-PDC hosts never mint a filer ID (7 — host allowlist)
+        ("https://example.com/?filer_id=CODYE%20%20126", None),
+        ("https://evilpdc.wa.gov/?filer_id=CODYE%20%20126", None),
     ],
 )
 def test_filer_id_from_url(value: str, expected: str | None) -> None:
