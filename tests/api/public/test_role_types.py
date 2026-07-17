@@ -89,6 +89,34 @@ async def test_role_types_member_seeded_non_jurisdictional(client, api_key):
 
 
 @pytest.mark.integration
+async def test_role_types_legislative_vocab_seeded(client, api_key):
+    """The #266 legislative vocab is seeded, all non-jurisdictional.
+
+    Coarse types (chamber_leader/chamber_officer/legislature_staff/party_member)
+    and the committee positions all have expects_jurisdiction=False and
+    requires_qualifier=False — none is a districted per-position seat.
+    """
+    response = await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    by_slug = {r["slug"]: r for r in response.json()["data"]}
+    expected = {
+        "chamber_leader": "Chamber Leader",
+        "chamber_officer": "Chamber Officer",
+        "committee_chair": "Committee Chair",
+        "committee_vice_chair": "Committee Vice Chair",
+        "committee_ranking_member": "Committee Ranking Member",
+        "committee_assistant_ranking_member": "Committee Assistant Ranking Member",
+        "committee_member": "Committee Member",
+        "legislature_staff": "Legislative Staff",
+        "party_member": "Party Member",
+    }
+    assert set(expected) <= set(by_slug)
+    for slug, display_name in expected.items():
+        assert by_slug[slug]["display_name"] == display_name
+        assert by_slug[slug]["expects_jurisdiction"] is False
+        assert by_slug[slug]["requires_qualifier"] is False
+
+
+@pytest.mark.integration
 async def test_role_types_requires_qualifier_seeded(client, api_key):
     """requires_qualifier (#273) is True only for per-position offices.
 

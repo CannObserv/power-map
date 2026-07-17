@@ -1537,19 +1537,36 @@ DO $$ BEGIN
     END IF;
 END $$;
 
--- Role-type classifier seed (#261). Extend as new offices are modeled
--- (speaker, majority_leader, committee_chair, ...). expects_jurisdiction marks
--- an office normally attached with a jurisdiction (#268/#271) — the two office
--- rows are; the upsert backfills it on existing rows. `member` (#269) is the
--- coarse, jurisdiction-less membership classifier (committee membership, or a
--- chamber member whose precise seat isn't yet positionable) — expects_jurisdiction
--- is FALSE; it attaches by (org, title) like any plain role. requires_qualifier
--- (#273) is TRUE only for per-position offices: a WA House seat is positioned
+-- Role-type classifier seed (#261, #266). Governance rubric — the aggregation
+-- test, the domain-prefix convention, concept-vs-label, and coarse-vs-specific —
+-- lives in docs/CONVENTIONS.md §"Role-type vocabulary — governance". In short:
+-- a slug earns a row only if you'd query "all of them" across orgs; every
+-- non-jurisdictional slug is prefixed by the org-kind it attaches to
+-- (committee_/chamber_/legislature_/party_). expects_jurisdiction marks an
+-- office normally attached with a jurisdiction (#268/#271) — only the two seat
+-- rows are; the upsert backfills it on existing rows. requires_qualifier (#273)
+-- is TRUE only for per-position districted offices: a WA House seat is positioned
 -- (Position 1/2), a state senator is one-per-district (NULL qualifier is valid).
+-- #266 vocab (all non-jurisdictional, expects_jurisdiction/requires_qualifier
+-- FALSE): coarse chamber_leader/chamber_officer/legislature_staff/party_member
+-- (specific office carried by the free-text title) + the committee positions.
+-- The two seat types predate the prefix convention and are grandfathered
+-- unprefixed (renaming a public-API slug is breaking). Reserved-but-not-seeded
+-- peers (chamber_majority_leader, ...) are seeded only on first observation.
+-- The pre-#266 coarse `member` was split into committee_member + party_member.
 INSERT INTO role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier) VALUES
-    ('01KX0000000000000000000001', 'state_representative', 'State Representative', TRUE,  TRUE),
-    ('01KX0000000000000000000002', 'state_senator',        'State Senator',        TRUE,  FALSE),
-    ('01KX0000000000000000000003', 'member',               'Member',               FALSE, FALSE)
+    ('01KX0000000000000000000001', 'state_representative',                'State Representative',                TRUE,  TRUE),
+    ('01KX0000000000000000000002', 'state_senator',                      'State Senator',                      TRUE,  FALSE),
+    ('01KX0000000000000000000003', 'member',                             'Member',                             FALSE, FALSE),
+    ('01KX0000000000000000000004', 'chamber_leader',                     'Chamber Leader',                     FALSE, FALSE),
+    ('01KX0000000000000000000005', 'chamber_officer',                    'Chamber Officer',                    FALSE, FALSE),
+    ('01KX0000000000000000000006', 'committee_chair',                    'Committee Chair',                    FALSE, FALSE),
+    ('01KX0000000000000000000007', 'committee_vice_chair',               'Committee Vice Chair',               FALSE, FALSE),
+    ('01KX0000000000000000000008', 'committee_ranking_member',           'Committee Ranking Member',           FALSE, FALSE),
+    ('01KX0000000000000000000009', 'committee_assistant_ranking_member', 'Committee Assistant Ranking Member', FALSE, FALSE),
+    ('01KX000000000000000000000A', 'committee_member',                   'Committee Member',                   FALSE, FALSE),
+    ('01KX000000000000000000000B', 'legislature_staff',                  'Legislative Staff',                  FALSE, FALSE),
+    ('01KX000000000000000000000C', 'party_member',                       'Party Member',                       FALSE, FALSE)
 ON CONFLICT (id) DO UPDATE SET
     slug                 = EXCLUDED.slug,
     display_name         = EXCLUDED.display_name,
