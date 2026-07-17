@@ -565,6 +565,60 @@ async def test_migration_emits_outbox_events_for_target_and_person(db, orgs):
     assert await _events(person) > person_before
 
 
+async def test_person_outbox_event_deduped_across_assignments(db, orgs):
+    person = await _person(db)
+    for district in (5, 7):
+        legacy_role = await _legacy_role(db, orgs["senate"], f"Senator, District {district}")
+        legacy_assign = await _assign(db, person, legacy_role)
+        seat = await _seat(db, orgs["senate"], "senate", district)
+        await _assign(db, person, seat, current=True)
+        await _role_pdc(db, legacy_assign, _PDC_URL)
+
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_id = $1 AND change_kind = 'updated'",
+        person,
+    )
+    await archive_legacy_legislator_roles(db, execute=True)
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_id = $1 AND change_kind = 'updated'",
+        person,
+    )
+
+    # two rescued assignments, one person event
+    assert after == before + 1
+
+
+async def test_link_only_rescue_emits_single_person_event(db, orgs):
+    person = await _person(db)
+    # filer identifier pre-exists → rescue inserts only the wa_pdc link, which
+    # has no touch-cascade; the script must emit the person event manually
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        person,
+        await _identifier_type_id(db, "person_wa_pdc_filer"),
+        "CODYE  126",
+    )
+    legacy_role = await _legacy_role(db, orgs["senate"], "Senator, District 5")
+    legacy_assign = await _assign(db, person, legacy_role)
+    seat = await _seat(db, orgs["senate"], "senate", 5)
+    await _assign(db, person, seat, current=True)
+    await _role_pdc(db, legacy_assign, _PDC_URL)
+
+    before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_id = $1 AND change_kind = 'updated'",
+        person,
+    )
+    await archive_legacy_legislator_roles(db, execute=True)
+    after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_id = $1 AND change_kind = 'updated'",
+        person,
+    )
+
+    assert after == before + 1
+
+
 # ---------------------------------------------------------------------------
 # Dry run + idempotency
 # ---------------------------------------------------------------------------
