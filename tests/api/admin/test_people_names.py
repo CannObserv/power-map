@@ -7,6 +7,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from src.api.admin.deps import get_db
+from src.api.admin.people_names import _maybe_promote_sole_name
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -417,3 +418,56 @@ async def test_create_new_name_persists_metadata_fields(client, person_only, db)
     assert row["locale"] == "es-MX"
     assert row["script"] == "Latn"
     assert row["sort_as"] == "García María"
+
+
+# --- _maybe_promote_sole_name exclusions (#308, CR round 1 finding 6) -------
+# The delete-path promotion must agree with observation-path auto-promotion:
+# a name that can never display must not claim the canonical slot.
+
+
+async def _add_raw_name(db, pid, name, name_type, visibility):
+    nid = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility, is_canonical)"
+        " VALUES ($1, $2, $3, $4, $5, FALSE)",
+        nid,
+        pid,
+        name,
+        name_type,
+        visibility,
+    )
+    return nid
+
+
+async def test_promote_sole_name_promotes_ordinary_name(db):
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await _add_raw_name(db, pid, "Jane Doe", "legal", "public")
+    await _maybe_promote_sole_name(pid, db)
+    assert await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+
+
+async def test_promote_sole_name_skips_deadname(db):
+    """A deadname is invisible to the display view — promoting it strands the slot."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await _add_raw_name(db, pid, "Old Name", "deadname", "legal_only")
+    await _maybe_promote_sole_name(pid, db)
+    assert not await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+
+
+async def test_promote_sole_name_skips_machine_readable(db):
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await _add_raw_name(db, pid, "YAMADA<<TARO", "mrz", "public")
+    await _maybe_promote_sole_name(pid, db)
+    assert not await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+
+
+async def test_promote_sole_name_skips_non_public_visibility(db):
+    """visibility, not just name_type — a legal_only row cannot display either."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await _add_raw_name(db, pid, "Sealed Name", "legal", "legal_only")
+    await _maybe_promote_sole_name(pid, db)
+    assert not await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)

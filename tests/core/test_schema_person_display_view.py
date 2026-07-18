@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from src.core.observation import _PERSON_NAME_TYPE_PRIORITY
 
 pytestmark = [
     pytest.mark.integration,
@@ -129,6 +130,26 @@ async def test_view_keeps_person_with_no_names(conn):
     rows = await _display(conn, pid)
     assert len(rows) == 1
     assert rows[0]["display_name"] is None
+
+
+async def test_view_priority_agrees_with_app_priority(conn):
+    """The view's CASE ladder and the app's promotion ladder must not drift.
+
+    write_names promotes the row the view would display; if the two orderings
+    disagree, PM canonicalizes one name and shows another. Asserts the relative
+    order empirically rather than parsing the view SQL.
+    """
+    ranked = sorted(_PERSON_NAME_TYPE_PRIORITY.items(), key=lambda kv: kv[1])
+    for (better, _), (worse, _) in zip(ranked, ranked[1:], strict=False):
+        pid = await _insert_person(conn)
+        # Insert the lower-priority row first so list order can't explain a pass.
+        await _add_name(conn, pid, f"{worse} name", name_type=worse)
+        await _add_name(conn, pid, f"{better} name", name_type=better)
+        rows = await _display(conn, pid)
+        assert len(rows) == 1
+        assert rows[0]["display_name"] == f"{better} name", (
+            f"view ranked {worse!r} above {better!r}; app priority disagrees"
+        )
 
 
 async def test_view_sort_key_follows_chosen_display_name(conn):

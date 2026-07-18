@@ -47,13 +47,28 @@ _PERSON_NAME_TYPE_PRIORITY = {
     "initials": 9,
 }
 
+# Same ladder as SQL, derived from the dict above so the two cannot drift.
+# Mirrors the CASE in v_person_display_names (#308a) — tests/core/
+# test_schema_person_display_view.py asserts the view agrees with this mapping.
+_NAME_TYPE_PRIORITY_SQL = (
+    "CASE name_type "
+    + " ".join(f"WHEN '{t}' THEN {r}" for t, r in _PERSON_NAME_TYPE_PRIORITY.items())
+    + " ELSE 99 END"
+)
+
+
+def _name_type_rank(name_type: str) -> int:
+    """Display priority of a person name_type; lower wins. Unlisted sorts last."""
+    return _PERSON_NAME_TYPE_PRIORITY.get(name_type, 99)
+
 
 def _person_canonical_target(names: "Sequence[ObservationPersonName]") -> str | None:
     """Pick the one name in this write that may claim the canonical slot.
 
     Client hint wins outright. Otherwise the highest-priority non-excluded
-    name_type is chosen, ties broken by list order. Returns the name string, or
-    None when nothing in the batch is eligible.
+    name_type is chosen — ``min`` is stable, so equal-priority names fall back to
+    list order without an explicit tiebreak. Returns the name string, or None
+    when nothing in the batch is eligible.
 
     Exactly one name is eligible per write — promoting one per name_type slot
     would leave a person carrying several canonical rows, which
@@ -65,10 +80,84 @@ def _person_canonical_target(names: "Sequence[ObservationPersonName]") -> str | 
     eligible = [n for n in names if n.name_type not in NO_AUTO_CANONICAL_NAME_TYPES]
     if not eligible:
         return None
-    return min(
-        eligible,
-        key=lambda n: (_PERSON_NAME_TYPE_PRIORITY.get(n.name_type, 99), names.index(n)),
-    ).name
+    return min(eligible, key=lambda n: _name_type_rank(n.name_type)).name
+
+
+# Guard fragments for the person-name INSERT. Both are NOT EXISTS subqueries over
+# $2 (person_id) / $4 (name_type), so neither can ever displace a canonical row.
+#
+# Hint path stays per-name_type: a client asserting a `preferred` name alongside
+# an existing canonical `legal` one is claiming a legitimate second slot.
+# Auto-promotion is person-wide: its only job is to guarantee the person displays
+# at all, so it stands down whenever any public canonical already exists rather
+# than adding a competing row.
+_CANONICAL_GUARD_HINTED = (
+    "NOT EXISTS (SELECT 1 FROM person_names"
+    "            WHERE person_id = $2 AND name_type = $4 AND is_canonical = TRUE)"
+)
+_CANONICAL_GUARD_AUTO = (
+    "NOT EXISTS (SELECT 1 FROM person_names"
+    "            WHERE person_id = $2 AND is_canonical = TRUE AND visibility = 'public')"
+)
+
+
+def _person_name_insert_sql(canonical_expr: str) -> str:
+    """Build the person_names INSERT with ``canonical_expr`` as the is_canonical value.
+
+    Callers pass either a guarded ``($9 AND <guard>)`` expression or the literal
+    ``FALSE`` (concurrency fallback, which also drops the $9 argument). Built in
+    one place so the two forms cannot drift out of sync with their arg tuples.
+    """
+    return (
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, locale, script, sort_as,"
+        "  visibility, source_key_id, is_canonical)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8,"
+        f"   {canonical_expr})"
+    )
+
+
+async def _heal_person_canonical(conn, person_id: str) -> None:
+    """Promote an existing name when the person has no public canonical (#308).
+
+    Auto-promotion on INSERT only covers *new* name rows. A person already in the
+    canonical-less state is re-observed with the same names on every sync, hits
+    the exact-match dedup in ``write_names``, and would otherwise stay blank
+    forever. This makes the observation path self-healing, so the #308c backfill
+    stays a one-off rather than the only repair route.
+
+    Picks by the same name_type priority the display view uses, tie-broken by id.
+    No-op when the person already displays, or when no eligible name exists (a
+    person carrying only a deadname stays deliberately blank).
+    """
+    try:
+        async with conn.transaction():
+            await conn.execute(
+                f"""
+                UPDATE person_names SET is_canonical = TRUE
+                WHERE id = (
+                    SELECT id FROM person_names
+                    WHERE person_id = $1
+                      AND visibility = 'public'
+                      AND is_canonical = FALSE
+                      AND name_type <> ALL($2::text[])
+                    ORDER BY {_NAME_TYPE_PRIORITY_SQL}, id
+                    LIMIT 1
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM person_names
+                    WHERE person_id = $1 AND is_canonical = TRUE AND visibility = 'public'
+                )
+                """,
+                person_id,
+                list(NO_AUTO_CANONICAL_NAME_TYPES),
+            )
+    except asyncpg.exceptions.UniqueViolationError:
+        # Under READ COMMITTED the NOT EXISTS guard and the UPDATE see different
+        # snapshots, so a concurrent writer can claim the same
+        # (name_type, locale, script) slot in between. Healing is best-effort by
+        # nature — the racer's row satisfies the goal — so swallow and move on.
+        logger.debug("heal_person_canonical: lost race for person=%s", person_id)
 
 
 class Disposition(StrEnum):
@@ -298,19 +387,9 @@ async def write_names(
         # Exactly one name per write may claim canonical; hint wins, else priority.
         canonical_target = _person_canonical_target(names)
         hint_driven = any(n.is_canonical for n in names)
-        # Hint path keeps its per-name_type guard (a client asserting a `preferred`
-        # name alongside an existing canonical `legal` one is a legitimate second
-        # slot). Auto-promotion is person-wide: its only job is to guarantee the
-        # person displays at all, so it stands down whenever any public canonical
-        # already exists rather than adding a competing row.
-        canonical_guard = (
-            "NOT EXISTS (SELECT 1 FROM person_names"
-            "            WHERE person_id = $2 AND name_type = $4 AND is_canonical = TRUE)"
-            if hint_driven
-            else "NOT EXISTS (SELECT 1 FROM person_names"
-            "            WHERE person_id = $2 AND is_canonical = TRUE"
-            "              AND visibility = 'public')"
-        )
+        canonical_guard = _CANONICAL_GUARD_HINTED if hint_driven else _CANONICAL_GUARD_AUTO
+        guarded_sql = _person_name_insert_sql(f"($9 AND {canonical_guard})")
+        unpromoted_sql = _person_name_insert_sql("FALSE")
         for n in names:
             existing = await conn.fetchrow(
                 "SELECT id FROM person_names WHERE person_id=$1 AND name=$2",
@@ -324,14 +403,7 @@ async def write_names(
                 is_new = True
                 name_id = generate_id()
                 eligible = n.name == canonical_target
-                insert_sql = (
-                    "INSERT INTO person_names"
-                    " (id, person_id, name, name_type, locale, script, sort_as,"
-                    "  visibility, source_key_id, is_canonical)"
-                    " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8,"
-                    f"   ($9 AND {canonical_guard}))"
-                )
-                insert_args = (
+                base_args = (
                     name_id,
                     entity_id,
                     n.name,
@@ -340,11 +412,10 @@ async def write_names(
                     n.script,
                     n.sort_as,
                     api_key_id,
-                    eligible,
                 )
                 try:
                     async with conn.transaction():
-                        await conn.execute(insert_sql, *insert_args)
+                        await conn.execute(guarded_sql, *base_args, eligible)
                         if n.parts is not None:
                             await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
                 except asyncpg.exceptions.UniqueViolationError:
@@ -357,14 +428,14 @@ async def write_names(
                     # Retry runs outside the failed savepoint — reusing it would
                     # hit "current transaction is aborted".
                     async with conn.transaction():
-                        await conn.execute(
-                            insert_sql.replace(f"($9 AND {canonical_guard})", "FALSE"),
-                            *insert_args[:-1],
-                        )
+                        await conn.execute(unpromoted_sql, *base_args)
                         if n.parts is not None:
                             await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
             if n.parts is not None and not is_new:
                 await _write_person_name_parts(conn, name_id, n.parts, is_new=False)
+        # Names that already existed are skipped above, so a person who was
+        # already canonical-less stays blank without this pass (#308, CR1).
+        await _heal_person_canonical(conn, entity_id)
     elif entity_type == "organization":
         # If any name carries the canonical hint, only that name is eligible for promotion.
         # Otherwise fall through to first-wins auto-promotion (NOT EXISTS guard).

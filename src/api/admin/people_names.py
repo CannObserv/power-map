@@ -7,20 +7,32 @@ and deadname); these helpers intentionally bypass the visibility filter.
 
 from src.api.admin._names_shared import make_names_router
 from src.api.admin.deps import person_header_extra
+from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES
 from src.core.types import PERSON_NAME_TYPES
 
 
 async def _maybe_promote_sole_name(person_id: str, db) -> None:
-    """If the person has exactly one name and it is not canonical, promote it."""
+    """If the person has exactly one name and it is displayable, promote it.
+
+    Displayable means `visibility='public'` and a name_type outside
+    NO_AUTO_CANONICAL_NAME_TYPES — the same bar `core.observation.write_names`
+    applies (#308). Promoting a deadname or an mrz row would set is_canonical on
+    a row `v_person_display_names` filters out, leaving the person blank *and*
+    the canonical slot occupied. Such a person stays deliberately un-canonical
+    until a human adds a displayable name.
+    """
     rows = await db.fetch(
-        "SELECT id, is_canonical FROM person_names WHERE person_id=$1",
+        "SELECT id, is_canonical, name_type, visibility FROM person_names WHERE person_id=$1",
         person_id,
     )
-    if len(rows) == 1 and not rows[0]["is_canonical"]:
-        await db.execute(
-            "UPDATE person_names SET is_canonical=TRUE WHERE id=$1",
-            rows[0]["id"],
-        )
+    if len(rows) != 1:
+        return
+    row = rows[0]
+    if row["is_canonical"]:
+        return
+    if row["visibility"] != "public" or row["name_type"] in NO_AUTO_CANONICAL_NAME_TYPES:
+        return
+    await db.execute("UPDATE person_names SET is_canonical=TRUE WHERE id=$1", row["id"])
 
 
 async def _last_identity_blocked(person_id: str, db) -> bool:

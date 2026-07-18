@@ -195,6 +195,10 @@ Exactly **one** name per write is promotion-eligible — picked by the same `nam
 
 Clients are not required to assert `is_canonical` — omitting it is the correct conservative default when the client can't tell whether it is creating a new person or matching an existing one. PM's `NOT EXISTS` guards make displacement impossible either way.
 
+**Heal on re-observation.** Auto-promotion above fires only on *newly inserted* rows, and `write_names` skips names that already exist — so a person who is already canonical-less would never recover, since the steady-state client re-sends the same names every sync. `write_names` therefore ends the person branch with a heal pass (`_heal_person_canonical`) that promotes the highest-priority eligible *existing* name whenever the person has no public canonical. This keeps the observation path self-healing and makes `scripts/backfill_person_canonical_names.py` a genuine one-off rather than the only repair route.
+
+The same eligibility bar applies to the admin delete path (`_maybe_promote_sole_name` in `src.api.admin.people_names`): a sole remaining `deadname`/`mrz`/non-public row is **not** promoted, because `v_person_display_names` filters it out — promoting it would leave the person blank with the canonical slot occupied.
+
 #### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
 
 `person_names.locale` and `person_names.script` are FK-constrained to `bcp47_locales(code)` and `iso15924_scripts(code)` respectively. The lookup tables are seeded by `scripts/seed_locales_scripts.py` from the `langcodes` and `pycountry` libraries, which live in the `seed` dependency group only — request-path code never imports them.
