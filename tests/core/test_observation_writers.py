@@ -189,6 +189,179 @@ async def test_write_names_person_canonical_hint_same_type_no_displace(db, api_k
     assert rows[1]["is_canonical"] is False  # first legal name stays canonical
 
 
+# --- first-wins auto-promotion (#308b) -------------------------------------
+# Symmetry with the org branch: a client that omits is_canonical must still end
+# up with a displayable person. Guarded by NOT EXISTS — never displaces.
+
+
+async def test_write_names_person_no_hint_auto_promotes(db, api_key_id):
+    """The #308 regression: sole name, no canonical hint → still canonical."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    name = ObservationPersonName(name="Steve Kirby", name_type="legal")
+    await write_names(db, pid, "person", api_key_id, [name])
+    row = await db.fetchrow("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert row["is_canonical"] is True
+
+
+async def test_write_names_person_no_hint_renders_in_display_view(db, api_key_id):
+    """End-to-end: the person no longer renders blank."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Tina Orwall", name_type="legal")],
+    )
+    rows = await db.fetch("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+    assert len(rows) == 1
+    assert rows[0]["display_name"] == "Tina Orwall"
+
+
+async def test_write_names_person_no_hint_does_not_displace(db, api_key_id):
+    """An existing canonical is never displaced by auto-promotion."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Alice Smith", name_type="legal", is_canonical=True)],
+    )
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Alice J. Smith", name_type="legal")],
+    )
+    rows = await db.fetch(
+        "SELECT name, is_canonical FROM person_names WHERE person_id=$1 ORDER BY created_at",
+        pid,
+    )
+    assert rows[0]["is_canonical"] is True
+    assert rows[1]["is_canonical"] is False
+
+
+async def test_write_names_person_multi_name_promotes_only_one(db, api_key_id):
+    """Multiple unhinted names in one write → exactly one canonical, not one per slot.
+
+    Naive per-name_type first-wins would promote both, and the person would
+    carry two canonical rows (uq_person_canonical_name permits it).
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    names = [
+        ObservationPersonName(name="Alice Smith", name_type="legal"),
+        ObservationPersonName(name="Alice", name_type="preferred"),
+    ]
+    await write_names(db, pid, "person", api_key_id, names)
+    rows = await db.fetch("SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert sum(1 for r in rows if r["is_canonical"]) == 1
+
+
+async def test_write_names_person_multi_name_prefers_preferred(db, api_key_id):
+    """Eligibility follows the display priority, not list order."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    names = [
+        ObservationPersonName(name="Alice Smith", name_type="legal"),
+        ObservationPersonName(name="Alice", name_type="preferred"),
+    ]
+    await write_names(db, pid, "person", api_key_id, names)
+    by_name = {
+        r["name"]: r["is_canonical"]
+        for r in await db.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert by_name["Alice"] is True
+    assert by_name["Alice Smith"] is False
+
+
+async def test_write_names_person_deadname_never_auto_promoted(db, api_key_id):
+    """A deadname is forced to legal_only by trigger — never the display slot."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Old Name", name_type="deadname")],
+    )
+    row = await db.fetchrow(
+        "SELECT is_canonical, visibility FROM person_names WHERE person_id=$1", pid
+    )
+    assert row["visibility"] == "legal_only"
+    assert row["is_canonical"] is False
+
+
+async def test_write_names_person_machine_readable_not_auto_promoted(db, api_key_id):
+    """mrz/romanization/reading are not display candidates."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="YAMADA<<TARO", name_type="mrz")],
+    )
+    row = await db.fetchrow("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert row["is_canonical"] is False
+
+
+async def test_write_names_person_hint_wins_over_priority(db, api_key_id):
+    """An explicit client hint overrides the name_type priority ordering."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    names = [
+        ObservationPersonName(name="Alice Smith", name_type="legal", is_canonical=True),
+        ObservationPersonName(name="Alice", name_type="preferred"),
+    ]
+    await write_names(db, pid, "person", api_key_id, names)
+    by_name = {
+        r["name"]: r["is_canonical"]
+        for r in await db.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert by_name["Alice Smith"] is True
+    assert by_name["Alice"] is False
+
+
+async def test_write_names_person_excluded_only_leaves_no_canonical(db, api_key_id):
+    """All names excluded → no canonical; a later eligible name can still claim it."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="YAMADA<<TARO", name_type="mrz")],
+    )
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Taro Yamada", name_type="legal")],
+    )
+    by_name = {
+        r["name"]: r["is_canonical"]
+        for r in await db.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert by_name["Taro Yamada"] is True
+    assert by_name["YAMADA<<TARO"] is False
+
+
 # ---------------------------------------------------------------------------
 # write_names — organization
 # ---------------------------------------------------------------------------

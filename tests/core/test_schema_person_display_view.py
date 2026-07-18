@@ -1,0 +1,140 @@
+"""Integration tests for v_person_display_names determinism (issue #308a).
+
+The view is the display-name pointer, but `uq_person_canonical_name` is keyed
+per (person_id, name_type, locale, script) — so a person may legitimately carry
+several canonical rows. Without disambiguation the view emits one row per
+canonical name, duplicating the person in every list query that joins it.
+"""
+
+import pytest
+import pytest_asyncio
+
+from src.core.db import generate_id
+
+pytestmark = [
+    pytest.mark.integration,
+]
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def conn(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as c:
+        tr = c.transaction()
+        await tr.start()
+        try:
+            yield c
+        finally:
+            await tr.rollback()
+
+
+async def _insert_person(conn):
+    pid = generate_id()
+    await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    return pid
+
+
+async def _add_name(
+    conn,
+    pid,
+    name,
+    *,
+    name_type="legal",
+    is_canonical=True,
+    visibility="public",
+    locale=None,
+    script=None,
+    sort_as=None,
+):
+    nid = generate_id()
+    await conn.execute(
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, locale, script, sort_as,"
+        "  visibility, is_canonical)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        nid,
+        pid,
+        name,
+        name_type,
+        locale,
+        script,
+        sort_as,
+        visibility,
+        is_canonical,
+    )
+    return nid
+
+
+async def _display(conn, pid):
+    return await conn.fetch(
+        "SELECT display_name, sort_key FROM v_person_display_names WHERE person_id = $1",
+        pid,
+    )
+
+
+async def test_view_returns_single_row_for_single_canonical(conn):
+    pid = await _insert_person(conn)
+    await _add_name(conn, pid, "Alice Smith")
+    rows = await _display(conn, pid)
+    assert len(rows) == 1
+    assert rows[0]["display_name"] == "Alice Smith"
+
+
+async def test_view_returns_single_row_when_multiple_canonical_name_types(conn):
+    """Two canonical rows in different name_type slots → still one display row."""
+    pid = await _insert_person(conn)
+    await _add_name(conn, pid, "Alice Smith", name_type="legal")
+    await _add_name(conn, pid, "Alice", name_type="preferred")
+    rows = await _display(conn, pid)
+    assert len(rows) == 1
+
+
+async def test_view_prefers_preferred_over_legal(conn):
+    pid = await _insert_person(conn)
+    await _add_name(conn, pid, "Alice Smith", name_type="legal")
+    await _add_name(conn, pid, "Alice", name_type="preferred")
+    rows = await _display(conn, pid)
+    assert rows[0]["display_name"] == "Alice"
+
+
+async def test_view_falls_back_to_legal_when_no_preferred(conn):
+    pid = await _insert_person(conn)
+    await _add_name(conn, pid, "Alice Smith", name_type="legal")
+    await _add_name(conn, pid, "A. Smith", name_type="alias")
+    rows = await _display(conn, pid)
+    assert rows[0]["display_name"] == "Alice Smith"
+
+
+async def test_view_single_row_across_locale_script_variants(conn):
+    """Same name_type, different locale/script → uq permits both; view must not dupe."""
+    pid = await _insert_person(conn)
+    await _add_name(conn, pid, "Yamada Taro", name_type="legal", locale="en", script="Latn")
+    await _add_name(conn, pid, "山田太郎", name_type="legal", locale="ja", script="Jpan")
+    rows = await _display(conn, pid)
+    assert len(rows) == 1
+
+
+async def test_view_excludes_non_public_canonical(conn):
+    """A canonical legal_only row must not surface as the display name."""
+    pid = await _insert_person(conn)
+    await _add_name(conn, pid, "Deadname", name_type="deadname", visibility="legal_only")
+    rows = await _display(conn, pid)
+    assert len(rows) == 1
+    assert rows[0]["display_name"] is None
+
+
+async def test_view_keeps_person_with_no_names(conn):
+    """LEFT JOIN semantics preserved — person still present, display NULL."""
+    pid = await _insert_person(conn)
+    rows = await _display(conn, pid)
+    assert len(rows) == 1
+    assert rows[0]["display_name"] is None
+
+
+async def test_view_sort_key_follows_chosen_display_name(conn):
+    pid = await _insert_person(conn)
+    await _add_name(conn, pid, "Alice Smith", name_type="legal", sort_as="Smith, Alice")
+    await _add_name(conn, pid, "Alice", name_type="preferred", sort_as="Zzz, Alice")
+    rows = await _display(conn, pid)
+    assert rows[0]["display_name"] == "Alice"
+    assert rows[0]["sort_key"] == "Zzz, Alice"

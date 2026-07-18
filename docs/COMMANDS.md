@@ -408,6 +408,32 @@ sudo systemctl start power-map-prune.service   # run once, now
 sudo journalctl -u power-map-prune -f          # logs (rows pruned per run)
 ```
 
+## Person canonical-name backfill (issue #308)
+
+`scripts/backfill_person_canonical_names.py` promotes the sole eligible public
+name of every person that has names but no canonical one — those people render
+blank, since `v_person_display_names` only surfaces canonical rows. One-off
+repair for drift produced before #308b gave `write_names` first-wins
+auto-promotion on the person branch.
+
+Only unambiguous people are touched: exactly one eligible public name (see
+`NO_AUTO_CANONICAL_NAME_TYPES`). People with several competing names are counted
+as `ambiguous` and left for human curation in admin.
+
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.backfill_person_canonical_names
+uv run "${env_args[@]}" python -m scripts.backfill_person_canonical_names --execute
+```
+
+Idempotent — a second run finds nothing. Each promotion touches `person_names` →
+`trg_touch_person_on_name_change` → an `entity_changes` `'updated'` row, so
+subscribers re-fetch and pick up the newly-visible name. Run **after**
+`bash scripts/apply-schema.sh`, so the #308a view change is live first.
+
 ## Per-key API anomaly check (issue #294)
 
 `scripts/check_api_anomalies.py` queries `api_request_log` for the trailing hour,

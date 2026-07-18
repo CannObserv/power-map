@@ -922,8 +922,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
 -- COALESCE(sort_as, name). Combine with `COLLATE "und-x-icu"` at query
 -- time so locale-aware diacritic ordering applies (ICU "und" puts Å near A,
 -- not after Z as ASCII does).
+--
+-- DISTINCT ON (#308a): `is_canonical` is scoped per
+-- (person_id, name_type, locale, script) by uq_person_canonical_name, so one
+-- person may legitimately carry several canonical rows — a `legal` and a
+-- `preferred`, or an `en`/`Latn` and a `ja`/`Jpan` rendering of the same legal
+-- name. The view is the *display* pointer and must emit exactly one row per
+-- person, else every list query joining it duplicates that person. Pick a
+-- winner deterministically: name_type priority first, then n.id as a stable
+-- unique tie-break (never ties, so the choice is reproducible across runs).
+--
+-- Priority rationale: `preferred` is what the person asks to be called and
+-- outranks `legal`. Machine-readable renderings (romanization/reading/mrz)
+-- and `deadname` sort last — they are display candidates only when nothing
+-- else exists, and `deadname` is additionally unreachable here because
+-- trg_deadname_visibility forces it to legal_only.
 CREATE OR REPLACE VIEW v_person_display_names AS
-SELECT p.id AS person_id,
+SELECT DISTINCT ON (p.id)
+       p.id AS person_id,
        n.name AS display_name,
        COALESCE(n.sort_as, n.name) AS sort_key
 FROM people p
@@ -931,6 +947,24 @@ LEFT JOIN person_names n
     ON n.person_id = p.id
    AND n.is_canonical = TRUE
    AND n.visibility = 'public'
+ORDER BY p.id,
+         CASE n.name_type
+             WHEN 'preferred'   THEN 1
+             WHEN 'legal'       THEN 2
+             WHEN 'alias'       THEN 3
+             WHEN 'stage'       THEN 4
+             WHEN 'religious'   THEN 5
+             WHEN 'maiden'      THEN 6
+             WHEN 'variant'     THEN 7
+             WHEN 'former'      THEN 8
+             WHEN 'initials'    THEN 9
+             WHEN 'romanization' THEN 10
+             WHEN 'reading'     THEN 11
+             WHEN 'mrz'         THEN 12
+             WHEN 'deadname'    THEN 13
+             ELSE 14
+         END,
+         n.id
 ;
 
 -- Phase 2-prep (#123): bind person_names.locale → bcp47_locales(code)

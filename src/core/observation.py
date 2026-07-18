@@ -25,6 +25,51 @@ logger = get_logger(__name__)
 _email_normalizer = EmailNormalizer()
 _phone_normalizer = PhoneNormalizer()
 
+# Person name_types that must never be auto-promoted into the display slot (#308b).
+# `deadname` is forced to visibility='legal_only' by trg_deadname_visibility, and
+# mrz/romanization/reading are machine-readable renderings, not display names.
+# A client may still promote one explicitly via the is_canonical hint.
+NO_AUTO_CANONICAL_NAME_TYPES = frozenset({"deadname", "mrz", "romanization", "reading"})
+
+# Display preference when a single observation carries several eligible names and
+# the client gave no hint. Mirrors the name_type ordering in v_person_display_names
+# (#308a) so PM promotes the same row the view would have picked. Lower sorts first;
+# unlisted types fall to the end via the .get() default.
+_PERSON_NAME_TYPE_PRIORITY = {
+    "preferred": 1,
+    "legal": 2,
+    "alias": 3,
+    "stage": 4,
+    "religious": 5,
+    "maiden": 6,
+    "variant": 7,
+    "former": 8,
+    "initials": 9,
+}
+
+
+def _person_canonical_target(names: "Sequence[ObservationPersonName]") -> str | None:
+    """Pick the one name in this write that may claim the canonical slot.
+
+    Client hint wins outright. Otherwise the highest-priority non-excluded
+    name_type is chosen, ties broken by list order. Returns the name string, or
+    None when nothing in the batch is eligible.
+
+    Exactly one name is eligible per write — promoting one per name_type slot
+    would leave a person carrying several canonical rows, which
+    uq_person_canonical_name permits but which reads as ambiguous display state.
+    """
+    hinted = next((n.name for n in names if n.is_canonical), None)
+    if hinted is not None:
+        return hinted
+    eligible = [n for n in names if n.name_type not in NO_AUTO_CANONICAL_NAME_TYPES]
+    if not eligible:
+        return None
+    return min(
+        eligible,
+        key=lambda n: (_PERSON_NAME_TYPE_PRIORITY.get(n.name_type, 99), names.index(n)),
+    ).name
+
 
 class Disposition(StrEnum):
     AUTO_ATTACHED = "auto-attached"
@@ -246,8 +291,26 @@ async def write_names(
       - parts: write on new name row; on existing row write only if parts row absent
       - is_canonical hint: honoured only if no canonical already exists for that
         (person_id, name_type) slot (person) or the whole org; never displaces.
+      - person, no hint: first-wins auto-promotion (#308b) — symmetric with the
+        org branch, so a silent client still yields a displayable person.
     """
     if entity_type == "person":
+        # Exactly one name per write may claim canonical; hint wins, else priority.
+        canonical_target = _person_canonical_target(names)
+        hint_driven = any(n.is_canonical for n in names)
+        # Hint path keeps its per-name_type guard (a client asserting a `preferred`
+        # name alongside an existing canonical `legal` one is a legitimate second
+        # slot). Auto-promotion is person-wide: its only job is to guarantee the
+        # person displays at all, so it stands down whenever any public canonical
+        # already exists rather than adding a competing row.
+        canonical_guard = (
+            "NOT EXISTS (SELECT 1 FROM person_names"
+            "            WHERE person_id = $2 AND name_type = $4 AND is_canonical = TRUE)"
+            if hint_driven
+            else "NOT EXISTS (SELECT 1 FROM person_names"
+            "            WHERE person_id = $2 AND is_canonical = TRUE"
+            "              AND visibility = 'public')"
+        )
         for n in names:
             existing = await conn.fetchrow(
                 "SELECT id FROM person_names WHERE person_id=$1 AND name=$2",
@@ -260,28 +323,46 @@ async def write_names(
             else:
                 is_new = True
                 name_id = generate_id()
-                async with conn.transaction():
-                    await conn.execute(
-                        "INSERT INTO person_names"
-                        " (id, person_id, name, name_type, locale, script, sort_as,"
-                        "  visibility, source_key_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8,"
-                        "   ($9 AND NOT EXISTS ("
-                        "     SELECT 1 FROM person_names"
-                        "     WHERE person_id = $2 AND name_type = $4 AND is_canonical = TRUE"
-                        "   )))",
-                        name_id,
-                        entity_id,
-                        n.name,
-                        n.name_type,
-                        n.locale,
-                        n.script,
-                        n.sort_as,
-                        api_key_id,
-                        n.is_canonical,
-                    )
-                    if n.parts is not None:
-                        await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
+                eligible = n.name == canonical_target
+                insert_sql = (
+                    "INSERT INTO person_names"
+                    " (id, person_id, name, name_type, locale, script, sort_as,"
+                    "  visibility, source_key_id, is_canonical)"
+                    " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8,"
+                    f"   ($9 AND {canonical_guard}))"
+                )
+                insert_args = (
+                    name_id,
+                    entity_id,
+                    n.name,
+                    n.name_type,
+                    n.locale,
+                    n.script,
+                    n.sort_as,
+                    api_key_id,
+                    eligible,
+                )
+                try:
+                    async with conn.transaction():
+                        await conn.execute(insert_sql, *insert_args)
+                        if n.parts is not None:
+                            await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
+                except asyncpg.exceptions.UniqueViolationError:
+                    # Concurrent write claimed the slot between our NOT EXISTS and
+                    # the insert. The guard is keyed (person_id, name_type) but
+                    # uq_person_canonical_name is keyed
+                    # (person_id, name_type, locale, script), so the guard cannot
+                    # see a racing row in a different locale/script. Land the name
+                    # without canonical; display is already satisfied by the winner.
+                    # Retry runs outside the failed savepoint — reusing it would
+                    # hit "current transaction is aborted".
+                    async with conn.transaction():
+                        await conn.execute(
+                            insert_sql.replace(f"($9 AND {canonical_guard})", "FALSE"),
+                            *insert_args[:-1],
+                        )
+                        if n.parts is not None:
+                            await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
             if n.parts is not None and not is_new:
                 await _write_person_name_parts(conn, name_id, n.parts, is_new=False)
     elif entity_type == "organization":

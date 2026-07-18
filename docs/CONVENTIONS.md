@@ -179,6 +179,22 @@ The admin UI surfaces this section as **Details** (issue #127); the DB / route n
 
 `uq_person_canonical_name` is keyed on `(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))`. A person can hold a canonical Hant `legal` and a canonical Latn `legal` (romanization) simultaneously.
 
+Because that key permits several canonical rows per person, `is_canonical` alone does **not** identify the display name. `v_person_display_names` therefore selects `DISTINCT ON (person_id)` with an explicit `name_type` priority (`preferred` > `legal` > `alias` > … > `deadname`), tie-broken by `person_names.id` (#308a). Two consequences:
+
+- The view is guaranteed one row per person — safe to join in paginated list queries without duplicating people.
+- Adding a name_type to the `CHECK` constraint means adding it to the view's `CASE` ladder too, or it sorts to the end via the `ELSE` default.
+
+#### Canonical auto-promotion on observation (#308b)
+
+`write_names` guarantees that a person with an eligible name ends up displayable, symmetric with the long-standing org behavior:
+
+- **Client hint present** (`is_canonical=true` on some name) — that name claims the slot, guarded per `(person_id, name_type)`; never displaces an existing canonical.
+- **No hint** — PM auto-promotes, guarded **person-wide** on `is_canonical AND visibility='public'`. Auto-promotion exists only to guarantee displayability, so it stands down entirely when the person already displays.
+
+Exactly **one** name per write is promotion-eligible — picked by the same `name_type` priority the view uses, so PM promotes the row the view would have chosen. `NO_AUTO_CANONICAL_NAME_TYPES` (`deadname`, `mrz`, `romanization`, `reading`) is never auto-promoted: deadnames are forced to `visibility='legal_only'` by `trg_deadname_visibility`, and the rest are machine-readable renderings. A client may still promote any of them explicitly via the hint.
+
+Clients are not required to assert `is_canonical` — omitting it is the correct conservative default when the client can't tell whether it is creating a new person or matching an existing one. PM's `NOT EXISTS` guards make displacement impossible either way.
+
 #### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
 
 `person_names.locale` and `person_names.script` are FK-constrained to `bcp47_locales(code)` and `iso15924_scripts(code)` respectively. The lookup tables are seeded by `scripts/seed_locales_scripts.py` from the `langcodes` and `pycountry` libraries, which live in the `seed` dependency group only — request-path code never imports them.
