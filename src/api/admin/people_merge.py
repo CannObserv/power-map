@@ -24,6 +24,7 @@ from src.api.admin.people_dups import (
 )
 from src.api.admin.people_queries import query_people_rows
 from src.core.db import generate_id
+from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
 
 _LIST_TARGET = "people-list-region"
 _VALID_STATUSES = {"active", "archived"}
@@ -239,18 +240,59 @@ async def merge_person_into(
         "UPDATE person_names SET is_canonical=FALSE WHERE person_id=$1 AND is_canonical=TRUE",
         loser_id,
     )
+    # Dedup on identity, not on the bare string (CR4 #30). Name-only matching
+    # deleted the loser's `mrz` row because the winner had a `legal` row with
+    # the same text — the data loss CR3 #22 fixed on the observation side.
+    #
+    # But merge is not `write_names`, and a pure four-column identity key is too
+    # strict here: consolidating two records that were each split into
+    # legal + variant leaves the winner holding `Jody` as *both*, which is
+    # redundant rather than two claims. So a loser row is dropped when the text,
+    # locale and script all match a winner row AND either the name_types are
+    # equal, or **both** are ordinary display types.
+    #
+    # NO_AUTO_CANONICAL_NAME_TYPES (mrz, reading, romanization, deadname) are
+    # never treated as interchangeable: identical text in one of those is a
+    # machine-readable rendering, a distinct claim from a display name.
+    #
+    # `visibility` is part of the identity too (CR5 #43/#44) and is compared on
+    # BOTH branches. Without it a `hidden` winner row absorbed a `public` loser
+    # row carrying the same text — and since the loser's canonical is demoted
+    # just above, that deleted the only promotable name and left the merged
+    # person blank, defeating the heal below. It also silently dropped
+    # `legal_only` claims, breaking the #121 guarantee that the winner inherits
+    # the loser's restricted names.
     await db.execute(
-        "DELETE FROM person_names"
-        " WHERE person_id=$1"
-        "   AND name IN (SELECT name FROM person_names WHERE person_id=$2)",
+        "DELETE FROM person_names l"
+        " WHERE l.person_id=$1"
+        "   AND EXISTS ("
+        "       SELECT 1 FROM person_names w"
+        "        WHERE w.person_id=$2"
+        "          AND w.name = l.name"
+        "          AND w.visibility = l.visibility"
+        "          AND w.locale IS NOT DISTINCT FROM l.locale"
+        "          AND w.script IS NOT DISTINCT FROM l.script"
+        "          AND ("
+        "                w.name_type = l.name_type"
+        "                OR (w.name_type <> ALL($3::text[])"
+        "                    AND l.name_type <> ALL($3::text[]))"
+        "              )"
+        "   )",
         loser_id,
         winner_id,
+        list(NO_AUTO_CANONICAL_NAME_TYPES),
     )
     await db.execute(
         "UPDATE person_names SET person_id=$1 WHERE person_id=$2",
         winner_id,
         loser_id,
     )
+    # The loser's canonical was demoted above, so a winner that had no display
+    # pointer would end up blank even though a usable name just arrived (CR4
+    # #29). Merge is the only mutation left that can violate the #308 invariant
+    # without repairing it — the observation path, the name-delete path and the
+    # backfill all self-heal. No-op when the winner already displays.
+    await heal_person_canonical(db, winner_id)
 
     # role_assignments: delete conflicts (same role+start_date), then reassign.
     await db.execute(

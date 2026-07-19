@@ -408,6 +408,42 @@ sudo systemctl start power-map-prune.service   # run once, now
 sudo journalctl -u power-map-prune -f          # logs (rows pruned per run)
 ```
 
+## Person canonical-name backfill (issue #308)
+
+`scripts/backfill_person_canonical_names.py` promotes one eligible public name
+for every person that has names but no canonical one — those people render
+blank, since `v_person_display_names` only surfaces canonical rows. One-off
+repair for drift produced before #308b gave `write_names` first-wins
+auto-promotion on the person branch.
+
+Each repairable person gets the one name PM would display, chosen by the
+priority ladder shared with the observation-path heal via
+`name_type_priority_sql()` (see `NO_AUTO_CANONICAL_NAME_TYPES` for what is
+never eligible). People carrying several eligible names are resolved, not
+deferred — the heal pass would promote the same row on their next observation
+anyway. `multi_name` reports how many were decided that way.
+
+There is no `blocked` bucket any more (#308 Option A): `uq_person_canonical_name`
+is keyed on `(person_id)` alone and `chk_person_canonical_is_public` guarantees a
+canonical row is public, so a non-public row can no longer occupy a person's
+display slot. A person whose only names are ineligible (deadname/mrz-only, or
+nothing public) is simply not a candidate and stays deliberately blank until a
+human adds a displayable name.
+
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.backfill_person_canonical_names
+uv run "${env_args[@]}" python -m scripts.backfill_person_canonical_names --execute
+```
+
+Idempotent — a second run finds nothing. Each promotion touches `person_names` →
+`trg_touch_person_on_name_change` → an `entity_changes` `'updated'` row, so
+subscribers re-fetch and pick up the newly-visible name. Run **after**
+`bash scripts/apply-schema.sh`, so the #308a view change is live first.
+
 ## Per-key API anomaly check (issue #294)
 
 `scripts/check_api_anomalies.py` queries `api_request_log` for the trailing hour,

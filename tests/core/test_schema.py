@@ -702,33 +702,31 @@ async def test_duplicate_canonical_person_name_rejected(db):
             )
 
 
-async def test_canonical_person_name_uniqueness_per_name_type(db):
-    """One canonical per (person, name_type): legal + initials may each be canonical."""
+async def test_canonical_person_name_is_one_per_person(db):
+    """One canonical per person, whatever the name_type (#308).
+
+    Previously legal + initials could each be canonical; that per-name_type key
+    is what forced v_person_display_names to disambiguate. See
+    tests/core/test_schema_person_canonical.py for the full constraint suite.
+    """
     person_id = await _person(db)  # inserts canonical legal name
 
-    # Canonical initials alongside canonical legal should succeed
-    await db.execute(
-        "INSERT INTO person_names"
-        " (id, person_id, name, name_type, is_canonical)"
-        " VALUES ($1, $2, $3, 'initials', TRUE)",
-        generate_id(),
-        person_id,
-        "A.B.C.",
-    )
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO person_names"
+                " (id, person_id, name, name_type, is_canonical)"
+                " VALUES ($1, $2, $3, 'initials', TRUE)",
+                generate_id(),
+                person_id,
+                "A.B.C.",
+            )
 
 
 async def test_duplicate_canonical_person_name_same_type_rejected(db):
-    """Two is_canonical=TRUE rows with the same (person, name_type) must be rejected."""
-    person_id = await _person(db)
+    """Two is_canonical=TRUE rows on one person must be rejected."""
+    person_id = await _person(db)  # already has a canonical legal name
 
-    await db.execute(
-        "INSERT INTO person_names"
-        " (id, person_id, name, name_type, is_canonical)"
-        " VALUES ($1, $2, $3, 'initials', TRUE)",
-        generate_id(),
-        person_id,
-        "A.B.C.",
-    )
     with pytest.raises(asyncpg.UniqueViolationError):
         async with db.transaction():
             await db.execute(

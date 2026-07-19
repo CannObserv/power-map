@@ -19,6 +19,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.people_name_parts import upsert_or_delete_parts
 from src.core.db import generate_id
+from src.core.observation import NEVER_CANONICAL_NAME_TYPES
 from src.core.types import OrgNameType, PersonNameType, PersonNameVisibility
 
 # Either-side `name_type` value. The factory is shared between people
@@ -244,6 +245,50 @@ def make_names_router(
         """
         if value not in name_types:
             return f"Invalid name_type {value!r}. Choose a value from the dropdown."
+        return None
+
+    def _validate_canonical_visibility(
+        is_canonical: str, vis: str | None, name_type: str
+    ) -> str | None:
+        """Reject "canonical *and* not displayable" before the DB does (#308).
+
+        `is_canonical` is the display pointer and `v_person_display_names`
+        filters to `visibility='public'`, so a canonical `legal_only`/`hidden`
+        row would render the person blank while occupying their only display
+        slot. `chk_person_canonical_is_public` forbids it; catching it here turns
+        a raw CheckViolationError 500 into a friendly 422 / flash that names the
+        fields the user needs to change.
+
+        Two things must be checked, not one (CR4 #28/#31):
+
+        `name_type` — the submitted visibility is not necessarily the visibility
+        that lands. `trg_deadname_visibility` rewrites a deadname row to
+        legal_only BEFORE INSERT/UPDATE, so `deadname` + `public` passes a
+        value-only check and then violates the CHECK. `deadname` is in the
+        person name_type dropdown and visibility defaults to public, so this was
+        reachable from the ordinary admin form.
+
+        `vis` — callers must pass the *effective* visibility, i.e. the stored
+        value when the form omits the field, because `_update_name` leaves the
+        column untouched in that case rather than resetting it to the default.
+
+        Orgs pass `vis=None` and never use these name_types, so this stays a
+        no-op for them.
+        """
+        if is_canonical != "true":
+            return None
+        if name_type in NEVER_CANONICAL_NAME_TYPES:
+            return (
+                f"A {name_type} cannot be the canonical name — it is recorded"
+                f" privately and is never displayed. Uncheck canonical, or choose"
+                f" a different name type."
+            )
+        if vis is not None and vis != "public":
+            return (
+                f"A canonical name must be public — it is the name shown for this"
+                f" record. Set visibility to 'public', or uncheck canonical to keep"
+                f" this name {vis!r}."
+            )
         return None
 
     async def _insert_name(
@@ -503,6 +548,15 @@ def make_names_router(
         nt_err = _validate_name_type(name_type)
         if nt_err is not None:
             return _form_error_response(nt_err, request)
+        # `_insert_name` omits the column when vis is None, so the row lands on
+        # the schema default. Validate against that default explicitly rather
+        # than passing None and skipping the visibility branch — otherwise the
+        # guarantee is inherited from schema.sql instead of enforced here
+        # (CR5 #49). Orgs keep vis=None: organization_names has no such column.
+        effective_vis = vis if not supports_person_metadata else (vis or "public")
+        cv_err = _validate_canonical_visibility(is_canonical, effective_vis, name_type)
+        if cv_err is not None:
+            return _form_error_response(cv_err, request)
         if rof is not None:
             err = await _validate_reading_of_target(
                 db,
@@ -580,6 +634,16 @@ def make_names_router(
             if exc.constraint_name == "chk_org_name_effective_date_order":
                 return _form_error_response(
                     "Effective start must be on or before effective end.",
+                    request,
+                    from_exc=exc,
+                )
+            if exc.constraint_name == "chk_person_canonical_is_public":
+                # Backstop for #308: `_validate_canonical_visibility` should have
+                # caught this, but a trigger can still rewrite visibility after
+                # validation. Degrade to a flash rather than a 500 (CR4 #28).
+                return _form_error_response(
+                    "A canonical name must be public — it is the name shown for"
+                    " this record. Uncheck canonical, or set visibility to 'public'.",
                     request,
                     from_exc=exc,
                 )
@@ -719,6 +783,14 @@ def make_names_router(
         nt_err = _validate_name_type(name_type)
         if nt_err is not None:
             return _form_error_response(nt_err, request)
+        # `_update_name` skips a None visibility, so the row keeps its stored
+        # value — validate against that, not against the absent submission.
+        effective_vis = vis
+        if effective_vis is None and supports_person_metadata:
+            effective_vis = existing["visibility"]
+        cv_err = _validate_canonical_visibility(is_canonical, effective_vis, name_type)
+        if cv_err is not None:
+            return _form_error_response(cv_err, request)
         if rof is not None:
             err = await _validate_reading_of_target(
                 db,
@@ -806,6 +878,16 @@ def make_names_router(
             if exc.constraint_name == "chk_org_name_effective_date_order":
                 return _form_error_response(
                     "Effective start must be on or before effective end.",
+                    request,
+                    from_exc=exc,
+                )
+            if exc.constraint_name == "chk_person_canonical_is_public":
+                # Backstop for #308: `_validate_canonical_visibility` should have
+                # caught this, but a trigger can still rewrite visibility after
+                # validation. Degrade to a flash rather than a 500 (CR4 #28).
+                return _form_error_response(
+                    "A canonical name must be public — it is the name shown for"
+                    " this record. Uncheck canonical, or set visibility to 'public'.",
                     request,
                     from_exc=exc,
                 )

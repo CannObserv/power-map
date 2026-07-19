@@ -262,16 +262,31 @@ CREATE TABLE IF NOT EXISTS person_names (
     sort_as             TEXT,                       -- explicit collation key; NULL → use `name`
     visibility          TEXT NOT NULL DEFAULT 'public'
                         CHECK (visibility IN ('public','legal_only','hidden')),
+    -- Name-family edge (#121). Points a `reading` (furigana) or `romanization`
+    -- (pinyin, romaji) row at the name row it renders. This is how PM models
+    -- "these two rows are the same name written differently" — an explicit FK
+    -- between rows, NOT an implied grouping of rows that happen to share
+    -- (name_type, locale, script).
+    --
+    -- Load-bearing for #308: because families are edges, narrowing
+    -- uq_person_canonical_name to (person_id) costs nothing. A Japanese legal
+    -- name and its romaji rendering are two rows joined by reading_of_id, of
+    -- two different name_types, of which exactly one is the display pointer —
+    -- which is the correct answer and was never expressible by "one canonical
+    -- per (name_type, locale, script)".
+    --
+    -- ON DELETE CASCADE: a reading cannot outlive the name it reads.
     reading_of_id       TEXT REFERENCES person_names(id) ON DELETE CASCADE,
 
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Bootstrap form of the canonical-name index. The migration section drops
--- this and recreates it with the (locale, script) shape after the per-column
--- ADD COLUMN blocks run. Kept here so fresh DBs and pre-#121 DBs both parse
--- this file successfully (the new form references columns that only exist
--- after the per-column migration blocks have executed).
+-- Bootstrap form of the canonical-name index. The migration section drops this
+-- and recreates it keyed on (person_id) alone — the display-pointer shape
+-- (#308). Kept here so fresh DBs and pre-#121 DBs both parse this file
+-- successfully; the migration block converges either starting state in a single
+-- apply_schema run, since this two-column form also fails its "already
+-- re-keyed?" guard.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
     ON person_names(person_id, name_type)
     WHERE is_canonical = TRUE;
@@ -897,24 +912,104 @@ DO $$ BEGIN
     );
 END $$;
 
--- Re-key uq_person_canonical_name on (person_id, name_type, locale, script).
--- Drop the old index only if it lacks COALESCE (i.e. is the pre-#121 form),
--- then create the new shape (CR#1 fix: CREATE inside the block, after the DROP,
--- so a single apply_schema run completes the swap; the table-definition-site
--- CREATE is a no-op on existing DBs because the old index occupies the name).
-DO $$ BEGIN
+-- Re-key uq_person_canonical_name on (person_id) alone (issue #308).
+--
+-- `is_canonical` is the **display pointer**: the one name PM shows for a person.
+-- Keying it per (name_type, locale, script) — the #121 shape — let one person
+-- hold several canonical rows at once, so `v_person_display_names` had to pick
+-- among them, and a canonical row in one slot could block promotion in another.
+-- Nothing consumed the per-family meaning: every read in the codebase is either
+-- `ORDER BY is_canonical DESC` (show the main name first) or a wholesale demote
+-- on merge, and the admin promote path has always demoted person-wide.
+--
+-- This mirrors uq_org_canonical_name, which was narrowed from
+-- (organization_id, name_type) to (organization_id) for exactly this reason.
+--
+-- Name *families* are unaffected: a reading/romanization is linked to its source
+-- row by the reading_of_id FK, not by sharing a canonical slot. See the
+-- reading_of_id column comment on person_names.
+--
+-- Surplus canonicals are demoted deterministically before the index is built:
+-- keep a public row over a non-public one, then the best display name_type, then
+-- the lowest id. Production held zero such rows at 2026-07-19; this is a
+-- safety net for dev/test databases.
+DO $$
+DECLARE
+    demoted INTEGER;
+BEGIN
     IF EXISTS (
+        -- Scoped to the index on person_names in the current search_path, not
+        -- to the bare name: pg_indexes spans every schema (CR5 #50).
         SELECT 1 FROM pg_indexes
-        WHERE indexname='uq_person_canonical_name'
-          AND indexdef NOT LIKE '%COALESCE%'
+        WHERE indexname = 'uq_person_canonical_name'
+          AND schemaname = current_schema()
+          AND tablename = 'person_names'
+          AND indexdef NOT LIKE '%(person_id)%WHERE%'
     ) THEN
+        WITH ranked AS (
+            SELECT id,
+                   row_number() OVER (
+                       PARTITION BY person_id
+                       ORDER BY (visibility = 'public') DESC,
+                                CASE name_type
+                                    WHEN 'preferred' THEN 1 WHEN 'legal'    THEN 2
+                                    WHEN 'alias'     THEN 3 WHEN 'stage'    THEN 4
+                                    WHEN 'religious' THEN 5 WHEN 'maiden'   THEN 6
+                                    WHEN 'variant'   THEN 7 WHEN 'former'   THEN 8
+                                    WHEN 'initials'  THEN 9 ELSE 99
+                                END,
+                                id
+                   ) AS rn
+            FROM person_names
+            WHERE is_canonical = TRUE
+        )
+        UPDATE person_names SET is_canonical = FALSE
+        WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
+        GET DIAGNOSTICS demoted = ROW_COUNT;
+        IF demoted > 0 THEN
+            RAISE NOTICE 'uq_person_canonical_name re-key: demoted % surplus canonical person_names row(s)', demoted;
+        END IF;
         DROP INDEX uq_person_canonical_name;
     END IF;
 END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
-    ON person_names(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))
+    ON person_names(person_id)
     WHERE is_canonical = TRUE;
+
+-- The display pointer must be displayable (issue #308).
+--
+-- v_person_display_names filters to visibility='public', so a canonical row that
+-- is legal_only or hidden renders the person blank *and* occupies the only
+-- canonical slot — unreachable state, silently. The CHECK makes it an error at
+-- write time instead. It also closes the deadname path structurally:
+-- trg_deadname_visibility rewrites a deadname row to legal_only BEFORE INSERT,
+-- so `is_canonical = TRUE` on a deadname now fails loudly rather than sealing
+-- the person's display slot with an invisible row.
+DO $$
+DECLARE
+    demoted INTEGER;
+BEGIN
+    IF NOT EXISTS (
+        -- conrelid, not conname alone: constraint names are unique per table,
+        -- not per database, so a same-named constraint elsewhere would make
+        -- this block skip and leave person_names silently unconstrained.
+        -- The regclass cast resolves via search_path, so this is schema-correct
+        -- as well as table-correct (CR5 #50).
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'chk_person_canonical_is_public'
+          AND conrelid = 'person_names'::regclass
+    ) THEN
+        UPDATE person_names SET is_canonical = FALSE
+        WHERE is_canonical = TRUE AND visibility <> 'public';
+        GET DIAGNOSTICS demoted = ROW_COUNT;
+        IF demoted > 0 THEN
+            RAISE NOTICE 'chk_person_canonical_is_public: demoted % non-public canonical row(s)', demoted;
+        END IF;
+        ALTER TABLE person_names ADD CONSTRAINT chk_person_canonical_is_public
+            CHECK (NOT is_canonical OR visibility = 'public');
+    END IF;
+END $$;
 
 -- Recreate v_person_display_names with the visibility-aware filter, now that
 -- the per-column DO blocks above have added `visibility` to person_names.
@@ -922,6 +1017,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
 -- COALESCE(sort_as, name). Combine with `COLLATE "und-x-icu"` at query
 -- time so locale-aware diacritic ordering applies (ICU "und" puts Å near A,
 -- not after Z as ASCII does).
+--
+-- One row per person by construction (issue #308): uq_person_canonical_name is
+-- keyed on (person_id) alone and chk_person_canonical_is_public guarantees the
+-- canonical row is visible, so there is nothing to disambiguate. The earlier
+-- form needed DISTINCT ON plus a name_type priority ladder to pick among the
+-- several canonical rows the per-family key allowed; both are gone.
+--
+-- The visibility filter is retained as belt-and-braces. It is redundant against
+-- the CHECK, but keeps the view correct if that constraint is ever relaxed.
 CREATE OR REPLACE VIEW v_person_display_names AS
 SELECT p.id AS person_id,
        n.name AS display_name,

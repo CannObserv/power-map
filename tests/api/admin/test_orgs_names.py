@@ -59,13 +59,17 @@ async def org_and_name(db):
     return oid, nid
 
 
-async def _insert_non_canonical(db, oid: str, nid: str, name: str = "Former Name") -> None:
+async def _insert_non_canonical(
+    db, oid: str, nid: str, name: str = "Former Name", name_type: str = "legal"
+) -> None:
+    # name_type default matches the column default the pre-CR6 helper relied on.
     await db.execute(
-        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
-        " VALUES ($1, $2, $3, FALSE)",
+        "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, $3, $4, FALSE)",
         nid,
         oid,
         name,
+        name_type,
     )
 
 
@@ -273,6 +277,33 @@ async def test_name_delete_promotes_sole_remaining_non_canonical(client, org_and
 
     is_canonical = await _fetch_is_canonical(db, non_canonical_nid)
     assert is_canonical is True, "sole remaining name must be auto-promoted to canonical"
+
+
+async def test_name_delete_promotes_when_several_names_remain(client, org_and_name, db):
+    """Deleting the canonical with several names left must not strand the org (CR6 #52).
+
+    The old hook promoted only when exactly one name remained — the same
+    shortcut CR5 #45 removed on the person side — so a three-name org whose
+    canonical was deleted rendered blank (v_org_display_names joins only
+    is_canonical=TRUE; the only fallback is a canonical acronym). `legal`
+    outranks `dba` in the org ladder.
+    """
+    oid, canonical_nid = org_and_name
+    legal_nid, dba_nid = generate_id(), generate_id()
+    await _insert_non_canonical(db, oid, legal_nid, name="Acme Holdings", name_type="legal")
+    await _insert_non_canonical(db, oid, dba_nid, name="Acme", name_type="dba")
+
+    r = await client.delete(f"/admin/orgs/{oid}/names/{canonical_nid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+
+    assert await _fetch_is_canonical(db, legal_nid) is True, "top-ladder name must be promoted"
+    assert await _fetch_is_canonical(db, dba_nid) is False
+    assert (
+        await db.fetchval(
+            "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", oid
+        )
+        == "Acme Holdings"
+    )
 
 
 async def test_name_delete_response_reflects_promoted_canonical(client, org_and_name, db):

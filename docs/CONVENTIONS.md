@@ -175,9 +175,71 @@ A `person_names` row with no corresponding `person_name_parts` row is fully vali
 
 The admin UI surfaces this section as **Details** (issue #127); the DB / route names retain `parts` / `person_name_parts`.
 
-#### Canonical-uniqueness key
+#### Canonical name = the display pointer (issue #308)
 
-`uq_person_canonical_name` is keyed on `(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))`. A person can hold a canonical Hant `legal` and a canonical Latn `legal` (romanization) simultaneously.
+`person_names.is_canonical` marks **the one name PM displays for a person**. Two constraints carry that meaning:
+
+| Constraint | Guarantees |
+|---|---|
+| `uq_person_canonical_name` — `UNIQUE (person_id) WHERE is_canonical` | at most one canonical row per person |
+| `chk_person_canonical_is_public` — `CHECK (NOT is_canonical OR visibility = 'public')` | the canonical row is always displayable |
+
+This mirrors `uq_org_canonical_name`, which was itself narrowed from `(organization_id, name_type)` to `(organization_id)`. Person and org names now use the same model.
+
+**Why it was re-keyed.** The previous key was `(person_id, name_type, COALESCE(locale,''), COALESCE(script,''))`, so one person could hold several canonical rows at once — a `legal` and a `preferred`, or a Latn and a Jpan `legal`. Consequences, all now gone:
+
+- `v_person_display_names` had to disambiguate with `DISTINCT ON` plus a 13-entry `name_type` priority ladder, and returned duplicate rows per person whenever it didn't.
+- A canonical row in one slot could block promotion in another. In particular a curated `legal_only` name (invisible to the view) could occupy a slot, leaving the person rendering blank with no way for the observation path to repair it.
+- `is_canonical=TRUE` did not imply "this person displays" — a `deadname` row came back canonical but `legal_only`, because `trg_deadname_visibility` rewrites visibility *after* `is_canonical` is computed.
+
+Nothing consumed the per-family meaning: every read is `ORDER BY is_canonical DESC` (show the main name first) or a wholesale demote on merge, and the admin promote path has always demoted person-wide. At the time of the change production held zero people with more than one canonical row and zero non-public canonical rows.
+
+**Consequences for writers.** A `deadname` can never be canonical — `NEVER_CANONICAL_NAME_TYPES` in `src.core.observation` filters client hints for it, so an observation asserting one is ignored rather than failing the whole request on a `CheckViolationError`. Setting a new canonical in admin must demote the current one in the same transaction (`_names_shared` already does).
+
+**Validate against the visibility that will land, not the one submitted.** `trg_deadname_visibility` rewrites a `deadname` row to `legal_only` *before* the write, so `name_type='deadname'` + `visibility='public'` + `is_canonical` passes any check that only inspects the submitted value and then violates `chk_person_canonical_is_public`. Admin's `_validate_canonical_visibility` therefore checks **`name_type` as well as `visibility`**, and callers pass the *effective* visibility — the stored value when a form omits the field, since `_update_name` leaves the column untouched rather than resetting it. Both name routes also map the constraint to a flash as a backstop.
+
+**Every path that can strand a person without a display pointer must repair it.** Three call the same helper, `heal_person_canonical`: the observation path (including observations carrying no names), name deletion (`_maybe_promote_sole_name`, now a thin delegation), and merge (`merge_person_into`, which demotes the loser's canonical and so must heal the winner). The `#308c` backfill is the fourth repair path but runs its own set-based SQL — it does **not** call the helper; it shares the choice via `name_type_priority_sql()`, so all four still pick the same replacement row. The org name-delete path has its own equivalent heal (`orgs_names.py` — orgs have no visibility or eligibility exclusions, so it is just the ladder plus the guard).
+
+Do not reintroduce a "promote only when exactly one name remains" shortcut — on either the person or the org side. That was the old delete-path rule, and it left a multi-name person (or org) blank whenever their canonical was deleted — the remaining names were perfectly displayable, nothing repaired them, and only a later observation happened to fix it.
+
+The heal is best-effort and never aborts its caller: it runs in a savepoint and swallows `PostgresError`, because failing an observation over a cosmetic display-name repair would discard its links, addresses, role assignments and events. `UniqueViolationError` (a lost race) logs at debug; **everything else logs at WARNING** — `configure_logging` defaults to INFO, so a debug-only line would hide a typo'd statement or a revoked grant while callers still report success.
+
+**Dedup person names on identity, not on the string.** A `legal` row and an `mrz` rendering can carry identical text while being different claims, as can a Latn and a Jpan row; matching on `name` alone silently destroys the second. `write_names` uses the full `(name, name_type, locale, script)` key.
+
+`merge_person_into` uses a deliberately looser variant: text + **visibility** + locale + script must match, and then **either** the `name_type`s are equal **or** both are ordinary display types. Consolidating two records that were each split into `legal` + `variant` would otherwise leave the winner holding the same string as both — redundant rather than two claims. `NO_AUTO_CANONICAL_NAME_TYPES` (`mrz`, `reading`, `romanization`, `deadname`) are never interchangeable: identical text in one of those is a machine-readable rendering, a distinct claim from a display name.
+
+`visibility` is compared on **both** branches, and that is load-bearing twice over. Without it a `hidden` winner row absorbed a `public` loser row carrying the same text; since the loser's canonical is demoted immediately beforehand, that deleted the only promotable name and left the merged person blank — defeating the heal that runs a few lines later. It also silently destroyed `legal_only` claims, breaking the #121 guarantee that the winner inherits the loser's restricted names.
+
+#### Name families are edges, not shared slots (`reading_of_id`)
+
+Re-keying the canonical index costs nothing, because **PM does not model "the same name written differently" by grouping rows that share `(name_type, locale, script)`** — it models it with an explicit FK.
+
+`person_names.reading_of_id` points a `reading` (furigana) or `romanization` (pinyin, romaji) row at the name row it renders, `ON DELETE CASCADE` — a reading cannot outlive its source. So a Japanese legal name and its romaji rendering are:
+
+- **two rows**, of **two different `name_type`s** (`legal` and `romanization`),
+- **joined by an FK edge**, not by an implied grouping,
+- of which **exactly one is the display pointer**.
+
+That was already true before #308 and is unchanged by it. The old per-family canonical key was not what expressed the relationship; `reading_of_id` was, and still is. What the old key actually permitted was a *second* `legal` row differing only by locale/script also being canonical — which is the same content in two scripts, i.e. precisely the case `reading_of_id` + `name_type='romanization'` is designed for. Model it that way.
+
+Admin support for the edge: `people_reading_target_search.py` powers the "reading of" picker; `_name_row.html` / `_name_form_row.html` surface the parent name.
+
+#### Canonical auto-promotion on observation (#308)
+
+`write_names` guarantees that a person with an eligible name ends up displayable, symmetric with the long-standing org behaviour:
+
+- **Client hint present** (`is_canonical=true` on some name) — that name claims the slot, guarded by `NOT EXISTS (… person_id AND is_canonical)`; never displaces an existing canonical. A hint on a `deadname` is ignored (`NEVER_CANONICAL_NAME_TYPES`) rather than raising `CheckViolationError` and failing the whole observation.
+- **No hint** — PM auto-promotes exactly one name per write, picked by `_PERSON_NAME_TYPE_PRIORITY` (`preferred` > `legal` > `alias` > …). `NO_AUTO_CANONICAL_NAME_TYPES` (`deadname`, `mrz`, `romanization`, `reading`) is never auto-promoted.
+
+Eligibility is by **identity, not name string**: the promotion target is an index into the payload, and the append-dedup key is `(name, name_type, locale, script)`. Matching on the bare string let an `mrz` row claim the display slot ahead of a `legal` one purely by list order, and silently discarded the second claim.
+
+Clients are not required to assert `is_canonical` — omitting it is the correct conservative default when the client can't tell whether it is creating a new person or matching an existing one. The `NOT EXISTS` guard makes displacement impossible either way.
+
+**Heal on re-observation.** Auto-promotion fires only on *newly inserted* rows, and `write_names` skips names that already exist — so a person already canonical-less would never recover, since the steady-state client re-sends the same names every sync. `write_names` therefore ends the person branch with `_heal_person_canonical`, promoting the highest-priority eligible existing name whenever the person has no canonical. It also runs for observations carrying **no names at all**, so any observation touching a blank person repairs it, and is skipped when an insert in the same call already claimed the slot.
+
+The heal is a read-only probe plus a guarded `UPDATE`. The probe cannot violate a constraint, so the steady-state case (already-displaying person, unchanged names) stays at one round trip with no savepoint. The `UPDATE` takes a savepoint: a concurrent commit between the two statements can still collide on `uq_person_canonical_name`, and without recovery that error propagates out of `write_names` and aborts the whole observation, which the public route reports as `db_constraint_violation` — discarding links, addresses, role assignments and events over a cosmetic display-name repair.
+
+`scripts/backfill_person_canonical_names.py` repairs people who predate this, selecting with the **same ladder** so both repair paths choose the same row (`test_backfill_matches_heal_choice`).
 
 #### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
 
