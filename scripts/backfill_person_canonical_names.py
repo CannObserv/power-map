@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 import asyncpg
 
 from src.core.logging import configure_logging, get_logger
-from src.core.observation import _NAME_TYPE_PRIORITY_SQL, NO_AUTO_CANONICAL_NAME_TYPES
+from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, name_type_priority_sql
 
 logger = get_logger(__name__)
 
@@ -83,7 +83,7 @@ SELECT n.person_id,
        n.id   AS name_id,
        n.name,
        n.name_type,
-       {_NAME_TYPE_PRIORITY_SQL.replace("name_type", "n.name_type")} AS rank
+       {name_type_priority_sql("n.name_type")} AS rank
 FROM person_names n
 WHERE n.visibility = 'public'
   AND n.is_canonical = FALSE
@@ -98,7 +98,7 @@ WHERE n.visibility = 'public'
 async def find_candidates(db: asyncpg.Connection) -> list[PromoteCandidate]:
     """One promotable name per canonical-less person, chosen by display priority.
 
-    Ambiguity is resolved, not deferred: `_heal_person_canonical` promotes the
+    Ambiguity is resolved, not deferred: `heal_person_canonical` promotes the
     top-priority name on that person's next observation regardless, so leaving
     them for a human only delayed the same decision while hiding it from the
     operator. Ties break on `id`, matching the heal and the display view.

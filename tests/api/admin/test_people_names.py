@@ -493,3 +493,54 @@ async def test_create_canonical_non_public_rejected(client, person_only, db):
     assert resp.status_code == 200
     assert "HX-Trigger" in resp.headers
     assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 0
+
+
+async def test_create_canonical_deadname_rejected(client, person_only, db):
+    """#308 CR4: submitted visibility is not the visibility that lands.
+
+    `trg_deadname_visibility` rewrites a deadname row to legal_only BEFORE
+    INSERT, so `visibility=public` passes a validator that only inspects the
+    submitted value and then violates chk_person_canonical_is_public — a 500 on
+    the plain admin form, since `deadname` is in the name_type dropdown and
+    visibility defaults to public. The validator has to reject on name_type.
+    """
+    pid = person_only["pid"]
+    resp = await client.post(
+        f"/admin/people/{pid}/names/",
+        data={
+            "name": "Old Name",
+            "name_type": "deadname",
+            "is_canonical": "true",
+            "visibility": "public",
+        },
+        headers=HTMX_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert "HX-Trigger" in resp.headers
+    assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 0
+
+
+async def test_edit_canonical_with_omitted_visibility_rejected(client, person_only, db):
+    """#308 CR4: an omitted visibility must validate against the stored value.
+
+    `_update_name` skips a None visibility, so the row keeps its legal_only
+    setting while is_canonical flips to TRUE — CHECK violation, 500. The
+    validator returned early on `vis is None`, so nothing caught it.
+    """
+    pid = person_only["pid"]
+    nid = await _add_raw_name(db, pid, "Sealed Name", "legal", "legal_only")
+    resp = await client.post(
+        f"/admin/people/{pid}/names/{nid}/edit-row/",
+        data={
+            "name": "Sealed Name",
+            "name_type": "legal",
+            "is_canonical": "true",
+            # visibility deliberately omitted
+        },
+        headers=HTMX_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert "HX-Trigger" in resp.headers
+    row = await db.fetchrow("SELECT is_canonical, visibility FROM person_names WHERE id=$1", nid)
+    assert not row["is_canonical"]
+    assert row["visibility"] == "legal_only"

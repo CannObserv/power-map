@@ -5,6 +5,7 @@ import pytest_asyncio
 
 from scripts.backfill_person_canonical_names import find_candidates, run_backfill
 from src.core.db import generate_id
+from src.core.observation import heal_person_canonical
 
 pytestmark = [
     pytest.mark.integration,
@@ -204,19 +205,28 @@ async def test_run_backfill_promotes_priority_winner(conn):
 
 
 async def test_backfill_matches_heal_choice(conn):
-    """The two repair paths must pick the same row for the same person."""
-    from src.core.observation import _heal_person_canonical
+    """The two repair paths must pick the same row for the same person.
 
+    The heal runs FIRST (CR4 #32). `find_candidates` has no person filter, so
+    running the backfill first promoted *both* people — including `pid_heal`,
+    whose heal then saw `displays=True` and returned immediately. The assertion
+    compared the backfill's choice against its own choice and would have held
+    even if the two ladders diverged.
+    """
     names = [("Zed Legal", "legal"), ("Ann Alias", "alias"), ("Pat Preferred", "preferred")]
     pid_backfill = await _person(conn)
     pid_heal = await _person(conn)
     for pid in (pid_backfill, pid_heal):
         for nm, nt in names:
             await _name(conn, pid, nm, name_type=nt)
+    await heal_person_canonical(conn, pid_heal)
     await run_backfill(conn, dry_run=False)
-    await _heal_person_canonical(conn, pid_heal)
     q = "SELECT display_name FROM v_person_display_names WHERE person_id=$1"
-    assert await conn.fetchval(q, pid_backfill) == await conn.fetchval(q, pid_heal)
+    healed = await conn.fetchval(q, pid_heal)
+    backfilled = await conn.fetchval(q, pid_backfill)
+    # Both must actually have promoted something — two Nones would compare equal.
+    assert healed == "Pat Preferred"
+    assert backfilled == healed
 
 
 async def test_backfill_leaves_at_most_one_canonical_per_person(conn):

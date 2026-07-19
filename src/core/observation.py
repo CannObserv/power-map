@@ -53,14 +53,20 @@ _PERSON_NAME_TYPE_PRIORITY = {
     "initials": 9,
 }
 
-# Same ladder as SQL, derived from the dict above so the two cannot drift.
-# Mirrors the CASE in v_person_display_names (#308a) — tests/core/
-# test_schema_person_display_view.py asserts the view agrees with this mapping.
-_NAME_TYPE_PRIORITY_SQL = (
-    "CASE name_type "
-    + " ".join(f"WHEN '{t}' THEN {r}" for t, r in _PERSON_NAME_TYPE_PRIORITY.items())
-    + " ELSE 99 END"
-)
+
+def name_type_priority_sql(col: str = "name_type") -> str:
+    """Render the display-priority ladder as a SQL CASE over *col*.
+
+    Derived from `_PERSON_NAME_TYPE_PRIORITY` so the Python and SQL orderings
+    cannot drift. `col` is a caller-supplied column reference (e.g. `n.name_type`
+    when the query aliases person_names) — parameterised rather than patched in
+    by the caller with `.replace("name_type", ...)`, which silently corrupted the
+    ladder as soon as a second occurrence or a matching literal appeared (CR4 #37).
+
+    Never interpolate untrusted input: `col` is SQL, not a bind parameter.
+    """
+    ladder = " ".join(f"WHEN '{t}' THEN {r}" for t, r in _PERSON_NAME_TYPE_PRIORITY.items())
+    return f"CASE {col} {ladder} ELSE 99 END"
 
 
 def _name_type_rank(name_type: str) -> int:
@@ -158,7 +164,7 @@ SELECT EXISTS (
              AND visibility = 'public'
              AND is_canonical = FALSE
              AND name_type <> ALL($2::text[])
-           ORDER BY {_NAME_TYPE_PRIORITY_SQL}, id
+           ORDER BY {name_type_priority_sql()}, id
            LIMIT 1
        ) AS candidate_id
 """
@@ -177,7 +183,7 @@ WHERE id = $1
 """
 
 
-async def _heal_person_canonical(conn, person_id: str) -> None:
+async def heal_person_canonical(conn, person_id: str) -> None:
     """Promote an existing name when the person has no public canonical (#308).
 
     Auto-promotion on INSERT only covers *new* name rows. A person already in the
@@ -213,10 +219,19 @@ async def _heal_person_canonical(conn, person_id: str) -> None:
     try:
         async with conn.transaction():
             await conn.execute(_HEAL_PERSON_UPDATE_SQL, row["candidate_id"])
-    except asyncpg.exceptions.UniqueViolationError:
-        # Another session claimed the slot between the probe and the update.
-        # Best-effort by nature — their row satisfies the goal just as well.
-        logger.debug("heal_person_canonical: lost race for person=%s", person_id)
+    except asyncpg.exceptions.PostgresError as exc:
+        # Another session claimed the slot between the probe and the update
+        # (UniqueViolationError), or the promotion failed some other way — a
+        # deadlock, a serialization failure. Widened from UniqueViolationError
+        # alone (CR4 #41): anything escaping here aborts the enclosing
+        # observation, discarding links, addresses, role assignments and events
+        # over a cosmetic display-name repair. This pass is best-effort by
+        # nature — the next observation of this person retries it.
+        logger.debug(
+            "heal_person_canonical: promotion failed for person=%s (%s)",
+            person_id,
+            type(exc).__name__,
+        )
 
 
 class Disposition(StrEnum):
@@ -437,8 +452,10 @@ async def write_names(
       - visibility='public' (person_names only)
       - source_key_id = api_key_id on new name rows
       - parts: write on new name row; on existing row write only if parts row absent
-      - is_canonical hint: honoured only if no canonical already exists for that
-        (person_id, name_type) slot (person) or the whole org; never displaces.
+      - is_canonical hint: honoured only if the person has no canonical name at
+        all (the slot is person-wide under #308, not per name_type) or, for an
+        org, none for the whole org; never displaces. A hint on a
+        NEVER_CANONICAL_NAME_TYPES row is ignored rather than raising.
       - person, no hint: first-wins auto-promotion (#308b) — symmetric with the
         org branch, so a silent client still yields a displayable person.
     """
@@ -510,7 +527,7 @@ async def write_names(
         # Skipped only when an insert above left the person actually displaying —
         # the heal would be a no-op and costs a round trip (#308, CR2 #11).
         if not displays:
-            await _heal_person_canonical(conn, entity_id)
+            await heal_person_canonical(conn, entity_id)
     elif entity_type == "organization":
         # If any name carries the canonical hint, only that name is eligible for promotion.
         # Otherwise fall through to first-wins auto-promotion (NOT EXISTS guard).

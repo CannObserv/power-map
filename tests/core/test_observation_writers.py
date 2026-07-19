@@ -1,10 +1,10 @@
 """Integration tests for src.core.observation per-surface writers."""
 
+import asyncio
 import hashlib
 import os
 from datetime import date
 
-import asyncpg
 import pytest
 import pytest_asyncio
 
@@ -23,8 +23,8 @@ from src.core.db import generate_id
 from src.core.observation import (
     IdentifierConflict,
     ObservationRejected,
-    _heal_person_canonical,
     backfill_assignment_dates,
+    heal_person_canonical,
     write_additional_identifiers,
     write_addresses,
     write_contact_methods,
@@ -502,19 +502,23 @@ async def test_write_names_person_heal_does_not_displace(db, api_key_id):
 
 
 # --- canonical-slot contention (#308, CR round 2 findings 9/10/12) ----------
-# The insert fallback and the heal no-op share one deterministic trigger: a
-# NON-PUBLIC canonical already occupies the (person_id, name_type, locale,
-# script) slot. The auto guard only looks for a *public* canonical, so it passes;
-# the unique index does not care about visibility, so it rejects the promotion.
-# Reachable single-threaded via admin curation — no concurrency required.
+# Under Option A the slot is person-wide: uq_person_canonical_name is keyed on
+# (person_id) and chk_person_canonical_is_public guarantees a canonical row is
+# public. The old single-threaded trigger for the insert fallback — a NON-PUBLIC
+# canonical occupying one (name_type, locale, script) slot while the guard looked
+# only for public ones — is therefore unreachable by construction (CR4 #40).
+# Exercising the fallback now requires real concurrency; see
+# test_write_names_person_insert_falls_back_when_slot_lost.
 
 
 async def test_write_names_person_hinted_guard_suppresses_same_slot(db, api_key_id):
-    """Hinted promotion into an occupied same-name_type slot is suppressed.
+    """A hinted promotion never displaces an existing canonical.
 
-    Covers the guard, not the fallback: the guard is keyed (person_id, name_type)
-    and this row shares `legal`, so it is seen and promotion never reaches the
-    index.
+    Covers the guard, not the fallback: the guard is keyed on person_id alone,
+    so it sees the existing canonical whatever its name_type, and the promotion
+    never reaches the index. The hinted row here differs from the incumbent in
+    name only — under the old per-(name_type, locale, script) key the two
+    occupied different slots and both could be canonical.
     """
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
@@ -560,10 +564,17 @@ async def test_write_names_person_hinted_guard_suppresses_same_slot(db, api_key_
 
 
 class _CountingConn:
-    """Delegates to a real connection, counting the heal statement.
+    """Delegates to a real connection, counting heal round trips.
 
-    The heal costs a round trip against a remote DB; it must not fire when the
-    insert already claimed the canonical slot.
+    The heal costs a round trip against a remote DB; it must not fire at all
+    when the insert already claimed the canonical slot.
+
+    Counts the **probe** as well as the UPDATE (CR4 #33). Tallying only the
+    UPDATE made the test vacuous: when the insert has already promoted, the
+    probe returns ``displays=True`` and the UPDATE is skipped regardless, so
+    ``heal_calls == 0`` held whether or not `write_names` short-circuits on the
+    insert's RETURNING value — which is the round trip this test exists to
+    protect.
     """
 
     def __init__(self, conn):
@@ -574,7 +585,7 @@ class _CountingConn:
         return getattr(self._conn, item)
 
     def _tally(self, query):
-        if "UPDATE person_names SET is_canonical" in query:
+        if "UPDATE person_names SET is_canonical" in query or "AS candidate_id" in query:
             self.heal_calls += 1
 
     async def execute(self, query, *args, **kwargs):
@@ -623,7 +634,8 @@ async def test_write_names_person_runs_heal_when_nothing_promoted(db, api_key_id
         api_key_id,
         [ObservationPersonName(name="Steve Kirby", name_type="legal")],
     )
-    assert conn.heal_calls == 1
+    # Probe + UPDATE: the person did not display, so the heal runs in full.
+    assert conn.heal_calls == 2
     assert await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
 
 
@@ -1677,52 +1689,144 @@ async def test_write_names_person_exact_same_row_still_deduped(db, api_key_id):
 # --- CR round 3: heal recovers from a concurrent slot claim (#15/#23) --------
 
 
-class _ViolatingConn:
-    """Delegates everything, but makes the heal UPDATE raise UniqueViolationError.
-
-    Stands in for a concurrent transaction committing a conflicting canonical
-    between the heal's snapshot and its UPDATE — real interleaving needs two
-    committed connections, which the rollback fixture cannot provide.
-    """
-
-    def __init__(self, conn):
-        self._conn = conn
-
-    def __getattr__(self, item):
-        return getattr(self._conn, item)
-
-    def transaction(self, *a, **k):
-        return self._conn.transaction(*a, **k)
-
-    async def execute(self, query, *args, **kwargs):
-        if "UPDATE person_names SET is_canonical" in query:
-            raise asyncpg.exceptions.UniqueViolationError(
-                'duplicate key value violates unique constraint "uq_person_canonical_name"'
-            )
-        return await self._conn.execute(query, *args, **kwargs)
-
-    async def fetchrow(self, query, *args, **kwargs):
-        return await self._conn.fetchrow(query, *args, **kwargs)
-
-    async def fetchval(self, query, *args, **kwargs):
-        return await self._conn.fetchval(query, *args, **kwargs)
-
-
-async def test_heal_survives_concurrent_slot_claim(db, api_key_id):
+async def test_heal_survives_concurrent_slot_claim(db, db_pool):
     """A lost race must not abort the enclosing observation transaction.
 
     Without recovery the UniqueViolationError propagates out of write_names and
     the route rejects the entire observation as db_constraint_violation,
     discarding links, addresses, role assignments and events (#23).
+
+    Uses two real connections (CR4 #34). The previous version raised
+    UniqueViolationError from a stub's `execute` **client-side**, so no
+    statement ever reached Postgres, the server transaction was never actually
+    aborted, and the trailing `SELECT 1` succeeded whether or not
+    `heal_person_canonical` wrapped its UPDATE in a savepoint — the savepoint
+    being the entire point of the fix. Stubbing cannot reproduce this: an
+    INSERT issued on the *same* connection is visible to the heal's own
+    NOT EXISTS guard, which then declines to update and never reaches the index.
+
+    The genuine interleaving, reproduced here deterministically:
+      1. `other` claims the slot on a different row, uncommitted.
+      2. The heal's guard cannot see that row, so it proceeds.
+      3. Its UPDATE blocks on uq_person_canonical_name, holding a lock wait.
+      4. `other` commits -> the blocked UPDATE raises UniqueViolationError.
     """
     pid = generate_id()
-    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
-    await db.execute(
-        "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
-        " is_canonical) VALUES ($1, $2, 'Steve Kirby', 'legal', 'public', FALSE)",
-        generate_id(),
-        pid,
-    )
-    await _heal_person_canonical(_ViolatingConn(db), pid)
-    # The enclosing transaction must still be usable — that is the whole point.
-    assert await db.fetchval("SELECT 1") == 1
+    # Committed out-of-band so the heal's connection can see the rows at all.
+    async with db_pool.acquire() as other:
+        nid_preferred, nid_legal = generate_id(), generate_id()
+        await other.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        for nid, nm, nt in (
+            (nid_preferred, "Steve", "preferred"),
+            (nid_legal, "Steve Kirby", "legal"),
+        ):
+            await other.execute(
+                "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+                " is_canonical) VALUES ($1, $2, $3, $4, 'public', FALSE)",
+                nid,
+                pid,
+                nm,
+                nt,
+            )
+        try:
+            tr = other.transaction()
+            await tr.start()
+            # `preferred` outranks `legal`, so the heal targets nid_preferred
+            # while the racer claims nid_legal — different rows, same slot.
+            # Claiming the *same* row would exercise the EPQ path instead,
+            # where the re-evaluated `is_canonical = FALSE` predicate simply
+            # matches nothing and no violation is ever raised.
+            await other.execute("UPDATE person_names SET is_canonical=TRUE WHERE id=$1", nid_legal)
+            task = asyncio.create_task(heal_person_canonical(db, pid))
+            # Let the heal reach its UPDATE and block on the unique index.
+            await asyncio.sleep(0.5)
+            assert not task.done(), "heal should be blocked on the racer's uncommitted claim"
+            await tr.commit()
+            # Must return normally: the savepoint absorbs the violation.
+            await asyncio.wait_for(task, timeout=10)
+            # The enclosing transaction must still be usable — that is the whole point.
+            assert await db.fetchval("SELECT 1") == 1
+            assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid)
+        finally:
+            await other.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await other.execute("DELETE FROM entity_changes WHERE entity_id=$1", pid)
+            await other.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_write_names_person_insert_falls_back_when_slot_lost(db_pool):
+    """A lost canonical race on INSERT must land the name unpromoted, not fail (CR4 #35).
+
+    This is the branch `write_names` takes when a concurrent writer commits a
+    canonical row between our NOT EXISTS guard and our INSERT. Nothing covered
+    it: the only UniqueViolation machinery in this file targeted the *heal*, and
+    `test_write_names_person_hinted_guard_suppresses_same_slot` says outright
+    that it covers the guard rather than the fallback. Also asserts the parts
+    re-write on retry, which is easy to drop when editing the except block.
+
+    Owns both transactions rather than using the `db` fixture: the observation
+    inserts a person_names row, and the racer's cleanup DELETE would block on it
+    until the fixture rolled back at teardown — after this function's `finally`
+    had already run. `source_key_id` is left NULL (nullable FK); an `api_keys`
+    row created on the fixture connection would be invisible to `obs` anyway.
+    """
+    pid, nid_existing = generate_id(), generate_id()
+    async with db_pool.acquire() as obs, db_pool.acquire() as other:
+        await other.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await other.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+            " is_canonical) VALUES ($1, $2, 'Steve Kirby', 'legal', 'public', FALSE)",
+            nid_existing,
+            pid,
+        )
+        obs_tr = obs.transaction()
+        await obs_tr.start()
+        tr = other.transaction()
+        await tr.start()
+        racer_committed = False
+        try:
+            await other.execute(
+                "UPDATE person_names SET is_canonical=TRUE WHERE id=$1", nid_existing
+            )
+            parts = ObservationPersonNameParts(given_names=["Steve"], family_names=["Kirby"])
+            task = asyncio.create_task(
+                write_names(
+                    obs,
+                    pid,
+                    "person",
+                    None,
+                    [
+                        ObservationPersonName(
+                            name="Steven Kirby", name_type="preferred", parts=parts
+                        )
+                    ],
+                )
+            )
+            await asyncio.sleep(0.5)
+            assert not task.done(), "insert should be blocked on the racer's uncommitted claim"
+            await tr.commit()
+            racer_committed = True
+            # Must return normally: the fallback absorbs the violation.
+            await asyncio.wait_for(task, timeout=10)
+            row = await obs.fetchrow(
+                "SELECT id, is_canonical FROM person_names"
+                " WHERE person_id=$1 AND name='Steven Kirby'",
+                pid,
+            )
+            # The name landed, and it did not displace the racer's canonical.
+            assert row is not None
+            assert row["is_canonical"] is False
+            # The retry must re-write the parts it lost with the failed savepoint.
+            assert await obs.fetchval(
+                "SELECT family_names FROM person_name_parts WHERE person_name_id=$1",
+                row["id"],
+            ) == ["Kirby"]
+            assert await obs.fetchval("SELECT 1") == 1
+        finally:
+            if not racer_committed:  # an assertion above may have pre-empted the commit
+                await tr.rollback()
+            # Undo the observation first: `other`'s cleanup would otherwise block
+            # on the uncommitted person_names row this transaction holds.
+            await obs_tr.rollback()
+            await other.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await other.execute("DELETE FROM entity_changes WHERE entity_id=$1", pid)
+            await other.execute("DELETE FROM people WHERE id=$1", pid)

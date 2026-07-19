@@ -281,11 +281,12 @@ CREATE TABLE IF NOT EXISTS person_names (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Bootstrap form of the canonical-name index. The migration section drops
--- this and recreates it with the (locale, script) shape after the per-column
--- ADD COLUMN blocks run. Kept here so fresh DBs and pre-#121 DBs both parse
--- this file successfully (the new form references columns that only exist
--- after the per-column migration blocks have executed).
+-- Bootstrap form of the canonical-name index. The migration section drops this
+-- and recreates it keyed on (person_id) alone — the display-pointer shape
+-- (#308). Kept here so fresh DBs and pre-#121 DBs both parse this file
+-- successfully; the migration block converges either starting state in a single
+-- apply_schema run, since this two-column form also fails its "already
+-- re-keyed?" guard.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
     ON person_names(person_id, name_type)
     WHERE is_canonical = TRUE;
@@ -986,8 +987,13 @@ DECLARE
     demoted INTEGER;
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'chk_person_canonical_is_public'
+        -- conrelid, not conname alone: constraint names are unique per table,
+        -- not per database, so a same-named constraint elsewhere would make
+        -- this block skip and leave person_names silently unconstrained.
+        SELECT 1 FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE c.conname = 'chk_person_canonical_is_public'
+          AND t.relname = 'person_names'
     ) THEN
         UPDATE person_names SET is_canonical = FALSE
         WHERE is_canonical = TRUE AND visibility <> 'public';
