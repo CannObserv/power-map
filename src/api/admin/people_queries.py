@@ -6,37 +6,61 @@ people list query — preventing the query from drifting between the two
 sites the way it nearly did when #137 first shipped.
 """
 
+from src.api.admin.list_status import count_with_hidden_matches
 from src.api.admin.pagination import pagination_context
+
+# Status → SQL predicate, in dropdown order; ``all`` (no predicate) is a
+# first-class validated status (#306). Two-valued axis — People has no
+# ``inactive`` equivalent of the org flag.
+STATUS_PREDICATES: dict[str, str] = {
+    "active": "p.archived_at IS NULL",
+    "archived": "p.archived_at IS NOT NULL",
+}
+VALID_STATUSES: set[str] = set(STATUS_PREDICATES) | {"all"}
 
 
 async def query_people_rows(
     db, *, q: str, status: str, page: int, page_size: int
-) -> tuple[list, int, dict]:
+) -> tuple[list, int, dict, list[dict]]:
     """Run the people list query under the given filter state.
 
-    Returns ``(rows, count, pctx)`` where ``pctx`` is the
-    `pagination_context()` dict (with ``page`` clamped to the valid range).
+    Returns ``(rows, count, pctx, hidden_matches)`` where ``pctx`` is the
+    `pagination_context()` dict (with ``page`` clamped to the valid range)
+    and ``hidden_matches`` lists ``{"status", "count"}`` for search matches
+    the current status filter excludes (#306). Empty when there is no search
+    text or ``status == "all"``.
 
-    Mirrors the inline query that used to live in ``people_list`` —
-    callers build their own template context from the returned tuple.
+    An unknown ``status`` falls back to ``active`` — never to no-filter.
     """
-    conditions: list[str] = []
+    if status not in VALID_STATUSES:
+        status = "active"
+    search_conditions: list[str] = []
     params: list = []
-    if status == "active":
-        conditions.append("p.archived_at IS NULL")
-    elif status == "archived":
-        conditions.append("p.archived_at IS NOT NULL")
     if q:
         params.append(q)
-        conditions.append(f"p.search_tsv @@ plainto_tsquery('pm_unaccent_simple', ${len(params)})")
+        search_conditions.append(
+            f"p.search_tsv @@ plainto_tsquery('pm_unaccent_simple', ${len(params)})"
+        )
+    conditions = ([STATUS_PREDICATES[status]] if status != "all" else []) + search_conditions
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    count = await db.fetchval(
-        f"""SELECT count(p.id)
-            FROM people p
-            {where}""",
-        *params,
-    )
+    if q:
+        count, hidden_matches = await count_with_hidden_matches(
+            db,
+            from_clause="people p",
+            search_conditions=search_conditions,
+            params=params,
+            predicates=STATUS_PREDICATES,
+            status=status,
+        )
+    else:
+        hidden_matches = []
+        count = await db.fetchval(
+            f"""SELECT count(p.id)
+                FROM people p
+                {where}""",
+            *params,
+        )
 
     pctx = pagination_context(page, count, page_size)
     offset = (pctx["page"] - 1) * page_size
@@ -51,4 +75,4 @@ async def query_people_rows(
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
         *list_params,
     )
-    return rows, count, pctx
+    return rows, count, pctx, hidden_matches

@@ -60,7 +60,7 @@ async def client(db):
 async def _paginate_query(query_fn, /, **kwargs):
     """Enumerate row ids across all pages of an admin query helper.
 
-    query_fn(**kwargs, page=n, page_size=…) → (rows, count, pctx). Returns the
+    query_fn(**kwargs, page=n, page_size=…) → (rows, count, pctx, …). Returns the
     ordered list of row ``id`` values collected across every page.
     """
     db = kwargs.pop("db")
@@ -68,7 +68,7 @@ async def _paginate_query(query_fn, /, **kwargs):
     collected: list[str] = []
     page = 1
     while True:
-        rows, count, _ = await query_fn(db, page=page, page_size=page_size, **kwargs)
+        rows, count, *_ = await query_fn(db, page=page, page_size=page_size, **kwargs)
         collected.extend(r["id"] for r in rows)
         if page * page_size >= count:
             break

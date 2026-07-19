@@ -60,6 +60,12 @@ def test_parses_status_archived():
     assert out["status"] == "archived"
 
 
+def test_parses_status_all():
+    """#306 — `all` is a first-class status; a merge from a status=all list keeps it."""
+    out = _parse_list_filters_from_hx_current_url(_req("/admin/orgs/?status=all"))
+    assert out["status"] == "all"
+
+
 def test_unknown_status_falls_back_to_active():
     out = _parse_list_filters_from_hx_current_url(_req("/admin/orgs/?status=banana"))
     assert out["status"] == "active"

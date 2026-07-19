@@ -13,46 +13,65 @@ superseded, ``superseded`` is the still-live-but-superseded lens, and
 """
 
 from src.api.admin.deps import escape_like
+from src.api.admin.list_status import count_with_hidden_matches
 from src.api.admin.pagination import pagination_context
 
-VALID_STATUSES: set[str] = {"active", "archived", "superseded"}
+# Status → SQL predicate, in dropdown order; ``all`` (no predicate) is a
+# first-class validated status (#306).
+STATUS_PREDICATES: dict[str, str] = {
+    "active": "j.archived_at IS NULL AND j.superseded_at IS NULL",
+    "superseded": "j.archived_at IS NULL AND j.superseded_at IS NOT NULL",
+    "archived": "j.archived_at IS NOT NULL",
+}
+VALID_STATUSES: set[str] = set(STATUS_PREDICATES) | {"all"}
 
 
 async def query_jurisdictions_rows(
     db, *, q: str, status: str, type_slug: str | None, page: int, page_size: int
-) -> tuple[list, int, dict]:
+) -> tuple[list, int, dict, list[dict]]:
     """Run the jurisdictions list query under the given filter state.
 
-    Returns ``(rows, count, pctx)`` where ``pctx`` is the ``pagination_context()``
-    dict (with ``page`` clamped to the valid range). ``q`` is matched
-    case-insensitively against name and slug; ``type_slug`` filters by
-    jurisdiction type; ``status`` is one of ``VALID_STATUSES``.
+    Returns ``(rows, count, pctx, hidden_matches)`` where ``pctx`` is the
+    ``pagination_context()`` dict (with ``page`` clamped to the valid range)
+    and ``hidden_matches`` lists ``{"status", "count"}`` for search matches
+    the current status filter excludes (#306) — the counts respect the
+    ``type_slug`` filter. Empty when there is no search text or
+    ``status == "all"``. ``q`` is matched case-insensitively against name and
+    slug; an unknown ``status`` falls back to ``active`` — never to no-filter.
     """
-    conditions: list[str] = []
+    if status not in VALID_STATUSES:
+        status = "active"
+    search_conditions: list[str] = []
     params: list = []
-    if status == "active":
-        conditions.append("j.archived_at IS NULL AND j.superseded_at IS NULL")
-    elif status == "superseded":
-        conditions.append("j.archived_at IS NULL AND j.superseded_at IS NOT NULL")
-    elif status == "archived":
-        conditions.append("j.archived_at IS NOT NULL")
     if q:
         params.append(f"%{escape_like(q)}%")
-        conditions.append(
+        search_conditions.append(
             f"(j.name ILIKE ${len(params)} ESCAPE '\\' OR j.slug ILIKE ${len(params)} ESCAPE '\\')"
         )
     if type_slug:
         params.append(type_slug)
-        conditions.append(f"jt.slug = ${len(params)}")
+        search_conditions.append(f"jt.slug = ${len(params)}")
+    conditions = ([STATUS_PREDICATES[status]] if status != "all" else []) + search_conditions
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    count = await db.fetchval(
-        f"""SELECT count(j.id)
-            FROM jurisdictions j
-            JOIN jurisdiction_types jt ON jt.id = j.type_id
-            {where}""",
-        *params,
-    )
+    if q:
+        count, hidden_matches = await count_with_hidden_matches(
+            db,
+            from_clause="jurisdictions j JOIN jurisdiction_types jt ON jt.id = j.type_id",
+            search_conditions=search_conditions,
+            params=params,
+            predicates=STATUS_PREDICATES,
+            status=status,
+        )
+    else:
+        hidden_matches = []
+        count = await db.fetchval(
+            f"""SELECT count(j.id)
+                FROM jurisdictions j
+                JOIN jurisdiction_types jt ON jt.id = j.type_id
+                {where}""",
+            *params,
+        )
 
     pctx = pagination_context(page, count, page_size)
     offset = (pctx["page"] - 1) * page_size
@@ -68,4 +87,4 @@ async def query_jurisdictions_rows(
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
         *list_params,
     )
-    return rows, count, pctx
+    return rows, count, pctx, hidden_matches

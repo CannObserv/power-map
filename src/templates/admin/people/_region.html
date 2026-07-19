@@ -1,5 +1,7 @@
 {% from "admin/macros/pagination.html" import controls as pagination %}
 {% set _qs = "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode ~ "&page_size=" ~ page_size %}
+{% set show_all_url = "/admin/people/?q=" ~ q|urlencode ~ "&status=all&page_size=" ~ page_size %}
+{% include "admin/_hidden_matches.html" %}
 <div class="table-wrapper" style="position:relative">
   <table class="data-table" id="people-table">
     <caption>People — {{ total }} record{{ 's' if total != 1 else '' }}</caption>

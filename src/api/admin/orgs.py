@@ -17,7 +17,7 @@ from src.api.admin.deps import (
     resolve_query_flash,
 )
 from src.api.admin.entity_lookup import search_entities
-from src.api.admin.orgs_queries import query_orgs_rows
+from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.core.db import generate_id
 from src.core.logging import get_logger
@@ -48,8 +48,9 @@ async def orgs_list(
     db=Depends(get_db),
 ):
     """List organizations with search and status filter."""
-
-    rows, count, pctx = await query_orgs_rows(
+    if status not in VALID_STATUSES:
+        status = "active"
+    rows, count, pctx, hidden_matches = await query_orgs_rows(
         db, q=q, status=status, page=page, page_size=page_size
     )
 
@@ -63,6 +64,7 @@ async def orgs_list(
         "status": status,
         "page_size": page_size,
         "total": count,
+        "hidden_matches": hidden_matches,
         "flash_msg": flash_msg,
         **pctx,
     }

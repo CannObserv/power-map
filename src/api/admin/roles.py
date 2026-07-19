@@ -15,7 +15,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
-from src.api.admin.roles_queries import query_roles_rows
+from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
 from src.api.admin.roles_shared import fetch_role_types, positionless_seat_error
 from src.core.db import generate_id
 from src.core.role_title import synthesize_role_title
@@ -40,8 +40,9 @@ async def roles_list(
     db=Depends(get_db),
 ):
     """List roles with title/org search and status filter."""
-
-    rows, count, pctx = await query_roles_rows(
+    if status not in VALID_STATUSES:
+        status = "active"
+    rows, count, pctx, hidden_matches = await query_roles_rows(
         db, q=q, org_q=org_q, status=status, page=page, page_size=page_size
     )
 
@@ -54,6 +55,7 @@ async def roles_list(
         "status": status,
         "page_size": page_size,
         "total": count,
+        "hidden_matches": hidden_matches,
         **pctx,
     }
     template = (
