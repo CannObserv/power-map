@@ -63,40 +63,34 @@ class PromoteCandidate:
 @dataclass
 class BackfillStats:
     promoted: int = 0  # names promoted to canonical
-    blocked: int = 0  # every candidate's slot held by a non-public canonical
     multi_name: int = 0  # promoted people who had >1 eligible name (priority decided)
     dry_run: bool = True
     promoted_ids: list[str] = field(default_factory=list)
-    blocked_ids: list[str] = field(default_factory=list)
 
 
-# One SQL ladder, shared with core.observation, which is in turn asserted against
-# v_person_display_names (#308, CR3 #26). Selection here must agree with the heal
-# pass — otherwise the backfill defers a choice the next observation makes anyway,
-# and the two paths can disagree about which name a person displays.
+# One SQL ladder, shared with core.observation (#308, CR3 #26). Selection here
+# must agree with the heal pass — otherwise the backfill defers a choice the next
+# observation makes anyway, and the two paths can disagree about which name a
+# person displays.
+#
+# No slot-availability term is needed: uq_person_canonical_name is keyed on
+# (person_id) and chk_person_canonical_is_public guarantees a canonical row is
+# visible, so "this person has no canonical row" is exactly "this person is
+# blank and promotable". The `blocked` bucket the earlier per-family key required
+# is gone with it.
 _PROMOTABLE_SQL = f"""
 SELECT n.person_id,
        n.id   AS name_id,
        n.name,
        n.name_type,
-       {_NAME_TYPE_PRIORITY_SQL.replace("name_type", "n.name_type")} AS rank,
-       NOT EXISTS (
-           SELECT 1 FROM person_names x
-           WHERE x.person_id = n.person_id
-             AND x.is_canonical = TRUE
-             AND x.name_type = n.name_type
-             AND COALESCE(x.locale, '') = COALESCE(n.locale, '')
-             AND COALESCE(x.script, '') = COALESCE(n.script, '')
-       ) AS slot_free
+       {_NAME_TYPE_PRIORITY_SQL.replace("name_type", "n.name_type")} AS rank
 FROM person_names n
 WHERE n.visibility = 'public'
   AND n.is_canonical = FALSE
   AND n.name_type <> ALL($1::text[])
   AND NOT EXISTS (
       SELECT 1 FROM person_names c
-      WHERE c.person_id = n.person_id
-        AND c.is_canonical = TRUE
-        AND c.visibility = 'public'
+      WHERE c.person_id = n.person_id AND c.is_canonical = TRUE
   )
 """
 
@@ -109,15 +103,11 @@ async def find_candidates(db: asyncpg.Connection) -> list[PromoteCandidate]:
     them for a human only delayed the same decision while hiding it from the
     operator. Ties break on `id`, matching the heal and the display view.
 
-    Excludes people whose every candidate sits in an occupied unique-index slot —
-    promoting those raises UniqueViolationError, and since the run is one
-    savepoint that would roll back every other promotion.
     """
     rows = await db.fetch(
         f"""
         SELECT DISTINCT ON (person_id) person_id, name_id, name, name_type
         FROM ({_PROMOTABLE_SQL}) p
-        WHERE slot_free
         ORDER BY person_id, rank, name_id
         """,
         list(NO_AUTO_CANONICAL_NAME_TYPES),
@@ -133,27 +123,6 @@ async def find_candidates(db: asyncpg.Connection) -> list[PromoteCandidate]:
     ]
 
 
-async def find_blocked(db: asyncpg.Connection) -> list[str]:
-    """Canonical-less people with eligible names but no free slot among them.
-
-    Disjoint from `find_candidates` by construction (#308, CR3 #18): a person with
-    even one free-slot candidate is promotable and is not reported here.
-    Unrepairable by promotion — freeing the slot means demoting a curated
-    non-public canonical, which is a human decision, not a script's.
-    """
-    rows = await db.fetch(
-        f"""
-        SELECT person_id
-        FROM ({_PROMOTABLE_SQL}) p
-        GROUP BY person_id
-        HAVING bool_and(NOT slot_free)
-        ORDER BY person_id
-        """,
-        list(NO_AUTO_CANONICAL_NAME_TYPES),
-    )
-    return [r["person_id"] for r in rows]
-
-
 async def count_multi_name(db: asyncpg.Connection) -> int:
     """Promotable people carrying >1 eligible name — reported, not skipped."""
     return await db.fetchval(
@@ -161,7 +130,7 @@ async def count_multi_name(db: asyncpg.Connection) -> int:
         SELECT count(*) FROM (
             SELECT person_id FROM ({_PROMOTABLE_SQL}) p
             GROUP BY person_id
-            HAVING count(*) FILTER (WHERE slot_free) > 1
+            HAVING count(*) > 1
         ) s
         """,
         list(NO_AUTO_CANONICAL_NAME_TYPES),
@@ -178,13 +147,8 @@ async def run_backfill(
     Atomic — any error rolls back the whole run. ``dry_run=True`` rolls back even
     on success, so the printed counts reflect exactly what ``--execute`` would do.
 
-    Because the run is all-or-nothing, candidate selection must exclude anything
-    that could raise: `find_candidates` filters out occupied slots (counted as
-    ``blocked``) so one unrepairable person cannot abort every other promotion.
     """
     stats = BackfillStats(dry_run=dry_run)
-    stats.blocked_ids = await find_blocked(db)
-    stats.blocked = len(stats.blocked_ids)
     stats.multi_name = await count_multi_name(db)
 
     sp = db.transaction()
@@ -238,9 +202,6 @@ async def _main() -> None:
     print(f"\n[{mode}] person canonical-name backfill (#308c):")
     print(f"  names promoted:      {result.promoted}")
     print(f"    of which >1 name:  {result.multi_name} (display priority decided)")
-    print(f"  blocked (skipped):   {result.blocked}")
-    if result.blocked:
-        print("  → canonical slot held by a non-public name; demote it in admin first.")
     if result.dry_run:
         print("\nRe-run with --execute to apply changes.")
 

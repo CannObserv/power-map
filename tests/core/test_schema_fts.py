@@ -280,7 +280,12 @@ async def test_person_search_tsv_updates_when_visibility_changes_to_hidden(db):
     )
     assert row["match"] is True
 
-    await db.execute("UPDATE person_names SET visibility = 'hidden' WHERE id = $1", nid)
+    # chk_person_canonical_is_public (#308): the display pointer must stay
+    # visible, so hiding a name means demoting it in the same statement.
+    await db.execute(
+        "UPDATE person_names SET visibility = 'hidden', is_canonical = FALSE WHERE id = $1",
+        nid,
+    )
     row = await db.fetchrow(
         "SELECT search_tsv @@ plainto_tsquery('pm_unaccent_simple', 'nowhidden') AS match "
         "FROM people WHERE id = $1",

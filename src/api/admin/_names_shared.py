@@ -246,6 +246,27 @@ def make_names_router(
             return f"Invalid name_type {value!r}. Choose a value from the dropdown."
         return None
 
+    def _validate_canonical_visibility(is_canonical: str, vis: str | None) -> str | None:
+        """Reject "canonical *and* not public" before the DB does (#308).
+
+        `is_canonical` is the display pointer and `v_person_display_names`
+        filters to `visibility='public'`, so a canonical `legal_only`/`hidden`
+        row would render the person blank while occupying their only display
+        slot. `chk_person_canonical_is_public` forbids it; catching it here turns
+        a raw CheckViolationError 500 into a friendly 422 / flash that names the
+        two fields the user needs to change.
+
+        Orgs pass `vis=None` (organization_names has no visibility column), so
+        this is a no-op for them.
+        """
+        if is_canonical == "true" and vis is not None and vis != "public":
+            return (
+                f"A canonical name must be public — it is the name shown for this"
+                f" record. Set visibility to 'public', or uncheck canonical to keep"
+                f" this name {vis!r}."
+            )
+        return None
+
     async def _insert_name(
         db,
         *,
@@ -503,6 +524,9 @@ def make_names_router(
         nt_err = _validate_name_type(name_type)
         if nt_err is not None:
             return _form_error_response(nt_err, request)
+        cv_err = _validate_canonical_visibility(is_canonical, vis)
+        if cv_err is not None:
+            return _form_error_response(cv_err, request)
         if rof is not None:
             err = await _validate_reading_of_target(
                 db,
@@ -719,6 +743,9 @@ def make_names_router(
         nt_err = _validate_name_type(name_type)
         if nt_err is not None:
             return _form_error_response(nt_err, request)
+        cv_err = _validate_canonical_visibility(is_canonical, vis)
+        if cv_err is not None:
+            return _form_error_response(cv_err, request)
         if rof is not None:
             err = await _validate_reading_of_target(
                 db,

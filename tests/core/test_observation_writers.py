@@ -1,7 +1,6 @@
 """Integration tests for src.core.observation per-surface writers."""
 
 import hashlib
-import logging
 import os
 from datetime import date
 
@@ -170,9 +169,11 @@ async def test_write_names_person_canonical_hint_no_displace(db, api_key_id):
         "SELECT name, is_canonical FROM person_names WHERE person_id=$1 ORDER BY created_at",
         pid,
     )
-    # Both should be canonical: different name_types have separate canonical slots
+    # One canonical slot per person (#308, Option A). The earlier per-name_type
+    # key let both rows be canonical at once, which is what forced
+    # v_person_display_names to disambiguate. A later hint never displaces.
     assert rows[0]["is_canonical"] is True
-    assert rows[1]["is_canonical"] is True
+    assert rows[1]["is_canonical"] is False
 
 
 async def test_write_names_person_canonical_hint_same_type_no_displace(db, api_key_id):
@@ -549,90 +550,10 @@ async def test_write_names_person_hinted_guard_suppresses_same_slot(db, api_key_
     assert by_name["山田太郎"] is True
 
 
-async def _sealed_person(db):
-    """Person whose (legal, NULL, NULL) canonical slot is held by a legal_only row."""
-    pid = generate_id()
-    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
-    await db.execute(
-        "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
-        " is_canonical) VALUES ($1, $2, 'Sealed Name', 'legal', 'legal_only', TRUE)",
-        generate_id(),
-        pid,
-    )
-    return pid
-
-
-async def test_write_names_person_blocked_slot_lands_name_unpromoted(db, api_key_id):
-    """The insert fallback: guard passes, index rejects, name still lands."""
-    pid = await _sealed_person(db)
-    await write_names(
-        db,
-        pid,
-        "person",
-        api_key_id,
-        [ObservationPersonName(name="Public Name", name_type="legal")],
-    )
-    by_name = {
-        r["name"]: r["is_canonical"]
-        for r in await db.fetch(
-            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
-        )
-    }
-    # The observation is never lost — that is the fallback's whole job.
-    assert by_name["Public Name"] is False
-    assert by_name["Sealed Name"] is True
-
-
-async def test_write_names_person_blocked_slot_warns(db, api_key_id, caplog):
-    """A person left blank by a blocked slot must be findable, not silent."""
-    pid = await _sealed_person(db)
-    with caplog.at_level(logging.WARNING, logger="src.core.observation"):
-        await write_names(
-            db,
-            pid,
-            "person",
-            api_key_id,
-            [ObservationPersonName(name="Public Name", name_type="legal")],
-        )
-    assert any(pid in r.getMessage() for r in caplog.records), (
-        "blocked canonical slot must emit a WARNING naming the person"
-    )
-    assert (
-        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
-        is None
-    )
-
-
-async def test_write_names_person_blocked_slot_does_not_displace(db, api_key_id):
-    """Conservative stance: the non-public canonical is never demoted."""
-    pid = await _sealed_person(db)
-    await write_names(
-        db,
-        pid,
-        "person",
-        api_key_id,
-        [ObservationPersonName(name="Public Name", name_type="legal")],
-    )
-    assert await db.fetchval(
-        "SELECT is_canonical FROM person_names WHERE person_id=$1 AND name='Sealed Name'",
-        pid,
-    )
-
-
-async def test_write_names_person_blocked_slot_other_name_type_heals(db, api_key_id):
-    """A blocked `legal` slot does not block a different name_type."""
-    pid = await _sealed_person(db)
-    await write_names(
-        db,
-        pid,
-        "person",
-        api_key_id,
-        [ObservationPersonName(name="Publius", name_type="preferred")],
-    )
-    assert (
-        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
-        == "Publius"
-    )
+# The former "blocked slot" scenario — a non-public canonical occupying the
+# person's display slot — is unreachable under Option A (#308):
+# chk_person_canonical_is_public rejects it at write time. Its coverage lives in
+# tests/core/test_schema_person_canonical.py, which asserts the constraint fires.
 
 
 # --- heal is skipped when the write already promoted (#308, CR round 2 #11) --
@@ -1805,29 +1726,3 @@ async def test_heal_survives_concurrent_slot_claim(db, api_key_id):
     await _heal_person_canonical(_ViolatingConn(db), pid)
     # The enclosing transaction must still be usable — that is the whole point.
     assert await db.fetchval("SELECT 1") == 1
-
-
-async def test_write_names_person_blocked_slot_still_writes_parts(db, api_key_id):
-    """#27: the fallback retry must persist structured parts too.
-
-    The retry re-inserts the row after the savepoint rolled back, so its parts
-    write is a separate code path from the happy one and was uncovered.
-    """
-    pid = await _sealed_person(db)
-    parts = ObservationPersonNameParts(given_names=["Public"], family_names=["Name"])
-    await write_names(
-        db,
-        pid,
-        "person",
-        api_key_id,
-        [ObservationPersonName(name="Public Name", name_type="legal", parts=parts)],
-    )
-    row = await db.fetchrow(
-        "SELECT pnp.given_names, pnp.family_names FROM person_names pn"
-        " JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
-        " WHERE pn.person_id=$1 AND pn.name='Public Name'",
-        pid,
-    )
-    assert row is not None, "parts lost on the blocked-slot fallback path"
-    assert list(row["given_names"]) == ["Public"]
-    assert list(row["family_names"]) == ["Name"]

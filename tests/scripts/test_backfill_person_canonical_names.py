@@ -175,56 +175,10 @@ async def test_run_backfill_emits_entity_change_for_subscribers(conn):
     assert after > before
 
 
-# --- blocked-slot bucket (#308, CR round 2 finding 9) ----------------------
-# A person whose best candidate's canonical slot is held by a non-public row
-# cannot be repaired by promotion — the unique index rejects it. These must be
-# reported, not silently counted as "nothing to do".
-
-
-async def _sealed_person(conn):
-    """Public name present, but a legal_only canonical holds the (legal,,) slot."""
-    pid = await _person(conn)
-    await _name(conn, pid, "Sealed Name", visibility="legal_only", is_canonical=True)
-    await _name(conn, pid, "Public Name", visibility="public")
-    return pid
-
-
-async def test_find_candidates_excludes_blocked_person(conn):
-    """Promotion would violate uq_person_canonical_name — not a candidate."""
-    pid = await _sealed_person(conn)
-    assert pid not in {c.person_id for c in await find_candidates(conn)}
-
-
-async def test_run_backfill_counts_blocked(conn):
-    await _sealed_person(conn)
-    stats = await run_backfill(conn, dry_run=True)
-    assert stats.blocked >= 1
-
-
-async def test_run_backfill_does_not_crash_on_blocked(conn):
-    """The whole run must not abort on an unrepairable person."""
-    blocked_pid = await _sealed_person(conn)
-    healthy_pid = await _person(conn)
-    await _name(conn, healthy_pid, "Greg Cheney")
-    stats = await run_backfill(conn, dry_run=False)
-    assert stats.promoted >= 1
-    assert await conn.fetchval(
-        "SELECT is_canonical FROM person_names WHERE person_id=$1 AND name='Greg Cheney'",
-        healthy_pid,
-    )
-    assert (
-        await conn.fetchval(
-            "SELECT display_name FROM v_person_display_names WHERE person_id=$1",
-            blocked_pid,
-        )
-        is None
-    )
-
-
-# --- CR round 3 #26: ambiguity is resolved by the priority ladder ------------
-# The heal promotes the top-priority name on the next observation anyway, so
-# deferring multi-name people to a human was an illusory deferral — the decision
-# just got made later, by a different code path, with no operator visibility.
+# The `blocked` bucket is gone (#308, Option A): uq_person_canonical_name is
+# keyed on (person_id) and chk_person_canonical_is_public guarantees a canonical
+# row is visible, so a non-public row can no longer occupy a person's display
+# slot. tests/core/test_schema_person_canonical.py asserts the constraint fires.
 
 
 async def test_find_candidates_resolves_multi_name_by_priority(conn):
@@ -265,21 +219,14 @@ async def test_backfill_matches_heal_choice(conn):
     assert await conn.fetchval(q, pid_backfill) == await conn.fetchval(q, pid_heal)
 
 
-async def test_run_backfill_buckets_are_disjoint(conn):
-    """#18: a person must not be counted in two buckets at once."""
+async def test_backfill_leaves_at_most_one_canonical_per_person(conn):
     pid = await _person(conn)
-    await _name(conn, pid, "Sealed", visibility="legal_only", is_canonical=True)
-    await _name(conn, pid, "Pub A", name_type="legal")
-    await _name(conn, pid, "Pub B", name_type="alias")
-    stats = await run_backfill(conn, dry_run=True)
-    # Pub B (alias) has a free slot, so this person is promotable, not blocked.
-    assert pid in {c.person_id for c in await find_candidates(conn)}
-    assert pid not in stats.blocked_ids
-
-
-async def test_run_backfill_blocked_only_when_no_free_candidate(conn):
-    pid = await _person(conn)
-    await _name(conn, pid, "Sealed", visibility="legal_only", is_canonical=True)
-    await _name(conn, pid, "Pub A", name_type="legal")
-    stats = await run_backfill(conn, dry_run=True)
-    assert pid in stats.blocked_ids
+    await _name(conn, pid, "Alice Smith", name_type="legal")
+    await _name(conn, pid, "Alice", name_type="preferred")
+    await run_backfill(conn, dry_run=False)
+    assert (
+        await conn.fetchval(
+            "SELECT count(*) FROM person_names WHERE person_id=$1 AND is_canonical", pid
+        )
+        == 1
+    )

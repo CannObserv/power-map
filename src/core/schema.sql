@@ -262,6 +262,20 @@ CREATE TABLE IF NOT EXISTS person_names (
     sort_as             TEXT,                       -- explicit collation key; NULL → use `name`
     visibility          TEXT NOT NULL DEFAULT 'public'
                         CHECK (visibility IN ('public','legal_only','hidden')),
+    -- Name-family edge (#121). Points a `reading` (furigana) or `romanization`
+    -- (pinyin, romaji) row at the name row it renders. This is how PM models
+    -- "these two rows are the same name written differently" — an explicit FK
+    -- between rows, NOT an implied grouping of rows that happen to share
+    -- (name_type, locale, script).
+    --
+    -- Load-bearing for #308: because families are edges, narrowing
+    -- uq_person_canonical_name to (person_id) costs nothing. A Japanese legal
+    -- name and its romaji rendering are two rows joined by reading_of_id, of
+    -- two different name_types, of which exactly one is the display pointer —
+    -- which is the correct answer and was never expressible by "one canonical
+    -- per (name_type, locale, script)".
+    --
+    -- ON DELETE CASCADE: a reading cannot outlive the name it reads.
     reading_of_id       TEXT REFERENCES person_names(id) ON DELETE CASCADE,
 
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -897,24 +911,94 @@ DO $$ BEGIN
     );
 END $$;
 
--- Re-key uq_person_canonical_name on (person_id, name_type, locale, script).
--- Drop the old index only if it lacks COALESCE (i.e. is the pre-#121 form),
--- then create the new shape (CR#1 fix: CREATE inside the block, after the DROP,
--- so a single apply_schema run completes the swap; the table-definition-site
--- CREATE is a no-op on existing DBs because the old index occupies the name).
-DO $$ BEGIN
+-- Re-key uq_person_canonical_name on (person_id) alone (issue #308).
+--
+-- `is_canonical` is the **display pointer**: the one name PM shows for a person.
+-- Keying it per (name_type, locale, script) — the #121 shape — let one person
+-- hold several canonical rows at once, so `v_person_display_names` had to pick
+-- among them, and a canonical row in one slot could block promotion in another.
+-- Nothing consumed the per-family meaning: every read in the codebase is either
+-- `ORDER BY is_canonical DESC` (show the main name first) or a wholesale demote
+-- on merge, and the admin promote path has always demoted person-wide.
+--
+-- This mirrors uq_org_canonical_name, which was narrowed from
+-- (organization_id, name_type) to (organization_id) for exactly this reason.
+--
+-- Name *families* are unaffected: a reading/romanization is linked to its source
+-- row by the reading_of_id FK, not by sharing a canonical slot. See the
+-- reading_of_id column comment on person_names.
+--
+-- Surplus canonicals are demoted deterministically before the index is built:
+-- keep a public row over a non-public one, then the best display name_type, then
+-- the lowest id. Production held zero such rows at 2026-07-19; this is a
+-- safety net for dev/test databases.
+DO $$
+DECLARE
+    demoted INTEGER;
+BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_indexes
-        WHERE indexname='uq_person_canonical_name'
-          AND indexdef NOT LIKE '%COALESCE%'
+        WHERE indexname = 'uq_person_canonical_name'
+          AND indexdef NOT LIKE '%(person_id)%WHERE%'
     ) THEN
+        WITH ranked AS (
+            SELECT id,
+                   row_number() OVER (
+                       PARTITION BY person_id
+                       ORDER BY (visibility = 'public') DESC,
+                                CASE name_type
+                                    WHEN 'preferred' THEN 1 WHEN 'legal'    THEN 2
+                                    WHEN 'alias'     THEN 3 WHEN 'stage'    THEN 4
+                                    WHEN 'religious' THEN 5 WHEN 'maiden'   THEN 6
+                                    WHEN 'variant'   THEN 7 WHEN 'former'   THEN 8
+                                    WHEN 'initials'  THEN 9 ELSE 99
+                                END,
+                                id
+                   ) AS rn
+            FROM person_names
+            WHERE is_canonical = TRUE
+        )
+        UPDATE person_names SET is_canonical = FALSE
+        WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
+        GET DIAGNOSTICS demoted = ROW_COUNT;
+        IF demoted > 0 THEN
+            RAISE NOTICE 'uq_person_canonical_name re-key: demoted % surplus canonical person_names row(s)', demoted;
+        END IF;
         DROP INDEX uq_person_canonical_name;
     END IF;
 END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
-    ON person_names(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))
+    ON person_names(person_id)
     WHERE is_canonical = TRUE;
+
+-- The display pointer must be displayable (issue #308).
+--
+-- v_person_display_names filters to visibility='public', so a canonical row that
+-- is legal_only or hidden renders the person blank *and* occupies the only
+-- canonical slot — unreachable state, silently. The CHECK makes it an error at
+-- write time instead. It also closes the deadname path structurally:
+-- trg_deadname_visibility rewrites a deadname row to legal_only BEFORE INSERT,
+-- so `is_canonical = TRUE` on a deadname now fails loudly rather than sealing
+-- the person's display slot with an invisible row.
+DO $$
+DECLARE
+    demoted INTEGER;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'chk_person_canonical_is_public'
+    ) THEN
+        UPDATE person_names SET is_canonical = FALSE
+        WHERE is_canonical = TRUE AND visibility <> 'public';
+        GET DIAGNOSTICS demoted = ROW_COUNT;
+        IF demoted > 0 THEN
+            RAISE NOTICE 'chk_person_canonical_is_public: demoted % non-public canonical row(s)', demoted;
+        END IF;
+        ALTER TABLE person_names ADD CONSTRAINT chk_person_canonical_is_public
+            CHECK (NOT is_canonical OR visibility = 'public');
+    END IF;
+END $$;
 
 -- Recreate v_person_display_names with the visibility-aware filter, now that
 -- the per-column DO blocks above have added `visibility` to person_names.
@@ -923,23 +1007,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
 -- time so locale-aware diacritic ordering applies (ICU "und" puts Å near A,
 -- not after Z as ASCII does).
 --
--- DISTINCT ON (#308a): `is_canonical` is scoped per
--- (person_id, name_type, locale, script) by uq_person_canonical_name, so one
--- person may legitimately carry several canonical rows — a `legal` and a
--- `preferred`, or an `en`/`Latn` and a `ja`/`Jpan` rendering of the same legal
--- name. The view is the *display* pointer and must emit exactly one row per
--- person, else every list query joining it duplicates that person. Pick a
--- winner deterministically: name_type priority first, then n.id as a stable
--- unique tie-break (never ties, so the choice is reproducible across runs).
+-- One row per person by construction (issue #308): uq_person_canonical_name is
+-- keyed on (person_id) alone and chk_person_canonical_is_public guarantees the
+-- canonical row is visible, so there is nothing to disambiguate. The earlier
+-- form needed DISTINCT ON plus a name_type priority ladder to pick among the
+-- several canonical rows the per-family key allowed; both are gone.
 --
--- Priority rationale: `preferred` is what the person asks to be called and
--- outranks `legal`. Machine-readable renderings (romanization/reading/mrz)
--- and `deadname` sort last — they are display candidates only when nothing
--- else exists, and `deadname` is additionally unreachable here because
--- trg_deadname_visibility forces it to legal_only.
+-- The visibility filter is retained as belt-and-braces. It is redundant against
+-- the CHECK, but keeps the view correct if that constraint is ever relaxed.
 CREATE OR REPLACE VIEW v_person_display_names AS
-SELECT DISTINCT ON (p.id)
-       p.id AS person_id,
+SELECT p.id AS person_id,
        n.name AS display_name,
        COALESCE(n.sort_as, n.name) AS sort_key
 FROM people p
@@ -947,24 +1024,6 @@ LEFT JOIN person_names n
     ON n.person_id = p.id
    AND n.is_canonical = TRUE
    AND n.visibility = 'public'
-ORDER BY p.id,
-         CASE n.name_type
-             WHEN 'preferred'   THEN 1
-             WHEN 'legal'       THEN 2
-             WHEN 'alias'       THEN 3
-             WHEN 'stage'       THEN 4
-             WHEN 'religious'   THEN 5
-             WHEN 'maiden'      THEN 6
-             WHEN 'variant'     THEN 7
-             WHEN 'former'      THEN 8
-             WHEN 'initials'    THEN 9
-             WHEN 'romanization' THEN 10
-             WHEN 'reading'     THEN 11
-             WHEN 'mrz'         THEN 12
-             WHEN 'deadname'    THEN 13
-             ELSE 14
-         END,
-         n.id
 ;
 
 -- Phase 2-prep (#123): bind person_names.locale → bcp47_locales(code)

@@ -120,9 +120,12 @@ async def test_apply_schema_drops_vestigial_visibility_checks(db_pool):
                 """
             )
             names = sorted(r["conname"] for r in rows)
-            assert names == ["person_names_visibility_check"], (
-                f"Expected exactly one visibility CHECK; got {names}"
-            )
+            # chk_person_canonical_is_public also references `visibility` (#308):
+            # the canonical row must be public. It is expected, not vestigial.
+            assert names == [
+                "chk_person_canonical_is_public",
+                "person_names_visibility_check",
+            ], f"Unexpected visibility CHECK constraints; got {names}"
         finally:
             # Defensive cleanup in case the test failed before re-apply_schema.
             await conn.execute(
@@ -455,24 +458,49 @@ async def test_person_names_rejects_unknown_name_type(db):
 # --- Task 3: canonical-uniqueness keyed on (locale, script) ---
 
 
-async def test_canonical_unique_per_locale_script(db):
-    """Two canonical legal names with different scripts coexist."""
+async def test_second_script_variant_is_not_a_second_canonical(db):
+    """Two scripts of one name are an FK edge, not two canonical rows (#308).
+
+    The old key `(person_id, name_type, locale, script)` let a Hant `legal` and a
+    Latn `legal` both be canonical, which is what made the display name
+    ambiguous. The right model is one canonical row plus a `romanization` row
+    pointing at it via `reading_of_id`.
+    """
     pid = await _person(db)
+    hant = generate_id()
     await db.execute(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, script)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'Hant')",
-        generate_id(),
+        hant,
         pid,
         "毛澤東",
     )
+    # A second canonical `legal` row differing only by script is now rejected.
+    with pytest.raises(asyncpg.UniqueViolationError):
+        async with db.transaction():
+            await db.execute(
+                "INSERT INTO person_names "
+                "(id, person_id, name, name_type, is_canonical, script)"
+                " VALUES ($1, $2, $3, 'legal', TRUE, 'Latn')",
+                generate_id(),
+                pid,
+                "Mao Zedong",
+            )
+
+    # Model it as a romanization linked to the canonical row instead.
     await db.execute(
         "INSERT INTO person_names "
-        "(id, person_id, name, name_type, is_canonical, script)"
-        " VALUES ($1, $2, $3, 'legal', TRUE, 'Latn')",
+        "(id, person_id, name, name_type, is_canonical, script, reading_of_id)"
+        " VALUES ($1, $2, $3, 'romanization', FALSE, 'Latn', $4)",
         generate_id(),
         pid,
         "Mao Zedong",
+        hant,
+    )
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        == "毛澤東"
     )
 
 
@@ -585,11 +613,16 @@ async def test_non_deadname_public_unchanged(db):
 
 
 async def test_view_excludes_legal_only(db):
+    """A person whose only name is legal_only displays nothing.
+
+    Under #308 such a row cannot also be canonical (chk_person_canonical_is_public),
+    so the person simply has no display pointer.
+    """
     pid = await _person(db)
     await db.execute(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, visibility)"
-        " VALUES ($1, $2, $3, 'legal', TRUE, 'legal_only')",
+        " VALUES ($1, $2, $3, 'legal', FALSE, 'legal_only')",
         generate_id(),
         pid,
         "Legal-Only Name",
@@ -605,7 +638,7 @@ async def test_view_excludes_hidden(db):
     await db.execute(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, visibility)"
-        " VALUES ($1, $2, $3, 'legal', TRUE, 'hidden')",
+        " VALUES ($1, $2, $3, 'legal', FALSE, 'hidden')",
         generate_id(),
         pid,
         "Hidden",
@@ -646,7 +679,7 @@ async def test_view_prefers_public_over_legal_only(db):
     await db.execute(
         "INSERT INTO person_names "
         "(id, person_id, name, name_type, is_canonical, visibility, script)"
-        " VALUES ($1, $2, $3, 'former', TRUE, 'legal_only', 'Latn')",
+        " VALUES ($1, $2, $3, 'former', FALSE, 'legal_only', 'Latn')",
         generate_id(),
         pid,
         "OldName",

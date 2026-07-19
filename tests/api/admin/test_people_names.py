@@ -404,7 +404,7 @@ async def test_create_new_name_persists_metadata_fields(client, person_only, db)
             "name": "María García",
             "name_type": "legal",
             "is_canonical": "true",
-            "visibility": "legal_only",
+            "visibility": "public",
             "locale": "es-MX",
             "script": "Latn",
             "sort_as": "García María",
@@ -414,7 +414,7 @@ async def test_create_new_name_persists_metadata_fields(client, person_only, db)
     assert resp.status_code == 200, resp.text
     row = await _fetch_canonical_name(db, pid)
     assert row is not None
-    assert row["visibility"] == "legal_only"
+    assert row["visibility"] == "public"
     assert row["locale"] == "es-MX"
     assert row["script"] == "Latn"
     assert row["sort_as"] == "García María"
@@ -471,3 +471,25 @@ async def test_promote_sole_name_skips_non_public_visibility(db):
     await _add_raw_name(db, pid, "Sealed Name", "legal", "legal_only")
     await _maybe_promote_sole_name(pid, db)
     assert not await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+
+
+async def test_create_canonical_non_public_rejected(client, person_only, db):
+    """#308: a canonical name must be public — flash + no write, not a 500.
+
+    chk_person_canonical_is_public rejects the combination at the DB; the form
+    validator catches it first so the admin sees which fields to change.
+    """
+    pid = person_only["pid"]
+    resp = await client.post(
+        f"/admin/people/{pid}/names/",
+        data={
+            "name": "Sealed Name",
+            "name_type": "legal",
+            "is_canonical": "true",
+            "visibility": "legal_only",
+        },
+        headers=HTMX_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert "HX-Trigger" in resp.headers
+    assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 0

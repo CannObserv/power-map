@@ -146,7 +146,43 @@ async def test_create_defaults_visibility_to_public(client, person_and_name, db)
 
 
 async def test_edit_persists_visibility(client, person_and_name, db):
+    """Visibility persists on a non-canonical row.
+
+    The canonical row itself can no longer be sealed (#308,
+    chk_person_canonical_is_public), so this exercises a second, non-canonical
+    name — which is the realistic shape anyway: you seal a former/legal-only
+    name, not the one being displayed.
+    """
+    pid, _canonical_nid = person_and_name
+    nid = generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, 'Second Name', 'former', FALSE)",
+        nid,
+        pid,
+    )
+    r = await client.post(
+        f"/admin/people/{pid}/names/{nid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "name": "Second Name",
+            "name_type": "former",
+            "is_canonical": "false",
+            "visibility": "legal_only",
+        },
+    )
+    assert r.status_code == 200
+    assert await _fetch_visibility(db, pid, nid) == "legal_only"
+
+
+async def test_edit_canonical_non_public_rejected(client, person_and_name, db):
+    """#308: keeping a name canonical while sealing it is a contradiction.
+
+    HTMX clients get a 200 + flash rather than a 422; either way the write must
+    not land, and the row keeps its previous visibility.
+    """
     pid, nid = person_and_name
+    before = await _fetch_visibility(db, pid, nid)
     r = await client.post(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
         headers=HTMX_HEADERS,
@@ -158,7 +194,8 @@ async def test_edit_persists_visibility(client, person_and_name, db):
         },
     )
     assert r.status_code == 200
-    assert await _fetch_visibility(db, pid, nid) == "legal_only"
+    assert "HX-Trigger" in r.headers
+    assert await _fetch_visibility(db, pid, nid) == before
 
 
 # ---- invalid visibility rejected with 422 --------------------------------
