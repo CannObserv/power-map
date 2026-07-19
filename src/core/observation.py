@@ -105,8 +105,11 @@ def _person_name_insert_sql(canonical_expr: str) -> str:
     """Build the person_names INSERT with ``canonical_expr`` as the is_canonical value.
 
     Callers pass either a guarded ``($9 AND <guard>)`` expression or the literal
-    ``FALSE`` (concurrency fallback, which also drops the $9 argument). Built in
+    ``FALSE`` (blocked-slot fallback, which also drops the $9 argument). Built in
     one place so the two forms cannot drift out of sync with their arg tuples.
+
+    Returns ``is_canonical`` so the caller knows whether the slot was actually
+    claimed without spending a second round trip to find out.
     """
     return (
         "INSERT INTO person_names"
@@ -114,7 +117,64 @@ def _person_name_insert_sql(canonical_expr: str) -> str:
         "  visibility, source_key_id, is_canonical)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8,"
         f"   {canonical_expr})"
+        " RETURNING is_canonical"
     )
+
+
+# Heal query (#308). One statement, one round trip, no savepoint.
+#
+# The UPDATE's guard is keyed on the *unique-index* key
+# (person_id, name_type, COALESCE(locale,''), COALESCE(script,'')) rather than a
+# person-wide check, so uq_person_canonical_name can never reject it — which is
+# what lets the savepoint go. Against a remote DB a savepoint costs two extra
+# round trips (measured ~12ms each), paid on every person observation, to guard
+# an exception this shape makes structurally impossible.
+#
+# It also reports its own outcome so a person left blank by an occupied slot can
+# be logged rather than silently skipped: `displays` (already fine),
+# `candidate_id` (best promotable row, NULL when none), `is_blocked` (a canonical
+# row — typically non-public — already holds that row's slot), `healed`.
+_HEAL_PERSON_CANONICAL_SQL = f"""
+WITH state AS (
+    SELECT EXISTS (
+        SELECT 1 FROM person_names
+        WHERE person_id = $1 AND is_canonical = TRUE AND visibility = 'public'
+    ) AS displays
+),
+cand AS (
+    SELECT id, name_type,
+           COALESCE(locale, '') AS loc,
+           COALESCE(script, '') AS scr
+    FROM person_names
+    WHERE person_id = $1
+      AND visibility = 'public'
+      AND is_canonical = FALSE
+      AND name_type <> ALL($2::text[])
+    ORDER BY {_NAME_TYPE_PRIORITY_SQL}, id
+    LIMIT 1
+),
+blocked AS (
+    SELECT EXISTS (
+        SELECT 1 FROM person_names x JOIN cand c ON TRUE
+        WHERE x.person_id = $1
+          AND x.is_canonical = TRUE
+          AND x.name_type = c.name_type
+          AND COALESCE(x.locale, '') = c.loc
+          AND COALESCE(x.script, '') = c.scr
+    ) AS is_blocked
+),
+upd AS (
+    UPDATE person_names SET is_canonical = TRUE
+    WHERE id = (SELECT id FROM cand)
+      AND NOT (SELECT displays FROM state)
+      AND NOT (SELECT is_blocked FROM blocked)
+    RETURNING id
+)
+SELECT (SELECT displays FROM state)      AS displays,
+       (SELECT id FROM cand)             AS candidate_id,
+       (SELECT is_blocked FROM blocked)  AS is_blocked,
+       (SELECT count(*) FROM upd)::int   AS healed
+"""
 
 
 async def _heal_person_canonical(conn, person_id: str) -> None:
@@ -124,40 +184,33 @@ async def _heal_person_canonical(conn, person_id: str) -> None:
     canonical-less state is re-observed with the same names on every sync, hits
     the exact-match dedup in ``write_names``, and would otherwise stay blank
     forever. This makes the observation path self-healing, so the #308c backfill
-    stays a one-off rather than the only repair route.
+    stays a one-off rather than the only repair route. Also runs for observations
+    that carry no names at all, so any observation touching a blank person repairs
+    it.
 
     Picks by the same name_type priority the display view uses, tie-broken by id.
     No-op when the person already displays, or when no eligible name exists (a
     person carrying only a deadname stays deliberately blank).
+
+    When the best candidate's canonical slot is already held by a non-public row
+    (e.g. an admin-curated `legal_only` name), PM deliberately does **not**
+    displace it — demotion is a curation decision. That leaves the person
+    rendering blank, so it is logged at WARNING with the person_id rather than
+    passing silently.
     """
-    try:
-        async with conn.transaction():
-            await conn.execute(
-                f"""
-                UPDATE person_names SET is_canonical = TRUE
-                WHERE id = (
-                    SELECT id FROM person_names
-                    WHERE person_id = $1
-                      AND visibility = 'public'
-                      AND is_canonical = FALSE
-                      AND name_type <> ALL($2::text[])
-                    ORDER BY {_NAME_TYPE_PRIORITY_SQL}, id
-                    LIMIT 1
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM person_names
-                    WHERE person_id = $1 AND is_canonical = TRUE AND visibility = 'public'
-                )
-                """,
-                person_id,
-                list(NO_AUTO_CANONICAL_NAME_TYPES),
-            )
-    except asyncpg.exceptions.UniqueViolationError:
-        # Under READ COMMITTED the NOT EXISTS guard and the UPDATE see different
-        # snapshots, so a concurrent writer can claim the same
-        # (name_type, locale, script) slot in between. Healing is best-effort by
-        # nature — the racer's row satisfies the goal — so swallow and move on.
-        logger.debug("heal_person_canonical: lost race for person=%s", person_id)
+    row = await conn.fetchrow(
+        _HEAL_PERSON_CANONICAL_SQL,
+        person_id,
+        list(NO_AUTO_CANONICAL_NAME_TYPES),
+    )
+    if row is not None and not row["displays"] and row["candidate_id"] and row["is_blocked"]:
+        logger.warning(
+            "person %s has no public canonical name: candidate name row %s cannot be"
+            " promoted because a non-public canonical already holds its"
+            " (name_type, locale, script) slot — needs admin curation",
+            person_id,
+            row["candidate_id"],
+        )
 
 
 class Disposition(StrEnum):
@@ -390,6 +443,10 @@ async def write_names(
         canonical_guard = _CANONICAL_GUARD_HINTED if hint_driven else _CANONICAL_GUARD_AUTO
         guarded_sql = _person_name_insert_sql(f"($9 AND {canonical_guard})")
         unpromoted_sql = _person_name_insert_sql("FALSE")
+        # Tracks whether this write already claimed the canonical slot, so the
+        # heal pass below can be skipped — it is a guaranteed no-op in that case,
+        # and costs a round trip against a remote DB (#308, CR2 #11).
+        promoted = False
         for n in names:
             existing = await conn.fetchrow(
                 "SELECT id FROM person_names WHERE person_id=$1 AND name=$2",
@@ -415,18 +472,22 @@ async def write_names(
                 )
                 try:
                     async with conn.transaction():
-                        await conn.execute(guarded_sql, *base_args, eligible)
+                        claimed = await conn.fetchval(guarded_sql, *base_args, eligible)
+                        promoted = promoted or bool(claimed)
                         if n.parts is not None:
                             await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
                 except asyncpg.exceptions.UniqueViolationError:
-                    # Concurrent write claimed the slot between our NOT EXISTS and
-                    # the insert. The guard is keyed (person_id, name_type) but
-                    # uq_person_canonical_name is keyed
-                    # (person_id, name_type, locale, script), so the guard cannot
-                    # see a racing row in a different locale/script. Land the name
-                    # without canonical; display is already satisfied by the winner.
-                    # Retry runs outside the failed savepoint — reusing it would
-                    # hit "current transaction is aborted".
+                    # The guard is keyed (person_id, name_type) — or, on the auto
+                    # path, on public canonicals only — while
+                    # uq_person_canonical_name spans
+                    # (person_id, name_type, locale, script) regardless of
+                    # visibility. So the guard can pass while the index rejects:
+                    # most often a non-public canonical already holds the slot
+                    # (reachable single-threaded via admin), and under genuine
+                    # concurrency a racing writer in another locale/script.
+                    # Either way, land the name unpromoted rather than lose the
+                    # observation. Retry runs outside the failed savepoint —
+                    # reusing it would hit "current transaction is aborted".
                     async with conn.transaction():
                         await conn.execute(unpromoted_sql, *base_args)
                         if n.parts is not None:
@@ -435,7 +496,10 @@ async def write_names(
                 await _write_person_name_parts(conn, name_id, n.parts, is_new=False)
         # Names that already existed are skipped above, so a person who was
         # already canonical-less stays blank without this pass (#308, CR1).
-        await _heal_person_canonical(conn, entity_id)
+        # Skipped when an insert above already claimed the slot — the heal would
+        # be a no-op and costs a round trip (#308, CR2 #11).
+        if not promoted:
+            await _heal_person_canonical(conn, entity_id)
     elif entity_type == "organization":
         # If any name carries the canonical hint, only that name is eligible for promotion.
         # Otherwise fall through to first-wins auto-promotion (NOT EXISTS guard).

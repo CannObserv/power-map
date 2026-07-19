@@ -416,9 +416,18 @@ blank, since `v_person_display_names` only surfaces canonical rows. One-off
 repair for drift produced before #308b gave `write_names` first-wins
 auto-promotion on the person branch.
 
-Only unambiguous people are touched: exactly one eligible public name (see
-`NO_AUTO_CANONICAL_NAME_TYPES`). People with several competing names are counted
-as `ambiguous` and left for human curation in admin.
+Only unambiguous, repairable people are touched: exactly one eligible public name
+(see `NO_AUTO_CANONICAL_NAME_TYPES`) whose canonical slot is free. Two skip
+buckets are reported instead of guessed at:
+
+| Bucket | Meaning | Fix |
+|---|---|---|
+| `ambiguous` | >1 eligible public name — which one displays is a curation call | Promote by hand in admin |
+| `blocked` | a non-public canonical (e.g. `legal_only`) already holds the row's `(name_type, locale, script)` slot | Demote that row in admin, then re-run |
+
+`blocked` people are excluded from the promotion set deliberately: the run is one
+savepoint, so a single `UniqueViolationError` would roll back every other
+promotion.
 
 ```bash
 env_args=()

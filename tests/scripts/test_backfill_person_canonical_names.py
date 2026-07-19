@@ -154,3 +154,49 @@ async def test_run_backfill_emits_entity_change_for_subscribers(conn):
         pid,
     )
     assert after > before
+
+
+# --- blocked-slot bucket (#308, CR round 2 finding 9) ----------------------
+# A person whose best candidate's canonical slot is held by a non-public row
+# cannot be repaired by promotion — the unique index rejects it. These must be
+# reported, not silently counted as "nothing to do".
+
+
+async def _sealed_person(conn):
+    """Public name present, but a legal_only canonical holds the (legal,,) slot."""
+    pid = await _person(conn)
+    await _name(conn, pid, "Sealed Name", visibility="legal_only", is_canonical=True)
+    await _name(conn, pid, "Public Name", visibility="public")
+    return pid
+
+
+async def test_find_candidates_excludes_blocked_person(conn):
+    """Promotion would violate uq_person_canonical_name — not a candidate."""
+    pid = await _sealed_person(conn)
+    assert pid not in {c.person_id for c in await find_candidates(conn)}
+
+
+async def test_run_backfill_counts_blocked(conn):
+    await _sealed_person(conn)
+    stats = await run_backfill(conn, dry_run=True)
+    assert stats.blocked >= 1
+
+
+async def test_run_backfill_does_not_crash_on_blocked(conn):
+    """The whole run must not abort on an unrepairable person."""
+    blocked_pid = await _sealed_person(conn)
+    healthy_pid = await _person(conn)
+    await _name(conn, healthy_pid, "Greg Cheney")
+    stats = await run_backfill(conn, dry_run=False)
+    assert stats.promoted >= 1
+    assert await conn.fetchval(
+        "SELECT is_canonical FROM person_names WHERE person_id=$1 AND name='Greg Cheney'",
+        healthy_pid,
+    )
+    assert (
+        await conn.fetchval(
+            "SELECT display_name FROM v_person_display_names WHERE person_id=$1",
+            blocked_pid,
+        )
+        is None
+    )

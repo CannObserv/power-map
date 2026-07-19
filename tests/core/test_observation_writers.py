@@ -1,6 +1,7 @@
 """Integration tests for src.core.observation per-surface writers."""
 
 import hashlib
+import logging
 import os
 from datetime import date
 
@@ -497,19 +498,23 @@ async def test_write_names_person_heal_does_not_displace(db, api_key_id):
     assert by_name["Alice"] is False
 
 
-# --- concurrency fallback (#308, CR round 1 finding 2) ----------------------
+# --- canonical-slot contention (#308, CR round 2 findings 9/10/12) ----------
+# The insert fallback and the heal no-op share one deterministic trigger: a
+# NON-PUBLIC canonical already occupies the (person_id, name_type, locale,
+# script) slot. The auto guard only looks for a *public* canonical, so it passes;
+# the unique index does not care about visibility, so it rejects the promotion.
+# Reachable single-threaded via admin curation — no concurrency required.
 
 
-async def test_write_names_person_canonical_race_lands_without_canonical(db, api_key_id):
-    """A racing canonical row in another locale → name lands, no UniqueViolation.
+async def test_write_names_person_hinted_guard_suppresses_same_slot(db, api_key_id):
+    """Hinted promotion into an occupied same-name_type slot is suppressed.
 
-    The app guard is keyed (person_id, name_type); uq_person_canonical_name also
-    spans locale/script, so the guard cannot see the racing row and the INSERT
-    reaches the index. Exercises the fallback path directly.
+    Covers the guard, not the fallback: the guard is keyed (person_id, name_type)
+    and this row shares `legal`, so it is seen and promotion never reaches the
+    index.
     """
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
-    # Racing writer already holds the slot for (legal, ja, Jpan).
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, locale, script,"
         " visibility, is_canonical) VALUES ($1, $2, '山田太郎', 'legal', 'ja', 'Jpan',"
@@ -517,8 +522,6 @@ async def test_write_names_person_canonical_race_lands_without_canonical(db, api
         generate_id(),
         pid,
     )
-    # Same slot, hinted canonical: the per-name_type guard sees the row and
-    # suppresses promotion, so this one is safe.
     await write_names(
         db,
         pid,
@@ -544,63 +547,175 @@ async def test_write_names_person_canonical_race_lands_without_canonical(db, api
     assert by_name["山田太郎"] is True
 
 
-class _RacingConn:
-    """Delegates to a real connection, but slips a conflicting canonical row in
-    just before the first person_names INSERT — reproducing a concurrent writer
-    that commits after our NOT EXISTS guard evaluates and before our INSERT lands.
-
-    A wrapper rather than monkeypatch: asyncpg's PoolConnectionProxy attributes
-    are read-only. write_names takes `conn` as a plain parameter, so passing a
-    stand-in is the natural seam.
-    """
-
-    def __init__(self, conn, person_id):
-        self._conn = conn
-        self._person_id = person_id
-        self._fired = False
-
-    def __getattr__(self, item):
-        return getattr(self._conn, item)
-
-    async def execute(self, query, *args, **kwargs):
-        if "INSERT INTO person_names" in query and not self._fired:
-            self._fired = True
-            await self._conn.execute(
-                "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
-                " is_canonical) VALUES ($1, $2, 'Racer', 'legal', 'public', TRUE)",
-                generate_id(),
-                self._person_id,
-            )
-        return await self._conn.execute(query, *args, **kwargs)
-
-
-async def test_write_names_person_unique_violation_fallback(db, api_key_id):
-    """Force the race window: a conflicting canonical appears between guard and insert.
-
-    Without the fallback this raises UniqueViolationError out of write_names and
-    the whole observation 500s, losing the name entirely.
-    """
+async def _sealed_person(db):
+    """Person whose (legal, NULL, NULL) canonical slot is held by a legal_only row."""
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+        " is_canonical) VALUES ($1, $2, 'Sealed Name', 'legal', 'legal_only', TRUE)",
+        generate_id(),
+        pid,
+    )
+    return pid
 
+
+async def test_write_names_person_blocked_slot_lands_name_unpromoted(db, api_key_id):
+    """The insert fallback: guard passes, index rejects, name still lands."""
+    pid = await _sealed_person(db)
     await write_names(
-        _RacingConn(db, pid),
+        db,
         pid,
         "person",
         api_key_id,
-        [ObservationPersonName(name="Steve Kirby", name_type="legal")],
+        [ObservationPersonName(name="Public Name", name_type="legal")],
     )
-
     by_name = {
         r["name"]: r["is_canonical"]
         for r in await db.fetch(
             "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
         )
     }
-    # The name still landed — the observation is not lost — but did not claim
-    # canonical, because the racer got there first.
-    assert by_name["Steve Kirby"] is False
-    assert by_name["Racer"] is True
+    # The observation is never lost — that is the fallback's whole job.
+    assert by_name["Public Name"] is False
+    assert by_name["Sealed Name"] is True
+
+
+async def test_write_names_person_blocked_slot_warns(db, api_key_id, caplog):
+    """A person left blank by a blocked slot must be findable, not silent."""
+    pid = await _sealed_person(db)
+    with caplog.at_level(logging.WARNING, logger="src.core.observation"):
+        await write_names(
+            db,
+            pid,
+            "person",
+            api_key_id,
+            [ObservationPersonName(name="Public Name", name_type="legal")],
+        )
+    assert any(pid in r.getMessage() for r in caplog.records), (
+        "blocked canonical slot must emit a WARNING naming the person"
+    )
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        is None
+    )
+
+
+async def test_write_names_person_blocked_slot_does_not_displace(db, api_key_id):
+    """Conservative stance: the non-public canonical is never demoted."""
+    pid = await _sealed_person(db)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Public Name", name_type="legal")],
+    )
+    assert await db.fetchval(
+        "SELECT is_canonical FROM person_names WHERE person_id=$1 AND name='Sealed Name'",
+        pid,
+    )
+
+
+async def test_write_names_person_blocked_slot_other_name_type_heals(db, api_key_id):
+    """A blocked `legal` slot does not block a different name_type."""
+    pid = await _sealed_person(db)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Publius", name_type="preferred")],
+    )
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        == "Publius"
+    )
+
+
+# --- heal is skipped when the write already promoted (#308, CR round 2 #11) --
+
+
+class _CountingConn:
+    """Delegates to a real connection, counting the heal statement.
+
+    The heal costs a round trip against a remote DB; it must not fire when the
+    insert already claimed the canonical slot.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.heal_calls = 0
+
+    def __getattr__(self, item):
+        return getattr(self._conn, item)
+
+    def _tally(self, query):
+        if "UPDATE person_names SET is_canonical" in query:
+            self.heal_calls += 1
+
+    async def execute(self, query, *args, **kwargs):
+        self._tally(query)
+        return await self._conn.execute(query, *args, **kwargs)
+
+    async def fetchrow(self, query, *args, **kwargs):
+        self._tally(query)
+        return await self._conn.fetchrow(query, *args, **kwargs)
+
+    async def fetchval(self, query, *args, **kwargs):
+        self._tally(query)
+        return await self._conn.fetchval(query, *args, **kwargs)
+
+
+async def test_write_names_person_skips_heal_when_insert_promoted(db, api_key_id):
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    conn = _CountingConn(db)
+    await write_names(
+        conn,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Steve Kirby", name_type="legal")],
+    )
+    assert conn.heal_calls == 0
+    assert await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+
+
+async def test_write_names_person_runs_heal_when_nothing_promoted(db, api_key_id):
+    """Re-observation of an already-present name still needs the heal."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+        " is_canonical) VALUES ($1, $2, 'Steve Kirby', 'legal', 'public', FALSE)",
+        generate_id(),
+        pid,
+    )
+    conn = _CountingConn(db)
+    await write_names(
+        conn,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Steve Kirby", name_type="legal")],
+    )
+    assert conn.heal_calls == 1
+    assert await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+
+
+async def test_write_names_person_heals_on_nameless_observation(db, api_key_id):
+    """An observation carrying no names still heals a blank person (#308, #14)."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+        " is_canonical) VALUES ($1, $2, 'Steve Kirby', 'legal', 'public', FALSE)",
+        generate_id(),
+        pid,
+    )
+    await write_names(db, pid, "person", api_key_id, [])
+    assert await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
 
 
 # ---------------------------------------------------------------------------

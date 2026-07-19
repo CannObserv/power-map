@@ -132,15 +132,42 @@ async def test_view_keeps_person_with_no_names(conn):
     assert rows[0]["display_name"] is None
 
 
+# The view's full ladder, promotable types first (mirroring
+# _PERSON_NAME_TYPE_PRIORITY) then the never-auto-promoted tail. Asserted in full
+# so adding a name_type to the CHECK constraint without touching the view's CASE
+# is caught here rather than silently sorting to the ELSE default (#308, CR2 #13).
+# `deadname` is omitted: trg_deadname_visibility forces it to legal_only, so it
+# can never appear in this view regardless of rank.
+_EXPECTED_VIEW_LADDER = [
+    "preferred",
+    "legal",
+    "alias",
+    "stage",
+    "religious",
+    "maiden",
+    "variant",
+    "former",
+    "initials",
+    "romanization",
+    "reading",
+    "mrz",
+]
+
+
+def test_app_ladder_is_a_prefix_of_view_ladder():
+    """The app ranks only promotable types; those must lead the view's ordering."""
+    promotable = [t for t, _ in sorted(_PERSON_NAME_TYPE_PRIORITY.items(), key=lambda kv: kv[1])]
+    assert _EXPECTED_VIEW_LADDER[: len(promotable)] == promotable
+
+
 async def test_view_priority_agrees_with_app_priority(conn):
-    """The view's CASE ladder and the app's promotion ladder must not drift.
+    """The view's CASE ladder must match _EXPECTED_VIEW_LADDER end to end.
 
     write_names promotes the row the view would display; if the two orderings
-    disagree, PM canonicalizes one name and shows another. Asserts the relative
-    order empirically rather than parsing the view SQL.
+    disagree, PM canonicalizes one name and shows another. Asserts every adjacent
+    pair empirically rather than parsing the view SQL.
     """
-    ranked = sorted(_PERSON_NAME_TYPE_PRIORITY.items(), key=lambda kv: kv[1])
-    for (better, _), (worse, _) in zip(ranked, ranked[1:], strict=False):
+    for better, worse in zip(_EXPECTED_VIEW_LADDER, _EXPECTED_VIEW_LADDER[1:], strict=False):
         pid = await _insert_person(conn)
         # Insert the lower-priority row first so list order can't explain a pass.
         await _add_name(conn, pid, f"{worse} name", name_type=worse)
@@ -148,7 +175,7 @@ async def test_view_priority_agrees_with_app_priority(conn):
         rows = await _display(conn, pid)
         assert len(rows) == 1
         assert rows[0]["display_name"] == f"{better} name", (
-            f"view ranked {worse!r} above {better!r}; app priority disagrees"
+            f"view ranked {worse!r} above {better!r}"
         )
 
 

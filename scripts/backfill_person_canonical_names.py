@@ -64,6 +64,7 @@ class PromoteCandidate:
 class BackfillStats:
     promoted: int = 0  # names promoted to canonical
     ambiguous: int = 0  # canonical-less people with >1 eligible name — skipped
+    blocked: int = 0  # slot held by a non-public canonical — unrepairable here
     dry_run: bool = True
 
 
@@ -86,8 +87,29 @@ def _no_public_canonical(alias: str) -> str:
           )"""
 
 
+def _slot_free(alias: str) -> str:
+    """Predicate: no canonical row already holds this row's unique-index slot.
+
+    ``uq_person_canonical_name`` spans
+    (person_id, name_type, COALESCE(locale,''), COALESCE(script,'')) and ignores
+    visibility, so a non-public canonical (e.g. an admin-curated `legal_only`
+    name) can occupy the slot while `_no_public_canonical` still reports the
+    person as blank. Promoting into it raises UniqueViolationError — and because
+    the whole backfill runs in one savepoint, a single such person would abort
+    every other promotion in the run. Counted as ``blocked`` instead (#308, CR2).
+    """
+    return f"""NOT EXISTS (
+              SELECT 1 FROM person_names b
+              WHERE b.person_id = {alias}.person_id
+                AND b.is_canonical = TRUE
+                AND b.name_type = {alias}.name_type
+                AND COALESCE(b.locale, '') = COALESCE({alias}.locale, '')
+                AND COALESCE(b.script, '') = COALESCE({alias}.script, '')
+          )"""
+
+
 async def find_candidates(db: asyncpg.Connection) -> list[PromoteCandidate]:
-    """People with no public canonical name and exactly one eligible public name."""
+    """People with no public canonical name and exactly one promotable public name."""
     excluded = list(NO_AUTO_CANONICAL_NAME_TYPES)
     rows = await db.fetch(
         f"""
@@ -95,6 +117,7 @@ async def find_candidates(db: asyncpg.Connection) -> list[PromoteCandidate]:
         FROM person_names n
         WHERE {_eligible("n")}
           AND {_no_public_canonical("n")}
+          AND {_slot_free("n")}
           AND (
               SELECT count(*) FROM person_names s
               WHERE s.person_id = n.person_id AND {_eligible("s")}
@@ -132,6 +155,25 @@ async def count_ambiguous(db: asyncpg.Connection) -> int:
     )
 
 
+async def count_blocked(db: asyncpg.Connection) -> int:
+    """Canonical-less people whose promotable name's slot is already occupied.
+
+    Unrepairable by promotion — freeing the slot means demoting a curated
+    non-public canonical, which is a human decision, not a script's.
+    """
+    excluded = list(NO_AUTO_CANONICAL_NAME_TYPES)
+    return await db.fetchval(
+        f"""
+        SELECT count(DISTINCT n.person_id)
+        FROM person_names n
+        WHERE {_eligible("n")}
+          AND {_no_public_canonical("n")}
+          AND NOT ({_slot_free("n")})
+        """,
+        excluded,
+    )
+
+
 async def run_backfill(
     db: asyncpg.Connection,
     *,
@@ -141,9 +183,14 @@ async def run_backfill(
 
     Atomic — any error rolls back the whole run. ``dry_run=True`` rolls back even
     on success, so the printed counts reflect exactly what ``--execute`` would do.
+
+    Because the run is all-or-nothing, candidate selection must exclude anything
+    that could raise: `find_candidates` filters out occupied slots (counted as
+    ``blocked``) so one unrepairable person cannot abort every other promotion.
     """
     stats = BackfillStats(dry_run=dry_run)
     stats.ambiguous = await count_ambiguous(db)
+    stats.blocked = await count_blocked(db)
 
     sp = db.transaction()
     await sp.start()
@@ -197,6 +244,9 @@ async def _main() -> None:
     print(f"  ambiguous (skipped): {result.ambiguous}")
     if result.ambiguous:
         print("  → >1 eligible public name; promote by hand in admin.")
+    print(f"  blocked (skipped):   {result.blocked}")
+    if result.blocked:
+        print("  → canonical slot held by a non-public name; demote it in admin first.")
     if result.dry_run:
         print("\nRe-run with --execute to apply changes.")
 
