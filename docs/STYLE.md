@@ -1926,9 +1926,9 @@ Every route handler: `user: AdminUser = Depends(get_admin_user)` — `get_admin_
 
 ### List status filters & search discoverability (#306)
 
-**Default status filters never silently hide search matches.** Every admin list (orgs / people / roles / jurisdictions) filters by a status axis defaulting to `active`; a name search under that default used to drop same-named rows sitting under another status — the dedup-hunting trap of #306 (two "WA House RSG" orgs, one `active=FALSE`, only one visible).
+**Default status filters never silently hide search matches.** Every admin list (orgs / people / roles / role-assignments / jurisdictions) filters by a status axis defaulting to `active`; a name search under that default used to drop same-named rows sitting under another status — the dedup-hunting trap of #306 (two "WA House RSG" orgs, one `active=FALSE`, only one visible).
 
-The pattern, shared across all four lists:
+The pattern, shared across all five lists:
 
 - Each `*_queries.py` declares its axis as `STATUS_PREDICATES` (status → SQL predicate, in dropdown order) and `VALID_STATUSES = set(STATUS_PREDICATES) | {"all"}`. `all` is a first-class validated status (fourth dropdown option, no predicate); an **unknown status falls back to `active`** — never to no-filter (pre-#306, `?status=banana` silently returned everything including archived).
 - When a search is active (`q`; for roles also `org_q`), the count query is one grouped pass via `count_with_hidden_matches()` from `src.api.admin.list_status` — `count(*) FILTER (WHERE <predicate>)` per status — and the query helper returns `hidden_matches`: `{"status", "count"}` per non-current status holding matches. Extra list filters that aren't the status axis (jurisdictions' `type`) constrain those counts like any search condition.

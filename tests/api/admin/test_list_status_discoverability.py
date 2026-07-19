@@ -17,6 +17,7 @@ from src.api.admin.deps import get_db
 from src.api.admin.jurisdictions_queries import query_jurisdictions_rows
 from src.api.admin.orgs_queries import query_orgs_rows
 from src.api.admin.people_queries import query_people_rows
+from src.api.admin.role_assignments_queries import query_role_assignments_rows
 from src.api.admin.roles_queries import query_roles_rows
 from src.api.main import app
 from src.core.db import generate_id
@@ -353,5 +354,76 @@ async def test_jurisdictions_list_renders_hidden_matches_affordance(client, juri
 
 async def test_jurisdictions_list_dropdown_offers_all_option(client, jurisdiction_trio):
     r = await client.get("/admin/jurisdictions/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert 'value="all"' in r.text
+
+
+# ── Role assignments (two-valued status axis, tri-tsv search) ────────────────
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def assignment_pair(db):
+    """Active + archived assignment for one person whose name carries the marker."""
+    marker = f"zz{generate_id()[-10:].lower()}"
+    pid = await _seed_person(db, marker)
+    oid = await _seed_org(db, f"{marker} rahost")
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+        rid,
+        oid,
+        f"Testrole {marker} seat",
+    )
+    ids = {}
+    for key, archived in (("active", False), ("archived", True)):
+        aid = generate_id()
+        await db.execute(
+            "INSERT INTO role_assignments (id, person_id, role_id, archived_at)"
+            " VALUES ($1, $2, $3, CASE WHEN $4 THEN NOW() END)",
+            aid,
+            pid,
+            rid,
+            archived,
+        )
+        ids[key] = aid
+    return {"marker": marker, "ids": ids}
+
+
+async def test_role_assignments_status_all_returns_every_status(db, assignment_pair):
+    rows, count, _, hidden = await query_role_assignments_rows(
+        db, q=assignment_pair["marker"], status="all", page=1, page_size=50
+    )
+    assert {r["id"] for r in rows} == set(assignment_pair["ids"].values())
+    assert count == 2
+    assert hidden == []
+
+
+async def test_role_assignments_unknown_status_falls_back_to_active(db, assignment_pair):
+    rows, _, _, _ = await query_role_assignments_rows(
+        db, q=assignment_pair["marker"], status="banana", page=1, page_size=50
+    )
+    assert {r["id"] for r in rows} == {assignment_pair["ids"]["active"]}
+
+
+async def test_role_assignments_search_reports_hidden_matches(db, assignment_pair):
+    _, count, _, hidden = await query_role_assignments_rows(
+        db, q=assignment_pair["marker"], status="active", page=1, page_size=50
+    )
+    assert count == 1
+    assert hidden == [{"status": "archived", "count": 1}]
+
+
+async def test_role_assignments_list_renders_hidden_matches_affordance(client, assignment_pair):
+    r = await client.get(
+        f"/admin/role-assignments/?q={assignment_pair['marker']}", headers=AUTH_HEADERS
+    )
+    assert r.status_code == 200
+    assert "1 more match" in r.text
+    assert "Show all" in r.text
+    assert "status=all" in r.text
+
+
+async def test_role_assignments_list_dropdown_offers_all_option(client, assignment_pair):
+    r = await client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
     assert r.status_code == 200
     assert 'value="all"' in r.text

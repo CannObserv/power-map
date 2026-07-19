@@ -4,7 +4,7 @@
    purpose — the full-page render syncs the status dropdown to "all". #}
 {% if hidden_matches %}
 {% set hidden_total = hidden_matches|sum(attribute='count') %}
-<p class="hidden-matches" role="status">
+<p class="hidden-matches">
   {{ hidden_total }} more match{{ 'es' if hidden_total != 1 else '' }} outside the current status filter
   ({% for h in hidden_matches %}{{ h.count }} {{ h.status }}{% if not loop.last %}, {% endif %}{% endfor %})
   — <a href="{{ show_all_url }}">Show all</a>

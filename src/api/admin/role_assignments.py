@@ -15,7 +15,7 @@ from src.api.admin.deps import (
     is_htmx,
     resolve_query_flash,
 )
-from src.api.admin.pagination import pagination_context
+from src.api.admin.role_assignments_queries import VALID_STATUSES, query_role_assignments_rows
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -65,27 +65,6 @@ async def _fetch_roles(db):
     )
 
 
-_LIST_SELECT = """
-    SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.created_at,
-           p.id AS person_id,
-           pn.display_name AS person_name,
-           r.id AS role_id, r.title AS role_title,
-           o.id AS org_id,
-           dn.display_name AS org_name
-    FROM role_assignments ra
-    JOIN people p ON p.id = ra.person_id
-    LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
-    JOIN roles r ON r.id = ra.role_id
-    JOIN organizations o ON o.id = r.organization_id
-    LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-"""
-
-# ra.id: unique tiebreaker for stable offset pagination under the non-unique sort keys (#297)
-_LIST_ORDER = (
-    "ORDER BY ra.is_current DESC, person_name NULLS LAST, ra.start_date DESC NULLS LAST, ra.id"
-)
-
-
 @router.get("/")
 async def ra_list(
     request: Request,
@@ -98,47 +77,10 @@ async def ra_list(
     db=Depends(get_db),
 ):
     """List role assignments with search and status filter."""
-
-    conditions = []
-    params: list = []
-
-    if status == "active":
-        conditions.append("ra.archived_at IS NULL")
-    elif status == "archived":
-        conditions.append("ra.archived_at IS NOT NULL")
-
-    if q:
-        params.append(q)
-        idx = len(params)
-        conditions.append(
-            f"(p.search_tsv @@ plainto_tsquery('pm_unaccent_simple', ${idx})"
-            f" OR r.search_tsv @@ plainto_tsquery('pm_simple', ${idx})"
-            f" OR o.search_tsv @@ plainto_tsquery('pm_simple', ${idx}))"
-        )
-
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    count_params = params[:]
-
-    count = await db.fetchval(
-        f"""SELECT count(ra.id)
-            FROM role_assignments ra
-            JOIN people p ON p.id = ra.person_id
-            JOIN roles r ON r.id = ra.role_id
-            JOIN organizations o ON o.id = r.organization_id
-            {where}""",
-        *count_params,
-    )
-
-    pctx = pagination_context(page, count, page_size)
-    offset = (pctx["page"] - 1) * page_size
-    list_params = params + [page_size, offset]
-
-    rows = await db.fetch(
-        f"""{_LIST_SELECT}
-            {where}
-            {_LIST_ORDER}
-            LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
-        *list_params,
+    if status not in VALID_STATUSES:
+        status = "active"
+    rows, count, pctx, hidden_matches = await query_role_assignments_rows(
+        db, q=q, status=status, page=page, page_size=page_size
     )
 
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
@@ -151,6 +93,7 @@ async def ra_list(
         "status": status,
         "page_size": page_size,
         "total": count,
+        "hidden_matches": hidden_matches,
         "flash_msg": flash_msg,
         **pctx,
     }

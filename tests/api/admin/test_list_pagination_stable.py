@@ -17,7 +17,7 @@ from src.api.admin.deps import get_db
 from src.api.admin.imports import _PROVENANCE_LIST_SQL
 from src.api.admin.orgs_queries import query_orgs_rows
 from src.api.admin.people_queries import query_people_rows
-from src.api.admin.role_assignments import _LIST_ORDER, _LIST_SELECT
+from src.api.admin.role_assignments_queries import _LIST_ORDER, _LIST_SELECT
 from src.api.admin.roles_queries import query_roles_rows
 from src.api.main import app
 from src.core.db import generate_id
