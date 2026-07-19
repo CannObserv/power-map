@@ -410,27 +410,25 @@ sudo journalctl -u power-map-prune -f          # logs (rows pruned per run)
 
 ## Person canonical-name backfill (issue #308)
 
-`scripts/backfill_person_canonical_names.py` promotes the sole eligible public
-name of every person that has names but no canonical one — those people render
+`scripts/backfill_person_canonical_names.py` promotes one eligible public name
+for every person that has names but no canonical one — those people render
 blank, since `v_person_display_names` only surfaces canonical rows. One-off
 repair for drift produced before #308b gave `write_names` first-wins
 auto-promotion on the person branch.
 
-Each repairable person gets the one name PM would display, chosen by the same
-priority ladder the observation path and `v_person_display_names` use (see
-`NO_AUTO_CANONICAL_NAME_TYPES` for what is never eligible). People carrying
-several eligible names are resolved, not deferred — the heal pass would promote
-the same row on their next observation anyway. `multi_name` reports how many were
-decided that way.
+Each repairable person gets the one name PM would display, chosen by the
+priority ladder shared with the observation-path heal via
+`name_type_priority_sql()` (see `NO_AUTO_CANONICAL_NAME_TYPES` for what is
+never eligible). People carrying several eligible names are resolved, not
+deferred — the heal pass would promote the same row on their next observation
+anyway. `multi_name` reports how many were decided that way.
 
-| Bucket | Meaning | Fix |
-|---|---|---|
-| `blocked` | *every* candidate's `(name_type, locale, script)` slot is held by a non-public canonical (e.g. `legal_only`) | Demote that row in admin, then re-run |
-
-`blocked` people are excluded from the promotion set deliberately: the run is one
-savepoint, so a single `UniqueViolationError` would roll back every other
-promotion. The buckets are disjoint — a person with even one free-slot candidate
-is promoted, not reported as blocked.
+There is no `blocked` bucket any more (#308 Option A): `uq_person_canonical_name`
+is keyed on `(person_id)` alone and `chk_person_canonical_is_public` guarantees a
+canonical row is public, so a non-public row can no longer occupy a person's
+display slot. A person whose only names are ineligible (deadname/mrz-only, or
+nothing public) is simply not a candidate and stays deliberately blank until a
+human adds a displayable name.
 
 ```bash
 env_args=()
