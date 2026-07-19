@@ -144,9 +144,8 @@ def _person_name_insert_sql(canonical_expr: str) -> str:
     )
 
 
-# Heal, phase 1 (#308). Read-only, one round trip, no savepoint — a SELECT
-# cannot violate a constraint, so the common "person already displays" case pays
-# nothing beyond the round trip.
+# Heal, phase 1 (#308): one probe answering both "does this person display?"
+# and "what would we promote if not?".
 #
 # There is no "blocked candidate" case any more (#308 Option A): a canonical row
 # is always public by CHECK, so the only thing that can hold the slot is a row
@@ -199,25 +198,30 @@ async def heal_person_canonical(conn, person_id: str) -> None:
     person already displays, or when no eligible name exists (a person carrying
     only a deadname stays deliberately blank).
 
-    Split into a read-only probe plus a guarded UPDATE (#308, CR3 #15/#23). The
-    probe cannot violate anything, so the steady-state path — an already-displaying
-    person re-observed with names PM already has — stays at one round trip with no
-    savepoint. Only an actual promotion takes the savepoint, and it needs one: a
-    concurrent commit landing between the two statements can still collide on
-    uq_person_canonical_name, and without recovery that UniqueViolationError
-    propagates out of write_names and aborts the whole observation, which the
-    route reports as `db_constraint_violation` — discarding links, addresses,
-    role assignments and events over a cosmetic display-name repair.
+    The whole body — probe *and* guarded UPDATE — runs inside one savepoint
+    (CR6 #55). The contract is "the heal never aborts its caller", and a failed
+    SELECT poisons the enclosing transaction exactly like a failed UPDATE does,
+    so swallowing a probe error without a savepoint would leave the caller
+    hitting InFailedSQLTransactionError on its next statement. Earlier rounds
+    kept the probe outside to save the SAVEPOINT/RELEASE round trips on the
+    steady-state path (CR3 #15/#23); that priced ~25ms of latency above a hole
+    in the contract, which is the wrong way round. The UPDATE re-checks the
+    guard because a concurrent commit between the two statements can still
+    collide on uq_person_canonical_name; without recovery that
+    UniqueViolationError propagates out of write_names and aborts the whole
+    observation, which the route reports as `db_constraint_violation` —
+    discarding links, addresses, role assignments and events over a cosmetic
+    display-name repair.
     """
-    row = await conn.fetchrow(
-        _HEAL_PERSON_SELECT_SQL,
-        person_id,
-        list(NO_AUTO_CANONICAL_NAME_TYPES),
-    )
-    if row is None or row["displays"] or not row["candidate_id"]:
-        return
     try:
         async with conn.transaction():
+            row = await conn.fetchrow(
+                _HEAL_PERSON_SELECT_SQL,
+                person_id,
+                list(NO_AUTO_CANONICAL_NAME_TYPES),
+            )
+            if row is None or row["displays"] or not row["candidate_id"]:
+                return
             await conn.execute(_HEAL_PERSON_UPDATE_SQL, row["candidate_id"])
     except asyncpg.exceptions.UniqueViolationError:
         # Another session claimed the slot between the probe and the update.
@@ -235,7 +239,7 @@ async def heal_person_canonical(conn, person_id: str) -> None:
         # grant would otherwise stop all healing silently while the merge route
         # still flashes success and the person stays blank.
         logger.warning(
-            "heal_person_canonical: promotion failed for person=%s (%s: %s)",
+            "heal_person_canonical: heal failed for person=%s (%s: %s)",
             person_id,
             type(exc).__name__,
             exc,
@@ -480,11 +484,19 @@ async def write_names(
             # Dedup on the full identity, not the bare name (#308, CR3 #22): a
             # `legal` name and an `mrz` rendering can share a string while being
             # different claims, and a name-only key silently discarded the second.
+            #
+            # The probe is deliberately visibility-blind, but the pick is not
+            # (CR6 #53): merge preserves rows identical except visibility (#121
+            # inheritance), and an unordered fetchrow matched whichever twin the
+            # heap offered first — so a `parts` payload could attach to the
+            # hidden copy. Prefer the public twin, tie-break on id.
             existing = await conn.fetchrow(
                 "SELECT id FROM person_names"
                 " WHERE person_id=$1 AND name=$2 AND name_type=$3"
                 "   AND locale IS NOT DISTINCT FROM $4"
-                "   AND script IS NOT DISTINCT FROM $5",
+                "   AND script IS NOT DISTINCT FROM $5"
+                " ORDER BY (visibility = 'public') DESC, id"
+                " LIMIT 1",
                 entity_id,
                 n.name,
                 n.name_type,

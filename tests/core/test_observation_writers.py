@@ -6,6 +6,7 @@ import hashlib
 import os
 from datetime import date
 
+import asyncpg
 import pytest
 import pytest_asyncio
 
@@ -615,6 +616,44 @@ async def test_write_names_person_skips_heal_when_insert_promoted(db, api_key_id
     )
     assert conn.heal_calls == 0
     assert await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+
+
+async def test_write_names_dedup_prefers_public_twin(db, api_key_id):
+    """Dedup must resolve visibility twins toward the public row (CR6 #53).
+
+    Merge deliberately preserves rows identical except visibility (a `hidden`
+    and a `public` copy of the same claim, #121 inheritance). The dedup probe
+    was a bare fetchrow with no ORDER BY, so which twin an observation matched
+    — and therefore which row a `parts` payload attached to — was heap-order
+    luck. The hidden twin is inserted first here so an unordered probe finds it
+    first and the test goes red without the fix.
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    hidden_nid, public_nid = generate_id(), generate_id()
+    for nid, vis in ((hidden_nid, "hidden"), (public_nid, "public")):
+        await db.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+            " is_canonical) VALUES ($1, $2, 'Jane Doe', 'legal', $3, FALSE)",
+            nid,
+            pid,
+            vis,
+        )
+    parts = ObservationPersonNameParts(given_names=["Jane"], family_names=["Doe"])
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Jane Doe", name_type="legal", parts=parts)],
+    )
+    # No third row minted, and the parts landed on the public twin.
+    assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 2
+    attached = await db.fetch(
+        "SELECT person_name_id FROM person_name_parts WHERE person_name_id = ANY($1)",
+        [hidden_nid, public_nid],
+    )
+    assert [r["person_name_id"] for r in attached] == [public_nid]
 
 
 async def test_write_names_person_runs_heal_when_nothing_promoted(db, api_key_id):
@@ -1696,16 +1735,17 @@ _POOL_ACQUIRE_TIMEOUT_S = 10
 
 
 async def _settle_racer(tr, task, *, committed: bool) -> None:
-    """Wind down a race test: end the racer's transaction, then the heal task.
+    """Wind down a race test: end the racer's transaction, then the task.
 
-    Only reached with `committed=False` when an assertion fired mid-race. In
-    that case the racer still holds its uncommitted claim and the task is still
-    blocked on it, so the rollback must come first — otherwise cancelling leaves
-    the connection mid-query and the rollback raises `InterfaceError: another
-    operation is in progress`, masking the assertion that actually failed.
+    Only reached with `committed=False` when an assertion (or `tr.commit()`
+    itself) failed mid-race; rolling back first releases the claim the task is
+    blocked on. InterfaceError is suppressed so a commit that died mid-call —
+    leaving `tr` in a state rollback rejects — cannot mask the original
+    failure (CR6 #56).
     """
     if not committed:
-        await tr.rollback()
+        with contextlib.suppress(asyncpg.exceptions.InterfaceError):
+            await tr.rollback()
     if task is not None and not task.done():
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
