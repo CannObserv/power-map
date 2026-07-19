@@ -219,18 +219,26 @@ async def heal_person_canonical(conn, person_id: str) -> None:
     try:
         async with conn.transaction():
             await conn.execute(_HEAL_PERSON_UPDATE_SQL, row["candidate_id"])
+    except asyncpg.exceptions.UniqueViolationError:
+        # Another session claimed the slot between the probe and the update.
+        # Expected and benign — their row satisfies the goal just as well.
+        logger.debug("heal_person_canonical: lost race for person=%s", person_id)
     except asyncpg.exceptions.PostgresError as exc:
-        # Another session claimed the slot between the probe and the update
-        # (UniqueViolationError), or the promotion failed some other way — a
-        # deadlock, a serialization failure. Widened from UniqueViolationError
-        # alone (CR4 #41): anything escaping here aborts the enclosing
-        # observation, discarding links, addresses, role assignments and events
-        # over a cosmetic display-name repair. This pass is best-effort by
-        # nature — the next observation of this person retries it.
-        logger.debug(
-            "heal_person_canonical: promotion failed for person=%s (%s)",
+        # Anything else: a deadlock, a serialization failure, or a real defect
+        # (UndefinedColumnError, InsufficientPrivilegeError — all PostgresError
+        # subclasses). Still swallowed, because escaping here aborts the
+        # enclosing observation and discards its links, addresses, role
+        # assignments and events over a cosmetic display-name repair (CR4 #41).
+        #
+        # But WARNING, not debug (CR5 #47): configure_logging defaults to INFO,
+        # so a debug line is dropped in production. A typo'd UPDATE or a revoked
+        # grant would otherwise stop all healing silently while the merge route
+        # still flashes success and the person stays blank.
+        logger.warning(
+            "heal_person_canonical: promotion failed for person=%s (%s: %s)",
             person_id,
             type(exc).__name__,
+            exc,
         )
 
 

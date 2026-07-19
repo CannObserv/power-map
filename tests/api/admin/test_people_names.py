@@ -495,6 +495,29 @@ async def test_create_canonical_non_public_rejected(client, person_only, db):
     assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 0
 
 
+async def test_delete_canonical_promotes_from_several_remaining_names(client, person_only, db):
+    """Deleting the canonical must not strand a person with names left (CR5 #45).
+
+    `_maybe_promote_sole_name` returned early unless exactly one name remained,
+    so deleting the canonical of a three-name person left `display_name` NULL
+    with two perfectly good public names present. Nothing repaired it until an
+    observation happened to touch that person.
+    """
+    pid = person_only["pid"]
+    canonical = await _add_raw_name(db, pid, "Alice Smith", "legal", "public")
+    await db.execute("UPDATE person_names SET is_canonical=TRUE WHERE id=$1", canonical)
+    await _add_raw_name(db, pid, "Alice", "preferred", "public")
+    await _add_raw_name(db, pid, "A. Smith", "alias", "public")
+    resp = await client.delete(f"/admin/people/{pid}/names/{canonical}/", headers=HTMX_HEADERS)
+    assert resp.status_code == 200
+    assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 2
+    # `preferred` outranks `alias` in the display ladder.
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        == "Alice"
+    )
+
+
 async def test_create_canonical_deadname_rejected(client, person_only, db):
     """#308 CR4: submitted visibility is not the visibility that lands.
 

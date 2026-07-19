@@ -548,9 +548,13 @@ def make_names_router(
         nt_err = _validate_name_type(name_type)
         if nt_err is not None:
             return _form_error_response(nt_err, request)
-        # On create an omitted visibility takes the column default ('public'),
-        # so the submitted value is already the effective one.
-        cv_err = _validate_canonical_visibility(is_canonical, vis, name_type)
+        # `_insert_name` omits the column when vis is None, so the row lands on
+        # the schema default. Validate against that default explicitly rather
+        # than passing None and skipping the visibility branch — otherwise the
+        # guarantee is inherited from schema.sql instead of enforced here
+        # (CR5 #49). Orgs keep vis=None: organization_names has no such column.
+        effective_vis = vis if not supports_person_metadata else (vis or "public")
+        cv_err = _validate_canonical_visibility(is_canonical, effective_vis, name_type)
         if cv_err is not None:
             return _form_error_response(cv_err, request)
         if rof is not None:

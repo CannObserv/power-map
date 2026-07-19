@@ -253,8 +253,15 @@ async def merge_person_into(
     #
     # NO_AUTO_CANONICAL_NAME_TYPES (mrz, reading, romanization, deadname) are
     # never treated as interchangeable: identical text in one of those is a
-    # distinct claim — a machine-readable rendering, or a name whose visibility
-    # differs — and collapsing it into a display row loses information.
+    # machine-readable rendering, a distinct claim from a display name.
+    #
+    # `visibility` is part of the identity too (CR5 #43/#44) and is compared on
+    # BOTH branches. Without it a `hidden` winner row absorbed a `public` loser
+    # row carrying the same text — and since the loser's canonical is demoted
+    # just above, that deleted the only promotable name and left the merged
+    # person blank, defeating the heal below. It also silently dropped
+    # `legal_only` claims, breaking the #121 guarantee that the winner inherits
+    # the loser's restricted names.
     await db.execute(
         "DELETE FROM person_names l"
         " WHERE l.person_id=$1"
@@ -262,6 +269,7 @@ async def merge_person_into(
         "       SELECT 1 FROM person_names w"
         "        WHERE w.person_id=$2"
         "          AND w.name = l.name"
+        "          AND w.visibility = l.visibility"
         "          AND w.locale IS NOT DISTINCT FROM l.locale"
         "          AND w.script IS NOT DISTINCT FROM l.script"
         "          AND ("

@@ -938,8 +938,12 @@ DECLARE
     demoted INTEGER;
 BEGIN
     IF EXISTS (
+        -- Scoped to the index on person_names in the current search_path, not
+        -- to the bare name: pg_indexes spans every schema (CR5 #50).
         SELECT 1 FROM pg_indexes
         WHERE indexname = 'uq_person_canonical_name'
+          AND schemaname = current_schema()
+          AND tablename = 'person_names'
           AND indexdef NOT LIKE '%(person_id)%WHERE%'
     ) THEN
         WITH ranked AS (
@@ -990,10 +994,11 @@ BEGIN
         -- conrelid, not conname alone: constraint names are unique per table,
         -- not per database, so a same-named constraint elsewhere would make
         -- this block skip and leave person_names silently unconstrained.
-        SELECT 1 FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        WHERE c.conname = 'chk_person_canonical_is_public'
-          AND t.relname = 'person_names'
+        -- The regclass cast resolves via search_path, so this is schema-correct
+        -- as well as table-correct (CR5 #50).
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'chk_person_canonical_is_public'
+          AND conrelid = 'person_names'::regclass
     ) THEN
         UPDATE person_names SET is_canonical = FALSE
         WHERE is_canonical = TRUE AND visibility <> 'public';

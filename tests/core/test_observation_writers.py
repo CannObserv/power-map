@@ -1,6 +1,7 @@
 """Integration tests for src.core.observation per-surface writers."""
 
 import asyncio
+import contextlib
 import hashlib
 import os
 from datetime import date
@@ -1688,6 +1689,28 @@ async def test_write_names_person_exact_same_row_still_deduped(db, api_key_id):
 
 # --- CR round 3: heal recovers from a concurrent slot claim (#15/#23) --------
 
+# db_pool is max_size=2 (tests/conftest.py) and the race tests below hold both
+# connections. asyncpg's acquire() has no default timeout, so a third consumer
+# would block forever; bound it so that shows up as a failure (CR5 #48).
+_POOL_ACQUIRE_TIMEOUT_S = 10
+
+
+async def _settle_racer(tr, task, *, committed: bool) -> None:
+    """Wind down a race test: end the racer's transaction, then the heal task.
+
+    Only reached with `committed=False` when an assertion fired mid-race. In
+    that case the racer still holds its uncommitted claim and the task is still
+    blocked on it, so the rollback must come first — otherwise cancelling leaves
+    the connection mid-query and the rollback raises `InterfaceError: another
+    operation is in progress`, masking the assertion that actually failed.
+    """
+    if not committed:
+        await tr.rollback()
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
 
 async def test_heal_survives_concurrent_slot_claim(db, db_pool):
     """A lost race must not abort the enclosing observation transaction.
@@ -1713,7 +1736,10 @@ async def test_heal_survives_concurrent_slot_claim(db, db_pool):
     """
     pid = generate_id()
     # Committed out-of-band so the heal's connection can see the rows at all.
-    async with db_pool.acquire() as other:
+    # `timeout` because db_pool is max_size=2 and this test holds both slots:
+    # without it, adding another pool-backed fixture hangs the suite forever
+    # instead of failing (CR5 #48).
+    async with db_pool.acquire(timeout=_POOL_ACQUIRE_TIMEOUT_S) as other:
         nid_preferred, nid_legal = generate_id(), generate_id()
         await other.execute("INSERT INTO people (id) VALUES ($1)", pid)
         for nid, nm, nt in (
@@ -1728,9 +1754,11 @@ async def test_heal_survives_concurrent_slot_claim(db, db_pool):
                 nm,
                 nt,
             )
+        tr = other.transaction()
+        await tr.start()
+        racer_committed = False
+        task = None
         try:
-            tr = other.transaction()
-            await tr.start()
             # `preferred` outranks `legal`, so the heal targets nid_preferred
             # while the racer claims nid_legal — different rows, same slot.
             # Claiming the *same* row would exercise the EPQ path instead,
@@ -1742,12 +1770,18 @@ async def test_heal_survives_concurrent_slot_claim(db, db_pool):
             await asyncio.sleep(0.5)
             assert not task.done(), "heal should be blocked on the racer's uncommitted claim"
             await tr.commit()
+            racer_committed = True
             # Must return normally: the savepoint absorbs the violation.
             await asyncio.wait_for(task, timeout=10)
             # The enclosing transaction must still be usable — that is the whole point.
             assert await db.fetchval("SELECT 1") == 1
             assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid)
         finally:
+            # These rows are COMMITTED, so cleanup must not run inside `tr` — the
+            # pool's reset() would roll the DELETEs back and leak them into the
+            # shared test DB. Only the assertion path can reach here with `tr`
+            # still open (CR5 #46).
+            await _settle_racer(tr, task, committed=racer_committed)
             await other.execute("DELETE FROM person_names WHERE person_id=$1", pid)
             await other.execute("DELETE FROM entity_changes WHERE entity_id=$1", pid)
             await other.execute("DELETE FROM people WHERE id=$1", pid)
@@ -1770,7 +1804,10 @@ async def test_write_names_person_insert_falls_back_when_slot_lost(db_pool):
     row created on the fixture connection would be invisible to `obs` anyway.
     """
     pid, nid_existing = generate_id(), generate_id()
-    async with db_pool.acquire() as obs, db_pool.acquire() as other:
+    async with (
+        db_pool.acquire(timeout=_POOL_ACQUIRE_TIMEOUT_S) as obs,
+        db_pool.acquire(timeout=_POOL_ACQUIRE_TIMEOUT_S) as other,
+    ):
         await other.execute("INSERT INTO people (id) VALUES ($1)", pid)
         await other.execute(
             "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
@@ -1783,6 +1820,7 @@ async def test_write_names_person_insert_falls_back_when_slot_lost(db_pool):
         tr = other.transaction()
         await tr.start()
         racer_committed = False
+        task = None
         try:
             await other.execute(
                 "UPDATE person_names SET is_canonical=TRUE WHERE id=$1", nid_existing
@@ -1822,10 +1860,10 @@ async def test_write_names_person_insert_falls_back_when_slot_lost(db_pool):
             ) == ["Kirby"]
             assert await obs.fetchval("SELECT 1") == 1
         finally:
-            if not racer_committed:  # an assertion above may have pre-empted the commit
-                await tr.rollback()
+            await _settle_racer(tr, task, committed=racer_committed)
             # Undo the observation first: `other`'s cleanup would otherwise block
-            # on the uncommitted person_names row this transaction holds.
+            # on the uncommitted person_names row this transaction holds. This
+            # also drops the person_name_parts row, which cascades from it.
             await obs_tr.rollback()
             await other.execute("DELETE FROM person_names WHERE person_id=$1", pid)
             await other.execute("DELETE FROM entity_changes WHERE entity_id=$1", pid)

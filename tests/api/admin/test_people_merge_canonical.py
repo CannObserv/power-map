@@ -176,6 +176,48 @@ async def test_merge_still_drops_true_duplicates(conn):
     )
 
 
+async def test_merge_keeps_public_name_absorbed_by_non_public_winner_row(conn):
+    """Visibility is part of the claim (CR5 #43).
+
+    Treating any two display types as interchangeable ignored visibility, so a
+    `hidden` winner row absorbed a `public` loser row with the same text. The
+    loser's canonical is demoted on the way in and its only public name is then
+    deleted, leaving the heal nothing to promote — the exact blank-person
+    outcome the heal was added to prevent, caused by the dedup that runs
+    just before it.
+    """
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, winner, "Old Name", name_type="variant", visibility="hidden")
+    await _name(conn, loser, "Old Name", name_type="legal", is_canonical=True)
+    await _merge(conn, winner, loser)
+    assert (
+        await conn.fetchval(
+            "SELECT display_name FROM v_person_display_names WHERE person_id=$1", winner
+        )
+        == "Old Name"
+    )
+
+
+async def test_merge_keeps_non_public_claim_with_same_text(conn):
+    """#121: the winner inherits the loser's legal_only / hidden names.
+
+    A `legal_only` claim is not a duplicate of a `public` one carrying the same
+    text — the visibility *is* the difference (CR5 #44).
+    """
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, winner, "Jane Doe", name_type="variant", is_canonical=True)
+    await _name(conn, loser, "Jane Doe", name_type="legal", visibility="legal_only")
+    await _merge(conn, winner, loser)
+    rows = await conn.fetch(
+        "SELECT name_type, visibility FROM person_names WHERE person_id=$1 ORDER BY name_type",
+        winner,
+    )
+    assert [(r["name_type"], r["visibility"]) for r in rows] == [
+        ("legal", "legal_only"),
+        ("variant", "public"),
+    ]
+
+
 async def test_merge_collapses_same_text_across_display_name_types(conn):
     """Two ordinary display types with the same text are redundant, not distinct.
 
