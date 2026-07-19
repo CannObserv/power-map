@@ -19,22 +19,21 @@ from src.api.admin.org_dups import (
     CANDIDATE_WHERE,
     invalidate_dup_count_cache,
 )
-from src.api.admin.orgs_queries import query_orgs_rows
+from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.core.db import generate_id
 
 _LIST_TARGET = "orgs-list-region"
-# Three-valued, unlike People — `inactive` is org-only (organizations.active).
-_VALID_STATUSES = {"active", "inactive", "archived"}
 
 
 def _parse_list_filters_from_hx_current_url(request: Request) -> dict:
     """Parse the orgs list filters from HX-Current-URL (see `parse_list_filters`).
 
-    Thin wrapper binding the org-specific three-valued status set; the parsing
-    logic (and the default page size) is shared with People via
-    `src.api.admin.list_filters`.
+    Thin wrapper binding the org-specific status set (four-valued with ``all``,
+    #306 — `inactive` is org-only), imported from `orgs_queries` so the two
+    can't drift; the parsing logic (and the default page size) is shared with
+    People via `src.api.admin.list_filters`.
     """
-    return parse_list_filters(request, valid_statuses=_VALID_STATUSES)
+    return parse_list_filters(request, valid_statuses=VALID_STATUSES)
 
 
 def _dropped_assignments_note(dropped: int) -> str:
@@ -61,7 +60,7 @@ async def _render_orgs_list_region(request: Request, db, user: AdminUser, flash_
     stays identical. Filter state is read from HX-Current-URL.
     """
     filters = _parse_list_filters_from_hx_current_url(request)
-    rows, count, pctx = await query_orgs_rows(db, **filters)
+    rows, count, pctx, hidden_matches = await query_orgs_rows(db, **filters)
     ctx = {
         "user": user,
         "active_section": "orgs",
@@ -70,6 +69,7 @@ async def _render_orgs_list_region(request: Request, db, user: AdminUser, flash_
         "q": filters["q"],
         "status": filters["status"],
         "page_size": filters["page_size"],
+        "hidden_matches": hidden_matches,
         **pctx,
     }
     return templates.TemplateResponse(

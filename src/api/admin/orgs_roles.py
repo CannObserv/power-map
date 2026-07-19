@@ -10,7 +10,7 @@ from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.list_filters import parse_list_filters
-from src.api.admin.roles_queries import query_roles_rows
+from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -19,8 +19,6 @@ router = APIRouter(prefix="/orgs/{org_id}/roles", tags=["admin-org-roles"])
 # Roles list region id (#251). A merge initiated from /admin/roles/ targets this
 # region; the org-detail roles table merge does not, so the response branches on it.
 _LIST_TARGET = "roles-list-region"
-# Roles have no `active` flag (org-only) — two-valued status, unlike Orgs.
-_VALID_STATUSES = {"active", "archived"}
 
 
 def _parse_roles_list_filters(request: Request) -> dict:
@@ -30,7 +28,7 @@ def _parse_roles_list_filters(request: Request) -> dict:
     organization-name filter; parsing logic is shared with People / Orgs via
     `src.api.admin.list_filters`.
     """
-    return parse_list_filters(request, valid_statuses=_VALID_STATUSES, extra_text_params=("org_q",))
+    return parse_list_filters(request, valid_statuses=VALID_STATUSES, extra_text_params=("org_q",))
 
 
 async def _get_org_or_404(org_id: str, db) -> None:
@@ -212,7 +210,7 @@ async def role_merge(
         # consistent. Filter state (incl. org_q) preserved via HX-Current-URL.
         if request.headers.get("HX-Target") == _LIST_TARGET:
             filters = _parse_roles_list_filters(request)
-            rows, count, pctx = await query_roles_rows(db, **filters)
+            rows, count, pctx, hidden_matches = await query_roles_rows(db, **filters)
             ctx = {
                 "user": user,
                 "active_section": "roles",
@@ -222,6 +220,7 @@ async def role_merge(
                 "org_q": filters["org_q"],
                 "status": filters["status"],
                 "page_size": filters["page_size"],
+                "hidden_matches": hidden_matches,
                 **pctx,
             }
             return templates.TemplateResponse(

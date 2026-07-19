@@ -31,6 +31,7 @@
               hx-target="#roles-list-region" hx-include="[name='org_q'],[name='q'],[name='page_size']" hx-push-url="true">
         <option value="active"   {% if status=='active'   %}selected{% endif %}>Active</option>
         <option value="archived" {% if status=='archived' %}selected{% endif %}>Archived</option>
+        <option value="all"      {% if status=='all'      %}selected{% endif %}>All</option>
       </select>
     </div>
     <div class="filter-card__field">

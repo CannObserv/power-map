@@ -22,21 +22,22 @@ from src.api.admin.people_dups import (
 from src.api.admin.people_dups import (
     invalidate_dup_count_cache as invalidate_person_dup_count_cache,
 )
-from src.api.admin.people_queries import query_people_rows
+from src.api.admin.people_queries import VALID_STATUSES, query_people_rows
 from src.core.db import generate_id
 from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
 
 _LIST_TARGET = "people-list-region"
-_VALID_STATUSES = {"active", "archived"}
 
 
 def _parse_list_filters_from_hx_current_url(request: Request) -> dict:
     """Parse the people list filters from HX-Current-URL (see `parse_list_filters`).
 
-    Thin wrapper binding the people-specific status set; the parsing logic (and
-    the default page size) is shared with Orgs via `src.api.admin.list_filters`.
+    Thin wrapper binding the people-specific status set (three-valued with
+    ``all``, #306), imported from `people_queries` so the two can't drift; the
+    parsing logic (and the default page size) is shared with Orgs via
+    `src.api.admin.list_filters`.
     """
-    return parse_list_filters(request, valid_statuses=_VALID_STATUSES)
+    return parse_list_filters(request, valid_statuses=VALID_STATUSES)
 
 
 templates = Jinja2Templates(directory="src/templates")
@@ -51,7 +52,7 @@ async def _render_people_list_region(request: Request, db, user: AdminUser, flas
     HX-Current-URL.
     """
     filters = _parse_list_filters_from_hx_current_url(request)
-    rows, count, pctx = await query_people_rows(db, **filters)
+    rows, count, pctx, hidden_matches = await query_people_rows(db, **filters)
     ctx = {
         "user": user,
         "active_section": "people",
@@ -60,6 +61,7 @@ async def _render_people_list_region(request: Request, db, user: AdminUser, flas
         "q": filters["q"],
         "status": filters["status"],
         "page_size": filters["page_size"],
+        "hidden_matches": hidden_matches,
         **pctx,
     }
     return templates.TemplateResponse(
