@@ -5,6 +5,7 @@ import logging
 import os
 from datetime import date
 
+import asyncpg
 import pytest
 import pytest_asyncio
 
@@ -23,6 +24,7 @@ from src.core.db import generate_id
 from src.core.observation import (
     IdentifierConflict,
     ObservationRejected,
+    _heal_person_canonical,
     backfill_assignment_dates,
     write_additional_identifiers,
     write_addresses,
@@ -1622,3 +1624,210 @@ async def test_write_additional_identifiers_conflict_raises(db, person_id):
     with pytest.raises(IdentifierConflict) as exc:
         await write_additional_identifiers(db, person_id, mk("999"))
     assert exc.value.identifier_type_slug == "person_ssn"
+
+
+# --- CR round 3: identity-based eligibility + display-aware promotion --------
+
+
+async def test_write_names_person_hinted_deadname_does_not_seal_slot(db, api_key_id):
+    """#21: a hinted deadname must not suppress the heal for a good public name.
+
+    trg_deadname_visibility rewrites the row to legal_only, so `is_canonical`
+    alone does not mean the person displays.
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(name="Old Name", name_type="deadname", is_canonical=True),
+            ObservationPersonName(name="New Name", name_type="legal"),
+        ],
+    )
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        == "New Name"
+    )
+
+
+async def test_write_names_person_hinted_deadname_alone_stays_blank(db, api_key_id):
+    """No eligible public name exists — blank is correct, and nothing is sealed."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Old Name", name_type="deadname", is_canonical=True)],
+    )
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        is None
+    )
+
+
+async def test_write_names_person_same_string_excluded_type_not_promoted(db, api_key_id):
+    """#22: eligibility is by identity, not name string.
+
+    An mrz row sharing its string with a legal row must never claim the display
+    slot just by being first in the list.
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(name="ALICE SMITH", name_type="mrz"),
+            ObservationPersonName(name="ALICE SMITH", name_type="legal"),
+        ],
+    )
+    rows = {
+        (r["name_type"], r["is_canonical"])
+        for r in await db.fetch(
+            "SELECT name_type, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert ("mrz", True) not in rows, "machine-readable name claimed the display slot"
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        == "ALICE SMITH"
+    )
+    assert ("legal", True) in rows
+
+
+async def test_write_names_person_same_string_different_type_both_kept(db, api_key_id):
+    """The name-only dedup must not silently drop a distinct name_type claim."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(name="ALICE SMITH", name_type="mrz"),
+            ObservationPersonName(name="ALICE SMITH", name_type="legal"),
+        ],
+    )
+    types = {
+        r["name_type"]
+        for r in await db.fetch("SELECT name_type FROM person_names WHERE person_id=$1", pid)
+    }
+    assert types == {"mrz", "legal"}
+
+
+async def test_write_names_person_same_string_priority_still_applies(db, api_key_id):
+    """#22: with equal strings, `preferred` must still outrank `legal`."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(name="Jane Roe", name_type="legal"),
+            ObservationPersonName(name="Jane Roe", name_type="preferred"),
+        ],
+    )
+    canon = await db.fetchval(
+        "SELECT name_type FROM person_names WHERE person_id=$1 AND is_canonical", pid
+    )
+    assert canon == "preferred"
+
+
+async def test_write_names_person_exact_same_row_still_deduped(db, api_key_id):
+    """Same name AND type AND locale/script is still a no-op (unchanged policy)."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    n = ObservationPersonName(name="Jane Doe", name_type="legal")
+    await write_names(db, pid, "person", api_key_id, [n])
+    await write_names(db, pid, "person", api_key_id, [n])
+    assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 1
+
+
+# --- CR round 3: heal recovers from a concurrent slot claim (#15/#23) --------
+
+
+class _ViolatingConn:
+    """Delegates everything, but makes the heal UPDATE raise UniqueViolationError.
+
+    Stands in for a concurrent transaction committing a conflicting canonical
+    between the heal's snapshot and its UPDATE — real interleaving needs two
+    committed connections, which the rollback fixture cannot provide.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, item):
+        return getattr(self._conn, item)
+
+    def transaction(self, *a, **k):
+        return self._conn.transaction(*a, **k)
+
+    async def execute(self, query, *args, **kwargs):
+        if "UPDATE person_names SET is_canonical" in query:
+            raise asyncpg.exceptions.UniqueViolationError(
+                'duplicate key value violates unique constraint "uq_person_canonical_name"'
+            )
+        return await self._conn.execute(query, *args, **kwargs)
+
+    async def fetchrow(self, query, *args, **kwargs):
+        return await self._conn.fetchrow(query, *args, **kwargs)
+
+    async def fetchval(self, query, *args, **kwargs):
+        return await self._conn.fetchval(query, *args, **kwargs)
+
+
+async def test_heal_survives_concurrent_slot_claim(db, api_key_id):
+    """A lost race must not abort the enclosing observation transaction.
+
+    Without recovery the UniqueViolationError propagates out of write_names and
+    the route rejects the entire observation as db_constraint_violation,
+    discarding links, addresses, role assignments and events (#23).
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+        " is_canonical) VALUES ($1, $2, 'Steve Kirby', 'legal', 'public', FALSE)",
+        generate_id(),
+        pid,
+    )
+    await _heal_person_canonical(_ViolatingConn(db), pid)
+    # The enclosing transaction must still be usable — that is the whole point.
+    assert await db.fetchval("SELECT 1") == 1
+
+
+async def test_write_names_person_blocked_slot_still_writes_parts(db, api_key_id):
+    """#27: the fallback retry must persist structured parts too.
+
+    The retry re-inserts the row after the savepoint rolled back, so its parts
+    write is a separate code path from the happy one and was uncovered.
+    """
+    pid = await _sealed_person(db)
+    parts = ObservationPersonNameParts(given_names=["Public"], family_names=["Name"])
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Public Name", name_type="legal", parts=parts)],
+    )
+    row = await db.fetchrow(
+        "SELECT pnp.given_names, pnp.family_names FROM person_names pn"
+        " JOIN person_name_parts pnp ON pnp.person_name_id = pn.id"
+        " WHERE pn.person_id=$1 AND pn.name='Public Name'",
+        pid,
+    )
+    assert row is not None, "parts lost on the blocked-slot fallback path"
+    assert list(row["given_names"]) == ["Public"]
+    assert list(row["family_names"]) == ["Name"]

@@ -416,18 +416,21 @@ blank, since `v_person_display_names` only surfaces canonical rows. One-off
 repair for drift produced before #308b gave `write_names` first-wins
 auto-promotion on the person branch.
 
-Only unambiguous, repairable people are touched: exactly one eligible public name
-(see `NO_AUTO_CANONICAL_NAME_TYPES`) whose canonical slot is free. Two skip
-buckets are reported instead of guessed at:
+Each repairable person gets the one name PM would display, chosen by the same
+priority ladder the observation path and `v_person_display_names` use (see
+`NO_AUTO_CANONICAL_NAME_TYPES` for what is never eligible). People carrying
+several eligible names are resolved, not deferred — the heal pass would promote
+the same row on their next observation anyway. `multi_name` reports how many were
+decided that way.
 
 | Bucket | Meaning | Fix |
 |---|---|---|
-| `ambiguous` | >1 eligible public name — which one displays is a curation call | Promote by hand in admin |
-| `blocked` | a non-public canonical (e.g. `legal_only`) already holds the row's `(name_type, locale, script)` slot | Demote that row in admin, then re-run |
+| `blocked` | *every* candidate's `(name_type, locale, script)` slot is held by a non-public canonical (e.g. `legal_only`) | Demote that row in admin, then re-run |
 
 `blocked` people are excluded from the promotion set deliberately: the run is one
 savepoint, so a single `UniqueViolationError` would roll back every other
-promotion.
+promotion. The buckets are disjoint — a person with even one free-slot candidate
+is promoted, not reported as blocked.
 
 ```bash
 env_args=()

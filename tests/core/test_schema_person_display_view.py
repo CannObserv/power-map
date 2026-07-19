@@ -11,6 +11,7 @@ import pytest_asyncio
 
 from src.core.db import generate_id
 from src.core.observation import _PERSON_NAME_TYPE_PRIORITY
+from src.core.types import PERSON_NAME_TYPES
 
 pytestmark = [
     pytest.mark.integration,
@@ -133,9 +134,10 @@ async def test_view_keeps_person_with_no_names(conn):
 
 
 # The view's full ladder, promotable types first (mirroring
-# _PERSON_NAME_TYPE_PRIORITY) then the never-auto-promoted tail. Asserted in full
-# so adding a name_type to the CHECK constraint without touching the view's CASE
-# is caught here rather than silently sorting to the ELSE default (#308, CR2 #13).
+# _PERSON_NAME_TYPE_PRIORITY) then the never-auto-promoted tail. Ordering is
+# asserted pairwise against the live view; completeness is asserted against
+# PERSON_NAME_TYPES by test_ladder_covers_every_declared_name_type, so a new
+# name_type breaks the suite instead of silently sorting to the ELSE default.
 # `deadname` is omitted: trg_deadname_visibility forces it to legal_only, so it
 # can never appear in this view regardless of rank.
 _EXPECTED_VIEW_LADDER = [
@@ -158,6 +160,20 @@ def test_app_ladder_is_a_prefix_of_view_ladder():
     """The app ranks only promotable types; those must lead the view's ordering."""
     promotable = [t for t, _ in sorted(_PERSON_NAME_TYPE_PRIORITY.items(), key=lambda kv: kv[1])]
     assert _EXPECTED_VIEW_LADDER[: len(promotable)] == promotable
+
+
+def test_ladder_covers_every_declared_name_type():
+    """#308, CR3 #25: adding a name_type must break this, not sort silently last.
+
+    The earlier form asserted only a hardcoded literal against itself, so a new
+    type in PERSON_NAME_TYPES would have passed while falling through the view's
+    ELSE branch — the exact drift the comment claimed to catch.
+    """
+    # `deadname` is excluded by trg_deadname_visibility, never reachable in the view.
+    assert set(_EXPECTED_VIEW_LADDER) | {"deadname"} == set(PERSON_NAME_TYPES), (
+        "PERSON_NAME_TYPES changed — update _EXPECTED_VIEW_LADDER and the"
+        " CASE ladder in v_person_display_names (src/core/schema.sql)"
+    )
 
 
 async def test_view_priority_agrees_with_app_priority(conn):

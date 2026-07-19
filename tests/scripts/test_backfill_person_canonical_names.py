@@ -81,13 +81,18 @@ async def test_find_candidates_skips_non_public_only_person(conn):
     assert pid not in {c.person_id for c in cands}
 
 
-async def test_find_candidates_skips_ambiguous_multi_name_person(conn):
-    """>1 eligible public name → not deterministic; excluded from the backfill."""
+async def test_find_candidates_resolves_multi_name_deterministically(conn):
+    """>1 eligible public name → resolved by the display ladder, not skipped.
+
+    Superseded the earlier "skip ambiguous" policy (#308, CR3 #26): the heal pass
+    promotes the top-priority name on the next observation anyway, so deferring
+    only hid the decision from the operator.
+    """
     pid = await _person(conn)
     await _name(conn, pid, "Alice Smith", name_type="legal")
     await _name(conn, pid, "Alice Jones", name_type="alias")
-    cands = await find_candidates(conn)
-    assert pid not in {c.person_id for c in cands}
+    cand = next(c for c in await find_candidates(conn) if c.person_id == pid)
+    assert cand.name_type == "legal"  # legal outranks alias
 
 
 async def test_find_candidates_excludes_machine_readable_name_types(conn):
@@ -127,12 +132,26 @@ async def test_run_backfill_execute_makes_person_render(conn):
 
 
 async def test_run_backfill_is_idempotent(conn):
+    """A second run must not touch this person again (#308, CR3 #24).
+
+    Asserted person-scoped rather than on the global `promoted` count, which is
+    shared-DB state — the previous form's `or` clause was already established by
+    the line above it and could never fail.
+    """
     pid = await _person(conn)
     await _name(conn, pid, "Steve Kirby")
     await run_backfill(conn, dry_run=False)
+    first_state = await _canonical_names(conn, pid)
     second = await run_backfill(conn, dry_run=False)
     assert pid not in {c.person_id for c in await find_candidates(conn)}
-    assert second.promoted == 0 or pid not in {c.person_id for c in await find_candidates(conn)}
+    assert pid not in second.promoted_ids
+    assert await _canonical_names(conn, pid) == first_state
+    assert (
+        await conn.fetchval(
+            "SELECT count(*) FROM person_names WHERE person_id=$1 AND is_canonical", pid
+        )
+        == 1
+    )
 
 
 async def test_run_backfill_emits_entity_change_for_subscribers(conn):
@@ -200,3 +219,67 @@ async def test_run_backfill_does_not_crash_on_blocked(conn):
         )
         is None
     )
+
+
+# --- CR round 3 #26: ambiguity is resolved by the priority ladder ------------
+# The heal promotes the top-priority name on the next observation anyway, so
+# deferring multi-name people to a human was an illusory deferral — the decision
+# just got made later, by a different code path, with no operator visibility.
+
+
+async def test_find_candidates_resolves_multi_name_by_priority(conn):
+    pid = await _person(conn)
+    await _name(conn, pid, "Alice Smith", name_type="legal")
+    await _name(conn, pid, "Alice", name_type="preferred")
+    cand = next(c for c in await find_candidates(conn) if c.person_id == pid)
+    assert cand.name == "Alice"
+    assert cand.name_type == "preferred"
+
+
+async def test_run_backfill_promotes_priority_winner(conn):
+    pid = await _person(conn)
+    await _name(conn, pid, "Alice Smith", name_type="legal")
+    await _name(conn, pid, "Alice", name_type="preferred")
+    await run_backfill(conn, dry_run=False)
+    assert (
+        await conn.fetchval(
+            "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
+        )
+        == "Alice"
+    )
+
+
+async def test_backfill_matches_heal_choice(conn):
+    """The two repair paths must pick the same row for the same person."""
+    from src.core.observation import _heal_person_canonical
+
+    names = [("Zed Legal", "legal"), ("Ann Alias", "alias"), ("Pat Preferred", "preferred")]
+    pid_backfill = await _person(conn)
+    pid_heal = await _person(conn)
+    for pid in (pid_backfill, pid_heal):
+        for nm, nt in names:
+            await _name(conn, pid, nm, name_type=nt)
+    await run_backfill(conn, dry_run=False)
+    await _heal_person_canonical(conn, pid_heal)
+    q = "SELECT display_name FROM v_person_display_names WHERE person_id=$1"
+    assert await conn.fetchval(q, pid_backfill) == await conn.fetchval(q, pid_heal)
+
+
+async def test_run_backfill_buckets_are_disjoint(conn):
+    """#18: a person must not be counted in two buckets at once."""
+    pid = await _person(conn)
+    await _name(conn, pid, "Sealed", visibility="legal_only", is_canonical=True)
+    await _name(conn, pid, "Pub A", name_type="legal")
+    await _name(conn, pid, "Pub B", name_type="alias")
+    stats = await run_backfill(conn, dry_run=True)
+    # Pub B (alias) has a free slot, so this person is promotable, not blocked.
+    assert pid in {c.person_id for c in await find_candidates(conn)}
+    assert pid not in stats.blocked_ids
+
+
+async def test_run_backfill_blocked_only_when_no_free_candidate(conn):
+    pid = await _person(conn)
+    await _name(conn, pid, "Sealed", visibility="legal_only", is_canonical=True)
+    await _name(conn, pid, "Pub A", name_type="legal")
+    stats = await run_backfill(conn, dry_run=True)
+    assert pid in stats.blocked_ids
