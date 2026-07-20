@@ -69,6 +69,7 @@ Full conventions → `docs/CONVENTIONS.md`
 - All routes: Pydantic `response_model` + `operation_id`; no `dict[str, Any]` returns
 - Lists: `{"data": [...], "meta": {"limit", "offset", "count", "has_more"}}`; fetch `limit+1` rows for `has_more`. Every paginated `ORDER BY` **must end with a unique column** (usually the PK) — otherwise offset windows over tied rows skip and duplicate (#297)
 - Timestamps: `datetime` fields in response models + `@field_serializer` calling `fmt_ts()` from `schemas.py`; ISO 8601 with `Z` suffix; never pre-serialize as `str` in handlers
+- Assignment observations (#311): `(person, role, start_date)` is identity, not payload — PM-native (`pm_assignment_id`) observations **update in place** (`update_assignment_fields`: move start, explicit `end_date: null` clears, tri-state `is_current`); natural-key auto-attach applies only the open-tenure close, other deltas come back in `unapplied`. Provenance: `role_assignments.source_key_id` stamped on NEW, updates gated to same-or-NULL source. Dup cleanup: `scripts/audit_assignment_duplicates.py`. Full rules → `docs/CONVENTIONS.md` §"Assignment observations — update semantics & provenance".
 
 ## DB Key Rules
 

@@ -1113,8 +1113,13 @@ async def resolve_role(
     return role_id, Disposition.NEW, None
 
 
-async def write_role_assignments(conn, person_id: str, role_assignments: list) -> None:
-    """Append role assignments. No-op if open (no end_date) assignment exists for same role."""
+async def write_role_assignments(
+    conn, person_id: str, source_key_id: str | None, role_assignments: list
+) -> None:
+    """Append role assignments. No-op if open (no end_date) assignment exists for same role.
+
+    New rows record the observing key as provenance (``source_key_id``, #311).
+    """
     for ra in role_assignments:
         open_existing = await conn.fetchrow(
             "SELECT id FROM role_assignments"
@@ -1129,13 +1134,14 @@ async def write_role_assignments(conn, person_id: str, role_assignments: list) -
         end_date = date.fromisoformat(ra.end_date) if ra.end_date else None
         await conn.execute(
             "INSERT INTO role_assignments"
-            " (id, person_id, role_id, start_date, end_date)"
-            " VALUES ($1, $2, $3, $4, $5)",
+            " (id, person_id, role_id, start_date, end_date, source_key_id)"
+            " VALUES ($1, $2, $3, $4, $5, $6)",
             generate_id(),
             person_id,
             ra.role_id,
             start_date,
             end_date,
+            source_key_id,
         )
 
 
@@ -1424,32 +1430,48 @@ async def resolve_assignment(
     start_date: date | None,
     *,
     end_date: date | None = None,
-    is_current: bool = False,
+    is_current: bool | None = None,
     notes: str | None = None,
-) -> tuple[str, Disposition, str | None]:
+    source_key_id: str | None = None,
+) -> tuple[str, Disposition, str | None, list[str]]:
     """Match or create a role assignment by (person_id, role_id, start_date).
 
-    Returns (assignment_id, disposition, reason).
+    Returns (assignment_id, disposition, reason, unapplied).
     disposition is AUTO_ATTACHED if an active (non-archived) match is found,
     NEW if created, REJECTED if person_id or role_id does not exist.
     reason is a human-readable string on REJECTED, None otherwise.
+
+    On AUTO_ATTACHED (#311):
+
+    - a dated ``end_date`` **closes an open tenure in place** (stored end NULL →
+      supplied value, ``is_current`` → FALSE — a dated end implies ended), the
+      one monotonic enrichment the natural-key path applies. Gated on
+      provenance: only when the row's ``source_key_id`` is NULL (claimed on
+      apply) or matches the caller's.
+    - any other delta — a differing non-NULL ``end_date``, an ``is_current``
+      flip — is never applied; the field name is returned in ``unapplied`` so
+      the producer can stop retrying and escalate to a pm-native id-addressed
+      update (``update_assignment_fields``).
+
+    ``is_current=None`` means omitted (tri-state, #311); NEW inserts treat it
+    as FALSE. ``notes`` is create-only and never reported unapplied.
     """
     person_exists = await conn.fetchval(
         "SELECT 1 FROM people WHERE id=$1 AND archived_at IS NULL", person_id
     )
     if not person_exists:
         logger.warning("resolve_assignment: unknown person_id=%r", person_id)
-        return "", Disposition.REJECTED, f"person_not_found: {person_id!r}"
+        return "", Disposition.REJECTED, f"person_not_found: {person_id!r}", []
 
     role_exists = await conn.fetchval(
         "SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", role_id
     )
     if not role_exists:
         logger.warning("resolve_assignment: unknown role_id=%r", role_id)
-        return "", Disposition.REJECTED, f"role_not_found: {role_id!r}"
+        return "", Disposition.REJECTED, f"role_not_found: {role_id!r}", []
 
     existing = await conn.fetchrow(
-        "SELECT id FROM role_assignments"
+        "SELECT id, end_date, is_current, source_key_id FROM role_assignments"
         " WHERE person_id=$1 AND role_id=$2 AND start_date IS NOT DISTINCT FROM $3"
         "   AND archived_at IS NULL",
         person_id,
@@ -1457,21 +1479,48 @@ async def resolve_assignment(
         start_date,
     )
     if existing:
-        return existing["id"], Disposition.AUTO_ATTACHED, None
+        stored_end = existing["end_date"]
+        stored_current = existing["is_current"]
+        authorized = existing["source_key_id"] is None or existing["source_key_id"] == source_key_id
+        if end_date is not None and stored_end is None and authorized:
+            # Close an open tenure in place (#311) — the routine election-cycle
+            # update. The request validator guarantees is_current is not True
+            # alongside a dated end.
+            await conn.execute(
+                "UPDATE role_assignments SET end_date=$2, is_current=FALSE,"
+                " source_key_id=COALESCE(source_key_id, $3)"
+                " WHERE id=$1",
+                existing["id"],
+                end_date,
+                source_key_id,
+            )
+            logger.info(
+                "Closed role_assignment id=%s end_date=%s on auto-attach",
+                existing["id"],
+                end_date,
+            )
+            stored_end, stored_current = end_date, False
+        unapplied = []
+        if end_date is not None and stored_end != end_date:
+            unapplied.append("end_date")
+        if is_current is not None and is_current != stored_current:
+            unapplied.append("is_current")
+        return existing["id"], Disposition.AUTO_ATTACHED, None, unapplied
 
     assignment_id = generate_id()
     try:
         await conn.execute(
             "INSERT INTO role_assignments"
-            " (id, person_id, role_id, start_date, end_date, is_current, notes)"
-            " VALUES ($1,$2,$3,$4,$5,$6,$7)",
+            " (id, person_id, role_id, start_date, end_date, is_current, notes, source_key_id)"
+            " VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
             assignment_id,
             person_id,
             role_id,
             start_date,
             end_date,
-            is_current,
+            bool(is_current),
             notes,
+            source_key_id,
         )
     except asyncpg.UniqueViolationError:
         # Callers may run this inside an ambient transaction (e.g. the assignment
@@ -1484,7 +1533,7 @@ async def resolve_assignment(
             role_id,
             start_date,
         )
-        return "", Disposition.REJECTED, "unique_violation"
+        return "", Disposition.REJECTED, "unique_violation", []
 
     logger.info(
         "Created role_assignment id=%s person=%s role=%s start=%s",
@@ -1493,84 +1542,106 @@ async def resolve_assignment(
         role_id,
         start_date,
     )
-    return assignment_id, Disposition.NEW, None
+    return assignment_id, Disposition.NEW, None, []
 
 
-async def backfill_assignment_dates(
-    conn, assignment_id: str, start_date: date | None, end_date: date | None
+async def update_assignment_fields(
+    conn,
+    assignment_id: str,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    end_date_set: bool = False,
+    is_current: bool | None = None,
+    source_key_id: str | None = None,
 ) -> None:
-    """Backfill undated bounds onto an existing tenure in place (NULL → dated, #289).
+    """Authoritatively update an id-addressed tenure's bounds in place (#311).
 
-    Out-of-band from observation match-or-create: dates an existing tenure by id
-    without minting a new row. Promotes ``start_date`` and/or ``end_date`` from
-    NULL to the supplied value; a supplied value equal to the current one is a
-    no-op. **Must be called inside the caller's transaction** so a rejection rolls
-    the whole observation back and nothing is half-written.
+    The pm-native (``pm_assignment_id``) observation path: the producer proves it
+    means exactly this row, so — unlike the natural-key match — supplied fields
+    *replace* stored values (supersedes the #289 NULL→dated-only backfill):
 
-    Raises ``ObservationRejected`` (the handler maps it to a ``rejected``
-    response) when:
+    - ``start_date``: a non-None value moves the bound (a start cannot be
+      cleared back to NULL); None means omitted.
+    - ``end_date``: applied only when ``end_date_set`` (JSON null ≠ omitted —
+      the caller passes ``"end_date" in model_fields_set``); an explicit null
+      **clears** the bound (reopen).
+    - ``is_current``: tri-state; None means omitted. A dated resulting end with
+      ``is_current`` omitted implies FALSE (a dated end means ended).
 
-    - the addressed row is archived or gone (``assignment_not_found``) — a
-      defense-in-depth guard; the pm_assignment_id resolver already filters
-      archived rows before this is reached;
-    - a supplied bound differs from a non-NULL value already on the row
-      (``start_date_conflict`` / ``end_date_conflict``);
-    - promoting ``start_date`` collides with a sibling tenure sharing
-      (person, role, start_date) (``start_date_conflict``).
+    Provenance (#311): rejected ``source_key_mismatch`` when the row's
+    ``source_key_id`` is non-NULL and differs from the caller's; a NULL source
+    is claimed (COALESCE) on the first update.
 
-    ``is_current`` is intentionally not backfillable — its ``False`` default is
-    indistinguishable from "omitted". An ``end_date`` that contradicts an
-    ``is_current`` row surfaces as a DB check violation the handler reports as
-    ``db_constraint_violation``.
+    **Must be called inside the caller's transaction** so a rejection rolls the
+    whole observation back. Raises ``ObservationRejected`` when the row is
+    archived/gone (``assignment_not_found``); the merged state would be
+    ``is_current`` with a dated end (``is_current_end_date_conflict`` — send an
+    explicit ``end_date: null`` to reopen); the merged bounds invert
+    (``start_after_end_date``); or the new ``start_date`` collides with a
+    sibling tenure sharing (person, role, start_date) (``start_date_conflict``).
     """
-    if start_date is None and end_date is None:
+    if start_date is None and not end_date_set and is_current is None:
         return
 
     row = await conn.fetchrow(
-        "SELECT start_date, end_date FROM role_assignments WHERE id=$1 AND archived_at IS NULL",
+        "SELECT start_date, end_date, is_current, source_key_id FROM role_assignments"
+        " WHERE id=$1 AND archived_at IS NULL",
         assignment_id,
     )
     if row is None:
         raise ObservationRejected("assignment_not_found")
 
-    for field, provided, current in (
-        ("start_date", start_date, row["start_date"]),
-        ("end_date", end_date, row["end_date"]),
-    ):
-        if provided is not None and current is not None and provided != current:
-            logger.warning(
-                "backfill %s conflict assignment=%s current=%s requested=%s",
-                field,
-                assignment_id,
-                current,
-                provided,
-            )
-            raise ObservationRejected(f"{field}_conflict")
+    if row["source_key_id"] is not None and row["source_key_id"] != source_key_id:
+        logger.warning(
+            "update_assignment_fields: source mismatch assignment=%s owner=%s caller=%s",
+            assignment_id,
+            row["source_key_id"],
+            source_key_id,
+        )
+        raise ObservationRejected("source_key_mismatch")
 
     new_start = start_date if start_date is not None else row["start_date"]
-    new_end = end_date if end_date is not None else row["end_date"]
-    if new_start == row["start_date"] and new_end == row["end_date"]:
-        return  # idempotent — bounds already as supplied
+    new_end = end_date if end_date_set else row["end_date"]
+    new_current = is_current if is_current is not None else row["is_current"]
+    if is_current is None and new_end is not None:
+        new_current = False  # a dated end implies the tenure has ended
+
+    if new_current and new_end is not None:
+        raise ObservationRejected("is_current_end_date_conflict")
+    if new_start is not None and new_end is not None and new_start > new_end:
+        raise ObservationRejected("start_after_end_date")
+
+    if (new_start, new_end, new_current) == (
+        row["start_date"],
+        row["end_date"],
+        row["is_current"],
+    ):
+        return  # idempotent — fields already as supplied
 
     try:
         await conn.execute(
-            "UPDATE role_assignments SET start_date=$2, end_date=$3"
+            "UPDATE role_assignments SET start_date=$2, end_date=$3, is_current=$4,"
+            " source_key_id=COALESCE(source_key_id, $5)"
             " WHERE id=$1 AND archived_at IS NULL",
             assignment_id,
             new_start,
             new_end,
+            new_current,
+            source_key_id,
         )
     except asyncpg.UniqueViolationError as exc:
         logger.warning(
-            "backfill start_date collides with sibling tenure assignment=%s start=%s",
+            "update start_date collides with sibling tenure assignment=%s start=%s",
             assignment_id,
             new_start,
         )
         raise ObservationRejected("start_date_conflict") from exc
 
     logger.info(
-        "Backfilled role_assignment id=%s start_date=%s end_date=%s",
+        "Updated role_assignment id=%s start_date=%s end_date=%s is_current=%s",
         assignment_id,
         new_start,
         new_end,
+        new_current,
     )

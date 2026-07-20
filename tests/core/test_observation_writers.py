@@ -25,8 +25,8 @@ from src.core.db import generate_id
 from src.core.observation import (
     IdentifierConflict,
     ObservationRejected,
-    backfill_assignment_dates,
     heal_person_canonical,
+    update_assignment_fields,
     write_additional_identifiers,
     write_addresses,
     write_contact_methods,
@@ -1461,9 +1461,9 @@ async def role_id(db, org_id):
     return rid
 
 
-async def test_write_role_assignments_creates(db, person_id, role_id):
+async def test_write_role_assignments_creates(db, person_id, role_id, api_key_id):
     ra = ObservationRoleAssignment(role_id=role_id, start_date="2024-01-01")
-    await write_role_assignments(db, person_id, [ra])
+    await write_role_assignments(db, person_id, api_key_id, [ra])
     rows = await db.fetch(
         "SELECT role_id, start_date FROM role_assignments WHERE person_id=$1", person_id
     )
@@ -1471,7 +1471,7 @@ async def test_write_role_assignments_creates(db, person_id, role_id):
     assert rows[0]["role_id"] == role_id
 
 
-async def test_write_role_assignments_open_noop(db, person_id, role_id):
+async def test_write_role_assignments_open_noop(db, person_id, role_id, api_key_id):
     """Open assignment (no end_date) already exists → no-op."""
     ra_id = generate_id()
     await db.execute(
@@ -1482,7 +1482,7 @@ async def test_write_role_assignments_open_noop(db, person_id, role_id):
         date(2023, 1, 1),
     )
     ra = ObservationRoleAssignment(role_id=role_id, start_date="2024-01-01")
-    await write_role_assignments(db, person_id, [ra])
+    await write_role_assignments(db, person_id, api_key_id, [ra])
     rows = await db.fetch(
         "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
         person_id,
@@ -1492,11 +1492,11 @@ async def test_write_role_assignments_open_noop(db, person_id, role_id):
 
 
 # ---------------------------------------------------------------------------
-# backfill_assignment_dates (#289)
+# update_assignment_fields (#289 backfill → #311 authoritative update)
 # ---------------------------------------------------------------------------
 
 
-async def test_backfill_assignment_dates_rejects_archived(db, person_id, role_id):
+async def test_update_assignment_fields_rejects_archived(db, person_id, role_id):
     """Defense-in-depth: an archived target is rejected, not silently mutated."""
     ra_id = generate_id()
     await db.execute(
@@ -1507,7 +1507,55 @@ async def test_backfill_assignment_dates_rejects_archived(db, person_id, role_id
         role_id,
     )
     with pytest.raises(ObservationRejected, match="assignment_not_found"):
-        await backfill_assignment_dates(db, ra_id, date(2013, 1, 14), None)
+        await update_assignment_fields(db, ra_id, start_date=date(2013, 1, 14))
+    row = await db.fetchrow("SELECT start_date FROM role_assignments WHERE id=$1", ra_id)
+    assert row["start_date"] is None  # untouched
+
+
+async def test_update_assignment_fields_noop_without_inputs(db, person_id, role_id):
+    """No supplied field → no-op, even against an archived/missing row."""
+    await update_assignment_fields(db, generate_id())  # must not raise
+
+
+async def test_write_role_assignments_stamps_source_key(db, person_id, role_id, api_key_id):
+    """Person-observation embedded assignments record provenance too (#311)."""
+    ra = ObservationRoleAssignment(role_id=role_id, start_date="2024-01-01")
+    await write_role_assignments(db, person_id, api_key_id, [ra])
+    row = await db.fetchrow(
+        "SELECT source_key_id FROM role_assignments WHERE person_id=$1", person_id
+    )
+    assert row["source_key_id"] == api_key_id
+
+
+async def test_update_assignment_fields_source_mismatch(db, person_id, role_id, api_key_id):
+    """A row sourced by another key is not updatable (#311)."""
+    other_uid = generate_id()
+    other_key = generate_id()
+    other_raw = "pm_" + os.urandom(16).hex()
+    await db.execute(
+        "INSERT INTO app_users (id, email) VALUES ($1, $2)", other_uid, "writer_test2@test.com"
+    )
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        other_key,
+        other_uid,
+        "Writer Test 2",
+        other_raw[:8],
+        hashlib.sha256(other_raw.encode()).hexdigest(),
+    )
+    ra_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, source_key_id)"
+        " VALUES ($1, $2, $3, $4)",
+        ra_id,
+        person_id,
+        role_id,
+        other_key,
+    )
+    with pytest.raises(ObservationRejected, match="source_key_mismatch"):
+        await update_assignment_fields(
+            db, ra_id, start_date=date(2013, 1, 14), source_key_id=api_key_id
+        )
     row = await db.fetchrow("SELECT start_date FROM role_assignments WHERE id=$1", ra_id)
     assert row["start_date"] is None  # untouched
 

@@ -2979,3 +2979,15 @@ UPDATE api_key_scope_types
 UPDATE api_key_scope_types
    SET description = 'Write, patch, archive (single + batch), and restore voice embedding observations via the /api/v1/people/{id}/embeddings endpoints'
  WHERE id = 'voice_embeddings:write';
+
+-- =============================================================================
+-- Migration (#311): role_assignments provenance — which API key sourced a row
+-- =============================================================================
+-- Same pattern as person_names / organization_names / entity_events (#162).
+-- NULL for pre-#311 and admin-created rows; stamped by the observation writer
+-- on NEW and claimed (COALESCE) on the first authoritative pm-native update.
+-- Update authority: a row with a non-NULL source_key_id is only field-updatable
+-- through the observation API by that key (`source_key_mismatch` otherwise).
+
+ALTER TABLE role_assignments
+    ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;

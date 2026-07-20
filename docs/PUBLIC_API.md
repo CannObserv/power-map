@@ -637,8 +637,10 @@ Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 
 Two mutually exclusive resolution modes:
 
-- **Standard** — match or create by `(person_id, role_id, start_date)`. `NULL` start_date is a distinct known value (NULLS NOT DISTINCT), meaning "unknown start" is itself a unique slot.
-- **PM-native** — attach to a known assignment by its PM ULID. Supply `identifier_type="pm_assignment_id"` + `identifier_value=<assignment ULID>`. Never creates; returns `rejected` if the ULID is unknown or archived. A supplied `start_date` and/or `end_date` **backfills an undated tenure in place** (`NULL` → dated, #289): each bound is set when the row's value is `NULL`; a supplied value equal to the current one is idempotent; a *different* existing value — or a `start_date` already held by a sibling tenure — is `rejected` (`start_date_conflict` / `end_date_conflict`) and the whole observation rolls back untouched. This is the out-of-band way to date an existing tenure without minting a new dated row. `is_current` is not backfillable (its `false` default is indistinguishable from "omitted").
+- **Standard** — match or create by `(person_id, role_id, start_date)`. `NULL` start_date is a distinct known value (NULLS NOT DISTINCT), meaning "unknown start" is itself a unique slot. On auto-attach, one enrichment applies (#311): a dated `end_date` **closes an open tenure in place** (stored end `NULL` → supplied value, `is_current` → `false` — a dated end implies ended), gated on provenance (below). Any other delta — a differing non-`NULL` `end_date`, an `is_current` flip — is never applied; the field names come back in the response's `unapplied` array so the producer can stop retrying and escalate to a PM-native update.
+- **PM-native** — address a known assignment by its PM ULID. Supply `identifier_type="pm_assignment_id"` + `identifier_value=<assignment ULID>`. Never creates; returns `rejected` if the ULID is unknown or archived. Supplied fields **update the tenure in place** (#311, supersedes the #289 `NULL`→dated-only backfill): a `start_date` *moves* the bound (it cannot be cleared); an **explicit** `end_date: null` *clears* the bound (reopen) while an *omitted* `end_date` leaves it alone (JSON null ≠ omitted); `is_current` sets/clears currency. A resulting dated end with `is_current` omitted implies `is_current=false`. Rejections (whole observation rolls back untouched): `source_key_mismatch` (provenance, below), `is_current_end_date_conflict` (`is_current=true` while a stored end would remain — send `end_date: null` to reopen), `start_after_end_date` (merged bounds invert), `start_date_conflict` (new start collides with a sibling tenure sharing `(person, role, start_date)`).
+
+**Provenance & update authority (#311):** every assignment created via observation records the writing key as `source_key_id`. Field updates (PM-native, and the standard-mode close-enrichment) are allowed only when the row's `source_key_id` is `NULL` (pre-#311 rows — claimed by the updating key on first update) or equal to the caller's key. Another key's rows are never mutated: PM-native → `rejected` `source_key_mismatch`; standard-mode → attach succeeds with the withheld fields in `unapplied`.
 
 **Request fields:**
 
@@ -648,10 +650,10 @@ Two mutually exclusive resolution modes:
 | `identifier_value` | PM-native mode | Assignment ULID. Required when `identifier_type` is present. |
 | `person_id` | standard mode | ULID of the person. Must exist and be active; unknown/archived person → `rejected`. |
 | `role_id` | standard mode | ULID of the role. Must exist and be active; unknown/archived role → `rejected`. |
-| `start_date` | optional | ISO 8601 date (nullable). `NULL` = unknown start date. Written on NEW; in PM-native mode also backfills an undated tenure (`NULL` → dated, #289). |
-| `end_date` | optional | ISO 8601 date. Must be >= `start_date` when both set. Written on NEW; in PM-native mode also backfills an undated tenure (`NULL` → dated, #289). |
-| `is_current` | optional | `false` by default. Cannot be `true` when `end_date` is also set. Only written on NEW. |
-| `notes` | optional | Free text. Only written on NEW. |
+| `start_date` | optional | ISO 8601 date (nullable). `NULL` = unknown start date. Written on NEW; in PM-native mode a non-null value **moves** the bound in place (#311). |
+| `end_date` | optional | ISO 8601 date. Must be >= `start_date` when both set. Written on NEW; on standard-mode auto-attach closes an open tenure (#311); in PM-native mode updates in place — explicit `null` clears (reopen), omitted leaves alone (#311). |
+| `is_current` | optional | Tri-state (#311): omitted = no claim (NEW inserts `false`). Cannot be `true` when a dated `end_date` is also set. PM-native mode sets/clears currency in place. |
+| `notes` | optional | Free text. Only written on NEW; never reported in `unapplied`. |
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}`. Written on both NEW and AUTO_ATTACHED (append-only). |
 | `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label. Written on both NEW and AUTO_ATTACHED (append-only). |
 | `addresses` | optional | List of `{raw_input, address_type, valid_from?, valid_until?}`. Written on both NEW and AUTO_ATTACHED (append-only). `valid_from`/`valid_until` (`YYYY-MM-DD`, optional; `valid_from` ≤ `valid_until`, 422 otherwise) bound the address validity window; NULL/omitted = open-ended on that side. A **dateless** claim dedups against any existing window (never resurrects an admin-ended address); a **dated** claim dedups on the exact window and records a fresh row for a new one (#256). |
@@ -661,8 +663,8 @@ Two mutually exclusive resolution modes:
 | Disposition | Condition |
 |-------------|-----------|
 | `new` | No active assignment with this `(person_id, role_id, start_date)` found; assignment created (standard mode only) |
-| `auto-attached` | Active assignment already exists (standard) or known ULID supplied (PM-native); attribute writes still applied |
-| `rejected` | Person or role unknown/archived; unknown/archived ULID (PM-native); PM-native `start_date`/`end_date` backfill conflicts with an existing/sibling value (`start_date_conflict` / `end_date_conflict`); `is_current` + `end_date` conflict; DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
+| `auto-attached` | Active assignment already exists (standard) or known ULID supplied (PM-native); attribute writes still applied. Standard mode may carry `unapplied: [...]` (#311) — supplied `end_date`/`is_current` values that were **not** applied (differing non-`NULL` bound, currency flip, or foreign-source row); absent/`null` on clean attaches. |
+| `rejected` | Person or role unknown/archived; unknown/archived ULID (PM-native); PM-native update conflicts (#311): `source_key_mismatch`, `is_current_end_date_conflict`, `start_after_end_date`, `start_date_conflict` (sibling collision); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **Changes feed:** `role_assignment` entities appear in `GET /api/v1/changes` with `entity_type: "role_assignment"`.
 

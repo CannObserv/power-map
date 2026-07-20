@@ -57,6 +57,28 @@ async def write_key(db, obs_scope):
 
 
 @pytest_asyncio.fixture(loop_scope="session")
+async def write_key2(db, obs_scope):
+    """A second observations:write key — for source_key_id authority tests (#311)."""
+    uid = generate_id()
+    kid = generate_id()
+    raw = "pm_" + os.urandom(16).hex()
+    key_hash = hashlib.sha256(raw.encode()).hexdigest()
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "asgn_obs2@test.com")
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        uid,
+        "Asgn Obs Key 2",
+        raw[:8],
+        key_hash,
+    )
+    await db.execute(
+        "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, obs_scope
+    )
+    return raw, kid
+
+
+@pytest_asyncio.fixture(loop_scope="session")
 async def read_key(db):
     uid = generate_id()
     kid = generate_id()
@@ -623,10 +645,12 @@ async def test_pm_assignment_id_backfills_end_date(client, write_key, undated_as
     assert str(row["end_date"]) == "2019-01-13"
 
 
-async def test_pm_assignment_id_backfill_end_date_on_current_rejected(
-    client, write_key, obs_entities, db
-):
-    """end_date backfill onto an is_current tenure hits chk_current_no_end_date → rejected."""
+async def test_pm_update_closes_current_tenure(client, write_key, obs_entities, db):
+    """#311 (supersedes #289 check-violation reject): a dated end closes a current tenure.
+
+    A supplied end_date with is_current omitted implies the tenure has ended —
+    is_current flips to FALSE in the same update (chk_current_no_end_date holds).
+    """
     raw, _ = write_key
     asgn_id = generate_id()
     await db.execute(
@@ -644,13 +668,12 @@ async def test_pm_assignment_id_backfill_end_date_on_current_rejected(
             "end_date": "2020-01-01",
         },
     )
-    assert r.json()["disposition"] == "rejected"
-    assert r.json()["reason"] == "db_constraint_violation"
+    assert r.json()["disposition"] == "auto-attached"
     row = await db.fetchrow(
         "SELECT end_date, is_current FROM role_assignments WHERE id=$1", asgn_id
     )
-    assert row["end_date"] is None  # rolled back
-    assert row["is_current"] is True
+    assert str(row["end_date"]) == "2020-01-01"
+    assert row["is_current"] is False
 
 
 async def test_new_create_rolls_back_when_side_data_rejected(client, write_key, obs_entities, db):
@@ -675,10 +698,8 @@ async def test_new_create_rolls_back_when_side_data_rejected(client, write_key, 
     assert rows == []  # create rolled back with the side-data failure
 
 
-async def test_pm_assignment_id_backfill_end_date_conflict_rejected(
-    client, write_key, undated_assignment, db
-):
-    """A different end_date on an already-ended tenure → rejected, row untouched."""
+async def test_pm_update_overwrites_end_date(client, write_key, undated_assignment, db):
+    """#311 (supersedes #289 conflict-reject): a different end_date updates in place."""
     raw, _ = write_key
     asgn_id = undated_assignment["asgn_id"]
     await _post(
@@ -699,10 +720,9 @@ async def test_pm_assignment_id_backfill_end_date_conflict_rejected(
             "end_date": "2020-01-01",
         },
     )
-    assert r.json()["disposition"] == "rejected"
-    assert r.json()["reason"] == "end_date_conflict"
+    assert r.json()["disposition"] == "auto-attached"
     row = await db.fetchrow("SELECT end_date FROM role_assignments WHERE id=$1", asgn_id)
-    assert str(row["end_date"]) == "2019-01-13"  # unchanged
+    assert str(row["end_date"]) == "2020-01-01"  # extended in place
 
 
 async def test_pm_assignment_id_backfill_idempotent(client, write_key, undated_assignment, db):
@@ -721,19 +741,22 @@ async def test_pm_assignment_id_backfill_idempotent(client, write_key, undated_a
     assert str(row["start_date"]) == "2013-01-14"
 
 
-async def test_pm_assignment_id_backfill_conflict_rejected(
-    client, write_key, undated_assignment, db
-):
-    """A different start_date on an already-dated row → rejected, row untouched."""
+async def test_pm_update_moves_start_date(client, write_key, undated_assignment, db):
+    """#311 (supersedes #289 conflict-reject): a different start_date moves in place.
+
+    The issue's concrete case: a producer's merged-span backfill deepens a
+    tenure's start (2019 → 2017). Same row, no duplicate minted.
+    """
     raw, _ = write_key
     asgn_id = undated_assignment["asgn_id"]
+    person_id = undated_assignment["person_id"]
     await _post(
         client,
         raw,
         {
             "identifier_type": "pm_assignment_id",
             "identifier_value": asgn_id,
-            "start_date": "2013-01-14",
+            "start_date": "2019-01-01",
         },
     )
     r = await _post(
@@ -742,15 +765,16 @@ async def test_pm_assignment_id_backfill_conflict_rejected(
         {
             "identifier_type": "pm_assignment_id",
             "identifier_value": asgn_id,
-            "start_date": "2020-05-01",
+            "start_date": "2017-01-01",
         },
     )
     assert r.status_code == 200
-    body = r.json()
-    assert body["disposition"] == "rejected"
-    assert body["reason"] == "start_date_conflict"
-    row = await db.fetchrow("SELECT start_date FROM role_assignments WHERE id=$1", asgn_id)
-    assert str(row["start_date"]) == "2013-01-14"  # unchanged
+    assert r.json()["disposition"] == "auto-attached"
+    rows = await db.fetch(
+        "SELECT id, start_date FROM role_assignments WHERE person_id=$1", person_id
+    )
+    assert len(rows) == 1  # moved in place, not duplicated
+    assert str(rows[0]["start_date"]) == "2017-01-01"
 
 
 async def test_pm_assignment_id_backfill_sibling_collision_rejected(
@@ -821,3 +845,319 @@ async def test_rejected_unknown_person_includes_reason(client, write_key, obs_en
     assert body["disposition"] == "rejected"
     assert body["reason"] is not None
     assert "person_not_found" in body["reason"]
+
+
+# ---------------------------------------------------------------------------
+# #311 — source_key_id provenance + authoritative pm-native updates
+# ---------------------------------------------------------------------------
+
+
+async def test_new_stamps_source_key_id(client, write_key, obs_entities, db):
+    """A NEW assignment records the observing key as its source (#311)."""
+    raw, kid = write_key
+    r = await _post(
+        client,
+        raw,
+        {
+            "person_id": obs_entities["person_id"],
+            "role_id": obs_entities["role_id"],
+            "start_date": "2026-01-01",
+        },
+    )
+    assert r.json()["disposition"] == "new"
+    row = await db.fetchrow(
+        "SELECT source_key_id FROM role_assignments WHERE id=$1", r.json()["entity_id"]
+    )
+    assert row["source_key_id"] == kid
+
+
+async def test_pm_update_reopens_tenure(client, write_key, undated_assignment, db):
+    """Explicit end_date=null + is_current=true reopens a closed tenure (#311).
+
+    The issue's Caldier case: a sitting legislator wrongly shown as ended.
+    JSON null must clear the bound — distinct from omitting the field.
+    """
+    raw, _ = write_key
+    asgn_id = undated_assignment["asgn_id"]
+    await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "end_date": "2024-12-31",
+        },
+    )
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "end_date": None,
+            "is_current": True,
+        },
+    )
+    assert r.json()["disposition"] == "auto-attached"
+    row = await db.fetchrow(
+        "SELECT end_date, is_current FROM role_assignments WHERE id=$1", asgn_id
+    )
+    assert row["end_date"] is None
+    assert row["is_current"] is True
+
+
+async def test_pm_update_omitted_end_date_unchanged(client, write_key, undated_assignment, db):
+    """An omitted end_date leaves the stored bound alone — only explicit null clears."""
+    raw, _ = write_key
+    asgn_id = undated_assignment["asgn_id"]
+    await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "start_date": "2013-01-14",
+            "end_date": "2019-01-13",
+        },
+    )
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "start_date": "2011-01-10",
+        },
+    )
+    assert r.json()["disposition"] == "auto-attached"
+    row = await db.fetchrow(
+        "SELECT start_date, end_date FROM role_assignments WHERE id=$1", asgn_id
+    )
+    assert str(row["start_date"]) == "2011-01-10"
+    assert str(row["end_date"]) == "2019-01-13"  # untouched
+
+
+async def test_pm_update_source_key_mismatch_rejected(
+    client, write_key, write_key2, obs_entities, db
+):
+    """A key must not update an assignment sourced by another key (#311)."""
+    raw_a, _ = write_key
+    raw_b, _ = write_key2
+    r_new = await _post(
+        client,
+        raw_a,
+        {
+            "person_id": obs_entities["person_id"],
+            "role_id": obs_entities["role_id"],
+            "start_date": "2015-01-01",
+        },
+    )
+    asgn_id = r_new.json()["entity_id"]
+    r = await _post(
+        client,
+        raw_b,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "end_date": "2020-01-01",
+        },
+    )
+    assert r.json()["disposition"] == "rejected"
+    assert r.json()["reason"] == "source_key_mismatch"
+    row = await db.fetchrow("SELECT end_date FROM role_assignments WHERE id=$1", asgn_id)
+    assert row["end_date"] is None  # untouched
+
+
+async def test_pm_update_claims_null_source(client, write_key, undated_assignment, db):
+    """Updating a pre-#311 (NULL source) row is allowed and claims provenance."""
+    raw, kid = write_key
+    asgn_id = undated_assignment["asgn_id"]
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "start_date": "2013-01-14",
+        },
+    )
+    assert r.json()["disposition"] == "auto-attached"
+    row = await db.fetchrow("SELECT source_key_id FROM role_assignments WHERE id=$1", asgn_id)
+    assert row["source_key_id"] == kid
+
+
+async def test_pm_update_is_current_with_stored_end_rejected(
+    client, write_key, undated_assignment, db
+):
+    """is_current=true with a stored end_date left in place → rejected (send end_date: null)."""
+    raw, _ = write_key
+    asgn_id = undated_assignment["asgn_id"]
+    await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "end_date": "2024-12-31",
+        },
+    )
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "is_current": True,
+        },
+    )
+    assert r.json()["disposition"] == "rejected"
+    assert r.json()["reason"] == "is_current_end_date_conflict"
+    row = await db.fetchrow(
+        "SELECT end_date, is_current FROM role_assignments WHERE id=$1", asgn_id
+    )
+    assert str(row["end_date"]) == "2024-12-31"
+    assert row["is_current"] is False
+
+
+async def test_pm_update_start_after_end_rejected(client, write_key, undated_assignment, db):
+    """Moving start past the stored end → rejected, row untouched."""
+    raw, _ = write_key
+    asgn_id = undated_assignment["asgn_id"]
+    await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "start_date": "2013-01-14",
+            "end_date": "2019-01-13",
+        },
+    )
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": asgn_id,
+            "start_date": "2020-05-01",
+        },
+    )
+    assert r.json()["disposition"] == "rejected"
+    assert r.json()["reason"] == "start_after_end_date"
+    row = await db.fetchrow("SELECT start_date FROM role_assignments WHERE id=$1", asgn_id)
+    assert str(row["start_date"]) == "2013-01-14"  # unchanged
+
+
+# ---------------------------------------------------------------------------
+# #311 — natural-key auto-attach: close-enrichment + `unapplied` signaling
+# ---------------------------------------------------------------------------
+
+
+async def test_attach_closes_open_tenure(client, write_key, obs_entities, db):
+    """Auto-attach applies a dated end to an open tenure (the election-cycle close).
+
+    The issue's committee case: stored end NULL + is_current TRUE; observation
+    carries end + is_current=false → applied in place, nothing unapplied.
+    """
+    raw, _ = write_key
+    payload = {
+        "person_id": obs_entities["person_id"],
+        "role_id": obs_entities["role_id"],
+        "start_date": "2023-01-09",
+    }
+    r_new = await _post(client, raw, {**payload, "is_current": True})
+    assert r_new.json()["disposition"] == "new"
+    asgn_id = r_new.json()["entity_id"]
+
+    r = await _post(client, raw, {**payload, "end_date": "2025-01-01", "is_current": False})
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["entity_id"] == asgn_id
+    assert body.get("unapplied") in (None, [])
+    row = await db.fetchrow(
+        "SELECT end_date, is_current FROM role_assignments WHERE id=$1", asgn_id
+    )
+    assert str(row["end_date"]) == "2025-01-01"
+    assert row["is_current"] is False
+
+
+async def test_attach_conflicting_end_unapplied(client, write_key, obs_entities, db):
+    """Auto-attach never overwrites a differing non-NULL end — reports it unapplied."""
+    raw, _ = write_key
+    payload = {
+        "person_id": obs_entities["person_id"],
+        "role_id": obs_entities["role_id"],
+        "start_date": "2013-01-14",
+    }
+    r_new = await _post(client, raw, {**payload, "end_date": "2016-12-31"})
+    asgn_id = r_new.json()["entity_id"]
+
+    r = await _post(client, raw, {**payload, "end_date": "2024-12-31"})
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["unapplied"] == ["end_date"]
+    row = await db.fetchrow("SELECT end_date FROM role_assignments WHERE id=$1", asgn_id)
+    assert str(row["end_date"]) == "2016-12-31"  # unchanged
+
+
+async def test_attach_is_current_flip_unapplied(client, write_key, obs_entities, db):
+    """Auto-attach never flips is_current on its own — reports it unapplied."""
+    raw, _ = write_key
+    payload = {
+        "person_id": obs_entities["person_id"],
+        "role_id": obs_entities["role_id"],
+        "start_date": "2021-01-11",
+    }
+    r_new = await _post(client, raw, {**payload, "end_date": "2024-12-31"})
+    asgn_id = r_new.json()["entity_id"]
+
+    r = await _post(client, raw, {**payload, "is_current": True})
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["unapplied"] == ["is_current"]
+    row = await db.fetchrow(
+        "SELECT end_date, is_current FROM role_assignments WHERE id=$1", asgn_id
+    )
+    assert str(row["end_date"]) == "2024-12-31"
+    assert row["is_current"] is False
+
+
+async def test_attach_close_blocked_for_other_source(
+    client, write_key, write_key2, obs_entities, db
+):
+    """Close-enrichment respects provenance: another key's row is not mutated."""
+    raw_a, _ = write_key
+    raw_b, _ = write_key2
+    payload = {
+        "person_id": obs_entities["person_id"],
+        "role_id": obs_entities["role_id"],
+        "start_date": "2019-01-14",
+    }
+    r_new = await _post(client, raw_a, {**payload, "is_current": True})
+    asgn_id = r_new.json()["entity_id"]
+
+    r = await _post(client, raw_b, {**payload, "end_date": "2025-01-01", "is_current": False})
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["unapplied"] == ["end_date", "is_current"]
+    row = await db.fetchrow(
+        "SELECT end_date, is_current FROM role_assignments WHERE id=$1", asgn_id
+    )
+    assert row["end_date"] is None  # untouched
+    assert row["is_current"] is True
+
+
+async def test_attach_matching_values_nothing_unapplied(client, write_key, obs_entities, db):
+    """Re-observing identical bounds is clean — no unapplied noise."""
+    raw, _ = write_key
+    payload = {
+        "person_id": obs_entities["person_id"],
+        "role_id": obs_entities["role_id"],
+        "start_date": "2017-01-09",
+        "end_date": "2019-01-13",
+    }
+    await _post(client, raw, payload)
+    r = await _post(client, raw, payload)
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body.get("unapplied") in (None, [])
