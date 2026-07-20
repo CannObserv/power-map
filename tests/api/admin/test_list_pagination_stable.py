@@ -17,7 +17,7 @@ from src.api.admin.deps import get_db
 from src.api.admin.imports import _PROVENANCE_LIST_SQL
 from src.api.admin.orgs_queries import query_orgs_rows
 from src.api.admin.people_queries import query_people_rows
-from src.api.admin.role_assignments import _LIST_ORDER, _LIST_SELECT
+from src.api.admin.role_assignments_queries import _LIST_ORDER, _LIST_SELECT
 from src.api.admin.roles_queries import query_roles_rows
 from src.api.main import app
 from src.core.db import generate_id
@@ -60,7 +60,7 @@ async def client(db):
 async def _paginate_query(query_fn, /, **kwargs):
     """Enumerate row ids across all pages of an admin query helper.
 
-    query_fn(**kwargs, page=n, page_size=…) → (rows, count, pctx). Returns the
+    query_fn(**kwargs, page=n, page_size=…) → (rows, count, pctx, …). Returns the
     ordered list of row ``id`` values collected across every page.
     """
     db = kwargs.pop("db")
@@ -68,7 +68,7 @@ async def _paginate_query(query_fn, /, **kwargs):
     collected: list[str] = []
     page = 1
     while True:
-        rows, count, _ = await query_fn(db, page=page, page_size=page_size, **kwargs)
+        rows, count, *_ = await query_fn(db, page=page, page_size=page_size, **kwargs)
         collected.extend(r["id"] for r in rows)
         if page * page_size >= count:
             break

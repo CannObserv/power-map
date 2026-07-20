@@ -262,16 +262,31 @@ CREATE TABLE IF NOT EXISTS person_names (
     sort_as             TEXT,                       -- explicit collation key; NULL → use `name`
     visibility          TEXT NOT NULL DEFAULT 'public'
                         CHECK (visibility IN ('public','legal_only','hidden')),
+    -- Name-family edge (#121). Points a `reading` (furigana) or `romanization`
+    -- (pinyin, romaji) row at the name row it renders. This is how PM models
+    -- "these two rows are the same name written differently" — an explicit FK
+    -- between rows, NOT an implied grouping of rows that happen to share
+    -- (name_type, locale, script).
+    --
+    -- Load-bearing for #308: because families are edges, narrowing
+    -- uq_person_canonical_name to (person_id) costs nothing. A Japanese legal
+    -- name and its romaji rendering are two rows joined by reading_of_id, of
+    -- two different name_types, of which exactly one is the display pointer —
+    -- which is the correct answer and was never expressible by "one canonical
+    -- per (name_type, locale, script)".
+    --
+    -- ON DELETE CASCADE: a reading cannot outlive the name it reads.
     reading_of_id       TEXT REFERENCES person_names(id) ON DELETE CASCADE,
 
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Bootstrap form of the canonical-name index. The migration section drops
--- this and recreates it with the (locale, script) shape after the per-column
--- ADD COLUMN blocks run. Kept here so fresh DBs and pre-#121 DBs both parse
--- this file successfully (the new form references columns that only exist
--- after the per-column migration blocks have executed).
+-- Bootstrap form of the canonical-name index. The migration section drops this
+-- and recreates it keyed on (person_id) alone — the display-pointer shape
+-- (#308). Kept here so fresh DBs and pre-#121 DBs both parse this file
+-- successfully; the migration block converges either starting state in a single
+-- apply_schema run, since this two-column form also fails its "already
+-- re-keyed?" guard.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
     ON person_names(person_id, name_type)
     WHERE is_canonical = TRUE;
@@ -897,24 +912,104 @@ DO $$ BEGIN
     );
 END $$;
 
--- Re-key uq_person_canonical_name on (person_id, name_type, locale, script).
--- Drop the old index only if it lacks COALESCE (i.e. is the pre-#121 form),
--- then create the new shape (CR#1 fix: CREATE inside the block, after the DROP,
--- so a single apply_schema run completes the swap; the table-definition-site
--- CREATE is a no-op on existing DBs because the old index occupies the name).
-DO $$ BEGIN
+-- Re-key uq_person_canonical_name on (person_id) alone (issue #308).
+--
+-- `is_canonical` is the **display pointer**: the one name PM shows for a person.
+-- Keying it per (name_type, locale, script) — the #121 shape — let one person
+-- hold several canonical rows at once, so `v_person_display_names` had to pick
+-- among them, and a canonical row in one slot could block promotion in another.
+-- Nothing consumed the per-family meaning: every read in the codebase is either
+-- `ORDER BY is_canonical DESC` (show the main name first) or a wholesale demote
+-- on merge, and the admin promote path has always demoted person-wide.
+--
+-- This mirrors uq_org_canonical_name, which was narrowed from
+-- (organization_id, name_type) to (organization_id) for exactly this reason.
+--
+-- Name *families* are unaffected: a reading/romanization is linked to its source
+-- row by the reading_of_id FK, not by sharing a canonical slot. See the
+-- reading_of_id column comment on person_names.
+--
+-- Surplus canonicals are demoted deterministically before the index is built:
+-- keep a public row over a non-public one, then the best display name_type, then
+-- the lowest id. Production held zero such rows at 2026-07-19; this is a
+-- safety net for dev/test databases.
+DO $$
+DECLARE
+    demoted INTEGER;
+BEGIN
     IF EXISTS (
+        -- Scoped to the index on person_names in the current search_path, not
+        -- to the bare name: pg_indexes spans every schema (CR5 #50).
         SELECT 1 FROM pg_indexes
-        WHERE indexname='uq_person_canonical_name'
-          AND indexdef NOT LIKE '%COALESCE%'
+        WHERE indexname = 'uq_person_canonical_name'
+          AND schemaname = current_schema()
+          AND tablename = 'person_names'
+          AND indexdef NOT LIKE '%(person_id)%WHERE%'
     ) THEN
+        WITH ranked AS (
+            SELECT id,
+                   row_number() OVER (
+                       PARTITION BY person_id
+                       ORDER BY (visibility = 'public') DESC,
+                                CASE name_type
+                                    WHEN 'preferred' THEN 1 WHEN 'legal'    THEN 2
+                                    WHEN 'alias'     THEN 3 WHEN 'stage'    THEN 4
+                                    WHEN 'religious' THEN 5 WHEN 'maiden'   THEN 6
+                                    WHEN 'variant'   THEN 7 WHEN 'former'   THEN 8
+                                    WHEN 'initials'  THEN 9 ELSE 99
+                                END,
+                                id
+                   ) AS rn
+            FROM person_names
+            WHERE is_canonical = TRUE
+        )
+        UPDATE person_names SET is_canonical = FALSE
+        WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
+        GET DIAGNOSTICS demoted = ROW_COUNT;
+        IF demoted > 0 THEN
+            RAISE NOTICE 'uq_person_canonical_name re-key: demoted % surplus canonical person_names row(s)', demoted;
+        END IF;
         DROP INDEX uq_person_canonical_name;
     END IF;
 END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
-    ON person_names(person_id, name_type, COALESCE(locale, ''), COALESCE(script, ''))
+    ON person_names(person_id)
     WHERE is_canonical = TRUE;
+
+-- The display pointer must be displayable (issue #308).
+--
+-- v_person_display_names filters to visibility='public', so a canonical row that
+-- is legal_only or hidden renders the person blank *and* occupies the only
+-- canonical slot — unreachable state, silently. The CHECK makes it an error at
+-- write time instead. It also closes the deadname path structurally:
+-- trg_deadname_visibility rewrites a deadname row to legal_only BEFORE INSERT,
+-- so `is_canonical = TRUE` on a deadname now fails loudly rather than sealing
+-- the person's display slot with an invisible row.
+DO $$
+DECLARE
+    demoted INTEGER;
+BEGIN
+    IF NOT EXISTS (
+        -- conrelid, not conname alone: constraint names are unique per table,
+        -- not per database, so a same-named constraint elsewhere would make
+        -- this block skip and leave person_names silently unconstrained.
+        -- The regclass cast resolves via search_path, so this is schema-correct
+        -- as well as table-correct (CR5 #50).
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'chk_person_canonical_is_public'
+          AND conrelid = 'person_names'::regclass
+    ) THEN
+        UPDATE person_names SET is_canonical = FALSE
+        WHERE is_canonical = TRUE AND visibility <> 'public';
+        GET DIAGNOSTICS demoted = ROW_COUNT;
+        IF demoted > 0 THEN
+            RAISE NOTICE 'chk_person_canonical_is_public: demoted % non-public canonical row(s)', demoted;
+        END IF;
+        ALTER TABLE person_names ADD CONSTRAINT chk_person_canonical_is_public
+            CHECK (NOT is_canonical OR visibility = 'public');
+    END IF;
+END $$;
 
 -- Recreate v_person_display_names with the visibility-aware filter, now that
 -- the per-column DO blocks above have added `visibility` to person_names.
@@ -922,6 +1017,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_person_canonical_name
 -- COALESCE(sort_as, name). Combine with `COLLATE "und-x-icu"` at query
 -- time so locale-aware diacritic ordering applies (ICU "und" puts Å near A,
 -- not after Z as ASCII does).
+--
+-- One row per person by construction (issue #308): uq_person_canonical_name is
+-- keyed on (person_id) alone and chk_person_canonical_is_public guarantees the
+-- canonical row is visible, so there is nothing to disambiguate. The earlier
+-- form needed DISTINCT ON plus a name_type priority ladder to pick among the
+-- several canonical rows the per-family key allowed; both are gone.
+--
+-- The visibility filter is retained as belt-and-braces. It is redundant against
+-- the CHECK, but keeps the view correct if that constraint is ever relaxed.
 CREATE OR REPLACE VIEW v_person_display_names AS
 SELECT p.id AS person_id,
        n.name AS display_name,
@@ -1754,7 +1858,8 @@ CREATE TABLE IF NOT EXISTS entity_events (
     entity_id               TEXT NOT NULL,
     event_type_id           TEXT NOT NULL REFERENCES entity_event_types(id),
 
-    event_year              INTEGER CHECK (event_year BETWEEN -9999 AND 9999),
+    event_year              INTEGER CHECK (event_year BETWEEN -9999 AND 9999
+                                           AND event_year <> 0),
     event_month             INTEGER CHECK (event_month BETWEEN 1 AND 12),
     event_day               INTEGER CHECK (event_day BETWEEN 1 AND 31),
     event_hour              INTEGER CHECK (event_hour BETWEEN 0 AND 23),
@@ -1829,6 +1934,83 @@ $$;
 CREATE OR REPLACE TRIGGER trg_touch_entity_on_event_change
     AFTER INSERT OR UPDATE OR DELETE ON entity_events
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_entity_event_change();
+
+-- #307 CR rounds 1–2: reconcile entity_events CHECKs on pre-existing DBs.
+-- CREATE TABLE IF NOT EXISTS no-ops on an existing table, so constraints added
+-- inline to the CREATE never reach a DB whose table predates them — prod was
+-- missing both constraints below entirely (CR round 2 finding). Each branch is
+-- idempotent: replace a pre-#307 event_year clause that still allows year 0
+-- (no Gregorian year 0; make_date() errors on it, so a single year-0 row would
+-- break every v_org_lifespan join), then ADD either constraint when absent.
+-- Per-constraint sub-blocks: a violating row for one constraint must not
+-- abort the other's reconciliation, and each WARNING names its constraint.
+DO $$ BEGIN
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.check_constraints
+            WHERE constraint_schema = 'public'
+              AND constraint_name = 'entity_events_event_year_check'
+              AND check_clause NOT LIKE '%<> 0%'
+        ) THEN
+            ALTER TABLE entity_events
+                DROP CONSTRAINT entity_events_event_year_check;
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'entity_events'::regclass
+              AND conname = 'entity_events_event_year_check'
+        ) THEN
+            ALTER TABLE entity_events
+                ADD CONSTRAINT entity_events_event_year_check
+                CHECK (event_year BETWEEN -9999 AND 9999 AND event_year <> 0);
+        END IF;
+    EXCEPTION WHEN check_violation THEN
+        RAISE WARNING
+            'entity_events_event_year_check not added: rows with year-0 (or '
+            'out-of-range) event_year exist. Fix them, then re-apply schema.';
+    END;
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'entity_events'::regclass
+              AND conname = 'chk_at_requires_year'
+        ) THEN
+            ALTER TABLE entity_events
+                ADD CONSTRAINT chk_at_requires_year
+                CHECK (event_at IS NULL OR event_year IS NOT NULL);
+        END IF;
+    EXCEPTION WHEN check_violation THEN
+        RAISE WARNING
+            'chk_at_requires_year not added: rows with event_at but no '
+            'event_year exist. Fix them, then re-apply schema.';
+    END;
+END $$;
+
+-- Org lifespan end (#307): earliest non-archived dissolved/merged_with event,
+-- resolved to the LATEST date within the event's known precision (year-only
+-- 2023 → 2023-12-31; month-only → last day of month) so closing an assignment
+-- at ended_on never claims an earlier end than the source supports.
+-- renamed/split_from imply continuity elsewhere, not an end; events without a
+-- year (merged_with does not require one) derive no bound.
+CREATE OR REPLACE VIEW v_org_lifespan AS
+SELECT ev.entity_id AS organization_id,
+       min(
+           CASE
+               WHEN ev.event_day IS NOT NULL
+                   THEN make_date(ev.event_year, ev.event_month, ev.event_day)
+               WHEN ev.event_month IS NOT NULL
+                   THEN (make_date(ev.event_year, ev.event_month, 1)
+                         + INTERVAL '1 month' - INTERVAL '1 day')::date
+               ELSE make_date(ev.event_year, 12, 31)
+           END
+       ) AS ended_on
+FROM entity_events ev
+JOIN entity_event_types t ON t.id = ev.event_type_id
+WHERE ev.entity_type = 'organization'
+  AND t.slug IN ('dissolved', 'merged_with')
+  AND ev.archived_at IS NULL
+  AND ev.event_year IS NOT NULL
+GROUP BY ev.entity_id;
 
 -- =============================================================================
 -- Ingestion Audit Tables

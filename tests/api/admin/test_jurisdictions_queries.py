@@ -64,7 +64,7 @@ async def sample_jurisdictions(db):
 
 async def test_active_excludes_archived_and_superseded(db, sample_jurisdictions):
     marker = sample_jurisdictions["marker"]
-    rows, count, _ = await query_jurisdictions_rows(
+    rows, count, _, _hidden = await query_jurisdictions_rows(
         db, q=marker, status="active", type_slug=None, page=1, page_size=50
     )
     slugs = {r["slug"] for r in rows}
@@ -76,7 +76,7 @@ async def test_active_excludes_archived_and_superseded(db, sample_jurisdictions)
 
 async def test_archived_status(db, sample_jurisdictions):
     marker = sample_jurisdictions["marker"]
-    rows, _, _ = await query_jurisdictions_rows(
+    rows, _, _, _hidden = await query_jurisdictions_rows(
         db, q=marker, status="archived", type_slug=None, page=1, page_size=50
     )
     assert {r["slug"] for r in rows} == {f"test-{marker}-archived"}
@@ -84,7 +84,7 @@ async def test_archived_status(db, sample_jurisdictions):
 
 async def test_superseded_status(db, sample_jurisdictions):
     marker = sample_jurisdictions["marker"]
-    rows, _, _ = await query_jurisdictions_rows(
+    rows, _, _, _hidden = await query_jurisdictions_rows(
         db, q=marker, status="superseded", type_slug=None, page=1, page_size=50
     )
     assert {r["slug"] for r in rows} == {f"test-{marker}-superseded"}
@@ -92,11 +92,11 @@ async def test_superseded_status(db, sample_jurisdictions):
 
 async def test_type_filter(db, sample_jurisdictions):
     marker = sample_jurisdictions["marker"]
-    rows, _, _ = await query_jurisdictions_rows(
+    rows, _, _, _hidden = await query_jurisdictions_rows(
         db, q=marker, status="active", type_slug="county", page=1, page_size=50
     )
     assert {r["slug"] for r in rows} == {f"test-{marker}-active"}
-    rows2, _, _ = await query_jurisdictions_rows(
+    rows2, _, _, _hidden2 = await query_jurisdictions_rows(
         db, q=marker, status="active", type_slug="city", page=1, page_size=50
     )
     assert rows2 == []
@@ -104,7 +104,7 @@ async def test_type_filter(db, sample_jurisdictions):
 
 async def test_search_matches_name(db, sample_jurisdictions):
     marker = sample_jurisdictions["marker"]
-    rows, _, _ = await query_jurisdictions_rows(
+    rows, _, _, _hidden = await query_jurisdictions_rows(
         db, q=f"Testville {marker} Active", status="active", type_slug=None, page=1, page_size=50
     )
     assert {r["slug"] for r in rows} == {f"test-{marker}-active"}
@@ -112,7 +112,7 @@ async def test_search_matches_name(db, sample_jurisdictions):
 
 async def test_rows_expose_type_display(db, sample_jurisdictions):
     marker = sample_jurisdictions["marker"]
-    rows, _, pctx = await query_jurisdictions_rows(
+    rows, _, pctx, _hidden = await query_jurisdictions_rows(
         db, q=marker, status="active", type_slug=None, page=1, page_size=50
     )
     assert rows[0]["type_slug"] == "county"

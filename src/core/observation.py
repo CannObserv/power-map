@@ -25,6 +25,226 @@ logger = get_logger(__name__)
 _email_normalizer = EmailNormalizer()
 _phone_normalizer = PhoneNormalizer()
 
+# Person name_types that must never be auto-promoted into the display slot (#308b).
+# `deadname` is forced to visibility='legal_only' by trg_deadname_visibility, and
+# mrz/romanization/reading are machine-readable renderings, not display names.
+# A client may still promote one explicitly via the is_canonical hint.
+NO_AUTO_CANONICAL_NAME_TYPES = frozenset({"deadname", "mrz", "romanization", "reading"})
+
+# Subset that can never be canonical *at all*, hint or not: trg_deadname_visibility
+# forces these to visibility='legal_only', which chk_person_canonical_is_public
+# then rejects (#308). A client hint on one is ignored rather than allowed to
+# raise CheckViolationError and fail the entire observation.
+NEVER_CANONICAL_NAME_TYPES = frozenset({"deadname"})
+
+# Display preference when a single observation carries several eligible names and
+# the client gave no hint. Mirrors the name_type ordering in v_person_display_names
+# (#308a) so PM promotes the same row the view would have picked. Lower sorts first;
+# unlisted types fall to the end via the .get() default.
+_PERSON_NAME_TYPE_PRIORITY = {
+    "preferred": 1,
+    "legal": 2,
+    "alias": 3,
+    "stage": 4,
+    "religious": 5,
+    "maiden": 6,
+    "variant": 7,
+    "former": 8,
+    "initials": 9,
+}
+
+
+def name_type_priority_sql(col: str = "name_type") -> str:
+    """Render the display-priority ladder as a SQL CASE over *col*.
+
+    Derived from `_PERSON_NAME_TYPE_PRIORITY` so the Python and SQL orderings
+    cannot drift. `col` is a caller-supplied column reference (e.g. `n.name_type`
+    when the query aliases person_names) — parameterised rather than patched in
+    by the caller with `.replace("name_type", ...)`, which silently corrupted the
+    ladder as soon as a second occurrence or a matching literal appeared (CR4 #37).
+
+    Never interpolate untrusted input: `col` is SQL, not a bind parameter.
+    """
+    ladder = " ".join(f"WHEN '{t}' THEN {r}" for t, r in _PERSON_NAME_TYPE_PRIORITY.items())
+    return f"CASE {col} {ladder} ELSE 99 END"
+
+
+def _name_type_rank(name_type: str) -> int:
+    """Display priority of a person name_type; lower wins. Unlisted sorts last."""
+    return _PERSON_NAME_TYPE_PRIORITY.get(name_type, 99)
+
+
+def _person_canonical_target(names: "Sequence[ObservationPersonName]") -> int | None:
+    """Index of the one name in this write that may claim the canonical slot.
+
+    Client hint wins outright. Otherwise the highest-priority non-excluded
+    name_type is chosen — ``min`` is stable, so equal-priority names fall back to
+    list order without an explicit tiebreak. Returns None when nothing in the
+    batch is eligible.
+
+    Returns an **index, not a name string** (#308, CR3 #22): two entries in one
+    payload can share a name string while differing in name_type, and matching by
+    string promoted whichever came first in list order — letting an `mrz` or
+    `deadname` row claim the display slot despite
+    NO_AUTO_CANONICAL_NAME_TYPES, and inverting the priority ladder for
+    same-string `legal`/`preferred` pairs.
+
+    Exactly one name is eligible per write — promoting one per name_type slot
+    would leave a person carrying several canonical rows, which
+    uq_person_canonical_name permits but which reads as ambiguous display state.
+    """
+    hinted = next(
+        (
+            i
+            for i, n in enumerate(names)
+            if n.is_canonical and n.name_type not in NEVER_CANONICAL_NAME_TYPES
+        ),
+        None,
+    )
+    if hinted is not None:
+        return hinted
+    eligible = [i for i, n in enumerate(names) if n.name_type not in NO_AUTO_CANONICAL_NAME_TYPES]
+    if not eligible:
+        return None
+    return min(eligible, key=lambda i: _name_type_rank(names[i].name_type))
+
+
+# Guard for the person-name INSERT. uq_person_canonical_name is keyed on
+# (person_id) alone (#308), so there is exactly one slot per person and the
+# hinted and auto paths contend for the same one — a single guard serves both.
+# It never displaces: an existing canonical wins, whatever this write asserts.
+# chk_person_canonical_is_public guarantees a canonical row is visible, so no
+# visibility term is needed here.
+_CANONICAL_GUARD = (
+    "NOT EXISTS (SELECT 1 FROM person_names"
+    "            WHERE person_id = $2 AND is_canonical = TRUE)"
+)
+
+
+def _person_name_insert_sql(canonical_expr: str) -> str:
+    """Build the person_names INSERT with ``canonical_expr`` as the is_canonical value.
+
+    Callers pass either a guarded ``($9 AND <guard>)`` expression or the literal
+    ``FALSE`` (blocked-slot fallback, which also drops the $9 argument). Built in
+    one place so the two forms cannot drift out of sync with their arg tuples.
+
+    Returns ``is_canonical`` so the caller knows whether this write left the
+    person displaying, without a second round trip. Under
+    chk_person_canonical_is_public a canonical row is always visible, so the flag
+    alone is a sufficient answer — before that constraint it was not, because a
+    hinted deadname came back canonical but legal_only.
+    """
+    return (
+        "INSERT INTO person_names"
+        " (id, person_id, name, name_type, locale, script, sort_as,"
+        "  visibility, source_key_id, is_canonical)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8,"
+        f"   {canonical_expr})"
+        " RETURNING is_canonical"
+    )
+
+
+# Heal, phase 1 (#308): one probe answering both "does this person display?"
+# and "what would we promote if not?".
+#
+# There is no "blocked candidate" case any more (#308 Option A): a canonical row
+# is always public by CHECK, so the only thing that can hold the slot is a row
+# that already makes the person display — in which case there is nothing to heal.
+# The slot-contention machinery this used to carry, and the WARNING it emitted,
+# are gone with it.
+_HEAL_PERSON_SELECT_SQL = f"""
+SELECT EXISTS (
+           SELECT 1 FROM person_names
+           WHERE person_id = $1 AND is_canonical = TRUE
+       ) AS displays,
+       (
+           SELECT id FROM person_names
+           WHERE person_id = $1
+             AND visibility = 'public'
+             AND is_canonical = FALSE
+             AND name_type <> ALL($2::text[])
+           ORDER BY {name_type_priority_sql()}, id
+           LIMIT 1
+       ) AS candidate_id
+"""
+
+# Heal, phase 2: only runs when phase 1 found a candidate. Guarded again so a
+# commit landing between the two statements cannot produce a second canonical.
+_HEAL_PERSON_UPDATE_SQL = """
+UPDATE person_names SET is_canonical = TRUE
+WHERE id = $1
+  AND is_canonical = FALSE
+  AND NOT EXISTS (
+      SELECT 1 FROM person_names x
+      WHERE x.person_id = person_names.person_id
+        AND x.is_canonical = TRUE
+  )
+"""
+
+
+async def heal_person_canonical(conn, person_id: str) -> None:
+    """Promote an existing name when the person has no public canonical (#308).
+
+    Auto-promotion on INSERT only covers *new* name rows. A person already in the
+    canonical-less state is re-observed with the same names on every sync, hits
+    the exact-match dedup in ``write_names``, and would otherwise stay blank
+    forever. This makes the observation path self-healing, so the #308c backfill
+    stays a one-off rather than the only repair route. Also runs for observations
+    that carry no names at all, so any observation touching a blank person repairs
+    it.
+
+    Picks by ``_PERSON_NAME_TYPE_PRIORITY``, tie-broken by id — the same order
+    the backfill uses, so both repair paths choose the same row. No-op when the
+    person already displays, or when no eligible name exists (a person carrying
+    only a deadname stays deliberately blank).
+
+    The whole body — probe *and* guarded UPDATE — runs inside one savepoint
+    (CR6 #55). The contract is "the heal never aborts its caller", and a failed
+    SELECT poisons the enclosing transaction exactly like a failed UPDATE does,
+    so swallowing a probe error without a savepoint would leave the caller
+    hitting InFailedSQLTransactionError on its next statement. Earlier rounds
+    kept the probe outside to save the SAVEPOINT/RELEASE round trips on the
+    steady-state path (CR3 #15/#23); that priced ~25ms of latency above a hole
+    in the contract, which is the wrong way round. The UPDATE re-checks the
+    guard because a concurrent commit between the two statements can still
+    collide on uq_person_canonical_name; without recovery that
+    UniqueViolationError propagates out of write_names and aborts the whole
+    observation, which the route reports as `db_constraint_violation` —
+    discarding links, addresses, role assignments and events over a cosmetic
+    display-name repair.
+    """
+    try:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                _HEAL_PERSON_SELECT_SQL,
+                person_id,
+                list(NO_AUTO_CANONICAL_NAME_TYPES),
+            )
+            if row is None or row["displays"] or not row["candidate_id"]:
+                return
+            await conn.execute(_HEAL_PERSON_UPDATE_SQL, row["candidate_id"])
+    except asyncpg.exceptions.UniqueViolationError:
+        # Another session claimed the slot between the probe and the update.
+        # Expected and benign — their row satisfies the goal just as well.
+        logger.debug("heal_person_canonical: lost race for person=%s", person_id)
+    except asyncpg.exceptions.PostgresError as exc:
+        # Anything else: a deadlock, a serialization failure, or a real defect
+        # (UndefinedColumnError, InsufficientPrivilegeError — all PostgresError
+        # subclasses). Still swallowed, because escaping here aborts the
+        # enclosing observation and discards its links, addresses, role
+        # assignments and events over a cosmetic display-name repair (CR4 #41).
+        #
+        # But WARNING, not debug (CR5 #47): configure_logging defaults to INFO,
+        # so a debug line is dropped in production. A typo'd UPDATE or a revoked
+        # grant would otherwise stop all healing silently while the merge route
+        # still flashes success and the person stays blank.
+        logger.warning(
+            "heal_person_canonical: heal failed for person=%s (%s: %s)",
+            person_id,
+            type(exc).__name__,
+            exc,
+        )
+
 
 class Disposition(StrEnum):
     AUTO_ATTACHED = "auto-attached"
@@ -244,15 +464,44 @@ async def write_names(
       - visibility='public' (person_names only)
       - source_key_id = api_key_id on new name rows
       - parts: write on new name row; on existing row write only if parts row absent
-      - is_canonical hint: honoured only if no canonical already exists for that
-        (person_id, name_type) slot (person) or the whole org; never displaces.
+      - is_canonical hint: honoured only if the person has no canonical name at
+        all (the slot is person-wide under #308, not per name_type) or, for an
+        org, none for the whole org; never displaces. A hint on a
+        NEVER_CANONICAL_NAME_TYPES row is ignored rather than raising.
+      - person, no hint: first-wins auto-promotion (#308b) — symmetric with the
+        org branch, so a silent client still yields a displayable person.
     """
     if entity_type == "person":
-        for n in names:
+        # Exactly one name per write may claim canonical; hint wins, else priority.
+        canonical_target = _person_canonical_target(names)
+        guarded_sql = _person_name_insert_sql(f"($9 AND {_CANONICAL_GUARD})")
+        unpromoted_sql = _person_name_insert_sql("FALSE")
+        # Tracks whether this write already claimed the canonical slot, so the
+        # heal pass below can be skipped — it is a guaranteed no-op in that case,
+        # and costs a round trip against a remote DB (#308, CR2 #11).
+        displays = False
+        for idx, n in enumerate(names):
+            # Dedup on the full identity, not the bare name (#308, CR3 #22): a
+            # `legal` name and an `mrz` rendering can share a string while being
+            # different claims, and a name-only key silently discarded the second.
+            #
+            # The probe is deliberately visibility-blind, but the pick is not
+            # (CR6 #53): merge preserves rows identical except visibility (#121
+            # inheritance), and an unordered fetchrow matched whichever twin the
+            # heap offered first — so a `parts` payload could attach to the
+            # hidden copy. Prefer the public twin, tie-break on id.
             existing = await conn.fetchrow(
-                "SELECT id FROM person_names WHERE person_id=$1 AND name=$2",
+                "SELECT id FROM person_names"
+                " WHERE person_id=$1 AND name=$2 AND name_type=$3"
+                "   AND locale IS NOT DISTINCT FROM $4"
+                "   AND script IS NOT DISTINCT FROM $5"
+                " ORDER BY (visibility = 'public') DESC, id"
+                " LIMIT 1",
                 entity_id,
                 n.name,
+                n.name_type,
+                n.locale,
+                n.script,
             )
             if existing:
                 name_id = existing["id"]
@@ -260,30 +509,45 @@ async def write_names(
             else:
                 is_new = True
                 name_id = generate_id()
-                async with conn.transaction():
-                    await conn.execute(
-                        "INSERT INTO person_names"
-                        " (id, person_id, name, name_type, locale, script, sort_as,"
-                        "  visibility, source_key_id, is_canonical)"
-                        " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8,"
-                        "   ($9 AND NOT EXISTS ("
-                        "     SELECT 1 FROM person_names"
-                        "     WHERE person_id = $2 AND name_type = $4 AND is_canonical = TRUE"
-                        "   )))",
-                        name_id,
-                        entity_id,
-                        n.name,
-                        n.name_type,
-                        n.locale,
-                        n.script,
-                        n.sort_as,
-                        api_key_id,
-                        n.is_canonical,
-                    )
-                    if n.parts is not None:
-                        await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
+                eligible = idx == canonical_target
+                base_args = (
+                    name_id,
+                    entity_id,
+                    n.name,
+                    n.name_type,
+                    n.locale,
+                    n.script,
+                    n.sort_as,
+                    api_key_id,
+                )
+                try:
+                    async with conn.transaction():
+                        claimed = await conn.fetchval(guarded_sql, *base_args, eligible)
+                        # chk_person_canonical_is_public makes a canonical row
+                        # necessarily visible, so the flag alone answers "does
+                        # this person now display?".
+                        displays = displays or bool(claimed)
+                        if n.parts is not None:
+                            await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
+                except asyncpg.exceptions.UniqueViolationError:
+                    # A concurrent writer claimed the person's canonical slot
+                    # between our NOT EXISTS guard and this INSERT. Land the name
+                    # unpromoted rather than lose the observation — their row
+                    # satisfies the display requirement just as well. Retry runs
+                    # outside the failed savepoint; reusing it would hit
+                    # "current transaction is aborted".
+                    async with conn.transaction():
+                        await conn.execute(unpromoted_sql, *base_args)
+                        if n.parts is not None:
+                            await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
             if n.parts is not None and not is_new:
                 await _write_person_name_parts(conn, name_id, n.parts, is_new=False)
+        # Names that already existed are skipped above, so a person who was
+        # already canonical-less stays blank without this pass (#308, CR1).
+        # Skipped only when an insert above left the person actually displaying —
+        # the heal would be a no-op and costs a round trip (#308, CR2 #11).
+        if not displays:
+            await heal_person_canonical(conn, entity_id)
     elif entity_type == "organization":
         # If any name carries the canonical hint, only that name is eligible for promotion.
         # Otherwise fall through to first-wins auto-promotion (NOT EXISTS guard).

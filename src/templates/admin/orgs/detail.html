@@ -19,6 +19,19 @@
   </div>
 </div>
 
+{# #307: an org past its lifespan (archived / inactive / ended) should not carry
+   open assignments — surface them instead of letting members read as current. #}
+{% if open_assignment_count %}
+<div class="alert alert--warning" role="alert" style="margin-bottom:var(--space-4)">
+  {{ open_assignment_count }} open assignment{{ 's' if open_assignment_count != 1 }} on this
+  {%- if org.archived_at %} archived
+  {%- elif not org.active %} inactive
+  {%- endif %} organization{% if org_ended_on %} (ended {{ org_ended_on.isoformat() }}){% endif %}.
+  Close them at the organization's end date or re-home members to the successor organization
+  (see roles below).
+</div>
+{% endif %}
+
 <section class="entity-section">
   <h2>Details</h2>
   <div class="entity-card">

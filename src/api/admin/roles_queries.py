@@ -6,43 +6,65 @@ roles list query — preventing the query from drifting between the two sites,
 the same failure mode `orgs_queries.py` / `people_queries.py` address.
 """
 
+from src.api.admin.list_status import count_with_hidden_matches
 from src.api.admin.pagination import pagination_context
+
+# Status → SQL predicate, in dropdown order; ``all`` (no predicate) is a
+# first-class validated status (#306).
+STATUS_PREDICATES: dict[str, str] = {
+    "active": "r.archived_at IS NULL",
+    "archived": "r.archived_at IS NOT NULL",
+}
+VALID_STATUSES: set[str] = set(STATUS_PREDICATES) | {"all"}
 
 
 async def query_roles_rows(
     db, *, q: str, org_q: str, status: str, page: int, page_size: int
-) -> tuple[list, int, dict]:
+) -> tuple[list, int, dict, list[dict]]:
     """Run the roles list query under the given filter state.
 
-    Returns ``(rows, count, pctx)`` where ``pctx`` is the
-    `pagination_context()` dict (with ``page`` clamped to the valid range).
+    Returns ``(rows, count, pctx, hidden_matches)`` where ``pctx`` is the
+    `pagination_context()` dict (with ``page`` clamped to the valid range)
+    and ``hidden_matches`` lists ``{"status", "count"}`` for search matches
+    the current status filter excludes (#306). Empty unless a search is
+    active — either free-text filter (``q`` on the role, ``org_q`` on the
+    joined organization) counts as one — and ``status != "all"``.
 
-    Mirrors the inline query that used to live in ``roles_list``. Unlike Orgs /
-    People, the roles list is cross-org with a two-value status axis
-    (``active`` / ``archived``) plus a second free-text filter ``org_q`` matched
-    against the joined organization's ``search_tsv``.
+    An unknown ``status`` falls back to ``active`` — never to no-filter.
+    Unlike Orgs / People, the roles list is cross-org with the second
+    ``org_q`` filter matched against the joined organization's ``search_tsv``.
     """
-    conditions: list[str] = []
+    if status not in VALID_STATUSES:
+        status = "active"
+    search_conditions: list[str] = []
     params: list = []
-    if status == "active":
-        conditions.append("r.archived_at IS NULL")
-    elif status == "archived":
-        conditions.append("r.archived_at IS NOT NULL")
     if q:
         params.append(q)
-        conditions.append(f"r.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
+        search_conditions.append(f"r.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
     if org_q:
         params.append(org_q)
-        conditions.append(f"o.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
+        search_conditions.append(f"o.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
+    conditions = ([STATUS_PREDICATES[status]] if status != "all" else []) + search_conditions
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    count = await db.fetchval(
-        f"""SELECT count(r.id)
-            FROM roles r
-            JOIN organizations o ON o.id = r.organization_id
-            {where}""",
-        *params,
-    )
+    if q or org_q:
+        count, hidden_matches = await count_with_hidden_matches(
+            db,
+            from_clause="roles r JOIN organizations o ON o.id = r.organization_id",
+            search_conditions=search_conditions,
+            params=params,
+            predicates=STATUS_PREDICATES,
+            status=status,
+        )
+    else:
+        hidden_matches = []
+        count = await db.fetchval(
+            f"""SELECT count(r.id)
+                FROM roles r
+                JOIN organizations o ON o.id = r.organization_id
+                {where}""",
+            *params,
+        )
 
     pctx = pagination_context(page, count, page_size)
     offset = (pctx["page"] - 1) * page_size
@@ -62,4 +84,4 @@ async def query_roles_rows(
             LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
         *list_params,
     )
-    return rows, count, pctx
+    return rows, count, pctx, hidden_matches

@@ -78,7 +78,7 @@ async def jurisdictions_list(
     if status not in VALID_STATUSES:
         status = "active"
     type_slug = type_ or None
-    rows, count, pctx = await query_jurisdictions_rows(
+    rows, count, pctx, hidden_matches = await query_jurisdictions_rows(
         db, q=q, status=status, type_slug=type_slug, page=page, page_size=page_size
     )
     # The type-filter dropdown lives in list.html, not _region.html, so its
@@ -103,6 +103,7 @@ async def jurisdictions_list(
         "type_slug": type_slug or "",
         "page_size": page_size,
         "total": count,
+        "hidden_matches": hidden_matches,
         "flash_msg": flash_msg,
         **pctx,
     }

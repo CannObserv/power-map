@@ -19,22 +19,22 @@ from src.api.admin.org_dups import (
     CANDIDATE_WHERE,
     invalidate_dup_count_cache,
 )
-from src.api.admin.orgs_queries import query_orgs_rows
+from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.core.db import generate_id
+from src.core.org_lifecycle import count_open_assignments, get_org_ended_on
 
 _LIST_TARGET = "orgs-list-region"
-# Three-valued, unlike People — `inactive` is org-only (organizations.active).
-_VALID_STATUSES = {"active", "inactive", "archived"}
 
 
 def _parse_list_filters_from_hx_current_url(request: Request) -> dict:
     """Parse the orgs list filters from HX-Current-URL (see `parse_list_filters`).
 
-    Thin wrapper binding the org-specific three-valued status set; the parsing
-    logic (and the default page size) is shared with People via
-    `src.api.admin.list_filters`.
+    Thin wrapper binding the org-specific status set (four-valued with ``all``,
+    #306 — `inactive` is org-only), imported from `orgs_queries` so the two
+    can't drift; the parsing logic (and the default page size) is shared with
+    People via `src.api.admin.list_filters`.
     """
-    return parse_list_filters(request, valid_statuses=_VALID_STATUSES)
+    return parse_list_filters(request, valid_statuses=VALID_STATUSES)
 
 
 def _dropped_assignments_note(dropped: int) -> str:
@@ -49,6 +49,27 @@ def _dropped_assignments_note(dropped: int) -> str:
     return f" {dropped} duplicate role assignment{'s' if dropped != 1 else ''} dropped."
 
 
+async def _winner_lifespan_note(db, winner_id: str) -> str:
+    """Flash suffix warning when the surviving org is past its lifespan (#307).
+
+    A merge re-points the loser's assignments onto the winner; if the winner is
+    archived/inactive/ended, that silently re-creates the "live members on a
+    defunct org" state the lifespan invariant exists to prevent. Shared by both
+    merge flows so the wording can't drift.
+    """
+    row = await db.fetchrow("SELECT active, archived_at FROM organizations WHERE id=$1", winner_id)
+    if row is None:
+        return ""
+    ended_on = await get_org_ended_on(db, winner_id)
+    if row["active"] and row["archived_at"] is None and ended_on is None:
+        return ""
+    open_count = await count_open_assignments(db, winner_id)
+    if not open_count:
+        return ""
+    noun = "assignment remains" if open_count == 1 else "assignments remain"
+    return f" Warning: {open_count} open {noun} on the merged organization — close or re-home them."
+
+
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs", tags=["admin-orgs-merge"])
 
@@ -61,7 +82,7 @@ async def _render_orgs_list_region(request: Request, db, user: AdminUser, flash_
     stays identical. Filter state is read from HX-Current-URL.
     """
     filters = _parse_list_filters_from_hx_current_url(request)
-    rows, count, pctx = await query_orgs_rows(db, **filters)
+    rows, count, pctx, hidden_matches = await query_orgs_rows(db, **filters)
     ctx = {
         "user": user,
         "active_section": "orgs",
@@ -70,6 +91,7 @@ async def _render_orgs_list_region(request: Request, db, user: AdminUser, flash_
         "q": filters["q"],
         "status": filters["status"],
         "page_size": filters["page_size"],
+        "hidden_matches": hidden_matches,
         **pctx,
     }
     return templates.TemplateResponse(
@@ -524,6 +546,7 @@ async def org_merge(
         # Parity with the detail-flow `org_merge_with`: surface silently-dropped
         # duplicate role assignments so the admin knows data changed shape.
         body += _dropped_assignments_note(dropped)
+        body += await _winner_lifespan_note(db, winner_id)
         # List-flow branch (#250): merge initiated from /admin/orgs/. HX-Target
         # identifies the swap region; re-render the full `_region.html` (rows +
         # caption total + sticky pagination) so post-merge counts stay
@@ -587,6 +610,7 @@ async def org_merge_with(
         f"Review names, roles, and contact info for duplicates."
     )
     body += _dropped_assignments_note(dropped)
+    body += await _winner_lifespan_note(db, winner_id)
     # List-context merge (#255): the preview modal was opened from the orgs list, so
     # re-render the list region in place instead of redirecting to winner detail.
     if (

@@ -125,11 +125,15 @@ async def transform_person(
             )
         )
 
-    # Names
+    # Names. Only the legal name is canonical: `is_canonical` is the *display*
+    # pointer and a person has exactly one (#308). Marking the former name
+    # canonical too was legal under the old per-name_type key and is now a
+    # uq_person_canonical_name violation — it was never right, it just happened
+    # to be masked because `legal` outranked `former` in the display ladder.
     names = [{"name": validated.name, "name_type": "legal", "is_canonical": True}]
     if validated.former_name and validated.former_name.strip():
         names.append(
-            {"name": validated.former_name.strip(), "name_type": "former", "is_canonical": True}
+            {"name": validated.former_name.strip(), "name_type": "former", "is_canonical": False}
         )
 
     # Contact methods

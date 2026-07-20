@@ -1,5 +1,7 @@
 {% from "admin/macros/pagination.html" import controls as pagination %}
 {% set _qs = "q=" ~ q|urlencode ~ "&status=" ~ status|urlencode ~ "&type=" ~ type_slug|urlencode ~ "&page_size=" ~ page_size %}
+{% set show_all_url = "/admin/jurisdictions/?q=" ~ q|urlencode ~ "&type=" ~ type_slug|urlencode ~ "&status=all&page_size=" ~ page_size %}
+{% include "admin/_hidden_matches.html" %}
 <div class="table-wrapper" style="position:relative">
   <table class="data-table" id="jurisdictions-table">
     <caption>Jurisdictions — {{ total }} record{{ 's' if total != 1 else '' }}</caption>

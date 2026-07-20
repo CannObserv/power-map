@@ -15,8 +15,14 @@ from src.api.admin.deps import (
     is_htmx,
     resolve_query_flash,
 )
-from src.api.admin.pagination import pagination_context
+from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
+from src.api.admin.role_assignments_queries import VALID_STATUSES, query_role_assignments_rows
 from src.core.db import generate_id
+from src.core.org_lifecycle import (
+    AssignmentOutsideOrgLifespan,
+    check_assignment_lifespan,
+    lifespan_error_message,
+)
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/role-assignments", tags=["admin-role-assignments"])
@@ -65,80 +71,22 @@ async def _fetch_roles(db):
     )
 
 
-_LIST_SELECT = """
-    SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.created_at,
-           p.id AS person_id,
-           pn.display_name AS person_name,
-           r.id AS role_id, r.title AS role_title,
-           o.id AS org_id,
-           dn.display_name AS org_name
-    FROM role_assignments ra
-    JOIN people p ON p.id = ra.person_id
-    LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
-    JOIN roles r ON r.id = ra.role_id
-    JOIN organizations o ON o.id = r.organization_id
-    LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-"""
-
-# ra.id: unique tiebreaker for stable offset pagination under the non-unique sort keys (#297)
-_LIST_ORDER = (
-    "ORDER BY ra.is_current DESC, person_name NULLS LAST, ra.start_date DESC NULLS LAST, ra.id"
-)
-
-
 @router.get("/")
 async def ra_list(
     request: Request,
     q: str = "",
     status: str = "active",
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=10, le=500),
+    page_size: int = Query(PAGE_SIZE_DEFAULT, ge=PAGE_SIZE_MIN, le=PAGE_SIZE_MAX),
     flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """List role assignments with search and status filter."""
-
-    conditions = []
-    params: list = []
-
-    if status == "active":
-        conditions.append("ra.archived_at IS NULL")
-    elif status == "archived":
-        conditions.append("ra.archived_at IS NOT NULL")
-
-    if q:
-        params.append(q)
-        idx = len(params)
-        conditions.append(
-            f"(p.search_tsv @@ plainto_tsquery('pm_unaccent_simple', ${idx})"
-            f" OR r.search_tsv @@ plainto_tsquery('pm_simple', ${idx})"
-            f" OR o.search_tsv @@ plainto_tsquery('pm_simple', ${idx}))"
-        )
-
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    count_params = params[:]
-
-    count = await db.fetchval(
-        f"""SELECT count(ra.id)
-            FROM role_assignments ra
-            JOIN people p ON p.id = ra.person_id
-            JOIN roles r ON r.id = ra.role_id
-            JOIN organizations o ON o.id = r.organization_id
-            {where}""",
-        *count_params,
-    )
-
-    pctx = pagination_context(page, count, page_size)
-    offset = (pctx["page"] - 1) * page_size
-    list_params = params + [page_size, offset]
-
-    rows = await db.fetch(
-        f"""{_LIST_SELECT}
-            {where}
-            {_LIST_ORDER}
-            LIMIT ${len(list_params) - 1} OFFSET ${len(list_params)}""",
-        *list_params,
+    if status not in VALID_STATUSES:
+        status = "active"
+    rows, count, pctx, hidden_matches = await query_role_assignments_rows(
+        db, q=q, status=status, page=page, page_size=page_size
     )
 
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
@@ -151,6 +99,7 @@ async def ra_list(
         "status": status,
         "page_size": page_size,
         "total": count,
+        "hidden_matches": hidden_matches,
         "flash_msg": flash_msg,
         **pctx,
     }
@@ -202,6 +151,36 @@ async def ra_create(
     start_date_val = _parse_date(start_date)
     end_date_val = _parse_date(end_date)
     ra_id = generate_id()
+
+    try:
+        await check_assignment_lifespan(
+            db,
+            role_id,
+            is_current=is_current_bool,
+            start_date=start_date_val,
+            end_date=end_date_val,
+        )
+    except AssignmentOutsideOrgLifespan as exc:
+        people = await _fetch_people(db)
+        roles = await _fetch_roles(db)
+        return templates.TemplateResponse(
+            request,
+            "admin/role_assignments/form.html",
+            {
+                "user": user,
+                "active_section": "role_assignments",
+                "people": people,
+                "roles": roles,
+                "error": lifespan_error_message(exc),
+                "form_person_id": person_id,
+                "form_role_id": role_id,
+                "form_is_current": is_current_bool,
+                "form_start_date": start_date,
+                "form_end_date": end_date,
+                "form_notes": notes,
+            },
+            status_code=200,
+        )
 
     try:
         # Savepoint so a CHECK violation aborts only this write, not the ambient
@@ -310,6 +289,25 @@ async def ra_inline_is_current(
 ):
     """Toggle is_current; on CHECK violation, re-render prior state + error flash."""
     new_val = is_current == "true"
+    if new_val:
+        ra = await _get_ra(ra_id, db)
+        try:
+            await check_assignment_lifespan(
+                db,
+                ra["role_id"],
+                is_current=True,
+                start_date=ra["start_date"],
+                end_date=ra["end_date"],
+            )
+        except AssignmentOutsideOrgLifespan as exc:
+            if not is_htmx(request):
+                raise HTTPException(status_code=400, detail=lifespan_error_message(exc)) from exc
+            return templates.TemplateResponse(
+                request,
+                "admin/role_assignments/partials/_is_current_toggle.html",
+                {"ra": ra},
+                headers=flash_trigger("error", lifespan_error_message(exc)),
+            )
     try:
         # Savepoint: a CHECK violation aborts only this write (see create above).
         async with db.transaction():
@@ -397,6 +395,33 @@ async def ra_inline_dates_post(
     """Save dates; on CHECK violation, re-render form with inline error."""
     start_val = _parse_date(start_date)
     end_val = _parse_date(end_date)
+    ra = await _get_ra(ra_id, db)
+    try:
+        # is_current=False: this form can't change currency, so it must not
+        # enforce it — a current-on-ended row would otherwise get a circular
+        # error on its own repair path (and on unrelated start_date edits).
+        # chk_current_no_end_date still yields the "mark as former first"
+        # message when an end date is posted for a current row.
+        await check_assignment_lifespan(
+            db,
+            ra["role_id"],
+            is_current=False,
+            start_date=start_val,
+            end_date=end_val,
+        )
+    except AssignmentOutsideOrgLifespan as exc:
+        if not is_htmx(request):
+            raise HTTPException(status_code=400, detail=lifespan_error_message(exc)) from exc
+        return templates.TemplateResponse(
+            request,
+            "admin/role_assignments/partials/_dates_form.html",
+            {
+                "ra": ra,
+                "error": lifespan_error_message(exc),
+                "start_date_value": start_date,
+                "end_date_value": end_date,
+            },
+        )
     try:
         # Savepoint: a CHECK violation aborts only this write (see create above).
         async with db.transaction():

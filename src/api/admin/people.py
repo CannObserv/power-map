@@ -18,7 +18,7 @@ from src.api.admin.deps import (
 from src.api.admin.entity_lookup import search_entities
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.people_embeddings import fetch_person_embeddings
-from src.api.admin.people_queries import query_people_rows
+from src.api.admin.people_queries import VALID_STATUSES, query_people_rows
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -94,8 +94,9 @@ async def people_list(
     db=Depends(get_db),
 ):
     """List people with search and status filter."""
-
-    rows, count, pctx = await query_people_rows(
+    if status not in VALID_STATUSES:
+        status = "active"
+    rows, count, pctx, hidden_matches = await query_people_rows(
         db, q=q, status=status, page=page, page_size=page_size
     )
 
@@ -109,6 +110,7 @@ async def people_list(
         "status": status,
         "page_size": page_size,
         "total": count,
+        "hidden_matches": hidden_matches,
         "flash_msg": flash_msg,
         **pctx,
     }

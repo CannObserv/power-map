@@ -42,12 +42,27 @@ def _make_merge_db(fetchrow_result):
 
 
 async def _org_merge_db():
-    yield _make_merge_db({"id": "test_id", "name": "Test Name", "acronym": "TST"})
+    # active/archived_at feed the #307 winner-lifespan probe (_winner_lifespan_note);
+    # one fetchrow mock serves every query, so the row carries the union of keys.
+    yield _make_merge_db(
+        {
+            "id": "test_id",
+            "name": "Test Name",
+            "acronym": "TST",
+            "active": True,
+            "archived_at": None,
+        }
+    )
 
 
 async def _person_merge_db():
-    # person merge fetches 'id' and 'notes' from the people row
-    yield _make_merge_db({"id": "test_id", "notes": None})
+    # person merge fetches 'id' and 'notes' from the people row; `displays` and
+    # `candidate_id` are the canonical-heal probe merge_person_into now runs at
+    # the end (CR4 #29). One fetchrow mock serves every query, so the row has to
+    # carry the union of the keys. displays=True short-circuits the heal, which
+    # is what this smoke test wants — heal correctness lives in
+    # tests/api/admin/test_people_merge_canonical.py.
+    yield _make_merge_db({"id": "test_id", "notes": None, "displays": True, "candidate_id": None})
 
 
 async def _zero():

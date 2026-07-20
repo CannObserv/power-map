@@ -1924,6 +1924,20 @@ Every route handler: `user: AdminUser = Depends(get_admin_user)` — `get_admin_
 
 `target` for archive/unarchive is the detail page (`/admin/{entities}/{id}/?flash=archived|unarchived`); for delete it is the list page (`?flash=deleted`). 409-on-already-in-state guards fire before the branch, so they hold for both request kinds. The org "Restore from archive" control in `orgs/partials/_active_toggle.html` follows the same `hx-post` model.
 
+### List status filters & search discoverability (#306)
+
+**Default status filters never silently hide search matches.** Every admin list (orgs / people / roles / role-assignments / jurisdictions) filters by a status axis defaulting to `active`; a name search under that default used to drop same-named rows sitting under another status — the dedup-hunting trap of #306 (two "WA House RSG" orgs, one `active=FALSE`, only one visible).
+
+The pattern, shared across all five lists:
+
+- Each `*_queries.py` declares its axis as `STATUS_PREDICATES` (status → SQL predicate, in dropdown order) and `VALID_STATUSES = set(STATUS_PREDICATES) | {"all"}`. `all` is a first-class validated status (fourth dropdown option, no predicate); an **unknown status falls back to `active`** — never to no-filter (pre-#306, `?status=banana` silently returned everything including archived).
+- When a search is active (`q`; for roles also `org_q`), the count query is one grouped pass via `count_with_hidden_matches()` from `src.api.admin.list_status` — `count(*) FILTER (WHERE <predicate>)` per status — and the query helper returns `hidden_matches`: `{"status", "count"}` per non-current status holding matches. Extra list filters that aren't the status axis (jurisdictions' `type`) constrain those counts like any search condition.
+- `query_*_rows` returns `(rows, count, pctx, hidden_matches)`; list routes and list-flow merge branches put `hidden_matches` in the template context.
+- `_region.html` renders `admin/_hidden_matches.html` above the table: "N more matches outside the current status filter (…) — Show all". **The Show all link is a plain `<a>`, not `hx-get`** — the status dropdown lives in `list.html` outside the swap region, so only a full-page render keeps it in sync with `status=all`.
+- Merge-flow `_VALID_STATUSES` duplicates are gone: `orgs_merge.py` / `people_merge.py` / `orgs_roles.py` import `VALID_STATUSES` from their `*_queries.py` so route, merge filter parsing, and query can't drift.
+
+Deliberate exception: the public API `/search` endpoints (orgs, people) filter archived rows behind an explicit, documented `include_archived=false` query param — opt-in, not silent — and stay as they are (see `docs/CONVENTIONS.md`).
+
 ### HTMX partial responses
 
 `is_htmx(request)` from `src.api.admin.deps` — checks `HX-Request and not HX-Boosted`. Boost sends both headers; omitting the `not HX-Boosted` guard causes boosted sidebar nav to receive bare fragments instead of full page layouts.
@@ -1961,6 +1975,15 @@ Detail pages once injected their scripts via `{% block extra_head %}`. **Do not*
 ### Page header sync
 
 On any mutation route that may change an org's canonical name or acronym, pass `extra=await org_header_extra(org_id, db)` to `flash_trigger` (from `src.api.admin.deps`). Returns `{"updateOrgHeader": {"display": ...}}`; `org-detail.js` handles the event and updates `#page-heading`, `#breadcrumb-current`, and `document.title` in-place. Equivalent `person_header_extra` for person routes. → §30 for full client-side pattern.
+
+### Lingering-state warnings (#307)
+
+When an entity enters a terminal-ish state (archived / inactive / lifespan ended) while still carrying live children that now read as stale — e.g. an org past its lifespan with open role assignments — surface it twice:
+
+- **Persistent banner** on the detail page: `alert alert--warning` block under the page header, rendered whenever `<terminal condition> AND <live-children count>` (`{% if open_assignment_count %}` on org detail). Banner names the count, the state, the boundary date when known, and the remedy ("close or re-home"). Persistent beats transient here — the condition outlives the mutation that created it (archive redirect, merge, external ingest).
+- **Warning flash** on the mutation that creates the condition: upgrade the flash to `level="warning"` and append the count + remedy (deactivate toggle), or append a `" Warning: …"` suffix to a success flash when the mutation's primary outcome succeeded (org merge into an ended/inactive winner — `_winner_lifespan_note` in `orgs_merge.py`).
+
+Count predicates live in `src.core` next to the domain logic (`count_open_assignments` in `src.core.org_lifecycle`), never inlined per-route — the "open" definition must not drift between surfaces. Domain rules → `docs/CONVENTIONS.md` §"Org lifespan bounds on assignments".
 
 ### Person-name metadata controls (Phase 2a–2d, #123)
 

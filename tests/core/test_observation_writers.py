@@ -1,9 +1,12 @@
 """Integration tests for src.core.observation per-surface writers."""
 
+import asyncio
+import contextlib
 import hashlib
 import os
 from datetime import date
 
+import asyncpg
 import pytest
 import pytest_asyncio
 
@@ -23,6 +26,7 @@ from src.core.observation import (
     IdentifierConflict,
     ObservationRejected,
     backfill_assignment_dates,
+    heal_person_canonical,
     write_additional_identifiers,
     write_addresses,
     write_contact_methods,
@@ -167,9 +171,11 @@ async def test_write_names_person_canonical_hint_no_displace(db, api_key_id):
         "SELECT name, is_canonical FROM person_names WHERE person_id=$1 ORDER BY created_at",
         pid,
     )
-    # Both should be canonical: different name_types have separate canonical slots
+    # One canonical slot per person (#308, Option A). The earlier per-name_type
+    # key let both rows be canonical at once, which is what forced
+    # v_person_display_names to disambiguate. A later hint never displaces.
     assert rows[0]["is_canonical"] is True
-    assert rows[1]["is_canonical"] is True
+    assert rows[1]["is_canonical"] is False
 
 
 async def test_write_names_person_canonical_hint_same_type_no_displace(db, api_key_id):
@@ -187,6 +193,504 @@ async def test_write_names_person_canonical_hint_same_type_no_displace(db, api_k
     assert rows[0]["is_canonical"] is True
     assert rows[1]["name"] == "Alice J. Smith"
     assert rows[1]["is_canonical"] is False  # first legal name stays canonical
+
+
+# --- first-wins auto-promotion (#308b) -------------------------------------
+# Symmetry with the org branch: a client that omits is_canonical must still end
+# up with a displayable person. Guarded by NOT EXISTS — never displaces.
+
+
+async def test_write_names_person_no_hint_auto_promotes(db, api_key_id):
+    """The #308 regression: sole name, no canonical hint → still canonical."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    name = ObservationPersonName(name="Steve Kirby", name_type="legal")
+    await write_names(db, pid, "person", api_key_id, [name])
+    row = await db.fetchrow("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert row["is_canonical"] is True
+
+
+async def test_write_names_person_no_hint_renders_in_display_view(db, api_key_id):
+    """End-to-end: the person no longer renders blank."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Tina Orwall", name_type="legal")],
+    )
+    rows = await db.fetch("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+    assert len(rows) == 1
+    assert rows[0]["display_name"] == "Tina Orwall"
+
+
+async def test_write_names_person_no_hint_does_not_displace(db, api_key_id):
+    """An existing canonical is never displaced by auto-promotion."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Alice Smith", name_type="legal", is_canonical=True)],
+    )
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Alice J. Smith", name_type="legal")],
+    )
+    rows = await db.fetch(
+        "SELECT name, is_canonical FROM person_names WHERE person_id=$1 ORDER BY created_at",
+        pid,
+    )
+    assert rows[0]["is_canonical"] is True
+    assert rows[1]["is_canonical"] is False
+
+
+async def test_write_names_person_multi_name_promotes_only_one(db, api_key_id):
+    """Multiple unhinted names in one write → exactly one canonical, not one per slot.
+
+    Naive per-name_type first-wins would promote both, and the person would
+    carry two canonical rows (uq_person_canonical_name permits it).
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    names = [
+        ObservationPersonName(name="Alice Smith", name_type="legal"),
+        ObservationPersonName(name="Alice", name_type="preferred"),
+    ]
+    await write_names(db, pid, "person", api_key_id, names)
+    rows = await db.fetch("SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert sum(1 for r in rows if r["is_canonical"]) == 1
+
+
+async def test_write_names_person_multi_name_prefers_preferred(db, api_key_id):
+    """Eligibility follows the display priority, not list order."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    names = [
+        ObservationPersonName(name="Alice Smith", name_type="legal"),
+        ObservationPersonName(name="Alice", name_type="preferred"),
+    ]
+    await write_names(db, pid, "person", api_key_id, names)
+    by_name = {
+        r["name"]: r["is_canonical"]
+        for r in await db.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert by_name["Alice"] is True
+    assert by_name["Alice Smith"] is False
+
+
+async def test_write_names_person_deadname_never_auto_promoted(db, api_key_id):
+    """A deadname is forced to legal_only by trigger — never the display slot."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Old Name", name_type="deadname")],
+    )
+    row = await db.fetchrow(
+        "SELECT is_canonical, visibility FROM person_names WHERE person_id=$1", pid
+    )
+    assert row["visibility"] == "legal_only"
+    assert row["is_canonical"] is False
+
+
+async def test_write_names_person_machine_readable_not_auto_promoted(db, api_key_id):
+    """mrz/romanization/reading are not display candidates."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="YAMADA<<TARO", name_type="mrz")],
+    )
+    row = await db.fetchrow("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert row["is_canonical"] is False
+
+
+async def test_write_names_person_hint_wins_over_priority(db, api_key_id):
+    """An explicit client hint overrides the name_type priority ordering."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    names = [
+        ObservationPersonName(name="Alice Smith", name_type="legal", is_canonical=True),
+        ObservationPersonName(name="Alice", name_type="preferred"),
+    ]
+    await write_names(db, pid, "person", api_key_id, names)
+    by_name = {
+        r["name"]: r["is_canonical"]
+        for r in await db.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert by_name["Alice Smith"] is True
+    assert by_name["Alice"] is False
+
+
+async def test_write_names_person_excluded_only_leaves_no_canonical(db, api_key_id):
+    """All names excluded → no canonical; a later eligible name can still claim it."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="YAMADA<<TARO", name_type="mrz")],
+    )
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Taro Yamada", name_type="legal")],
+    )
+    by_name = {
+        r["name"]: r["is_canonical"]
+        for r in await db.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert by_name["Taro Yamada"] is True
+    assert by_name["YAMADA<<TARO"] is False
+
+
+# --- heal-on-observe (#308, CR round 1 finding 1) ---------------------------
+# Auto-promotion on insert only helps names that are new. A person already in
+# the canonical-less state is re-observed with the same names every sync, hits
+# the exact-match dedup, and would stay blank forever without a heal pass.
+
+
+async def test_write_names_person_heals_existing_uncanonical_name(db, api_key_id):
+    """Re-observing a blank person's existing name promotes it."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    # Simulate a person created before #308b: name present, nothing canonical.
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility, is_canonical)"
+        " VALUES ($1, $2, 'Steve Kirby', 'legal', 'public', FALSE)",
+        generate_id(),
+        pid,
+    )
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Steve Kirby", name_type="legal")],
+    )
+    row = await db.fetchrow("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert row["is_canonical"] is True
+
+
+async def test_write_names_person_heal_renders_in_display_view(db, api_key_id):
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility, is_canonical)"
+        " VALUES ($1, $2, 'Tina Orwall', 'legal', 'public', FALSE)",
+        generate_id(),
+        pid,
+    )
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Tina Orwall", name_type="legal")],
+    )
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        == "Tina Orwall"
+    )
+
+
+async def test_write_names_person_heal_respects_priority(db, api_key_id):
+    """Heal picks the same row the view would — preferred over legal."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    for name, ntype in [("Alice Smith", "legal"), ("Alice", "preferred")]:
+        await db.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, visibility, is_canonical)"
+            " VALUES ($1, $2, $3, $4, 'public', FALSE)",
+            generate_id(),
+            pid,
+            name,
+            ntype,
+        )
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Alice Smith", name_type="legal")],
+    )
+    by_name = {
+        r["name"]: r["is_canonical"]
+        for r in await db.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert by_name["Alice"] is True
+    assert by_name["Alice Smith"] is False
+
+
+async def test_write_names_person_heal_skips_excluded_name_types(db, api_key_id):
+    """A person whose only name is a deadname stays blank — never auto-displayed."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility, is_canonical)"
+        " VALUES ($1, $2, 'Old Name', 'deadname', 'legal_only', FALSE)",
+        generate_id(),
+        pid,
+    )
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Old Name", name_type="deadname")],
+    )
+    row = await db.fetchrow("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert row["is_canonical"] is False
+
+
+async def test_write_names_person_heal_does_not_displace(db, api_key_id):
+    """A person who already displays is left completely alone."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Alice Smith", name_type="legal", is_canonical=True)],
+    )
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility, is_canonical)"
+        " VALUES ($1, $2, 'Alice', 'preferred', 'public', FALSE)",
+        generate_id(),
+        pid,
+    )
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Alice", name_type="preferred")],
+    )
+    by_name = {
+        r["name"]: r["is_canonical"]
+        for r in await db.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert by_name["Alice Smith"] is True
+    assert by_name["Alice"] is False
+
+
+# --- canonical-slot contention (#308, CR round 2 findings 9/10/12) ----------
+# Under Option A the slot is person-wide: uq_person_canonical_name is keyed on
+# (person_id) and chk_person_canonical_is_public guarantees a canonical row is
+# public. The old single-threaded trigger for the insert fallback — a NON-PUBLIC
+# canonical occupying one (name_type, locale, script) slot while the guard looked
+# only for public ones — is therefore unreachable by construction (CR4 #40).
+# Exercising the fallback now requires real concurrency; see
+# test_write_names_person_insert_falls_back_when_slot_lost.
+
+
+async def test_write_names_person_hinted_guard_suppresses_same_slot(db, api_key_id):
+    """A hinted promotion never displaces an existing canonical.
+
+    Covers the guard, not the fallback: the guard is keyed on person_id alone,
+    so it sees the existing canonical whatever its name_type, and the promotion
+    never reaches the index. The hinted row here differs from the incumbent in
+    name only — under the old per-(name_type, locale, script) key the two
+    occupied different slots and both could be canonical.
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, locale, script,"
+        " visibility, is_canonical) VALUES ($1, $2, '山田太郎', 'legal', 'ja', 'Jpan',"
+        " 'public', TRUE)",
+        generate_id(),
+        pid,
+    )
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(
+                name="Yamada Taro",
+                name_type="legal",
+                locale="ja",
+                script="Jpan",
+                is_canonical=True,
+            )
+        ],
+    )
+    by_name = {
+        r["name"]: r["is_canonical"]
+        for r in await db.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert by_name["Yamada Taro"] is False
+    assert by_name["山田太郎"] is True
+
+
+# The former "blocked slot" scenario — a non-public canonical occupying the
+# person's display slot — is unreachable under Option A (#308):
+# chk_person_canonical_is_public rejects it at write time. Its coverage lives in
+# tests/core/test_schema_person_canonical.py, which asserts the constraint fires.
+
+
+# --- heal is skipped when the write already promoted (#308, CR round 2 #11) --
+
+
+class _CountingConn:
+    """Delegates to a real connection, counting heal round trips.
+
+    The heal costs a round trip against a remote DB; it must not fire at all
+    when the insert already claimed the canonical slot.
+
+    Counts the **probe** as well as the UPDATE (CR4 #33). Tallying only the
+    UPDATE made the test vacuous: when the insert has already promoted, the
+    probe returns ``displays=True`` and the UPDATE is skipped regardless, so
+    ``heal_calls == 0`` held whether or not `write_names` short-circuits on the
+    insert's RETURNING value — which is the round trip this test exists to
+    protect.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.heal_calls = 0
+
+    def __getattr__(self, item):
+        return getattr(self._conn, item)
+
+    def _tally(self, query):
+        if "UPDATE person_names SET is_canonical" in query or "AS candidate_id" in query:
+            self.heal_calls += 1
+
+    async def execute(self, query, *args, **kwargs):
+        self._tally(query)
+        return await self._conn.execute(query, *args, **kwargs)
+
+    async def fetchrow(self, query, *args, **kwargs):
+        self._tally(query)
+        return await self._conn.fetchrow(query, *args, **kwargs)
+
+    async def fetchval(self, query, *args, **kwargs):
+        self._tally(query)
+        return await self._conn.fetchval(query, *args, **kwargs)
+
+
+async def test_write_names_person_skips_heal_when_insert_promoted(db, api_key_id):
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    conn = _CountingConn(db)
+    await write_names(
+        conn,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Steve Kirby", name_type="legal")],
+    )
+    assert conn.heal_calls == 0
+    assert await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+
+
+async def test_write_names_dedup_prefers_public_twin(db, api_key_id):
+    """Dedup must resolve visibility twins toward the public row (CR6 #53).
+
+    Merge deliberately preserves rows identical except visibility (a `hidden`
+    and a `public` copy of the same claim, #121 inheritance). The dedup probe
+    was a bare fetchrow with no ORDER BY, so which twin an observation matched
+    — and therefore which row a `parts` payload attached to — was heap-order
+    luck. The hidden twin is inserted first here so an unordered probe finds it
+    first and the test goes red without the fix.
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    hidden_nid, public_nid = generate_id(), generate_id()
+    for nid, vis in ((hidden_nid, "hidden"), (public_nid, "public")):
+        await db.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+            " is_canonical) VALUES ($1, $2, 'Jane Doe', 'legal', $3, FALSE)",
+            nid,
+            pid,
+            vis,
+        )
+    parts = ObservationPersonNameParts(given_names=["Jane"], family_names=["Doe"])
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Jane Doe", name_type="legal", parts=parts)],
+    )
+    # No third row minted, and the parts landed on the public twin.
+    assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 2
+    attached = await db.fetch(
+        "SELECT person_name_id FROM person_name_parts WHERE person_name_id = ANY($1)",
+        [hidden_nid, public_nid],
+    )
+    assert [r["person_name_id"] for r in attached] == [public_nid]
+
+
+async def test_write_names_person_runs_heal_when_nothing_promoted(db, api_key_id):
+    """Re-observation of an already-present name still needs the heal."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+        " is_canonical) VALUES ($1, $2, 'Steve Kirby', 'legal', 'public', FALSE)",
+        generate_id(),
+        pid,
+    )
+    conn = _CountingConn(db)
+    await write_names(
+        conn,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Steve Kirby", name_type="legal")],
+    )
+    # Probe + UPDATE: the person did not display, so the heal runs in full.
+    assert conn.heal_calls == 2
+    assert await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+
+
+async def test_write_names_person_heals_on_nameless_observation(db, api_key_id):
+    """An observation carrying no names still heals a blank person (#308, #14)."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+        " is_canonical) VALUES ($1, $2, 'Steve Kirby', 'legal', 'public', FALSE)",
+        generate_id(),
+        pid,
+    )
+    await write_names(db, pid, "person", api_key_id, [])
+    assert await db.fetchval("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
 
 
 # ---------------------------------------------------------------------------
@@ -1093,3 +1597,314 @@ async def test_write_additional_identifiers_conflict_raises(db, person_id):
     with pytest.raises(IdentifierConflict) as exc:
         await write_additional_identifiers(db, person_id, mk("999"))
     assert exc.value.identifier_type_slug == "person_ssn"
+
+
+# --- CR round 3: identity-based eligibility + display-aware promotion --------
+
+
+async def test_write_names_person_hinted_deadname_does_not_seal_slot(db, api_key_id):
+    """#21: a hinted deadname must not suppress the heal for a good public name.
+
+    trg_deadname_visibility rewrites the row to legal_only, so `is_canonical`
+    alone does not mean the person displays.
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(name="Old Name", name_type="deadname", is_canonical=True),
+            ObservationPersonName(name="New Name", name_type="legal"),
+        ],
+    )
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        == "New Name"
+    )
+
+
+async def test_write_names_person_hinted_deadname_alone_stays_blank(db, api_key_id):
+    """No eligible public name exists — blank is correct, and nothing is sealed."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Old Name", name_type="deadname", is_canonical=True)],
+    )
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        is None
+    )
+
+
+async def test_write_names_person_same_string_excluded_type_not_promoted(db, api_key_id):
+    """#22: eligibility is by identity, not name string.
+
+    An mrz row sharing its string with a legal row must never claim the display
+    slot just by being first in the list.
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(name="ALICE SMITH", name_type="mrz"),
+            ObservationPersonName(name="ALICE SMITH", name_type="legal"),
+        ],
+    )
+    rows = {
+        (r["name_type"], r["is_canonical"])
+        for r in await db.fetch(
+            "SELECT name_type, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert ("mrz", True) not in rows, "machine-readable name claimed the display slot"
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        == "ALICE SMITH"
+    )
+    assert ("legal", True) in rows
+
+
+async def test_write_names_person_same_string_different_type_both_kept(db, api_key_id):
+    """The name-only dedup must not silently drop a distinct name_type claim."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(name="ALICE SMITH", name_type="mrz"),
+            ObservationPersonName(name="ALICE SMITH", name_type="legal"),
+        ],
+    )
+    types = {
+        r["name_type"]
+        for r in await db.fetch("SELECT name_type FROM person_names WHERE person_id=$1", pid)
+    }
+    assert types == {"mrz", "legal"}
+
+
+async def test_write_names_person_same_string_priority_still_applies(db, api_key_id):
+    """#22: with equal strings, `preferred` must still outrank `legal`."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(name="Jane Roe", name_type="legal"),
+            ObservationPersonName(name="Jane Roe", name_type="preferred"),
+        ],
+    )
+    canon = await db.fetchval(
+        "SELECT name_type FROM person_names WHERE person_id=$1 AND is_canonical", pid
+    )
+    assert canon == "preferred"
+
+
+async def test_write_names_person_exact_same_row_still_deduped(db, api_key_id):
+    """Same name AND type AND locale/script is still a no-op (unchanged policy)."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    n = ObservationPersonName(name="Jane Doe", name_type="legal")
+    await write_names(db, pid, "person", api_key_id, [n])
+    await write_names(db, pid, "person", api_key_id, [n])
+    assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 1
+
+
+# --- CR round 3: heal recovers from a concurrent slot claim (#15/#23) --------
+
+# db_pool is max_size=2 (tests/conftest.py) and the race tests below hold both
+# connections. asyncpg's acquire() has no default timeout, so a third consumer
+# would block forever; bound it so that shows up as a failure (CR5 #48).
+_POOL_ACQUIRE_TIMEOUT_S = 10
+
+
+async def _settle_racer(tr, task, *, committed: bool) -> None:
+    """Wind down a race test: end the racer's transaction, then the task.
+
+    Only reached with `committed=False` when an assertion (or `tr.commit()`
+    itself) failed mid-race; rolling back first releases the claim the task is
+    blocked on. InterfaceError is suppressed so a commit that died mid-call —
+    leaving `tr` in a state rollback rejects — cannot mask the original
+    failure (CR6 #56).
+    """
+    if not committed:
+        with contextlib.suppress(asyncpg.exceptions.InterfaceError):
+            await tr.rollback()
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+async def test_heal_survives_concurrent_slot_claim(db, db_pool):
+    """A lost race must not abort the enclosing observation transaction.
+
+    Without recovery the UniqueViolationError propagates out of write_names and
+    the route rejects the entire observation as db_constraint_violation,
+    discarding links, addresses, role assignments and events (#23).
+
+    Uses two real connections (CR4 #34). The previous version raised
+    UniqueViolationError from a stub's `execute` **client-side**, so no
+    statement ever reached Postgres, the server transaction was never actually
+    aborted, and the trailing `SELECT 1` succeeded whether or not
+    `heal_person_canonical` wrapped its UPDATE in a savepoint — the savepoint
+    being the entire point of the fix. Stubbing cannot reproduce this: an
+    INSERT issued on the *same* connection is visible to the heal's own
+    NOT EXISTS guard, which then declines to update and never reaches the index.
+
+    The genuine interleaving, reproduced here deterministically:
+      1. `other` claims the slot on a different row, uncommitted.
+      2. The heal's guard cannot see that row, so it proceeds.
+      3. Its UPDATE blocks on uq_person_canonical_name, holding a lock wait.
+      4. `other` commits -> the blocked UPDATE raises UniqueViolationError.
+    """
+    pid = generate_id()
+    # Committed out-of-band so the heal's connection can see the rows at all.
+    # `timeout` because db_pool is max_size=2 and this test holds both slots:
+    # without it, adding another pool-backed fixture hangs the suite forever
+    # instead of failing (CR5 #48).
+    async with db_pool.acquire(timeout=_POOL_ACQUIRE_TIMEOUT_S) as other:
+        nid_preferred, nid_legal = generate_id(), generate_id()
+        await other.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        for nid, nm, nt in (
+            (nid_preferred, "Steve", "preferred"),
+            (nid_legal, "Steve Kirby", "legal"),
+        ):
+            await other.execute(
+                "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+                " is_canonical) VALUES ($1, $2, $3, $4, 'public', FALSE)",
+                nid,
+                pid,
+                nm,
+                nt,
+            )
+        tr = other.transaction()
+        await tr.start()
+        racer_committed = False
+        task = None
+        try:
+            # `preferred` outranks `legal`, so the heal targets nid_preferred
+            # while the racer claims nid_legal — different rows, same slot.
+            # Claiming the *same* row would exercise the EPQ path instead,
+            # where the re-evaluated `is_canonical = FALSE` predicate simply
+            # matches nothing and no violation is ever raised.
+            await other.execute("UPDATE person_names SET is_canonical=TRUE WHERE id=$1", nid_legal)
+            task = asyncio.create_task(heal_person_canonical(db, pid))
+            # Let the heal reach its UPDATE and block on the unique index.
+            await asyncio.sleep(0.5)
+            assert not task.done(), "heal should be blocked on the racer's uncommitted claim"
+            await tr.commit()
+            racer_committed = True
+            # Must return normally: the savepoint absorbs the violation.
+            await asyncio.wait_for(task, timeout=10)
+            # The enclosing transaction must still be usable — that is the whole point.
+            assert await db.fetchval("SELECT 1") == 1
+            assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid)
+        finally:
+            # These rows are COMMITTED, so cleanup must not run inside `tr` — the
+            # pool's reset() would roll the DELETEs back and leak them into the
+            # shared test DB. Only the assertion path can reach here with `tr`
+            # still open (CR5 #46).
+            await _settle_racer(tr, task, committed=racer_committed)
+            await other.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await other.execute("DELETE FROM entity_changes WHERE entity_id=$1", pid)
+            await other.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+async def test_write_names_person_insert_falls_back_when_slot_lost(db_pool):
+    """A lost canonical race on INSERT must land the name unpromoted, not fail (CR4 #35).
+
+    This is the branch `write_names` takes when a concurrent writer commits a
+    canonical row between our NOT EXISTS guard and our INSERT. Nothing covered
+    it: the only UniqueViolation machinery in this file targeted the *heal*, and
+    `test_write_names_person_hinted_guard_suppresses_same_slot` says outright
+    that it covers the guard rather than the fallback. Also asserts the parts
+    re-write on retry, which is easy to drop when editing the except block.
+
+    Owns both transactions rather than using the `db` fixture: the observation
+    inserts a person_names row, and the racer's cleanup DELETE would block on it
+    until the fixture rolled back at teardown — after this function's `finally`
+    had already run. `source_key_id` is left NULL (nullable FK); an `api_keys`
+    row created on the fixture connection would be invisible to `obs` anyway.
+    """
+    pid, nid_existing = generate_id(), generate_id()
+    async with (
+        db_pool.acquire(timeout=_POOL_ACQUIRE_TIMEOUT_S) as obs,
+        db_pool.acquire(timeout=_POOL_ACQUIRE_TIMEOUT_S) as other,
+    ):
+        await other.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await other.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, visibility,"
+            " is_canonical) VALUES ($1, $2, 'Steve Kirby', 'legal', 'public', FALSE)",
+            nid_existing,
+            pid,
+        )
+        obs_tr = obs.transaction()
+        await obs_tr.start()
+        tr = other.transaction()
+        await tr.start()
+        racer_committed = False
+        task = None
+        try:
+            await other.execute(
+                "UPDATE person_names SET is_canonical=TRUE WHERE id=$1", nid_existing
+            )
+            parts = ObservationPersonNameParts(given_names=["Steve"], family_names=["Kirby"])
+            task = asyncio.create_task(
+                write_names(
+                    obs,
+                    pid,
+                    "person",
+                    None,
+                    [
+                        ObservationPersonName(
+                            name="Steven Kirby", name_type="preferred", parts=parts
+                        )
+                    ],
+                )
+            )
+            await asyncio.sleep(0.5)
+            assert not task.done(), "insert should be blocked on the racer's uncommitted claim"
+            await tr.commit()
+            racer_committed = True
+            # Must return normally: the fallback absorbs the violation.
+            await asyncio.wait_for(task, timeout=10)
+            row = await obs.fetchrow(
+                "SELECT id, is_canonical FROM person_names"
+                " WHERE person_id=$1 AND name='Steven Kirby'",
+                pid,
+            )
+            # The name landed, and it did not displace the racer's canonical.
+            assert row is not None
+            assert row["is_canonical"] is False
+            # The retry must re-write the parts it lost with the failed savepoint.
+            assert await obs.fetchval(
+                "SELECT family_names FROM person_name_parts WHERE person_name_id=$1",
+                row["id"],
+            ) == ["Kirby"]
+            assert await obs.fetchval("SELECT 1") == 1
+        finally:
+            await _settle_racer(tr, task, committed=racer_committed)
+            # Undo the observation first: `other`'s cleanup would otherwise block
+            # on the uncommitted person_names row this transaction holds. This
+            # also drops the person_name_parts row, which cascades from it.
+            await obs_tr.rollback()
+            await other.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await other.execute("DELETE FROM entity_changes WHERE entity_id=$1", pid)
+            await other.execute("DELETE FROM people WHERE id=$1", pid)

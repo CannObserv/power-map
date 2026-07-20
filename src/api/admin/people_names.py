@@ -7,20 +7,31 @@ and deadname); these helpers intentionally bypass the visibility filter.
 
 from src.api.admin._names_shared import make_names_router
 from src.api.admin.deps import person_header_extra
+from src.core.observation import heal_person_canonical
 from src.core.types import PERSON_NAME_TYPES
 
 
 async def _maybe_promote_sole_name(person_id: str, db) -> None:
-    """If the person has exactly one name and it is not canonical, promote it."""
-    rows = await db.fetch(
-        "SELECT id, is_canonical FROM person_names WHERE person_id=$1",
-        person_id,
-    )
-    if len(rows) == 1 and not rows[0]["is_canonical"]:
-        await db.execute(
-            "UPDATE person_names SET is_canonical=TRUE WHERE id=$1",
-            rows[0]["id"],
-        )
+    """Restore the person's display pointer after a name change (#308).
+
+    Delegates to `heal_person_canonical`, the shared repair used by the
+    observation path, merge, and the #308c backfill — so every route that can
+    strand a person picks the same replacement row, by the same ladder.
+
+    Previously this promoted only when *exactly one* name remained, so deleting
+    the canonical of a multi-name person left `v_person_display_names` NULL with
+    perfectly good public names still present, and nothing repaired it until an
+    observation happened to touch that person (CR5 #45).
+
+    The displayability bar is unchanged and lives in the helper: `visibility =
+    'public'` and a name_type outside NO_AUTO_CANONICAL_NAME_TYPES. Promoting a
+    deadname or an mrz row would set is_canonical on a row
+    `v_person_display_names` filters out — which
+    `chk_person_canonical_is_public` now rejects outright for deadnames. A
+    person carrying only such names stays deliberately blank until a human adds
+    a displayable one.
+    """
+    await heal_person_canonical(db, person_id)
 
 
 async def _last_identity_blocked(person_id: str, db) -> bool:

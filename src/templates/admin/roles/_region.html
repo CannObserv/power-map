@@ -1,5 +1,7 @@
 {% from "admin/macros/pagination.html" import controls as pagination %}
 {% set _qs = "q=" ~ q|urlencode ~ "&org_q=" ~ org_q|urlencode ~ "&status=" ~ status|urlencode ~ "&page_size=" ~ page_size %}
+{% set show_all_url = "/admin/roles/?q=" ~ q|urlencode ~ "&org_q=" ~ org_q|urlencode ~ "&status=all&page_size=" ~ page_size %}
+{% include "admin/_hidden_matches.html" %}
 <div class="table-wrapper" style="position:relative">
   <table class="data-table" id="roles-list-table">
     <caption>Roles — {{ total }} record{{ 's' if total != 1 else '' }}</caption>
