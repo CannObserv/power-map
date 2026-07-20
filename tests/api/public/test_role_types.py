@@ -75,17 +75,16 @@ async def test_role_types_seeded_offices_present_and_expect_jurisdiction(client,
 
 
 @pytest.mark.integration
-async def test_role_types_member_seeded_non_jurisdictional(client, api_key):
-    """The #269 `member` classifier is seeded with expects_jurisdiction=False.
+async def test_role_types_coarse_member_retired(client, api_key):
+    """The #269 coarse `member` classifier is gone (#266).
 
-    Coarse body/committee membership (person is a member of a body, no precise
-    seat) — a jurisdiction-less classifier, so expects_jurisdiction must be False.
+    It conflated committee with party membership, so "all members" mixed the two.
+    Split into committee_member + party_member and dropped from the catalog.
     """
     response = await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
     by_slug = {r["slug"]: r for r in response.json()["data"]}
-    assert "member" in by_slug
-    assert by_slug["member"]["display_name"] == "Member"
-    assert by_slug["member"]["expects_jurisdiction"] is False
+    assert "member" not in by_slug
+    assert {"committee_member", "party_member"} <= set(by_slug)
 
 
 @pytest.mark.integration
@@ -122,13 +121,13 @@ async def test_role_types_requires_qualifier_seeded(client, api_key):
 
     House seats are per-position (Position 1/2) so `state_representative`
     requires a qualifier; a state senator (one per district) and a plain
-    `member` do not.
+    committee member do not.
     """
     response = await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
     by_slug = {r["slug"]: r for r in response.json()["data"]}
     assert by_slug["state_representative"]["requires_qualifier"] is True
     assert by_slug["state_senator"]["requires_qualifier"] is False
-    assert by_slug["member"]["requires_qualifier"] is False
+    assert by_slug["committee_member"]["requires_qualifier"] is False
 
 
 @pytest.mark.integration

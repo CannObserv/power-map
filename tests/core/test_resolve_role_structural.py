@@ -345,22 +345,23 @@ async def test_structural_match_without_title_auto_attaches(db):
 
 
 # ---------------------------------------------------------------------------
-# Jurisdiction-less typed roles — the `member` classifier (#269)
+# Jurisdiction-less typed roles — the coarse membership classifier
+# (#269 `member`, split into `committee_member` by #266)
 # ---------------------------------------------------------------------------
 
 
 async def test_member_role_persists_role_type_without_jurisdiction(db):
-    """A `member` role (no jurisdiction) is created with role_type_id set.
+    """A `committee_member` role (no jurisdiction) is created with role_type_id set.
 
     #269's contract: the classifier lands on the row (so memberships aggregate)
     even though matching stays in title mode — the role carries no jurisdiction
     and no qualifier.
     """
     org = await _org(db)
-    rid, disp, reason = await resolve_role(db, org, "Member", role_type="member")
+    rid, disp, reason = await resolve_role(db, org, "Member", role_type="committee_member")
     assert disp is Disposition.NEW
     assert reason is None
-    member_type_id = await db.fetchval("SELECT id FROM role_types WHERE slug='member'")
+    member_type_id = await db.fetchval("SELECT id FROM role_types WHERE slug='committee_member'")
     row = await db.fetchrow(
         "SELECT role_type_id, jurisdiction_id, qualifier FROM roles WHERE id=$1", rid
     )
@@ -370,28 +371,28 @@ async def test_member_role_persists_role_type_without_jurisdiction(db):
 
 
 async def test_member_role_matches_by_title_not_jurisdiction_branch(db):
-    """A re-observed `member` role AUTO_ATTACHes by (org, lower(title))."""
+    """A re-observed membership role AUTO_ATTACHes by (org, lower(title))."""
     org = await _org(db)
-    id1, disp1, _ = await resolve_role(db, org, "Member", role_type="member")
-    id2, disp2, _ = await resolve_role(db, org, "member", role_type="member")
+    id1, disp1, _ = await resolve_role(db, org, "Member", role_type="committee_member")
+    id2, disp2, _ = await resolve_role(db, org, "member", role_type="committee_member")
     assert disp1 is Disposition.NEW
     assert disp2 is Disposition.AUTO_ATTACHED
     assert id1 == id2
 
 
 async def test_typed_member_attaches_to_preexisting_untyped_title(db):
-    """(org, title) is the sole key: a `member` observation attaches to a
+    """(org, title) is the sole key: a `committee_member` observation attaches to a
     pre-existing untyped role of the same title — and upgrades it in place
     (upgrade-on-match, #266, supersedes the #269 leave-untyped behavior)."""
     org = await _org(db)
     untyped_id, disp1, _ = await resolve_role(db, org, "Member")
-    typed_id, disp2, _ = await resolve_role(db, org, "Member", role_type="member")
+    typed_id, disp2, _ = await resolve_role(db, org, "Member", role_type="committee_member")
     assert disp1 is Disposition.NEW
     assert disp2 is Disposition.AUTO_ATTACHED
     assert typed_id == untyped_id
     # The matched row's NULL role_type_id is now filled in place (#266).
     rt_id = await db.fetchval("SELECT role_type_id FROM roles WHERE id=$1", typed_id)
-    expected = await db.fetchval("SELECT id FROM role_types WHERE slug='member'")
+    expected = await db.fetchval("SELECT id FROM role_types WHERE slug='committee_member'")
     assert rt_id == expected
 
 

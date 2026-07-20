@@ -47,9 +47,26 @@ async def _org(db, *, id_type_slug: str | None = None, value: str = "x") -> str:
     return oid
 
 
+async def _legacy_member_type(db) -> str:
+    """Restore the retired `member` role_type for the duration of one test.
+
+    #266 drops it from the catalog once no rows reference it, but this script's
+    entire job is migrating a DB that *still has* it — so the tests recreate the
+    pre-#266 state they exercise. Rolled back with the surrounding transaction.
+    """
+    existing = await db.fetchval("SELECT id FROM role_types WHERE slug='member'")
+    if existing:
+        return existing
+    await db.execute(
+        "INSERT INTO role_types (id, slug, display_name)"
+        " VALUES ('01KX0000000000000000000003','member','Member')"
+    )
+    return "01KX0000000000000000000003"
+
+
 async def _member_role(db, org_id: str, title: str = "Member") -> str:
     rid = generate_id()
-    member_type = await db.fetchval("SELECT id FROM role_types WHERE slug='member'")
+    member_type = await _legacy_member_type(db)
     await db.execute(
         "INSERT INTO roles (id, organization_id, title, role_type_id) VALUES ($1,$2,$3,$4)",
         rid,
@@ -101,6 +118,15 @@ async def test_org_without_discriminator_skipped(db):
     by_role = {a["role_id"]: a for a in report["actions"]}
     assert by_role[role]["target"] == "skipped"
     assert await _slug_of(db, role) == "member"  # untouched
+
+
+async def test_noop_when_member_type_already_retired(db):
+    """On a fully-migrated DB (`member` dropped, #266) the script is a clean no-op."""
+    assert await db.fetchval("SELECT id FROM role_types WHERE slug='member'") is None
+
+    report = await migrate_member_role_type(db, execute=True)
+
+    assert report["actions"] == []
 
 
 async def test_idempotent_rerun_is_noop(db):

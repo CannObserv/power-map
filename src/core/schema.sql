@@ -1661,7 +1661,6 @@ END $$;
 INSERT INTO role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier) VALUES
     ('01KX0000000000000000000001', 'state_representative',                'State Representative',                TRUE,  TRUE),
     ('01KX0000000000000000000002', 'state_senator',                      'State Senator',                      TRUE,  FALSE),
-    ('01KX0000000000000000000003', 'member',                             'Member',                             FALSE, FALSE),
     ('01KX0000000000000000000004', 'chamber_leader',                     'Chamber Leader',                     FALSE, FALSE),
     ('01KX0000000000000000000005', 'chamber_officer',                    'Chamber Officer',                    FALSE, FALSE),
     ('01KX0000000000000000000006', 'committee_chair',                    'Committee Chair',                    FALSE, FALSE),
@@ -1676,6 +1675,24 @@ ON CONFLICT (id) DO UPDATE SET
     display_name         = EXCLUDED.display_name,
     expects_jurisdiction = EXCLUDED.expects_jurisdiction,
     requires_qualifier   = EXCLUDED.requires_qualifier;
+
+-- Retire the coarse `member` classifier (#266). It conflated committee and party
+-- membership, so "all members" mixed the two; scripts/migrate_member_role_type.py
+-- splits it into committee_member + party_member by structural org identifier.
+-- Guarded: a DB whose migration hasn't run keeps the row (deleting it would break
+-- the roles.role_type_id FK) and gets a WARNING telling the operator what to run.
+DO $$
+DECLARE remaining INT;
+BEGIN
+    SELECT count(*) INTO remaining FROM roles WHERE role_type_id = '01KX0000000000000000000003';
+    IF remaining = 0 THEN
+        DELETE FROM role_types WHERE id = '01KX0000000000000000000003';
+    ELSE
+        RAISE WARNING
+            'role_type `member` still referenced by % role(s) — run '
+            'scripts/migrate_member_role_type.py --execute, then re-apply schema', remaining;
+    END IF;
+END $$;
 
 -- requires_qualifier DB backstop (#273): resolve_role rejects a positionless
 -- districted seat at the app layer, but the admin dashboard and direct INSERTs

@@ -326,7 +326,7 @@ async def jur_with_graph(db):
         ids["j"],
         governing,
     )
-    member = await db.fetchval("SELECT id FROM role_types WHERE slug='member'")
+    member = await db.fetchval("SELECT id FROM role_types WHERE slug='committee_member'")
     await db.execute(
         "INSERT INTO roles (id, organization_id, title, role_type_id, jurisdiction_id)"
         " VALUES ($1,$2,$3,$4,$5)",

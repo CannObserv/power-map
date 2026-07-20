@@ -96,7 +96,14 @@ async def migrate_member_role_type(conn: asyncpg.Connection, *, execute: bool) -
             " WHERE slug IN ('member', 'committee_member', 'party_member')"
         )
     }
-    missing = {"member", "committee_member", "party_member"} - type_ids.keys()
+    if "member" not in type_ids:
+        # The migration has already completed everywhere: `member` is dropped from
+        # the catalog once it holds no rows (#266). Nothing left to split, so this
+        # is a clean no-op rather than an error — keeps the script re-runnable on
+        # an already-migrated DB.
+        logger.info("role_type `member` is absent — already migrated, nothing to do")
+        return Report(actions=[])
+    missing = {"committee_member", "party_member"} - type_ids.keys()
     if missing:
         raise RuntimeError(f"missing role_types {missing} — run apply_schema first")
 

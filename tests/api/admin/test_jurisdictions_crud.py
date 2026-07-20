@@ -353,7 +353,7 @@ async def test_delete_referenced_returns_409(client, county_type_id, db):
         county_type_id,
     )
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-    member = await db.fetchval("SELECT id FROM role_types WHERE slug='member'")
+    member = await db.fetchval("SELECT id FROM role_types WHERE slug='committee_member'")
     await db.execute(
         "INSERT INTO roles (id, organization_id, title, role_type_id, jurisdiction_id)"
         " VALUES ($1,$2,$3,$4,$5)",

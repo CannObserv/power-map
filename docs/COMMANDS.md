@@ -369,6 +369,49 @@ uv run "${env_args[@]}" python -m scripts.archive_legacy_legislator_roles
 uv run "${env_args[@]}" python -m scripts.archive_legacy_legislator_roles --execute
 ```
 
+## Role-type vocabulary migration + classification (issue #266)
+
+Two one-off migrations, **run in this order**, that move legacy free-text roles onto
+the #266 role-type vocabulary. Both are idempotent, dry-run by default, and commit in
+a single transaction under `--execute`. Governance rules for the vocabulary itself →
+`docs/CONVENTIONS.md` §"Role-type vocabulary — governance".
+
+`scripts/migrate_member_role_type.py` splits the retired coarse `member` classifier
+into `committee_member` / `party_member` by **structural org identifier**
+(`org_wa_legislature_committee_id` vs `org_wa_party`) — never display names. An org
+with neither is reported `skipped` and left untouched. Once no rows reference
+`member`, `apply_schema` drops it from the catalog; the script then no-ops.
+
+`scripts/classify_legislative_roles.py` types WA committee / chamber / legislative-staff
+roles in four phases: curate title collisions (two spellings of one office are **merged**,
+assignments re-pointed not deleted; collision-free variants renamed), classify committee
+officeholders (`committee_*`) and committee staff (`legislature_staff`), classify the
+legislative staff offices, then apply the enumerated chamber backlog (retitle, re-home,
+principal→notes). Titles are preserved wherever normalizing would erase a real
+distinction (`Acting Chair` keeps its title *and* takes `committee_chair`). Backlog rules
+are org-scoped to the WA chambers — an unscoped title match would sweep in unrelated orgs.
+Federal legislative roles and caucus/floor-leadership vocab are deliberately out of scope.
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+# Dry runs — read-only; every planned mutation is listed per row
+uv run "${env_args[@]}" python -m scripts.migrate_member_role_type
+uv run "${env_args[@]}" python -m scripts.classify_legislative_roles
+
+# Execute, in order, then re-apply schema to drop the emptied `member` type
+uv run "${env_args[@]}" python -m scripts.migrate_member_role_type --execute
+uv run "${env_args[@]}" python -m scripts.classify_legislative_roles --execute
+bash scripts/apply-schema.sh
+```
+
+**Dates are never invented (#307):** the classifier moves a tenure embedded in a title
+(e.g. `Speaker of the House (2021-23)`) into role notes and logs a WARNING — a human sets
+the assignment's dates and currency afterward.
+
 ## Outbox + tombstone TTL prune (issue #204)
 
 `scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)
