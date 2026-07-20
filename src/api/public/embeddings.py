@@ -11,12 +11,18 @@ from src.api.public.schemas import (
     EmbeddingListResponse,
     EmbeddingPatchRequest,
     EmbeddingPatchResponse,
+    EmbeddingPresenceRequest,
+    EmbeddingPresenceResponse,
+    EmbeddingPresenceResult,
     EmbeddingWriteRequest,
     EmbeddingWriteResponse,
     IdentifyMatch,
     IdentifyRequest,
     IdentifyResponse,
     SearchMeta,
+    VerifyBatchGroup,
+    VerifyBatchRequest,
+    VerifyBatchResponse,
     VerifyRequest,
     VerifyResponse,
     VerifyResult,
@@ -35,6 +41,22 @@ def _get_registry(request: Request) -> EmbeddingRegistry:
 def _vec_str(embedding: list[float]) -> str:
     """Format a Python list as a pgvector literal: ``[f1,f2,...]``."""
     return "[" + ",".join(str(v) for v in embedding) + "]"
+
+
+def _require_queryable_model(model_id: str, registry: EmbeddingRegistry) -> ModelMeta:
+    """Return ModelMeta or raise 422 for an unknown or non-queryable model.
+
+    Verify-family endpoints 422 here rather than returning empty results — an
+    all-null response would be indistinguishable from "no candidate has
+    enrollments" (#299).
+    """
+    meta = registry.get(model_id)
+    if meta is None or not meta.is_queryable:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown or non-queryable embedding model '{model_id}'",
+        )
+    return meta
 
 
 @router.post(
@@ -129,12 +151,7 @@ async def verify_person(
     model is a 422 — an all-null response would be indistinguishable from
     "no candidate has enrollments".  422 also on dimension mismatch.
     """
-    meta = registry.get(body.model_id)
-    if meta is None or not meta.is_queryable:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown or non-queryable embedding model '{body.model_id}'",
-        )
+    meta = _require_queryable_model(body.model_id, registry)
 
     if len(body.embedding) != meta.dimension:
         raise HTTPException(
@@ -178,6 +195,130 @@ async def verify_person(
                 embedding_id=scored[pid]["embedding_id"] if pid in scored else None,
                 n_embeddings=scored[pid]["n_embeddings"] if pid in scored else 0,
             )
+            for pid in ordered_ids
+        ]
+    )
+
+
+@router.post(
+    "/verify-batch",
+    response_model=VerifyBatchResponse,
+    operation_id="verifyPeopleByVoiceBatch",
+)
+async def verify_person_batch(
+    body: VerifyBatchRequest,
+    _auth: AuthedKey = Depends(require_scope("voice_embeddings:read")),
+    db=Depends(get_db),
+    registry: EmbeddingRegistry = Depends(_get_registry),
+) -> VerifyBatchResponse:
+    """Score N query embeddings against one declared candidate set (#310).
+
+    Multi-embedding form of ``/verify`` — one group per query embedding, in
+    ``embeddings`` request order, each carrying the full per-candidate result
+    list with #299 semantics (candidate request order, dedup first-occurrence
+    wins, ``similarity: null`` = no active enrollment, best enrollment wins
+    with a deterministic id tiebreak).  One SQL round-trip regardless of N.
+
+    422 on unknown/non-queryable model, or when any embedding's dimension
+    mismatches (the detail names the failing index).
+    """
+    meta = _require_queryable_model(body.model_id, registry)
+
+    for i, emb in enumerate(body.embeddings):
+        if len(emb) != meta.dimension:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Embedding at index {i} has dimension {len(emb)}; "
+                f"model '{meta.model_id}' expected {meta.dimension}",
+            )
+
+    ordered_ids = list(dict.fromkeys(body.person_ids))
+
+    table = meta.table_name  # registry-controlled — not user input
+    op = meta.operator
+    vecs = [_vec_str(e) for e in body.embeddings]
+
+    # Same exact-scan shape as /verify (no ANN recall loss); WITH ORDINALITY
+    # carries each query vector's request position through the aggregate.
+    rows = await db.fetch(
+        f"""
+        SELECT (q.idx - 1)::int AS embedding_index,
+               e.person_id,
+               count(*) AS n_embeddings,
+               1 - min(e.embedding {op} q.vec) AS similarity,
+               (array_agg(e.id ORDER BY e.embedding {op} q.vec, e.id))[1] AS embedding_id
+          FROM (SELECT t.idx, t.vec::vector AS vec
+                  FROM unnest($1::text[]) WITH ORDINALITY AS t(vec, idx)) q
+         CROSS JOIN {table} e
+         WHERE e.archived_at IS NULL
+           AND e.person_id = ANY($2::text[])
+         GROUP BY q.idx, e.person_id
+        """,
+        vecs,
+        ordered_ids,
+    )
+    scored = {(r["embedding_index"], r["person_id"]): r for r in rows}
+
+    def _result(idx: int, pid: str) -> VerifyResult:
+        r = scored.get((idx, pid))
+        return VerifyResult(
+            person_id=pid,
+            similarity=float(r["similarity"]) if r is not None else None,
+            embedding_id=r["embedding_id"] if r is not None else None,
+            n_embeddings=r["n_embeddings"] if r is not None else 0,
+        )
+
+    return VerifyBatchResponse(
+        results=[
+            VerifyBatchGroup(
+                embedding_index=idx,
+                results=[_result(idx, pid) for pid in ordered_ids],
+            )
+            for idx in range(len(body.embeddings))
+        ]
+    )
+
+
+@router.post(
+    "/embeddings/presence",
+    response_model=EmbeddingPresenceResponse,
+    operation_id="queryEmbeddingPresence",
+)
+async def query_embedding_presence(
+    body: EmbeddingPresenceRequest,
+    _auth: AuthedKey = Depends(require_scope("voice_embeddings:read")),
+    db=Depends(get_db),
+    registry: EmbeddingRegistry = Depends(_get_registry),
+) -> EmbeddingPresenceResponse:
+    """Bulk enrollment-presence query (#310).
+
+    Returns the active-embedding count under ``model_id`` for each requested
+    person_id — one result per id, request order, duplicates deduped (first
+    occurrence wins).  An unknown/archived person or one with no active
+    enrollments returns ``n_embeddings: 0`` (no 404).  Presence exists to
+    pre-filter verify candidate sets, so a non-queryable model is a 422,
+    mirroring verify.
+    """
+    meta = _require_queryable_model(body.model_id, registry)
+
+    ordered_ids = list(dict.fromkeys(body.person_ids))
+
+    table = meta.table_name  # registry-controlled — not user input
+    rows = await db.fetch(
+        f"""
+        SELECT person_id, count(*) AS n_embeddings
+          FROM {table}
+         WHERE archived_at IS NULL
+           AND person_id = ANY($1::text[])
+         GROUP BY person_id
+        """,
+        ordered_ids,
+    )
+    counts = {r["person_id"]: r["n_embeddings"] for r in rows}
+
+    return EmbeddingPresenceResponse(
+        results=[
+            EmbeddingPresenceResult(person_id=pid, n_embeddings=counts.get(pid, 0))
             for pid in ordered_ids
         ]
     )
