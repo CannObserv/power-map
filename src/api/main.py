@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 
 import src.core.db as db
@@ -18,6 +19,7 @@ from src.api.admin.assets import (
     inject_rel_category_label_into_admin_templates,
 )
 from src.api.admin.router import admin_router
+from src.api.public import ratelimit
 from src.api.public.middleware import RequestLogMiddleware, drain_pending_writes
 from src.api.public.router import router as public_router
 from src.core.embedding_registry import EmbeddingRegistry
@@ -81,6 +83,16 @@ app.add_middleware(RequestLogMiddleware)
 
 app.include_router(admin_router)
 app.include_router(public_router)
+
+# Install the read-semantic POST path set for the rate limiter (#310): derived
+# from route declarations, so classification can never drift from the routes.
+ratelimit.set_post_read_paths(
+    route.path
+    for route in app.routes
+    if isinstance(route, APIRoute)
+    and "POST" in route.methods
+    and (route.openapi_extra or {}).get(ratelimit.BUCKET_EXTRA_KEY) == "read"
+)
 
 app.mount("/static/admin", StaticFiles(directory="src/static/admin"), name="admin-static")
 app.mount("/static/images", StaticFiles(directory="src/static/images"), name="static-images")
