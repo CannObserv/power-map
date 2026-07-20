@@ -277,3 +277,73 @@ async def test_person_inline_edit_end_after_org_end_rejected(client, db, person_
         await db.fetchval("SELECT end_date FROM role_assignments WHERE id = $1", former_ra_id)
         is None
     )
+
+
+# ---------------------------------------------------------------------------
+# Org detail banner + deactivate warning (#307 UX)
+# ---------------------------------------------------------------------------
+
+
+async def test_org_detail_shows_open_assignment_banner(client, ended_org_id, former_ra_id):
+    r = await client.get(f"/admin/orgs/{ended_org_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert b"open assignment" in r.content
+    assert b"2023-01-09" in r.content
+
+
+async def test_org_detail_no_banner_on_active_org(client, db, person_id):
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Member')", rid, oid
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        rid,
+    )
+    r = await client.get(f"/admin/orgs/{oid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert b"open assignment" not in r.content
+
+
+async def test_deactivate_flash_warns_about_open_assignments(client, db, person_id):
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Member')", rid, oid
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        rid,
+    )
+    r = await client.post(
+        f"/admin/orgs/{oid}/inline/active/",
+        headers=HTMX_HEADERS,
+        data={"active": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "warning"
+    assert "open assignment" in trigger["showFlash"]["body"]
+
+
+async def test_deactivate_flash_plain_when_no_open_assignments(client, db):
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    r = await client.post(
+        f"/admin/orgs/{oid}/inline/active/",
+        headers=HTMX_HEADERS,
+        data={"active": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"
+    assert "open assignment" not in trigger["showFlash"]["body"]
