@@ -1976,6 +1976,15 @@ Detail pages once injected their scripts via `{% block extra_head %}`. **Do not*
 
 On any mutation route that may change an org's canonical name or acronym, pass `extra=await org_header_extra(org_id, db)` to `flash_trigger` (from `src.api.admin.deps`). Returns `{"updateOrgHeader": {"display": ...}}`; `org-detail.js` handles the event and updates `#page-heading`, `#breadcrumb-current`, and `document.title` in-place. Equivalent `person_header_extra` for person routes. → §30 for full client-side pattern.
 
+### Lingering-state warnings (#307)
+
+When an entity enters a terminal-ish state (archived / inactive / lifespan ended) while still carrying live children that now read as stale — e.g. an org past its lifespan with open role assignments — surface it twice:
+
+- **Persistent banner** on the detail page: `alert alert--warning` block under the page header, rendered whenever `<terminal condition> AND <live-children count>` (`{% if open_assignment_count %}` on org detail). Banner names the count, the state, the boundary date when known, and the remedy ("close or re-home"). Persistent beats transient here — the condition outlives the mutation that created it (archive redirect, merge, external ingest).
+- **Warning flash** on the mutation that creates the condition: upgrade the flash to `level="warning"` and append the count + remedy (deactivate toggle), or append a `" Warning: …"` suffix to a success flash when the mutation's primary outcome succeeded (org merge into an ended/inactive winner — `_winner_lifespan_note` in `orgs_merge.py`).
+
+Count predicates live in `src.core` next to the domain logic (`count_open_assignments` in `src.core.org_lifecycle`), never inlined per-route — the "open" definition must not drift between surfaces. Domain rules → `docs/CONVENTIONS.md` §"Org lifespan bounds on assignments".
+
 ### Person-name metadata controls (Phase 2a–2d, #123)
 
 Person-name CRUD shares its router factory with org-name CRUD via `make_names_router` in `src.api.admin._names_shared`. The factory accepts `supports_person_metadata: bool = False`:

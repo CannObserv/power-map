@@ -19,6 +19,17 @@ JOIN v_org_lifespan ls ON ls.organization_id = r.organization_id
 WHERE r.id = $1
 """
 
+# Open = end_date IS NULL on a non-archived assignment of a non-archived role.
+# Single source for the predicate — admin surfaces count through here.
+_OPEN_ASSIGNMENT_COUNT_SQL = """
+SELECT count(*)
+FROM role_assignments ra
+JOIN roles r ON r.id = ra.role_id
+WHERE r.organization_id = $1
+  AND ra.archived_at IS NULL AND r.archived_at IS NULL
+  AND ra.end_date IS NULL
+"""
+
 
 class AssignmentOutsideOrgLifespan(Exception):
     """Assignment window falls outside its org's lifespan.
@@ -39,6 +50,11 @@ async def get_org_ended_on(conn: asyncpg.Connection, organization_id: str) -> da
         "SELECT ended_on FROM v_org_lifespan WHERE organization_id = $1",
         organization_id,
     )
+
+
+async def count_open_assignments(conn: asyncpg.Connection, organization_id: str) -> int:
+    """Count open (end_date NULL, non-archived) assignments on the org's roles."""
+    return await conn.fetchval(_OPEN_ASSIGNMENT_COUNT_SQL, organization_id)
 
 
 async def check_assignment_lifespan(

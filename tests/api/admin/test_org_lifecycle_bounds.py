@@ -347,3 +347,135 @@ async def test_deactivate_flash_plain_when_no_open_assignments(client, db):
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "info"
     assert "open assignment" not in trigger["showFlash"]["body"]
+
+
+# ---------------------------------------------------------------------------
+# Dates route on an already-violating (current-on-ended) row — CR round 1
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def violating_ra_id(db, person_id, ended_role_id):
+    """Current assignment on the ended org (pre-#307 legacy state)."""
+    raid = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        raid,
+        person_id,
+        ended_role_id,
+    )
+    yield raid
+
+
+async def test_dates_start_only_edit_allowed_on_violating_row(client, db, violating_ra_id):
+    """The dates form cannot change currency, so it must not enforce it."""
+    r = await client.post(
+        f"/admin/role-assignments/{violating_ra_id}/inline/dates/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2022-01-01", "end_date": ""},
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT start_date, is_current FROM role_assignments WHERE id = $1", violating_ra_id
+    )
+    assert row["start_date"] is not None and row["is_current"] is True
+
+
+async def test_dates_repair_gets_actionable_check_message(client, db, violating_ra_id):
+    """End ≤ ended_on on a current row hits the DB CHECK, whose message says
+    to mark as former first — not the circular lifespan message."""
+    r = await client.post(
+        f"/admin/role-assignments/{violating_ra_id}/inline/dates/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "", "end_date": "2023-01-09"},
+    )
+    assert r.status_code == 200
+    assert b"former" in r.content
+    assert b"cannot be current" not in r.content
+    assert (
+        await db.fetchval("SELECT end_date FROM role_assignments WHERE id = $1", violating_ra_id)
+        is None
+    )
+
+
+async def test_dates_end_after_org_end_still_rejected_on_violating_row(client, db, violating_ra_id):
+    r = await client.post(
+        f"/admin/role-assignments/{violating_ra_id}/inline/dates/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "", "end_date": "2024-06-01"},
+    )
+    assert r.status_code == 200
+    assert b"2023-01-09" in r.content
+    assert (
+        await db.fetchval("SELECT end_date FROM role_assignments WHERE id = $1", violating_ra_id)
+        is None
+    )
+
+
+# ---------------------------------------------------------------------------
+# Merge flash warns when the surviving org is past its lifespan — CR round 1
+# ---------------------------------------------------------------------------
+
+
+async def test_merge_into_ended_winner_warns_about_open_assignments(
+    client, db, ended_org_id, person_id
+):
+    loser = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", loser)
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+        " VALUES ($1, $2, 'Loser Org', TRUE)",
+        generate_id(),
+        loser,
+    )
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Chair')", rid, loser
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        rid,
+    )
+    r = await client.post(
+        f"/admin/orgs/{ended_org_id}/merge-with/{loser}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "open assignment" in trigger["showFlash"]["body"]
+
+
+async def test_merge_into_active_winner_has_no_lifespan_warning(client, db, person_id):
+    winner = generate_id()
+    loser = generate_id()
+    for oid, name in ((winner, "Winner Org"), (loser, "Loser Org 2")):
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await db.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, $3, TRUE)",
+            generate_id(),
+            oid,
+            name,
+        )
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Chair')", rid, loser
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        rid,
+    )
+    r = await client.post(
+        f"/admin/orgs/{winner}/merge-with/{loser}/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert "open assignment" not in trigger["showFlash"]["body"]

@@ -1841,7 +1841,8 @@ CREATE TABLE IF NOT EXISTS entity_events (
     entity_id               TEXT NOT NULL,
     event_type_id           TEXT NOT NULL REFERENCES entity_event_types(id),
 
-    event_year              INTEGER CHECK (event_year BETWEEN -9999 AND 9999),
+    event_year              INTEGER CHECK (event_year BETWEEN -9999 AND 9999
+                                           AND event_year <> 0),
     event_month             INTEGER CHECK (event_month BETWEEN 1 AND 12),
     event_day               INTEGER CHECK (event_day BETWEEN 1 AND 31),
     event_hour              INTEGER CHECK (event_hour BETWEEN 0 AND 23),
@@ -1916,6 +1917,29 @@ $$;
 CREATE OR REPLACE TRIGGER trg_touch_entity_on_event_change
     AFTER INSERT OR UPDATE OR DELETE ON entity_events
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_entity_event_change();
+
+-- #307 CR round 1: exclude year 0 (no Gregorian year 0; make_date() errors on
+-- it, so a single year-0 row would break every v_org_lifespan join). Fresh DBs
+-- get the tightened form from the CREATE TABLE above; this migrates existing
+-- DBs still on the old clause.
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'entity_events_event_year_check'
+          AND check_clause NOT LIKE '%<> 0%'
+    ) THEN
+        ALTER TABLE entity_events
+            DROP CONSTRAINT entity_events_event_year_check;
+        ALTER TABLE entity_events
+            ADD CONSTRAINT entity_events_event_year_check
+            CHECK (event_year BETWEEN -9999 AND 9999 AND event_year <> 0);
+    END IF;
+EXCEPTION WHEN check_violation THEN
+    RAISE WARNING
+        'entity_events_event_year_check not tightened: a year-0 event row exists. '
+        'Fix the offending row(s), then re-apply schema.';
+END $$;
 
 -- Org lifespan end (#307): earliest non-archived dissolved/merged_with event,
 -- resolved to the LATEST date within the event's known precision (year-only

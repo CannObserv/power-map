@@ -397,10 +397,15 @@ async def ra_inline_dates_post(
     end_val = _parse_date(end_date)
     ra = await _get_ra(ra_id, db)
     try:
+        # is_current=False: this form can't change currency, so it must not
+        # enforce it — a current-on-ended row would otherwise get a circular
+        # error on its own repair path (and on unrelated start_date edits).
+        # chk_current_no_end_date still yields the "mark as former first"
+        # message when an end date is posted for a current row.
         await check_assignment_lifespan(
             db,
             ra["role_id"],
-            is_current=ra["is_current"],
+            is_current=False,
             start_date=start_val,
             end_date=end_val,
         )
