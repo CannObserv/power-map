@@ -1918,10 +1918,13 @@ CREATE OR REPLACE TRIGGER trg_touch_entity_on_event_change
     AFTER INSERT OR UPDATE OR DELETE ON entity_events
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_entity_event_change();
 
--- #307 CR round 1: exclude year 0 (no Gregorian year 0; make_date() errors on
--- it, so a single year-0 row would break every v_org_lifespan join). Fresh DBs
--- get the tightened form from the CREATE TABLE above; this migrates existing
--- DBs still on the old clause.
+-- #307 CR rounds 1–2: reconcile entity_events CHECKs on pre-existing DBs.
+-- CREATE TABLE IF NOT EXISTS no-ops on an existing table, so constraints added
+-- inline to the CREATE never reach a DB whose table predates them — prod was
+-- missing both constraints below entirely (CR round 2 finding). Each branch is
+-- idempotent: replace a pre-#307 event_year clause that still allows year 0
+-- (no Gregorian year 0; make_date() errors on it, so a single year-0 row would
+-- break every v_org_lifespan join), then ADD either constraint when absent.
 DO $$ BEGIN
     IF EXISTS (
         SELECT 1 FROM information_schema.check_constraints
@@ -1931,14 +1934,30 @@ DO $$ BEGIN
     ) THEN
         ALTER TABLE entity_events
             DROP CONSTRAINT entity_events_event_year_check;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'entity_events'::regclass
+          AND conname = 'entity_events_event_year_check'
+    ) THEN
         ALTER TABLE entity_events
             ADD CONSTRAINT entity_events_event_year_check
             CHECK (event_year BETWEEN -9999 AND 9999 AND event_year <> 0);
     END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'entity_events'::regclass
+          AND conname = 'chk_at_requires_year'
+    ) THEN
+        ALTER TABLE entity_events
+            ADD CONSTRAINT chk_at_requires_year
+            CHECK (event_at IS NULL OR event_year IS NOT NULL);
+    END IF;
 EXCEPTION WHEN check_violation THEN
     RAISE WARNING
-        'entity_events_event_year_check not tightened: a year-0 event row exists. '
-        'Fix the offending row(s), then re-apply schema.';
+        'entity_events CHECK reconciliation skipped: existing rows violate the '
+        'constraint being added (year-0 event_year, or event_at without '
+        'event_year). Fix the offending row(s), then re-apply schema.';
 END $$;
 
 -- Org lifespan end (#307): earliest non-archived dissolved/merged_with event,

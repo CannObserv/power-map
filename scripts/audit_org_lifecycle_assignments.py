@@ -148,15 +148,18 @@ def _log_report(findings: dict[str, list[dict]], *, execute: bool) -> None:
             f["ended_on"],
         )
     # Per-org counts, not per-row lines — this category can run to hundreds of
-    # rows and is informational (unknown ends are left open by design).
+    # rows and is informational (unknown ends are left open by design). Keyed by
+    # org id, not display name: duplicate-named orgs are a real state (#306).
     unknown_by_org = Counter(
-        (f["display_name"], f["ended_on"]) for f in findings["unknown_end_on_ended"]
+        (f["organization_id"], f["display_name"], f["ended_on"])
+        for f in findings["unknown_end_on_ended"]
     )
-    for (display_name, ended_on), n in unknown_by_org.most_common():
+    for (organization_id, display_name, ended_on), n in unknown_by_org.most_common():
         logger.info(
-            "unknown_end_on_ended: %d assignment(s) on %r (org ended %s) — end unknown, left open",
+            "unknown_end_on_ended: %d assignment(s) on %r (%s, ended %s) — end unknown, left open",
             n,
             display_name,
+            organization_id,
             ended_on,
         )
     for f in findings["missing_end_event"]:
