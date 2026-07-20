@@ -9,6 +9,7 @@ source supports.
 
 import datetime
 
+import asyncpg
 import pytest
 import pytest_asyncio
 
@@ -120,3 +121,11 @@ async def test_one_row_per_org(conn):
     await _insert_event(conn, oid, "merged_with", 2023, 1, 9)
     rows = await conn.fetch("SELECT * FROM v_org_lifespan WHERE organization_id = $1", oid)
     assert len(rows) == 1
+
+
+async def test_year_zero_event_rejected(conn):
+    """Year 0 doesn't exist in the Gregorian calendar and make_date() errors on
+    it — the CHECK must reject it so one bad row can't break v_org_lifespan."""
+    oid = await _insert_org(conn)
+    with pytest.raises(asyncpg.CheckViolationError):
+        await _insert_event(conn, oid, "dissolved", 0)

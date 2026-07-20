@@ -28,6 +28,7 @@ Usage:
 import argparse
 import asyncio
 import os
+from collections import Counter
 
 import asyncpg
 
@@ -146,12 +147,17 @@ def _log_report(findings: dict[str, list[dict]], *, execute: bool) -> None:
             f["start_date"],
             f["ended_on"],
         )
-    for f in findings["unknown_end_on_ended"]:
+    # Per-org counts, not per-row lines — this category can run to hundreds of
+    # rows and is informational (unknown ends are left open by design).
+    unknown_by_org = Counter(
+        (f["display_name"], f["ended_on"]) for f in findings["unknown_end_on_ended"]
+    )
+    for (display_name, ended_on), n in unknown_by_org.most_common():
         logger.info(
-            "unknown_end_on_ended: assignment %s on %r (org ended %s) — end unknown, left open",
-            f["assignment_id"],
-            f["display_name"],
-            f["ended_on"],
+            "unknown_end_on_ended: %d assignment(s) on %r (org ended %s) — end unknown, left open",
+            n,
+            display_name,
+            ended_on,
         )
     for f in findings["missing_end_event"]:
         logger.warning(

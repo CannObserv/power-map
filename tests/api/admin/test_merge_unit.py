@@ -42,7 +42,17 @@ def _make_merge_db(fetchrow_result):
 
 
 async def _org_merge_db():
-    yield _make_merge_db({"id": "test_id", "name": "Test Name", "acronym": "TST"})
+    # active/archived_at feed the #307 winner-lifespan probe (_winner_lifespan_note);
+    # one fetchrow mock serves every query, so the row carries the union of keys.
+    yield _make_merge_db(
+        {
+            "id": "test_id",
+            "name": "Test Name",
+            "acronym": "TST",
+            "active": True,
+            "archived_at": None,
+        }
+    )
 
 
 async def _person_merge_db():

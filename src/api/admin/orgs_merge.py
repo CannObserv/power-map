@@ -21,6 +21,7 @@ from src.api.admin.org_dups import (
 )
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.core.db import generate_id
+from src.core.org_lifecycle import count_open_assignments, get_org_ended_on
 
 _LIST_TARGET = "orgs-list-region"
 
@@ -46,6 +47,27 @@ def _dropped_assignments_note(dropped: int) -> str:
     if not dropped:
         return ""
     return f" {dropped} duplicate role assignment{'s' if dropped != 1 else ''} dropped."
+
+
+async def _winner_lifespan_note(db, winner_id: str) -> str:
+    """Flash suffix warning when the surviving org is past its lifespan (#307).
+
+    A merge re-points the loser's assignments onto the winner; if the winner is
+    archived/inactive/ended, that silently re-creates the "live members on a
+    defunct org" state the lifespan invariant exists to prevent. Shared by both
+    merge flows so the wording can't drift.
+    """
+    row = await db.fetchrow("SELECT active, archived_at FROM organizations WHERE id=$1", winner_id)
+    if row is None:
+        return ""
+    ended_on = await get_org_ended_on(db, winner_id)
+    if row["active"] and row["archived_at"] is None and ended_on is None:
+        return ""
+    open_count = await count_open_assignments(db, winner_id)
+    if not open_count:
+        return ""
+    noun = "assignment remains" if open_count == 1 else "assignments remain"
+    return f" Warning: {open_count} open {noun} on the merged organization — close or re-home them."
 
 
 templates = Jinja2Templates(directory="src/templates")
@@ -524,6 +546,7 @@ async def org_merge(
         # Parity with the detail-flow `org_merge_with`: surface silently-dropped
         # duplicate role assignments so the admin knows data changed shape.
         body += _dropped_assignments_note(dropped)
+        body += await _winner_lifespan_note(db, winner_id)
         # List-flow branch (#250): merge initiated from /admin/orgs/. HX-Target
         # identifies the swap region; re-render the full `_region.html` (rows +
         # caption total + sticky pagination) so post-merge counts stay
@@ -587,6 +610,7 @@ async def org_merge_with(
         f"Review names, roles, and contact info for duplicates."
     )
     body += _dropped_assignments_note(dropped)
+    body += await _winner_lifespan_note(db, winner_id)
     # List-context merge (#255): the preview modal was opened from the orgs list, so
     # re-render the list region in place instead of redirecting to winner detail.
     if (

@@ -21,7 +21,7 @@ from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.core.db import generate_id
 from src.core.logging import get_logger
-from src.core.org_lifecycle import get_org_ended_on
+from src.core.org_lifecycle import count_open_assignments, get_org_ended_on
 from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
 
 logger = get_logger(__name__)
@@ -35,16 +35,6 @@ _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "unarchived": ("success", "Organization unarchived."),
     "deleted": ("success", "Organization deleted."),
 }
-
-# Open = end_date IS NULL on a non-archived assignment/role (#307).
-_OPEN_ASSIGNMENT_COUNT_SQL = """
-SELECT count(*)
-FROM role_assignments ra
-JOIN roles r ON r.id = ra.role_id
-WHERE r.organization_id = $1
-  AND ra.archived_at IS NULL AND r.archived_at IS NULL
-  AND ra.end_date IS NULL
-"""
 
 
 @router.get("/")
@@ -226,7 +216,7 @@ async def org_inline_active_post(
     label = "Marked active." if new_active else "Marked inactive."
     level = "success" if new_active else "info"
     if not new_active:
-        open_count = await db.fetchval(_OPEN_ASSIGNMENT_COUNT_SQL, org_id)
+        open_count = await count_open_assignments(db, org_id)
         if open_count:
             level = "warning"
             noun = "assignment remains" if open_count == 1 else "assignments remain"
@@ -474,7 +464,7 @@ async def org_detail(
     org_ended_on = await get_org_ended_on(db, org_id)
     open_assignment_count = 0
     if org["archived_at"] or not org["active"] or org_ended_on:
-        open_assignment_count = await db.fetchval(_OPEN_ASSIGNMENT_COUNT_SQL, org_id)
+        open_assignment_count = await count_open_assignments(db, org_id)
     parent = None
     if org["parent_id"]:
         parent = await db.fetchrow(
