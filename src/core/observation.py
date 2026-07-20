@@ -1482,10 +1482,11 @@ async def resolve_assignment(
         stored_end = existing["end_date"]
         stored_current = existing["is_current"]
         authorized = existing["source_key_id"] is None or existing["source_key_id"] == source_key_id
-        if end_date is not None and stored_end is None and authorized:
+        if end_date is not None and stored_end is None and is_current is not True and authorized:
             # Close an open tenure in place (#311) — the routine election-cycle
-            # update. The request validator guarantees is_current is not True
-            # alongside a dated end.
+            # update. The request validator already blocks is_current=True with
+            # a dated end; the is_current guard holds the same invariant for
+            # core callers that bypass the request model.
             await conn.execute(
                 "UPDATE role_assignments SET end_date=$2, is_current=FALSE,"
                 " source_key_id=COALESCE(source_key_id, $3)"
@@ -1571,7 +1572,8 @@ async def update_assignment_fields(
 
     Provenance (#311): rejected ``source_key_mismatch`` when the row's
     ``source_key_id`` is non-NULL and differs from the caller's; a NULL source
-    is claimed (COALESCE) on the first update.
+    is claimed (COALESCE) on the first update. An identical redelivery is a
+    quiet no-op regardless of source (the no-op check precedes the gate).
 
     **Must be called inside the caller's transaction** so a rejection rolls the
     whole observation back. Raises ``ObservationRejected`` when the row is
@@ -1592,6 +1594,23 @@ async def update_assignment_fields(
     if row is None:
         raise ObservationRejected("assignment_not_found")
 
+    new_start = start_date if start_date is not None else row["start_date"]
+    new_end = end_date if end_date_set else row["end_date"]
+    new_current = is_current if is_current is not None else row["is_current"]
+    if is_current is None and new_end is not None:
+        new_current = False  # a dated end implies the tenure has ended
+
+    if (new_start, new_end, new_current) == (
+        row["start_date"],
+        row["end_date"],
+        row["is_current"],
+    ):
+        # Idempotent — fields already as supplied. Checked before the authority
+        # gate so an identical redelivery by a foreign key stays a quiet no-op
+        # (CR round 1, #311); the row's stored state is valid, so the merged
+        # values need no constraint checks either.
+        return
+
     if row["source_key_id"] is not None and row["source_key_id"] != source_key_id:
         logger.warning(
             "update_assignment_fields: source mismatch assignment=%s owner=%s caller=%s",
@@ -1601,23 +1620,10 @@ async def update_assignment_fields(
         )
         raise ObservationRejected("source_key_mismatch")
 
-    new_start = start_date if start_date is not None else row["start_date"]
-    new_end = end_date if end_date_set else row["end_date"]
-    new_current = is_current if is_current is not None else row["is_current"]
-    if is_current is None and new_end is not None:
-        new_current = False  # a dated end implies the tenure has ended
-
     if new_current and new_end is not None:
         raise ObservationRejected("is_current_end_date_conflict")
     if new_start is not None and new_end is not None and new_start > new_end:
         raise ObservationRejected("start_after_end_date")
-
-    if (new_start, new_end, new_current) == (
-        row["start_date"],
-        row["end_date"],
-        row["is_current"],
-    ):
-        return  # idempotent — fields already as supplied
 
     try:
         await conn.execute(
