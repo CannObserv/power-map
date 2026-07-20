@@ -358,14 +358,15 @@ class IdentifyResponse(BaseModel):
 class VerifyRequest(BaseModel):
     """Request body for POST /api/v1/people/verify — closed-set verification (#299).
 
-    Scores the query embedding against a small declared candidate set instead
-    of the global top-K. Duplicate ``person_ids`` are deduped (first occurrence
-    wins); the cap keeps the exact per-person scan bounded.
+    Scores the query embedding against a declared candidate set instead of the
+    global top-K. Duplicate ``person_ids`` are deduped (first occurrence wins);
+    the cap keeps the exact per-person scan bounded while fitting a
+    legislature-scale roster in one call (#310: 25 → 500).
     """
 
     model_id: str
     embedding: EmbeddingVector
-    person_ids: list[str] = Field(min_length=1, max_length=25)
+    person_ids: list[str] = Field(min_length=1, max_length=500)
 
 
 class VerifyResult(BaseModel):
@@ -387,6 +388,64 @@ class VerifyResponse(BaseModel):
     """Response envelope for POST /api/v1/people/verify — results in request order."""
 
     results: list[VerifyResult]
+
+
+class VerifyBatchRequest(BaseModel):
+    """Request body for POST /api/v1/people/verify-batch (#310).
+
+    Scores N query embeddings against one declared candidate set in a single
+    call — collapses the per-centroid verify loop for archival-scale jobs.
+    Duplicate ``person_ids`` are deduped (first occurrence wins).  The caps
+    bound the exact scoring product at 50 × 500 = 25k pairs.
+    """
+
+    model_id: str
+    embeddings: list[EmbeddingVector] = Field(min_length=1, max_length=50)
+    person_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class VerifyBatchGroup(BaseModel):
+    """Per-embedding result group — ``embedding_index`` is the position of the
+    query embedding in the request's ``embeddings`` list; ``results`` carries
+    the per-candidate scores with the same semantics as ``VerifyResult``."""
+
+    embedding_index: int
+    results: list[VerifyResult]
+
+
+class VerifyBatchResponse(BaseModel):
+    """Response envelope for POST /api/v1/people/verify-batch — one group per
+    query embedding, in ``embeddings`` request order."""
+
+    results: list[VerifyBatchGroup]
+
+
+class EmbeddingPresenceRequest(BaseModel):
+    """Request body for POST /api/v1/people/embeddings/presence (#310).
+
+    Bulk enrollment-presence query: which of these person_ids have ≥1 active
+    embedding under ``model_id``.  Lets callers shrink verify candidate sets
+    (once per launch + periodic refresh) instead of paying request payload for
+    unenrolled candidates on every verify call.
+    """
+
+    model_id: str
+    person_ids: list[str] = Field(min_length=1, max_length=1000)
+
+
+class EmbeddingPresenceResult(BaseModel):
+    """Active-enrollment count for one requested person_id — 0 for a person
+    with no active embeddings under the model (or an unknown/archived id)."""
+
+    person_id: str
+    n_embeddings: int
+
+
+class EmbeddingPresenceResponse(BaseModel):
+    """Response envelope for POST /api/v1/people/embeddings/presence — results
+    in request order, duplicates deduped (first occurrence wins)."""
+
+    results: list[EmbeddingPresenceResult]
 
 
 class LinkType(BaseModel):

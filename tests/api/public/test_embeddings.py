@@ -591,11 +591,28 @@ async def test_verify_422_over_cap(client, read_key):
         json={
             "model_id": _MODEL_ID,
             "embedding": _rand_embedding(),
-            "person_ids": [generate_id() for _ in range(26)],
+            "person_ids": [generate_id() for _ in range(501)],
         },
         headers={"X-API-Key": read_key},
     )
     assert r.status_code == 422
+
+
+async def test_verify_accepts_roster_scale_candidate_set(client, read_key, seeded_embeddings):
+    """#310: cap raised 25 → 500 so a legislature-scale roster fits in one call."""
+    pid0, pid1, _, query_vec = seeded_embeddings
+    roster = [pid0, pid1] + [generate_id() for _ in range(498)]
+    r = await client.post(
+        "/api/v1/people/verify",
+        json={"model_id": _MODEL_ID, "embedding": query_vec, "person_ids": roster},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    results = r.json()["results"]
+    assert len(results) == 500
+    assert [x["person_id"] for x in results] == roster
+    assert abs(results[0]["similarity"] - 1.0) < 1e-4
+    assert results[2]["similarity"] is None
 
 
 async def test_verify_scores_full_roster_in_request_order(client, db, read_key, seeded_embeddings):
@@ -760,6 +777,336 @@ async def test_verify_excludes_archived_embeddings(client, db, read_key, seeded_
         assert res["n_embeddings"] == 0
         assert res["similarity"] is None
         assert res["embedding_id"] is None
+    finally:
+        await db.execute(
+            f"UPDATE {_TABLE} SET archived_at = NULL WHERE id = ANY($1::text[])",
+            pid0_eids,
+        )
+
+
+# ---------------------------------------------------------------------------
+# POST /people/verify-batch — multi-embedding closed-set verification (#310)
+# ---------------------------------------------------------------------------
+
+
+async def test_verify_batch_requires_read_scope(client, unscoped_key, two_people):
+    r = await client.post(
+        "/api/v1/people/verify-batch",
+        json={
+            "model_id": _MODEL_ID,
+            "embeddings": [_rand_embedding()],
+            "person_ids": [two_people[0]],
+        },
+        headers={"X-API-Key": unscoped_key},
+    )
+    assert r.status_code == 403
+
+
+def test_verify_batch_rejects_missing_key(unit_client):
+    r = unit_client.post(
+        "/api/v1/people/verify-batch",
+        json={
+            "model_id": _MODEL_ID,
+            "embeddings": [_rand_embedding()],
+            "person_ids": [generate_id()],
+        },
+    )
+    assert r.status_code == 403
+
+
+async def test_verify_batch_422_unknown_model(client, read_key, two_people):
+    r = await client.post(
+        "/api/v1/people/verify-batch",
+        json={
+            "model_id": "no-such-model",
+            "embeddings": [_rand_embedding()],
+            "person_ids": [two_people[0]],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_verify_batch_422_non_queryable_model(client, read_key, two_people):
+    non_queryable = ModelMeta(
+        model_id=_MODEL_ID,
+        table_name=_TABLE,
+        dimension=_DIM,
+        metric="cosine",
+        accepts_writes=True,
+        is_queryable=False,
+        operator="<=>",
+    )
+    app.dependency_overrides[_emb_get_registry] = lambda: EmbeddingRegistry(
+        {_MODEL_ID: non_queryable}
+    )
+    try:
+        r = await client.post(
+            "/api/v1/people/verify-batch",
+            json={
+                "model_id": _MODEL_ID,
+                "embeddings": [_rand_embedding()],
+                "person_ids": [two_people[0]],
+            },
+            headers={"X-API-Key": read_key},
+        )
+    finally:
+        app.dependency_overrides.pop(_emb_get_registry, None)
+    assert r.status_code == 422
+
+
+async def test_verify_batch_422_dim_mismatch_reports_index(client, read_key, two_people):
+    """A dimension mismatch on any embedding 422s and names the failing index."""
+    r = await client.post(
+        "/api/v1/people/verify-batch",
+        json={
+            "model_id": _MODEL_ID,
+            "embeddings": [_rand_embedding(), _rand_embedding(dim=64)],
+            "person_ids": [two_people[0]],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+    assert "index 1" in r.json()["detail"]
+
+
+async def test_verify_batch_422_zero_vector_element(client, read_key, two_people):
+    r = await client.post(
+        "/api/v1/people/verify-batch",
+        json={
+            "model_id": _MODEL_ID,
+            "embeddings": [_rand_embedding(), [0.0] * _DIM],
+            "person_ids": [two_people[0]],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_verify_batch_422_empty_embeddings(client, read_key, two_people):
+    r = await client.post(
+        "/api/v1/people/verify-batch",
+        json={"model_id": _MODEL_ID, "embeddings": [], "person_ids": [two_people[0]]},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_verify_batch_422_over_embedding_cap(client, read_key, two_people):
+    r = await client.post(
+        "/api/v1/people/verify-batch",
+        json={
+            "model_id": _MODEL_ID,
+            "embeddings": [_rand_embedding() for _ in range(51)],
+            "person_ids": [two_people[0]],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_verify_batch_422_over_person_cap(client, read_key):
+    r = await client.post(
+        "/api/v1/people/verify-batch",
+        json={
+            "model_id": _MODEL_ID,
+            "embeddings": [_rand_embedding()],
+            "person_ids": [generate_id() for _ in range(501)],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_verify_batch_groups_per_embedding_in_request_order(
+    client, db, read_key, seeded_embeddings
+):
+    """One group per embedding, embeddings request order; each group carries the
+    full per-candidate result list with #299 semantics (candidate request order,
+    null = no enrollment, best enrollment wins)."""
+    pid0, pid1, embedding_ids, query_vec = seeded_embeddings
+    empty_pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", empty_pid)
+
+    r = await client.post(
+        "/api/v1/people/verify-batch",
+        json={
+            "model_id": _MODEL_ID,
+            "embeddings": [query_vec, _rand_embedding()],
+            "person_ids": [pid1, empty_pid, pid0],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    groups = r.json()["results"]
+    assert [g["embedding_index"] for g in groups] == [0, 1]
+
+    for g in groups:
+        assert [x["person_id"] for x in g["results"]] == [pid1, empty_pid, pid0]
+        by_pid = {x["person_id"]: x for x in g["results"]}
+        assert by_pid[pid0]["n_embeddings"] == 3
+        assert by_pid[pid1]["n_embeddings"] == 2
+        assert by_pid[empty_pid]["n_embeddings"] == 0
+        assert by_pid[empty_pid]["similarity"] is None
+        assert by_pid[empty_pid]["embedding_id"] is None
+
+    # Group 0's query is identical to pid0's first enrollment
+    g0 = {x["person_id"]: x for x in groups[0]["results"]}
+    assert abs(g0[pid0]["similarity"] - 1.0) < 1e-4
+    assert g0[pid0]["embedding_id"] == embedding_ids[0]
+
+
+async def test_verify_batch_dedupes_person_ids(client, read_key, seeded_embeddings):
+    pid0, pid1, _, query_vec = seeded_embeddings
+    r = await client.post(
+        "/api/v1/people/verify-batch",
+        json={
+            "model_id": _MODEL_ID,
+            "embeddings": [query_vec],
+            "person_ids": [pid1, pid0, pid1, pid0],
+        },
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    (group,) = r.json()["results"]
+    assert [x["person_id"] for x in group["results"]] == [pid1, pid0]
+
+
+async def test_verify_batch_excludes_archived_embeddings(client, db, read_key, seeded_embeddings):
+    pid0, _, embedding_ids, query_vec = seeded_embeddings
+    pid0_eids = embedding_ids[:3]
+    await db.execute(
+        f"UPDATE {_TABLE} SET archived_at = now() WHERE id = ANY($1::text[])",
+        pid0_eids,
+    )
+    try:
+        r = await client.post(
+            "/api/v1/people/verify-batch",
+            json={"model_id": _MODEL_ID, "embeddings": [query_vec], "person_ids": [pid0]},
+            headers={"X-API-Key": read_key},
+        )
+        assert r.status_code == 200
+        (group,) = r.json()["results"]
+        (res,) = group["results"]
+        assert res["n_embeddings"] == 0
+        assert res["similarity"] is None
+        assert res["embedding_id"] is None
+    finally:
+        await db.execute(
+            f"UPDATE {_TABLE} SET archived_at = NULL WHERE id = ANY($1::text[])",
+            pid0_eids,
+        )
+
+
+# ---------------------------------------------------------------------------
+# POST /people/embeddings/presence — bulk enrollment-presence query (#310)
+# ---------------------------------------------------------------------------
+
+
+async def test_presence_requires_read_scope(client, unscoped_key, two_people):
+    r = await client.post(
+        "/api/v1/people/embeddings/presence",
+        json={"model_id": _MODEL_ID, "person_ids": [two_people[0]]},
+        headers={"X-API-Key": unscoped_key},
+    )
+    assert r.status_code == 403
+
+
+def test_presence_rejects_missing_key(unit_client):
+    r = unit_client.post(
+        "/api/v1/people/embeddings/presence",
+        json={"model_id": _MODEL_ID, "person_ids": [generate_id()]},
+    )
+    assert r.status_code == 403
+
+
+async def test_presence_422_unknown_model(client, read_key, two_people):
+    r = await client.post(
+        "/api/v1/people/embeddings/presence",
+        json={"model_id": "no-such-model", "person_ids": [two_people[0]]},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_presence_422_non_queryable_model(client, read_key, two_people):
+    """Presence exists to pre-filter verify candidate sets — a model you cannot
+    verify against 422s, mirroring verify."""
+    non_queryable = ModelMeta(
+        model_id=_MODEL_ID,
+        table_name=_TABLE,
+        dimension=_DIM,
+        metric="cosine",
+        accepts_writes=True,
+        is_queryable=False,
+        operator="<=>",
+    )
+    app.dependency_overrides[_emb_get_registry] = lambda: EmbeddingRegistry(
+        {_MODEL_ID: non_queryable}
+    )
+    try:
+        r = await client.post(
+            "/api/v1/people/embeddings/presence",
+            json={"model_id": _MODEL_ID, "person_ids": [two_people[0]]},
+            headers={"X-API-Key": read_key},
+        )
+    finally:
+        app.dependency_overrides.pop(_emb_get_registry, None)
+    assert r.status_code == 422
+
+
+async def test_presence_422_empty_person_ids(client, read_key):
+    r = await client.post(
+        "/api/v1/people/embeddings/presence",
+        json={"model_id": _MODEL_ID, "person_ids": []},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_presence_422_over_cap(client, read_key):
+    r = await client.post(
+        "/api/v1/people/embeddings/presence",
+        json={"model_id": _MODEL_ID, "person_ids": [generate_id() for _ in range(1001)]},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_presence_counts_in_request_order_with_dedup(client, db, read_key, seeded_embeddings):
+    """One row per requested id, request order, duplicates deduped; ids with no
+    active enrollments (unknown ids included) come back with n_embeddings 0."""
+    pid0, pid1, _, _ = seeded_embeddings
+    ghost = generate_id()
+    r = await client.post(
+        "/api/v1/people/embeddings/presence",
+        json={"model_id": _MODEL_ID, "person_ids": [pid1, ghost, pid0, pid1]},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    results = r.json()["results"]
+    assert results == [
+        {"person_id": pid1, "n_embeddings": 2},
+        {"person_id": ghost, "n_embeddings": 0},
+        {"person_id": pid0, "n_embeddings": 3},
+    ]
+
+
+async def test_presence_excludes_archived_embeddings(client, db, read_key, seeded_embeddings):
+    pid0, _, embedding_ids, _ = seeded_embeddings
+    pid0_eids = embedding_ids[:3]
+    await db.execute(
+        f"UPDATE {_TABLE} SET archived_at = now() WHERE id = ANY($1::text[])",
+        pid0_eids,
+    )
+    try:
+        r = await client.post(
+            "/api/v1/people/embeddings/presence",
+            json={"model_id": _MODEL_ID, "person_ids": [pid0]},
+            headers={"X-API-Key": read_key},
+        )
+        assert r.status_code == 200
+        assert r.json()["results"] == [{"person_id": pid0, "n_embeddings": 0}]
     finally:
         await db.execute(
             f"UPDATE {_TABLE} SET archived_at = NULL WHERE id = ANY($1::text[])",
