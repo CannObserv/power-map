@@ -18,6 +18,11 @@ from src.api.admin.deps import (
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.role_assignments_queries import VALID_STATUSES, query_role_assignments_rows
 from src.core.db import generate_id
+from src.core.org_lifecycle import (
+    AssignmentOutsideOrgLifespan,
+    check_assignment_lifespan,
+    lifespan_error_message,
+)
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/role-assignments", tags=["admin-role-assignments"])
@@ -148,6 +153,36 @@ async def ra_create(
     ra_id = generate_id()
 
     try:
+        await check_assignment_lifespan(
+            db,
+            role_id,
+            is_current=is_current_bool,
+            start_date=start_date_val,
+            end_date=end_date_val,
+        )
+    except AssignmentOutsideOrgLifespan as exc:
+        people = await _fetch_people(db)
+        roles = await _fetch_roles(db)
+        return templates.TemplateResponse(
+            request,
+            "admin/role_assignments/form.html",
+            {
+                "user": user,
+                "active_section": "role_assignments",
+                "people": people,
+                "roles": roles,
+                "error": lifespan_error_message(exc),
+                "form_person_id": person_id,
+                "form_role_id": role_id,
+                "form_is_current": is_current_bool,
+                "form_start_date": start_date,
+                "form_end_date": end_date,
+                "form_notes": notes,
+            },
+            status_code=200,
+        )
+
+    try:
         # Savepoint so a CHECK violation aborts only this write, not the ambient
         # transaction — keeps the except-block re-render queries usable when the
         # request runs inside a wrapping transaction (test harness, #288).
@@ -254,6 +289,25 @@ async def ra_inline_is_current(
 ):
     """Toggle is_current; on CHECK violation, re-render prior state + error flash."""
     new_val = is_current == "true"
+    if new_val:
+        ra = await _get_ra(ra_id, db)
+        try:
+            await check_assignment_lifespan(
+                db,
+                ra["role_id"],
+                is_current=True,
+                start_date=ra["start_date"],
+                end_date=ra["end_date"],
+            )
+        except AssignmentOutsideOrgLifespan as exc:
+            if not is_htmx(request):
+                raise HTTPException(status_code=400, detail=lifespan_error_message(exc)) from exc
+            return templates.TemplateResponse(
+                request,
+                "admin/role_assignments/partials/_is_current_toggle.html",
+                {"ra": ra},
+                headers=flash_trigger("error", lifespan_error_message(exc)),
+            )
     try:
         # Savepoint: a CHECK violation aborts only this write (see create above).
         async with db.transaction():
@@ -341,6 +395,28 @@ async def ra_inline_dates_post(
     """Save dates; on CHECK violation, re-render form with inline error."""
     start_val = _parse_date(start_date)
     end_val = _parse_date(end_date)
+    ra = await _get_ra(ra_id, db)
+    try:
+        await check_assignment_lifespan(
+            db,
+            ra["role_id"],
+            is_current=ra["is_current"],
+            start_date=start_val,
+            end_date=end_val,
+        )
+    except AssignmentOutsideOrgLifespan as exc:
+        if not is_htmx(request):
+            raise HTTPException(status_code=400, detail=lifespan_error_message(exc)) from exc
+        return templates.TemplateResponse(
+            request,
+            "admin/role_assignments/partials/_dates_form.html",
+            {
+                "ra": ra,
+                "error": lifespan_error_message(exc),
+                "start_date_value": start_date,
+                "end_date_value": end_date,
+            },
+        )
     try:
         # Savepoint: a CHECK violation aborts only this write (see create above).
         async with db.transaction():

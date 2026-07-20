@@ -9,6 +9,11 @@ from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
+from src.core.org_lifecycle import (
+    AssignmentOutsideOrgLifespan,
+    check_assignment_lifespan,
+    lifespan_error_message,
+)
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/people/{person_id}/assignments", tags=["admin-people-assignments"])
@@ -135,6 +140,19 @@ async def assignment_create(
             return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
         return _form_error("Invalid date format. Use YYYY-MM-DD.")
 
+    try:
+        await check_assignment_lifespan(
+            db,
+            role_id_val,
+            is_current=is_current_val,
+            start_date=start_date_val,
+            end_date=end_date_val,
+        )
+    except AssignmentOutsideOrgLifespan as exc:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return _form_error(lifespan_error_message(exc))
+
     ra_id = generate_id()
     try:
         await db.execute(
@@ -253,6 +271,28 @@ async def assignment_edit_row_post(
             _error_ctx(),
             headers={
                 **flash_trigger("error", "Invalid date format. Use YYYY-MM-DD."),
+                "HX-Retarget": f"#person-assignment-row-{assignment_id}",
+                "HX-Reswap": "outerHTML",
+            },
+        )
+
+    try:
+        await check_assignment_lifespan(
+            db,
+            ra["role_id"],
+            is_current=is_current_val,
+            start_date=start_date_val,
+            end_date=end_date_val,
+        )
+    except AssignmentOutsideOrgLifespan as exc:
+        if not is_htmx(request):
+            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return templates.TemplateResponse(
+            request,
+            "admin/people/partials/_assignment_edit_row.html",
+            _error_ctx(),
+            headers={
+                **flash_trigger("error", lifespan_error_message(exc)),
                 "HX-Retarget": f"#person-assignment-row-{assignment_id}",
                 "HX-Reswap": "outerHTML",
             },

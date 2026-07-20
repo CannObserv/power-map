@@ -1,0 +1,349 @@
+"""Admin routes reject assignment writes outside the org's lifespan (#307).
+
+Covers the three write surfaces: the role-assignments section (create,
+is_current toggle, dates inline), the role-detail inline rows, and the
+person-detail inline rows. Ended org = one with a ``dissolved`` entity event
+(see ``v_org_lifespan``). Windows within the lifespan still save.
+"""
+
+import json
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+
+from src.api.admin.deps import get_db
+from src.api.main import app
+from src.core.db import generate_id
+
+pytestmark = [
+    pytest.mark.integration,
+]
+
+AUTH_HEADERS = {
+    "X-ExeDev-UserID": "usr_test",
+    "X-ExeDev-Email": "admin@test.com",
+}
+HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def db(db_pool):
+    """Pool-acquired connection wrapped in a rolled-back transaction."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            yield conn
+        finally:
+            await tr.rollback()
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def client(db):
+    """AsyncClient with app, overriding get_db to use the test connection."""
+
+    async def _get_db_override():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db_override
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def ended_org_id(db):
+    """Org dissolved 2023-01-09."""
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id, active) VALUES ($1, FALSE)", oid)
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+        " VALUES ($1, $2, 'Ended Org', TRUE)",
+        generate_id(),
+        oid,
+    )
+    await db.execute(
+        """INSERT INTO entity_events
+               (id, entity_type, entity_id, event_type_id, event_year, event_month, event_day)
+           SELECT $1, 'organization', $2, t.id, 2023, 1, 9
+           FROM entity_event_types t WHERE t.slug = 'dissolved'""",
+        generate_id(),
+        oid,
+    )
+    yield oid
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def person_id(db):
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, is_canonical)"
+        " VALUES ($1, $2, 'Test Person', TRUE)",
+        generate_id(),
+        pid,
+    )
+    yield pid
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def ended_role_id(db, ended_org_id):
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Member')",
+        rid,
+        ended_org_id,
+    )
+    yield rid
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def former_ra_id(db, person_id, ended_role_id):
+    """Former assignment with unknown end on the ended org (legal state)."""
+    raid = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, FALSE)",
+        raid,
+        person_id,
+        ended_role_id,
+    )
+    yield raid
+
+
+def _flash_level(response):
+    return json.loads(response.headers["hx-trigger"])["showFlash"]["level"]
+
+
+# ---------------------------------------------------------------------------
+# /admin/role-assignments/ section
+# ---------------------------------------------------------------------------
+
+
+async def test_ra_create_current_on_ended_org_rejected(client, db, person_id, ended_role_id):
+    r = await client.post(
+        "/admin/role-assignments/new/",
+        headers=AUTH_HEADERS,
+        data={"person_id": person_id, "role_id": ended_role_id, "is_current": "true"},
+    )
+    assert r.status_code == 200
+    assert b"cannot be current" in r.content
+    count = await db.fetchval(
+        "SELECT count(*) FROM role_assignments WHERE role_id = $1 AND is_current",
+        ended_role_id,
+    )
+    assert count == 0
+
+
+async def test_ra_create_end_after_org_end_rejected(client, db, person_id, ended_role_id):
+    r = await client.post(
+        "/admin/role-assignments/new/",
+        headers=AUTH_HEADERS,
+        data={
+            "person_id": person_id,
+            "role_id": ended_role_id,
+            "start_date": "2022-01-01",
+            "end_date": "2024-06-01",
+        },
+    )
+    assert r.status_code == 200
+    assert b"organization" in r.content and b"2023-01-09" in r.content
+    count = await db.fetchval(
+        "SELECT count(*) FROM role_assignments WHERE role_id = $1 AND end_date IS NOT NULL",
+        ended_role_id,
+    )
+    assert count == 0
+
+
+async def test_ra_create_window_within_lifespan_saves(client, db, person_id, ended_role_id):
+    r = await client.post(
+        "/admin/role-assignments/new/",
+        headers=AUTH_HEADERS,
+        data={
+            "person_id": person_id,
+            "role_id": ended_role_id,
+            "start_date": "2021-02-03",
+            "end_date": "2023-01-09",
+        },
+    )
+    assert r.status_code == 200
+    count = await db.fetchval(
+        "SELECT count(*) FROM role_assignments WHERE role_id = $1 AND end_date = '2023-01-09'",
+        ended_role_id,
+    )
+    assert count == 1
+
+
+async def test_ra_toggle_current_on_ended_org_rejected(client, db, former_ra_id):
+    r = await client.post(
+        f"/admin/role-assignments/{former_ra_id}/inline/is_current/",
+        headers=HTMX_HEADERS,
+        data={"is_current": "true"},
+    )
+    assert r.status_code == 200
+    assert _flash_level(r) == "error"
+    assert (
+        await db.fetchval("SELECT is_current FROM role_assignments WHERE id = $1", former_ra_id)
+        is False
+    )
+
+
+async def test_ra_dates_end_after_org_end_rejected(client, db, former_ra_id):
+    r = await client.post(
+        f"/admin/role-assignments/{former_ra_id}/inline/dates/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2022-01-01", "end_date": "2024-06-01"},
+    )
+    assert r.status_code == 200
+    assert b"2023-01-09" in r.content
+    assert (
+        await db.fetchval("SELECT end_date FROM role_assignments WHERE id = $1", former_ra_id)
+        is None
+    )
+
+
+# ---------------------------------------------------------------------------
+# Role-detail inline rows
+# ---------------------------------------------------------------------------
+
+
+async def test_role_inline_create_current_on_ended_org_rejected(
+    client, db, person_id, ended_role_id
+):
+    r = await client.post(
+        f"/admin/roles/{ended_role_id}/assignments/",
+        headers=HTMX_HEADERS,
+        data={"person_id": person_id, "is_current": "true"},
+    )
+    assert r.status_code == 200
+    assert _flash_level(r) == "error"
+    count = await db.fetchval(
+        "SELECT count(*) FROM role_assignments WHERE role_id = $1 AND is_current",
+        ended_role_id,
+    )
+    assert count == 0
+
+
+async def test_role_inline_edit_current_on_ended_org_rejected(
+    client, db, former_ra_id, ended_role_id
+):
+    r = await client.post(
+        f"/admin/roles/{ended_role_id}/assignments/{former_ra_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"is_current": "true"},
+    )
+    assert r.status_code == 200
+    assert _flash_level(r) == "error"
+    assert (
+        await db.fetchval("SELECT is_current FROM role_assignments WHERE id = $1", former_ra_id)
+        is False
+    )
+
+
+# ---------------------------------------------------------------------------
+# Person-detail inline rows
+# ---------------------------------------------------------------------------
+
+
+async def test_person_inline_create_current_on_ended_org_rejected(
+    client, db, person_id, ended_role_id
+):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/",
+        headers=HTMX_HEADERS,
+        data={"role_id": ended_role_id, "is_current": "true"},
+    )
+    assert r.status_code == 200
+    assert _flash_level(r) == "error"
+    count = await db.fetchval(
+        "SELECT count(*) FROM role_assignments WHERE role_id = $1 AND is_current",
+        ended_role_id,
+    )
+    assert count == 0
+
+
+async def test_person_inline_edit_end_after_org_end_rejected(client, db, person_id, former_ra_id):
+    r = await client.post(
+        f"/admin/people/{person_id}/assignments/{former_ra_id}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"start_date": "2022-01-01", "end_date": "2024-06-01"},
+    )
+    assert r.status_code == 200
+    assert _flash_level(r) == "error"
+    assert (
+        await db.fetchval("SELECT end_date FROM role_assignments WHERE id = $1", former_ra_id)
+        is None
+    )
+
+
+# ---------------------------------------------------------------------------
+# Org detail banner + deactivate warning (#307 UX)
+# ---------------------------------------------------------------------------
+
+
+async def test_org_detail_shows_open_assignment_banner(client, ended_org_id, former_ra_id):
+    r = await client.get(f"/admin/orgs/{ended_org_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert b"open assignment" in r.content
+    assert b"2023-01-09" in r.content
+
+
+async def test_org_detail_no_banner_on_active_org(client, db, person_id):
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Member')", rid, oid
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        rid,
+    )
+    r = await client.get(f"/admin/orgs/{oid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert b"open assignment" not in r.content
+
+
+async def test_deactivate_flash_warns_about_open_assignments(client, db, person_id):
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Member')", rid, oid
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        rid,
+    )
+    r = await client.post(
+        f"/admin/orgs/{oid}/inline/active/",
+        headers=HTMX_HEADERS,
+        data={"active": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "warning"
+    assert "open assignment" in trigger["showFlash"]["body"]
+
+
+async def test_deactivate_flash_plain_when_no_open_assignments(client, db):
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    r = await client.post(
+        f"/admin/orgs/{oid}/inline/active/",
+        headers=HTMX_HEADERS,
+        data={"active": ""},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "info"
+    assert "open assignment" not in trigger["showFlash"]["body"]

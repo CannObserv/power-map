@@ -1917,6 +1917,32 @@ CREATE OR REPLACE TRIGGER trg_touch_entity_on_event_change
     AFTER INSERT OR UPDATE OR DELETE ON entity_events
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_entity_event_change();
 
+-- Org lifespan end (#307): earliest non-archived dissolved/merged_with event,
+-- resolved to the LATEST date within the event's known precision (year-only
+-- 2023 → 2023-12-31; month-only → last day of month) so closing an assignment
+-- at ended_on never claims an earlier end than the source supports.
+-- renamed/split_from imply continuity elsewhere, not an end; events without a
+-- year (merged_with does not require one) derive no bound.
+CREATE OR REPLACE VIEW v_org_lifespan AS
+SELECT ev.entity_id AS organization_id,
+       min(
+           CASE
+               WHEN ev.event_day IS NOT NULL
+                   THEN make_date(ev.event_year, ev.event_month, ev.event_day)
+               WHEN ev.event_month IS NOT NULL
+                   THEN (make_date(ev.event_year, ev.event_month, 1)
+                         + INTERVAL '1 month' - INTERVAL '1 day')::date
+               ELSE make_date(ev.event_year, 12, 31)
+           END
+       ) AS ended_on
+FROM entity_events ev
+JOIN entity_event_types t ON t.id = ev.event_type_id
+WHERE ev.entity_type = 'organization'
+  AND t.slug IN ('dissolved', 'merged_with')
+  AND ev.archived_at IS NULL
+  AND ev.event_year IS NOT NULL
+GROUP BY ev.entity_id;
+
 -- =============================================================================
 -- Ingestion Audit Tables
 -- =============================================================================
