@@ -312,7 +312,7 @@ while True:
 
 ## Observation writes — shared behavior
 
-All `POST /*/observations` endpoints return an `ObservationResponse` with three fields:
+All `POST /*/observations` endpoints return an `ObservationResponse` with the following fields:
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -320,6 +320,7 @@ All `POST /*/observations` endpoints return an `ObservationResponse` with three 
 | `entity_id` | `string \| null` | ULID of the matched or created entity; `null` on `rejected` |
 | `entity_type` | `string \| null` | Entity type string; `null` on `rejected` |
 | `reason` | `string \| null` | Human-readable rejection cause; `null` on non-rejected responses |
+| `unapplied` | `list[string] \| null` | #311: fields supplied but not applied on a natural-key auto-attach (see the assignments section). Currently populated only by assignment observations; `null` elsewhere and on clean attaches |
 
 **`reason` is a diagnostic aid, not a stable API contract.** Its format (e.g. `"unknown_identifier_type: 'org_wa_legislature_chamber'"`) may change across releases. Do not pattern-match on specific reason strings in production code; use it for logging and debugging only.
 
