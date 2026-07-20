@@ -135,7 +135,7 @@ def _log_report(findings: dict[str, list[dict]], *, execute: bool) -> None:
         logger.warning(
             "end_after_ended: assignment %s on %r ends %s > org end %s",
             f["assignment_id"],
-            f["display_name"],
+            f["display_name"] or "(unnamed)",
             f["end_date"],
             f["ended_on"],
         )
@@ -143,7 +143,7 @@ def _log_report(findings: dict[str, list[dict]], *, execute: bool) -> None:
         logger.warning(
             "start_after_ended: assignment %s on %r starts %s > org end %s",
             f["assignment_id"],
-            f["display_name"],
+            f["display_name"] or "(unnamed)",
             f["start_date"],
             f["ended_on"],
         )
@@ -158,7 +158,7 @@ def _log_report(findings: dict[str, list[dict]], *, execute: bool) -> None:
         logger.info(
             "unknown_end_on_ended: %d assignment(s) on %r (%s, ended %s) — end unknown, left open",
             n,
-            display_name,
+            display_name or "(unnamed)",
             organization_id,
             ended_on,
         )
@@ -166,7 +166,7 @@ def _log_report(findings: dict[str, list[dict]], *, execute: bool) -> None:
         logger.warning(
             "missing_end_event: %r (%s) is %s with %d open assignment(s) and no "
             "dissolved/merged_with event — record one, then re-run",
-            f["display_name"],
+            f["display_name"] or "(unnamed)",
             f["organization_id"],
             "archived" if f["archived"] else "inactive",
             f["open_assignments"],
