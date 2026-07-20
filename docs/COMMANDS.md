@@ -444,6 +444,31 @@ Idempotent — a second run finds nothing. Each promotion touches `person_names`
 subscribers re-fetch and pick up the newly-visible name. Run **after**
 `bash scripts/apply-schema.sh`, so the #308a view change is live first.
 
+## Org-lifecycle assignment audit (issue #307)
+
+`scripts/audit_org_lifecycle_assignments.py` checks every non-archived
+assignment against its org's lifespan (`v_org_lifespan.ended_on`, derived from
+`dissolved`/`merged_with` entity events — see `docs/CONVENTIONS.md`
+§ "Org lifespan bounds on assignments"). Categories:
+
+- `current_on_ended` — auto-fixable; `--execute` closes at `ended_on`
+  (`is_current=FALSE`, provenance note appended to `notes`)
+- `end_after_ended` / `start_after_ended` — dated contradictions, report-only
+- `unknown_end_on_ended` — unknown end left open, report-only
+- `missing_end_event` — inactive/archived org with open assignments but no end
+  event; record a `dissolved`/`merged_with` event in admin, then re-run
+
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.audit_org_lifecycle_assignments            # report
+uv run "${env_args[@]}" python -m scripts.audit_org_lifecycle_assignments --execute  # close
+```
+
+Idempotent — a compliant DB yields no findings and `--execute` is a no-op.
+
 ## Per-key API anomaly check (issue #294)
 
 `scripts/check_api_anomalies.py` queries `api_request_log` for the trailing hour,

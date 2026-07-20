@@ -63,6 +63,20 @@ Reference for public API, database, and ingestion patterns. For admin dashboard 
 - **Historical-window semantics — admin end-dating is authoritative over feeds (#256 decision, from #181 CR finding 4):** a dateless claim keeps matching *any* existing row, including an expired historical row (`valid_until < CURRENT_DATE`). So once an admin end-dates an entity's address, a later dateless re-observation records **nothing** — it does not resurrect a current, open-ended row. Rationale: curation is deliberate and human; silently reopening a closed window on the next ingest run would be whack-a-mole. A dateless re-observation of an expired address therefore leaves no trace (observations aren't logged as per-sighting events) — intentional. A source that genuinely needs to assert a *current* window supplies explicit `valid_from`/`valid_until` (the dated-claim escape hatch, #256 item 1); dated claims dedup with strict `IS NOT DISTINCT FROM` window equality, while dateless claims deliberately ignore the window.
 - **Broadcast:** any `entity_addresses` INSERT/UPDATE/DELETE fires `trg_touch_entity_on_address_change` → bumps the parent entity's `updated_at` → emits an `entity_changes` `'updated'` row (all five entity types), so change-feed subscribers re-fetch and pick up the new window.
 
+### Org lifespan bounds on assignments (#307)
+
+An org's lifespan end is **derived, not a column**: `v_org_lifespan(organization_id, ended_on)` takes the earliest non-archived `dissolved` / `merged_with` entity event, resolved to the *latest* date within the event's known precision (year-only 2023 → `2023-12-31`; month-only → last day of month) so closing an assignment at `ended_on` never claims an earlier end than the source supports. `renamed` / `split_from` imply continuity, not an end; an end event without a year (`merged_with` doesn't require one) derives no bound. `organizations.active` is dateless state and `archived_at` is admin bookkeeping — neither is a lifespan; an org marked inactive **should** also get an end event when the date is known.
+
+**Invariant:** an assignment's window falls within its org's lifespan.
+
+- Org ended → no `is_current=TRUE` assignment on its roles (hard).
+- `start_date` / `end_date` ≤ `ended_on` when both known (contradiction otherwise).
+- `is_current=FALSE, end_date NULL` = **unknown end**, not "ongoing" — allowed on an ended org; never invent an end date for it. Exclude these rows from "current members" displays (`is_current`, not `end_date IS NULL`, is the currency signal).
+
+**Enforcement (deliberately app-layer, no DB trigger):** `src.core.org_lifecycle.check_assignment_lifespan(conn, role_id, *, is_current, start_date, end_date)` raises `AssignmentOutsideOrgLifespan` (codes mirror the audit categories); all three admin write surfaces call it (role-assignments section, role-detail inline rows, person-detail inline rows) and render `lifespan_error_message(exc)` inline. The public observation path is *not* gated — server-to-server writes record what the source asserts and `scripts/audit_org_lifecycle_assignments.py` reconciles (report mode lists violations; `--execute` closes `current_on_ended` rows at `ended_on` with a provenance note; contradictions and unknown-end rows are report-only). A cross-table temporal trigger would misfire on messy, out-of-order ingested history — revisit only after the audit runs clean. Complements the *role*-level `established_on`/`abolished_on` bounds (`_check_assignment_within_bounds` in `roles_shared.py`), which remain a pure-date check against the role row.
+
+**UX:** org detail shows a warning banner when an archived/inactive/ended org still carries open assignments; marking an org inactive flashes the open count. Close/re-home flows ride on #266 / #305 tooling.
+
 ### Jurisdiction graph broadcast (#275)
 
 `jurisdiction_relationships` and `organization_jurisdiction_affiliations` are curated from the admin (Phase 3); both propagate to the change feed so a jurisdiction subscriber sees graph edits (the public API exposes them: `GET /api/v1/jurisdictions/{id}/relationships` and the org read model's `jurisdiction_affiliations`).
