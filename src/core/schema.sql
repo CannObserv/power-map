@@ -2241,6 +2241,97 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+-- =============================================================================
+-- Migration (#312): reconcile inline CHECKs missing in prod (CREATE TABLE IF
+-- NOT EXISTS no-op). A prod-vs-test pg_constraint sweep found five constraints
+-- that never reached prod: the entity_type checks on field_confidence /
+-- import_provenance (their only reconciliation was the #168 replace-if-stale
+-- IF EXISTS(... NOT LIKE ...) guard, which no-ops when the constraint is
+-- *entirely absent* — contrast #176's unconditional DROP-IF-EXISTS+ADD) and
+-- the three import_batches count checks (no reconciliation at all). The
+-- CREATE TABLE IF NOT EXISTS definitions above carry these for fresh DBs.
+--
+-- ADD-when-absent (not replace-if-stale) per the entity_events precedent
+-- (#307 CR). Per-constraint sub-blocks: a violating row for one constraint
+-- must not abort another's reconciliation, and each WARNING names its
+-- constraint so apply_schema degrades (never hard-aborts a deploy) if a row
+-- ever violates. Zero violating prod rows verified before adding (#312).
+-- =============================================================================
+DO $$ BEGIN
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'field_confidence'::regclass
+              AND conname = 'field_confidence_entity_type_check'
+        ) THEN
+            ALTER TABLE field_confidence
+                ADD CONSTRAINT field_confidence_entity_type_check
+                CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction'));
+        END IF;
+    EXCEPTION WHEN check_violation THEN
+        RAISE WARNING
+            'field_confidence_entity_type_check not added: rows with an '
+            'unknown entity_type exist. Fix them, then re-apply schema.';
+    END;
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'import_provenance'::regclass
+              AND conname = 'import_provenance_entity_type_check'
+        ) THEN
+            ALTER TABLE import_provenance
+                ADD CONSTRAINT import_provenance_entity_type_check
+                CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction'));
+        END IF;
+    EXCEPTION WHEN check_violation THEN
+        RAISE WARNING
+            'import_provenance_entity_type_check not added: rows with an '
+            'unknown entity_type exist. Fix them, then re-apply schema.';
+    END;
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'import_batches'::regclass
+              AND conname = 'import_batches_row_count_check'
+        ) THEN
+            ALTER TABLE import_batches
+                ADD CONSTRAINT import_batches_row_count_check CHECK (row_count >= 0);
+        END IF;
+    EXCEPTION WHEN check_violation THEN
+        RAISE WARNING
+            'import_batches_row_count_check not added: rows with negative '
+            'row_count exist. Fix them, then re-apply schema.';
+    END;
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'import_batches'::regclass
+              AND conname = 'import_batches_loaded_count_check'
+        ) THEN
+            ALTER TABLE import_batches
+                ADD CONSTRAINT import_batches_loaded_count_check CHECK (loaded_count >= 0);
+        END IF;
+    EXCEPTION WHEN check_violation THEN
+        RAISE WARNING
+            'import_batches_loaded_count_check not added: rows with negative '
+            'loaded_count exist. Fix them, then re-apply schema.';
+    END;
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'import_batches'::regclass
+              AND conname = 'import_batches_error_count_check'
+        ) THEN
+            ALTER TABLE import_batches
+                ADD CONSTRAINT import_batches_error_count_check CHECK (error_count >= 0);
+        END IF;
+    EXCEPTION WHEN check_violation THEN
+        RAISE WARNING
+            'import_batches_error_count_check not added: rows with negative '
+            'error_count exist. Fix them, then re-apply schema.';
+    END;
+END $$;
+
 -- Migration (#170): add precision tier to addresses for event-place and historical records.
 ALTER TABLE addresses
     ADD COLUMN IF NOT EXISTS precision TEXT
