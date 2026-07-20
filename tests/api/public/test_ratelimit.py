@@ -1,12 +1,15 @@
 """Unit tests for the per-key token-bucket rate limiter (#292).
 
-Pure unit — no DB, no app. The clock is injected via ``now_s`` so refill math
-is deterministic; bucket state is reset by the package-wide autouse fixture in
-``conftest.py``.
+No DB. The clock is injected via ``now_s`` so refill math is deterministic;
+bucket state is reset by the package-wide autouse fixture in ``conftest.py``.
+The app is imported only for the route-metadata drift guard (#310) — importing
+it installs the derived read-semantic POST path set.
 """
 
 import pytest
+from fastapi.routing import APIRoute
 
+from src.api.main import app
 from src.api.public import ratelimit as rl
 
 
@@ -34,22 +37,57 @@ def test_mutating_methods_classify_as_write(method):
     assert rl.kind_for_request(method, "/api/v1/people/observations") == "write"
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
+@pytest.fixture
+def installed_read_paths(monkeypatch):
+    """Install a known read-semantic POST path set, isolated per test."""
+    monkeypatch.setattr(
+        rl,
+        "_post_read_paths",
+        frozenset({"/api/v1/people/verify", "/api/v1/people/identify"}),
+    )
+
+
+def test_read_semantic_posts_classify_as_read(installed_read_paths):
+    """#310 CR: installed scoring/lookup POST paths drain the read bucket."""
+    assert rl.kind_for_request("POST", "/api/v1/people/verify") == "read"
+    assert rl.kind_for_request("POST", "/api/v1/people/identify") == "read"
+
+
+def test_uninstalled_post_path_classifies_as_write(installed_read_paths):
+    assert rl.kind_for_request("POST", "/api/v1/people/observations") == "write"
+
+
+def test_set_post_read_paths_installs_frozenset():
+    before = rl._post_read_paths
+    try:
+        rl.set_post_read_paths(["/x", "/y"])
+        assert rl.kind_for_request("POST", "/x") == "read"
+        assert rl.kind_for_request("POST", "/z") == "write"
+    finally:
+        rl.set_post_read_paths(before)
+
+
+def test_app_derives_read_paths_from_route_metadata():
+    """Drift guard (#310 CR round 2): the installed set is derived from route
+    ``openapi_extra`` markers at app import — renaming a marked route can never
+    silently desynchronize a hardcoded list."""
+    marked = {
+        route.path
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        and "POST" in route.methods
+        and (route.openapi_extra or {}).get(rl.BUCKET_EXTRA_KEY) == "read"
+    }
+    assert marked == {
         "/api/v1/people/identify",
         "/api/v1/people/verify",
         "/api/v1/people/verify-batch",
         "/api/v1/people/embeddings/presence",
-    ],
-)
-def test_read_semantic_posts_classify_as_read(path):
-    """#310 CR: scoring/lookup POSTs hold only a read scope and drain the read
-    bucket, not the write bucket."""
-    assert rl.kind_for_request("POST", path) == "read"
+    }
+    assert rl._post_read_paths == marked
 
 
-def test_read_semantic_post_tolerates_trailing_slash():
+def test_read_semantic_post_tolerates_trailing_slash(installed_read_paths):
     assert rl.kind_for_request("POST", "/api/v1/people/verify/") == "read"
 
 

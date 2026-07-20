@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, require_scope
+from src.api.public.ratelimit import BUCKET_EXTRA_KEY
 from src.api.public.schemas import (
     EmbeddingArchiveResponse,
     EmbeddingBatchArchiveResponse,
@@ -64,6 +65,7 @@ def _require_queryable_model(model_id: str, registry: EmbeddingRegistry) -> Mode
     "/identify",
     response_model=IdentifyResponse,
     operation_id="identifyPersonByVoice",
+    openapi_extra={BUCKET_EXTRA_KEY: "read"},
 )
 async def identify_person(
     body: IdentifyRequest,
@@ -131,6 +133,7 @@ async def identify_person(
     "/verify",
     response_model=VerifyResponse,
     operation_id="verifyPersonByVoice",
+    openapi_extra={BUCKET_EXTRA_KEY: "read"},
 )
 async def verify_person(
     body: VerifyRequest,
@@ -205,6 +208,7 @@ async def verify_person(
     "/verify-batch",
     response_model=VerifyBatchResponse,
     operation_id="verifyPeopleByVoiceBatch",
+    openapi_extra={BUCKET_EXTRA_KEY: "read"},
 )
 async def verify_person_batch(
     body: VerifyBatchRequest,
@@ -284,6 +288,7 @@ async def verify_person_batch(
     "/embeddings/presence",
     response_model=EmbeddingPresenceResponse,
     operation_id="queryEmbeddingPresence",
+    openapi_extra={BUCKET_EXTRA_KEY: "read"},
 )
 async def query_embedding_presence(
     body: EmbeddingPresenceRequest,

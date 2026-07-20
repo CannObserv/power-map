@@ -1,8 +1,8 @@
 """Per-key token-bucket rate limiting for the public API (#292).
 
-Two token buckets per API key — ``read`` (GET/HEAD plus the read-semantic POST
-endpoints in ``_POST_READ_PATHS``, #310) and ``write`` (everything else) —
-enforced at the auth choke point (``src.api.public.deps``), so every
+Two token buckets per API key — ``read`` (GET/HEAD plus routes marked
+``openapi_extra={BUCKET_EXTRA_KEY: "read"}``, #310) and ``write`` (everything
+else) — enforced at the auth choke point (``src.api.public.deps``), so every
 authenticated ``/api/v1/*`` request passes through exactly one ``check()``.
 
 In-process by design: buckets live in a module dict keyed by
@@ -64,26 +64,32 @@ def reset() -> None:
 # Read-semantic POST endpoints (#310 CR): scoring/lookup calls that carry a
 # request body for size reasons but only *read* — they hold voice_embeddings:read
 # and must drain the read bucket, not contend with genuine embedding writes.
-_POST_READ_PATHS = frozenset(
-    {
-        "/api/v1/people/identify",
-        "/api/v1/people/verify",
-        "/api/v1/people/verify-batch",
-        "/api/v1/people/embeddings/presence",
-    }
-)
+# The path set is not hardcoded here: routes declare
+# ``openapi_extra={BUCKET_EXTRA_KEY: "read"}`` and ``src.api.main`` installs the
+# derived set at app build via ``set_post_read_paths`` — renaming a marked route
+# can never silently desynchronize a list (#310 CR round 2).
+BUCKET_EXTRA_KEY = "x-rate-limit-bucket"
+
+_post_read_paths: frozenset[str] = frozenset()
+
+
+def set_post_read_paths(paths) -> None:
+    """Install the read-semantic POST path set (``src.api.main`` at app build)."""
+    global _post_read_paths
+    _post_read_paths = frozenset(paths)
 
 
 def kind_for_request(method: str, path: str | None) -> str:
     """Classify a request into the ``read`` or ``write`` bucket.
 
-    GET/HEAD → read; POST on a ``_POST_READ_PATHS`` route → read; everything
-    else — including a missing ``path`` (unit-test seam) — conservatively write.
+    GET/HEAD → read; POST on an installed read-semantic route → read;
+    everything else — including a missing ``path`` (unit-test seam) —
+    conservatively write.
     """
     m = method.upper()
     if m in ("GET", "HEAD"):
         return "read"
-    if m == "POST" and path is not None and (path.rstrip("/") or "/") in _POST_READ_PATHS:
+    if m == "POST" and path is not None and (path.rstrip("/") or "/") in _post_read_paths:
         return "read"
     return "write"
 
