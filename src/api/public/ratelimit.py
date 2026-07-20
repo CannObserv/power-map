@@ -23,6 +23,7 @@ disables limiting for that kind.
 import math
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 # Defaults sized from the #292 traffic audit: legitimate ingestion peaked at
@@ -73,7 +74,7 @@ BUCKET_EXTRA_KEY = "x-rate-limit-bucket"
 _post_read_paths: frozenset[str] = frozenset()
 
 
-def set_post_read_paths(paths) -> None:
+def set_post_read_paths(paths: Iterable[str]) -> None:
     """Install the read-semantic POST path set (``src.api.main`` at app build)."""
     global _post_read_paths
     _post_read_paths = frozenset(paths)
