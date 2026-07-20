@@ -794,6 +794,9 @@ class ObservationResponse(BaseModel):
     entity_id: str | None = None  # None only when disposition == 'rejected'
     entity_type: EntityType | None = None  # None when rejected
     reason: str | None = None  # human-readable rejection cause; None on non-rejected
+    # #311: fields supplied but not applied on a natural-key auto-attach (e.g. a
+    # differing non-NULL end_date). None on new/rejected and on clean attaches.
+    unapplied: list[str] | None = None
 
 
 class JurisdictionObservationRequest(BaseModel):
@@ -1347,8 +1350,11 @@ class AssignmentObservationRequest(BaseModel):
     person_id: str | None = None
     role_id: str | None = None
     start_date: date | None = None
+    # end_date: JSON null ≠ omitted (#311) — the handler checks model_fields_set;
+    # in PM-native mode an explicit null clears the bound (reopen).
     end_date: date | None = None
-    is_current: bool = False
+    # Tri-state (#311): None = omitted; NEW inserts treat None as False.
+    is_current: bool | None = None
     notes: str | None = None
 
     links: list[ObservationLink] = Field(default_factory=list)

@@ -6,7 +6,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
-from src.api.public.deps import require_api_key, require_scope
+from src.api.public.deps import AuthedKey, require_api_key, require_scope
 from src.api.public.schemas import (
     NOT_MODIFIED,
     AssignmentDetail,
@@ -18,9 +18,9 @@ from src.api.public.schemas import (
 from src.core.observation import (
     Disposition,
     ObservationRejected,
-    backfill_assignment_dates,
     resolve_assignment,
     resolve_entity,
+    update_assignment_fields,
     write_addresses,
     write_contact_methods,
     write_links,
@@ -184,16 +184,20 @@ async def get_assignment(
 )
 async def submit_assignment_observation(
     req: AssignmentObservationRequest,
-    _=Depends(require_scope("observations:write")),
+    auth: AuthedKey = Depends(require_scope("observations:write")),
     db=Depends(get_db),
 ) -> ObservationResponse:
     """Submit an assignment observation.
 
     Resolves by (person_id, role_id, start_date) or by pm_assignment_id.
-    In pm_assignment_id mode a supplied start_date/end_date backfills an undated
-    tenure in place (NULL → dated, #289); a conflicting bound is rejected.
+    In pm_assignment_id mode supplied fields **update the tenure in place**
+    (#311, supersedes the #289 NULL→dated-only backfill): start_date moves,
+    an explicit ``end_date: null`` clears (reopen), is_current sets/clears —
+    gated on source_key_id provenance. In standard mode an auto-attach applies
+    only the open-tenure close; other deltas are echoed back in ``unapplied``.
     """
     is_pm_native = req.identifier_type == "pm_assignment_id"
+    unapplied: list[str] = []
     try:
         # Resolution + all writes share one transaction so any rejection or
         # constraint failure rolls the whole observation back — nothing
@@ -205,12 +209,17 @@ async def submit_assignment_observation(
                 )
                 if disposition is Disposition.REJECTED:
                     raise ObservationRejected(reason)
-                # #289: an id-addressed observation may carry a start_date/end_date
-                # to date an undated tenure in place (NULL → dated), out of band
-                # from matching.
-                await backfill_assignment_dates(db, assignment_id, req.start_date, req.end_date)
+                await update_assignment_fields(
+                    db,
+                    assignment_id,
+                    start_date=req.start_date,
+                    end_date=req.end_date,
+                    end_date_set="end_date" in req.model_fields_set,
+                    is_current=req.is_current,
+                    source_key_id=auth.key_id,
+                )
             else:
-                assignment_id, disposition, reason = await resolve_assignment(
+                assignment_id, disposition, reason, unapplied = await resolve_assignment(
                     db,
                     req.person_id,
                     req.role_id,
@@ -218,6 +227,7 @@ async def submit_assignment_observation(
                     end_date=req.end_date,
                     is_current=req.is_current,
                     notes=req.notes,
+                    source_key_id=auth.key_id,
                 )
                 if disposition is Disposition.REJECTED:
                     raise ObservationRejected(reason)
@@ -237,4 +247,5 @@ async def submit_assignment_observation(
         disposition=disposition.value,
         entity_id=assignment_id,
         entity_type="role_assignment",
+        unapplied=unapplied or None,
     )

@@ -75,7 +75,7 @@ async def submit_people_observation(
             await write_links(db, entity_id, entity_type, request.links)
             await write_contact_methods(db, entity_id, entity_type, request.contact_methods)
             await write_addresses(db, entity_id, entity_type, request.addresses)
-            await write_role_assignments(db, entity_id, request.role_assignments)
+            await write_role_assignments(db, entity_id, auth.key_id, request.role_assignments)
             if request.personal_pronouns:
                 await write_pronouns(db, entity_id, request.personal_pronouns)
             await write_additional_identifiers(db, entity_id, request.additional_identifiers)

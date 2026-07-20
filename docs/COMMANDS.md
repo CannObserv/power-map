@@ -512,6 +512,35 @@ uv run "${env_args[@]}" python -m scripts.audit_org_lifecycle_assignments --exec
 
 Idempotent — a compliant DB yields no findings and `--execute` is a no-op.
 
+## Duplicate-assignment audit (issue #311)
+
+`scripts/audit_assignment_duplicates.py` finds overlapping active assignment
+pairs for the same `(person, role)` — the duplicates minted when a producer's
+start_date correction missed the match key pre-#311 (see `docs/CONVENTIONS.md`
+§ "Assignment observations — update semantics & provenance"). Categories:
+
+- `deepened_start` — wider (earlier-start) row created later: the producer-
+  correction signature; auto-merged by `--execute`
+- `subsumed` — wider row provably covers the narrower; auto-merged
+- `overlapping_review` — coverage unprovable (e.g. unknown end), report-only
+
+Merge = links/contact methods/addresses/identifiers move to the survivor
+(would-be duplicates stay on the orphan), notes concatenate, orphan is
+**archived** with a provenance note (never deleted). The archive UPDATE hits
+the `entity_changes` outbox so subscribed producers drop stale anchors.
+Undated tenures and disjoint terms (returning legislators) are never flagged.
+
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.audit_assignment_duplicates            # report
+uv run "${env_args[@]}" python -m scripts.audit_assignment_duplicates --execute  # merge
+```
+
+Idempotent — merged pairs leave the audit's scope (archived rows are ignored).
+
 ## Per-key API anomaly check (issue #294)
 
 `scripts/check_api_anomalies.py` queries `api_request_log` for the trailing hour,
