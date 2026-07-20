@@ -12,6 +12,11 @@ from src.api.admin.roles_shared import (
     _parse_date,
 )
 from src.core.db import generate_id
+from src.core.org_lifecycle import (
+    AssignmentOutsideOrgLifespan,
+    check_assignment_lifespan,
+    lifespan_error_message,
+)
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles/{role_id}", tags=["admin-roles-assignments"])
@@ -139,6 +144,17 @@ async def assignment_create(
         role["established_on"],
         role["abolished_on"],
     )
+    if bound_err is None:
+        try:
+            await check_assignment_lifespan(
+                db,
+                role_id,
+                is_current=is_current_val,
+                start_date=start_date_val,
+                end_date=end_date_val,
+            )
+        except AssignmentOutsideOrgLifespan as exc:
+            bound_err = lifespan_error_message(exc)
     if bound_err:
         if not is_htmx(request):
             return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
@@ -326,6 +342,17 @@ async def assignment_edit_row_post(
         role["established_on"],
         role["abolished_on"],
     )
+    if bound_err is None:
+        try:
+            await check_assignment_lifespan(
+                db,
+                role_id,
+                is_current=is_current_val,
+                start_date=start_date_val,
+                end_date=end_date_val,
+            )
+        except AssignmentOutsideOrgLifespan as exc:
+            bound_err = lifespan_error_message(exc)
     if bound_err:
         if not is_htmx(request):
             return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
