@@ -109,6 +109,32 @@ async def test_invalid_key_is_401_not_429(client, tiny_read_limit):
         assert r.status_code == 401
 
 
+async def test_read_semantic_post_drains_read_bucket(client, api_key, tiny_read_limit):
+    """#310 CR: POST /people/verify is read-semantic — after read-bucket
+    exhaustion it 429s (limiter runs before the scope check would 403)."""
+    for _ in range(3):
+        await client.get("/api/v1/", headers={"X-API-Key": api_key})
+    r = await client.post("/api/v1/people/verify", headers={"X-API-Key": api_key}, json={})
+    assert r.status_code == 429
+
+
+async def test_resolve_api_key_passes_path_to_limiter(tiny_read_limit):
+    """Dep-level seam: an explicit read-semantic path drains the read bucket."""
+    mock_db = AsyncMock()
+    mock_db.fetchrow.return_value = {"id": "key_path_unit", "user_id": "u1"}
+    rl.check("key_path_unit", "GET")
+    rl.check("key_path_unit", "GET")
+    with pytest.raises(HTTPException) as exc_info:
+        await _resolve_api_key(
+            "pm_whatever",
+            mock_db,
+            request=None,
+            method="POST",
+            path="/api/v1/people/verify",
+        )
+    assert exc_info.value.status_code == 429
+
+
 async def test_throttled_request_skips_last_used_at_update(tiny_read_limit):
     """A 429 must not run the last_used_at UPDATE (unit — mocked db).
 

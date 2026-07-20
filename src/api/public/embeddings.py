@@ -46,9 +46,10 @@ def _vec_str(embedding: list[float]) -> str:
 def _require_queryable_model(model_id: str, registry: EmbeddingRegistry) -> ModelMeta:
     """Return ModelMeta or raise 422 for an unknown or non-queryable model.
 
-    Verify-family endpoints 422 here rather than returning empty results — an
-    all-null response would be indistinguishable from "no candidate has
-    enrollments" (#299).
+    Gate for verify-family *read* endpoints (verify, verify-batch, presence):
+    they 422 here rather than returning empty results — an all-null response
+    would be indistinguishable from "no candidate has enrollments" (#299).
+    Lifecycle/metadata endpoints use ``_require_model`` (existence only).
     """
     meta = registry.get(model_id)
     if meta is None or not meta.is_queryable:
@@ -431,7 +432,13 @@ async def write_person_embedding(
 
 
 def _require_model(model_id: str, registry: EmbeddingRegistry) -> ModelMeta:
-    """Return ModelMeta or raise 422 for unknown model_id."""
+    """Return ModelMeta or raise 422 for unknown model_id.
+
+    Existence-only gate for lifecycle/metadata endpoints (patch, delete,
+    restore, list) — archives/listings must stay reachable even for a model
+    whose querying or writes are disabled.  Scoring endpoints use
+    ``_require_queryable_model`` instead.
+    """
     meta = registry.get(model_id)
     if meta is None:
         raise HTTPException(

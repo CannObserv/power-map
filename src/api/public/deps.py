@@ -53,7 +53,11 @@ class AuthedKey:
 
 
 async def _resolve_api_key(
-    raw_key: str | None, db, request: Request | None = None, method: str | None = None
+    raw_key: str | None,
+    db,
+    request: Request | None = None,
+    method: str | None = None,
+    path: str | None = None,
 ) -> dict:
     """Validate raw key, enforce the rate limit, update last_used_at, return the row.
 
@@ -63,9 +67,10 @@ async def _resolve_api_key(
     request identity without re-hashing the key — throttled requests stay
     attributed in ``api_request_log``.
 
-    ``method`` is normally derived from ``request``; the explicit parameter is
-    a test seam (unit tests pass ``request=None``). When neither is supplied the
-    limiter is skipped — production always has a real Request.
+    ``method``/``path`` are normally derived from ``request``; the explicit
+    parameters are test seams (unit tests pass ``request=None``). The path
+    routes read-semantic POSTs to the read bucket (#310). When no method is
+    available the limiter is skipped — production always has a real Request.
     """
     if raw_key is None:
         raise HTTPException(status_code=403, detail="Not authenticated")
@@ -76,8 +81,9 @@ async def _resolve_api_key(
     if request is not None:
         request.state.api_key_id = row["id"]
     effective_method = method or getattr(request, "method", None)
+    effective_path = path or getattr(getattr(request, "url", None), "path", None)
     if effective_method is not None:
-        decision = ratelimit.check(row["id"], effective_method)
+        decision = ratelimit.check(row["id"], effective_method, effective_path)
         if not decision.allowed:
             raise HTTPException(
                 status_code=429,

@@ -1,7 +1,8 @@
 """Per-key token-bucket rate limiting for the public API (#292).
 
-Two token buckets per API key — ``read`` (GET/HEAD) and ``write`` (everything
-else) — enforced at the auth choke point (``src.api.public.deps``), so every
+Two token buckets per API key — ``read`` (GET/HEAD plus the read-semantic POST
+endpoints in ``_POST_READ_PATHS``, #310) and ``write`` (everything else) —
+enforced at the auth choke point (``src.api.public.deps``), so every
 authenticated ``/api/v1/*`` request passes through exactly one ``check()``.
 
 In-process by design: buckets live in a module dict keyed by
@@ -60,9 +61,31 @@ def reset() -> None:
     _buckets.clear()
 
 
-def kind_for_method(method: str) -> str:
-    """Classify an HTTP method into the ``read`` or ``write`` bucket."""
-    return "read" if method.upper() in ("GET", "HEAD") else "write"
+# Read-semantic POST endpoints (#310 CR): scoring/lookup calls that carry a
+# request body for size reasons but only *read* — they hold voice_embeddings:read
+# and must drain the read bucket, not contend with genuine embedding writes.
+_POST_READ_PATHS = frozenset(
+    {
+        "/api/v1/people/identify",
+        "/api/v1/people/verify",
+        "/api/v1/people/verify-batch",
+        "/api/v1/people/embeddings/presence",
+    }
+)
+
+
+def kind_for_request(method: str, path: str | None) -> str:
+    """Classify a request into the ``read`` or ``write`` bucket.
+
+    GET/HEAD → read; POST on a ``_POST_READ_PATHS`` route → read; everything
+    else — including a missing ``path`` (unit-test seam) — conservatively write.
+    """
+    m = method.upper()
+    if m in ("GET", "HEAD"):
+        return "read"
+    if m == "POST" and path is not None and (path.rstrip("/") or "/") in _POST_READ_PATHS:
+        return "read"
+    return "write"
 
 
 def _config_for(kind: str) -> tuple[float, int]:
@@ -71,14 +94,17 @@ def _config_for(kind: str) -> tuple[float, int]:
     return _WRITE_REFILL_PER_S, _WRITE_BURST
 
 
-def check(api_key_id: str, method: str, now_s: float | None = None) -> RateLimitDecision:
-    """Consume one token from the key's bucket for ``method``; report the outcome.
+def check(
+    api_key_id: str, method: str, path: str | None = None, now_s: float | None = None
+) -> RateLimitDecision:
+    """Consume one token from the key's bucket for this request; report the outcome.
 
-    ``now_s`` injects a clock for tests; production uses ``time.monotonic()``.
+    ``path`` routes read-semantic POSTs to the read bucket (#310); ``now_s``
+    injects a clock for tests; production uses ``time.monotonic()``.
     A denied request consumes nothing. A refill rate <= 0 disables the kind
     entirely (always allowed).
     """
-    kind = kind_for_method(method)
+    kind = kind_for_request(method, path)
     refill_per_s, burst = _config_for(kind)
     if refill_per_s <= 0:
         return RateLimitDecision(allowed=True, limit=burst, remaining=burst, retry_after_s=0)

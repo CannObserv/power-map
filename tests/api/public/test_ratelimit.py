@@ -20,18 +20,62 @@ def small_limits(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# kind_for_method
+# kind_for_request
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("method", ["GET", "HEAD"])
 def test_read_methods_classify_as_read(method):
-    assert rl.kind_for_method(method) == "read"
+    assert rl.kind_for_request(method, "/api/v1/people") == "read"
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
 def test_mutating_methods_classify_as_write(method):
-    assert rl.kind_for_method(method) == "write"
+    assert rl.kind_for_request(method, "/api/v1/people/observations") == "write"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/people/identify",
+        "/api/v1/people/verify",
+        "/api/v1/people/verify-batch",
+        "/api/v1/people/embeddings/presence",
+    ],
+)
+def test_read_semantic_posts_classify_as_read(path):
+    """#310 CR: scoring/lookup POSTs hold only a read scope and drain the read
+    bucket, not the write bucket."""
+    assert rl.kind_for_request("POST", path) == "read"
+
+
+def test_read_semantic_post_tolerates_trailing_slash():
+    assert rl.kind_for_request("POST", "/api/v1/people/verify/") == "read"
+
+
+def test_read_semantic_path_requires_post_method():
+    """The allowlist is POST-specific — other mutating methods stay write."""
+    assert rl.kind_for_request("PUT", "/api/v1/people/verify") == "write"
+
+
+def test_post_without_path_classifies_as_write():
+    """No path context (unit-test seam) — conservative fallback to write."""
+    assert rl.kind_for_request("POST", None) == "write"
+
+
+def test_check_uses_read_bucket_for_read_semantic_post(small_limits):
+    """POST /verify consumes read tokens: limit reports the read burst (3)."""
+    decision = rl.check("key1", "POST", "/api/v1/people/verify", now_s=100.0)
+    assert decision.limit == 3
+
+
+def test_check_read_semantic_post_shares_read_bucket_with_gets(small_limits):
+    for _ in range(2):
+        assert rl.check("key1", "GET", now_s=100.0).allowed
+    assert rl.check("key1", "POST", "/api/v1/people/verify", now_s=100.0).allowed
+    assert not rl.check("key1", "GET", now_s=100.0).allowed
+    # Write bucket untouched.
+    assert rl.check("key1", "POST", "/api/v1/people/observations", now_s=100.0).allowed
 
 
 # ---------------------------------------------------------------------------
