@@ -343,6 +343,8 @@ screens and the dashboard API-activity panel.
 
 **Bootstrap sequence for a dirty DB:** (1) run `scripts/deduplicate_roles.py --execute` to collapse duplicates, (2) re-run `apply_schema` (or restart the service) to create the indexes, (3) verify with `\d roles` / `\d role_assignments` in psql.
 
+**Inline constraint additions need a companion DO block (#307 CR round 2).** `CREATE TABLE IF NOT EXISTS` no-ops on an existing table, so a `CHECK`/`CONSTRAINT` added inline to the CREATE reaches only fresh DBs — prod silently lacked `entity_events_event_year_check` and `chk_at_requires_year` for exactly this reason. Any inline constraint change must ship with an idempotent `DO $$ … $$` migration that ADDs the constraint when absent (guard on `pg_constraint` by `conrelid`/`conname`) and replaces it when the clause is stale, wrapped in `EXCEPTION WHEN check_violation` → `RAISE WARNING` so `apply_schema` survives dirty data. Verify against prod (`pg_get_constraintdef`), not just the test DB — the test DB's table may be young enough to have gotten the inline form. Reference: the `entity_events` reconciliation block in `schema.sql`; regression harness: `tests/core/test_schema_constraint_migrations.py` (drop constraint → `apply_schema` → assert restored).
+
 ### `pg_trgm` extension
 
 Enabled via `CREATE EXTENSION IF NOT EXISTS pg_trgm` in `apply_schema`. Required for org duplicate detection (`similarity()` function). Re-run `apply_schema` (or restart) to install on existing databases. Gracefully degrades to `org_dup_count = 0` if not installed.
