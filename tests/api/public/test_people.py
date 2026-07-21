@@ -227,6 +227,28 @@ async def test_search_by_name_variant(client, api_key, person_fixture):
 
 
 @pytest.mark.integration
+async def test_search_matches_partial_last_token(client, api_key, person_fixture):
+    """#316: a prefix on the final token matches ('Jane Eliz' -> 'Jane Elizabeth Smith').
+
+    Regression guard for the word-boundary-only false negative reported from
+    Observo's person typeahead ("Ollie Gar" returned nothing).
+    """
+    r = await _search(client, api_key, "Jane Eliz")
+    assert r.status_code == 200
+    ids = [p["id"] for p in r.json()["data"]]
+    assert person_fixture["person_id"] in ids
+
+
+@pytest.mark.integration
+async def test_search_partial_single_token_is_prefix(client, api_key, person_fixture):
+    """#316: single-token queries become prefix matches ('Ja' -> 'Jane ...')."""
+    r = await _search(client, api_key, "Ja")
+    assert r.status_code == 200
+    ids = [p["id"] for p in r.json()["data"]]
+    assert person_fixture["person_id"] in ids
+
+
+@pytest.mark.integration
 async def test_search_does_not_match_hidden_names(client, api_key, person_fixture):
     """Hidden name variants must not be searchable by their content."""
     r = await _search(client, api_key, "SecretNameShouldNotAppear")

@@ -39,7 +39,7 @@ async def query_people_rows(
     if q:
         params.append(q)
         search_conditions.append(
-            f"p.search_tsv @@ plainto_tsquery('pm_unaccent_simple', ${len(params)})"
+            f"p.search_tsv @@ pm_prefix_tsquery('pm_unaccent_simple', ${len(params)})"
         )
     conditions = ([STATUS_PREDICATES[status]] if status != "all" else []) + search_conditions
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""

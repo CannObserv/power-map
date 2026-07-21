@@ -166,7 +166,7 @@ async def search_people(
             p.id,
             v.display_name,
             p.archived_at
-        FROM (SELECT plainto_tsquery('pm_unaccent_simple', $1) AS tsq) _q,
+        FROM (SELECT pm_prefix_tsquery('pm_unaccent_simple', $1) AS tsq) _q,
              people p
         LEFT JOIN v_person_display_names v ON v.person_id = p.id
         WHERE ($3 OR p.archived_at IS NULL)

@@ -503,3 +503,71 @@ async def test_roles_title_trigram_index_exists(db):
         "SELECT 1 FROM pg_indexes WHERE tablename = 'roles' AND indexname = 'idx_roles_title_trgm'"
     )
     assert row is not None, "Trigram GIN index on roles.title missing"
+
+
+# ---------------------------------------------------------------------------
+# pm_prefix_tsquery — last-token prefix search (#316)
+# ---------------------------------------------------------------------------
+
+
+async def _tsv_matches_prefix(db, cfg, stored, q):
+    """Whether a tsvector of `stored` matches pm_prefix_tsquery(cfg, q)."""
+    row = await db.fetchrow(
+        f"SELECT to_tsvector('{cfg}', $1) @@ pm_prefix_tsquery('{cfg}', $2) AS match",
+        stored,
+        q,
+    )
+    return row["match"]
+
+
+async def test_prefix_tsquery_matches_partial_last_token(db):
+    """The bug in #316: 'Ollie Gar' must match 'Ollie Garrett'."""
+    assert await _tsv_matches_prefix(db, "pm_unaccent_simple", "Ollie Garrett", "Ollie Gar")
+
+
+async def test_prefix_tsquery_full_query_still_matches(db):
+    assert await _tsv_matches_prefix(db, "pm_unaccent_simple", "Ollie Garrett", "Ollie Garrett")
+
+
+async def test_prefix_tsquery_single_token_is_prefix(db):
+    """Single-token queries become prefix matches (broadening, by design)."""
+    assert await _tsv_matches_prefix(db, "pm_unaccent_simple", "Ollie Garrett", "Oll")
+
+
+async def test_prefix_tsquery_non_prefix_last_token_does_not_match(db):
+    """Completed earlier tokens stay exact; a wrong first token still fails."""
+    assert not await _tsv_matches_prefix(db, "pm_unaccent_simple", "Ollie Garrett", "Zed Gar")
+
+
+async def test_prefix_tsquery_no_infix(db):
+    """Prefix-only, not substring: 'llie' does not match 'Ollie'."""
+    assert not await _tsv_matches_prefix(db, "pm_unaccent_simple", "Ollie Garrett", "llie")
+
+
+async def test_prefix_tsquery_accent_insensitive(db):
+    """FTS accent normalization is preserved: 'Hernand' matches 'Hernández'."""
+    assert await _tsv_matches_prefix(db, "pm_unaccent_simple", "Hernández", "Hernand")
+
+
+async def test_prefix_tsquery_empty_query_matches_nothing(db):
+    assert not await _tsv_matches_prefix(db, "pm_unaccent_simple", "Ollie Garrett", "")
+    assert not await _tsv_matches_prefix(db, "pm_unaccent_simple", "Ollie Garrett", "   ")
+
+
+async def test_prefix_tsquery_handles_apostrophe(db):
+    """Robust to apostrophes: they split into separate tokens (O'Brien -> 'o' & 'brien'),
+    so the ':*' still lands cleanly on the final part ('o' & 'bri':*)."""
+    assert await _tsv_matches_prefix(db, "pm_unaccent_simple", "Conan O'Brien", "Conan O'Bri")
+
+
+async def test_prefix_tsquery_end_to_end_on_people_search_tsv(db):
+    """Exercises the exact predicate the endpoints use against a stored row."""
+    pid = await _insert_person(db)
+    await _insert_person_name(db, pid, "Ollie Garrett", canonical=True, visibility="public")
+    row = await db.fetchrow(
+        "SELECT search_tsv @@ pm_prefix_tsquery('pm_unaccent_simple', $2) AS match "
+        "FROM people WHERE id = $1",
+        pid,
+        "Ollie Gar",
+    )
+    assert row["match"] is True

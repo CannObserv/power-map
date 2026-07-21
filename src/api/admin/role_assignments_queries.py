@@ -68,9 +68,9 @@ async def query_role_assignments_rows(
         params.append(q)
         idx = len(params)
         search_conditions.append(
-            f"(p.search_tsv @@ plainto_tsquery('pm_unaccent_simple', ${idx})"
-            f" OR r.search_tsv @@ plainto_tsquery('pm_simple', ${idx})"
-            f" OR o.search_tsv @@ plainto_tsquery('pm_simple', ${idx}))"
+            f"(p.search_tsv @@ pm_prefix_tsquery('pm_unaccent_simple', ${idx})"
+            f" OR r.search_tsv @@ pm_prefix_tsquery('pm_simple', ${idx})"
+            f" OR o.search_tsv @@ pm_prefix_tsquery('pm_simple', ${idx}))"
         )
     conditions = ([STATUS_PREDICATES[status]] if status != "all" else []) + search_conditions
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""

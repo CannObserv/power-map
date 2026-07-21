@@ -2685,6 +2685,36 @@ ALTER TEXT SEARCH CONFIGURATION pm_unaccent_simple
     WITH pm_unaccent, simple;
 
 -- ---------------------------------------------------------------------------
+-- pm_prefix_tsquery: last-token prefix tsquery for typeahead-style search (#316)
+-- ---------------------------------------------------------------------------
+-- plainto_tsquery lexemizes every word into a COMPLETE lexeme, so "Ollie Gar"
+-- -> 'ollie' & 'gar' never matches "Ollie Garrett" ('garrett'). This helper
+-- reuses plainto for all normalization (unaccent, punctuation split, stopwords),
+-- then appends ':*' to the whole ::text string so the last lexeme becomes a
+-- prefix. The trick rests on one invariant: plainto's ::text is ALWAYS a chain
+-- of single-quoted lexemes joined by '&' (verified — even a hyphenated token
+-- yields '&'-joined parts: "Anne-Marie" -> 'anne-marie' & 'anne' & 'marie'), so
+-- it always ends on a closing quote. Appending ':*' therefore lands on the last
+-- lexeme no matter what the tokens contain (an apostrophe just splits: O'Brien
+-- -> 'o' & 'brien') — no fragile mid-string regex.
+-- The re-parse via to_tsquery is where the one limitation comes from: to_tsquery
+-- re-expands a hyphenated compound lexeme into a '<->' phrase group requiring the
+-- compound as a whole ('anne-marie' <-> 'anne' <-> 'marie'), so a PARTIAL
+-- hyphenated final token does NOT prefix-match — a known #316 limitation
+-- documented in docs/PUBLIC_API.md. Empty/stopword input -> empty tsquery
+-- (matches nothing). Since pm configs use the `simple` dictionary (no stemming)
+-- each surface token maps 1:1 to its lexeme, making the prefix reliable;
+-- to_tsquery re-lexemizes the already-normalized lexemes idempotently.
+CREATE OR REPLACE FUNCTION pm_prefix_tsquery(cfg regconfig, q text)
+RETURNS tsquery LANGUAGE sql IMMUTABLE STRICT AS $$
+    SELECT CASE
+        WHEN t = '' THEN ''::tsquery
+        ELSE to_tsquery(cfg, t || ':*')
+    END
+    FROM (SELECT plainto_tsquery(cfg, q)::text AS t) s
+$$;
+
+-- ---------------------------------------------------------------------------
 -- organizations.search_tsv
 -- ---------------------------------------------------------------------------
 
