@@ -210,7 +210,7 @@ async def search_orgs(
             a.acronym,
             o.parent_id,
             o.archived_at
-        FROM (SELECT plainto_tsquery('pm_simple', $1) AS tsq) _q,
+        FROM (SELECT pm_prefix_tsquery('pm_simple', $1) AS tsq) _q,
              organizations o
         LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
         LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
@@ -255,8 +255,9 @@ async def _search_by_jurisdiction(
     When q is non-empty, further narrows by substring match on names and acronyms.
     """
     # $5 is nullable (q omitted → NULL); a lateral subquery would need an extra guard,
-    # so plainto_tsquery is called twice instead. Both calls return NULL when $5 is NULL,
-    # which is safe: the WHERE short-circuits via IS NULL and ORDER BY ranks as NULL LAST.
+    # so pm_prefix_tsquery is called twice instead. It is STRICT, so both calls return
+    # NULL when $5 is NULL, which is safe: the WHERE short-circuits via IS NULL and
+    # ORDER BY ranks as NULL LAST.
     rows = await db.fetch(
         """
         SELECT
@@ -274,9 +275,9 @@ async def _search_by_jurisdiction(
         WHERE at_.slug = 'governing'
           AND (j.id = $1 OR j.slug = $1)
           AND ($2 OR o.archived_at IS NULL)
-          AND ($5::text IS NULL OR o.search_tsv @@ plainto_tsquery('pm_simple', $5))
+          AND ($5::text IS NULL OR o.search_tsv @@ pm_prefix_tsquery('pm_simple', $5))
         ORDER BY
-            ts_rank(o.search_tsv, plainto_tsquery('pm_simple', $5)) DESC NULLS LAST,
+            ts_rank(o.search_tsv, pm_prefix_tsquery('pm_simple', $5)) DESC NULLS LAST,
             n.name NULLS LAST,
             o.id  -- unique tiebreaker: stable offset pagination under rank/name ties (#297)
         LIMIT $3 OFFSET $4

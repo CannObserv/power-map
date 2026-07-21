@@ -2685,6 +2685,28 @@ ALTER TEXT SEARCH CONFIGURATION pm_unaccent_simple
     WITH pm_unaccent, simple;
 
 -- ---------------------------------------------------------------------------
+-- pm_prefix_tsquery: last-token prefix tsquery for typeahead-style search (#316)
+-- ---------------------------------------------------------------------------
+-- plainto_tsquery lexemizes every word into a COMPLETE lexeme AND-joined, so
+-- "Ollie Gar" -> 'ollie' & 'gar' never matches "Ollie Garrett" ('garrett').
+-- This helper reuses plainto for all normalization (unaccent, punctuation split,
+-- stopwords), then appends ':*' to the whole string. Because plainto's ::text
+-- always ends on the final lexeme's closing quote, the ':*' lands on the last
+-- token regardless of internal apostrophes (O'Brien -> 'o''brien') — no fragile
+-- mid-string regex. Empty/stopword input -> empty tsquery (matches nothing).
+-- Since pm configs use the `simple` dictionary (no stemming) each surface token
+-- maps 1:1 to its lexeme, making the prefix reliable. to_tsquery re-lexemizes
+-- the already-normalized lexemes idempotently.
+CREATE OR REPLACE FUNCTION pm_prefix_tsquery(cfg regconfig, q text)
+RETURNS tsquery LANGUAGE sql IMMUTABLE STRICT AS $$
+    SELECT CASE
+        WHEN t = '' THEN ''::tsquery
+        ELSE to_tsquery(cfg, t || ':*')
+    END
+    FROM (SELECT plainto_tsquery(cfg, q)::text AS t) s
+$$;
+
+-- ---------------------------------------------------------------------------
 -- organizations.search_tsv
 -- ---------------------------------------------------------------------------
 

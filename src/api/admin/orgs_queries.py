@@ -41,7 +41,7 @@ async def query_orgs_rows(
     params: list = []
     if q:
         params.append(q)
-        search_conditions.append(f"o.search_tsv @@ plainto_tsquery('pm_simple', ${len(params)})")
+        search_conditions.append(f"o.search_tsv @@ pm_prefix_tsquery('pm_simple', ${len(params)})")
     conditions = ([STATUS_PREDICATES[status]] if status != "all" else []) + search_conditions
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
