@@ -2256,6 +2256,13 @@ END $$;
 -- must not abort another's reconciliation, and each WARNING names its
 -- constraint so apply_schema degrades (never hard-aborts a deploy) if a row
 -- ever violates. Zero violating prod rows verified before adding (#312).
+--
+-- NOTE: the entity_type IN-list below is a *third* copy of the same value set —
+-- keep it in sync with the inline CREATE TABLE definitions (field_confidence /
+-- import_provenance above) and the #168 replace-if-stale re-add blocks. A future
+-- vocab extension must touch all three (as #168/#277 did) or drift silently
+-- returns. (This ADD-when-absent block does not upgrade a stale constraint —
+-- it no-ops once present — so #168 remains responsible for value-set upgrades.)
 -- =============================================================================
 DO $$ BEGIN
     BEGIN
