@@ -225,6 +225,28 @@ async def test_search_by_name_variant(client, api_key, org_fixture):
 
 
 @pytest.mark.integration
+async def test_search_matches_partial_last_token(client, api_key, org_fixture):
+    """#316: last-token prefix — 'Television Wash' matches 'Television Washington'.
+
+    Cross-entity guard that orgs/search shares the people/search prefix behavior
+    (pm_prefix_tsquery, not plainto_tsquery).
+    """
+    r = await _search(client, api_key, "Television Wash")
+    assert r.status_code == 200
+    ids = [o["id"] for o in r.json()["data"]]
+    assert org_fixture["org_id"] in ids
+
+
+@pytest.mark.integration
+async def test_search_partial_single_token_is_prefix(client, api_key, org_fixture):
+    """#316: single-token queries become prefix matches ('Televis' -> 'Television ...')."""
+    r = await _search(client, api_key, "Televis")
+    assert r.status_code == 200
+    ids = [o["id"] for o in r.json()["data"]]
+    assert org_fixture["org_id"] in ids
+
+
+@pytest.mark.integration
 async def test_search_excludes_archived(client, api_key, org_fixture, db):
     await db.execute(
         "UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_fixture["org_id"]

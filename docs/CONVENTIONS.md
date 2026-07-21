@@ -369,6 +369,10 @@ screens and the dashboard API-activity panel.
 
 **Current catalog (post-#266):** `state_representative`, `state_senator` (jurisdictional seats, grandfathered); `chamber_leader`, `chamber_officer` (coarse); `committee_chair`, `committee_vice_chair`, `committee_ranking_member`, `committee_assistant_ranking_member`, `committee_member`; `legislature_staff` (coarse); `party_member` (coarse). The pre-#266 coarse `member` was split into `committee_member` + `party_member` and dropped.
 
+### Entity search — last-token prefix FTS (#316)
+
+Every `search_tsv @@ …` predicate (orgs, people, roles, role-assignments — both the public `search` endpoints and the admin list `*_queries.py` filters) goes through **`pm_prefix_tsquery(cfg, q)`**, never bare `plainto_tsquery`. It is the single source of truth for query-side FTS: it reuses `plainto_tsquery` for normalization (unaccent, punctuation split, stopwords) and appends `:*` to the last lexeme so the trailing token matches as a **prefix** — `"Ollie Gar"` matches `"Ollie Garrett"`, and single-token queries prefix too (`"Ja"` → `"Jane …"`). Prefix-only, not infix. It is `IMMUTABLE STRICT` (NULL in → NULL out, so nullable-`q` call sites like orgs-by-jurisdiction keep working) and injection-safe (plainto strips all tsquery operators before the `::text` round-trip). Known limitation: a partial *hyphenated* final token doesn't prefix-match (the `<->`-linked compound is required exact) — see `docs/PUBLIC_API.md`. When adding a new searchable entity, use `pm_prefix_tsquery` for the `@@` predicate; do not re-inline `plainto_tsquery`. Jurisdictions are the deliberate exception (ILIKE on name/slug, no `search_tsv`).
+
 ### `pg_trgm` extension
 
 Enabled via `CREATE EXTENSION IF NOT EXISTS pg_trgm` in `apply_schema`. Required for org duplicate detection (`similarity()` function). Re-run `apply_schema` (or restart) to install on existing databases. Gracefully degrades to `org_dup_count = 0` if not installed.
