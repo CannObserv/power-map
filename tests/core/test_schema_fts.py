@@ -554,8 +554,9 @@ async def test_prefix_tsquery_empty_query_matches_nothing(db):
     assert not await _tsv_matches_prefix(db, "pm_unaccent_simple", "Ollie Garrett", "   ")
 
 
-async def test_prefix_tsquery_handles_internal_apostrophe(db):
-    """Appending ':*' at string end is robust to apostrophe lexemes (O'Brien)."""
+async def test_prefix_tsquery_handles_apostrophe(db):
+    """Robust to apostrophes: they split into separate tokens (O'Brien -> 'o' & 'brien'),
+    so the ':*' still lands cleanly on the final part ('o' & 'bri':*)."""
     assert await _tsv_matches_prefix(db, "pm_unaccent_simple", "Conan O'Brien", "Conan O'Bri")
 
 
