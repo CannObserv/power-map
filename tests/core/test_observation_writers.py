@@ -178,6 +178,7 @@ async def test_write_names_person_canonical_hint_no_displace(db, api_key_id):
     # v_person_display_names to disambiguate. A later hint never displaces.
     # Key by name, not row order: both rows share created_at (frozen now() in the
     # rollback txn) and ULID tiebreaks are same-ms random — #317.
+    assert len(rows) == 2
     by_name = {r["name"]: r["is_canonical"] for r in rows}
     assert by_name["Alice Smith"] is True
     assert by_name["Alice"] is False
@@ -194,6 +195,7 @@ async def test_write_names_person_canonical_hint_same_type_no_displace(db, api_k
         "SELECT name, is_canonical FROM person_names WHERE person_id=$1",
         pid,
     )
+    assert len(rows) == 2
     by_name = {r["name"]: r["is_canonical"] for r in rows}  # order-independent, #317
     assert by_name["Alice Smith"] is True  # first legal name stays canonical
     assert by_name["Alice J. Smith"] is False
@@ -252,6 +254,7 @@ async def test_write_names_person_no_hint_does_not_displace(db, api_key_id):
         "SELECT name, is_canonical FROM person_names WHERE person_id=$1",
         pid,
     )
+    assert len(rows) == 2
     by_name = {r["name"]: r["is_canonical"] for r in rows}  # order-independent, #317
     assert by_name["Alice Smith"] is True  # existing canonical never displaced
     assert by_name["Alice J. Smith"] is False
@@ -1444,6 +1447,7 @@ async def test_write_org_acronyms_canonical_hint_no_displace(db):
         "SELECT acronym, is_canonical FROM organization_acronyms WHERE organization_id=$1",
         oid,
     )
+    assert len(rows) == 2
     by_acronym = {r["acronym"]: r["is_canonical"] for r in rows}  # order-independent, #317
     assert by_acronym["FIRST"] is True
     assert by_acronym["SECOND"] is False
