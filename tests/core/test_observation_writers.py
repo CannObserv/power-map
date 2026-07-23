@@ -170,14 +170,18 @@ async def test_write_names_person_canonical_hint_no_displace(db, api_key_id):
     second = ObservationPersonName(name="Alice", name_type="preferred", is_canonical=True)
     await write_names(db, pid, "person", api_key_id, [second])
     rows = await db.fetch(
-        "SELECT name, is_canonical FROM person_names WHERE person_id=$1 ORDER BY created_at",
+        "SELECT name, is_canonical FROM person_names WHERE person_id=$1",
         pid,
     )
     # One canonical slot per person (#308, Option A). The earlier per-name_type
     # key let both rows be canonical at once, which is what forced
     # v_person_display_names to disambiguate. A later hint never displaces.
-    assert rows[0]["is_canonical"] is True
-    assert rows[1]["is_canonical"] is False
+    # Key by name, not row order: both rows share created_at (frozen now() in the
+    # rollback txn) and ULID tiebreaks are same-ms random — #317.
+    assert len(rows) == 2
+    by_name = {r["name"]: r["is_canonical"] for r in rows}
+    assert by_name["Alice Smith"] is True
+    assert by_name["Alice"] is False
 
 
 async def test_write_names_person_canonical_hint_same_type_no_displace(db, api_key_id):
@@ -188,13 +192,13 @@ async def test_write_names_person_canonical_hint_same_type_no_displace(db, api_k
     second = ObservationPersonName(name="Alice J. Smith", name_type="legal", is_canonical=True)
     await write_names(db, pid, "person", api_key_id, [second])
     rows = await db.fetch(
-        "SELECT name, is_canonical FROM person_names WHERE person_id=$1 ORDER BY created_at",
+        "SELECT name, is_canonical FROM person_names WHERE person_id=$1",
         pid,
     )
-    assert rows[0]["name"] == "Alice Smith"
-    assert rows[0]["is_canonical"] is True
-    assert rows[1]["name"] == "Alice J. Smith"
-    assert rows[1]["is_canonical"] is False  # first legal name stays canonical
+    assert len(rows) == 2
+    by_name = {r["name"]: r["is_canonical"] for r in rows}  # order-independent, #317
+    assert by_name["Alice Smith"] is True  # first legal name stays canonical
+    assert by_name["Alice J. Smith"] is False
 
 
 # --- first-wins auto-promotion (#308b) -------------------------------------
@@ -247,11 +251,13 @@ async def test_write_names_person_no_hint_does_not_displace(db, api_key_id):
         [ObservationPersonName(name="Alice J. Smith", name_type="legal")],
     )
     rows = await db.fetch(
-        "SELECT name, is_canonical FROM person_names WHERE person_id=$1 ORDER BY created_at",
+        "SELECT name, is_canonical FROM person_names WHERE person_id=$1",
         pid,
     )
-    assert rows[0]["is_canonical"] is True
-    assert rows[1]["is_canonical"] is False
+    assert len(rows) == 2
+    by_name = {r["name"]: r["is_canonical"] for r in rows}  # order-independent, #317
+    assert by_name["Alice Smith"] is True  # existing canonical never displaced
+    assert by_name["Alice J. Smith"] is False
 
 
 async def test_write_names_person_multi_name_promotes_only_one(db, api_key_id):
@@ -722,12 +728,15 @@ async def test_write_names_org_multi_name_list_promotes_first(db, api_key_id):
     ]
     await write_names(db, oid, "organization", api_key_id, names)
     rows = await db.fetch(
-        "SELECT is_canonical FROM organization_names WHERE organization_id=$1 ORDER BY created_at",
+        "SELECT name, is_canonical FROM organization_names WHERE organization_id=$1",
         oid,
     )
+    # Both rows minted in one write_names loop → same created_at and same-ms ULIDs,
+    # so no ordering (not even ORDER BY id) recovers list order; key by name — #317.
     assert len(rows) == 2
-    assert rows[0]["is_canonical"] is True
-    assert rows[1]["is_canonical"] is False
+    by_name = {r["name"]: r["is_canonical"] for r in rows}
+    assert by_name["WA Joint Committee on Education"] is True  # first in list promotes
+    assert by_name["Joint Ed Committee"] is False
 
 
 async def test_write_names_org_second_name_not_canonical(db, api_key_id):
@@ -738,12 +747,13 @@ async def test_write_names_org_second_name_not_canonical(db, api_key_id):
     second = ObservationOrgName(name="Finance Committee", name_type="dba")
     await write_names(db, oid, "organization", api_key_id, [second])
     rows = await db.fetch(
-        "SELECT is_canonical FROM organization_names WHERE organization_id=$1 ORDER BY created_at",
+        "SELECT name, is_canonical FROM organization_names WHERE organization_id=$1",
         oid,
     )
     assert len(rows) == 2
-    assert rows[0]["is_canonical"] is True
-    assert rows[1]["is_canonical"] is False
+    by_name = {r["name"]: r["is_canonical"] for r in rows}  # order-independent, #317
+    assert by_name["Senate Finance Committee"] is True
+    assert by_name["Finance Committee"] is False
 
 
 async def test_write_names_org_canonical_hint_promotes_specific(db, api_key_id):
@@ -775,14 +785,12 @@ async def test_write_names_org_canonical_hint_no_displace(db, api_key_id):
     second = ObservationOrgName(name="Second Name", name_type="dba", is_canonical=True)
     await write_names(db, oid, "organization", api_key_id, [second])
     rows = await db.fetch(
-        "SELECT name, is_canonical FROM organization_names"
-        " WHERE organization_id=$1 ORDER BY created_at",
+        "SELECT name, is_canonical FROM organization_names WHERE organization_id=$1",
         oid,
     )
-    assert rows[0]["name"] == "First Name"
-    assert rows[0]["is_canonical"] is True
-    assert rows[1]["name"] == "Second Name"
-    assert rows[1]["is_canonical"] is False
+    by_name = {r["name"]: r["is_canonical"] for r in rows}  # order-independent, #317
+    assert by_name["First Name"] is True
+    assert by_name["Second Name"] is False
 
 
 async def test_write_names_org_stores_effective_dates(db, api_key_id):
@@ -1402,13 +1410,13 @@ async def test_write_org_acronyms_second_not_canonical(db):
     await write_org_acronyms(db, oid, [ObservationAcronym(acronym="WLEG")])
     await write_org_acronyms(db, oid, [ObservationAcronym(acronym="WA-LEG")])
     rows = await db.fetch(
-        "SELECT acronym, is_canonical FROM organization_acronyms"
-        " WHERE organization_id=$1 ORDER BY created_at",
+        "SELECT acronym, is_canonical FROM organization_acronyms WHERE organization_id=$1",
         oid,
     )
     assert len(rows) == 2
-    assert rows[0]["is_canonical"] is True
-    assert rows[1]["is_canonical"] is False
+    by_acronym = {r["acronym"]: r["is_canonical"] for r in rows}  # order-independent, #317
+    assert by_acronym["WLEG"] is True
+    assert by_acronym["WA-LEG"] is False
 
 
 async def test_write_org_acronyms_canonical_hint_promotes_specific(db):
@@ -1436,14 +1444,13 @@ async def test_write_org_acronyms_canonical_hint_no_displace(db):
     await write_org_acronyms(db, oid, [ObservationAcronym(acronym="FIRST")])
     await write_org_acronyms(db, oid, [ObservationAcronym(acronym="SECOND", is_canonical=True)])
     rows = await db.fetch(
-        "SELECT acronym, is_canonical FROM organization_acronyms"
-        " WHERE organization_id=$1 ORDER BY created_at",
+        "SELECT acronym, is_canonical FROM organization_acronyms WHERE organization_id=$1",
         oid,
     )
-    assert rows[0]["acronym"] == "FIRST"
-    assert rows[0]["is_canonical"] is True
-    assert rows[1]["acronym"] == "SECOND"
-    assert rows[1]["is_canonical"] is False
+    assert len(rows) == 2
+    by_acronym = {r["acronym"]: r["is_canonical"] for r in rows}  # order-independent, #317
+    assert by_acronym["FIRST"] is True
+    assert by_acronym["SECOND"] is False
 
 
 # ---------------------------------------------------------------------------
