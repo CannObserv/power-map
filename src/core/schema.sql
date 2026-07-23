@@ -2020,7 +2020,8 @@ BEGIN
     WHERE c.conrelid = 'entity_events'::regclass
       AND c.contype  = 'f'
       AND c.confdeltype <> 'n'  -- 'n' = SET NULL; anything else is drift
-      AND c.conname  LIKE '%event_place_address_id%';
+      AND c.conname  LIKE '%event_place_address_id%'
+    LIMIT 1;
 
     IF fk_name IS NOT NULL THEN
         EXECUTE format('ALTER TABLE entity_events DROP CONSTRAINT %I', fk_name);

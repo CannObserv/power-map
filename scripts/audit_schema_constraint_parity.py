@@ -1,4 +1,4 @@
-"""Daily schema constraint-parity audit: prod vs a fresh reference (issue #315).
+"""Daily schema constraint-parity audit: prod vs a reference DB (issue #315).
 
 Snapshots every constraint (``CHECK`` / ``FOREIGN KEY`` / ``UNIQUE`` / ``PK``,
 full ``pg_get_constraintdef``) on a *reference* DB and on the *target* (prod),

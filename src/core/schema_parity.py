@@ -55,7 +55,7 @@ FROM pg_constraint c
 JOIN pg_class t ON t.oid = c.conrelid
 JOIN pg_namespace n ON n.oid = t.relnamespace
 WHERE n.nspname = 'public'
-  AND t.relkind = 'r'
+  AND t.relkind IN ('r', 'p')  -- ordinary + partitioned parents (none today; future-proof)
 ORDER BY t.relname, c.conname
 """
 

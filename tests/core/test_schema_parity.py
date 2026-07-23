@@ -73,9 +73,6 @@ def test_drift_keys_are_sorted_for_stable_reporting():
     ]
 
 
-pytestmark_integration = pytest.mark.integration
-
-
 @pytest.mark.integration
 async def test_snapshot_constraints_against_live_db(db_pool):
     async with db_pool.acquire() as conn:
