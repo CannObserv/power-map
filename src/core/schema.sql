@@ -2003,6 +2003,34 @@ DO $$ BEGIN
     END;
 END $$;
 
+-- Repair entity_events.event_place_address_id FK ON DELETE action (#315).
+-- The inline `REFERENCES addresses(id) ON DELETE SET NULL` was added after the
+-- table already existed in prod, so `CREATE TABLE IF NOT EXISTS` no-op'd it and
+-- prod kept the default NO ACTION (confdeltype 'a'): hard-deleting an address
+-- referenced by an event errored in prod but nulled the ref on fresh DBs. This
+-- is the *modifier* variant of the #307/#312 drift class — the constraint is
+-- present, only its action is wrong — so absence-only reconciliation no-ops.
+-- Key on confdeltype <> 'n' (idempotent: a correct SET NULL FK is untouched).
+DO $$
+DECLARE
+    fk_name TEXT;
+BEGIN
+    SELECT c.conname INTO fk_name
+    FROM pg_constraint c
+    WHERE c.conrelid = 'entity_events'::regclass
+      AND c.contype  = 'f'
+      AND c.confdeltype <> 'n'  -- 'n' = SET NULL; anything else is drift
+      AND c.conname  LIKE '%event_place_address_id%';
+
+    IF fk_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE entity_events DROP CONSTRAINT %I', fk_name);
+        ALTER TABLE entity_events
+            ADD CONSTRAINT entity_events_event_place_address_id_fkey
+            FOREIGN KEY (event_place_address_id) REFERENCES addresses(id)
+            ON DELETE SET NULL;
+    END IF;
+END $$;
+
 -- Org lifespan end (#307): earliest non-archived dissolved/merged_with event,
 -- resolved to the LATEST date within the event's known precision (year-only
 -- 2023 → 2023-12-31; month-only → last day of month) so closing an assignment
