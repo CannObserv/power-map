@@ -8,7 +8,7 @@
     {% if ra.archived_at %}<span class="badge badge--archived">Archived</span>
     {% elif ra.is_current %}<span class="badge badge--active">Current</span>
     {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
-    {% if ra.notes %}<span class="note-indicator" role="img" aria-label="Has notes" style="margin-left:var(--space-2)"><span aria-hidden="true">📝</span></span>{% endif %}
+    {% if ra.notes %}<span class="note-indicator" role="img" aria-label="Has notes"><span aria-hidden="true">📝</span></span>{% endif %}
   </td>
   <td style="text-align:right; white-space:nowrap">
     <a href="/admin/role-assignments/{{ ra.id }}/" class="btn btn--sm btn--ghost" aria-label="Open assignment at {{ ra.org_name or '(unnamed)' }}">Open</a>
