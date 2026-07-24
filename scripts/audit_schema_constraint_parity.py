@@ -17,8 +17,10 @@ DB built from an *empty* schema via ``apply_schema`` (see module docstring in
 ``src.core.schema_parity`` for the residual gap when it is not). ``sync-schema-
 to-do.sh`` keeps the default reference (``co_pm_db_test``) current on deploy.
 
-Exits 3 when any drift is found so the systemd unit shows as failed (visible in
-``systemctl --failed``; a hook for future ``OnFailure=`` alerting) — mirrors
+Exits 3 on drift — or on misconfiguration (an empty reference, or a reference
+that is the same DB as the target), which would otherwise let the audit pass
+vacuously — so the systemd unit shows as failed (visible in ``systemctl
+--failed``; a hook for future ``OnFailure=`` alerting) — mirrors
 ``scripts/check_api_anomalies.py``. Exit 3 (not 2) stays distinct from argparse
 usage errors. Read-only: never writes to either database.
 
@@ -58,15 +60,43 @@ async def run(*, reference_url: str, target_url: str) -> int:
     """Snapshot both DBs, diff, log; return the drift-constraint count.
 
     Drift count = missing-in-target + mismatched (``target_only`` is logged but
-    excluded, matching ``ConstraintDrift.has_drift``).
+    excluded, matching ``ConstraintDrift.has_drift``). Returns a non-zero
+    sentinel (1) instead of a drift count when the audit is misconfigured — an
+    empty reference or a reference that is the same DB as the target — so the
+    monitor fails loudly rather than passing vacuously (the silent-no-op class
+    #315 targets).
     """
     ref_label, tgt_label = _redact(reference_url), _redact(target_url)
+
+    # Reference and target must be distinct DBs, else the audit compares prod to
+    # itself and always reports 0 drift. Compare on the redacted user@host/db so
+    # differing sslmode/password query strings don't hide a same-DB pointing.
+    if ref_label == tgt_label:
+        logger.warning(
+            "Schema constraint audit MISCONFIGURED — reference and target are the "
+            "same database (%s); it would compare prod to itself and never detect "
+            "drift. Set PARITY_REFERENCE_URL (or --reference-url) to a distinct "
+            "reference DB.",
+            tgt_label,
+        )
+        return 1
 
     ref_conn = await asyncpg.connect(reference_url)
     try:
         reference = await snapshot_constraints(ref_conn)
     finally:
         await ref_conn.close()
+
+    # A real schema always has constraints, so an empty reference means a blank
+    # or wrong reference DB, not genuine parity — fail loudly, don't pass on 0.
+    if not reference:
+        logger.warning(
+            "Schema constraint audit MISCONFIGURED — reference %s has no "
+            "constraints (blank or wrong DB); refusing to report parity against "
+            "an empty reference.",
+            ref_label,
+        )
+        return 1
 
     tgt_conn = await asyncpg.connect(target_url)
     try:
@@ -97,7 +127,7 @@ async def run(*, reference_url: str, target_url: str) -> int:
 
 
 def main() -> None:
-    """CLI entry point — exits 3 when any drift is found (systemd failure hook)."""
+    """CLI entry point — exits 3 on drift or misconfiguration (systemd failure hook)."""
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
