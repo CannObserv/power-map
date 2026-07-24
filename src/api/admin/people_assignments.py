@@ -38,7 +38,7 @@ async def _get_person_or_404(person_id: str, db):
 async def fetch_person_assignments(person_id: str, db) -> list:
     """Fetch all assignments for a person, sorted for display."""
     return await db.fetch(
-        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
+        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
                   r.id AS role_id, r.title AS role_title,
                   o.id AS org_id,
                   dn.display_name AS org_name
@@ -55,7 +55,7 @@ async def fetch_person_assignments(person_id: str, db) -> list:
 async def _get_assignment(assignment_id: str, person_id: str, db):
     """Fetch a single assignment with role/org info, or raise 404."""
     row = await db.fetchrow(
-        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
+        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
                   r.id AS role_id, r.title AS role_title,
                   o.id AS org_id,
                   dn.display_name AS org_name

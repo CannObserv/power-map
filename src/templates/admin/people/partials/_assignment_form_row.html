@@ -27,10 +27,9 @@
         <ul id="role-search-results-{{ row_key }}" class="typeahead-results" role="listbox"></ul>
       </div>
       <div style="display:flex;gap:var(--space-2);align-items:center;flex:2;min-width:16rem">
-        <label for="start-date-input-{{ row_key }}"
-               style="font-size:var(--font-size-sm);color:var(--color-text-muted);white-space:nowrap">Start</label>
         <div class="form-group" style="margin-bottom:0;flex:1;min-width:7rem">
-          <input type="date" name="start_date" id="start-date-input-{{ row_key }}"
+          <input type="date" name="start_date" aria-label="Start"
+                 id="start-date-input-{{ row_key }}"
                  value="{{ start_date_input or '' }}">
         </div>
         <span aria-hidden="true"

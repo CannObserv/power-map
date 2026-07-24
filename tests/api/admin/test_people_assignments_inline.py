@@ -96,14 +96,15 @@ async def test_new_row_unknown_person_returns_404(client):
     assert r.status_code == 404
 
 
-async def test_new_row_labels_start_end_dates(client, person_id):
-    """#259: visible 'Start' label (row-scoped for/id) + aria-hidden 'to'; end keeps a name."""
+async def test_new_row_start_date_named_without_visible_label(client, person_id):
+    """#318: visible 'Start' label dropped to save room; start input keeps aria-label='Start'.
+    'to' stays aria-hidden; end keeps its name (#259)."""
     r = await client.get(f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     body = r.text
-    assert '<label for="start-date-input-new"' in body
-    assert ">Start</label>" in body
+    assert ">Start</label>" not in body
     assert 'id="start-date-input-new"' in body
+    assert 'aria-label="Start"' in body
     assert re.search(r'<span aria-hidden="true"[^>]*>\s*to</span>', body)
     assert 'aria-label="End"' in body
 
@@ -382,6 +383,54 @@ async def test_read_row_unknown_returns_404(client, person_id):
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Note-presence indicator (#318) — icon only; note text never rendered inline
+# ---------------------------------------------------------------------------
+
+
+async def test_read_row_shows_note_indicator_when_notes_present(client, person_id, role_id, db):
+    ra_id = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, notes)
+           VALUES ($1, $2, $3, FALSE, '2021-01-01', $4)""",
+        ra_id,
+        person_id,
+        role_id,
+        "housedemocrats.wa.gov citation",
+    )
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{ra_id}/read-row/", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    assert 'aria-label="Has notes"' in r.text
+
+
+async def test_read_row_no_note_indicator_when_notes_absent(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    assert 'aria-label="Has notes"' not in r.text
+
+
+async def test_read_row_does_not_leak_note_text(client, person_id, role_id, db):
+    secret = "SENSITIVE-PROVENANCE-XYZ"
+    ra_id = generate_id()
+    await db.execute(
+        """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, notes)
+           VALUES ($1, $2, $3, FALSE, '2021-02-02', $4)""",
+        ra_id,
+        person_id,
+        role_id,
+        secret,
+    )
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{ra_id}/read-row/", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    assert secret not in r.text
 
 
 # ---------------------------------------------------------------------------
