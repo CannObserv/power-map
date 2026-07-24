@@ -56,7 +56,7 @@ def _redact(url: str) -> str:
     return f"{user}@{host}/{db}"
 
 
-def _db_identity(url: str) -> tuple[str | None, int | None, str]:
+def _db_identity(url: str) -> tuple[str | None, int, str]:
     """Physical database identity ``(host, port, dbname)`` — user/creds excluded.
 
     Used only for the same-DB guard: two URLs address the same database iff these
@@ -64,10 +64,12 @@ def _db_identity(url: str) -> tuple[str | None, int | None, str]:
     ``co_pm_db_production`` as both the app and the migrations user) or of
     password/sslmode query strings. ``_redact`` is display-only and must not be
     reused here — it includes the user and omits the port, so it both misses
-    same-db-different-user and false-trips on same-host-different-port.
+    same-db-different-user and false-trips on same-host-different-port. The port
+    defaults to Postgres' 5432 so an implicit and an explicit-default port on the
+    same DB compare equal.
     """
     p = urlparse(url)
-    return (p.hostname, p.port, p.path.lstrip("/"))
+    return (p.hostname, p.port or 5432, p.path.lstrip("/"))
 
 
 async def run(*, reference_url: str, target_url: str) -> int:

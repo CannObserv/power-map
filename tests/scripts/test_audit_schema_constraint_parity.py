@@ -119,6 +119,16 @@ def test_run_fails_when_reference_is_same_db_as_target(stub_dbs, caplog):
     assert "same database" in caplog.text
 
 
+def test_run_fails_on_implicit_vs_explicit_default_port(stub_dbs, caplog):
+    """Implicit port and explicit :5432 on the same DB are the same DB — must trip."""
+    stub_dbs({})
+    implicit = "postgres://u:pw@host/db"  # port defaults to 5432
+    explicit = "postgres://u:pw@host:5432/db"
+    with caplog.at_level(logging.WARNING):
+        assert asyncio.run(audit.run(reference_url=implicit, target_url=explicit)) == 1
+    assert "same database" in caplog.text
+
+
 def test_run_allows_same_host_different_port(stub_dbs):
     """Same host + dbname but a **different port** is a distinct DB — must not trip.
 
