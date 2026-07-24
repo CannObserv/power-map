@@ -1,0 +1,19 @@
+[Unit]
+Description=power-map daily schema constraint-parity audit (prod vs reference) (issue #315)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
+# Snapshots every constraint (full pg_get_constraintdef) on the reference DB
+# (PARITY_REFERENCE_URL, default TEST_DATABASE_URL) and on prod (DATABASE_URL),
+# and exits 3 when prod is missing or disagrees on any reference constraint —
+# the CREATE TABLE IF NOT EXISTS inline-drift class (#307/#312/#315). Exit 3
+# (not 2) stays distinct from argparse usage errors; the unit shows as failed,
+# so drift surfaces in `systemctl --failed` and can drive OnFailure= later.
+# Read-only: never writes to either database.
+ExecStart=uv run python -m scripts.audit_schema_constraint_parity

@@ -578,6 +578,45 @@ sudo systemctl start power-map-anomaly.service   # run once, now
 sudo journalctl -u power-map-anomaly -f          # WARNINGs per anomalous key
 ```
 
+## Schema constraint-parity audit (issue #315)
+
+`scripts/audit_schema_constraint_parity.py` snapshots every constraint's full
+`pg_get_constraintdef` on a reference DB (`--reference-url`, default
+`PARITY_REFERENCE_URL` → `TEST_DATABASE_URL`) and on prod (`--target-url`,
+default `DATABASE_URL`), and exits 3 when prod is missing or disagrees on any
+reference constraint — the `CREATE TABLE IF NOT EXISTS` inline-drift class
+(#307/#312 CHECKs, #315's FK `ON DELETE` action). Compares the **full def**, not
+just presence, so FK actions and CHECK bodies are in scope. Read-only; catches
+drift from any source (manual DDL, partial migration, a deploy whose
+`apply_schema` no-op'd a new inline constraint). See `docs/CONVENTIONS.md`
+§"Unique Indexes" for why a fresh-DB-only unit guard can't replace it.
+
+Manual run:
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.audit_schema_constraint_parity
+# Gold-standard reference: a scratch DB freshly built from empty via apply_schema
+uv run "${env_args[@]}" python -m scripts.audit_schema_constraint_parity --reference-url "$SCRATCH_URL"
+```
+
+Scheduled (production): a daily systemd timer. Install / update:
+
+```bash
+sudo cp infra/power-map-schema-parity.service infra/power-map-schema-parity.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now power-map-schema-parity.timer
+
+# Inspect
+systemctl list-timers power-map-schema-parity.timer    # next/last run
+sudo systemctl start power-map-schema-parity.service   # run once, now
+sudo journalctl -u power-map-schema-parity -f          # drift report on failure
+```
+
 ## Git Submodules
 
 ```bash
