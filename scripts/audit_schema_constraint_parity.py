@@ -56,6 +56,20 @@ def _redact(url: str) -> str:
     return f"{user}@{host}/{db}"
 
 
+def _db_identity(url: str) -> tuple[str | None, int | None, str]:
+    """Physical database identity ``(host, port, dbname)`` — user/creds excluded.
+
+    Used only for the same-DB guard: two URLs address the same database iff these
+    three match, regardless of which *user* connects (this project reaches
+    ``co_pm_db_production`` as both the app and the migrations user) or of
+    password/sslmode query strings. ``_redact`` is display-only and must not be
+    reused here — it includes the user and omits the port, so it both misses
+    same-db-different-user and false-trips on same-host-different-port.
+    """
+    p = urlparse(url)
+    return (p.hostname, p.port, p.path.lstrip("/"))
+
+
 async def run(*, reference_url: str, target_url: str) -> int:
     """Snapshot both DBs, diff, log; return the drift-constraint count.
 
@@ -69,9 +83,10 @@ async def run(*, reference_url: str, target_url: str) -> int:
     ref_label, tgt_label = _redact(reference_url), _redact(target_url)
 
     # Reference and target must be distinct DBs, else the audit compares prod to
-    # itself and always reports 0 drift. Compare on the redacted user@host/db so
-    # differing sslmode/password query strings don't hide a same-DB pointing.
-    if ref_label == tgt_label:
+    # itself and always reports 0 drift. Compare on (host, port, dbname) identity
+    # — not the display label — so same-db-different-user (app vs migrations user
+    # on the same DB) still trips, and same-host-different-port does not.
+    if _db_identity(reference_url) == _db_identity(target_url):
         logger.warning(
             "Schema constraint audit MISCONFIGURED — reference and target are the "
             "same database (%s); it would compare prod to itself and never detect "

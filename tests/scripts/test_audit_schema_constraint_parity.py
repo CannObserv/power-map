@@ -104,18 +104,31 @@ def test_run_fails_on_empty_reference(stub_dbs, caplog):
 
 
 def test_run_fails_when_reference_is_same_db_as_target(stub_dbs, caplog):
-    """Same user@host/db on both sides → would compare prod to itself.
+    """Same (host, port, dbname) on both sides → would compare prod to itself.
 
-    Detection is on the redacted user@host/db, so a differing password or query
-    string must not defeat it. The guard fires before any snapshot, so none is
-    registered.
+    Identity excludes user and credentials, so a **different user** on the same
+    physical DB (this project reaches co_pm_db_production as both the app and the
+    migrations user) must still trip the guard — and differing password/sslmode
+    must not defeat it. The guard fires before any snapshot, so none is registered.
     """
     stub_dbs({})
-    same = "postgres://u:pw@host:5432/db?sslmode=require"
-    other_creds = "postgres://u:DIFFERENT@host:5432/db?sslmode=disable"
+    ref = "postgres://app_user:pw@host:5432/proddb?sslmode=require"
+    tgt = "postgres://migrations_user:OTHER@host:5432/proddb?sslmode=disable"
     with caplog.at_level(logging.WARNING):
-        assert asyncio.run(audit.run(reference_url=same, target_url=other_creds)) == 1
+        assert asyncio.run(audit.run(reference_url=ref, target_url=tgt)) == 1
     assert "same database" in caplog.text
+
+
+def test_run_allows_same_host_different_port(stub_dbs):
+    """Same host + dbname but a **different port** is a distinct DB — must not trip.
+
+    _redact drops the port, so reusing it for the guard would false-trip here;
+    keying on (host, port, dbname) keeps these two distinct.
+    """
+    ref = "postgres://u:pw@host:5432/db"
+    tgt = "postgres://u:pw@host:5433/db"
+    stub_dbs({ref: {_CK: _SET_NULL}, tgt: {_CK: _SET_NULL}})
+    assert asyncio.run(audit.run(reference_url=ref, target_url=tgt)) == 0
 
 
 def test_main_exits_3_on_drift(monkeypatch):
