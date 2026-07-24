@@ -25,7 +25,7 @@ router = APIRouter(prefix="/roles/{role_id}", tags=["admin-roles-assignments"])
 async def fetch_role_assignments(role_id: str, db) -> list:
     """Fetch all assignments for a role, sorted for display."""
     return await db.fetch(
-        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
+        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
                   p.id AS person_id,
                   pn.display_name AS person_name
            FROM role_assignments ra
@@ -40,7 +40,7 @@ async def fetch_role_assignments(role_id: str, db) -> list:
 async def _get_assignment(assignment_id: str, role_id: str, db):
     """Fetch a single assignment with person name, or raise 404."""
     row = await db.fetchrow(
-        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
+        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
                   p.id AS person_id,
                   pn.display_name AS person_name
            FROM role_assignments ra

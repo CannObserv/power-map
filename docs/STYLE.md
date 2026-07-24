@@ -599,6 +599,22 @@ appear without visible text (a space-constrained icon or colored dot), expose th
 name in a `.visually-hidden` span or `aria-label`. Audit 2026-06 (#245): no color-only or
 icon-only status indicators exist in the admin UI — keep it that way.
 
+### Presence indicators (notes) (#318)
+
+Distinct from status badges: a **presence indicator** is an icon-only marker that some
+optional payload exists, not an entity state. Assignment read rows
+(`people/partials/_assignment_row.html`, `roles/partials/_assignment_row.html`) show a
+`role="img" aria-label="Has notes"` glyph when `ra.notes` is set. Rules:
+
+- The indicator carries an accessible name via `aria-label` (never a bare glyph, never
+  `title`) — this does **not** breach the "no icon-only *status*" rule above, because entity
+  status is still conveyed by its text `.badge` alongside.
+- **Never render the note text inline.** Provenance can be long or sensitive; the row shows
+  only that a note exists. Read/author the text on the standalone assignment page
+  (`/admin/role-assignments/{id}/` → `_notes_read.html` / `_notes_form.html`), reached via
+  the row's **Open** link. The inline create/edit forms deliberately carry no notes control
+  (row real estate).
+
 ### HTMX live regions
 
 All swap targets: `aria-live="polite" aria-atomic="false"`.

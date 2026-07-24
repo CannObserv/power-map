@@ -221,6 +221,8 @@ a:hover { color: var(--color-brand-hover); }
 .badge--role-type     { background: #e0e7ff; color: #3730a3; }
 .badge--success  { background: #dcfce7; color: #15803d; }
 .badge--warning  { background: #fef9c3; color: #854d0e; }
+/* Presence indicator (e.g. "Has notes" on assignment rows) — decorative glyph, not a status badge */
+.note-indicator { display: inline-block; margin-left: var(--space-2); vertical-align: middle; font-size: var(--font-size-sm); line-height: 1; }
 @media (prefers-color-scheme: dark) {
   .badge--active   { background: #14532d; color: #86efac; }
   .badge--inactive { background: #1e293b; color: var(--color-text-muted); }
