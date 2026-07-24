@@ -81,7 +81,7 @@ _LEGACY_TENURE_MARKER = "2021-23"
 class Action(TypedDict):
     """One planned or applied mutation."""
 
-    kind: Literal["created", "updated", "skipped", "missing"]
+    kind: Literal["created", "updated", "skipped"]
     entity: str
     detail: str
 
@@ -209,13 +209,12 @@ async def _ensure_designate_assignment(
 async def _update_formal_speaker(conn: asyncpg.Connection, *, execute: bool) -> list[Action]:
     """Set the formal-Speaker start/notes and clear the stale role breadcrumb."""
     actions: list[Action] = []
+    # Presence is guaranteed by _verify_identity, which runs first and raises if
+    # the assignment is missing/archived or no longer resolves to Jinkins.
     row = await conn.fetchrow(
         "SELECT start_date, notes FROM role_assignments WHERE id=$1 AND archived_at IS NULL",
         SPEAKER_ASSIGNMENT_ID,
     )
-    if row is None:
-        return [{"kind": "missing", "entity": "formal assignment", "detail": SPEAKER_ASSIGNMENT_ID}]
-
     if row["start_date"] == SPEAKER_START and row["notes"] == _SPEAKER_ASSIGNMENT_NOTES:
         actions.append({"kind": "skipped", "entity": "formal assignment", "detail": "already set"})
     else:
