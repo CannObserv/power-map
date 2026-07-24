@@ -412,6 +412,31 @@ bash scripts/apply-schema.sh
 (e.g. `Speaker of the House (2021-23)`) into role notes and logs a WARNING — a human sets
 the assignment's dates and currency afterward.
 
+## Speaker Designate / Speaker split (issue #314)
+
+`scripts/split_speaker_designate.py` resolves the human date call the classifier deferred
+above for Laurie Jinkins. It splits the single dateless `Speaker of the House` tenure into
+two distinct `chamber_leader` roles on WA House — mirroring the COG `Acting Chair` / `Chair`
+pattern (the coarse type aggregates, the free-text title distinguishes):
+
+- **Speaker Designate** (new role) — assignment 2019-07-31 → 2020-01-12, `is_current=FALSE`.
+- **Speaker of the House** (existing role/assignment) — start 2020-01-13, open end, still
+  `is_current=TRUE`; the stale `2021-23` breadcrumb on the role is cleared.
+
+Dates come from the WA House Democrats caucus record, cited in each assignment's `notes`
+(not invented, #307). A fail-loud identity guard aborts if the hardcoded prod IDs no longer
+resolve to *(Jinkins, Speaker role, WA House)*. Idempotent, dry-run by default, single
+transaction under `--execute`.
+
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.split_speaker_designate            # dry run
+uv run "${env_args[@]}" python -m scripts.split_speaker_designate --execute  # commit
+```
+
 ## Outbox + tombstone TTL prune (issue #204)
 
 `scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)
