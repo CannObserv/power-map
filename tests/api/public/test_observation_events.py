@@ -1219,13 +1219,11 @@ async def test_event_retract_embedded_path(client, evt_write_key, db):
 # ---------------------------------------------------------------------------
 
 
-async def test_reobserve_after_retract_creates_fresh_active_event(client, evt_write_key, db):
-    """CR1: re-observing identical content after a retract mints a NEW active event.
-
-    The content-dedup must skip archived rows — else a re-assert of retracted
-    content auto-attaches to the archived row (success reported, event still
-    invisible to subscribers). Re-observing asserts the event happened, so a
-    fresh active row is correct.
+async def test_reobserve_after_retract_stays_retracted(client, evt_write_key, db):
+    """CR round 2: re-observing content identical to a retracted event does NOT
+    resurrect it — the retract is authoritative (anti-resurrection, consistent
+    with the address dateless-reobservation rule). The content-dedup matches the
+    archived row → auto-attached, no fresh active row, event stays archived.
     """
     raw, _ = evt_write_key
     org_id = await _make_org(client, raw, db)
@@ -1242,21 +1240,29 @@ async def test_reobserve_after_retract_creates_fresh_active_event(client, evt_wr
     )
     assert r2.json()["results"][0]["disposition"] == "retracted"
 
-    # re-observe the SAME content — must not auto-attach to the archived row
+    # re-observe the SAME content — dedups against the archived row, no resurrect
     r3 = await _post_org_events(
         client, raw, org_id, [{"event_type_slug": "founded", "event_year": 1990}]
     )
     res = r3.json()["results"][0]
-    assert res["disposition"] == "new"
-    assert res["event_id"] != old_id
-    # exactly one ACTIVE founded event, and it's the fresh one
-    rows = await db.fetch(
+    assert res["disposition"] == "auto-attached"
+    assert res["event_id"] == old_id
+    # no active founded event exists — the retract stuck
+    active = await db.fetch(
         """SELECT ee.id FROM entity_events ee
            JOIN entity_event_types t ON t.id = ee.event_type_id
            WHERE ee.entity_id=$1 AND t.slug='founded' AND ee.archived_at IS NULL""",
         org_id,
     )
-    assert [r["id"] for r in rows] == [res["event_id"]]
+    assert active == []
+    # and still exactly one (archived) row — re-observation minted nothing
+    total = await db.fetchval(
+        """SELECT COUNT(*) FROM entity_events ee
+           JOIN entity_event_types t ON t.id = ee.event_type_id
+           WHERE ee.entity_id=$1 AND t.slug='founded'""",
+        org_id,
+    )
+    assert total == 1
 
 
 async def test_event_retract_mismatched_linked_entity_identity_immutable(client, evt_write_key, db):
