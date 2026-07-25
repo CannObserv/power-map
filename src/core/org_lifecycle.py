@@ -57,6 +57,25 @@ async def count_open_assignments(conn: asyncpg.Connection, organization_id: str)
     return await conn.fetchval(_OPEN_ASSIGNMENT_COUNT_SQL, organization_id)
 
 
+async def resolve_lifespan_banner(
+    conn: asyncpg.Connection, org: asyncpg.Record
+) -> tuple[int, datetime.date | None]:
+    """Resolve the open-assignment warning-banner state for an org record.
+
+    Returns ``(open_assignment_count, org_ended_on)``. The count is non-zero
+    only when the org is in a terminal-ish state — archived, inactive, or past
+    its lifespan end — so open assignments don't read as current. This is the
+    single gating shared by the org detail GET and the active toggle (#320):
+    both surfaces call this helper so the "when to warn" rule can't drift
+    between them. ``org`` must carry ``id``, ``archived_at`` and ``active``.
+    """
+    org_ended_on = await get_org_ended_on(conn, org["id"])
+    open_assignment_count = 0
+    if org["archived_at"] or not org["active"] or org_ended_on:
+        open_assignment_count = await count_open_assignments(conn, org["id"])
+    return open_assignment_count, org_ended_on
+
+
 async def check_assignment_lifespan(
     conn: asyncpg.Connection,
     role_id: str,
