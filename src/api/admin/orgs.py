@@ -213,21 +213,25 @@ async def org_inline_active_post(
         raise HTTPException(status_code=404)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    # Re-derive the open-assignment banner state for the new active flag so the
+    # toggle can OOB-swap it in place (#320) — same gating as the detail GET.
+    org_ended_on = await get_org_ended_on(db, org_id)
+    open_assignment_count = 0
+    if org["archived_at"] or not org["active"] or org_ended_on:
+        open_assignment_count = await count_open_assignments(db, org_id)
     label = "Marked active." if new_active else "Marked inactive."
     level = "success" if new_active else "info"
-    if not new_active:
-        open_count = await count_open_assignments(db, org_id)
-        if open_count:
-            level = "warning"
-            noun = "assignment remains" if open_count == 1 else "assignments remain"
-            label = (
-                f"Marked inactive. {open_count} open {noun} "
-                "on this organization — close or re-home them."
-            )
+    if not new_active and open_assignment_count:
+        level = "warning"
+        noun = "assignment remains" if open_assignment_count == 1 else "assignments remain"
+        label = (
+            f"Marked inactive. {open_assignment_count} open {noun} "
+            "on this organization — close or re-home them."
+        )
     return templates.TemplateResponse(
         request,
-        "admin/orgs/partials/_active_toggle.html",
-        {"org": org},
+        "admin/orgs/partials/_active_toggle_response.html",
+        {"org": org, "org_ended_on": org_ended_on, "open_assignment_count": open_assignment_count},
         headers=flash_trigger(level, label),
     )
 

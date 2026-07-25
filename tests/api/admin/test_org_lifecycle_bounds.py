@@ -350,6 +350,68 @@ async def test_deactivate_flash_plain_when_no_open_assignments(client, db):
 
 
 # ---------------------------------------------------------------------------
+# Active toggle re-renders the open-assignment banner in place (#320)
+# ---------------------------------------------------------------------------
+
+
+async def test_activate_clears_open_assignment_banner_oob(client, db, person_id):
+    """Re-activating an inactive org clears its open-assignment banner (#320).
+
+    The banner is server-rendered on GET; the toggle POST must OOB-swap the
+    banner container so it disappears without a full reload.
+    """
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id, active) VALUES ($1, FALSE)", oid)
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Member')", rid, oid
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        rid,
+    )
+    r = await client.post(
+        f"/admin/orgs/{oid}/inline/active/",
+        headers=HTMX_HEADERS,
+        data={"active": "true"},
+    )
+    assert r.status_code == 200
+    # Container comes back for the OOB swap, but empty (no banner on active org).
+    assert b'id="org-lifespan-banner"' in r.content
+    assert b'hx-swap-oob="true"' in r.content
+    assert b"open assignment" not in r.content
+
+
+async def test_deactivate_renders_open_assignment_banner_oob(client, db, person_id):
+    """Marking an org inactive surfaces its open-assignment banner (#320 inverse)."""
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Member')", rid, oid
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        rid,
+    )
+    r = await client.post(
+        f"/admin/orgs/{oid}/inline/active/",
+        headers=HTMX_HEADERS,
+        data={"active": ""},
+    )
+    assert r.status_code == 200
+    assert b'id="org-lifespan-banner"' in r.content
+    assert b'hx-swap-oob="true"' in r.content
+    assert b"open assignment" in r.content
+
+
+# ---------------------------------------------------------------------------
 # Dates route on an already-violating (current-on-ended) row — CR round 1
 # ---------------------------------------------------------------------------
 

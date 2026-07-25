@@ -1,0 +1,16 @@
+{# admin/orgs/partials/_lifespan_banner.html — open-assignment warning banner.
+
+   #307: an org past its lifespan (archived / inactive / ended) should not carry
+   open assignments — surface them instead of letting members read as current.
+   Rendered inside the #org-lifespan-banner container on the detail page and
+   OOB-swapped by the active toggle so it appears/clears in place (#320). #}
+{% if open_assignment_count %}
+<div class="alert alert--warning" role="alert" style="margin-bottom:var(--space-4)">
+  {{ open_assignment_count }} open assignment{{ 's' if open_assignment_count != 1 }} on this
+  {%- if org.archived_at %} archived
+  {%- elif not org.active %} inactive
+  {%- endif %} organization{% if org_ended_on %} (ended {{ org_ended_on.isoformat() }}){% endif %}.
+  Close them at the organization's end date or re-home members to the successor organization
+  (see roles below).
+</div>
+{% endif %}
