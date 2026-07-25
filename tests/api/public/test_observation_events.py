@@ -808,6 +808,77 @@ async def test_org_events_observations_db_constraint_isolated(client, evt_write_
     assert n == 1
 
 
+async def test_org_events_observations_constraint_isolated_bad_first(client, evt_write_key, db):
+    """CR7a: a caught DB error mid-batch leaves the connection usable for later events.
+
+    Bad event first (savepoint rollback), good event second — proves partial-success
+    is independent of failure *position* (not just good-then-bad).
+    """
+    raw, _ = evt_write_key
+    org_id = await _make_org(client, raw, db)
+
+    r = await _post_org_events(
+        client,
+        raw,
+        org_id,
+        [
+            {"event_type_slug": "renamed", "event_month": 6},  # month w/o year → DB check
+            {"event_type_slug": "founded", "event_year": 1995},
+        ],
+    )
+    assert r.status_code == 200, r.text
+    results = r.json()["results"]
+    assert results[0]["disposition"] == "rejected"
+    assert results[0]["reason"] == "invalid"
+    assert results[1]["disposition"] == "new"
+    n = await db.fetchval(
+        """SELECT COUNT(*) FROM entity_events ee
+           JOIN entity_event_types t ON t.id = ee.event_type_id
+           WHERE ee.entity_id=$1 AND t.slug='founded' AND ee.event_year=1995""",
+        org_id,
+    )
+    assert n == 1
+
+
+async def test_org_events_observations_refine_constraint_isolated(client, evt_write_key, db):
+    """CR7b: a DB constraint tripped on the refine (UPDATE) path is isolated too.
+
+    A pm_event_id refine adding event_month with no year to a non-requires_year
+    event (renamed) trips chk_month_requires_year on UPDATE → rejected/invalid,
+    while a sibling good event in the same batch still lands.
+    """
+    raw, _ = evt_write_key
+    org_id = await _make_org(client, raw, db)
+    # seed a dateless `renamed` event (requires_year=False) to refine against
+    r0 = await _post_org_events(client, raw, org_id, [{"event_type_slug": "renamed"}])
+    renamed_id = r0.json()["results"][0]["event_id"]
+
+    r = await _post_org_events(
+        client,
+        raw,
+        org_id,
+        [
+            {"event_type_slug": "renamed", "pm_event_id": renamed_id, "event_month": 6},
+            {"event_type_slug": "founded", "event_year": 1988},
+        ],
+    )
+    assert r.status_code == 200, r.text
+    results = r.json()["results"]
+    assert results[0]["disposition"] == "rejected"
+    assert results[0]["reason"] == "invalid"
+    assert results[1]["disposition"] == "new"
+    # the refine did not land — the renamed row is still dateless
+    month = await db.fetchval("SELECT event_month FROM entity_events WHERE id=$1", renamed_id)
+    assert month is None
+    n = await db.fetchval(
+        """SELECT COUNT(*) FROM entity_events ee
+           JOIN entity_event_types t ON t.id = ee.event_type_id
+           WHERE ee.entity_id=$1 AND t.slug='founded' AND ee.event_year=1988""",
+        org_id,
+    )
+    assert n == 1
+
+
 async def test_pm_event_id_refine_cannot_clear_required_year(client, evt_write_key, db):
     """CR #2: a refine that clears a required year → rejected/missing_required_field."""
     raw, _ = evt_write_key
