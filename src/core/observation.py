@@ -1360,6 +1360,20 @@ class _EventRejected(Exception):
         super().__init__(reason)
 
 
+class _SavepointRollback(Exception):
+    """Internal: unwind a per-event savepoint once its result is decided.
+
+    Raised inside ``apply_event_observations``' per-event ``conn.transaction()``
+    to roll the savepoint back while carrying the already-computed result out —
+    distinct from ``_EventRejected`` (a rejection *signal* from a writer) so the
+    two control-flow roles never get conflated.
+    """
+
+    def __init__(self, result: "EventResult") -> None:
+        self.result = result
+        super().__init__()
+
+
 async def _validate_event_place(conn, place_addr_id: str | None) -> None:
     """Reject an event whose ``event_place_address_id`` is missing or too coarse."""
     if not place_addr_id:
@@ -1421,13 +1435,17 @@ async def _apply_one_event(
 
     try:
         if ev.pm_event_id is not None:
-            return await _refine_event_in_place(conn, event_type_id, key_id, ev)
+            return await _refine_event_in_place(
+                conn, event_type_id, etype["requires_year"], key_id, ev
+            )
         return await _create_event(conn, entity_id, entity_type, event_type_id, key_id, etype, ev)
     except _EventRejected as exc:
         return EventResult(EventDisposition.REJECTED, None, exc.reason)
 
 
-async def _refine_event_in_place(conn, event_type_id: str, key_id: str | None, ev) -> EventResult:
+async def _refine_event_in_place(
+    conn, event_type_id: str, requires_year: bool, key_id: str | None, ev
+) -> EventResult:
     """id-addressed update: immutable identity, diff-before-write, provenance gate."""
     existing = await conn.fetchrow(
         """SELECT id, event_type_id, linked_entity_type, linked_entity_id, source_key_id,
@@ -1449,8 +1467,6 @@ async def _refine_event_in_place(conn, event_type_id: str, key_id: str | None, e
     ):
         raise _EventRejected(EventRejectReason.IDENTITY_IMMUTABLE)
 
-    await _validate_event_place(conn, ev.event_place_address_id)
-
     # Desired mutable state (last-writer-wins; date is a unit).
     new_vals = {
         "event_year": ev.event_year,
@@ -1465,8 +1481,9 @@ async def _refine_event_in_place(conn, event_type_id: str, key_id: str | None, e
         "visibility": ev.visibility,
     }
     # Diff-before-write: an unchanged re-emit must not UPDATE (would bump
-    # updated_at and re-arm the producer↔PM ping-pong). Checked before the
-    # provenance gate so an identical redelivery by a foreign key stays a no-op.
+    # updated_at and re-arm the producer↔PM ping-pong). Checked first — before
+    # the provenance gate (so an identical redelivery by a foreign key stays a
+    # no-op) and before any validation (the stored row is already valid).
     if all(existing[col] == val for col, val in new_vals.items()):
         return EventResult(EventDisposition.AUTO_ATTACHED, existing["id"])
 
@@ -1478,6 +1495,13 @@ async def _refine_event_in_place(conn, event_type_id: str, key_id: str | None, e
             key_id,
         )
         raise _EventRejected(EventRejectReason.PROVENANCE_CONFLICT)
+
+    # Merged-state validity: a refine must not clear a required year (which would
+    # strand a founded/dissolved event with no lifespan bound). Mirrors _create_event.
+    if requires_year and ev.event_year is None:
+        raise _EventRejected(EventRejectReason.MISSING_REQUIRED_FIELD)
+
+    await _validate_event_place(conn, ev.event_place_address_id)
 
     await conn.execute(
         """UPDATE entity_events SET
@@ -1609,12 +1633,13 @@ async def apply_event_observations(
 ) -> list[EventResult]:
     """Apply event claims **partial-success** (#321) — the event-native surface.
 
-    Each event runs in its own savepoint: a rejection rolls back only that
-    event's writes and is reported (with a reason slug) alongside the ones that
-    landed. This is what gives ordering-tolerance for free — a ``succeeded_by``
-    ahead of its successor comes back ``linked_entity_unresolved`` while its
-    siblings commit, and heals next cycle. **Must run inside the caller's
-    transaction** so the whole batch shares one outer commit.
+    Each event runs in its own savepoint: a rejection — a domain reason slug or
+    a DB constraint violation — rolls back only that event's writes and is
+    reported alongside the ones that landed. This is what gives ordering-tolerance
+    for free — a ``succeeded_by`` ahead of its successor comes back
+    ``linked_entity_unresolved`` while its siblings commit, and heals next cycle.
+    **Must run inside the caller's transaction** so the whole batch shares one
+    outer commit.
     """
     results: list[EventResult] = []
     for ev in events:
@@ -1622,10 +1647,18 @@ async def apply_event_observations(
             async with conn.transaction():
                 result = await _apply_one_event(conn, entity_id, entity_type, key_id, ev)
                 if result.disposition is EventDisposition.REJECTED:
-                    # Roll back just this event's savepoint; keep the reason.
-                    raise _EventRejected(result.reason)  # type: ignore[arg-type]
-        except _EventRejected as exc:
-            result = EventResult(EventDisposition.REJECTED, None, exc.reason)
+                    raise _SavepointRollback(result)  # unwind this event's savepoint
+        except _SavepointRollback as sr:
+            result = sr.result
+        except (
+            asyncpg.CheckViolationError,
+            asyncpg.ForeignKeyViolationError,
+            asyncpg.UniqueViolationError,
+        ):
+            # A per-event DB constraint (e.g. a partial-date-chain check) — the
+            # savepoint already rolled back; isolate it so siblings still land
+            # rather than 500-ing the whole batch (CR #1).
+            result = EventResult(EventDisposition.REJECTED, None, EventRejectReason.INVALID)
         results.append(result)
     return results
 
