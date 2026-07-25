@@ -15,9 +15,12 @@ from src.api.public.events import (
 from src.api.public.schemas import (
     NOT_MODIFIED,
     EntityEventsResponse,
+    EventObservationResult,
+    EventObservationsResponse,
     ObservationResponse,
     OrganizationObservationRequest,
     OrgDetail,
+    OrgEventObservationsRequest,
     OrgSearchResponse,
     make_etag,
 )
@@ -25,6 +28,7 @@ from src.core.observation import (
     Disposition,
     IdentifierConflict,
     ObservationRejected,
+    apply_event_observations,
     lookup_org_parent_by_acronym,
     lookup_org_parent_by_name,
     resolve_entity,
@@ -91,7 +95,9 @@ async def submit_org_observation(
                 await write_org_parent(db, entity_id, parent_id)
 
             await write_additional_identifiers(db, entity_id, request.additional_identifiers)
-            await write_entity_events(db, entity_id, entity_type, auth.key_id, request.events)
+            event_results = await write_entity_events(
+                db, entity_id, entity_type, auth.key_id, request.events
+            )
             await write_org_jurisdiction_affiliations(
                 db, entity_id, request.jurisdiction_affiliations
             )
@@ -113,6 +119,50 @@ async def submit_org_observation(
         disposition=disposition.value,
         entity_id=entity_id,
         entity_type=entity_type,
+        events=[
+            EventObservationResult(
+                disposition=r.disposition.value, event_id=r.event_id, reason=r.reason
+            )
+            for r in event_results
+        ]
+        or None,
+    )
+
+
+@router.post(
+    "/{org_id}/events/observations",
+    response_model=EventObservationsResponse,
+    operation_id="submitOrgEventObservations",
+)
+async def submit_org_event_observations(
+    org_id: str,
+    request: OrgEventObservationsRequest,
+    auth: AuthedKey = Depends(require_scope("observations:write")),
+    db=Depends(get_db),
+) -> EventObservationsResponse:
+    """Observe lifecycle events on an org, **partial-success** (#321).
+
+    The event-native producer surface: each event lands independently under its
+    own savepoint, so one rejected event (e.g. a ``succeeded_by`` whose successor
+    isn't anchored yet → ``linked_entity_unresolved``) never rolls back its
+    siblings. ``pm_event_id`` refines an event in place; absent it, a natural
+    create with content dedup. Returns per-event dispositions + reason slugs.
+    """
+    exists = await db.fetchval("SELECT 1 FROM organizations WHERE id=$1", org_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="organization not found")
+
+    async with db.transaction():
+        results = await apply_event_observations(
+            db, org_id, "organization", auth.key_id, request.events
+        )
+    return EventObservationsResponse(
+        results=[
+            EventObservationResult(
+                disposition=r.disposition.value, event_id=r.event_id, reason=r.reason
+            )
+            for r in results
+        ]
     )
 
 

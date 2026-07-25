@@ -1738,6 +1738,8 @@ INSERT INTO entity_event_types (id, slug, display_name, applies_to, requires_yea
     ('01KV0000000000000000000008', 'merged_with',     'Merged With',  'organization', FALSE, TRUE),
     ('01KV0000000000000000000009', 'split_from',      'Split From',   'organization', FALSE, TRUE),
     ('01KV000000000000000000000A', 'renamed',         'Renamed',      'organization', FALSE, FALSE),
+    -- #321: renamed-continuity link — event lives on the PREDECESSOR, linked_entity → successor
+    ('01KV000000000000000000000C', 'succeeded_by',    'Succeeded By', 'organization', FALSE, TRUE),
     ('01KV000000000000000000000B', 'other',           'Other',        'both',         FALSE, FALSE)
 ON CONFLICT (id) DO UPDATE SET
     slug                   = EXCLUDED.slug,

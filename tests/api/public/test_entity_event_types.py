@@ -75,6 +75,18 @@ async def test_entity_event_types_seed_data_present(client, api_key):
     assert "founded" in slugs
 
 
+async def test_entity_event_types_succeeded_by_present(client, api_key):
+    """#321: succeeded_by — org continuation link on the predecessor → successor."""
+    response = await client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
+    assert response.status_code == 200
+    by_slug = {item["slug"]: item for item in response.json()["data"]}
+    assert "succeeded_by" in by_slug
+    row = by_slug["succeeded_by"]
+    assert row["applies_to"] == "organization"
+    assert row["requires_linked_entity"] is True
+    assert row["requires_year"] is False
+
+
 def test_entity_event_types_without_key_returns_403(unit_client):
     """GET /api/v1/entity-event-types without X-API-Key returns 403."""
     response = unit_client.get("/api/v1/entity-event-types")

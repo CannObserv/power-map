@@ -321,8 +321,23 @@ All `POST /*/observations` endpoints return an `ObservationResponse` with the fo
 | `entity_type` | `string \| null` | Entity type string; `null` on `rejected` |
 | `reason` | `string \| null` | Human-readable rejection cause; `null` on non-rejected responses |
 | `unapplied` | `list[string] \| null` | #311: fields supplied but not applied on a natural-key auto-attach (see the assignments section). Currently populated only by assignment observations; `null` elsewhere and on clean attaches |
+| `events` | `list[EventObservationResult] \| null` | #321: per-event dispositions when the payload carried `events`. `null` when none submitted. On this all-or-nothing embedded path a rejected event raises → whole observation `rejected`, so `events` is present only on full success. Each item: `{disposition, event_id?, reason?}` |
 
 **`reason` is a diagnostic aid, not a stable API contract.** Its format (e.g. `"unknown_identifier_type: 'org_wa_legislature_chamber'"`) may change across releases. Do not pattern-match on specific reason strings in production code; use it for logging and debugging only.
+
+**Event `reason` slugs are a contract, though.** Unlike the top-level `reason`, per-event `EventObservationResult.reason` (#321) is a stable machine-readable slug: one transient — `linked_entity_unresolved` (self-heals once the linked entity anchors) — and the rest terminal: `identity_immutable`, `event_not_found`, `provenance_conflict`, `applies_to_mismatch`, `missing_required_field`, `unknown_event_type`, `invalid`.
+
+### Event observations — refine-in-place & partial-success (#321)
+
+Events reach PM two ways. **Embedded** (`events: [...]` in a `POST /*/observations` payload) is all-or-nothing. The **event-native** surface `POST /api/v1/orgs/{org_id}/events/observations` (`observations:write`; body `{ "events": [...] }`) is **partial-success** — each event lands under its own savepoint and returns its own disposition in `EventObservationsResponse.results` (`{disposition, event_id?, reason?}`), so one rejected event never rolls back its siblings. 404 if the org id doesn't resolve.
+
+Each event item is the shape listed under people/org observations, plus:
+
+| Field | Notes |
+|-------|-------|
+| `pm_event_id` | optional. When set, **refines an existing event in place**: the mutable set (`date`/`notes`/`place`/`visibility`) is replaced; identity (`event_type`, `linked_entity`) is immutable — a change there → `identity_immutable`. An unchanged re-emit is a no-op (`auto-attached`, no clock bump). Gated on `source_key_id` provenance (`provenance_conflict` on a foreign source). Absent → natural create with content dedup. |
+
+Per-event `disposition` ∈ `new｜auto-attached｜updated｜rejected`. The `succeeded_by` event type (org renamed-continuity link) lives on the **predecessor**, `linked_entity_id` → successor; a `succeeded_by` whose successor isn't anchored yet returns `linked_entity_unresolved` and self-heals on a later cycle.
 
 ---
 
