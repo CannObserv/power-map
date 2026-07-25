@@ -775,6 +775,62 @@ async def test_org_events_observations_refine_in_place(client, evt_write_key, db
     assert yr == 2011
 
 
+async def test_org_events_observations_db_constraint_isolated(client, evt_write_key, db):
+    """CR #1: a per-event DB constraint violation is isolated, not a 500 batch-abort.
+
+    ``renamed`` has requires_year=False, so month-without-year passes app checks
+    and trips the DB chk_month_requires_year on INSERT — must come back rejected/
+    invalid while the sibling founded event still lands.
+    """
+    raw, _ = evt_write_key
+    org_id = await _make_org(client, raw, db)
+
+    r = await _post_org_events(
+        client,
+        raw,
+        org_id,
+        [
+            {"event_type_slug": "founded", "event_year": 1995},
+            {"event_type_slug": "renamed", "event_month": 6},  # month w/o year → DB check
+        ],
+    )
+    assert r.status_code == 200, r.text
+    results = r.json()["results"]
+    assert results[0]["disposition"] == "new"
+    assert results[1]["disposition"] == "rejected"
+    assert results[1]["reason"] == "invalid"
+    n = await db.fetchval(
+        """SELECT COUNT(*) FROM entity_events ee
+           JOIN entity_event_types t ON t.id = ee.event_type_id
+           WHERE ee.entity_id=$1 AND t.slug='founded' AND ee.event_year=1995""",
+        org_id,
+    )
+    assert n == 1
+
+
+async def test_pm_event_id_refine_cannot_clear_required_year(client, evt_write_key, db):
+    """CR #2: a refine that clears a required year → rejected/missing_required_field."""
+    raw, _ = evt_write_key
+    value, _org_id, event_id = await _org_with_founded(client, raw, db, 2013)
+
+    r = await _post_orgs(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": value,
+            # founded requires_year; omit event_year → merged year None
+            "events": [{"event_type_slug": "founded", "pm_event_id": event_id}],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "missing_required_field"
+    yr = await db.fetchval("SELECT event_year FROM entity_events WHERE id=$1", event_id)
+    assert yr == 2013
+
+
 async def test_org_events_observations_unknown_org_404(client, evt_write_key):
     raw, _ = evt_write_key
     r = _post_org_events(
