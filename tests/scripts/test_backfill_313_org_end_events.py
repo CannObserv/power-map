@@ -36,7 +36,9 @@ async def _seed_org(db, *, active=False):
     return oid
 
 
-async def _seed_assignment(db, org_id, *, is_current=False, end_date=None, notes=None):
+async def _seed_assignment(
+    db, org_id, *, is_current=False, start_date=None, end_date=None, notes=None
+):
     rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
@@ -49,12 +51,13 @@ async def _seed_assignment(db, org_id, *, is_current=False, end_date=None, notes
     aid = generate_id()
     await db.execute(
         """INSERT INTO role_assignments
-               (id, person_id, role_id, is_current, end_date, notes)
-           VALUES ($1, $2, $3, $4, $5, $6)""",
+               (id, person_id, role_id, is_current, start_date, end_date, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)""",
         aid,
         pid,
         rid,
         is_current,
+        start_date,
         end_date,
         notes,
     )
@@ -93,6 +96,20 @@ async def test_close_open_assignments_closes_current_and_unknown_end(db):
     assert (await _assignment(db, already))["end_date"] == datetime.date(2020, 1, 1)
 
 
+async def test_close_skips_start_after_ended(db):
+    """A row starting after ended_on is left open — closing would invert it."""
+    oid = await _seed_org(db)
+    ok = await _seed_assignment(db, oid, start_date=datetime.date(2020, 1, 1))
+    after = await _seed_assignment(db, oid, start_date=datetime.date(2024, 1, 1))  # > ENDED
+
+    closed = await bf._close_open_assignments(db, oid, ENDED)
+
+    assert closed == [ok]
+    assert await bf._start_after_ended_ids(db, oid, ENDED) == [after]
+    # the skipped row is untouched: still open
+    assert (await _assignment(db, after))["end_date"] is None
+
+
 async def test_close_appends_to_existing_notes(db):
     oid = await _seed_org(db)
     aid = await _seed_assignment(db, oid, notes="prior note")
@@ -106,6 +123,7 @@ async def test_run_backfill_end_to_end(db, monkeypatch):
     org = await _seed_org(db, active=False)
     a_cur = await _seed_assignment(db, org, is_current=True)
     a_unknown = await _seed_assignment(db, org, is_current=False)
+    a_after = await _seed_assignment(db, org, start_date=datetime.date(2024, 1, 1))  # > ENDED
     kalytera = await _seed_org(db, active=False)
     k_asg = await _seed_assignment(db, kalytera, is_current=False)
 
@@ -116,13 +134,32 @@ async def test_run_backfill_end_to_end(db, monkeypatch):
 
     assert summary["events"] == [org]
     assert set(summary["closed"]) == {a_cur, a_unknown}
+    assert summary["skipped"] == [a_after]  # start_after_ended left open
     assert summary["reactivated"] == [kalytera]
     assert await bf._ended_on(db, org) == ENDED
     for aid in (a_cur, a_unknown):
         assert (await _assignment(db, aid))["end_date"] == ENDED
+    assert (await _assignment(db, a_after))["end_date"] is None
     # Kalytera reactivated; its assignment stays open
     assert await db.fetchval("SELECT active FROM organizations WHERE id = $1", kalytera) is True
     assert (await _assignment(db, k_asg))["end_date"] is None
+
+
+async def test_run_backfill_skips_unknown_org(db, monkeypatch):
+    """A bogus END_EVENTS id is skipped (no orphan event), not fatal."""
+    monkeypatch.setattr(bf, "END_EVENTS", {"01BOGUSIDNOTAREALORGXXXXXXX": ("dissolved", ENDED)})
+    monkeypatch.setattr(bf, "KALYTERA_ID", await _seed_org(db, active=True))
+
+    summary = await bf.run_backfill(db, execute=True)
+
+    assert summary["events"] == []
+    assert summary["closed"] == []
+    assert summary["skipped"] == []
+    n = await db.fetchval(
+        "SELECT count(*) FROM entity_events WHERE entity_id = $1",
+        "01BOGUSIDNOTAREALORGXXXXXXX",
+    )
+    assert n == 0
 
 
 async def test_run_backfill_idempotent(db, monkeypatch):

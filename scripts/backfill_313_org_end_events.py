@@ -81,17 +81,47 @@ async def _ended_on(conn: asyncpg.Connection, org_id: str) -> datetime.date | No
     )
 
 
-async def _open_assignment_ids(conn: asyncpg.Connection, org_id: str) -> list[str]:
-    """Open (end_date NULL, non-archived) assignment ids on non-archived roles."""
-    rows = await conn.fetch(
-        """SELECT ra.id FROM role_assignments ra
-           JOIN roles r ON r.id = ra.role_id
-           WHERE r.organization_id = $1 AND r.archived_at IS NULL
-             AND ra.archived_at IS NULL AND ra.end_date IS NULL
-           ORDER BY ra.id""",
-        org_id,
-    )
-    return [r["id"] for r in rows]
+async def _org_exists(conn: asyncpg.Connection, org_id: str) -> bool:
+    """True if the org id resolves. ``entity_events.entity_id`` is polymorphic
+    (no FK), so a mistyped id would otherwise create an orphan event."""
+    return bool(await conn.fetchval("SELECT 1 FROM organizations WHERE id = $1", org_id))
+
+
+# Open = end_date NULL on a non-archived assignment of a non-archived role. Split
+# by whether closing at ``ended_on`` would invert the window: a row whose
+# start_date > ended_on is ``start_after_ended`` and must be left open (mirrors
+# the audit) — there is no DB CHECK enforcing end_date >= start_date.
+_CLOSABLE_OPEN_SQL = """
+SELECT ra.id FROM role_assignments ra
+JOIN roles r ON r.id = ra.role_id
+WHERE r.organization_id = $1 AND r.archived_at IS NULL
+  AND ra.archived_at IS NULL AND ra.end_date IS NULL
+  AND (ra.start_date IS NULL OR ra.start_date <= $2)
+ORDER BY ra.id
+"""
+
+_START_AFTER_ENDED_SQL = """
+SELECT ra.id FROM role_assignments ra
+JOIN roles r ON r.id = ra.role_id
+WHERE r.organization_id = $1 AND r.archived_at IS NULL
+  AND ra.archived_at IS NULL AND ra.end_date IS NULL
+  AND ra.start_date IS NOT NULL AND ra.start_date > $2
+ORDER BY ra.id
+"""
+
+
+async def _closable_open_ids(
+    conn: asyncpg.Connection, org_id: str, ended_on: datetime.date
+) -> list[str]:
+    """Open assignment ids that can be closed at ``ended_on`` without inverting."""
+    return [r["id"] for r in await conn.fetch(_CLOSABLE_OPEN_SQL, org_id, ended_on)]
+
+
+async def _start_after_ended_ids(
+    conn: asyncpg.Connection, org_id: str, ended_on: datetime.date
+) -> list[str]:
+    """Open assignment ids whose start_date > ``ended_on`` — left open, not closed."""
+    return [r["id"] for r in await conn.fetch(_START_AFTER_ENDED_SQL, org_id, ended_on)]
 
 
 async def _create_end_event(
@@ -119,7 +149,11 @@ async def _create_end_event(
 async def _close_open_assignments(
     conn: asyncpg.Connection, org_id: str, ended_on: datetime.date
 ) -> list[str]:
-    """Close every open assignment on the org at ``ended_on``; return closed ids."""
+    """Close open assignments at ``ended_on``; return closed ids.
+
+    Skips ``start_after_ended`` rows (start_date > ended_on) — closing them
+    would set end_date < start_date, and no DB CHECK guards against it.
+    """
     rows = await conn.fetch(
         """UPDATE role_assignments ra
            SET is_current = FALSE,
@@ -132,6 +166,7 @@ async def _close_open_assignments(
            WHERE ra.role_id = r.id AND r.organization_id = $1
              AND r.archived_at IS NULL AND ra.archived_at IS NULL
              AND ra.end_date IS NULL
+             AND (ra.start_date IS NULL OR ra.start_date <= $2)
            RETURNING ra.id""",
         org_id,
         ended_on,
@@ -144,13 +179,22 @@ async def run_backfill(conn: asyncpg.Connection, *, execute: bool) -> dict[str, 
     """Record end events, close open assignments, reactivate Kalytera.
 
     Runs in the caller's transaction (report-only runs stay read-only).
-    Returns a summary keyed by ``events``, ``closed``, ``reactivated`` — each a
-    list of the org ids (or assignment ids, for ``closed``) that were or would
-    be touched.
+    Returns a summary keyed by ``events``, ``closed``, ``skipped``,
+    ``reactivated`` — each a list of the org ids (or assignment ids, for
+    ``closed``/``skipped``) that were or would be touched.
     """
-    summary: dict[str, list[str]] = {"events": [], "closed": [], "reactivated": []}
+    summary: dict[str, list[str]] = {
+        "events": [],
+        "closed": [],
+        "skipped": [],
+        "reactivated": [],
+    }
 
     for org_id, (slug, on) in END_EVENTS.items():
+        if not await _org_exists(conn, org_id):
+            logger.warning("org %s not found — skipping (check the END_EVENTS ids)", org_id)
+            continue
+
         if await _lifespan_event_exists(conn, org_id):
             logger.info("event exists: %s already has a lifespan event — skipping", org_id)
         else:
@@ -166,11 +210,13 @@ async def run_backfill(conn: asyncpg.Connection, *, execute: bool) -> dict[str, 
             )
 
         ended_on = await _ended_on(conn, org_id) or on
+        skipped = await _start_after_ended_ids(conn, org_id, ended_on)
         if execute:
             closed = await _close_open_assignments(conn, org_id, ended_on)
         else:
-            closed = await _open_assignment_ids(conn, org_id)
+            closed = await _closable_open_ids(conn, org_id, ended_on)
         summary["closed"].extend(closed)
+        summary["skipped"].extend(skipped)
         logger.info(
             "%s %d assignment(s) on %s at %s",
             "closed" if execute else "would close",
@@ -178,6 +224,14 @@ async def run_backfill(conn: asyncpg.Connection, *, execute: bool) -> dict[str, 
             org_id,
             ended_on,
         )
+        if skipped:
+            logger.warning(
+                "left %d start_after_ended assignment(s) open on %s (start_date > %s) — "
+                "closing would invert the window; resolve by hand",
+                len(skipped),
+                org_id,
+                ended_on,
+            )
 
     active = await conn.fetchval("SELECT active FROM organizations WHERE id = $1", KALYTERA_ID)
     if active is None:
@@ -192,10 +246,11 @@ async def run_backfill(conn: asyncpg.Connection, *, execute: bool) -> dict[str, 
 
     verb = "Recorded" if execute else "Would record"
     logger.info(
-        "%s %d event(s), closed %d assignment(s), reactivated %d org(s)",
+        "%s %d event(s), closed %d assignment(s), skipped %d, reactivated %d org(s)",
         verb,
         len(summary["events"]),
         len(summary["closed"]),
+        len(summary["skipped"]),
         len(summary["reactivated"]),
     )
     if not execute:

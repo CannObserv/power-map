@@ -537,6 +537,32 @@ uv run "${env_args[@]}" python -m scripts.audit_org_lifecycle_assignments --exec
 
 Idempotent — a compliant DB yields no findings and `--execute` is a no-op.
 
+## Org end-event backfill (issue #313)
+
+`scripts/backfill_313_org_end_events.py` resolves the nine `missing_end_event`
+orgs the #307 audit surfaced, using human-researched end dates (see issue #313).
+For five defunct orgs it records a `dissolved` event and closes **all** their
+open assignments at `ended_on` — including the `unknown_end_on_ended` rows the
+audit's `--execute` deliberately leaves open (a human-authorized close, not an
+invented end). `start_after_ended` rows are still left open (closing would
+invert the window) and logged as a WARNING. Kalytera (renamed to Claritas) is
+reactivated rather than dissolved; the name swap is done by hand in admin.
+
+Org ids and dates are baked into the module (`END_EVENTS`, `KALYTERA_ID`); an
+id that doesn't resolve is skipped with a WARNING, never an orphan event.
+
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.backfill_313_org_end_events            # report
+uv run "${env_args[@]}" python -m scripts.backfill_313_org_end_events --execute  # apply
+```
+
+Idempotent — skips orgs that already carry a lifespan event; re-closing an
+already-closed assignment is a no-op. Re-run the #307 audit afterward to confirm.
+
 ## Duplicate-assignment audit (issue #311)
 
 `scripts/audit_assignment_duplicates.py` finds overlapping active assignment
