@@ -1212,3 +1212,104 @@ async def test_event_retract_embedded_path(client, evt_write_key, db):
     assert r.json()["events"][0]["disposition"] == "retracted"
     archived = await db.fetchval("SELECT archived_at FROM entity_events WHERE id=$1", event_id)
     assert archived is not None
+
+
+# ---------------------------------------------------------------------------
+# #322 CR round 1 — dedup skips archived; retract linked_entity guard; datable retract
+# ---------------------------------------------------------------------------
+
+
+async def test_reobserve_after_retract_creates_fresh_active_event(client, evt_write_key, db):
+    """CR1: re-observing identical content after a retract mints a NEW active event.
+
+    The content-dedup must skip archived rows — else a re-assert of retracted
+    content auto-attaches to the archived row (success reported, event still
+    invisible to subscribers). Re-observing asserts the event happened, so a
+    fresh active row is correct.
+    """
+    raw, _ = evt_write_key
+    org_id = await _make_org(client, raw, db)
+    # create a datable event, then retract it
+    r1 = await _post_org_events(
+        client, raw, org_id, [{"event_type_slug": "founded", "event_year": 1990}]
+    )
+    old_id = r1.json()["results"][0]["event_id"]
+    r2 = await _post_org_events(
+        client,
+        raw,
+        org_id,
+        [{"event_type_slug": "founded", "pm_event_id": old_id, "op": "retract"}],
+    )
+    assert r2.json()["results"][0]["disposition"] == "retracted"
+
+    # re-observe the SAME content — must not auto-attach to the archived row
+    r3 = await _post_org_events(
+        client, raw, org_id, [{"event_type_slug": "founded", "event_year": 1990}]
+    )
+    res = r3.json()["results"][0]
+    assert res["disposition"] == "new"
+    assert res["event_id"] != old_id
+    # exactly one ACTIVE founded event, and it's the fresh one
+    rows = await db.fetch(
+        """SELECT ee.id FROM entity_events ee
+           JOIN entity_event_types t ON t.id = ee.event_type_id
+           WHERE ee.entity_id=$1 AND t.slug='founded' AND ee.archived_at IS NULL""",
+        org_id,
+    )
+    assert [r["id"] for r in rows] == [res["event_id"]]
+
+
+async def test_event_retract_mismatched_linked_entity_identity_immutable(client, evt_write_key, db):
+    """CR3: a retract supplying a linked_entity that doesn't match the stored row
+    → identity_immutable (symmetric with the refine guard). Guards a copy-paste
+    pm_event_id that happens to share event_type but points at a different link."""
+    raw, _ = evt_write_key
+    pred_id, successor_id, event_id = await _seed_succeeded_by(client, raw, db)
+    # anchor a different org to name as the (wrong) linked entity
+    ro = await _post_orgs(
+        client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()}
+    )
+    other_id = ro.json()["entity_id"]
+
+    r = await _post_org_events(
+        client,
+        raw,
+        pred_id,
+        [
+            {
+                "event_type_slug": "succeeded_by",
+                "pm_event_id": event_id,
+                "op": "retract",
+                "linked_entity_type": "organization",
+                "linked_entity_id": other_id,  # != the stored successor
+            }
+        ],
+    )
+    assert r.status_code == 200, r.text
+    res = r.json()["results"][0]
+    assert res["disposition"] == "rejected"
+    assert res["reason"] == "identity_immutable"
+    archived = await db.fetchval("SELECT archived_at FROM entity_events WHERE id=$1", event_id)
+    assert archived is None
+
+
+async def test_event_retract_datable_event_native(client, evt_write_key, db):
+    """CR4: the event-native surface retracts a datable non-linked event too
+    (the op is general, not gated to dateless links)."""
+    raw, _ = evt_write_key
+    org_id = await _make_org(client, raw, db)
+    r1 = await _post_org_events(
+        client, raw, org_id, [{"event_type_slug": "dissolved", "event_year": 2020}]
+    )
+    event_id = r1.json()["results"][0]["event_id"]
+
+    r = await _post_org_events(
+        client,
+        raw,
+        org_id,
+        [{"event_type_slug": "dissolved", "pm_event_id": event_id, "op": "retract"}],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["results"][0]["disposition"] == "retracted"
+    archived = await db.fetchval("SELECT archived_at FROM entity_events WHERE id=$1", event_id)
+    assert archived is not None
