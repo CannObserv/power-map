@@ -259,6 +259,7 @@ class EventDisposition(StrEnum):
     NEW = "new"
     AUTO_ATTACHED = "auto-attached"  # matched (content dedup) or id-addressed no-op
     UPDATED = "updated"  # id-addressed refine-in-place changed mutable fields
+    RETRACTED = "retracted"  # #322: id-addressed void — event archived
     REJECTED = "rejected"
 
 
@@ -1434,6 +1435,8 @@ async def _apply_one_event(
         return EventResult(EventDisposition.REJECTED, None, EventRejectReason.APPLIES_TO_MISMATCH)
 
     try:
+        if ev.op == "retract":
+            return await _retract_event(conn, event_type_id, key_id, ev)
         if ev.pm_event_id is not None:
             return await _refine_event_in_place(
                 conn, event_type_id, etype["requires_year"], key_id, ev
@@ -1525,6 +1528,66 @@ async def _refine_event_in_place(
     )
     logger.info("Refined entity_event id=%s", existing["id"])
     return EventResult(EventDisposition.UPDATED, existing["id"])
+
+
+async def _retract_event(conn, event_type_id: str, key_id: str | None, ev) -> EventResult:
+    """id-addressed void (#322): archive the event so the outbox drops the anchor.
+
+    The only correction for a dateless linked event (``succeeded_by`` /
+    ``split_from`` / ``merged_with``), which has no mutable field to refine — a
+    re-link is create-new + retract-old. The lookup is **not** archived-filtered
+    (unlike the refine path): an already-archived event must no-op, so a producer
+    that re-emits the retract every cycle doesn't re-bump the org LWW clock.
+
+    - no ``pm_event_id`` → ``invalid`` (retract is always id-addressed)
+    - id unresolved → ``event_not_found``
+    - already archived → diff-gate no-op (``auto-attached``, no clock bump);
+      checked before provenance so a foreign re-emit stays quiet (mirrors refine)
+    - ``event_type`` differs from the stored row → ``identity_immutable``
+    - live event, foreign non-NULL ``source_key_id`` → ``provenance_conflict``
+    - else archive it → ``retracted`` (the UPDATE fires the org-touch trigger →
+      outbox row → subscriber drops the stale anchor)
+    """
+    if ev.pm_event_id is None:
+        raise _EventRejected(EventRejectReason.INVALID)
+
+    existing = await conn.fetchrow(
+        "SELECT id, event_type_id, source_key_id, archived_at FROM entity_events WHERE id=$1",
+        ev.pm_event_id,
+    )
+    if existing is None:
+        raise _EventRejected(EventRejectReason.EVENT_NOT_FOUND)
+
+    # Diff-before-write: an already-archived event is a no-op — no UPDATE, no
+    # clock bump (a stateful producer re-emits the retract every cycle). Checked
+    # before the provenance gate so a foreign redelivery stays quiet, exactly as
+    # the refine no-op does.
+    if existing["archived_at"] is not None:
+        return EventResult(EventDisposition.AUTO_ATTACHED, existing["id"])
+
+    # Identity is immutable — a retract that names a different event_type is
+    # addressing the wrong event (likely a client bug), never a silent void.
+    if event_type_id != existing["event_type_id"]:
+        raise _EventRejected(EventRejectReason.IDENTITY_IMMUTABLE)
+
+    if existing["source_key_id"] is not None and existing["source_key_id"] != key_id:
+        logger.warning(
+            "event retract source mismatch event=%s owner=%s caller=%s",
+            existing["id"],
+            existing["source_key_id"],
+            key_id,
+        )
+        raise _EventRejected(EventRejectReason.PROVENANCE_CONFLICT)
+
+    await conn.execute(
+        """UPDATE entity_events
+               SET archived_at = now(), source_key_id = COALESCE(source_key_id, $2)
+           WHERE id=$1 AND archived_at IS NULL""",
+        existing["id"],
+        key_id,
+    )
+    logger.info("Retracted entity_event id=%s", existing["id"])
+    return EventResult(EventDisposition.RETRACTED, existing["id"])
 
 
 async def _create_event(

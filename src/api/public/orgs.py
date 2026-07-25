@@ -140,13 +140,16 @@ async def submit_org_event_observations(
     auth: AuthedKey = Depends(require_scope("observations:write")),
     db=Depends(get_db),
 ) -> EventObservationsResponse:
-    """Observe lifecycle events on an org, **partial-success** (#321).
+    """Observe lifecycle events on an org, **partial-success** (#321/#322).
 
     The event-native producer surface: each event lands independently under its
     own savepoint, so one rejected event (e.g. a ``succeeded_by`` whose successor
     isn't anchored yet → ``linked_entity_unresolved``) never rolls back its
     siblings. ``pm_event_id`` refines an event in place; absent it, a natural
-    create with content dedup. Returns per-event dispositions + reason slugs.
+    create with content dedup. ``op="retract"`` archives the ``pm_event_id``
+    event — the only correction for a dateless linked event, so a re-link is
+    create-new + retract-old in one batch (#322). Returns per-event dispositions
+    + reason slugs.
     """
     exists = await db.fetchval("SELECT 1 FROM organizations WHERE id=$1", org_id)
     if not exists:
