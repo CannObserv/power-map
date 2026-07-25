@@ -1617,13 +1617,13 @@ async def _create_event(
     await _validate_event_place(conn, ev.event_place_address_id)
 
     # Dedup: same event type + same partial date + same linked_entity_id = skip.
-    # Only against ACTIVE rows — a retracted (archived) event must not shadow a
-    # re-observation of the same content, else the re-assert auto-attaches to the
-    # archived row (success reported, event still invisible). #322 CR1.
+    # Matches archived rows too (no archived_at filter) — a retract is
+    # authoritative, so a re-observation of retracted content auto-attaches to the
+    # archived row rather than resurrecting it. Mirrors the address dateless-
+    # reobservation anti-resurrection rule (#322 CR round 2; write_addresses).
     existing = await conn.fetchrow(
         """SELECT id FROM entity_events
            WHERE entity_id = $1 AND entity_type = $2 AND event_type_id = $3
-             AND archived_at IS NULL
              AND event_year IS NOT DISTINCT FROM $4
              AND event_month IS NOT DISTINCT FROM $5
              AND event_day IS NOT DISTINCT FROM $6
