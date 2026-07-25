@@ -1,0 +1,9 @@
+{# admin/orgs/partials/_active_toggle_response.html — toggle POST response (#320).
+
+   Primary swap: the active toggle into #active-toggle. Piggybacks an OOB swap of
+   the open-assignment banner so it appears/clears in place when the org flips
+   active↔inactive, without a full-page reload. #}
+{% include "admin/orgs/partials/_active_toggle.html" %}
+<div id="org-lifespan-banner" hx-swap-oob="true">
+  {% include "admin/orgs/partials/_lifespan_banner.html" %}
+</div>
