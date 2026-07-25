@@ -1552,7 +1552,8 @@ async def _retract_event(conn, event_type_id: str, key_id: str | None, ev) -> Ev
         raise _EventRejected(EventRejectReason.INVALID)
 
     existing = await conn.fetchrow(
-        "SELECT id, event_type_id, source_key_id, archived_at FROM entity_events WHERE id=$1",
+        "SELECT id, event_type_id, linked_entity_type, linked_entity_id,"
+        " source_key_id, archived_at FROM entity_events WHERE id=$1",
         ev.pm_event_id,
     )
     if existing is None:
@@ -1565,9 +1566,16 @@ async def _retract_event(conn, event_type_id: str, key_id: str | None, ev) -> Ev
     if existing["archived_at"] is not None:
         return EventResult(EventDisposition.AUTO_ATTACHED, existing["id"])
 
-    # Identity is immutable — a retract that names a different event_type is
-    # addressing the wrong event (likely a client bug), never a silent void.
+    # Identity is immutable — a retract that names a different event_type, or a
+    # supplied linked_entity that doesn't match, is addressing the wrong event
+    # (likely a copy-paste pm_event_id), never a silent void. Symmetric with the
+    # refine identity guard (#322 CR3).
     if event_type_id != existing["event_type_id"]:
+        raise _EventRejected(EventRejectReason.IDENTITY_IMMUTABLE)
+    if ev.linked_entity_id is not None and (
+        ev.linked_entity_id != existing["linked_entity_id"]
+        or ev.linked_entity_type != existing["linked_entity_type"]
+    ):
         raise _EventRejected(EventRejectReason.IDENTITY_IMMUTABLE)
 
     if existing["source_key_id"] is not None and existing["source_key_id"] != key_id:
@@ -1609,9 +1617,13 @@ async def _create_event(
     await _validate_event_place(conn, ev.event_place_address_id)
 
     # Dedup: same event type + same partial date + same linked_entity_id = skip.
+    # Only against ACTIVE rows — a retracted (archived) event must not shadow a
+    # re-observation of the same content, else the re-assert auto-attaches to the
+    # archived row (success reported, event still invisible). #322 CR1.
     existing = await conn.fetchrow(
         """SELECT id FROM entity_events
            WHERE entity_id = $1 AND entity_type = $2 AND event_type_id = $3
+             AND archived_at IS NULL
              AND event_year IS NOT DISTINCT FROM $4
              AND event_month IS NOT DISTINCT FROM $5
              AND event_day IS NOT DISTINCT FROM $6
