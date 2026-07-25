@@ -15,6 +15,7 @@ from src.api.public.events import (
 from src.api.public.schemas import (
     NOT_MODIFIED,
     EntityEventsResponse,
+    EventObservationResult,
     ObservationResponse,
     PeopleObservationRequest,
     PersonDetail,
@@ -79,7 +80,9 @@ async def submit_people_observation(
             if request.personal_pronouns:
                 await write_pronouns(db, entity_id, request.personal_pronouns)
             await write_additional_identifiers(db, entity_id, request.additional_identifiers)
-            await write_entity_events(db, entity_id, entity_type, auth.key_id, request.events)
+            event_results = await write_entity_events(
+                db, entity_id, entity_type, auth.key_id, request.events
+            )
     except ObservationRejected as exc:
         return ObservationResponse(disposition="rejected", reason=exc.detail)
     except IdentifierConflict as exc:
@@ -98,6 +101,13 @@ async def submit_people_observation(
         disposition=disposition.value,
         entity_id=entity_id,
         entity_type=entity_type,
+        events=[
+            EventObservationResult(
+                disposition=r.disposition.value, event_id=r.event_id, reason=r.reason
+            )
+            for r in event_results
+        ]
+        or None,
     )
 
 

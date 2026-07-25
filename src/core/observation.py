@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -250,6 +251,56 @@ class Disposition(StrEnum):
     AUTO_ATTACHED = "auto-attached"
     NEW = "new"
     REJECTED = "rejected"
+
+
+class EventDisposition(StrEnum):
+    """Per-event outcome of an event observation (#321)."""
+
+    NEW = "new"
+    AUTO_ATTACHED = "auto-attached"  # matched (content dedup) or id-addressed no-op
+    UPDATED = "updated"  # id-addressed refine-in-place changed mutable fields
+    REJECTED = "rejected"
+
+
+class EventRejectReason(StrEnum):
+    """Machine-readable event rejection reasons (#321).
+
+    Transient (self-heals on a later cycle): ``linked_entity_unresolved``.
+    All others are terminal. #85 rejection-visibility / #112 non-convergence
+    bucket by these slugs.
+    """
+
+    LINKED_ENTITY_UNRESOLVED = "linked_entity_unresolved"  # transient
+    IDENTITY_IMMUTABLE = "identity_immutable"
+    EVENT_NOT_FOUND = "event_not_found"
+    PROVENANCE_CONFLICT = "provenance_conflict"
+    APPLIES_TO_MISMATCH = "applies_to_mismatch"
+    MISSING_REQUIRED_FIELD = "missing_required_field"
+    UNKNOWN_EVENT_TYPE = "unknown_event_type"
+    INVALID = "invalid"
+
+
+@dataclass(frozen=True)
+class EventResult:
+    """Outcome of applying one event claim; the writer's per-event return unit."""
+
+    disposition: EventDisposition
+    event_id: str | None = None
+    reason: str | None = None  # EventRejectReason slug on REJECTED, else None
+
+
+# The mutable field set on an id-addressed (pm_event_id) update. Identity —
+# event_type and linked_entity — is immutable (a change there is a *different*
+# event → identity_immutable). The date is treated as a unit (all six partial
+# columns replaced together) so a year-only sharpening clears finer precision.
+_MUTABLE_EVENT_DATE_COLS = (
+    "event_year",
+    "event_month",
+    "event_day",
+    "event_hour",
+    "event_minute",
+    "event_second",
+)
 
 
 class ObservationRejected(Exception):
@@ -1301,126 +1352,282 @@ async def write_additional_identifiers(conn, entity_id: str, additional_identifi
         )
 
 
+class _EventRejected(Exception):
+    """Internal: a per-event domain rejection carrying an EventRejectReason slug."""
+
+    def __init__(self, reason: EventRejectReason) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+async def _validate_event_place(conn, place_addr_id: str | None) -> None:
+    """Reject an event whose ``event_place_address_id`` is missing or too coarse."""
+    if not place_addr_id:
+        return
+    addr_row = await conn.fetchrow("SELECT id, precision FROM addresses WHERE id=$1", place_addr_id)
+    if addr_row is None:
+        raise _EventRejected(EventRejectReason.INVALID)
+    # NULL precision = pre-geocoding / historical record — allowed intentionally.
+    if addr_row["precision"] is not None and addr_row["precision"] not in EVENT_PLACE_PRECISIONS:
+        raise _EventRejected(EventRejectReason.INVALID)
+
+
+async def _linked_entity_exists(conn, linked_type: str, linked_id: str) -> bool:
+    """True if a linked entity id resolves to a live PM entity of the given kind."""
+    table = "organizations" if linked_type == "organization" else "people"
+    return bool(await conn.fetchval(f"SELECT 1 FROM {table} WHERE id=$1", linked_id))
+
+
+async def _apply_one_event(
+    conn: asyncpg.Connection,
+    entity_id: str,
+    entity_type: str,
+    key_id: str | None,
+    ev,
+) -> EventResult:
+    """Apply one event claim; return its per-event outcome (never raises for a
+    domain rejection — those come back as ``EventResult(REJECTED, reason=...)``).
+
+    Two modes (#321):
+
+    - ``pm_event_id`` present → **refine-in-place**. Identity (event_type,
+      linked_entity) is immutable; only the mutable set (date/notes/place/
+      visibility) updates. Gated on ``source_key_id`` provenance (same-or-NULL);
+      an unchanged re-emit is a diff-before-write no-op (``auto-attached``, no
+      clock bump).
+    - absent → **natural create** with content dedup (``auto-attached`` on match,
+      else ``new``). A required linked entity that is not yet anchored yields the
+      transient ``linked_entity_unresolved``.
+    """
+    # Resolve event type (slug XOR id, enforced by the schema validator).
+    if ev.event_type_id is None:
+        etype = await conn.fetchrow(
+            "SELECT id, applies_to, requires_year, requires_linked_entity"
+            " FROM entity_event_types WHERE slug=$1",
+            ev.event_type_slug,
+        )
+    else:
+        etype = await conn.fetchrow(
+            "SELECT id, applies_to, requires_year, requires_linked_entity"
+            " FROM entity_event_types WHERE id=$1",
+            ev.event_type_id,
+        )
+    if etype is None:
+        return EventResult(EventDisposition.REJECTED, None, EventRejectReason.UNKNOWN_EVENT_TYPE)
+    event_type_id = etype["id"]
+
+    if etype["applies_to"] != "both" and etype["applies_to"] != entity_type:
+        return EventResult(EventDisposition.REJECTED, None, EventRejectReason.APPLIES_TO_MISMATCH)
+
+    try:
+        if ev.pm_event_id is not None:
+            return await _refine_event_in_place(conn, event_type_id, key_id, ev)
+        return await _create_event(conn, entity_id, entity_type, event_type_id, key_id, etype, ev)
+    except _EventRejected as exc:
+        return EventResult(EventDisposition.REJECTED, None, exc.reason)
+
+
+async def _refine_event_in_place(conn, event_type_id: str, key_id: str | None, ev) -> EventResult:
+    """id-addressed update: immutable identity, diff-before-write, provenance gate."""
+    existing = await conn.fetchrow(
+        """SELECT id, event_type_id, linked_entity_type, linked_entity_id, source_key_id,
+                  event_year, event_month, event_day, event_hour, event_minute, event_second,
+                  event_place_text, event_place_address_id, notes, visibility
+           FROM entity_events WHERE id=$1 AND archived_at IS NULL""",
+        ev.pm_event_id,
+    )
+    if existing is None:
+        raise _EventRejected(EventRejectReason.EVENT_NOT_FOUND)
+
+    # Identity is immutable — a change to event_type or a supplied, differing
+    # linked_entity is a *different* event, never a silent reclassify.
+    if event_type_id != existing["event_type_id"]:
+        raise _EventRejected(EventRejectReason.IDENTITY_IMMUTABLE)
+    if ev.linked_entity_id is not None and (
+        ev.linked_entity_id != existing["linked_entity_id"]
+        or ev.linked_entity_type != existing["linked_entity_type"]
+    ):
+        raise _EventRejected(EventRejectReason.IDENTITY_IMMUTABLE)
+
+    await _validate_event_place(conn, ev.event_place_address_id)
+
+    # Desired mutable state (last-writer-wins; date is a unit).
+    new_vals = {
+        "event_year": ev.event_year,
+        "event_month": ev.event_month,
+        "event_day": ev.event_day,
+        "event_hour": ev.event_hour,
+        "event_minute": ev.event_minute,
+        "event_second": ev.event_second,
+        "event_place_text": ev.event_place_text,
+        "event_place_address_id": ev.event_place_address_id,
+        "notes": ev.notes,
+        "visibility": ev.visibility,
+    }
+    # Diff-before-write: an unchanged re-emit must not UPDATE (would bump
+    # updated_at and re-arm the producer↔PM ping-pong). Checked before the
+    # provenance gate so an identical redelivery by a foreign key stays a no-op.
+    if all(existing[col] == val for col, val in new_vals.items()):
+        return EventResult(EventDisposition.AUTO_ATTACHED, existing["id"])
+
+    if existing["source_key_id"] is not None and existing["source_key_id"] != key_id:
+        logger.warning(
+            "event refine source mismatch event=%s owner=%s caller=%s",
+            existing["id"],
+            existing["source_key_id"],
+            key_id,
+        )
+        raise _EventRejected(EventRejectReason.PROVENANCE_CONFLICT)
+
+    await conn.execute(
+        """UPDATE entity_events SET
+               event_year=$2, event_month=$3, event_day=$4,
+               event_hour=$5, event_minute=$6, event_second=$7,
+               event_place_text=$8, event_place_address_id=$9, notes=$10, visibility=$11,
+               source_key_id=COALESCE(source_key_id, $12)
+           WHERE id=$1 AND archived_at IS NULL""",
+        existing["id"],
+        ev.event_year,
+        ev.event_month,
+        ev.event_day,
+        ev.event_hour,
+        ev.event_minute,
+        ev.event_second,
+        ev.event_place_text,
+        ev.event_place_address_id,
+        ev.notes,
+        ev.visibility,
+        key_id,
+    )
+    logger.info("Refined entity_event id=%s", existing["id"])
+    return EventResult(EventDisposition.UPDATED, existing["id"])
+
+
+async def _create_event(
+    conn, entity_id: str, entity_type: str, event_type_id: str, key_id: str | None, etype, ev
+) -> EventResult:
+    """Natural create with content dedup; validates required + linked-entity fields."""
+    if etype["requires_year"] and ev.event_year is None:
+        raise _EventRejected(EventRejectReason.MISSING_REQUIRED_FIELD)
+    if etype["requires_linked_entity"] and not ev.linked_entity_id:
+        raise _EventRejected(EventRejectReason.MISSING_REQUIRED_FIELD)
+
+    # A supplied linked entity must resolve; an as-yet-unanchored one is the
+    # transient case (ordering-tolerance — heals on a later producer cycle).
+    if ev.linked_entity_id is not None and not await _linked_entity_exists(
+        conn, ev.linked_entity_type, ev.linked_entity_id
+    ):
+        raise _EventRejected(EventRejectReason.LINKED_ENTITY_UNRESOLVED)
+
+    await _validate_event_place(conn, ev.event_place_address_id)
+
+    # Dedup: same event type + same partial date + same linked_entity_id = skip.
+    existing = await conn.fetchrow(
+        """SELECT id FROM entity_events
+           WHERE entity_id = $1 AND entity_type = $2 AND event_type_id = $3
+             AND event_year IS NOT DISTINCT FROM $4
+             AND event_month IS NOT DISTINCT FROM $5
+             AND event_day IS NOT DISTINCT FROM $6
+             AND event_hour IS NOT DISTINCT FROM $7
+             AND event_minute IS NOT DISTINCT FROM $8
+             AND event_second IS NOT DISTINCT FROM $9
+             AND linked_entity_id IS NOT DISTINCT FROM $10""",
+        entity_id,
+        entity_type,
+        event_type_id,
+        ev.event_year,
+        ev.event_month,
+        ev.event_day,
+        ev.event_hour,
+        ev.event_minute,
+        ev.event_second,
+        ev.linked_entity_id,
+    )
+    if existing:
+        return EventResult(EventDisposition.AUTO_ATTACHED, existing["id"])
+
+    new_id = generate_id()
+    await conn.execute(
+        """INSERT INTO entity_events
+           (id, entity_type, entity_id, event_type_id,
+            event_year, event_month, event_day, event_hour, event_minute, event_second,
+            event_place_text, event_place_address_id,
+            linked_entity_type, linked_entity_id,
+            notes, visibility, source_key_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)""",
+        new_id,
+        entity_type,
+        entity_id,
+        event_type_id,
+        ev.event_year,
+        ev.event_month,
+        ev.event_day,
+        ev.event_hour,
+        ev.event_minute,
+        ev.event_second,
+        ev.event_place_text,
+        ev.event_place_address_id,
+        ev.linked_entity_type,
+        ev.linked_entity_id,
+        ev.notes,
+        ev.visibility,
+        key_id,
+    )
+    return EventResult(EventDisposition.NEW, new_id)
+
+
 async def write_entity_events(
     conn: asyncpg.Connection,
     entity_id: str,
     entity_type: str,
     key_id: str | None,
     events: list,
-) -> None:
-    """Write entity event claims. Append-only with application-layer dedup.
+) -> list[EventResult]:
+    """Apply embedded event claims **all-or-nothing** (#321).
 
-    Dedup key: (event_type_id, event_year, event_month, event_day, event_hour,
-    event_minute, event_second, linked_entity_id) — NULLs treated as equal.
-    Validation:
-    - applies_to mismatch → ObservationRejected
-    - requires_year with no event_year → ObservationRejected
-    - requires_linked_entity with no linked_entity_id → ObservationRejected
+    Each event resolves to ``new`` / ``auto-attached`` / ``updated``; the first
+    rejection raises ``ObservationRejected`` carrying the reason slug, rolling the
+    whole observation back (the pre-#321 contract, now slug-typed). Returns the
+    per-event results on full success. For per-event partial-success semantics use
+    ``apply_event_observations``.
     """
+    results: list[EventResult] = []
     for ev in events:
-        # Resolve slug → id (single query on slug path)
-        event_type_id = ev.event_type_id
-        if event_type_id is None:
-            etype = await conn.fetchrow(
-                "SELECT id, applies_to, requires_year, requires_linked_entity"
-                " FROM entity_event_types WHERE slug=$1",
-                ev.event_type_slug,
-            )
-            if etype is None:
-                raise ObservationRejected(f"Unknown event_type_slug: {ev.event_type_slug!r}")
-            event_type_id = etype["id"]
-        else:
-            etype = await conn.fetchrow(
-                "SELECT applies_to, requires_year, requires_linked_entity"
-                " FROM entity_event_types WHERE id=$1",
-                event_type_id,
-            )
-            if etype is None:
-                raise ObservationRejected(f"Unknown event_type_id: {event_type_id!r}")
+        result = await _apply_one_event(conn, entity_id, entity_type, key_id, ev)
+        if result.disposition is EventDisposition.REJECTED:
+            raise ObservationRejected(result.reason)
+        results.append(result)
+    return results
 
-        # applies_to check
-        if etype["applies_to"] != "both" and etype["applies_to"] != entity_type:
-            raise ObservationRejected(
-                f"Event type {event_type_id!r} does not apply to {entity_type!r}"
-            )
 
-        # required field validation
-        if etype["requires_year"] and ev.event_year is None:
-            raise ObservationRejected(f"Event type {event_type_id!r} requires event_year")
-        if etype["requires_linked_entity"] and not ev.linked_entity_id:
-            raise ObservationRejected(f"Event type {event_type_id!r} requires linked_entity_id")
+async def apply_event_observations(
+    conn: asyncpg.Connection,
+    entity_id: str,
+    entity_type: str,
+    key_id: str | None,
+    events: list,
+) -> list[EventResult]:
+    """Apply event claims **partial-success** (#321) — the event-native surface.
 
-        # Validate event_place_address_id when provided
-        place_addr_id = ev.event_place_address_id
-        if place_addr_id:
-            addr_row = await conn.fetchrow(
-                "SELECT id, precision FROM addresses WHERE id=$1", place_addr_id
-            )
-            if addr_row is None:
-                raise ObservationRejected(f"event_place_address_id {place_addr_id!r} not found")
-            # NULL precision = pre-geocoding / historical record — allowed intentionally.
-            if (
-                addr_row["precision"] is not None
-                and addr_row["precision"] not in EVENT_PLACE_PRECISIONS
-            ):  # noqa: E501
-                raise ObservationRejected(
-                    f"event_place_address_id {place_addr_id!r} has precision "
-                    f"'{addr_row['precision']}' — city, postal, or street required"
-                )
-
-        # Dedup: same event type + same partial date + same linked_entity_id = skip
-        existing = await conn.fetchrow(
-            """SELECT id FROM entity_events
-               WHERE entity_id = $1
-                 AND entity_type = $2
-                 AND event_type_id = $3
-                 AND event_year IS NOT DISTINCT FROM $4
-                 AND event_month IS NOT DISTINCT FROM $5
-                 AND event_day IS NOT DISTINCT FROM $6
-                 AND event_hour IS NOT DISTINCT FROM $7
-                 AND event_minute IS NOT DISTINCT FROM $8
-                 AND event_second IS NOT DISTINCT FROM $9
-                 AND linked_entity_id IS NOT DISTINCT FROM $10""",
-            entity_id,
-            entity_type,
-            event_type_id,
-            ev.event_year,
-            ev.event_month,
-            ev.event_day,
-            ev.event_hour,
-            ev.event_minute,
-            ev.event_second,
-            ev.linked_entity_id,
-        )
-        if existing:
-            continue
-
-        await conn.execute(
-            """INSERT INTO entity_events
-               (id, entity_type, entity_id, event_type_id,
-                event_year, event_month, event_day, event_hour, event_minute, event_second,
-                event_place_text, event_place_address_id,
-                linked_entity_type, linked_entity_id,
-                notes, visibility, source_key_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)""",
-            generate_id(),
-            entity_type,
-            entity_id,
-            event_type_id,
-            ev.event_year,
-            ev.event_month,
-            ev.event_day,
-            ev.event_hour,
-            ev.event_minute,
-            ev.event_second,
-            ev.event_place_text,
-            place_addr_id,
-            ev.linked_entity_type,
-            ev.linked_entity_id,
-            ev.notes,
-            ev.visibility,
-            key_id,
-        )
+    Each event runs in its own savepoint: a rejection rolls back only that
+    event's writes and is reported (with a reason slug) alongside the ones that
+    landed. This is what gives ordering-tolerance for free — a ``succeeded_by``
+    ahead of its successor comes back ``linked_entity_unresolved`` while its
+    siblings commit, and heals next cycle. **Must run inside the caller's
+    transaction** so the whole batch shares one outer commit.
+    """
+    results: list[EventResult] = []
+    for ev in events:
+        try:
+            async with conn.transaction():
+                result = await _apply_one_event(conn, entity_id, entity_type, key_id, ev)
+                if result.disposition is EventDisposition.REJECTED:
+                    # Roll back just this event's savepoint; keep the reason.
+                    raise _EventRejected(result.reason)  # type: ignore[arg-type]
+        except _EventRejected as exc:
+            result = EventResult(EventDisposition.REJECTED, None, exc.reason)
+        results.append(result)
+    return results
 
 
 async def resolve_assignment(

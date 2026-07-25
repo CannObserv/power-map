@@ -670,6 +670,11 @@ class ObservationAdditionalIdentifier(BaseModel):
 class ObservationEventItem(BaseModel):
     """A lifecycle event claim included in an observation."""
 
+    # #321: when set, addresses an existing event by PM id — supplied mutable
+    # fields (date/notes/place/visibility) update it in place; identity
+    # (event_type, linked_entity) is immutable. Absent → natural create/dedup.
+    pm_event_id: str | None = None
+
     event_type_id: str | None = None
     event_type_slug: str | None = None  # XOR with event_type_id
 
@@ -787,6 +792,26 @@ class OrganizationObservationRequest(BaseModel):
         return self
 
 
+class EventObservationResult(BaseModel):
+    """Per-event outcome (#321). ``reason`` is a machine-readable slug on rejection."""
+
+    disposition: str  # 'new' | 'auto-attached' | 'updated' | 'rejected'
+    event_id: str | None = None  # None only when disposition == 'rejected'
+    reason: str | None = None  # rejection reason slug; None on non-rejected
+
+
+class OrgEventObservationsRequest(BaseModel):
+    """Payload for POST /api/v1/orgs/{org_id}/events/observations (#321)."""
+
+    events: list[ObservationEventItem] = Field(default_factory=list)
+
+
+class EventObservationsResponse(BaseModel):
+    """Per-event results of a partial-success event observation batch (#321)."""
+
+    results: list[EventObservationResult] = Field(default_factory=list)
+
+
 class ObservationResponse(BaseModel):
     """Response returned by POST /api/v1/observations."""
 
@@ -797,6 +822,10 @@ class ObservationResponse(BaseModel):
     # #311: fields supplied but not applied on a natural-key auto-attach (e.g. a
     # differing non-NULL end_date). None on new/rejected and on clean attaches.
     unapplied: list[str] | None = None
+    # #321: per-event dispositions when the payload carried events. None when no
+    # events were submitted. On the all-or-nothing embedded path, present only on
+    # full success (a rejected event raises → whole observation rejected).
+    events: list[EventObservationResult] | None = None
 
 
 class JurisdictionObservationRequest(BaseModel):
