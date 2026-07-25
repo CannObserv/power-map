@@ -21,7 +21,7 @@ from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.core.db import generate_id
 from src.core.logging import get_logger
-from src.core.org_lifecycle import count_open_assignments, get_org_ended_on
+from src.core.org_lifecycle import resolve_lifespan_banner
 from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
 
 logger = get_logger(__name__)
@@ -214,11 +214,8 @@ async def org_inline_active_post(
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     # Re-derive the open-assignment banner state for the new active flag so the
-    # toggle can OOB-swap it in place (#320) — same gating as the detail GET.
-    org_ended_on = await get_org_ended_on(db, org_id)
-    open_assignment_count = 0
-    if org["archived_at"] or not org["active"] or org_ended_on:
-        open_assignment_count = await count_open_assignments(db, org_id)
+    # toggle can OOB-swap it in place (#320) — shared gating with the detail GET.
+    open_assignment_count, org_ended_on = await resolve_lifespan_banner(db, org)
     label = "Marked active." if new_active else "Marked inactive."
     level = "success" if new_active else "info"
     if not new_active and open_assignment_count:
@@ -465,10 +462,7 @@ async def org_detail(
         org_id,
     )
     events = await fetch_entity_events(org_id, "organization", db)
-    org_ended_on = await get_org_ended_on(db, org_id)
-    open_assignment_count = 0
-    if org["archived_at"] or not org["active"] or org_ended_on:
-        open_assignment_count = await count_open_assignments(db, org_id)
+    open_assignment_count, org_ended_on = await resolve_lifespan_banner(db, org)
     parent = None
     if org["parent_id"]:
         parent = await db.fetchrow(

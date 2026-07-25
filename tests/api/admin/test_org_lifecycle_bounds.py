@@ -411,6 +411,33 @@ async def test_deactivate_renders_open_assignment_banner_oob(client, db, person_
     assert b"open assignment" in r.content
 
 
+async def test_activate_ended_org_keeps_banner_oob(client, db, person_id, ended_role_id):
+    """Re-activating an *ended* org keeps the banner — active≠lifespan (#320).
+
+    The gating counts open assignments on any terminal-ish org (archived /
+    inactive / ended), so flipping the active flag on a dissolved org must not
+    clear the banner; the lifespan end still bounds its members.
+    """
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, FALSE)",
+        generate_id(),
+        person_id,
+        ended_role_id,
+    )
+    # ended_org_id is seeded active=FALSE; toggle it active.
+    oid = await db.fetchval("SELECT organization_id FROM roles WHERE id=$1", ended_role_id)
+    r = await client.post(
+        f"/admin/orgs/{oid}/inline/active/",
+        headers=HTMX_HEADERS,
+        data={"active": "true"},
+    )
+    assert r.status_code == 200
+    assert b'id="org-lifespan-banner"' in r.content
+    assert b"open assignment" in r.content
+    assert b"2023-01-09" in r.content  # ended-on date still surfaced
+
+
 # ---------------------------------------------------------------------------
 # Dates route on an already-violating (current-on-ended) row — CR round 1
 # ---------------------------------------------------------------------------
