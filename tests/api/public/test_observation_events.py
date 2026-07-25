@@ -963,3 +963,252 @@ async def test_event_place_address_id_written_to_db(client, evt_write_key, db):
         assert row["event_place_address_id"] == aid
     finally:
         await db.execute("DELETE FROM addresses WHERE id=$1", aid)
+
+
+# ---------------------------------------------------------------------------
+# #322 — event void/retract for dateless linked events (close the correction loop)
+# ---------------------------------------------------------------------------
+
+
+async def _seed_succeeded_by(client, raw, db):
+    """Anchor a successor + a `succeeded_by` link on a fresh predecessor.
+
+    Returns (predecessor_id, successor_id, event_id).
+    """
+    rs = await _post_orgs(
+        client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()}
+    )
+    successor_id = rs.json()["entity_id"]
+    pred_id = await _make_org(client, raw, db)
+    r = await _post_org_events(
+        client,
+        raw,
+        pred_id,
+        [
+            {
+                "event_type_slug": "succeeded_by",
+                "linked_entity_type": "organization",
+                "linked_entity_id": successor_id,
+            }
+        ],
+    )
+    event_id = r.json()["results"][0]["event_id"]
+    return pred_id, successor_id, event_id
+
+
+async def _outbox_count(db, entity_id):
+    """entity_changes rows for an org — the BIGSERIAL outbox is a true
+    in-transaction observable (unlike now(), which is transaction-constant under
+    the rollback client, so updated_at can't distinguish a bump from a no-op)."""
+    return await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_id=$1 AND entity_type='organization'",
+        entity_id,
+    )
+
+
+async def test_event_retract_archives_dateless_linked_event(client, evt_write_key, db):
+    """`op=retract` on a dateless `succeeded_by` → retracted + archived_at set + outbox emit."""
+    raw, _ = evt_write_key
+    pred_id, successor_id, event_id = await _seed_succeeded_by(client, raw, db)
+
+    before = await _outbox_count(db, pred_id)
+
+    r = await _post_org_events(
+        client,
+        raw,
+        pred_id,
+        [
+            {
+                "event_type_slug": "succeeded_by",
+                "pm_event_id": event_id,
+                "op": "retract",
+                "linked_entity_type": "organization",
+                "linked_entity_id": successor_id,
+            }
+        ],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["results"][0]["disposition"] == "retracted"
+
+    archived = await db.fetchval("SELECT archived_at FROM entity_events WHERE id=$1", event_id)
+    assert archived is not None
+    # the archive is an UPDATE → org-touch trigger → new outbox row (subscriber drops the anchor)
+    assert await _outbox_count(db, pred_id) > before
+
+
+async def test_event_retract_re_emit_is_noop_no_outbox(client, evt_write_key, db):
+    """Re-retracting an already-archived event → auto-attached, no new outbox row.
+
+    usa-wa re-emits every cycle; once retracted it keeps sending the retract. The
+    second one must skip the UPDATE (no producer↔PM ping-pong) — proven by the
+    outbox count holding steady.
+    """
+    raw, _ = evt_write_key
+    pred_id, successor_id, event_id = await _seed_succeeded_by(client, raw, db)
+
+    retract = {
+        "event_type_slug": "succeeded_by",
+        "pm_event_id": event_id,
+        "op": "retract",
+    }
+    r1 = await _post_org_events(client, raw, pred_id, [retract])
+    assert r1.json()["results"][0]["disposition"] == "retracted"
+
+    outbox_after_first = await _outbox_count(db, pred_id)
+
+    r2 = await _post_org_events(client, raw, pred_id, [retract])
+    assert r2.json()["results"][0]["disposition"] == "auto-attached"
+    assert await _outbox_count(db, pred_id) == outbox_after_first  # no-op, no emit
+
+
+async def test_event_retract_unknown_id_event_not_found(client, evt_write_key, db):
+    raw, _ = evt_write_key
+    org_id = await _make_org(client, raw, db)
+    r = await _post_org_events(
+        client,
+        raw,
+        org_id,
+        [
+            {
+                "event_type_slug": "founded",
+                "pm_event_id": "01NONEXISTENTEVT0000000000",
+                "op": "retract",
+            }
+        ],
+    )
+    assert r.status_code == 200, r.text
+    res = r.json()["results"][0]
+    assert res["disposition"] == "rejected"
+    assert res["reason"] == "event_not_found"
+
+
+async def test_event_retract_foreign_source_provenance_conflict(
+    client, evt_write_key, evt_write_key2, db
+):
+    """A different key retracting a source-stamped event → provenance_conflict; not archived."""
+    raw1, _ = evt_write_key
+    raw2, _ = evt_write_key2
+    pred_id, successor_id, event_id = await _seed_succeeded_by(client, raw1, db)
+
+    r = await _post_org_events(
+        client,
+        raw2,
+        pred_id,
+        [{"event_type_slug": "succeeded_by", "pm_event_id": event_id, "op": "retract"}],
+    )
+    assert r.status_code == 200, r.text
+    res = r.json()["results"][0]
+    assert res["disposition"] == "rejected"
+    assert res["reason"] == "provenance_conflict"
+    archived = await db.fetchval("SELECT archived_at FROM entity_events WHERE id=$1", event_id)
+    assert archived is None
+
+
+async def test_event_retract_type_mismatch_identity_immutable(client, evt_write_key, db):
+    """`op=retract` with an event_type that doesn't match the stored row → identity_immutable."""
+    raw, _ = evt_write_key
+    pred_id, successor_id, event_id = await _seed_succeeded_by(client, raw, db)
+
+    r = await _post_org_events(
+        client,
+        raw,
+        pred_id,
+        # event_id is a succeeded_by, but caller claims it's `founded`
+        [{"event_type_slug": "founded", "pm_event_id": event_id, "op": "retract"}],
+    )
+    assert r.status_code == 200, r.text
+    res = r.json()["results"][0]
+    assert res["disposition"] == "rejected"
+    assert res["reason"] == "identity_immutable"
+    archived = await db.fetchval("SELECT archived_at FROM entity_events WHERE id=$1", event_id)
+    assert archived is None
+
+
+async def test_event_retract_without_pm_event_id_invalid(client, evt_write_key, db):
+    """`op=retract` is always id-addressed; without pm_event_id → invalid."""
+    raw, _ = evt_write_key
+    org_id = await _make_org(client, raw, db)
+    r = await _post_org_events(
+        client,
+        raw,
+        org_id,
+        [{"event_type_slug": "founded", "op": "retract"}],
+    )
+    assert r.status_code == 200, r.text
+    res = r.json()["results"][0]
+    assert res["disposition"] == "rejected"
+    assert res["reason"] == "invalid"
+
+
+async def test_correction_loop_relink_new_plus_retract_old(client, evt_write_key, db):
+    """End-to-end #322: re-link = create-new + retract-old in one partial-success batch.
+
+    A mis-linked `succeeded_by` is corrected by emitting the right successor link
+    and retracting the wrong one — both land, no admin intervention.
+    """
+    raw, _ = evt_write_key
+    pred_id, wrong_successor, old_event_id = await _seed_succeeded_by(client, raw, db)
+    # anchor the correct successor
+    rc = await _post_orgs(
+        client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()}
+    )
+    right_successor = rc.json()["entity_id"]
+
+    r = await _post_org_events(
+        client,
+        raw,
+        pred_id,
+        [
+            {
+                "event_type_slug": "succeeded_by",
+                "linked_entity_type": "organization",
+                "linked_entity_id": right_successor,
+            },
+            {"event_type_slug": "succeeded_by", "pm_event_id": old_event_id, "op": "retract"},
+        ],
+    )
+    assert r.status_code == 200, r.text
+    results = r.json()["results"]
+    assert results[0]["disposition"] == "new"
+    assert results[1]["disposition"] == "retracted"
+
+    # exactly one active succeeded_by remains, pointing at the correct successor
+    rows = await db.fetch(
+        """SELECT linked_entity_id FROM entity_events ee
+           JOIN entity_event_types t ON t.id = ee.event_type_id
+           WHERE ee.entity_id=$1 AND t.slug='succeeded_by' AND ee.archived_at IS NULL""",
+        pred_id,
+    )
+    assert len(rows) == 1
+    assert rows[0]["linked_entity_id"] == right_successor
+
+
+async def test_event_retract_embedded_path(client, evt_write_key, db):
+    """Retract also works embedded in an org observation payload (all-or-nothing)."""
+    raw, _ = evt_write_key
+    # seed a founded event via the embedded path so we have the org identifier
+    value = _unique_id()
+    r0 = await _post_orgs(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": value,
+            "events": [{"event_type_slug": "founded", "event_year": 1990}],
+        },
+    )
+    event_id = r0.json()["events"][0]["event_id"]
+
+    r = await _post_orgs(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": value,
+            "events": [{"event_type_slug": "founded", "pm_event_id": event_id, "op": "retract"}],
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["events"][0]["disposition"] == "retracted"
+    archived = await db.fetchval("SELECT archived_at FROM entity_events WHERE id=$1", event_id)
+    assert archived is not None

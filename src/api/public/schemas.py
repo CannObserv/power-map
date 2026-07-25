@@ -675,6 +675,13 @@ class ObservationEventItem(BaseModel):
     # (event_type, linked_entity) is immutable. Absent → natural create/dedup.
     pm_event_id: str | None = None
 
+    # #322: "observe" (default) creates/refines; "retract" archives the
+    # pm_event_id-addressed event (the only correction for a dateless linked
+    # event — succeeded_by/split_from/merged_with — which has no mutable field
+    # to refine). Retract is always id-addressed; identity + provenance gated,
+    # payload ignored.
+    op: Literal["observe", "retract"] = "observe"
+
     event_type_id: str | None = None
     event_type_slug: str | None = None  # XOR with event_type_id
 
@@ -793,9 +800,9 @@ class OrganizationObservationRequest(BaseModel):
 
 
 class EventObservationResult(BaseModel):
-    """Per-event outcome (#321). ``reason`` is a machine-readable slug on rejection."""
+    """Per-event outcome (#321/#322). ``reason`` is a machine-readable slug on rejection."""
 
-    disposition: str  # 'new' | 'auto-attached' | 'updated' | 'rejected'
+    disposition: str  # 'new' | 'auto-attached' | 'updated' | 'retracted' | 'rejected'
     event_id: str | None = None  # None only when disposition == 'rejected'
     reason: str | None = None  # rejection reason slug; None on non-rejected
 

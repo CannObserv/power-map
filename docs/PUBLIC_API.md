@@ -336,8 +336,9 @@ Each event item is the shape listed under people/org observations, plus:
 | Field | Notes |
 |-------|-------|
 | `pm_event_id` | optional. When set, **refines an existing event in place**: the mutable set (`date`/`notes`/`place`/`visibility`) is replaced; identity (`event_type`, `linked_entity`) is immutable — a change there → `identity_immutable`. An unchanged re-emit is a no-op (`auto-attached`, no clock bump). Gated on `source_key_id` provenance (`provenance_conflict` on a foreign source). Absent → natural create with content dedup. |
+| `op` | `observe` (default) or `retract` (#322). `retract` **archives** the `pm_event_id` event (`archived_at`, never hard-delete) → `retracted`; the outbox emits so subscribers drop the anchor. The only correction for a mis-linked **dateless** linked event (`succeeded_by`/`split_from`/`merged_with`), so a re-link = create-new + retract-old. Requires `pm_event_id` (else `invalid`); `event_type` must match the stored row (else `identity_immutable`); same-or-NULL provenance (`provenance_conflict`); refine payload ignored. Re-retracting an already-archived event is a no-op (`auto-attached`, no clock bump). |
 
-Per-event `disposition` ∈ `new｜auto-attached｜updated｜rejected`. The `succeeded_by` event type (org renamed-continuity link) lives on the **predecessor**, `linked_entity_id` → successor; a `succeeded_by` whose successor isn't anchored yet returns `linked_entity_unresolved` and self-heals on a later cycle.
+Per-event `disposition` ∈ `new｜auto-attached｜updated｜retracted｜rejected`. The `succeeded_by` event type (org renamed-continuity link) lives on the **predecessor**, `linked_entity_id` → successor; a `succeeded_by` whose successor isn't anchored yet returns `linked_entity_unresolved` and self-heals on a later cycle.
 
 ---
 
