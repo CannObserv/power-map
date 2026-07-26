@@ -259,6 +259,8 @@ That was already true before #308 and is unchanged by it. The old per-family can
 
 Admin support for the edge: `people_reading_target_search.py` powers the "reading of" picker; `_name_row.html` / `_name_form_row.html` surface the parent name.
 
+**Merge preserves families through dedup (#309).** Because the edge is `ON DELETE CASCADE`, a naive merge that deletes the loser's parent row as a duplicate of a winner row would take the reading with it — even though the reading is not a duplicate of anything the winner holds. `merge_person_into` therefore re-points the loser's `reading_of_id` children at the winner's surviving equivalent **before** the dedup DELETE, keyed on the same name-identity match the DELETE uses (both share `_NAME_IDENTITY_MATCH_SQL` so they can't drift). Scope: the automatic dedup only — the curated `keep_name_ids` drop path is a deliberate admin choice and is not #309-guarded (tracked in #323).
+
 #### Canonical auto-promotion on observation (#308)
 
 `write_names` guarantees that a person with an eligible name ends up displayable, symmetric with the long-standing org behaviour:
