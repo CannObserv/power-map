@@ -62,7 +62,9 @@ _REPOINT_READING_CHILDREN_SQL = (
     "   AND child.reading_of_id = l.id"
 )
 
-# Drop loser rows whose identity matches a winner row (dedup).
+# Drop loser rows whose identity matches a winner row (dedup). The trailing ")"
+# closes the EXISTS opened above; _NAME_IDENTITY_MATCH_SQL ends on its own paren
+# (the name_type group), so the assembled tail reads `…]))  )`.
 _DEDUP_LOSER_NAMES_SQL = (
     "DELETE FROM person_names l"
     " WHERE l.person_id=$1"
