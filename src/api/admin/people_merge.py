@@ -28,6 +28,48 @@ from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canon
 
 _LIST_TARGET = "people-list-region"
 
+# Winner-vs-loser name-identity match, shared verbatim by the #309 reading
+# re-point UPDATE and the dedup DELETE in `merge_person_into` so the two can
+# never drift (CR #309 finding 1). Correlates a loser row `l` against a winner
+# row `w`; every consumer binds the loser filter at $1, the winner at $2, and
+# `NO_AUTO_CANONICAL_NAME_TYPES` as the $3 text[]. Two ordinary display types
+# sharing (name, locale, script, visibility) collapse; a
+# NO_AUTO_CANONICAL_NAME_TYPES row (mrz/reading/romanization/deadname) only ever
+# matches its exact name_type. Rationale for each clause lives on the DELETE.
+_NAME_IDENTITY_MATCH_SQL = (
+    " w.name = l.name"
+    " AND w.visibility = l.visibility"
+    " AND w.locale IS NOT DISTINCT FROM l.locale"
+    " AND w.script IS NOT DISTINCT FROM l.script"
+    " AND ("
+    "       w.name_type = l.name_type"
+    "       OR (w.name_type <> ALL($3::text[]) AND l.name_type <> ALL($3::text[]))"
+    "     )"
+)
+
+# Re-point reading/romanization children of about-to-be-deduped loser rows at
+# the winner's surviving equivalent — the LATERAL picks one deterministically
+# (lowest id) when several winner rows match.
+_REPOINT_READING_CHILDREN_SQL = (
+    "UPDATE person_names child"
+    "   SET reading_of_id = m.id"
+    "  FROM person_names l"
+    "  CROSS JOIN LATERAL ("
+    "       SELECT w.id FROM person_names w"
+    "        WHERE w.person_id=$2 AND" + _NAME_IDENTITY_MATCH_SQL + " ORDER BY w.id LIMIT 1"
+    "   ) m"
+    " WHERE l.person_id=$1"
+    "   AND child.reading_of_id = l.id"
+)
+
+# Drop loser rows whose identity matches a winner row (dedup).
+_DEDUP_LOSER_NAMES_SQL = (
+    "DELETE FROM person_names l"
+    " WHERE l.person_id=$1"
+    "   AND EXISTS ("
+    "       SELECT 1 FROM person_names w WHERE w.person_id=$2 AND" + _NAME_IDENTITY_MATCH_SQL + ")"
+)
+
 
 def _parse_list_filters_from_hx_current_url(request: Request) -> dict:
     """Parse the people list filters from HX-Current-URL (see `parse_list_filters`).
@@ -222,6 +264,9 @@ async def merge_person_into(
     # demote+dedup+transfer below then moves only what remains. `keep_name_ids=None`
     # skips this — preserving the #121 inherit-ALL-names default for direct/script
     # callers (deadnames, hidden names, etc.).
+    # NB: unlike the dedup DELETE below, these drops are NOT #309-guarded — a kept
+    # reading whose parent is dropped here cascades away (reading_of_id ON DELETE
+    # CASCADE). Deliberate for now (admin drops are explicit); tracked in #323.
     if keep_name_ids is not None:
         if keep_name_ids:
             placeholders = ", ".join(f"${i + 2}" for i in range(len(keep_name_ids)))
@@ -241,6 +286,20 @@ async def merge_person_into(
     await db.execute(
         "UPDATE person_names SET is_canonical=FALSE WHERE person_id=$1 AND is_canonical=TRUE",
         loser_id,
+    )
+    # Before the dedup DELETE runs, re-point any reading/romanization children
+    # (#309) hanging off a loser row that is about to be deduped away.
+    # `reading_of_id` is ON DELETE CASCADE, so a furigana row whose legal parent
+    # duplicates a winner row would be destroyed even though the name-family edge
+    # (#121) is not a duplicate of anything the winner holds. The re-point and
+    # the DELETE share `_NAME_IDENTITY_MATCH_SQL` so the "which loser rows go
+    # away" predicate can't drift between them. Scope: the dedup DELETE only;
+    # curated `keep_name_ids` drops are deliberate admin choices and stay as-is.
+    await db.execute(
+        _REPOINT_READING_CHILDREN_SQL,
+        loser_id,
+        winner_id,
+        list(NO_AUTO_CANONICAL_NAME_TYPES),
     )
     # Dedup on identity, not on the bare string (CR4 #30). Name-only matching
     # deleted the loser's `mrz` row because the winner had a `legal` row with
@@ -264,56 +323,8 @@ async def merge_person_into(
     # person blank, defeating the heal below. It also silently dropped
     # `legal_only` claims, breaking the #121 guarantee that the winner inherits
     # the loser's restricted names.
-    # Before that DELETE runs, re-point any reading/romanization children (#309)
-    # hanging off a loser row that is about to be deduped away. `reading_of_id`
-    # is ON DELETE CASCADE, so a furigana row whose legal parent duplicates a
-    # winner row would be destroyed even though the name-family edge (#121) is
-    # not a duplicate of anything the winner holds. The LATERAL locks each
-    # doomed loser row to the winner's surviving equivalent using the SAME key
-    # the dedup DELETE below matches on — keep the two predicates identical so
-    # they can't drift. Scope: the dedup DELETE only; curated `keep_name_ids`
-    # drops are deliberate admin choices and stay as-is.
     await db.execute(
-        "UPDATE person_names child"
-        "   SET reading_of_id = w.id"
-        "  FROM person_names l"
-        "  CROSS JOIN LATERAL ("
-        "       SELECT ww.id FROM person_names ww"
-        "        WHERE ww.person_id=$2"
-        "          AND ww.name = l.name"
-        "          AND ww.visibility = l.visibility"
-        "          AND ww.locale IS NOT DISTINCT FROM l.locale"
-        "          AND ww.script IS NOT DISTINCT FROM l.script"
-        "          AND ("
-        "                ww.name_type = l.name_type"
-        "                OR (ww.name_type <> ALL($3::text[])"
-        "                    AND l.name_type <> ALL($3::text[]))"
-        "              )"
-        "        ORDER BY ww.id"
-        "        LIMIT 1"
-        "   ) w"
-        " WHERE l.person_id=$1"
-        "   AND child.reading_of_id = l.id",
-        loser_id,
-        winner_id,
-        list(NO_AUTO_CANONICAL_NAME_TYPES),
-    )
-    await db.execute(
-        "DELETE FROM person_names l"
-        " WHERE l.person_id=$1"
-        "   AND EXISTS ("
-        "       SELECT 1 FROM person_names w"
-        "        WHERE w.person_id=$2"
-        "          AND w.name = l.name"
-        "          AND w.visibility = l.visibility"
-        "          AND w.locale IS NOT DISTINCT FROM l.locale"
-        "          AND w.script IS NOT DISTINCT FROM l.script"
-        "          AND ("
-        "                w.name_type = l.name_type"
-        "                OR (w.name_type <> ALL($3::text[])"
-        "                    AND l.name_type <> ALL($3::text[]))"
-        "              )"
-        "   )",
+        _DEDUP_LOSER_NAMES_SQL,
         loser_id,
         winner_id,
         list(NO_AUTO_CANONICAL_NAME_TYPES),
