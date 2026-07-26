@@ -264,6 +264,40 @@ async def merge_person_into(
     # person blank, defeating the heal below. It also silently dropped
     # `legal_only` claims, breaking the #121 guarantee that the winner inherits
     # the loser's restricted names.
+    # Before that DELETE runs, re-point any reading/romanization children (#309)
+    # hanging off a loser row that is about to be deduped away. `reading_of_id`
+    # is ON DELETE CASCADE, so a furigana row whose legal parent duplicates a
+    # winner row would be destroyed even though the name-family edge (#121) is
+    # not a duplicate of anything the winner holds. The LATERAL locks each
+    # doomed loser row to the winner's surviving equivalent using the SAME key
+    # the dedup DELETE below matches on — keep the two predicates identical so
+    # they can't drift. Scope: the dedup DELETE only; curated `keep_name_ids`
+    # drops are deliberate admin choices and stay as-is.
+    await db.execute(
+        "UPDATE person_names child"
+        "   SET reading_of_id = w.id"
+        "  FROM person_names l"
+        "  CROSS JOIN LATERAL ("
+        "       SELECT ww.id FROM person_names ww"
+        "        WHERE ww.person_id=$2"
+        "          AND ww.name = l.name"
+        "          AND ww.visibility = l.visibility"
+        "          AND ww.locale IS NOT DISTINCT FROM l.locale"
+        "          AND ww.script IS NOT DISTINCT FROM l.script"
+        "          AND ("
+        "                ww.name_type = l.name_type"
+        "                OR (ww.name_type <> ALL($3::text[])"
+        "                    AND l.name_type <> ALL($3::text[]))"
+        "              )"
+        "        ORDER BY ww.id"
+        "        LIMIT 1"
+        "   ) w"
+        " WHERE l.person_id=$1"
+        "   AND child.reading_of_id = l.id",
+        loser_id,
+        winner_id,
+        list(NO_AUTO_CANONICAL_NAME_TYPES),
+    )
     await db.execute(
         "DELETE FROM person_names l"
         " WHERE l.person_id=$1"

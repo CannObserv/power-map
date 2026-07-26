@@ -43,8 +43,9 @@ async def _name(conn, pid, name, **kw):
     nid = generate_id()
     await conn.execute(
         "INSERT INTO person_names"
-        " (id, person_id, name, name_type, locale, script, visibility, is_canonical)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        " (id, person_id, name, name_type, locale, script, visibility, is_canonical,"
+        "  reading_of_id)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         nid,
         pid,
         name,
@@ -53,6 +54,7 @@ async def _name(conn, pid, name, **kw):
         kw.get("script"),
         kw.get("visibility", "public"),
         kw.get("is_canonical", False),
+        kw.get("reading_of_id"),
     )
     return nid
 
@@ -216,6 +218,71 @@ async def test_merge_keeps_non_public_claim_with_same_text(conn):
         ("legal", "legal_only"),
         ("variant", "public"),
     ]
+
+
+# --- #309: dedup must not cascade away the loser's reading/romanization rows ---
+
+
+async def test_merge_transfers_reading_when_parent_deduped(conn):
+    """A furigana row survives when its parent legal row is deduped away (#309).
+
+    Winner and loser both hold the same legal name; the loser additionally has a
+    `reading` pointing at its legal row. Dedup deletes the loser's legal row —
+    the reading must re-point at the winner's surviving legal row (ON DELETE
+    CASCADE would otherwise destroy the name-family edge), not vanish.
+    """
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, winner, "山田太郎", name_type="legal", is_canonical=True)
+    loser_legal = await _name(conn, loser, "山田太郎", name_type="legal")
+    await _name(conn, loser, "やまだたろう", name_type="reading", reading_of_id=loser_legal)
+    await _merge(conn, winner, loser)
+    rows = await conn.fetch(
+        "SELECT r.name AS reading, p.name AS parent"
+        " FROM person_names r JOIN person_names p ON p.id = r.reading_of_id"
+        " WHERE r.person_id=$1 AND r.name_type='reading'",
+        winner,
+    )
+    assert [(r["reading"], r["parent"]) for r in rows] == [("やまだたろう", "山田太郎")]
+
+
+async def test_merge_leaves_reading_untouched_when_parent_survives(conn):
+    """A reading whose parent is not deduped follows the parent unchanged (#309).
+
+    The loser's legal name has no winner counterpart, so it is reassigned rather
+    than deleted; the reading must still point at that same (now winner-owned)
+    row, not get needlessly re-pointed elsewhere.
+    """
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, winner, "Robert Smith", name_type="legal", is_canonical=True)
+    loser_legal = await _name(conn, loser, "田中花子", name_type="legal")
+    await _name(conn, loser, "たなかはなこ", name_type="reading", reading_of_id=loser_legal)
+    await _merge(conn, winner, loser)
+    parent = await conn.fetchval(
+        "SELECT p.id FROM person_names r JOIN person_names p ON p.id = r.reading_of_id"
+        " WHERE r.person_id=$1 AND r.name_type='reading'",
+        winner,
+    )
+    assert parent == loser_legal
+
+
+async def test_merge_drops_duplicate_reading(conn):
+    """An identical reading already held by the winner still collapses (#309).
+
+    Both sides carry the same legal row and the same furigana reading. The
+    winner keeps exactly one of each — no leak, no orphan.
+    """
+    winner, loser = await _person(conn), await _person(conn)
+    w_legal = await _name(conn, winner, "山田太郎", name_type="legal", is_canonical=True)
+    await _name(conn, winner, "やまだたろう", name_type="reading", reading_of_id=w_legal)
+    l_legal = await _name(conn, loser, "山田太郎", name_type="legal")
+    await _name(conn, loser, "やまだたろう", name_type="reading", reading_of_id=l_legal)
+    await _merge(conn, winner, loser)
+    assert (
+        await conn.fetchval(
+            "SELECT count(*) FROM person_names WHERE person_id=$1 AND name_type='reading'", winner
+        )
+        == 1
+    )
 
 
 async def test_merge_collapses_same_text_across_display_name_types(conn):
