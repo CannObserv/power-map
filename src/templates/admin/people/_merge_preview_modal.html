@@ -1,6 +1,6 @@
 {# admin/people/_merge_preview_modal.html (#255) #}
 {# Context: winner_id, loser_id, winner_name, loser_name,
-   loser_names (list of {id, name, is_canonical, visibility}),
+   loser_names (list of {id, name, is_canonical, visibility, name_type, reading_of_name}),
    roles_count, contacts_count, links_count, addresses_count, identifiers_count,
    ctx ("list" => submit back into the people list region) #}
 <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="merge-preview-title">
@@ -37,7 +37,8 @@
     <h3 class="field-group-label" style="margin-bottom:var(--space-1)">Names</h3>
     <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:0 0 var(--space-2)">
       Checked names will be added to the kept person as aliases. The kept person's
-      existing canonical name is not affected. Unchecking a name drops it permanently.
+      existing canonical name is not affected. Unchecking a name drops it permanently
+      &mdash; except a name a checked reading points at, which is kept to anchor it (#323).
     </p>
     <ul style="margin:0 0 var(--space-4) var(--space-4);padding:0;list-style:none">
       {% for n in loser_names %}
@@ -45,6 +46,10 @@
         <label style="display:flex;align-items:center;gap:var(--space-2)">
           <input type="checkbox" name="keep_name_ids" value="{{ n.id }}" checked>
           <span>{{ n.name }}</span>
+          {% if n.reading_of_name %}
+          <span style="font-size:var(--font-size-xs);color:var(--color-text-muted)">
+            ({{ n.name_type }} of &ldquo;{{ n.reading_of_name }}&rdquo;)</span>
+          {% endif %}
           {% if n.visibility and n.visibility != 'public' %}
           <span class="badge badge--neutral" style="font-size:var(--font-size-xs)">{{ n.visibility }}</span>
           {% endif %}

@@ -308,6 +308,35 @@ async def test_merge_with_keep_name_ids_drops_unchecked_names(client, person_pai
     assert "Jonathan Smithfield Jr" not in winner_names  # unchecked loser name dropped
 
 
+async def test_merge_preview_surfaces_reading_parent_linkage(client, person_pair, db):
+    """#323: the preview modal surfaces a reading's parent so an admin unchecking
+    the parent can see the kept child depends on it (the guard keeps the parent,
+    but the note explains why an unchecked row may still transfer)."""
+    id_a, id_b = person_pair  # id_b loser
+    parent_id, reading_id = generate_id(), generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, '山田太郎', 'legal', FALSE)",
+        parent_id,
+        id_b,
+    )
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, reading_of_id)"
+        " VALUES ($1, $2, 'やまだたろう', 'reading', $3)",
+        reading_id,
+        id_b,
+        parent_id,
+    )
+    response = await client.get(
+        f"/admin/people/{id_a}/merge-preview/{id_b}/",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200
+    assert "やまだたろう" in response.text  # the reading row is listed
+    assert "reading of" in response.text  # linkage note rendered
+    assert "山田太郎" in response.text  # parent name shown in the note
+
+
 async def test_merge_with_return_to_list_renders_people_region(client, person_pair):
     """People list-context merge (return_to=list) re-renders the people list region
     and does NOT HX-Redirect (#255)."""

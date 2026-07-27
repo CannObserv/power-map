@@ -304,3 +304,103 @@ async def test_merge_collapses_same_text_across_display_name_types(conn):
         "SELECT name, name_type FROM person_names WHERE person_id=$1 ORDER BY name_type", winner
     )
     assert [(r["name"], r["name_type"]) for r in rows] == [("Jodi", "legal"), ("Jody", "variant")]
+
+
+# --- #323: curated keep_name_ids must not cascade away a *kept* reading -------
+# #309 guarded the dedup DELETE; the curated drop had the same reading_of_id
+# ON DELETE CASCADE exposure. If the admin checks a reading but leaves its parent
+# unchecked, dropping the parent would silently destroy the explicitly-kept child
+# (case C). The guard keeps parents of kept children; unchecked children stay
+# dropped (case A).
+
+
+async def test_curated_merge_keeps_reading_when_parent_unchecked(conn):
+    """#323 case C: a kept reading whose parent is unchecked must survive.
+
+    Dropping the parent would cascade the reading away (reading_of_id ON DELETE
+    CASCADE) even though the admin explicitly checked it to keep. The guard keeps
+    the parent so the kept child survives and stays linked.
+    """
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, winner, "Robert Smith", name_type="legal", is_canonical=True)
+    loser_legal = await _name(conn, loser, "山田太郎", name_type="legal")
+    loser_reading = await _name(
+        conn, loser, "やまだたろう", name_type="reading", reading_of_id=loser_legal
+    )
+    await merge_person_into(
+        conn,
+        winner_id=winner,
+        loser_id=loser,
+        actor_email="admin@test.com",
+        keep_name_ids=[loser_reading],  # keep ONLY the reading; parent unchecked
+    )
+    rows = await conn.fetch(
+        "SELECT r.name AS reading, p.name AS parent"
+        " FROM person_names r JOIN person_names p ON p.id = r.reading_of_id"
+        " WHERE r.person_id=$1 AND r.name_type='reading'",
+        winner,
+    )
+    assert [(r["reading"], r["parent"]) for r in rows] == [("やまだたろう", "山田太郎")]
+
+
+async def test_curated_merge_reading_repoints_when_kept_parent_dedups(conn):
+    """#323 + #309 compose: the guard keeps the unchecked parent, then dedup
+    collapses it into the winner's identical legal row and the reading re-points
+    at the survivor — no orphan, no duplicate.
+    """
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, winner, "山田太郎", name_type="legal", is_canonical=True)
+    loser_legal = await _name(conn, loser, "山田太郎", name_type="legal")
+    loser_reading = await _name(
+        conn, loser, "やまだたろう", name_type="reading", reading_of_id=loser_legal
+    )
+    await merge_person_into(
+        conn,
+        winner_id=winner,
+        loser_id=loser,
+        actor_email="admin@test.com",
+        keep_name_ids=[loser_reading],
+    )
+    rows = await conn.fetch(
+        "SELECT r.name AS reading, p.name AS parent"
+        " FROM person_names r JOIN person_names p ON p.id = r.reading_of_id"
+        " WHERE r.person_id=$1 AND r.name_type='reading'",
+        winner,
+    )
+    assert [(r["reading"], r["parent"]) for r in rows] == [("やまだたろう", "山田太郎")]
+    assert (
+        await conn.fetchval(
+            "SELECT count(*) FROM person_names WHERE person_id=$1 AND name='山田太郎'", winner
+        )
+        == 1
+    )
+
+
+async def test_curated_merge_drops_unchecked_reading_keeps_parent(conn):
+    """#323 case A stays a deliberate drop: unchecking a reading while keeping its
+    parent drops only the reading. The guard resurrects parents of *kept*
+    children, never children the admin unchecked.
+    """
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, winner, "Robert Smith", name_type="legal", is_canonical=True)
+    loser_legal = await _name(conn, loser, "田中花子", name_type="legal")
+    await _name(conn, loser, "たなかはなこ", name_type="reading", reading_of_id=loser_legal)
+    await merge_person_into(
+        conn,
+        winner_id=winner,
+        loser_id=loser,
+        actor_email="admin@test.com",
+        keep_name_ids=[loser_legal],  # keep parent, drop reading
+    )
+    assert (
+        await conn.fetchval(
+            "SELECT count(*) FROM person_names WHERE person_id=$1 AND name_type='reading'", winner
+        )
+        == 0
+    )
+    assert (
+        await conn.fetchval(
+            "SELECT count(*) FROM person_names WHERE person_id=$1 AND name='田中花子'", winner
+        )
+        == 1
+    )
