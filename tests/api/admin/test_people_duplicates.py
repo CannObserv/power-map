@@ -308,6 +308,46 @@ async def test_merge_with_keep_name_ids_drops_unchecked_names(client, person_pai
     assert "Jonathan Smithfield Jr" not in winner_names  # unchecked loser name dropped
 
 
+async def test_merge_preview_surfaces_reading_parent_linkage(client, person_pair, db):
+    """#323: the preview modal surfaces the reading↔parent linkage on BOTH rows so
+    an admin unchecking either can see the kept child depends on the parent — the
+    child gets a `(reading of "…")` note, the parent a `(kept to anchor a reading)`
+    note. mrz slugs are humanized rather than shown raw."""
+    id_a, id_b = person_pair  # id_b loser
+    parent_id, reading_id, mrz_id = generate_id(), generate_id(), generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, '山田太郎', 'legal', FALSE)",
+        parent_id,
+        id_b,
+    )
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, reading_of_id)"
+        " VALUES ($1, $2, 'やまだたろう', 'reading', $3)",
+        reading_id,
+        id_b,
+        parent_id,
+    )
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, reading_of_id)"
+        " VALUES ($1, $2, 'YAMADA TARO', 'mrz', $3)",
+        mrz_id,
+        id_b,
+        parent_id,
+    )
+    response = await client.get(
+        f"/admin/people/{id_a}/merge-preview/{id_b}/",
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200
+    assert "やまだたろう" in response.text  # the reading row is listed
+    assert "reading of" in response.text  # child linkage note rendered
+    assert "山田太郎" in response.text  # parent name shown in the child note
+    assert "a reading points at this" in response.text  # parent-row note rendered
+    assert "machine-readable form of" in response.text  # mrz slug humanized, not raw
+    assert "(mrz of" not in response.text  # raw slug must not leak
+
+
 async def test_merge_with_return_to_list_renders_people_region(client, person_pair):
     """People list-context merge (return_to=list) re-renders the people list region
     and does NOT HX-Redirect (#255)."""

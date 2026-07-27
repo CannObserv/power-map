@@ -266,14 +266,29 @@ async def merge_person_into(
     # demote+dedup+transfer below then moves only what remains. `keep_name_ids=None`
     # skips this — preserving the #121 inherit-ALL-names default for direct/script
     # callers (deadnames, hidden names, etc.).
-    # NB: unlike the dedup DELETE below, these drops are NOT #309-guarded — a kept
-    # reading whose parent is dropped here cascades away (reading_of_id ON DELETE
-    # CASCADE). Deliberate for now (admin drops are explicit); tracked in #323.
+    # #323: the curated drop shares the dedup DELETE's reading_of_id ON DELETE
+    # CASCADE exposure, but only in one direction. Dropping a reading whose parent
+    # is *kept* (case A) or dropping both (case B) are deliberate admin choices and
+    # stay as-is. The dangerous case is C: the admin explicitly *keeps* a reading
+    # but leaves its parent unchecked — dropping the parent would silently destroy
+    # the kept child. Guard it by extending the keep-set to the parents of any kept
+    # child: a row that anchors a checked `reading_of_id` child (reading /
+    # romanization / mrz) is implicitly required, so it survives the drop keyed on
+    # the FK's presence, not name_type (and the dedup below may still collapse it
+    # into a winner equivalent, with #309 re-pointing the reading). The
+    # `reading_of_id IS NOT NULL` filter keeps the subquery NULL-free so `NOT IN`
+    # can't evaluate to UNKNOWN and swallow the whole DELETE.
     if keep_name_ids is not None:
         if keep_name_ids:
             placeholders = ", ".join(f"${i + 2}" for i in range(len(keep_name_ids)))
             await db.execute(
-                f"DELETE FROM person_names WHERE person_id=$1 AND id NOT IN ({placeholders})",
+                f"DELETE FROM person_names WHERE person_id=$1"
+                f" AND id NOT IN ({placeholders})"
+                f" AND id NOT IN ("
+                f"     SELECT reading_of_id FROM person_names"
+                f"      WHERE person_id=$1 AND reading_of_id IS NOT NULL"
+                f"        AND id IN ({placeholders})"
+                f" )",
                 loser_id,
                 *keep_name_ids,
             )
@@ -577,10 +592,21 @@ async def person_merge_preview(
     )
     # All loser names — the admin manages hidden / deadnames too (#121), and each is
     # keepable as an alias; visibility is surfaced as a badge so an unchecked drop of
-    # a sensitive name is a deliberate, informed choice.
+    # a sensitive name is a deliberate, informed choice. Both sides of the
+    # reading→parent linkage (#323) are surfaced so the cascade guard is visible on
+    # the actionable rows: `reading_of_name` labels the child ("reading of X") and
+    # `has_reading_child` flags the parent (unchecking it still keeps it if a checked
+    # reading points at it), rather than letting the transfer look inconsistent.
     loser_names = await db.fetch(
-        "SELECT id, name, is_canonical, visibility FROM person_names"
-        " WHERE person_id=$1 ORDER BY is_canonical DESC, name",
+        "SELECT n.id, n.name, n.is_canonical, n.visibility, n.name_type,"
+        "       parent.name AS reading_of_name,"
+        "       EXISTS ("
+        "           SELECT 1 FROM person_names c"
+        "            WHERE c.reading_of_id = n.id AND c.person_id = n.person_id"
+        "       ) AS has_reading_child"
+        "  FROM person_names n"
+        "  LEFT JOIN person_names parent ON parent.id = n.reading_of_id"
+        " WHERE n.person_id=$1 ORDER BY n.is_canonical DESC, n.name",
         loser_id,
     )
     roles_count = await db.fetchval(
