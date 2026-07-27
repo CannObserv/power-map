@@ -140,7 +140,9 @@ async def migrate_role_assignment_ancillary(
 
     Returns ``{table: (moved, deduped)}``. ``moved`` rows are re-pointed to
     ``to_id``; ``deduped`` rows are deleted because ``to_id`` already carries an
-    identical row. Does not emit outbox signals — callers do, via
+    identical row. Append-only specs (``key_fields=None``, e.g. ``import_provenance``)
+    re-point every row and never dedup, so their ``deduped`` count is always 0.
+    Does not emit outbox signals — callers do, via
     :func:`rehome_conflicting_assignment_ancillary`.
     """
     result: dict[str, tuple[int, int]] = {}

@@ -360,9 +360,10 @@ async def merge_person_into(
     await heal_person_canonical(db, winner_id)
 
     # role_assignments: delete conflicts (same role+start_date), then reassign.
-    # #324: re-home the conflict rows' polymorphic ancillary onto the surviving
-    # winner assignment BEFORE the hard-delete, else links / contact_methods /
-    # field_confidence / identifiers keyed on the deleted id are silently orphaned.
+    # #324: re-home the conflict rows' polymorphic ancillary (links / contact_methods
+    # / field_confidence / identifiers / import_provenance — see ancillary_migrate)
+    # onto the surviving winner assignment BEFORE the hard-delete, else those rows
+    # keyed on the deleted id are silently orphaned.
     conflict_pairs = await db.fetch(
         """SELECT l.id AS loser_ra, w.id AS winner_ra
            FROM role_assignments l
