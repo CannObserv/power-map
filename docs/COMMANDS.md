@@ -668,6 +668,42 @@ sudo systemctl start power-map-schema-parity.service   # run once, now
 sudo journalctl -u power-map-schema-parity -f          # drift report on failure
 ```
 
+## role_assignment ancillary orphan audit & cleanup (issue #324)
+
+Polymorphic ancillary (`links` / `contact_methods` / `field_confidence` /
+`identifiers`) keyed on `(entity_type='role_assignment', entity_id)` has no FK, so
+a pre-#324 merge dedup could hard-delete an assignment and orphan its ancillary.
+The merge paths now re-home before deleting; these two scripts are the continuous
+guard and the one-time recovery. See `docs/CONVENTIONS.md` §"Merge dedup —
+role_assignment ancillary re-homing".
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+# Guard: count orphans (exit 3 if any) — read-only
+uv run "${env_args[@]}" python -m scripts.audit_role_assignment_ancillary_orphans
+
+# Cleanup: heuristic re-home + redundant-link purge; manual rows reported only
+uv run "${env_args[@]}" python -m scripts.cleanup_role_assignment_ancillary_orphans            # dry run
+uv run "${env_args[@]}" python -m scripts.cleanup_role_assignment_ancillary_orphans --execute  # supervised
+```
+
+Scheduled (production): a daily audit timer. Install / update:
+
+```bash
+sudo cp infra/power-map-ancillary-orphans.service infra/power-map-ancillary-orphans.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now power-map-ancillary-orphans.timer
+
+# Inspect
+systemctl list-timers power-map-ancillary-orphans.timer    # next/last run
+sudo systemctl start power-map-ancillary-orphans.service   # run once, now
+sudo journalctl -u power-map-ancillary-orphans -f          # orphan breakdown on failure
+```
+
 ## Git Submodules
 
 ```bash

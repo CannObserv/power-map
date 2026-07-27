@@ -11,6 +11,7 @@ from markupsafe import escape
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.list_filters import parse_list_filters
 from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
+from src.core.ancillary_migrate import rehome_conflicting_assignment_ancillary
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -175,7 +176,23 @@ async def role_merge(
                 winner_id,
             )
 
-        # role_assignments: delete conflicts (same person+start_date), reassign rest
+        # role_assignments: delete conflicts (same person+start_date), reassign rest.
+        # #324: re-home the conflict rows' polymorphic ancillary onto the surviving
+        # winner assignment before the hard-delete, else it orphans.
+        conflict_pairs = await db.fetch(
+            """SELECT l.id AS loser_ra, w.id AS winner_ra
+               FROM role_assignments l
+               JOIN role_assignments w
+                 ON w.role_id=$2 AND w.archived_at IS NULL
+                AND w.person_id = l.person_id
+                AND w.start_date IS NOT DISTINCT FROM l.start_date
+               WHERE l.role_id=$1 AND l.archived_at IS NULL""",
+            loser_id,
+            winner_id,
+        )
+        await rehome_conflicting_assignment_ancillary(
+            db, [(r["loser_ra"], r["winner_ra"]) for r in conflict_pairs]
+        )
         await db.execute(
             """DELETE FROM role_assignments ra
                WHERE ra.role_id=$1 AND ra.archived_at IS NULL

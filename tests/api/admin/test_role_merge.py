@@ -264,6 +264,53 @@ async def test_merge_reassigns_unique_assignments(client, role_pair_with_assignm
     assert row is not None
 
 
+async def test_merge_rehomes_conflicting_assignment_ancillary(
+    client, role_pair_with_assignments, db
+):
+    """#324: ancillary on the loser role's conflict-deleted assignment must land
+    on the survivor assignment, not orphan."""
+    org_id, role_a, role_b, person_id, _ = role_pair_with_assignments
+    loser_ra = await db.fetchval(
+        "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+        person_id,
+        role_b,
+    )
+    await db.execute(
+        "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+        " VALUES ($1, 'role_assignment', $2, 'email', 'melanie.morgan@leg.wa.gov')",
+        generate_id(),
+        loser_ra,
+    )
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, '01KKZ3WGJSZF0F96SMYC000AVV', 'PDC-2')",
+        generate_id(),
+        loser_ra,
+    )
+
+    await client.post(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    winner_ra = await db.fetchval(
+        "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+        person_id,
+        role_a,
+    )
+    assert await db.fetchval(
+        "SELECT count(*) FROM contact_methods WHERE entity_type='role_assignment' AND entity_id=$1",
+        winner_ra,
+    )
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", winner_ra)
+    assert not await db.fetchval(
+        "SELECT count(*) FROM contact_methods WHERE entity_type='role_assignment' AND entity_id=$1",
+        loser_ra,
+    )
+    assert not await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", loser_ra)
+
+
 # ── Merge: notes ────────────────────────────────────────────────────────────
 
 

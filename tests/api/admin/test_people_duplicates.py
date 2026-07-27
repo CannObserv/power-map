@@ -401,6 +401,85 @@ async def test_merge_reassigns_unique_role_assignment(client, person_pair_with_r
     assert row is not None  # loser's unique role now on winner
 
 
+async def test_merge_rehomes_conflicting_assignment_ancillary(client, person_pair_with_roles, db):
+    """#324: ancillary on the loser's conflict-deleted assignment must land on
+    the survivor, not orphan. Covers links / contact_methods / field_confidence /
+    identifiers / import_provenance."""
+    id_winner, id_loser, shared_role_id, _ = person_pair_with_roles
+    loser_ra = await db.fetchval(
+        "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+        id_loser,
+        shared_role_id,
+    )
+    batch = generate_id()
+    await db.execute(
+        "INSERT INTO import_batches"
+        " (id, source_file, file_hash, row_count, loaded_count, error_count)"
+        " VALUES ($1, 'f.csv', $2, 1, 1, 0)",
+        batch,
+        f"h_{batch}",
+    )
+    await db.execute(
+        "INSERT INTO import_provenance"
+        " (id, batch_id, source_row, entity_type, entity_id, action, raw_data)"
+        " VALUES ($1, $2, 1, 'role_assignment', $3, 'created', '{}'::jsonb)",
+        generate_id(),
+        batch,
+        loser_ra,
+    )
+    await db.execute(
+        "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+        " VALUES ($1, 'role_assignment', $2, 'https://leg.wa.gov/kilduff', $3)",
+        generate_id(),
+        loser_ra,
+        "01KKZ3WGJRPV2TDZV672NWFE8G",  # 'twitter' link_type
+    )
+    await db.execute(
+        "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+        " VALUES ($1, 'role_assignment', $2, 'email', 'alex.ramel@leg.wa.gov')",
+        generate_id(),
+        loser_ra,
+    )
+    await db.execute(
+        "INSERT INTO field_confidence"
+        " (id, entity_type, entity_id, field_name, value_hash, source_reliability,"
+        "  validation_status)"
+        " VALUES ($1, 'role_assignment', $2, 'url', 'h1', 0.5, 'unconfirmed')",
+        generate_id(),
+        loser_ra,
+    )
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, '01KKZ3WGJSZF0F96SMYC000AVV', 'PDC-1')",
+        generate_id(),
+        loser_ra,
+    )
+
+    await client.post(
+        f"/admin/people/{id_winner}/merge/{id_loser}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    winner_ra = await db.fetchval(
+        "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+        id_winner,
+        shared_role_id,
+    )
+    for table in ("links", "contact_methods", "field_confidence", "import_provenance"):
+        assert await db.fetchval(
+            f"SELECT count(*) FROM {table} WHERE entity_type='role_assignment' AND entity_id=$1",
+            winner_ra,
+        ), f"{table} not re-homed to survivor"
+        # and no orphans linger on the deleted loser id
+        assert not await db.fetchval(
+            f"SELECT count(*) FROM {table} WHERE entity_type='role_assignment' AND entity_id=$1",
+            loser_ra,
+        ), f"{table} orphaned on deleted loser"
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", winner_ra)
+    assert not await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", loser_ra)
+
+
 async def test_merge_returns_404_for_unknown_person(client, person_pair):
     id_a, _ = person_pair
     response = await client.post(

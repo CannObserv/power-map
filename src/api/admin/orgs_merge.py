@@ -20,6 +20,7 @@ from src.api.admin.org_dups import (
     invalidate_dup_count_cache,
 )
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
+from src.core.ancillary_migrate import rehome_conflicting_assignment_ancillary
 from src.core.db import generate_id
 from src.core.org_lifecycle import count_open_assignments, get_org_ended_on
 
@@ -175,34 +176,45 @@ async def _execute_merge(
         if role_pairs_to_merge:
             for winner_role_id, loser_role_id in role_pairs_to_merge:
                 active = await db.fetch(
-                    "SELECT person_id, start_date, end_date, is_current, notes"
+                    "SELECT id, person_id, start_date, end_date, is_current, notes, source_key_id"
                     " FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
                     loser_role_id,
                 )
+                # #324: every active loser assignment below is hard-deleted, so its
+                # polymorphic ancillary must be re-homed onto the surviving winner
+                # assignment first. The survivor is either an existing winner row
+                # (dropped dup) or the row we re-create on the winner role (new id).
+                anc_pairs: list[tuple[str, str]] = []
                 for a in active:
-                    exists = await db.fetchval(
-                        "SELECT 1 FROM role_assignments"
+                    existing = await db.fetchval(
+                        "SELECT id FROM role_assignments"
                         " WHERE person_id=$1 AND role_id=$2 AND archived_at IS NULL"
                         " AND start_date IS NOT DISTINCT FROM $3",
                         a["person_id"],
                         winner_role_id,
                         a["start_date"],
                     )
-                    if not exists:
+                    if existing is None:
+                        target_id = generate_id()
                         await db.execute(
                             "INSERT INTO role_assignments"
-                            " (id, person_id, role_id, start_date, end_date, is_current, notes)"
-                            " VALUES ($1,$2,$3,$4,$5,$6,$7)",
-                            generate_id(),
+                            " (id, person_id, role_id, start_date, end_date, is_current, notes,"
+                            "  source_key_id)"
+                            " VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+                            target_id,
                             a["person_id"],
                             winner_role_id,
                             a["start_date"],
                             a["end_date"],
                             a["is_current"],
                             a["notes"],
+                            a["source_key_id"],  # #324 CR3: preserve assignment provenance
                         )
                     else:
+                        target_id = existing
                         dropped_assignments += 1
+                    anc_pairs.append((a["id"], target_id))
+                await rehome_conflicting_assignment_ancillary(db, anc_pairs)
                 # Transfer archived assignments to winner role (no dedup needed)
                 await db.execute(
                     "UPDATE role_assignments SET role_id=$1"

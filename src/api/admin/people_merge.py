@@ -23,6 +23,7 @@ from src.api.admin.people_dups import (
     invalidate_dup_count_cache as invalidate_person_dup_count_cache,
 )
 from src.api.admin.people_queries import VALID_STATUSES, query_people_rows
+from src.core.ancillary_migrate import rehome_conflicting_assignment_ancillary
 from src.core.db import generate_id
 from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
 
@@ -359,16 +360,31 @@ async def merge_person_into(
     await heal_person_canonical(db, winner_id)
 
     # role_assignments: delete conflicts (same role+start_date), then reassign.
-    await db.execute(
-        """DELETE FROM role_assignments
-           WHERE person_id=$1 AND archived_at IS NULL
-             AND (role_id, COALESCE(start_date, '0001-01-01')) IN (
-                 SELECT role_id, COALESCE(start_date, '0001-01-01')
-                 FROM role_assignments
-                 WHERE person_id=$2 AND archived_at IS NULL
-             )""",
+    # #324: re-home the conflict rows' polymorphic ancillary (links / contact_methods
+    # / field_confidence / identifiers / import_provenance — see ancillary_migrate)
+    # onto the surviving winner assignment BEFORE the hard-delete, else those rows
+    # keyed on the deleted id are silently orphaned.
+    conflict_pairs = await db.fetch(
+        """SELECT l.id AS loser_ra, w.id AS winner_ra
+           FROM role_assignments l
+           JOIN role_assignments w
+             ON w.person_id=$2 AND w.archived_at IS NULL
+            AND w.role_id = l.role_id
+            AND w.start_date IS NOT DISTINCT FROM l.start_date
+           WHERE l.person_id=$1 AND l.archived_at IS NULL""",
         loser_id,
         winner_id,
+    )
+    await rehome_conflicting_assignment_ancillary(
+        db, [(r["loser_ra"], r["winner_ra"]) for r in conflict_pairs]
+    )
+    # Delete exactly the rows we just re-homed — deriving the DELETE set from the
+    # same `conflict_pairs` (rather than re-deriving via a COALESCE sentinel) keeps
+    # the re-homed set and the deleted set provably identical, so no conflict row
+    # can be deleted without its ancillary first moving to the survivor (#324 CR2).
+    await db.execute(
+        "DELETE FROM role_assignments WHERE id = ANY($1::text[])",
+        [r["loser_ra"] for r in conflict_pairs],
     )
     await db.execute(
         "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",
