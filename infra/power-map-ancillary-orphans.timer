@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily power-map role_assignment ancillary orphan audit (issue #324)
+Description=Daily power-map role / role_assignment ancillary orphan audit (issues #324, #326)
 
 [Timer]
 OnCalendar=daily
