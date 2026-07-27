@@ -272,6 +272,26 @@ async def role_detail(
 
     assignments = await fetch_role_assignments(role_id, db)
 
+    email_contacts = await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type = 'role' AND entity_id = $1 AND contact_type = 'email'"
+        " ORDER BY value",
+        role_id,
+    )
+    phone_contacts = await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type = 'role' AND entity_id = $1 AND contact_type = 'phone'"
+        " ORDER BY value",
+        role_id,
+    )
+    links = await db.fetch(
+        """SELECT l.*, lt.display_name AS link_type_name, lt.is_social
+           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
+           WHERE l.entity_type = 'role' AND l.entity_id = $1
+           ORDER BY lt.display_name, l.url""",
+        role_id,
+    )
+
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
@@ -282,6 +302,9 @@ async def role_detail(
             "role": role,
             "role_id": role_id,
             "assignments": assignments,
+            "email_contacts": email_contacts,
+            "phone_contacts": phone_contacts,
+            "links": links,
             "flash_msg": flash_msg,
         },
         headers=resp_headers,

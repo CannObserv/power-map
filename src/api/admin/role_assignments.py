@@ -237,6 +237,34 @@ async def ra_detail(
     ra = await _get_ra(ra_id, db)
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
 
+    email_contacts = await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type = 'role_assignment' AND entity_id = $1 AND contact_type = 'email'"
+        " ORDER BY value",
+        ra_id,
+    )
+    phone_contacts = await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type = 'role_assignment' AND entity_id = $1 AND contact_type = 'phone'"
+        " ORDER BY value",
+        ra_id,
+    )
+    links = await db.fetch(
+        """SELECT l.*, lt.display_name AS link_type_name, lt.is_social
+           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
+           WHERE l.entity_type = 'role_assignment' AND l.entity_id = $1
+           ORDER BY lt.display_name, l.url""",
+        ra_id,
+    )
+    identifiers = await db.fetch(
+        """SELECT i.*, eit.display_name AS type_name, eit.full_name AS type_full_name
+           FROM identifiers i
+           JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
+           WHERE i.entity_id = $1 AND eit.entity_type = 'role_assignment'
+           ORDER BY eit.display_name, i.value""",
+        ra_id,
+    )
+
     return templates.TemplateResponse(
         request,
         "admin/role_assignments/detail.html",
@@ -244,6 +272,10 @@ async def ra_detail(
             "user": user,
             "active_section": "role_assignments",
             "ra": ra,
+            "email_contacts": email_contacts,
+            "phone_contacts": phone_contacts,
+            "links": links,
+            "identifiers": identifiers,
             "flash_msg": flash_msg,
         },
         headers=resp_headers,

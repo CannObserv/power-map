@@ -58,7 +58,14 @@ ADD_BUTTON_WIRING = [
             "person-assignment-row-new",
         ],
     ),
-    ("admin/roles/detail.html", ["assignment-row-new"]),
+    (
+        "admin/roles/detail.html",
+        ["assignment-row-new", "email-row-new", "phone-row-new", "link-row-new"],
+    ),
+    (
+        "admin/role_assignments/detail.html",
+        ["email-row-new", "phone-row-new", "link-row-new", "identifier-row-new"],
+    ),
     (
         "admin/jurisdictions/detail.html",
         [
@@ -94,6 +101,11 @@ FORM_ROW_PARTIALS = [
     "admin/people/partials/_identifier_form_row.html",
     "admin/people/partials/_assignment_form_row.html",
     "admin/roles/partials/_assignment_form_row.html",
+    "admin/roles/partials/_contact_form_row.html",
+    "admin/roles/partials/_link_form_row.html",
+    "admin/role_assignments/partials/_contact_form_row.html",
+    "admin/role_assignments/partials/_link_form_row.html",
+    "admin/role_assignments/partials/_identifier_form_row.html",
     "admin/jurisdictions/partials/_contact_form_row.html",
     "admin/jurisdictions/partials/_address_form_row.html",
     "admin/jurisdictions/partials/_link_form_row.html",
