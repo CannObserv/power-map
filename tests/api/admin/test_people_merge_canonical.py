@@ -404,3 +404,37 @@ async def test_curated_merge_drops_unchecked_reading_keeps_parent(conn):
         )
         == 1
     )
+
+
+async def test_curated_merge_drops_both_reading_and_parent(conn):
+    """#323 case B: unchecking both a reading and its parent drops both cleanly.
+
+    The guard only resurrects parents of *kept* children — with neither in the
+    keep-set, both go (the parent's DELETE cascades the reading anyway) and no
+    NOT-IN/NULL interaction leaves a stray row or errors.
+    """
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, winner, "Robert Smith", name_type="legal", is_canonical=True)
+    keeper = await _name(conn, loser, "Bob Smith", name_type="preferred")
+    loser_legal = await _name(conn, loser, "田中花子", name_type="legal")
+    await _name(conn, loser, "たなかはなこ", name_type="reading", reading_of_id=loser_legal)
+    await merge_person_into(
+        conn,
+        winner_id=winner,
+        loser_id=loser,
+        actor_email="admin@test.com",
+        keep_name_ids=[keeper],  # keep an unrelated name; drop both parent + reading
+    )
+    assert (
+        await conn.fetchval(
+            "SELECT count(*) FROM person_names"
+            " WHERE person_id=$1 AND name IN ('田中花子', 'たなかはなこ')",
+            winner,
+        )
+        == 0
+    )
+    winner_names = {
+        r["name"]
+        for r in await conn.fetch("SELECT name FROM person_names WHERE person_id=$1", winner)
+    }
+    assert "Bob Smith" in winner_names

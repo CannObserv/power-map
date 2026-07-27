@@ -272,8 +272,9 @@ async def merge_person_into(
     # stay as-is. The dangerous case is C: the admin explicitly *keeps* a reading
     # but leaves its parent unchecked — dropping the parent would silently destroy
     # the kept child. Guard it by extending the keep-set to the parents of any kept
-    # child: a row that anchors a checked reading/romanization is implicitly
-    # required, so it survives the drop (and the dedup below may still collapse it
+    # child: a row that anchors a checked `reading_of_id` child (reading /
+    # romanization / mrz) is implicitly required, so it survives the drop keyed on
+    # the FK's presence, not name_type (and the dedup below may still collapse it
     # into a winner equivalent, with #309 re-pointing the reading). The
     # `reading_of_id IS NOT NULL` filter keeps the subquery NULL-free so `NOT IN`
     # can't evaluate to UNKNOWN and swallow the whole DELETE.
@@ -591,13 +592,16 @@ async def person_merge_preview(
     )
     # All loser names — the admin manages hidden / deadnames too (#121), and each is
     # keepable as an alias; visibility is surfaced as a badge so an unchecked drop of
-    # a sensitive name is a deliberate, informed choice. `reading_of_name` surfaces
-    # the reading→parent linkage (#323): a checked reading keeps its parent alive
-    # even if the parent is unchecked, so the modal notes the dependency rather than
-    # letting the transfer look inconsistent.
+    # a sensitive name is a deliberate, informed choice. Both sides of the
+    # reading→parent linkage (#323) are surfaced so the cascade guard is visible on
+    # the actionable rows: `reading_of_name` labels the child ("reading of X") and
+    # `has_reading_child` flags the parent (unchecking it still keeps it if a checked
+    # reading points at it), rather than letting the transfer look inconsistent.
     loser_names = await db.fetch(
         "SELECT n.id, n.name, n.is_canonical, n.visibility, n.name_type,"
-        "       parent.name AS reading_of_name"
+        "       parent.name AS reading_of_name,"
+        "       EXISTS (SELECT 1 FROM person_names c WHERE c.reading_of_id = n.id)"
+        "           AS has_reading_child"
         "  FROM person_names n"
         "  LEFT JOIN person_names parent ON parent.id = n.reading_of_id"
         " WHERE n.person_id=$1 ORDER BY n.is_canonical DESC, n.name",
