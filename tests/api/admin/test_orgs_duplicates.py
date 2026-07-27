@@ -540,6 +540,115 @@ async def test_merge_with_role_pairs_merges_assignments_and_deduplicates(client,
     assert assignment_count == 1
 
 
+async def _role_pair_orgs(db):
+    """Winner org+role, loser org+role; returns (id_a, id_b, role_a, role_b)."""
+    id_a, id_b = generate_id(), generate_id()
+    role_a, role_b = generate_id(), generate_id()
+    for oid, name in [(id_a, "Anc Org A"), (id_b, "Anc Org B")]:
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await db.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, $3, TRUE)",
+            generate_id(),
+            oid,
+            name,
+        )
+    for rid, oid in [(role_a, id_a), (role_b, id_b)]:
+        await db.execute(
+            "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Director')",
+            rid,
+            oid,
+        )
+    return id_a, id_b, role_a, role_b
+
+
+async def _person(db):
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, is_canonical)"
+        " VALUES ($1, $2, 'Anc Person', TRUE)",
+        generate_id(),
+        pid,
+    )
+    return pid
+
+
+async def test_org_merge_role_pair_rehomes_dropped_dup_ancillary(client, db):
+    """#324: dropped-dup branch — loser assignment deleted, ancillary → survivor."""
+    id_a, id_b, role_a, role_b = await _role_pair_orgs(db)
+    person_id = await _person(db)
+    assign_a, assign_b = generate_id(), generate_id()
+    for aid, rid in [(assign_a, role_a), (assign_b, role_b)]:
+        await db.execute(
+            "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+            " VALUES ($1, $2, $3, '2020-01-01')",
+            aid,
+            person_id,
+            rid,
+        )
+    await db.execute(
+        "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+        " VALUES ($1, 'role_assignment', $2, 'email', 'michelle.caldier@leg.wa.gov')",
+        generate_id(),
+        assign_b,
+    )
+
+    await client.post(
+        f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+        data={"merge_role_pairs": f"{role_a}:{role_b}"},
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    assert await db.fetchval(
+        "SELECT count(*) FROM contact_methods WHERE entity_type='role_assignment' AND entity_id=$1",
+        assign_a,
+    )  # survivor got it
+    assert not await db.fetchval(
+        "SELECT count(*) FROM contact_methods WHERE entity_type='role_assignment' AND entity_id=$1",
+        assign_b,
+    )  # deleted loser not orphaned
+
+
+async def test_org_merge_role_pair_rehomes_recreated_assignment_ancillary(client, db):
+    """#324: re-create branch — loser assignment deleted and re-inserted on the
+    winner role under a NEW id; ancillary must follow to the new id."""
+    id_a, id_b, role_a, role_b = await _role_pair_orgs(db)
+    person_id = await _person(db)
+    assign_b = generate_id()
+    # Person on the LOSER role only → winner has no matching assignment → re-created.
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+        " VALUES ($1, $2, $3, '2021-05-05')",
+        assign_b,
+        person_id,
+        role_b,
+    )
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, '01KKZ3WGJSZF0F96SMYC000AVV', 'PDC-9')",
+        generate_id(),
+        assign_b,
+    )
+
+    await client.post(
+        f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+        data={"merge_role_pairs": f"{role_a}:{role_b}"},
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    new_ra = await db.fetchval(
+        "SELECT id FROM role_assignments WHERE role_id=$1 AND person_id=$2",
+        role_a,
+        person_id,
+    )
+    assert new_ra is not None and new_ra != assign_b
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", new_ra)
+    assert not await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", assign_b)
+
+
 async def test_merge_with_keep_acronym_ids_transfers_only_checked(client, org_pair, db):
     """keep_acronym_ids transfers checked acronym; unchecked acronym is dropped."""
     id_a, id_b = org_pair

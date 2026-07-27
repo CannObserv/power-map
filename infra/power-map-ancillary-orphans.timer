@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily power-map role_assignment ancillary orphan audit (issue #324)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+# Spread the run off exact midnight to avoid contention with other daily jobs.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

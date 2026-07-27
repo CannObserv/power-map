@@ -1,0 +1,18 @@
+[Unit]
+Description=power-map daily role_assignment ancillary orphan audit (issue #324)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
+# Counts links / contact_methods / field_confidence / identifiers rows that key
+# on (entity_type='role_assignment', entity_id) but point at a role_assignment id
+# that no longer exists — the no-FK orphan class a merge dedup can strand (#324).
+# The merge paths now re-home before deleting; this is the continuous backstop.
+# Exits 3 when any orphan exists, so the unit shows as failed in
+# `systemctl --failed` and can drive OnFailure= later. Read-only.
+ExecStart=uv run python -m scripts.audit_role_assignment_ancillary_orphans
