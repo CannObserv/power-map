@@ -1,19 +1,21 @@
 """Re-point role_assignment polymorphic ancillary during merge dedup (#324).
 
-``links`` / ``contact_methods`` / ``field_confidence`` / ``identifiers`` attach
-to a role_assignment via ``(entity_type='role_assignment', entity_id=<id>)`` with
-**no FK** (identifiers scope through ``entity_identifier_types`` instead of an
-``entity_type`` column). When a merge hard-deletes a duplicate assignment, those
-rows would be silently orphaned — pointing at an id that no longer exists,
-invisible to every UI and to the change feed.
+``links`` / ``contact_methods`` / ``field_confidence`` / ``identifiers`` /
+``import_provenance`` attach to a role_assignment via
+``(entity_type='role_assignment', entity_id=<id>)`` with **no FK** (identifiers
+scope through ``entity_identifier_types`` instead of an ``entity_type`` column).
+When a merge hard-deletes a duplicate assignment, those rows would be silently
+orphaned — pointing at an id that no longer exists, invisible to every UI and to
+the change feed.
 
 Before the delete, each merge path calls :func:`rehome_conflicting_assignment_ancillary`
 with the ``(loser_assignment_id, winner_assignment_id)`` pairs it is about to
 collapse. Each row is either re-pointed onto the survivor or, when the survivor
 already carries an identical row, deleted (mirrors
-``scripts/archive_legacy_legislator_roles.py::_migrate_rows``). The survivor gets
-a manual ``entity_changes`` 'updated' signal because none of these four tables
-carries a touch-cascade trigger.
+``scripts/archive_legacy_legislator_roles.py::_migrate_rows``); ``import_provenance``
+is append-only and always re-points (never dedups). The survivor gets a manual
+``entity_changes`` 'updated' signal because none of these tables carries a
+touch-cascade trigger.
 """
 
 from collections import defaultdict
@@ -23,12 +25,17 @@ import asyncpg
 
 
 class _AncillarySpec(NamedTuple):
-    """One polymorphic ancillary table + the identity that dedups a row within an entity."""
+    """One polymorphic ancillary table + the identity that dedups a row within an entity.
+
+    ``key_fields=None`` marks an **append-only** table (e.g. ``import_provenance``):
+    every row re-points wholesale, never dedups — history is not collapsed. Such a
+    spec leaves ``exists_sql`` unused and ``select_sql`` need only return ``id``.
+    """
 
     name: str
-    select_sql: str  # $1 = source assignment id → rows with id + the two key cols
-    exists_sql: str  # $1 = target id, $2/$3 = key values → 1 when the survivor already has it
-    key_fields: tuple[str, str]
+    select_sql: str  # $1 = source assignment id → rows with id (+ the two key cols)
+    exists_sql: str | None  # $1 = target id, $2/$3 = key values → 1 if survivor has it
+    key_fields: tuple[str, str] | None  # None → append-only, re-point every row
 
 
 # Identity per table mirrors the archive script's key_fields and the ON CONFLICT
@@ -85,6 +92,16 @@ _SPECS: tuple[_AncillarySpec, ...] = (
         ),
         key_fields=("entity_identifier_type_id", "value"),
     ),
+    _AncillarySpec(
+        # Append-only import audit (#324 CR2): no unique key, each row a distinct
+        # historical event — re-point every row, never dedup.
+        name="import_provenance",
+        select_sql=(
+            "SELECT id FROM import_provenance WHERE entity_type='role_assignment' AND entity_id=$1"
+        ),
+        exists_sql=None,
+        key_fields=None,
+    ),
 )
 
 
@@ -130,6 +147,13 @@ async def migrate_role_assignment_ancillary(
     for spec in _SPECS:
         moved = deduped = 0
         for row in await db.fetch(spec.select_sql, from_id):
+            if spec.key_fields is None:
+                # Append-only table (e.g. import_provenance): re-point every row.
+                await db.execute(
+                    f"UPDATE {spec.name} SET entity_id=$2 WHERE id=$1", row["id"], to_id
+                )
+                moved += 1
+                continue
             exists = await db.fetchval(
                 spec.exists_sql, to_id, row[spec.key_fields[0]], row[spec.key_fields[1]]
             )

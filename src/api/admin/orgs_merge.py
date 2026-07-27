@@ -176,7 +176,7 @@ async def _execute_merge(
         if role_pairs_to_merge:
             for winner_role_id, loser_role_id in role_pairs_to_merge:
                 active = await db.fetch(
-                    "SELECT id, person_id, start_date, end_date, is_current, notes"
+                    "SELECT id, person_id, start_date, end_date, is_current, notes, source_key_id"
                     " FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
                     loser_role_id,
                 )
@@ -198,8 +198,9 @@ async def _execute_merge(
                         target_id = generate_id()
                         await db.execute(
                             "INSERT INTO role_assignments"
-                            " (id, person_id, role_id, start_date, end_date, is_current, notes)"
-                            " VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                            " (id, person_id, role_id, start_date, end_date, is_current, notes,"
+                            "  source_key_id)"
+                            " VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
                             target_id,
                             a["person_id"],
                             winner_role_id,
@@ -207,6 +208,7 @@ async def _execute_merge(
                             a["end_date"],
                             a["is_current"],
                             a["notes"],
+                            a["source_key_id"],  # #324 CR3: preserve assignment provenance
                         )
                     else:
                         target_id = existing

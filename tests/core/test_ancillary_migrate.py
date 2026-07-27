@@ -101,11 +101,55 @@ async def _add_identifier(db, aid, value):
     return iid
 
 
+async def _add_import_prov(db, aid, action="created"):
+    batch = generate_id()
+    await db.execute(
+        "INSERT INTO import_batches"
+        " (id, source_file, file_hash, row_count, loaded_count, error_count)"
+        " VALUES ($1, 'f.csv', $2, 1, 1, 0)",
+        batch,
+        f"h_{batch}",
+    )
+    pid = generate_id()
+    await db.execute(
+        "INSERT INTO import_provenance"
+        " (id, batch_id, source_row, entity_type, entity_id, action, raw_data)"
+        " VALUES ($1, $2, 1, 'role_assignment', $3, $4, '{}'::jsonb)",
+        pid,
+        batch,
+        aid,
+        action,
+    )
+    return pid
+
+
 async def _entity_id(db, table, row_id):
     return await db.fetchval(f"SELECT entity_id FROM {table} WHERE id=$1", row_id)
 
 
 # ── migrate_role_assignment_ancillary ───────────────────────────────────────
+
+
+async def test_import_provenance_repointed_wholesale_never_deduped(db):
+    """import_provenance is append-only audit — every row re-points, none dedups,
+    even when the survivor already carries an identical-looking row (#324 CR2)."""
+    loser, winner = await _assignment(db), await _assignment(db)
+    p_loser = await _add_import_prov(db, loser, "created")
+    await _add_import_prov(db, winner, "created")  # survivor already has a 'created' row
+
+    counts = await migrate_role_assignment_ancillary(db, loser, winner)
+
+    assert await _entity_id(db, "import_provenance", p_loser) == winner
+    # both survive — history is never collapsed
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM import_provenance"
+            " WHERE entity_type='role_assignment' AND entity_id=$1",
+            winner,
+        )
+        == 2
+    )
+    assert counts["import_provenance"] == (1, 0)  # moved, never deduped
 
 
 async def test_repoints_all_four_tables_when_survivor_lacks_them(db):
@@ -224,6 +268,7 @@ async def test_guard_counts_orphans_after_raw_delete(db):
     await _add_contact(db, aid, "orphan@leg.wa.gov")
     await _add_fc(db, aid, "url", "orphanhash")
     await _add_identifier(db, aid, "PDC-ORPH")
+    await _add_import_prov(db, aid, "matched")
 
     before = await count_orphaned_role_assignment_ancillary(db)
     # Hard-delete the assignment out from under the ancillary (the #324 hazard).
@@ -234,6 +279,7 @@ async def test_guard_counts_orphans_after_raw_delete(db):
     assert after["contact_methods"] == before["contact_methods"] + 1
     assert after["field_confidence"] == before["field_confidence"] + 1
     assert after["identifiers"] == before["identifiers"] + 1
+    assert after["import_provenance"] == before["import_provenance"] + 1
 
 
 async def test_guard_ignores_live_assignment_ancillary(db):

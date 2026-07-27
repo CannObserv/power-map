@@ -94,6 +94,12 @@ _ORPHAN_QUERIES: tuple[tuple[str, str], ...] = (
         " WHERE t.entity_type='role_assignment'"
         " AND NOT EXISTS (SELECT 1 FROM role_assignments ra WHERE ra.id = i.entity_id)",
     ),
+    (
+        "import_provenance",
+        "SELECT id, entity_id AS dead_id, action AS label FROM import_provenance x"
+        " WHERE x.entity_type='role_assignment'"
+        " AND NOT EXISTS (SELECT 1 FROM role_assignments ra WHERE ra.id = x.entity_id)",
+    ),
 )
 
 
@@ -152,14 +158,18 @@ async def _resolve_via_pdc_filer(conn: asyncpg.Connection, label: str) -> str | 
 
 
 def _name_from_email(email: str) -> str | None:
-    """`first.last@host` → `First Last`; None when the local part isn't dotted."""
+    """`first.last@host` → `first last`; None when the local part isn't dotted.
+
+    Casing is irrelevant — the resolver matches case-insensitively against
+    `v_person_display_names` — so no cosmetic capitalization is applied.
+    """
     local = email.split("@", 1)[0]
     if "." not in local:
         return None
     parts = [p for p in local.split(".") if p]
     if len(parts) < 2:
         return None
-    return " ".join(p.capitalize() for p in parts)
+    return " ".join(parts)
 
 
 async def _resolve_via_email(conn: asyncpg.Connection, email: str) -> str | None:

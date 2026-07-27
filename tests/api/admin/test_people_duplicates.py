@@ -404,12 +404,28 @@ async def test_merge_reassigns_unique_role_assignment(client, person_pair_with_r
 async def test_merge_rehomes_conflicting_assignment_ancillary(client, person_pair_with_roles, db):
     """#324: ancillary on the loser's conflict-deleted assignment must land on
     the survivor, not orphan. Covers links / contact_methods / field_confidence /
-    identifiers."""
+    identifiers / import_provenance."""
     id_winner, id_loser, shared_role_id, _ = person_pair_with_roles
     loser_ra = await db.fetchval(
         "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
         id_loser,
         shared_role_id,
+    )
+    batch = generate_id()
+    await db.execute(
+        "INSERT INTO import_batches"
+        " (id, source_file, file_hash, row_count, loaded_count, error_count)"
+        " VALUES ($1, 'f.csv', $2, 1, 1, 0)",
+        batch,
+        f"h_{batch}",
+    )
+    await db.execute(
+        "INSERT INTO import_provenance"
+        " (id, batch_id, source_row, entity_type, entity_id, action, raw_data)"
+        " VALUES ($1, $2, 1, 'role_assignment', $3, 'created', '{}'::jsonb)",
+        generate_id(),
+        batch,
+        loser_ra,
     )
     await db.execute(
         "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
@@ -450,7 +466,7 @@ async def test_merge_rehomes_conflicting_assignment_ancillary(client, person_pai
         id_winner,
         shared_role_id,
     )
-    for table in ("links", "contact_methods", "field_confidence"):
+    for table in ("links", "contact_methods", "field_confidence", "import_provenance"):
         assert await db.fetchval(
             f"SELECT count(*) FROM {table} WHERE entity_type='role_assignment' AND entity_id=$1",
             winner_ra,

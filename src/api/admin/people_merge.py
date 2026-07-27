@@ -377,16 +377,13 @@ async def merge_person_into(
     await rehome_conflicting_assignment_ancillary(
         db, [(r["loser_ra"], r["winner_ra"]) for r in conflict_pairs]
     )
+    # Delete exactly the rows we just re-homed — deriving the DELETE set from the
+    # same `conflict_pairs` (rather than re-deriving via a COALESCE sentinel) keeps
+    # the re-homed set and the deleted set provably identical, so no conflict row
+    # can be deleted without its ancillary first moving to the survivor (#324 CR2).
     await db.execute(
-        """DELETE FROM role_assignments
-           WHERE person_id=$1 AND archived_at IS NULL
-             AND (role_id, COALESCE(start_date, '0001-01-01')) IN (
-                 SELECT role_id, COALESCE(start_date, '0001-01-01')
-                 FROM role_assignments
-                 WHERE person_id=$2 AND archived_at IS NULL
-             )""",
-        loser_id,
-        winner_id,
+        "DELETE FROM role_assignments WHERE id = ANY($1::text[])",
+        [r["loser_ra"] for r in conflict_pairs],
     )
     await db.execute(
         "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",

@@ -649,6 +649,45 @@ async def test_org_merge_role_pair_rehomes_recreated_assignment_ancillary(client
     assert not await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", assign_b)
 
 
+async def test_org_merge_role_pair_recreated_assignment_preserves_source_key_id(client, db):
+    """#324 CR3: the re-created winner assignment must carry over the loser's
+    source_key_id provenance (#311), not null it."""
+    id_a, id_b, role_a, role_b = await _role_pair_orgs(db)
+    person_id = await _person(db)
+    uid, key_id = generate_id(), generate_id()
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1, $2)", uid, f"{uid}@t.test")
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
+        " VALUES ($1, $2, 'k', $3, 'h')",
+        key_id,
+        uid,
+        key_id[:8],
+    )
+    assign_b = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, start_date, source_key_id)"
+        " VALUES ($1, $2, $3, '2021-05-05', $4)",
+        assign_b,
+        person_id,
+        role_b,
+        key_id,
+    )
+
+    await client.post(
+        f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+        data={"merge_role_pairs": f"{role_a}:{role_b}"},
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    new_source = await db.fetchval(
+        "SELECT source_key_id FROM role_assignments WHERE role_id=$1 AND person_id=$2",
+        role_a,
+        person_id,
+    )
+    assert new_source == key_id
+
+
 async def test_merge_with_keep_acronym_ids_transfers_only_checked(client, org_pair, db):
     """keep_acronym_ids transfers checked acronym; unchecked acronym is dropped."""
     id_a, id_b = org_pair
