@@ -11,7 +11,10 @@ from markupsafe import escape
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.list_filters import parse_list_filters
 from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
-from src.core.ancillary_migrate import rehome_conflicting_assignment_ancillary
+from src.core.ancillary_migrate import (
+    rehome_conflicting_assignment_ancillary,
+    rehome_role_ancillary,
+)
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -211,6 +214,9 @@ async def role_merge(
             loser_id,
         )
 
+        # #326: re-home the loser role's own contacts/links onto the winner before
+        # the hard-delete, else they orphan (entity_type='role', no FK).
+        await rehome_role_ancillary(db, loser_id, winner_id)
         await db.execute("DELETE FROM roles WHERE id=$1", loser_id)
 
     loser_title = loser["title"]

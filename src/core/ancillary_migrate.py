@@ -133,20 +133,19 @@ async def count_orphaned_role_assignment_ancillary(
     return counts
 
 
-async def migrate_role_assignment_ancillary(
-    db: asyncpg.Connection, from_id: str, to_id: str
+async def _migrate_specs(
+    db: asyncpg.Connection,
+    specs: tuple[_AncillarySpec, ...],
+    from_id: str,
+    to_id: str,
 ) -> dict[str, tuple[int, int]]:
-    """Re-point one assignment's ancillary onto another; dedup exact duplicates.
+    """Re-point/dedup one entity's ancillary onto another for the given specs.
 
-    Returns ``{table: (moved, deduped)}``. ``moved`` rows are re-pointed to
-    ``to_id``; ``deduped`` rows are deleted because ``to_id`` already carries an
-    identical row. Append-only specs (``key_fields=None``, e.g. ``import_provenance``)
-    re-point every row and never dedup, so their ``deduped`` count is always 0.
-    Does not emit outbox signals — callers do, via
-    :func:`rehome_conflicting_assignment_ancillary`.
+    Shared by the role_assignment (:data:`_SPECS`) and role (:data:`_ROLE_SPECS`)
+    migrators — the only difference between the two is the spec list.
     """
     result: dict[str, tuple[int, int]] = {}
-    for spec in _SPECS:
+    for spec in specs:
         moved = deduped = 0
         for row in await db.fetch(spec.select_sql, from_id):
             if spec.key_fields is None:
@@ -169,6 +168,21 @@ async def migrate_role_assignment_ancillary(
                 moved += 1
         result[spec.name] = (moved, deduped)
     return result
+
+
+async def migrate_role_assignment_ancillary(
+    db: asyncpg.Connection, from_id: str, to_id: str
+) -> dict[str, tuple[int, int]]:
+    """Re-point one assignment's ancillary onto another; dedup exact duplicates.
+
+    Returns ``{table: (moved, deduped)}``. ``moved`` rows are re-pointed to
+    ``to_id``; ``deduped`` rows are deleted because ``to_id`` already carries an
+    identical row. Append-only specs (``key_fields=None``, e.g. ``import_provenance``)
+    re-point every row and never dedup, so their ``deduped`` count is always 0.
+    Does not emit outbox signals — callers do, via
+    :func:`rehome_conflicting_assignment_ancillary`.
+    """
+    return await _migrate_specs(db, _SPECS, from_id, to_id)
 
 
 async def rehome_conflicting_assignment_ancillary(
@@ -198,3 +212,74 @@ async def rehome_conflicting_assignment_ancillary(
             winner_id,
         )
     return {table: (counts[0], counts[1]) for table, counts in totals.items()}
+
+
+# ---------------------------------------------------------------------------
+# Role-level ancillary (#326)
+#
+# A role *definition* carries only two of the polymorphic ancillary surfaces —
+# ``contact_methods`` and ``links`` keyed on ``(entity_type='role', entity_id)``.
+# (identifiers / field_confidence / import_provenance exclude 'role'.) The admin
+# contacts/links editors (#326) make these rows routinely populated, so the three
+# role-deleting paths (role hard-delete, role merge, org-merge role-pair) must
+# clean them up or they orphan exactly like the assignment case — same no-FK model.
+# Merges re-home (dedup) onto the surviving role; hard-delete removes them.
+# ---------------------------------------------------------------------------
+
+_ROLE_SPECS: tuple[_AncillarySpec, ...] = (
+    _AncillarySpec(
+        name="links",
+        select_sql=(
+            "SELECT id, url, link_type_id FROM links WHERE entity_type='role' AND entity_id=$1"
+        ),
+        exists_sql=(
+            "SELECT 1 FROM links WHERE entity_type='role'"
+            " AND entity_id=$1 AND url=$2 AND link_type_id=$3"
+        ),
+        key_fields=("url", "link_type_id"),
+    ),
+    _AncillarySpec(
+        name="contact_methods",
+        select_sql=(
+            "SELECT id, contact_type, value FROM contact_methods"
+            " WHERE entity_type='role' AND entity_id=$1"
+        ),
+        exists_sql=(
+            "SELECT 1 FROM contact_methods WHERE entity_type='role'"
+            " AND entity_id=$1 AND contact_type=$2 AND value=$3"
+        ),
+        key_fields=("contact_type", "value"),
+    ),
+)
+
+
+async def rehome_role_ancillary(
+    db: asyncpg.Connection, loser_id: str, winner_id: str
+) -> dict[str, tuple[int, int]]:
+    """Re-point a loser role's contacts/links onto the winner before a merge delete.
+
+    Mirrors :func:`rehome_conflicting_assignment_ancillary` for the role case: each
+    row is re-pointed onto ``winner_id`` or deleted when the winner already carries
+    an identical one. The winner gets a single ``entity_changes`` 'role' 'updated'
+    signal when at least one row moved (these tables have no touch-cascade trigger).
+    Returns per-table ``(moved, deduped)``.
+    """
+    counts = await _migrate_specs(db, _ROLE_SPECS, loser_id, winner_id)
+    if any(moved for moved, _ in counts.values()):
+        await db.execute(
+            "INSERT INTO entity_changes (entity_type, entity_id, change_kind)"
+            " VALUES ('role', $1, 'updated')",
+            winner_id,
+        )
+    return counts
+
+
+async def delete_role_ancillary(db: asyncpg.Connection, role_id: str) -> None:
+    """Hard-delete a role's own contacts/links before the role row is removed.
+
+    The polymorphic rows have no FK, so a bare ``DELETE FROM roles`` would strand
+    them. The role-delete path already emits a 'deleted' tombstone for the role, so
+    no per-table outbox signal is needed here — subscribers drop the whole role.
+    """
+    for table in ("links", "contact_methods"):
+        await db.execute(f"DELETE FROM {table} WHERE entity_type='role' AND entity_id=$1", role_id)

@@ -180,6 +180,68 @@ async def test_merge_hard_deletes_loser(client, role_pair, db):
     assert row is None
 
 
+async def test_merge_rehomes_loser_role_contacts_and_links(client, role_pair, db):
+    """#326: the loser role's own contacts/links (entity_type='role') must move to
+    the winner before the hard-delete, not orphan."""
+    org_id, role_a, role_b = role_pair
+    lt_id = await db.fetchval("SELECT id FROM link_types ORDER BY display_name LIMIT 1")
+    await db.execute(
+        "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+        " VALUES ($1, 'role', $2, 'email', 'loser@example.org')",
+        generate_id(),
+        role_b,
+    )
+    await db.execute(
+        "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+        " VALUES ($1, 'role', $2, 'https://example.org/loser', $3)",
+        generate_id(),
+        role_b,
+        lt_id,
+    )
+
+    response = await client.post(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    # No orphan left on the deleted loser (contacts + links summed).
+    orphans = await db.fetchval(
+        "SELECT (SELECT count(*) FROM contact_methods"
+        "         WHERE entity_type='role' AND entity_id=$1)"
+        "     + (SELECT count(*) FROM links WHERE entity_type='role' AND entity_id=$1)",
+        role_b,
+    )
+    assert orphans == 0
+    # Re-homed onto the winner.
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM contact_methods"
+            " WHERE entity_type='role' AND entity_id=$1 AND value='loser@example.org'",
+            role_a,
+        )
+        == 1
+    )
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM links"
+            " WHERE entity_type='role' AND entity_id=$1 AND url='https://example.org/loser'",
+            role_a,
+        )
+        == 1
+    )
+    # Winner signalled to subscribers (no touch-cascade trigger on these tables).
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM entity_changes"
+            " WHERE entity_type='role' AND entity_id=$1 AND change_kind='updated'",
+            role_a,
+        )
+        >= 1
+    )
+
+
 # ── Merge preview modal (#255) ───────────────────────────────────────────────
 
 

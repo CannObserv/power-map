@@ -57,6 +57,7 @@
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 var(--space-3)">
       <h3 class="field-group-label">Email Addresses</h3>
+      {% if not ra.archived_at %}
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="email-row-new"
               hx-get="/admin/role-assignments/{{ ra.id }}/contacts/new-row/?contact_type=email"
@@ -64,6 +65,7 @@
               hx-target="#emails-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add email</button>
+      {% endif %}
     </div>
     <div class="table-wrapper">
       <table id="emails-table" class="data-table">
@@ -80,6 +82,7 @@
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
       <h3 class="field-group-label">Phone Numbers</h3>
+      {% if not ra.archived_at %}
       <button class="btn btn--sm btn--secondary"
               data-new-row-id="phone-row-new"
               hx-get="/admin/role-assignments/{{ ra.id }}/contacts/new-row/?contact_type=phone"
@@ -87,6 +90,7 @@
               hx-target="#phones-table tbody"
               hx-swap="afterbegin"
               type="button">+ Add phone</button>
+      {% endif %}
     </div>
     <div class="table-wrapper">
       <table id="phones-table" class="data-table">
@@ -107,6 +111,7 @@
 <section class="entity-section">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h2>Links</h2>
+    {% if not ra.archived_at %}
     <button class="btn btn--sm btn--secondary"
             data-new-row-id="link-row-new"
             hx-get="/admin/role-assignments/{{ ra.id }}/links/new-row/"
@@ -114,6 +119,7 @@
             hx-target="#links-table tbody"
             hx-swap="afterbegin"
             type="button">+ Add link</button>
+    {% endif %}
   </div>
   <div class="table-wrapper">
     <table id="links-table" class="data-table">
@@ -132,6 +138,7 @@
 <section class="entity-section">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h2>Identifiers</h2>
+    {% if not ra.archived_at %}
     <button class="btn btn--sm btn--secondary"
             data-new-row-id="identifier-row-new"
             hx-get="/admin/role-assignments/{{ ra.id }}/identifiers/new-row/"
@@ -139,6 +146,7 @@
             hx-target="#identifiers-table tbody"
             hx-swap="afterbegin"
             type="button">+ Add identifier</button>
+    {% endif %}
   </div>
   <div class="table-wrapper">
     <table id="identifiers-table" class="data-table">

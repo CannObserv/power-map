@@ -110,3 +110,40 @@ async def test_detail_renders_contact_section(client, role_and_contact):
     assert r.status_code == 200
     assert "+13605551234" in r.text
     assert f"/admin/roles/{rid}/contacts/new-row/" in r.text
+
+
+async def test_hard_delete_removes_role_ancillary(client, role_and_contact, db):
+    """#326: deleting a role must drop its own contacts/links, not orphan them."""
+    rid, _ = role_and_contact
+    lt_id = await db.fetchval("SELECT id FROM link_types ORDER BY display_name LIMIT 1")
+    await db.execute(
+        "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+        " VALUES ($1, 'role', $2, 'https://example.org/x', $3)",
+        generate_id(),
+        rid,
+        lt_id,
+    )
+    # Hard delete requires archived first.
+    await db.execute("UPDATE roles SET archived_at = now() WHERE id = $1", rid)
+    r = await client.delete(f"/admin/roles/{rid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+
+    remaining = await db.fetchval(
+        "SELECT (SELECT count(*) FROM contact_methods"
+        "         WHERE entity_type='role' AND entity_id=$1)"
+        "     + (SELECT count(*) FROM links WHERE entity_type='role' AND entity_id=$1)",
+        rid,
+    )
+    assert remaining == 0
+
+
+async def test_archived_role_hides_add_button(client, role_and_contact, db):
+    """#326 (CR finding 5): the +Add contact button is gated on an active role."""
+    rid, _ = role_and_contact
+    await db.execute("UPDATE roles SET archived_at = now() WHERE id = $1", rid)
+    r = await client.get(f"/admin/roles/{rid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert f"/admin/roles/{rid}/contacts/new-row/" not in r.text
+    assert f"/admin/roles/{rid}/links/new-row/" not in r.text
+    # Existing rows still render (read-only).
+    assert "+13605551234" in r.text

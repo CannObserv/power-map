@@ -111,3 +111,16 @@ async def test_detail_renders_contact_section(client, assignment_and_contact):
     assert r.status_code == 200
     assert "dir@wslcb.wa.gov" in r.text
     assert f"/admin/role-assignments/{raid}/contacts/new-row/" in r.text
+
+
+async def test_archived_assignment_hides_add_buttons(client, assignment_and_contact, db):
+    """#326 (CR finding 5): +Add buttons are gated on an active assignment."""
+    raid, _ = assignment_and_contact
+    await db.execute("UPDATE role_assignments SET archived_at = now() WHERE id = $1", raid)
+    r = await client.get(f"/admin/role-assignments/{raid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert f"/admin/role-assignments/{raid}/contacts/new-row/" not in r.text
+    assert f"/admin/role-assignments/{raid}/links/new-row/" not in r.text
+    assert f"/admin/role-assignments/{raid}/identifiers/new-row/" not in r.text
+    # Existing rows still render (read-only).
+    assert "dir@wslcb.wa.gov" in r.text
