@@ -600,8 +600,10 @@ async def person_merge_preview(
     loser_names = await db.fetch(
         "SELECT n.id, n.name, n.is_canonical, n.visibility, n.name_type,"
         "       parent.name AS reading_of_name,"
-        "       EXISTS (SELECT 1 FROM person_names c WHERE c.reading_of_id = n.id)"
-        "           AS has_reading_child"
+        "       EXISTS ("
+        "           SELECT 1 FROM person_names c"
+        "            WHERE c.reading_of_id = n.id AND c.person_id = n.person_id"
+        "       ) AS has_reading_child"
         "  FROM person_names n"
         "  LEFT JOIN person_names parent ON parent.id = n.reading_of_id"
         " WHERE n.person_id=$1 ORDER BY n.is_canonical DESC, n.name",

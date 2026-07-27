@@ -54,7 +54,7 @@
             ({{ name_type_labels.get(n.name_type, n.name_type) }} of &ldquo;{{ n.reading_of_name }}&rdquo;)</span>
           {% elif n.has_reading_child %}
           <span style="font-size:var(--font-size-xs);color:var(--color-text-muted)">
-            (kept to anchor a reading)</span>
+            (a reading points at this)</span>
           {% endif %}
           {% if n.visibility and n.visibility != 'public' %}
           <span class="badge badge--neutral" style="font-size:var(--font-size-xs)">{{ n.visibility }}</span>

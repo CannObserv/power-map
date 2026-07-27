@@ -343,7 +343,7 @@ async def test_merge_preview_surfaces_reading_parent_linkage(client, person_pair
     assert "やまだたろう" in response.text  # the reading row is listed
     assert "reading of" in response.text  # child linkage note rendered
     assert "山田太郎" in response.text  # parent name shown in the child note
-    assert "kept to anchor a reading" in response.text  # parent-row note rendered
+    assert "a reading points at this" in response.text  # parent-row note rendered
     assert "machine-readable form of" in response.text  # mrz slug humanized, not raw
     assert "(mrz of" not in response.text  # raw slug must not leak
 
