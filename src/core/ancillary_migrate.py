@@ -1,21 +1,26 @@
-"""Re-point role_assignment polymorphic ancillary during merge dedup (#324).
+"""Re-point polymorphic ancillary of roles & role_assignments during merge/delete.
 
-``links`` / ``contact_methods`` / ``field_confidence`` / ``identifiers`` /
-``import_provenance`` attach to a role_assignment via
-``(entity_type='role_assignment', entity_id=<id>)`` with **no FK** (identifiers
-scope through ``entity_identifier_types`` instead of an ``entity_type`` column).
-When a merge hard-deletes a duplicate assignment, those rows would be silently
-orphaned — pointing at an id that no longer exists, invisible to every UI and to
-the change feed.
+Two entity types keep ancillary rows with **no FK**, so a merge or direct DELETE
+can silently orphan them — rows pointing at an id that no longer exists, invisible
+to every UI and to the change feed:
 
-Before the delete, each merge path calls :func:`rehome_conflicting_assignment_ancillary`
-with the ``(loser_assignment_id, winner_assignment_id)`` pairs it is about to
-collapse. Each row is either re-pointed onto the survivor or, when the survivor
-already carries an identical row, deleted (mirrors
+- **role_assignment (#324):** ``links`` / ``contact_methods`` / ``field_confidence``
+  / ``identifiers`` / ``import_provenance`` keyed on
+  ``(entity_type='role_assignment', entity_id)`` (identifiers scope through
+  ``entity_identifier_types`` instead of an ``entity_type`` column).
+- **role (#326):** ``links`` / ``contact_methods`` keyed on ``(entity_type='role',
+  entity_id)`` — the two surfaces the admin role editors populate. (role is excluded
+  from identifiers/field_confidence/import_provenance.)
+
+Before a delete, each merge path re-homes the loser's ancillary onto the survivor
+(``rehome_conflicting_assignment_ancillary`` for assignments,
+:func:`rehome_role_ancillary` for roles): each row is re-pointed, or deleted when
+the survivor already carries an identical one (mirrors
 ``scripts/archive_legacy_legislator_roles.py::_migrate_rows``); ``import_provenance``
 is append-only and always re-points (never dedups). The survivor gets a manual
 ``entity_changes`` 'updated' signal because none of these tables carries a
-touch-cascade trigger.
+touch-cascade trigger. A role hard-delete instead drops the rows outright
+(:func:`delete_role_ancillary`), relying on the role's own 'deleted' tombstone.
 """
 
 from collections import defaultdict
@@ -251,6 +256,24 @@ _ROLE_SPECS: tuple[_AncillarySpec, ...] = (
         key_fields=("contact_type", "value"),
     ),
 )
+
+
+async def count_orphaned_role_ancillary(db: asyncpg.Connection) -> dict[str, int]:
+    """Count contacts/links pointing at a role id that no longer exists.
+
+    The role-level polymorphic ancillary has no FK, so a merge or direct DELETE
+    that drops a role can strand these rows undetected — the role analogue of
+    :func:`count_orphaned_role_assignment_ancillary`. Returns ``{table: n}`` for
+    each role spec; the daily guard (#326) warns when any count is non-zero.
+    """
+    counts: dict[str, int] = {}
+    for spec in _ROLE_SPECS:
+        counts[spec.name] = await db.fetchval(
+            f"SELECT count(*) FROM {spec.name} x"
+            " WHERE x.entity_type='role'"
+            " AND NOT EXISTS (SELECT 1 FROM roles r WHERE r.id = x.entity_id)"
+        )
+    return counts
 
 
 async def rehome_role_ancillary(
