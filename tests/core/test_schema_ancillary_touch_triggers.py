@@ -124,7 +124,7 @@ async def test_contact_trigger_dispatches_role_assignment(db):
 # ── links: INSERT / DELETE cascade; role dispatch ────────────────────────────
 
 
-async def test_link_insert_and_delete_emit(db):
+async def test_link_insert_update_delete_emit(db):
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
     lt_id = await db.fetchval("SELECT id FROM link_types WHERE slug='website'")
@@ -138,6 +138,10 @@ async def test_link_insert_and_delete_emit(db):
         pid,
         lt_id,
     )
+    assert await _signals(db, "person", pid) == before + 1
+
+    before = await _signals(db, "person", pid)
+    await db.execute("UPDATE links SET url='https://example.gov/p2' WHERE id=$1", lid)
     assert await _signals(db, "person", pid) == before + 1
 
     before = await _signals(db, "person", pid)

@@ -717,40 +717,25 @@ async def write_links(conn, entity_id: str, entity_type: str, links: list) -> No
         )
 
 
-async def _record_entity_change(conn, entity_type: str, entity_id: str) -> None:
-    """Append an 'updated' outbox row; callers own any surrounding transaction."""
-    await conn.execute(
-        "INSERT INTO entity_changes (entity_type, entity_id, change_kind)"
-        " VALUES ($1, $2, 'updated')",
-        entity_type,
-        entity_id,
-    )
-
-
 async def _null_fill_metadata(
     conn,
-    entity_type: str,
-    entity_id: str,
     table: str,
     col: str,
     pk_val: str,
     value: str,
-    record_change: bool = True,
 ) -> None:
-    """Fill col in table where pk_val row has NULL, atomically with an entity_changes row.
+    """Fill col in the pk_val row of table only where it is currently NULL.
 
-    table/col are caller-controlled string constants, not user input.
-    Pass record_change=False for tables with a touch-parent trigger
-    (entity_addresses) — the trigger already emits the outbox row.
+    table/col are caller-controlled string constants, not user input. The parent
+    ``entity_changes`` 'updated' signal is emitted by the table's touch-parent
+    trigger (``entity_addresses`` / ``contact_methods``, #327), so no manual
+    outbox write is needed here.
     """
-    async with conn.transaction():
-        updated = await conn.fetchval(
-            f"UPDATE {table} SET {col}=$1 WHERE id=$2 AND {col} IS NULL RETURNING id",
-            value,
-            pk_val,
-        )
-        if updated and record_change:
-            await _record_entity_change(conn, entity_type, entity_id)
+    await conn.execute(
+        f"UPDATE {table} SET {col}=$1 WHERE id=$2 AND {col} IS NULL",
+        value,
+        pk_val,
+    )
 
 
 async def write_contact_methods(
@@ -783,17 +768,14 @@ async def write_contact_methods(
         )
         if existing:
             if cm.display_label:
+                # contact_methods has a touch trigger (#327) — the UPDATE
+                # self-emits, like entity_addresses; no manual outbox write.
                 await _null_fill_metadata(
                     conn,
-                    entity_type,
-                    entity_id,
                     "contact_methods",
                     "display_label",
                     existing["id"],
                     cm.display_label,
-                    # contact_methods has a touch trigger (#327) — the UPDATE
-                    # self-emits, like entity_addresses. Avoid a double signal.
-                    record_change=False,
                 )
             continue
         # The contact_methods touch trigger (#327) emits the parent entity_changes row.
@@ -867,13 +849,10 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
                 # trg_touch_entity_on_address_change emits the outbox row (#181)
                 await _null_fill_metadata(
                     conn,
-                    entity_type,
-                    entity_id,
                     "entity_addresses",
                     "display_name",
                     existing["id"],
                     addr.display_name,
-                    record_change=False,
                 )
             continue
         # No exact (form + window) match. Reuse an existing addresses row for the

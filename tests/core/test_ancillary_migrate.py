@@ -262,6 +262,60 @@ async def test_batch_no_outbox_when_only_dedup(db):
     assert after == before  # nothing re-pointed → no outbox bump
 
 
+async def _ra_signals(db, aid) -> int:
+    return await db.fetchval(
+        "SELECT count(*) FROM entity_changes"
+        " WHERE entity_type='role_assignment' AND entity_id=$1 AND change_kind='updated'",
+        aid,
+    )
+
+
+async def test_batch_emits_survivor_signal_for_field_confidence_only(db):
+    """A field_confidence-only re-home still signals the survivor.
+
+    field_confidence has no touch trigger (#327), so its move is the one path
+    that must fall back to the gated manual emit in
+    ``rehome_conflicting_assignment_ancillary``. Guards against the gate being
+    inverted/emptied — a bug the contact-move test can't catch (the trigger
+    would still fire for it).
+    """
+    loser, winner = await _assignment(db), await _assignment(db)
+    fid = await _add_fc(db, loser, "url", "fchash")
+
+    before = await _ra_signals(db, winner)
+    await rehome_conflicting_assignment_ancillary(db, [(loser, winner)])
+
+    assert await _entity_id(db, "field_confidence", fid) == winner  # re-pointed
+    # Exactly one manual survivor signal — no trigger, so no double either.
+    assert await _ra_signals(db, winner) == before + 1
+
+
+async def test_batch_emits_survivor_signal_for_import_provenance_only(db):
+    """import_provenance (append-only, trigger-less) move also signals the survivor."""
+    loser, winner = await _assignment(db), await _assignment(db)
+    pid = await _add_import_prov(db, loser)
+
+    before = await _ra_signals(db, winner)
+    await rehome_conflicting_assignment_ancillary(db, [(loser, winner)])
+
+    assert await _entity_id(db, "import_provenance", pid) == winner  # re-pointed wholesale
+    assert await _ra_signals(db, winner) == before + 1
+
+
+async def test_batch_contact_move_emits_exactly_one_no_double(db):
+    """A contact move signals via its touch trigger only — not trigger + manual.
+
+    Locks in that the gated manual emit does NOT also fire for a triggered table
+    (would be +2). Complements the field_confidence test above.
+    """
+    loser, winner = await _assignment(db), await _assignment(db)
+    await _add_contact(db, loser, "solo.contact@leg.wa.gov")
+
+    before = await _ra_signals(db, winner)
+    await rehome_conflicting_assignment_ancillary(db, [(loser, winner)])
+    assert await _ra_signals(db, winner) == before + 1  # trigger only, not doubled
+
+
 # ── count_orphaned_role_assignment_ancillary (guard) ────────────────────────
 
 
