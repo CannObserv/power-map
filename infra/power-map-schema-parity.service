@@ -1,5 +1,5 @@
 [Unit]
-Description=power-map daily schema constraint-parity audit (prod vs reference) (issue #315)
+Description=power-map daily schema-parity audit (prod vs reference) (issues #315, #331)
 After=network.target
 
 [Service]
@@ -9,11 +9,14 @@ WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
 EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
-# Snapshots every constraint (full pg_get_constraintdef) on the reference DB
-# (PARITY_REFERENCE_URL, default TEST_DATABASE_URL) and on prod (DATABASE_URL),
-# and exits 3 when prod is missing or disagrees on any reference constraint —
-# the CREATE TABLE IF NOT EXISTS inline-drift class (#307/#312/#315). Exit 3
-# (not 2) stays distinct from argparse usage errors; the unit shows as failed,
-# so drift surfaces in `systemctl --failed` and can drive OnFailure= later.
+# Snapshots every constraint (pg_get_constraintdef), function (pg_get_functiondef),
+# and trigger (pg_get_triggerdef) on the reference DB (PARITY_REFERENCE_URL,
+# default TEST_DATABASE_URL) and on prod (DATABASE_URL), and exits 3 when prod is
+# missing or disagrees on any reference object — the CREATE TABLE IF NOT EXISTS
+# inline-constraint drift class (#307/#312/#315) plus the CREATE OR REPLACE
+# function/trigger body-drift window (#331; extension-owned/internal excluded,
+# version-sensitive kinds skipped on a PG-major mismatch). Exit 3 (not 2) stays
+# distinct from argparse usage errors; the unit shows as failed, so drift
+# surfaces in `systemctl --failed` and can drive OnFailure= later.
 # Read-only: never writes to either database.
 ExecStart=uv run python -m scripts.audit_schema_constraint_parity

@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily power-map schema constraint-parity audit (issue #315)
+Description=Daily power-map schema-parity audit (issues #315, #331)
 
 [Timer]
 OnCalendar=daily

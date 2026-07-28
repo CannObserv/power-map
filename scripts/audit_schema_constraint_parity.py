@@ -1,12 +1,14 @@
-"""Daily schema constraint-parity audit: prod vs a reference DB (issue #315).
+"""Daily schema-parity audit: prod vs a reference DB (issues #315, #331).
 
-Snapshots every constraint (``CHECK`` / ``FOREIGN KEY`` / ``UNIQUE`` / ``PK``,
-full ``pg_get_constraintdef``) on a *reference* DB and on the *target* (prod),
-and fails when the target is missing, or disagrees on, any reference constraint.
-Catches the ``CREATE TABLE IF NOT EXISTS`` drift class (#307→#312 CHECKs, #315's
-FK ON DELETE action) continuously and from *any* source — manual DDL, a partial
-migration, a deploy whose ``apply_schema`` no-op'd a new inline constraint — not
-only at code-review time.
+Snapshots every **constraint** (``CHECK`` / ``FOREIGN KEY`` / ``UNIQUE`` / ``PK``,
+full ``pg_get_constraintdef``), **function** (``pg_get_functiondef``), and
+**trigger** (``pg_get_triggerdef``) on a *reference* DB and on the *target*
+(prod), and fails when the target is missing, or disagrees on, any reference
+object. Catches the ``CREATE TABLE IF NOT EXISTS`` inline-constraint drift class
+(#307→#312 CHECKs, #315's FK ON DELETE action) plus the ``CREATE OR REPLACE``
+function/trigger body-drift window (#331) continuously and from *any* source —
+manual DDL, a partial migration, a deploy whose ``apply_schema`` no-op'd a new
+inline constraint, a hand-applied hotfix — not only at code-review time.
 
 Reference vs target:
     --target-url     default DATABASE_URL             (prod; the DB under audit)
@@ -16,6 +18,12 @@ The reference must reflect current ``schema.sql``. The strongest reference is a
 DB built from an *empty* schema via ``apply_schema`` (see module docstring in
 ``src.core.schema_parity`` for the residual gap when it is not). ``sync-schema-
 to-do.sh`` keeps the default reference (``co_pm_db_test``) current on deploy.
+
+Function/trigger defs are version-sensitive: ``pg_get_functiondef`` /
+``pg_get_triggerdef`` formatting can legitimately differ across PG majors, so on
+a major mismatch between reference and target those two kinds are skipped (loud
+WARNING) rather than misreported as body drift. Constraints are version-stable
+and always diff.
 
 Exits 3 on drift — or on misconfiguration (an empty reference, or a reference
 that is the same DB as the target), which would otherwise let the audit pass
@@ -39,12 +47,36 @@ import asyncpg
 
 from src.core.logging import configure_logging, get_logger
 from src.core.schema_parity import (
-    diff_constraints,
+    VERSION_SENSITIVE_KINDS,
+    diff_defs,
     format_drift_report,
     snapshot_constraints,
+    snapshot_functions,
+    snapshot_triggers,
 )
 
 logger = get_logger(__name__)
+
+#: Report/diff order: constraints first (always diffed, version-stable), then the
+#: version-sensitive kinds. See ``_snapshot_all`` for why the snapshotters are
+#: resolved by bare name, not a module-level dict of captured function objects.
+_KINDS = ("constraint", "function", "trigger")
+
+
+async def _snapshot_all(conn: asyncpg.Connection, kinds: tuple[str, ...]) -> dict[str, dict]:
+    """Snapshot the requested ``kinds`` on ``conn`` → ``{kind: {key: def}}``.
+
+    Resolves the ``snapshot_*`` names at call time (not a module-level dict of
+    captured function objects) so tests can monkeypatch them per-kind. Skipped
+    kinds (e.g. version-sensitive ones on a PG-major mismatch) are simply not
+    requested, so no wasted ``pg_get_*def`` query runs for them.
+    """
+    snappers = {
+        "constraint": snapshot_constraints,
+        "function": snapshot_functions,
+        "trigger": snapshot_triggers,
+    }
+    return {kind: await snappers[kind](conn) for kind in kinds}
 
 
 def _redact(url: str) -> str:
@@ -73,14 +105,19 @@ def _db_identity(url: str) -> tuple[str | None, int, str]:
 
 
 async def run(*, reference_url: str, target_url: str) -> int:
-    """Snapshot both DBs, diff, log; return the drift-constraint count.
+    """Snapshot both DBs across all kinds, diff, log; return the total drift count.
 
-    Drift count = missing-in-target + mismatched (``target_only`` is logged but
-    excluded, matching ``ConstraintDrift.has_drift``). Returns a non-zero
-    sentinel (1) instead of a drift count when the audit is misconfigured — an
-    empty reference or a reference that is the same DB as the target — so the
-    monitor fails loudly rather than passing vacuously (the silent-no-op class
-    #315 targets).
+    Drift count = summed missing-in-target + mismatched across constraints,
+    functions, and triggers (``target_only`` is logged but excluded, matching
+    ``SchemaObjectDrift.has_drift``). Returns a non-zero sentinel (1) instead of a
+    drift count when the audit is misconfigured — an empty reference or a
+    reference that is the same DB as the target — so the monitor fails loudly
+    rather than passing vacuously (the silent-no-op class #315 targets).
+
+    Version-sensitive kinds (functions, triggers) are skipped with a WARNING when
+    reference and target run different PG majors — their ``pg_get_*def``
+    formatting can legitimately differ, so a diff there would be a version
+    artifact, not drift. Constraints are version-stable and always diff.
     """
     ref_label, tgt_label = _redact(reference_url), _redact(target_url)
 
@@ -90,7 +127,7 @@ async def run(*, reference_url: str, target_url: str) -> int:
     # on the same DB) still trips, and same-host-different-port does not.
     if _db_identity(reference_url) == _db_identity(target_url):
         logger.warning(
-            "Schema constraint audit MISCONFIGURED — reference and target are the "
+            "Schema parity audit MISCONFIGURED — reference and target are the "
             "same database (%s); it would compare prod to itself and never detect "
             "drift. Set PARITY_REFERENCE_URL (or --reference-url) to a distinct "
             "reference DB.",
@@ -98,49 +135,86 @@ async def run(*, reference_url: str, target_url: str) -> int:
         )
         return 1
 
+    # Open both connections up front and read both server majors *before* any
+    # snapshot, so a version-sensitive kind that will be skipped (PG-major
+    # mismatch) is never snapshotted on either side — no wasted pg_get_*def query.
     ref_conn = await asyncpg.connect(reference_url)
     try:
-        reference = await snapshot_constraints(ref_conn)
+        tgt_conn = await asyncpg.connect(target_url)
+        try:
+            ref_major = ref_conn.get_server_version().major
+            tgt_major = tgt_conn.get_server_version().major
+            version_mismatch = ref_major != tgt_major
+
+            # Derive the skipped set once, then the diffed set as its complement,
+            # so the WARNING log and the actual skip can never diverge.
+            skipped_kinds = (
+                tuple(k for k in _KINDS if k in VERSION_SENSITIVE_KINDS) if version_mismatch else ()
+            )
+            diff_kinds = tuple(k for k in _KINDS if k not in skipped_kinds)
+
+            # Log each dropped kind so the gap is visible in the journal rather
+            # than silently absent.
+            for kind in skipped_kinds:
+                logger.warning(
+                    "Schema %s parity SKIPPED — reference %s (PG %d) and target %s "
+                    "(PG %d) run different PG majors; %s defs are version-formatted, "
+                    "so a diff would report version artifacts, not drift. Point the "
+                    "reference at a same-major DB to re-enable this check.",
+                    kind,
+                    ref_label,
+                    ref_major,
+                    tgt_label,
+                    tgt_major,
+                    kind,
+                )
+
+            reference = await _snapshot_all(ref_conn, diff_kinds)
+
+            # A real schema always has constraints, so an empty reference means a
+            # blank or wrong reference DB, not genuine parity — fail loudly.
+            if not reference["constraint"]:
+                logger.warning(
+                    "Schema parity audit MISCONFIGURED — reference %s has no "
+                    "constraints (blank or wrong DB); refusing to report parity "
+                    "against an empty reference.",
+                    ref_label,
+                )
+                return 1
+
+            target = await _snapshot_all(tgt_conn, diff_kinds)
+        finally:
+            await tgt_conn.close()
     finally:
         await ref_conn.close()
 
-    # A real schema always has constraints, so an empty reference means a blank
-    # or wrong reference DB, not genuine parity — fail loudly, don't pass on 0.
-    if not reference:
+    total_drift = 0
+    for kind in diff_kinds:
+        drift = diff_defs(kind=kind, reference=reference[kind], target=target[kind])
+
+        if not drift.has_drift:
+            logger.info(
+                "Schema %s parity OK — target %s carries all %d reference %s(s) "
+                "from %s (%d target-only, not drift)",
+                kind,
+                tgt_label,
+                len(reference[kind]),
+                kind,
+                ref_label,
+                len(drift.target_only),
+            )
+            continue
+
         logger.warning(
-            "Schema constraint audit MISCONFIGURED — reference %s has no "
-            "constraints (blank or wrong DB); refusing to report parity against "
-            "an empty reference.",
-            ref_label,
-        )
-        return 1
-
-    tgt_conn = await asyncpg.connect(target_url)
-    try:
-        target = await snapshot_constraints(tgt_conn)
-    finally:
-        await tgt_conn.close()
-
-    drift = diff_constraints(reference=reference, target=target)
-
-    if not drift.has_drift:
-        logger.info(
-            "Schema constraint parity OK — target %s carries all %d reference "
-            "constraint(s) from %s (%d target-only, not drift)",
+            "Schema %s DRIFT — target %s diverges from reference %s:\n%s",
+            kind,
             tgt_label,
-            len(reference),
             ref_label,
-            len(drift.target_only),
+            format_drift_report(drift, reference=ref_label, target=tgt_label),
         )
-        return 0
+        total_drift += drift.drift_count
 
-    logger.warning(
-        "Schema constraint DRIFT — target %s diverges from reference %s:\n%s",
-        tgt_label,
-        ref_label,
-        format_drift_report(drift, reference=ref_label, target=tgt_label),
-    )
-    return len(drift.missing_in_target) + len(drift.mismatched)
+    return total_drift
 
 
 def main() -> None:
