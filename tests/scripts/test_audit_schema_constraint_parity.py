@@ -1,12 +1,13 @@
-"""Orchestration + exit-code contract for the parity audit script (#315).
+"""Orchestration + exit-code contract for the parity audit script (#315, #331).
 
 The drift diff itself is tested in ``tests/core/test_schema_parity.py``; here we
-pin the pieces the systemd timer depends on — ``run()``'s OK-vs-drift branching
-and drift-count return, the two misconfiguration guards (empty reference,
-reference == target) that keep the monitor from passing vacuously, and
-``main()``'s exit-3 contract. No live DB: ``asyncpg.connect`` and
-``snapshot_constraints`` are stubbed so each URL resolves to an injected
-snapshot.
+pin the pieces the systemd timer depends on — ``run()``'s per-kind OK-vs-drift
+branching and summed drift-count return across constraints/functions/triggers,
+the PG-major version skip for the version-sensitive kinds, the two
+misconfiguration guards (empty reference, reference == target) that keep the
+monitor from passing vacuously, and ``main()``'s exit-3 contract. No live DB:
+``asyncpg.connect`` and the ``snapshot_*`` helpers are stubbed so each URL
+resolves to an injected per-kind snapshot.
 """
 
 import asyncio
@@ -16,88 +17,155 @@ import sys
 import pytest
 
 import scripts.audit_schema_constraint_parity as audit
-from src.core.schema_parity import ConstraintKey
+from src.core.schema_parity import ConstraintKey, FunctionKey, TriggerKey
 
 _CK = ConstraintKey(table="entity_events", name="fk_addr")
 _SET_NULL = "FOREIGN KEY (a) REFERENCES addresses(id) ON DELETE SET NULL"
 _NO_ACTION = "FOREIGN KEY (a) REFERENCES addresses(id)"
 
+_FK = FunctionKey(signature="touch_parent_on_link_change()")
+_TK = TriggerKey(table="links", name="trg_touch_entity_on_link_change")
+
 _REF = "postgres://u:pw@ref-host:5432/refdb"
 _PROD = "postgres://u:pw@prod-host:5432/proddb"
+
+
+class _Ver:
+    def __init__(self, major):
+        self.major = major
 
 
 class _FakeConn:
     """Stands in for an asyncpg connection; carries the DSN it was opened with."""
 
-    def __init__(self, dsn):
+    def __init__(self, dsn, major):
         self.dsn = dsn
+        self._major = major
         self.closed = False
+
+    def get_server_version(self):
+        return _Ver(self._major)
 
     async def close(self):
         self.closed = True
 
 
+def _snap(*, constraint=None, function=None, trigger=None):
+    """Build a per-kind snapshot bundle, defaulting each kind to empty."""
+    return {
+        "constraint": constraint or {},
+        "function": function or {},
+        "trigger": trigger or {},
+    }
+
+
 @pytest.fixture
 def stub_dbs(monkeypatch):
-    """Wire ``asyncpg.connect`` + ``snapshot_constraints`` to per-DSN snapshots.
+    """Wire ``asyncpg.connect`` + the three ``snapshot_*`` helpers to per-DSN data.
 
-    Returns a setter taking ``{dsn: snapshot_dict}``; ``run()`` then sees each
-    URL resolve to its injected constraint snapshot with no real I/O.
+    Returns a setter taking ``{dsn: bundle}`` (bundle from ``_snap``) and an
+    optional ``majors={dsn: int}``; ``run()`` then sees each URL resolve to its
+    injected per-kind snapshot with no real I/O.
     """
-    snapshots: dict[str, dict] = {}
+    bundles: dict[str, dict] = {}
+    majors: dict[str, int] = {}
 
     async def fake_connect(dsn):
-        return _FakeConn(dsn)
+        return _FakeConn(dsn, majors.get(dsn, 16))
 
-    async def fake_snapshot(conn):
-        return snapshots[conn.dsn]
+    async def fake_snapshot_constraints(conn):
+        return bundles[conn.dsn]["constraint"]
+
+    async def fake_snapshot_functions(conn):
+        return bundles[conn.dsn]["function"]
+
+    async def fake_snapshot_triggers(conn):
+        return bundles[conn.dsn]["trigger"]
 
     monkeypatch.setattr(audit.asyncpg, "connect", fake_connect)
-    monkeypatch.setattr(audit, "snapshot_constraints", fake_snapshot)
+    monkeypatch.setattr(audit, "snapshot_constraints", fake_snapshot_constraints)
+    monkeypatch.setattr(audit, "snapshot_functions", fake_snapshot_functions)
+    monkeypatch.setattr(audit, "snapshot_triggers", fake_snapshot_triggers)
 
-    def _set(mapping):
-        snapshots.clear()
-        snapshots.update(mapping)
+    def _set(mapping, *, major_map=None):
+        bundles.clear()
+        bundles.update(mapping)
+        majors.clear()
+        if major_map:
+            majors.update(major_map)
 
     return _set
 
 
 def test_run_returns_zero_when_parity(stub_dbs):
-    snap = {_CK: _SET_NULL}
-    stub_dbs({_REF: dict(snap), _PROD: dict(snap)})
+    snap = _snap(constraint={_CK: _SET_NULL}, function={_FK: "f"}, trigger={_TK: "t"})
+    stub_dbs({_REF: snap, _PROD: {k: dict(v) for k, v in snap.items()}})
     assert asyncio.run(audit.run(reference_url=_REF, target_url=_PROD)) == 0
 
 
-def test_run_returns_drift_count_on_mismatch(stub_dbs):
-    stub_dbs({_REF: {_CK: _SET_NULL}, _PROD: {_CK: _NO_ACTION}})
+def test_run_returns_drift_count_on_constraint_mismatch(stub_dbs):
+    stub_dbs(
+        {
+            _REF: _snap(constraint={_CK: _SET_NULL}),
+            _PROD: _snap(constraint={_CK: _NO_ACTION}),
+        }
+    )
     assert asyncio.run(audit.run(reference_url=_REF, target_url=_PROD)) == 1
 
 
-def test_run_counts_missing_and_mismatched(stub_dbs):
-    other = ConstraintKey(table="t", name="ck_other")
+def test_run_sums_drift_across_all_kinds(stub_dbs):
+    """A missing constraint + a drifted function + a missing trigger = 3."""
     stub_dbs(
         {
-            _REF: {_CK: _SET_NULL, other: "CHECK (x > 0)"},
-            _PROD: {_CK: _NO_ACTION},  # `other` missing + `_CK` differs
+            _REF: _snap(constraint={_CK: _SET_NULL}, function={_FK: "v2"}, trigger={_TK: "t"}),
+            _PROD: _snap(constraint={}, function={_FK: "v1"}, trigger={}),
         }
     )
-    assert asyncio.run(audit.run(reference_url=_REF, target_url=_PROD)) == 2
+    assert asyncio.run(audit.run(reference_url=_REF, target_url=_PROD)) == 3
 
 
-def test_run_ignores_target_only_constraints(stub_dbs):
-    prod_only = ConstraintKey(table="t", name="leftover")
+def test_run_ignores_target_only_objects(stub_dbs):
+    prod_only_fn = FunctionKey(signature="prod_only()")
     stub_dbs(
         {
-            _REF: {_CK: _SET_NULL},
-            _PROD: {_CK: _SET_NULL, prod_only: "CHECK (true)"},
+            _REF: _snap(constraint={_CK: _SET_NULL}),
+            _PROD: _snap(constraint={_CK: _SET_NULL}, function={prod_only_fn: "x"}),
         }
     )
     assert asyncio.run(audit.run(reference_url=_REF, target_url=_PROD)) == 0
 
 
+def test_run_skips_version_sensitive_kinds_on_major_mismatch(stub_dbs, caplog):
+    """Different PG majors → function/trigger diffs skipped; constraint still runs."""
+    stub_dbs(
+        {
+            _REF: _snap(constraint={_CK: _SET_NULL}, function={_FK: "v2"}, trigger={_TK: "t2"}),
+            _PROD: _snap(constraint={_CK: _SET_NULL}, function={_FK: "v1"}, trigger={_TK: "t1"}),
+        },
+        major_map={_REF: 16, _PROD: 15},
+    )
+    with caplog.at_level(logging.WARNING):
+        # Function + trigger drift would be 2, but both are skipped → 0.
+        assert asyncio.run(audit.run(reference_url=_REF, target_url=_PROD)) == 0
+    assert "function parity SKIPPED" in caplog.text
+    assert "trigger parity SKIPPED" in caplog.text
+
+
+def test_run_still_diffs_constraints_on_major_mismatch(stub_dbs):
+    """Constraints are version-stable — a major mismatch must not suppress them."""
+    stub_dbs(
+        {
+            _REF: _snap(constraint={_CK: _SET_NULL}),
+            _PROD: _snap(constraint={_CK: _NO_ACTION}),
+        },
+        major_map={_REF: 16, _PROD: 15},
+    )
+    assert asyncio.run(audit.run(reference_url=_REF, target_url=_PROD)) == 1
+
+
 def test_run_fails_on_empty_reference(stub_dbs, caplog):
-    """Blank/wrong reference DB → refuse to report parity against nothing."""
-    stub_dbs({_REF: {}, _PROD: {_CK: _SET_NULL}})
+    """Blank/wrong reference DB (no constraints) → refuse to report parity."""
+    stub_dbs({_REF: _snap(), _PROD: _snap(constraint={_CK: _SET_NULL})})
     with caplog.at_level(logging.WARNING):
         assert asyncio.run(audit.run(reference_url=_REF, target_url=_PROD)) == 1
     assert "MISCONFIGURED" in caplog.text
@@ -137,7 +205,7 @@ def test_run_allows_same_host_different_port(stub_dbs):
     """
     ref = "postgres://u:pw@host:5432/db"
     tgt = "postgres://u:pw@host:5433/db"
-    stub_dbs({ref: {_CK: _SET_NULL}, tgt: {_CK: _SET_NULL}})
+    stub_dbs({ref: _snap(constraint={_CK: _SET_NULL}), tgt: _snap(constraint={_CK: _SET_NULL})})
     assert asyncio.run(audit.run(reference_url=ref, target_url=tgt)) == 0
 
 
