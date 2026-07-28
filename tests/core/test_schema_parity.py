@@ -14,6 +14,7 @@ from src.core.schema_parity import (
     FunctionKey,
     TriggerKey,
     diff_defs,
+    format_drift_report,
     snapshot_constraints,
     snapshot_functions,
     snapshot_triggers,
@@ -98,6 +99,21 @@ def test_diff_defs_is_kind_agnostic_over_triggers():
     drift = diff_defs(kind="trigger", reference=ref, target={})
     assert drift.kind == "trigger"
     assert drift.missing_in_target == [tk]
+
+
+def test_format_report_indents_multiline_function_bodies():
+    """A drifted function body (multi-line) keeps continuation lines aligned."""
+    fk = FunctionKey(signature="touch_parent_on_link_change()")
+    ref = {fk: "CREATE OR REPLACE FUNCTION f()\nRETURNS trigger AS $$\nBEGIN v2 END\n$$;"}
+    tgt = {fk: "CREATE OR REPLACE FUNCTION f()\nRETURNS trigger AS $$\nBEGIN v1 END\n$$;"}
+    drift = diff_defs(kind="function", reference=ref, target=tgt)
+    report = format_drift_report(drift, reference="refdb", target="proddb")
+    # The kind namespace prefixes the object identity.
+    assert "  - function.touch_parent_on_link_change()" in report
+    # Continuation lines of the body are indented to align under the label, not
+    # spilled to column 0 (would be a bare "RETURNS trigger AS $$" line).
+    assert "\nRETURNS trigger" not in report
+    assert "                 RETURNS trigger AS $$" in report  # 17-space continuation indent
 
 
 # --- live snapshot integration ------------------------------------------------

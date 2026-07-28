@@ -58,22 +58,25 @@ from src.core.schema_parity import (
 logger = get_logger(__name__)
 
 #: Report/diff order: constraints first (always diffed, version-stable), then the
-#: version-sensitive kinds. See ``_snapshot_all`` for why this is a name list, not
-#: a dict of function objects.
+#: version-sensitive kinds. See ``_snapshot_all`` for why the snapshotters are
+#: resolved by bare name, not a module-level dict of captured function objects.
 _KINDS = ("constraint", "function", "trigger")
 
 
-async def _snapshot_all(conn: asyncpg.Connection) -> dict[str, dict]:
-    """Snapshot every kind on ``conn`` → ``{kind: {key: def}}``.
+async def _snapshot_all(conn: asyncpg.Connection, kinds: tuple[str, ...]) -> dict[str, dict]:
+    """Snapshot the requested ``kinds`` on ``conn`` → ``{kind: {key: def}}``.
 
-    References the ``snapshot_*`` names at call time (not a module-level dict of
-    captured function objects) so tests can monkeypatch them per-kind.
+    Resolves the ``snapshot_*`` names at call time (not a module-level dict of
+    captured function objects) so tests can monkeypatch them per-kind. Skipped
+    kinds (e.g. version-sensitive ones on a PG-major mismatch) are simply not
+    requested, so no wasted ``pg_get_*def`` query runs for them.
     """
-    return {
-        "constraint": await snapshot_constraints(conn),
-        "function": await snapshot_functions(conn),
-        "trigger": await snapshot_triggers(conn),
+    snappers = {
+        "constraint": snapshot_constraints,
+        "function": snapshot_functions,
+        "trigger": snapshot_triggers,
     }
+    return {kind: await snappers[kind](conn) for kind in kinds}
 
 
 def _redact(url: str) -> str:
@@ -132,50 +135,61 @@ async def run(*, reference_url: str, target_url: str) -> int:
         )
         return 1
 
+    # Open both connections up front and read both server majors *before* any
+    # snapshot, so a version-sensitive kind that will be skipped (PG-major
+    # mismatch) is never snapshotted on either side — no wasted pg_get_*def query.
     ref_conn = await asyncpg.connect(reference_url)
     try:
-        ref_major = ref_conn.get_server_version().major
-        reference = await _snapshot_all(ref_conn)
+        tgt_conn = await asyncpg.connect(target_url)
+        try:
+            ref_major = ref_conn.get_server_version().major
+            tgt_major = tgt_conn.get_server_version().major
+            version_mismatch = ref_major != tgt_major
+
+            # Log the skip for each version-sensitive kind we're dropping, so the
+            # gap is visible in the journal rather than silently absent.
+            if version_mismatch:
+                for kind in _KINDS:
+                    if kind in VERSION_SENSITIVE_KINDS:
+                        logger.warning(
+                            "Schema %s parity SKIPPED — reference %s (PG %d) and "
+                            "target %s (PG %d) run different PG majors; %s defs are "
+                            "version-formatted, so a diff would report version "
+                            "artifacts, not drift. Point the reference at a "
+                            "same-major DB to re-enable this check.",
+                            kind,
+                            ref_label,
+                            ref_major,
+                            tgt_label,
+                            tgt_major,
+                            kind,
+                        )
+
+            diff_kinds = tuple(
+                k for k in _KINDS if not (version_mismatch and k in VERSION_SENSITIVE_KINDS)
+            )
+
+            reference = await _snapshot_all(ref_conn, diff_kinds)
+
+            # A real schema always has constraints, so an empty reference means a
+            # blank or wrong reference DB, not genuine parity — fail loudly.
+            if not reference["constraint"]:
+                logger.warning(
+                    "Schema parity audit MISCONFIGURED — reference %s has no "
+                    "constraints (blank or wrong DB); refusing to report parity "
+                    "against an empty reference.",
+                    ref_label,
+                )
+                return 1
+
+            target = await _snapshot_all(tgt_conn, diff_kinds)
+        finally:
+            await tgt_conn.close()
     finally:
         await ref_conn.close()
 
-    # A real schema always has constraints, so an empty reference means a blank
-    # or wrong reference DB, not genuine parity — fail loudly, don't pass on 0.
-    if not reference["constraint"]:
-        logger.warning(
-            "Schema parity audit MISCONFIGURED — reference %s has no constraints "
-            "(blank or wrong DB); refusing to report parity against an empty "
-            "reference.",
-            ref_label,
-        )
-        return 1
-
-    tgt_conn = await asyncpg.connect(target_url)
-    try:
-        tgt_major = tgt_conn.get_server_version().major
-        target = await _snapshot_all(tgt_conn)
-    finally:
-        await tgt_conn.close()
-
-    version_mismatch = ref_major != tgt_major
     total_drift = 0
-
-    for kind in _KINDS:
-        if version_mismatch and kind in VERSION_SENSITIVE_KINDS:
-            logger.warning(
-                "Schema %s parity SKIPPED — reference %s (PG %d) and target %s "
-                "(PG %d) run different PG majors; %s defs are version-formatted, so "
-                "a diff would report version artifacts, not drift. Point the "
-                "reference at a same-major DB to re-enable this check.",
-                kind,
-                ref_label,
-                ref_major,
-                tgt_label,
-                tgt_major,
-                kind,
-            )
-            continue
-
+    for kind in diff_kinds:
         drift = diff_defs(kind=kind, reference=reference[kind], target=target[kind])
 
         if not drift.has_drift:

@@ -240,11 +240,25 @@ def diff_defs(
     )
 
 
+#: Column where the ``reference:`` / ``target:`` def values start (6-space bullet
+#: indent + the 11-char ``reference: `` / ``target:    `` label). Multi-line
+#: function/trigger bodies indent their continuation lines to here so they stay
+#: aligned under the first line instead of spilling to column 0.
+_DEF_CONTINUATION_INDENT = " " * 17
+
+
+def _indent_def(text: str) -> str:
+    """Indent every line after the first of a (possibly multi-line) def value."""
+    return text.replace("\n", "\n" + _DEF_CONTINUATION_INDENT)
+
+
 def format_drift_report(drift: SchemaObjectDrift, *, reference: str, target: str) -> str:
     """Human-readable multi-line report of a drift, for the ops-check journal log.
 
     Object identities are namespaced by kind (``constraint.`` / ``function.`` /
-    ``trigger.``) so a combined multi-kind report stays unambiguous.
+    ``trigger.``) so a combined multi-kind report stays unambiguous. Multi-line
+    function/trigger bodies have their continuation lines indented to align under
+    the ``reference:`` / ``target:`` label rather than spilling to column 0.
     """
     kind = drift.kind
     lines: list[str] = []
@@ -260,8 +274,8 @@ def format_drift_report(drift: SchemaObjectDrift, *, reference: str, target: str
         )
         for key, ref_def, tgt_def in drift.mismatched:
             lines.append(f"  - {kind}.{key.label}")
-            lines.append(f"      reference: {ref_def}")
-            lines.append(f"      target:    {tgt_def}")
+            lines.append(f"      reference: {_indent_def(ref_def)}")
+            lines.append(f"      target:    {_indent_def(tgt_def)}")
     if drift.target_only:
         lines.append(
             f"note: {len(drift.target_only)} {kind}(s) present only in target "
