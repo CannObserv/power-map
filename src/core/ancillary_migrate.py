@@ -17,16 +17,30 @@ Before a delete, each merge path re-homes the loser's ancillary onto the survivo
 :func:`rehome_role_ancillary` for roles): each row is re-pointed, or deleted when
 the survivor already carries an identical one (mirrors
 ``scripts/archive_legacy_legislator_roles.py::_migrate_rows``); ``import_provenance``
-is append-only and always re-points (never dedups). The survivor gets a manual
-``entity_changes`` 'updated' signal because none of these tables carries a
-touch-cascade trigger. A role hard-delete instead drops the rows outright
-(:func:`delete_role_ancillary`), relying on the role's own 'deleted' tombstone.
+is append-only and always re-points (never dedups). A role hard-delete instead
+drops the rows outright (:func:`delete_role_ancillary`), relying on the role's own
+'deleted' tombstone.
+
+**Survivor signal (#327).** ``links`` / ``contact_methods`` / ``identifiers`` now
+carry touch-cascade triggers, so a re-point ``UPDATE`` self-emits an
+``entity_changes`` 'updated' for the survivor (one per moved row). Only the
+trigger-less telemetry tables — ``field_confidence`` and ``import_provenance``
+(written per-ingestion, deliberately not triggered) — still need a manual emit,
+gated on a move of one of those (:data:`TRIGGERLESS_ANCILLARY_TABLES`). ``rehome_role_ancillary``
+touches only triggered tables, so it emits nothing manually at all.
 """
 
 from collections import defaultdict
 from typing import NamedTuple
 
 import asyncpg
+
+# Ancillary tables with NO touch-cascade trigger (#327): a re-point does not
+# self-emit, so a survivor whose only change is one of these needs a manual
+# entity_changes signal. Everything else (links/contact_methods/identifiers) is
+# trigger-driven. Kept trigger-less on purpose — both are written per-ingestion,
+# so a trigger would emit an 'updated' on every audit/confidence row.
+TRIGGERLESS_ANCILLARY_TABLES = frozenset({"field_confidence", "import_provenance"})
 
 
 class _AncillarySpec(NamedTuple):
@@ -195,11 +209,13 @@ async def rehome_conflicting_assignment_ancillary(
 ) -> dict[str, tuple[int, int]]:
     """Migrate ancillary for every ``(loser, winner)`` pair; signal changed survivors.
 
-    Call this immediately before a merge hard-deletes the loser assignments. A
-    survivor gets a single ``entity_changes`` 'updated' row when at least one of
-    its ancillary rows was re-pointed (a pure dedup leaves the survivor row
-    unchanged, so it is not signalled). Returns per-table ``(moved, deduped)``
-    totals across all pairs.
+    Call this immediately before a merge hard-deletes the loser assignments. The
+    survivor is signalled via ``entity_changes`` 'updated' when its ancillary
+    actually moved (a pure dedup changes nothing on the survivor, so no signal):
+    re-pointing a ``links`` / ``contact_methods`` / ``identifiers`` row self-emits
+    through that table's touch trigger (#327), while a ``field_confidence`` /
+    ``import_provenance`` move (trigger-less) gets a manual emit here. Returns
+    per-table ``(moved, deduped)`` totals across all pairs.
     """
     totals: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     touched_survivors: set[str] = set()
@@ -208,7 +224,9 @@ async def rehome_conflicting_assignment_ancillary(
         for table, (moved, deduped) in counts.items():
             totals[table][0] += moved
             totals[table][1] += deduped
-            if moved:
+            # Triggered tables self-emit on re-point (#327); only a trigger-less
+            # move needs a manual survivor signal.
+            if moved and table in TRIGGERLESS_ANCILLARY_TABLES:
                 touched_survivors.add(winner_id)
     for winner_id in touched_survivors:
         await db.execute(
@@ -283,18 +301,11 @@ async def rehome_role_ancillary(
 
     Mirrors :func:`rehome_conflicting_assignment_ancillary` for the role case: each
     row is re-pointed onto ``winner_id`` or deleted when the winner already carries
-    an identical one. The winner gets a single ``entity_changes`` 'role' 'updated'
-    signal when at least one row moved (these tables have no touch-cascade trigger).
-    Returns per-table ``(moved, deduped)``.
+    an identical one. Both role specs (``links`` / ``contact_methods``) carry touch
+    triggers (#327), so a re-point self-emits the survivor 'role' 'updated' signal
+    (one per moved row) — no manual emit here. Returns per-table ``(moved, deduped)``.
     """
-    counts = await _migrate_specs(db, _ROLE_SPECS, loser_id, winner_id)
-    if any(moved for moved, _ in counts.values()):
-        await db.execute(
-            "INSERT INTO entity_changes (entity_type, entity_id, change_kind)"
-            " VALUES ('role', $1, 'updated')",
-            winner_id,
-        )
-    return counts
+    return await _migrate_specs(db, _ROLE_SPECS, loser_id, winner_id)
 
 
 async def delete_role_ancillary(db: asyncpg.Connection, role_id: str) -> None:

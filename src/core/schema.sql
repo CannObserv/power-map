@@ -1346,6 +1346,11 @@ BEGIN
         UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
     ELSIF v_entity_type = 'jurisdiction' THEN
         UPDATE jurisdictions SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'role_assignment' THEN
+        -- role_assignment identifiers (role_wa_pdc, pm_assignment_id) were the
+        -- one identifier scope this dispatch missed until #327 — admin/merge/
+        -- direct writes now signal the parent like the other three types.
+        UPDATE role_assignments SET updated_at = NOW() WHERE id = v_entity_id;
     END IF;
 
     RETURN NULL;
@@ -1392,6 +1397,84 @@ $$;
 CREATE OR REPLACE TRIGGER trg_touch_entity_on_address_change
     AFTER INSERT OR UPDATE OR DELETE ON entity_addresses
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_entity_address_change();
+
+-- contact_methods is polymorphic: dispatch the touch on entity_type (#327).
+-- Mirrors touch_parent_on_entity_address_change — user-facing ancillary state,
+-- so any write (admin CRUD, public observation, merge re-homing) bumps the
+-- parent's updated_at and cascades into the entity_changes outbox. Before #327
+-- this table had NO trigger and each write path emitted manually (public +
+-- merge) while admin CRUD emitted nothing; the trigger is now the single source
+-- for all paths, so the manual emits were removed. Contrast import_provenance /
+-- field_confidence (written per-ingestion): those stay trigger-less on purpose.
+CREATE OR REPLACE FUNCTION touch_parent_on_contact_change()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_entity_type TEXT;
+    v_entity_id   TEXT;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_entity_type := OLD.entity_type;
+        v_entity_id   := OLD.entity_id;
+    ELSE
+        v_entity_type := NEW.entity_type;
+        v_entity_id   := NEW.entity_id;
+    END IF;
+
+    IF v_entity_type = 'organization' THEN
+        UPDATE organizations SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'person' THEN
+        UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'jurisdiction' THEN
+        UPDATE jurisdictions SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'role' THEN
+        UPDATE roles SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'role_assignment' THEN
+        UPDATE role_assignments SET updated_at = NOW() WHERE id = v_entity_id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_entity_on_contact_change
+    AFTER INSERT OR UPDATE OR DELETE ON contact_methods
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_on_contact_change();
+
+-- links is polymorphic: dispatch the touch on entity_type (#327). Same rationale
+-- and shape as touch_parent_on_contact_change above.
+CREATE OR REPLACE FUNCTION touch_parent_on_link_change()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_entity_type TEXT;
+    v_entity_id   TEXT;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_entity_type := OLD.entity_type;
+        v_entity_id   := OLD.entity_id;
+    ELSE
+        v_entity_type := NEW.entity_type;
+        v_entity_id   := NEW.entity_id;
+    END IF;
+
+    IF v_entity_type = 'organization' THEN
+        UPDATE organizations SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'person' THEN
+        UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'jurisdiction' THEN
+        UPDATE jurisdictions SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'role' THEN
+        UPDATE roles SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'role_assignment' THEN
+        UPDATE role_assignments SET updated_at = NOW() WHERE id = v_entity_id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_entity_on_link_change
+    AFTER INSERT OR UPDATE OR DELETE ON links
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_on_link_change();
 
 -- =============================================================================
 -- Migration: urls/social_links/url_types/platforms → link_types/links
