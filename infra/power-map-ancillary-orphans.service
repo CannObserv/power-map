@@ -1,5 +1,5 @@
 [Unit]
-Description=power-map daily role_assignment ancillary orphan audit (issue #324)
+Description=power-map daily role / role_assignment ancillary orphan audit (issues #324, #326)
 After=network.target
 
 [Service]
@@ -15,4 +15,4 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # The merge paths now re-home before deleting; this is the continuous backstop.
 # Exits 3 when any orphan exists, so the unit shows as failed in
 # `systemctl --failed` and can drive OnFailure= later. Read-only.
-ExecStart=uv run python -m scripts.audit_role_assignment_ancillary_orphans
+ExecStart=uv run python -m scripts.audit_ancillary_orphans

@@ -11,9 +11,12 @@ import pytest
 import pytest_asyncio
 
 from src.core.ancillary_migrate import (
+    count_orphaned_role_ancillary,
     count_orphaned_role_assignment_ancillary,
+    delete_role_ancillary,
     migrate_role_assignment_ancillary,
     rehome_conflicting_assignment_ancillary,
+    rehome_role_ancillary,
 )
 from src.core.db import generate_id
 
@@ -292,3 +295,118 @@ async def test_guard_ignores_live_assignment_ancillary(db):
     after = await count_orphaned_role_assignment_ancillary(db)
 
     assert after == before
+
+
+# ── role-level ancillary (#326) ─────────────────────────────────────────────
+
+
+async def _role(db) -> str:
+    """A minimal org + role; returns the role id."""
+    oid, rid = generate_id(), generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Chair')", rid, oid
+    )
+    return rid
+
+
+async def _add_role_link(db, rid, url):
+    await db.execute(
+        "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+        " VALUES ($1, 'role', $2, $3, $4)",
+        generate_id(),
+        rid,
+        url,
+        _LINK_TYPE_ID,
+    )
+
+
+async def _add_role_contact(db, rid, value):
+    await db.execute(
+        "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+        " VALUES ($1, 'role', $2, 'email', $3)",
+        generate_id(),
+        rid,
+        value,
+    )
+
+
+async def _role_updated_signals(db, rid) -> int:
+    return await db.fetchval(
+        "SELECT count(*) FROM entity_changes"
+        " WHERE entity_type='role' AND entity_id=$1 AND change_kind='updated'",
+        rid,
+    )
+
+
+async def test_rehome_role_repoints_and_emits_signal(db):
+    loser, winner = await _role(db), await _role(db)
+    await _add_role_link(db, loser, "https://loser.example/x")
+    await _add_role_contact(db, loser, "loser@example.org")
+    # roles carry their own AFTER INSERT/UPDATE outbox trigger, so measure the
+    # helper's contribution as a delta over the baseline from role creation.
+    before = await _role_updated_signals(db, winner)
+
+    counts = await rehome_role_ancillary(db, loser, winner)
+    assert counts["links"] == (1, 0)
+    assert counts["contact_methods"] == (1, 0)
+
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM links WHERE entity_type='role' AND entity_id=$1", loser
+        )
+        == 0
+    )
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM links WHERE entity_type='role' AND entity_id=$1", winner
+        )
+        == 1
+    )
+    # Survivor gets exactly one extra signal for the re-homed ancillary (these
+    # ancillary tables have no touch-cascade trigger of their own).
+    assert await _role_updated_signals(db, winner) == before + 1
+
+
+async def test_rehome_role_dedups_identical_and_skips_signal(db):
+    loser, winner = await _role(db), await _role(db)
+    await _add_role_contact(db, loser, "dup@example.org")
+    await _add_role_contact(db, winner, "dup@example.org")
+    before = await _role_updated_signals(db, winner)
+
+    counts = await rehome_role_ancillary(db, loser, winner)
+    assert counts["contact_methods"] == (0, 1)  # deduped, not moved
+    # Pure dedup leaves the survivor row unchanged → no *additional* signal.
+    assert await _role_updated_signals(db, winner) == before
+
+
+async def test_delete_role_ancillary_drops_rows(db):
+    rid = await _role(db)
+    await _add_role_link(db, rid, "https://x.example/y")
+    await _add_role_contact(db, rid, "gone@example.org")
+
+    await delete_role_ancillary(db, rid)
+
+    assert (
+        await db.fetchval(
+            "SELECT (SELECT count(*) FROM links"
+            "         WHERE entity_type='role' AND entity_id=$1)"
+            "     + (SELECT count(*) FROM contact_methods"
+            "         WHERE entity_type='role' AND entity_id=$1)",
+            rid,
+        )
+        == 0
+    )
+
+
+async def test_role_guard_counts_orphans_after_raw_delete(db):
+    rid = await _role(db)
+    await _add_role_link(db, rid, "https://orphan.example/r")
+    await _add_role_contact(db, rid, "orphan@example.org")
+
+    before = await count_orphaned_role_ancillary(db)
+    await db.execute("DELETE FROM roles WHERE id=$1", rid)
+    after = await count_orphaned_role_ancillary(db)
+
+    assert after["links"] == before["links"] + 1
+    assert after["contact_methods"] == before["contact_methods"] + 1

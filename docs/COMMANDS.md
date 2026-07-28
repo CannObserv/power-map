@@ -668,14 +668,18 @@ sudo systemctl start power-map-schema-parity.service   # run once, now
 sudo journalctl -u power-map-schema-parity -f          # drift report on failure
 ```
 
-## role_assignment ancillary orphan audit & cleanup (issue #324)
+## role / role_assignment ancillary orphan audit & cleanup (issues #324, #326)
 
-Polymorphic ancillary (`links` / `contact_methods` / `field_confidence` /
-`identifiers`) keyed on `(entity_type='role_assignment', entity_id)` has no FK, so
-a pre-#324 merge dedup could hard-delete an assignment and orphan its ancillary.
-The merge paths now re-home before deleting; these two scripts are the continuous
-guard and the one-time recovery. See `docs/CONVENTIONS.md` §"Merge dedup —
-role_assignment ancillary re-homing".
+Polymorphic ancillary keyed on `(entity_type, entity_id)` with no FK — for
+`role_assignment` (`links` / `contact_methods` / `field_confidence` /
+`identifiers`, #324) and for `role` (`links` / `contact_methods`, #326) — could be
+orphaned when a merge or delete drops the parent. The merge/delete paths now
+re-home (or drop) before deleting; `scripts/audit_ancillary_orphans.py` is the
+continuous guard over **both** scopes (breakdown namespaced `role.*` /
+`role_assignment.*`). The one-time recovery script stays role_assignment-only
+(its heuristics are assignment-specific; role orphans should not occur now that
+the write paths are fixed, so any that appear go to manual triage). See
+`docs/CONVENTIONS.md` §"Merge dedup — role_assignment ancillary re-homing".
 
 ```bash
 # Build --env-file flags (see § Environment)
@@ -684,7 +688,7 @@ env_args=()
 [ -f .env ] && env_args+=(--env-file .env)
 
 # Guard: count orphans (exit 3 if any) — read-only
-uv run "${env_args[@]}" python -m scripts.audit_role_assignment_ancillary_orphans
+uv run "${env_args[@]}" python -m scripts.audit_ancillary_orphans
 
 # Cleanup: heuristic re-home + redundant-link purge; manual rows reported only
 uv run "${env_args[@]}" python -m scripts.cleanup_role_assignment_ancillary_orphans            # dry run

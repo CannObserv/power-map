@@ -17,6 +17,7 @@ from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
 from src.api.admin.roles_shared import fetch_role_types, positionless_seat_error
+from src.core.ancillary_migrate import delete_role_ancillary
 from src.core.db import generate_id
 from src.core.role_title import synthesize_role_title
 
@@ -272,6 +273,26 @@ async def role_detail(
 
     assignments = await fetch_role_assignments(role_id, db)
 
+    email_contacts = await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type = 'role' AND entity_id = $1 AND contact_type = 'email'"
+        " ORDER BY value",
+        role_id,
+    )
+    phone_contacts = await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type = 'role' AND entity_id = $1 AND contact_type = 'phone'"
+        " ORDER BY value",
+        role_id,
+    )
+    links = await db.fetch(
+        """SELECT l.*, lt.display_name AS link_type_name, lt.is_social
+           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
+           WHERE l.entity_type = 'role' AND l.entity_id = $1
+           ORDER BY lt.display_name, l.url""",
+        role_id,
+    )
+
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
@@ -282,6 +303,9 @@ async def role_detail(
             "role": role,
             "role_id": role_id,
             "assignments": assignments,
+            "email_contacts": email_contacts,
+            "phone_contacts": phone_contacts,
+            "links": links,
             "flash_msg": flash_msg,
         },
         headers=resp_headers,
@@ -319,6 +343,9 @@ async def role_delete(
         raise HTTPException(status_code=409, detail="Role must be archived before deletion")
     try:
         async with db.transaction():
+            # #326: drop the role's own contacts/links (entity_type='role', no FK)
+            # so the hard-delete doesn't orphan them.
+            await delete_role_ancillary(db, role_id)
             await db.execute("DELETE FROM roles WHERE id = $1", role_id)
             # Tombstone (issue #277): emit a 'deleted' signal for subscribers.
             await db.execute(

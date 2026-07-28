@@ -1,0 +1,18 @@
+{# admin/role_assignments/partials/_identifier_row.html #}
+<tr id="identifier-row-{{ ident.id }}">
+  <td>{{ ident.type_name }}{% if ident.type_full_name and ident.type_full_name != ident.type_name %}<span class="visually-hidden">, {{ ident.type_full_name }}</span>{% endif %}</td>
+  <td>{{ ident.value }}</td>
+  <td style="text-align:right;white-space:nowrap">
+    <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Edit {{ ident.type_name }} identifier {{ ident.value }}"
+            hx-get="/admin/role-assignments/{{ ra_id }}/identifiers/{{ ident.id }}/edit-row/"
+            hx-target="#identifier-row-{{ ident.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Delete {{ ident.type_name }} identifier {{ ident.value }}"
+            hx-delete="/admin/role-assignments/{{ ra_id }}/identifiers/{{ ident.id }}/"
+            hx-target="#identifier-row-{{ ident.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this identifier?">Delete</button>
+  </td>
+</tr>

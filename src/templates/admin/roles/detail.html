@@ -73,6 +73,90 @@
   </div>
 </section>
 
+<section class="entity-section">
+  <h2>Contact Information</h2>
+  <div class="entity-card">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 var(--space-3)">
+      <h3 class="field-group-label">Email Addresses</h3>
+      {% if not role.archived_at %}
+      <button class="btn btn--sm btn--secondary"
+              data-new-row-id="email-row-new"
+              hx-get="/admin/roles/{{ role.id }}/contacts/new-row/?contact_type=email"
+              hx-sync="this:drop"
+              hx-target="#emails-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add email</button>
+      {% endif %}
+    </div>
+    <div class="table-wrapper">
+      <table id="emails-table" class="data-table">
+        <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% for c in email_contacts %}
+          {% include "admin/roles/partials/_contact_row.html" %}
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No email addresses</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:var(--space-5) 0 var(--space-3)">
+      <h3 class="field-group-label">Phone Numbers</h3>
+      {% if not role.archived_at %}
+      <button class="btn btn--sm btn--secondary"
+              data-new-row-id="phone-row-new"
+              hx-get="/admin/roles/{{ role.id }}/contacts/new-row/?contact_type=phone"
+              hx-sync="this:drop"
+              hx-target="#phones-table tbody"
+              hx-swap="afterbegin"
+              type="button">+ Add phone</button>
+      {% endif %}
+    </div>
+    <div class="table-wrapper">
+      <table id="phones-table" class="data-table">
+        <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {% for c in phone_contacts %}
+          {% include "admin/roles/partials/_contact_row.html" %}
+          {% else %}
+          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No phone numbers</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</section>
+
+<section class="entity-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Links</h2>
+    {% if not role.archived_at %}
+    <button class="btn btn--sm btn--secondary"
+            data-new-row-id="link-row-new"
+            hx-get="/admin/roles/{{ role.id }}/links/new-row/"
+            hx-sync="this:drop"
+            hx-target="#links-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add link</button>
+    {% endif %}
+  </div>
+  <div class="table-wrapper">
+    <table id="links-table" class="data-table">
+      <thead><tr><th scope="col">URL</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
+      <tbody>
+        {% for l in links %}
+        {% include "admin/roles/partials/_link_row.html" %}
+        {% else %}
+        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No links</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <p style="color:var(--color-text-muted);font-size:var(--font-size-sm);margin-top:var(--space-6)">
   Metadata &middot; ID: <code>{{ role.id }}</code>
   &middot; Created: {{ role.created_at.strftime('%Y-%m-%d') }}

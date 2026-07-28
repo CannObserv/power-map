@@ -20,7 +20,10 @@ from src.api.admin.org_dups import (
     invalidate_dup_count_cache,
 )
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
-from src.core.ancillary_migrate import rehome_conflicting_assignment_ancillary
+from src.core.ancillary_migrate import (
+    rehome_conflicting_assignment_ancillary,
+    rehome_role_ancillary,
+)
 from src.core.db import generate_id
 from src.core.org_lifecycle import count_open_assignments, get_org_ended_on
 
@@ -227,6 +230,8 @@ async def _execute_merge(
                     "DELETE FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
                     loser_role_id,
                 )
+                # #326: re-home the loser role's own contacts/links before deleting it.
+                await rehome_role_ancillary(db, loser_role_id, winner_role_id)
                 await db.execute("DELETE FROM roles WHERE id=$1", loser_role_id)
 
         await db.execute(
@@ -377,6 +382,8 @@ async def _execute_merge(
                 "DELETE FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
                 l_role,
             )
+            # #326: re-home the loser role's own contacts/links before deleting it.
+            await rehome_role_ancillary(db, l_role, w_role)
             await db.execute("DELETE FROM roles WHERE id=$1", l_role)
 
         await db.execute(

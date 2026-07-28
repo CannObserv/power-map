@@ -615,6 +615,36 @@ optional payload exists, not an entity state. Assignment read rows
   the row's **Open** link. The inline create/edit forms deliberately carry no notes control
   (row real estate).
 
+### Role & assignment attachment panels (#326)
+
+Role and role-assignment detail pages carry the same shared-factory attachment panels as
+orgs/people/jurisdictions:
+
+- **Contacts** (email + phone) and **Links** on both — `roles_{contacts,links}.py` and
+  `role_assignments_{contacts,links}.py`, thin wirings of `make_contacts_router` /
+  `make_links_router` (`entity_type` `'role'` / `'role_assignment'`).
+- **Identifiers** on assignments only (`role_assignments_identifiers.py`) — the role
+  *definition* carries no identifiers (`entity_identifier_types` excludes `'role'`). The
+  picker excludes internal types, so `role_wa_pdc` is the offered public type.
+- Partials mirror the org set under `roles/partials/` and `role_assignments/partials/`
+  (context id keys `role_id` / `ra_id`); detail handlers fetch the arrays into context. The
+  `+ Add` buttons are gated on an active (non-archived) role/assignment; existing rows stay
+  read-visible.
+- **Role-level ancillary cleanup (CR).** A role's own `contact_methods`/`links`
+  (`entity_type='role'`, no FK — the assignment-only `ancillary_migrate` #324 machinery does
+  not cover these) must be cleaned like the assignment case, else the #326 editors orphan
+  them. `src.core.ancillary_migrate` grew `rehome_role_ancillary` (merge: re-point + dedup
+  onto the surviving role, emit a `'role'` 'updated' signal) and `delete_role_ancillary`
+  (hard-delete: drop the rows). Wired into all three role-deleting paths: `roles.py`
+  hard-delete, `orgs_roles.py::role_merge`, and both `orgs_merge.py` role-pair deletes.
+- **Addresses deliberately excluded** — the address editor is hand-built per entity (not a
+  shared factory) and semantically thin on a role/assignment; the public observation API
+  still accepts them.
+- **Known gap (#327):** these shared admin routers do raw INSERT/DELETE and do **not** emit
+  a parent `entity_changes` 'updated' signal (the public observation path does). Combined
+  with the no-touch-cascade tables (#324), admin edits are invisible to subscribers until
+  #327 lands the consistent emit.
+
 ### HTMX live regions
 
 All swap targets: `aria-live="polite" aria-atomic="false"`.

@@ -40,9 +40,14 @@ from src.api.admin import people_name_suggest as people_name_suggest_module
 from src.api.admin import people_names as people_names_module
 from src.api.admin import people_reading_target_search as people_reading_target_search_module
 from src.api.admin import role_assignments as role_assignments_module
+from src.api.admin import role_assignments_contacts as role_assignments_contacts_module
+from src.api.admin import role_assignments_identifiers as role_assignments_identifiers_module
+from src.api.admin import role_assignments_links as role_assignments_links_module
 from src.api.admin import roles as roles_module
 from src.api.admin import roles_assignments_inline as roles_assignments_inline_module
+from src.api.admin import roles_contacts as roles_contacts_module
 from src.api.admin import roles_detail as roles_detail_module
+from src.api.admin import roles_links as roles_links_module
 from src.api.admin import settings as settings_module
 from src.api.admin import settings_api_keys as settings_api_keys_module
 from src.api.admin import settings_identifier_types as settings_identifier_types_module
@@ -107,5 +112,10 @@ admin_router.include_router(jurisdictions_affiliations_module.jurisdiction_route
 admin_router.include_router(jurisdictions_affiliations_module.org_router)
 admin_router.include_router(roles_module.router)
 admin_router.include_router(roles_detail_module.router)
+admin_router.include_router(roles_contacts_module.router)
+admin_router.include_router(roles_links_module.router)
 admin_router.include_router(roles_assignments_inline_module.router)
 admin_router.include_router(role_assignments_module.router)
+admin_router.include_router(role_assignments_contacts_module.router)
+admin_router.include_router(role_assignments_links_module.router)
+admin_router.include_router(role_assignments_identifiers_module.router)

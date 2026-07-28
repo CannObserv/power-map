@@ -611,6 +611,51 @@ async def test_org_merge_role_pair_rehomes_dropped_dup_ancillary(client, db):
     )  # deleted loser not orphaned
 
 
+async def test_org_merge_role_pair_rehomes_loser_role_level_ancillary(client, db):
+    """#326: the loser *role's own* contacts/links (entity_type='role') re-home to
+    the winner role before the role is deleted — not orphaned."""
+    id_a, id_b, role_a, role_b = await _role_pair_orgs(db)
+    lt_id = await db.fetchval("SELECT id FROM link_types ORDER BY display_name LIMIT 1")
+    await db.execute(
+        "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+        " VALUES ($1, 'role', $2, 'email', 'director@loser.example')",
+        generate_id(),
+        role_b,
+    )
+    await db.execute(
+        "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+        " VALUES ($1, 'role', $2, 'https://loser.example/dir', $3)",
+        generate_id(),
+        role_b,
+        lt_id,
+    )
+
+    await client.post(
+        f"/admin/orgs/{id_a}/merge-with/{id_b}/",
+        data={"merge_role_pairs": f"{role_a}:{role_b}"},
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    # Winner role carries both rows.
+    assert await db.fetchval(
+        "SELECT count(*) FROM contact_methods"
+        " WHERE entity_type='role' AND entity_id=$1 AND value='director@loser.example'",
+        role_a,
+    )
+    assert await db.fetchval(
+        "SELECT count(*) FROM links"
+        " WHERE entity_type='role' AND entity_id=$1 AND url='https://loser.example/dir'",
+        role_a,
+    )
+    # Nothing left orphaned on the deleted loser role.
+    assert not await db.fetchval(
+        "SELECT (SELECT count(*) FROM contact_methods WHERE entity_type='role' AND entity_id=$1)"
+        "     + (SELECT count(*) FROM links WHERE entity_type='role' AND entity_id=$1)",
+        role_b,
+    )
+
+
 async def test_org_merge_role_pair_rehomes_recreated_assignment_ancillary(client, db):
     """#324: re-create branch — loser assignment deleted and re-inserted on the
     winner role under a NEW id; ancillary must follow to the new id."""
