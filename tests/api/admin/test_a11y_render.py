@@ -71,6 +71,8 @@ _QUERY = {
     "/admin/orgs/{entity_id}/contacts/new-row/": "?contact_type=phone",
     "/admin/people/{entity_id}/contacts/new-row/": "?contact_type=phone",
     "/admin/jurisdictions/{entity_id}/contacts/new-row/": "?contact_type=phone",
+    "/admin/roles/{entity_id}/contacts/new-row/": "?contact_type=phone",
+    "/admin/role-assignments/{entity_id}/contacts/new-row/": "?contact_type=phone",
 }
 
 # Aggregate control-coverage guard. Each rendered route adds its control count
@@ -134,14 +136,25 @@ async def client(db):
     app.dependency_overrides.pop(get_db, None)
 
 
-async def _seed_subresources(db, entity_type: str, entity_id: str, ident_type_id: str) -> dict:
-    """Contact, link, identifier, address rows for one entity; returns their ids."""
+async def _seed_subresources(
+    db,
+    entity_type: str,
+    entity_id: str,
+    ident_type_id: str | None,
+    *,
+    include_identifier: bool = True,
+    include_address: bool = True,
+) -> dict:
+    """Contact + link rows for one entity (always), plus optional identifier and
+    address rows; returns the seeded child ids.
+
+    ``include_identifier``/``include_address`` are opt-out for entity types that
+    have no such ancillary GET routes — roles carry only contacts+links (#326),
+    and no ``role`` ``entity_identifier_types`` row exists to key an identifier."""
     link_type_id = await db.fetchval("SELECT id FROM link_types WHERE is_social = FALSE LIMIT 1")
     out = {
         "contact_id": generate_id(),
         "link_id": generate_id(),
-        "ident_id": generate_id(),
-        "addr_id": generate_id(),
     }
     await db.execute(
         "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
@@ -158,27 +171,31 @@ async def _seed_subresources(db, entity_type: str, entity_id: str, ident_type_id
         entity_id,
         link_type_id,
     )
-    await db.execute(
-        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
-        " VALUES ($1, $2, $3, 'A11Y-1')",
-        out["ident_id"],
-        entity_id,
-        ident_type_id,
-    )
-    address_id = generate_id()
-    await db.execute(
-        "INSERT INTO addresses (id, address_line_1, city, postal_code, country)"
-        " VALUES ($1, '1 Main St', 'Olympia', '98501', 'US')",
-        address_id,
-    )
-    await db.execute(
-        "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type)"
-        " VALUES ($1, $2, $3, $4, 'mailing')",
-        out["addr_id"],
-        entity_type,
-        entity_id,
-        address_id,
-    )
+    if include_identifier:
+        out["ident_id"] = generate_id()
+        await db.execute(
+            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+            " VALUES ($1, $2, $3, 'A11Y-1')",
+            out["ident_id"],
+            entity_id,
+            ident_type_id,
+        )
+    if include_address:
+        out["addr_id"] = generate_id()
+        address_id = generate_id()
+        await db.execute(
+            "INSERT INTO addresses (id, address_line_1, city, postal_code, country)"
+            " VALUES ($1, '1 Main St', 'Olympia', '98501', 'US')",
+            address_id,
+        )
+        await db.execute(
+            "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type)"
+            " VALUES ($1, $2, $3, $4, 'mailing')",
+            out["addr_id"],
+            entity_type,
+            entity_id,
+            address_id,
+        )
     return out
 
 
@@ -278,6 +295,20 @@ async def seed(db):
         s["assignment_id"],
         s["person_id"],
         s["role_id"],
+    )
+
+    # Role + role_assignment ancillary (#326/#329): roles carry contacts+links
+    # only (no `role` identifier type); assignments add identifiers. Neither has
+    # address routes.
+    s["role_sub"] = await _seed_subresources(
+        db, "role", s["role_id"], None, include_identifier=False, include_address=False
+    )
+    s["ra_sub"] = await _seed_subresources(
+        db,
+        "role_assignment",
+        s["assignment_id"],
+        ident_types["role_assignment"],
+        include_address=False,
     )
 
     # Jurisdictions: two + one relationship.
@@ -403,6 +434,12 @@ def _param_values(path: str, s: dict) -> dict:
             "winner_id": s["person_id"],
             "loser_id": s["person2_id"],
         }
+    elif path.startswith("/admin/role-assignments/"):
+        values |= s["ra_sub"]
+        values |= {"entity_id": s["assignment_id"]}
+    elif path.startswith("/admin/roles/"):
+        values |= s["role_sub"]
+        values |= {"entity_id": s["role_id"]}
     elif path.startswith("/admin/jurisdictions/"):
         values |= s["jur_sub"]
         values |= {"entity_id": s["jurisdiction_id"]}
