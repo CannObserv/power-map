@@ -146,28 +146,28 @@ async def run(*, reference_url: str, target_url: str) -> int:
             tgt_major = tgt_conn.get_server_version().major
             version_mismatch = ref_major != tgt_major
 
-            # Log the skip for each version-sensitive kind we're dropping, so the
-            # gap is visible in the journal rather than silently absent.
-            if version_mismatch:
-                for kind in _KINDS:
-                    if kind in VERSION_SENSITIVE_KINDS:
-                        logger.warning(
-                            "Schema %s parity SKIPPED — reference %s (PG %d) and "
-                            "target %s (PG %d) run different PG majors; %s defs are "
-                            "version-formatted, so a diff would report version "
-                            "artifacts, not drift. Point the reference at a "
-                            "same-major DB to re-enable this check.",
-                            kind,
-                            ref_label,
-                            ref_major,
-                            tgt_label,
-                            tgt_major,
-                            kind,
-                        )
-
-            diff_kinds = tuple(
-                k for k in _KINDS if not (version_mismatch and k in VERSION_SENSITIVE_KINDS)
+            # Derive the skipped set once, then the diffed set as its complement,
+            # so the WARNING log and the actual skip can never diverge.
+            skipped_kinds = (
+                tuple(k for k in _KINDS if k in VERSION_SENSITIVE_KINDS) if version_mismatch else ()
             )
+            diff_kinds = tuple(k for k in _KINDS if k not in skipped_kinds)
+
+            # Log each dropped kind so the gap is visible in the journal rather
+            # than silently absent.
+            for kind in skipped_kinds:
+                logger.warning(
+                    "Schema %s parity SKIPPED — reference %s (PG %d) and target %s "
+                    "(PG %d) run different PG majors; %s defs are version-formatted, "
+                    "so a diff would report version artifacts, not drift. Point the "
+                    "reference at a same-major DB to re-enable this check.",
+                    kind,
+                    ref_label,
+                    ref_major,
+                    tgt_label,
+                    tgt_major,
+                    kind,
+                )
 
             reference = await _snapshot_all(ref_conn, diff_kinds)
 

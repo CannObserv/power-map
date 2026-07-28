@@ -69,23 +69,22 @@ def stub_dbs(monkeypatch):
     """
     bundles: dict[str, dict] = {}
     majors: dict[str, int] = {}
+    calls: list[str] = []  # kinds actually snapshotted, in call order
 
     async def fake_connect(dsn):
         return _FakeConn(dsn, majors.get(dsn, 16))
 
-    async def fake_snapshot_constraints(conn):
-        return bundles[conn.dsn]["constraint"]
+    def _snapshotter(kind):
+        async def fake(conn):
+            calls.append(kind)
+            return bundles[conn.dsn][kind]
 
-    async def fake_snapshot_functions(conn):
-        return bundles[conn.dsn]["function"]
-
-    async def fake_snapshot_triggers(conn):
-        return bundles[conn.dsn]["trigger"]
+        return fake
 
     monkeypatch.setattr(audit.asyncpg, "connect", fake_connect)
-    monkeypatch.setattr(audit, "snapshot_constraints", fake_snapshot_constraints)
-    monkeypatch.setattr(audit, "snapshot_functions", fake_snapshot_functions)
-    monkeypatch.setattr(audit, "snapshot_triggers", fake_snapshot_triggers)
+    monkeypatch.setattr(audit, "snapshot_constraints", _snapshotter("constraint"))
+    monkeypatch.setattr(audit, "snapshot_functions", _snapshotter("function"))
+    monkeypatch.setattr(audit, "snapshot_triggers", _snapshotter("trigger"))
 
     def _set(mapping, *, major_map=None):
         bundles.clear()
@@ -93,7 +92,10 @@ def stub_dbs(monkeypatch):
         majors.clear()
         if major_map:
             majors.update(major_map)
+        calls.clear()
 
+    # Expose the recorded snapshot calls so tests can assert which kinds ran.
+    _set.calls = calls
     return _set
 
 
@@ -101,6 +103,8 @@ def test_run_returns_zero_when_parity(stub_dbs):
     snap = _snap(constraint={_CK: _SET_NULL}, function={_FK: "f"}, trigger={_TK: "t"})
     stub_dbs({_REF: snap, _PROD: {k: dict(v) for k, v in snap.items()}})
     assert asyncio.run(audit.run(reference_url=_REF, target_url=_PROD)) == 0
+    # Same major → all three kinds snapshotted on both DBs.
+    assert sorted(stub_dbs.calls) == sorted(["constraint", "function", "trigger"] * 2)
 
 
 def test_run_returns_drift_count_on_constraint_mismatch(stub_dbs):
@@ -149,6 +153,10 @@ def test_run_skips_version_sensitive_kinds_on_major_mismatch(stub_dbs, caplog):
         assert asyncio.run(audit.run(reference_url=_REF, target_url=_PROD)) == 0
     assert "function parity SKIPPED" in caplog.text
     assert "trigger parity SKIPPED" in caplog.text
+    # Skipped kinds must not be snapshotted at all (no wasted pg_get_*def query) —
+    # only the constraint snapshot runs, once per DB.
+    assert set(stub_dbs.calls) == {"constraint"}
+    assert stub_dbs.calls.count("constraint") == 2
 
 
 def test_run_still_diffs_constraints_on_major_mismatch(stub_dbs):
