@@ -121,7 +121,7 @@ async def test_contact_trigger_dispatches_role_assignment(db):
     assert await _signals(db, "role_assignment", raid) == before + 1
 
 
-# ── links: INSERT / DELETE cascade; role dispatch ────────────────────────────
+# ── links: INSERT / UPDATE / DELETE cascade; role dispatch ───────────────────
 
 
 async def test_link_insert_update_delete_emit(db):
