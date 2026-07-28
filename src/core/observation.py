@@ -705,17 +705,16 @@ async def write_links(conn, entity_id: str, entity_type: str, links: list) -> No
         )
         if existing:
             continue
-        async with conn.transaction():
-            await conn.execute(
-                "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
-                " VALUES ($1, $2, $3, $4, $5)",
-                generate_id(),
-                entity_type,
-                entity_id,
-                link.url,
-                link_type_id,
-            )
-            await _record_entity_change(conn, entity_type, entity_id)
+        # The links touch trigger (#327) emits the parent entity_changes row.
+        await conn.execute(
+            "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
+            " VALUES ($1, $2, $3, $4, $5)",
+            generate_id(),
+            entity_type,
+            entity_id,
+            link.url,
+            link_type_id,
+        )
 
 
 async def _record_entity_change(conn, entity_type: str, entity_id: str) -> None:
@@ -792,21 +791,23 @@ async def write_contact_methods(
                     "display_label",
                     existing["id"],
                     cm.display_label,
+                    # contact_methods has a touch trigger (#327) — the UPDATE
+                    # self-emits, like entity_addresses. Avoid a double signal.
+                    record_change=False,
                 )
             continue
-        async with conn.transaction():
-            await conn.execute(
-                "INSERT INTO contact_methods"
-                " (id, entity_type, entity_id, contact_type, value, display_label)"
-                " VALUES ($1, $2, $3, $4, $5, $6)",
-                generate_id(),
-                entity_type,
-                entity_id,
-                cm.contact_type,
-                normalized,
-                cm.display_label,
-            )
-            await _record_entity_change(conn, entity_type, entity_id)
+        # The contact_methods touch trigger (#327) emits the parent entity_changes row.
+        await conn.execute(
+            "INSERT INTO contact_methods"
+            " (id, entity_type, entity_id, contact_type, value, display_label)"
+            " VALUES ($1, $2, $3, $4, $5, $6)",
+            generate_id(),
+            entity_type,
+            entity_id,
+            cm.contact_type,
+            normalized,
+            cm.display_label,
+        )
 
 
 async def write_addresses(conn, entity_id: str, entity_type: str, addresses: list) -> None:

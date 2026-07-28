@@ -334,20 +334,20 @@ async def _rescue_pdc(
     ctx: _Context,
     person_id: str,
     pdc_rows: list[asyncpg.Record],
-) -> tuple[int, bool, bool]:
+) -> int:
     """Move role_wa_pdc URLs to the person: filer identifier + wa_pdc link.
 
-    Returns ``(rescued, identifier_inserted, link_inserted)`` so the caller can
-    reason about outbox events: identifier inserts already cascade to a person
-    'updated' event via ``trg_touch_entity_on_identifier_change``; link inserts
-    do not cascade.
+    Returns the number of PDC rows rescued. Both the filer-identifier and the
+    wa_pdc link inserts self-emit a person 'updated' outbox event via their touch
+    triggers (``trg_touch_entity_on_identifier_change`` +
+    ``trg_touch_entity_on_link_change``, #327), so the caller records no manual
+    person event.
     """
     existing = {
         row["value"]
         for row in await conn.fetch(_PERSON_FILER_VALUES_SQL, ctx.person_filer_type_id, person_id)
     }
     rescued = 0
-    identifier_inserted = link_inserted = False
     for row in pdc_rows:
         filer = filer_id_from_url(row["value"])
         if filer not in existing:
@@ -355,19 +355,16 @@ async def _rescue_pdc(
                 _INSERT_IDENTIFIER_SQL, generate_id(), person_id, ctx.person_filer_type_id, filer
             )
             existing.add(filer)
-            identifier_inserted = True
-        status = await conn.execute(
+        await conn.execute(
             _INSERT_PERSON_LINK_SQL,
             generate_id(),
             person_id,
             row["value"],
             ctx.wa_pdc_link_type_id,
         )
-        if status == "INSERT 0 1":
-            link_inserted = True
         await conn.execute(_DELETE_IDENTIFIER_SQL, row["id"])
         rescued += 1
-    return rescued, identifier_inserted, link_inserted
+    return rescued
 
 
 async def _migrate_rows(
@@ -414,7 +411,6 @@ async def archive_legacy_legislator_roles(conn: asyncpg.Connection, *, execute: 
     ctx = await _resolve_context(conn)
 
     actions: list[AssignmentAction] = []
-    persons_with_event: set[str] = set()  # one person outbox event per run
     for row in await conn.fetch(_LEGACY_ASSIGNMENTS_SQL, ctx.org_ids):
         action: AssignmentAction = {
             "assignment_id": row["assignment_id"],
@@ -449,11 +445,8 @@ async def archive_legacy_legislator_roles(conn: asyncpg.Connection, *, execute: 
             continue
 
         migrated: dict[str, int] = {}
-        identifier_inserted = link_inserted = False
         if execute:
-            migrated["pdc"], identifier_inserted, link_inserted = await _rescue_pdc(
-                conn, ctx, row["person_id"], pdc_rows
-            )
+            migrated["pdc"] = await _rescue_pdc(conn, ctx, row["person_id"], pdc_rows)
         else:
             migrated["pdc"] = len(pdc_rows)
         for name, args in (
@@ -508,20 +501,14 @@ async def archive_legacy_legislator_roles(conn: asyncpg.Connection, *, execute: 
             action["status"] = "planned"
             continue
 
-        # Outbox events for the entities whose payloads changed. links /
-        # contact_methods / field_confidence have no touch-cascade trigger, so
-        # the target assignment needs a manual event; identifier inserts already
-        # cascade to a person 'updated' event (trg_touch_entity_on_identifier_change),
-        # so the person only needs one for the link-only rescue path — at most
-        # one per person per run. The legacy assignment's own archive UPDATE
-        # below is covered by trg_entity_changes_role_assignments.
-        if migrated["links"] + migrated["contacts"] + migrated["fc"] > 0:
+        # Re-pointed links / contact_methods self-emit the target assignment's
+        # 'updated' via their touch triggers (#327); only field_confidence is
+        # trigger-less, so emit manually when it moved. The PDC rescue's person
+        # inserts (identifier + wa_pdc link) self-emit too. The legacy
+        # assignment's own archive UPDATE below is covered by
+        # trg_entity_changes_role_assignments.
+        if migrated["fc"] > 0:
             await conn.execute(_RECORD_CHANGE_SQL, "role_assignment", target)
-        if identifier_inserted:
-            persons_with_event.add(row["person_id"])  # cascade already emitted
-        elif link_inserted and row["person_id"] not in persons_with_event:
-            await conn.execute(_RECORD_CHANGE_SQL, "person", row["person_id"])
-            persons_with_event.add(row["person_id"])
 
         await conn.execute(_ARCHIVE_ASSIGNMENT_SQL, row["assignment_id"])
         action["status"] = "archived"

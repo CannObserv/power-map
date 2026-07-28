@@ -350,6 +350,9 @@ async def test_rehome_role_repoints_and_emits_signal(db):
     counts = await rehome_role_ancillary(db, loser, winner)
     assert counts["links"] == (1, 0)
     assert counts["contact_methods"] == (1, 0)
+    # #327: links/contact_methods now carry touch triggers, so each re-pointed
+    # row self-emits a survivor 'role' 'updated' — one per moved row (2 here),
+    # mirroring how entity_addresses already signals per re-homed address.
 
     assert (
         await db.fetchval(
@@ -363,9 +366,7 @@ async def test_rehome_role_repoints_and_emits_signal(db):
         )
         == 1
     )
-    # Survivor gets exactly one extra signal for the re-homed ancillary (these
-    # ancillary tables have no touch-cascade trigger of their own).
-    assert await _role_updated_signals(db, winner) == before + 1
+    assert await _role_updated_signals(db, winner) == before + 2
 
 
 async def test_rehome_role_dedups_identical_and_skips_signal(db):

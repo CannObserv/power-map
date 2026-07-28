@@ -40,7 +40,10 @@ from typing import Literal, NamedTuple
 import asyncpg
 
 from scripts.archive_legacy_legislator_roles import filer_id_from_url
-from src.core.ancillary_migrate import migrate_role_assignment_ancillary
+from src.core.ancillary_migrate import (
+    TRIGGERLESS_ANCILLARY_TABLES,
+    migrate_role_assignment_ancillary,
+)
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -257,7 +260,10 @@ async def apply_cleanup(conn: asyncpg.Connection, groups: list[DeadGroup]) -> di
             moved = sum(m for m, _ in counts.values())
             deduped = sum(d for _, d in counts.values())
             stats["rehomed_rows"] += moved + deduped
-            if moved:
+            # links/contact_methods/identifiers self-emit the survivor 'updated'
+            # via their touch triggers (#327); only a trigger-less move
+            # (field_confidence/import_provenance) needs a manual signal here.
+            if any(counts[t][0] for t in TRIGGERLESS_ANCILLARY_TABLES):
                 await conn.execute(
                     "INSERT INTO entity_changes (entity_type, entity_id, change_kind)"
                     " VALUES ('role_assignment', $1, 'updated')",

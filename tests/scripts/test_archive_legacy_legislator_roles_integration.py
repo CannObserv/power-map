@@ -565,8 +565,12 @@ async def test_migration_emits_outbox_events_for_target_and_person(db, orgs):
     assert await _events(person) > person_before
 
 
-async def test_person_outbox_event_deduped_across_assignments(db, orgs):
+async def test_person_outbox_events_per_rescued_row(db, orgs):
     person = await _person(db)
+    # Two legacy assignments share one _PDC_URL, so the rescue inserts a single
+    # filer identifier + a single wa_pdc link on the person (the second rescue
+    # dedups both). Under #327 each insert self-emits via its touch trigger →
+    # exactly two person 'updated' rows (identifier + link), not coalesced to one.
     for district in (5, 7):
         legacy_role = await _legacy_role(db, orgs["senate"], f"Senator, District {district}")
         legacy_assign = await _assign(db, person, legacy_role)
@@ -584,14 +588,13 @@ async def test_person_outbox_event_deduped_across_assignments(db, orgs):
         person,
     )
 
-    # two rescued assignments, one person event
-    assert after == before + 1
+    assert after == before + 2
 
 
 async def test_link_only_rescue_emits_single_person_event(db, orgs):
     person = await _person(db)
     # filer identifier pre-exists → rescue inserts only the wa_pdc link, which
-    # has no touch-cascade; the script must emit the person event manually
+    # self-emits one person 'updated' via trg_touch_entity_on_link_change (#327)
     await db.execute(
         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
         " VALUES ($1, $2, $3, $4)",
