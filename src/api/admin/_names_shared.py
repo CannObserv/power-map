@@ -18,6 +18,7 @@ from src.api.admin.deps import (
     is_htmx,
 )
 from src.api.admin.people_name_parts import upsert_or_delete_parts
+from src.core.ancillary_migrate import delete_citations
 from src.core.db import generate_id
 from src.core.observation import NEVER_CANONICAL_NAME_TYPES
 from src.core.types import OrgNameType, PersonNameType, PersonNameVisibility
@@ -938,6 +939,10 @@ def make_names_router(
                     status_code=200,
                     headers=flash_trigger("error", last_identity_error_msg),
                 )
+            # person_name is citable (#319) with no FK; drop its citations first so
+            # they don't orphan. organization_names is not citable — skip.
+            if names_table == "person_names":
+                await delete_citations(db, "person_name", name_id)
             await db.execute(f"DELETE FROM {names_table} WHERE id=$1", name_id)
             await maybe_promote_sole_name(entity_id, db)
         if not is_htmx(request):

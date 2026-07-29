@@ -21,6 +21,7 @@ from src.api.admin.org_dups import (
 )
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.core.ancillary_migrate import (
+    delete_event_citations_for_owner,
     rehome_citations,
     rehome_conflicting_assignment_ancillary,
     rehome_role_ancillary,
@@ -504,6 +505,9 @@ async def _execute_merge(
         )
         # Citations (#319) on the loser org move to the winner before the delete.
         await rehome_citations(db, "organization", [(loser_id, winner_id)])
+        # The loser's entity_events aren't re-pointed by merge (they dangle when the
+        # org is deleted), so their citations would orphan — drop them (#319).
+        await delete_event_citations_for_owner(db, "organization", loser_id)
 
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
         await db.execute(

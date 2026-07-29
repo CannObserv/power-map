@@ -408,6 +408,34 @@ async def rehome_citations(
     return moved, deduped
 
 
+async def delete_citations(db: asyncpg.Connection, entity_type: str, entity_id: str) -> None:
+    """Hard-delete a citable entity's own citations before the entity row is removed.
+
+    For a sub-entity with no survivor to re-home onto (a curated person_name drop, an
+    admin event hard-delete): the assertion the citation supported no longer exists.
+    """
+    await db.execute(
+        "DELETE FROM citations WHERE entity_type=$1 AND entity_id=$2", entity_type, entity_id
+    )
+
+
+async def delete_event_citations_for_owner(
+    db: asyncpg.Connection, owner_type: str, owner_id: str
+) -> None:
+    """Delete citations on ``entity_event`` rows owned by a parent about to be removed.
+
+    Merges do **not** re-point ``entity_events`` (they dangle when the parent org/
+    person is deleted), so their citations would orphan. Called before the parent
+    DELETE in ``people_merge`` / ``orgs_merge``.
+    """
+    await db.execute(
+        "DELETE FROM citations WHERE entity_type='entity_event' AND entity_id IN"
+        " (SELECT id FROM entity_events WHERE entity_type=$1 AND entity_id=$2)",
+        owner_type,
+        owner_id,
+    )
+
+
 async def count_orphaned_citations(db: asyncpg.Connection) -> dict[str, int]:
     """Count citations pointing at an entity id that no longer exists, per type.
 

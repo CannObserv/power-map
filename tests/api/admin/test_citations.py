@@ -310,3 +310,52 @@ async def test_name_and_event_rows_show_cite_button(client, db):
     assert f"/admin/person-names/{nid}/citations/" in r.text
     assert 'id="names-citations-drawer"' in r.text
     assert 'id="events-citations-drawer"' in r.text
+
+
+# ── sub-entity delete drops its citations (no orphan) ─────────────────────────
+
+
+async def test_admin_event_delete_drops_citations(client, db):
+    oid, eid = generate_id(), generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, archived_at)"
+        " VALUES ($1,'organization',$2,(SELECT id FROM entity_event_types WHERE applies_to IN"
+        " ('organization','both') LIMIT 1), now())",  # archived → eligible for hard delete
+        eid,
+        oid,
+    )
+    cid = generate_id()
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url, title)"
+        " VALUES ($1,'entity_event',$2,'https://s/evt','t')",
+        cid,
+        eid,
+    )
+    r = await client.request("DELETE", f"/admin/orgs/{oid}/events/{eid}/", headers=HTMX)
+    assert r.status_code == 200, r.text
+    assert await db.fetchval("SELECT count(*) FROM citations WHERE id=$1", cid) == 0
+
+
+async def test_admin_name_delete_drops_citations(client, db):
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    n1, n2 = generate_id(), generate_id()
+    # Two names so deleting one isn't blocked by the last-identity guard.
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1,$2,'Keep','legal',TRUE), ($3,$2,'Drop','variant',FALSE)",
+        n1,
+        pid,
+        n2,
+    )
+    cid = generate_id()
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, field_name, url, title)"
+        " VALUES ($1,'person_name',$2,'name','https://s/n','t')",
+        cid,
+        n2,
+    )
+    r = await client.request("DELETE", f"/admin/people/{pid}/names/{n2}/", headers=HTMX)
+    assert r.status_code == 200, r.text
+    assert await db.fetchval("SELECT count(*) FROM citations WHERE id=$1", cid) == 0

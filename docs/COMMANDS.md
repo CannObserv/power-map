@@ -437,6 +437,25 @@ uv run "${env_args[@]}" python -m scripts.split_speaker_designate            # d
 uv run "${env_args[@]}" python -m scripts.split_speaker_designate --execute  # commit
 ```
 
+## Notes → citations migration (issue #319)
+
+`scripts/migrate_notes_to_citations.py` extracts bare `http(s)` URLs from
+`role_assignments.notes` (the pre-#319 ad-hoc provenance store, e.g. the #314
+Jinkins housedemocrats.wa.gov links) into structured **whole-assignment**
+`citations` rows, via the idempotent natural-key observe path (re-running never
+duplicates). The original note text is **kept**. Deliberately narrow: only bare
+URLs migrate; prose provenance is left for human curation via the admin editor.
+
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.migrate_notes_to_citations                       # dry run
+uv run "${env_args[@]}" python -m scripts.migrate_notes_to_citations --execute             # commit
+uv run "${env_args[@]}" python -m scripts.migrate_notes_to_citations --assignment-id <id>  # one assignment
+```
+
 ## Outbox + tombstone TTL prune (issue #204)
 
 `scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)
@@ -679,18 +698,20 @@ sudo systemctl start power-map-schema-parity.service   # run once, now
 sudo journalctl -u power-map-schema-parity -f          # drift report on failure
 ```
 
-## role / role_assignment ancillary orphan audit & cleanup (issues #324, #326)
+## role / role_assignment / citation ancillary orphan audit & cleanup (issues #324, #326, #319)
 
 Polymorphic ancillary keyed on `(entity_type, entity_id)` with no FK — for
 `role_assignment` (`links` / `contact_methods` / `field_confidence` /
-`identifiers`, #324) and for `role` (`links` / `contact_methods`, #326) — could be
-orphaned when a merge or delete drops the parent. The merge/delete paths now
-re-home (or drop) before deleting; `scripts/audit_ancillary_orphans.py` is the
-continuous guard over **both** scopes (breakdown namespaced `role.*` /
-`role_assignment.*`). The one-time recovery script stays role_assignment-only
-(its heuristics are assignment-specific; role orphans should not occur now that
+`identifiers`, #324), for `role` (`links` / `contact_methods`, #326), and for
+`citations` (all seven citable entity types, #319) — could be orphaned when a merge
+or delete drops the parent. The merge/delete paths now re-home (or drop) before
+deleting; `scripts/audit_ancillary_orphans.py` is the continuous guard over **all
+three** scopes (breakdown namespaced `role.*` / `role_assignment.*` /
+`citation.*`). The one-time recovery script stays role_assignment-only (its
+heuristics are assignment-specific; role/citation orphans should not occur now that
 the write paths are fixed, so any that appear go to manual triage). See
-`docs/CONVENTIONS.md` §"Merge dedup — role_assignment ancillary re-homing".
+`docs/CONVENTIONS.md` §"Merge dedup — role_assignment ancillary re-homing" and
+§"Citations — source provenance".
 
 ```bash
 # Build --env-file flags (see § Environment)

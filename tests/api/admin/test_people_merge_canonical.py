@@ -438,3 +438,80 @@ async def test_curated_merge_drops_both_reading_and_parent(conn):
         for r in await conn.fetch("SELECT name FROM person_names WHERE person_id=$1", winner)
     }
     assert "Bob Smith" in winner_names
+
+
+# --- #319: citations on sub-entities must not orphan on merge -----------------
+
+
+async def _cite_name(conn, name_id, url, field="name"):
+    cid = generate_id()
+    await conn.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, field_name, url, title)"
+        " VALUES ($1,'person_name',$2,$3,$4,'t')",
+        cid,
+        name_id,
+        field,
+        url,
+    )
+    return cid
+
+
+async def test_merge_rehomes_citation_off_deduped_name(conn):
+    """A citation on a loser name that dedups into a winner name follows the winner."""
+    winner, loser = await _person(conn), await _person(conn)
+    w_name = await _name(conn, winner, "Robert Smith", name_type="legal", is_canonical=True)
+    l_name = await _name(conn, loser, "Robert Smith", name_type="legal")
+    cid = await _cite_name(conn, l_name, "https://s/dup")
+    await _merge(conn, winner, loser)
+    # Citation re-homed onto the surviving winner name; not orphaned.
+    owner = await conn.fetchval("SELECT entity_id FROM citations WHERE id=$1", cid)
+    assert owner == w_name
+
+
+async def test_merge_keeps_citation_on_repointed_name(conn):
+    """A loser name with no winner duplicate keeps its id → its citation survives."""
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, winner, "Robert Smith", name_type="legal", is_canonical=True)
+    l_name = await _name(conn, loser, "Bob Smith", name_type="preferred")
+    cid = await _cite_name(conn, l_name, "https://s/keep")
+    await _merge(conn, winner, loser)
+    owner = await conn.fetchval("SELECT entity_id FROM citations WHERE id=$1", cid)
+    assert owner == l_name  # same name id, now under winner
+    assert await conn.fetchval("SELECT person_id FROM person_names WHERE id=$1", l_name) == winner
+
+
+async def test_merge_drops_citation_on_curated_dropped_name(conn):
+    """A curated-dropped loser name's citation is deleted (name assertion gone)."""
+    winner, loser = await _person(conn), await _person(conn)
+    keep = await _name(conn, loser, "Keep Me", name_type="legal", is_canonical=True)
+    drop = await _name(conn, loser, "Drop Me", name_type="variant")
+    await _name(conn, winner, "Winner Name", name_type="legal", is_canonical=True)
+    cid = await _cite_name(conn, drop, "https://s/drop")
+    await merge_person_into(
+        conn, winner_id=winner, loser_id=loser, actor_email="a@test.com", keep_name_ids=[keep]
+    )
+    assert await conn.fetchval("SELECT count(*) FROM citations WHERE id=$1", cid) == 0
+
+
+async def test_merge_drops_loser_event_citations(conn):
+    """The loser's entity_events dangle on merge; their citations are dropped, not orphaned."""
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, winner, "W", is_canonical=True)
+    await _name(conn, loser, "L", is_canonical=True)
+    eid = generate_id()
+    await conn.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id)"
+        " VALUES ($1,'person',$2,(SELECT id FROM entity_event_types WHERE applies_to IN"
+        " ('person','both') LIMIT 1))",
+        eid,
+        loser,
+    )
+    cid = generate_id()
+    await conn.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url, title)"
+        " VALUES ($1,'entity_event',$2,'https://s/evt','t')",
+        cid,
+        eid,
+    )
+    await _merge(conn, winner, loser)
+    assert await conn.fetchval("SELECT count(*) FROM citations WHERE id=$1", cid) == 0

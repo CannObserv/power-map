@@ -11,6 +11,8 @@ import pytest_asyncio
 
 from src.core.ancillary_migrate import (
     count_orphaned_citations,
+    delete_citations,
+    delete_event_citations_for_owner,
     migrate_citations,
     rehome_citations,
     rehome_conflicting_assignment_ancillary,
@@ -184,3 +186,28 @@ async def test_count_orphaned_citations(db):
     await _cite(db, "person", live, url="https://s/live", field="notes")
     counts2 = await count_orphaned_citations(db)
     assert counts2["person"] == counts["person"]  # unchanged by the live one
+
+
+# ── delete helpers (sub-entity removal without a survivor) ────────────────────
+
+
+async def test_delete_citations_removes_all_for_entity(db):
+    person = await _person(db)
+    await _cite(db, "person", person, url="https://s/a", field="notes")
+    await _cite(db, "person", person, url="https://s/b", field="notes")
+    await delete_citations(db, "person", person)
+    assert await _count(db, person) == 0
+
+
+async def test_delete_event_citations_for_owner(db):
+    oid, eid = generate_id(), generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id)"
+        " VALUES ($1,'organization',$2,(SELECT id FROM entity_event_types LIMIT 1))",
+        eid,
+        oid,
+    )
+    await _cite(db, "entity_event", eid, url="https://s/evt")
+    await delete_event_citations_for_owner(db, "organization", oid)
+    assert await _count(db, eid) == 0
