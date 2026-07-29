@@ -522,6 +522,7 @@ async def org_detail(
             "roles": roles,
             "events": events,
             "citations": citations,
+            "entity_id": org_id,
             "cit_base": f"/orgs/{org_id}/citations",
             "citable_fields": sorted(CITABLE_FIELDS["organization"]),
             "org_ended_on": org_ended_on,

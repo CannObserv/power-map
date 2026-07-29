@@ -96,7 +96,11 @@ def make_citations_router(
                 entity_type,
                 entity_id,
             )
-            return templates.TemplateResponse(request, _PANEL, _ctx(entity_id, citations=citations))
+            # dismissible=True → the panel renders a Close control (this route is
+            # the inline drawer target for person_name / entity_event rows).
+            return templates.TemplateResponse(
+                request, _PANEL, _ctx(entity_id, citations=citations, dismissible=True)
+            )
 
     def _validate(field_name: str | None, url: str | None, title: str | None) -> str | None:
         if field_name is not None and field_name not in CITABLE_FIELDS.get(

@@ -284,6 +284,7 @@ async def ra_detail(
             "links": links,
             "identifiers": identifiers,
             "citations": citations,
+            "entity_id": ra_id,
             "cit_base": f"/role-assignments/{ra_id}/citations",
             "citable_fields": sorted(CITABLE_FIELDS["role_assignment"]),
             "flash_msg": flash_msg,

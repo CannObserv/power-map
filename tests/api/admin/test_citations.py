@@ -140,6 +140,10 @@ async def test_detail_page_shows_citations_panel(client, db, person):
     assert r.status_code == 200
     assert "Citations" in r.text
     assert "Panel Src" in r.text
+    # The permanent detail-page panel is not dismissible (no Close control).
+    assert "Close citations panel" not in r.text
+    # entity_id must reach the panel so its ids are entity-scoped (no empty suffix).
+    assert f'id="citations-tbody-{person}"' in r.text
 
 
 async def _seed_org(db) -> tuple[str, str]:
@@ -238,10 +242,14 @@ async def _seed_event(db) -> str:
 
 async def test_person_name_inline_panel_and_create(client, db):
     nid = await _seed_name(db)
-    # Inline panel GET renders the shared panel.
+    # Inline panel GET renders the shared panel — styled with admin classes and,
+    # because it's the inline drawer, a Close control (#319 styling fix).
     p = await client.get(f"/admin/person-names/{nid}/citations/", headers=AUTH)
     assert p.status_code == 200
     assert "Citations" in p.text
+    assert 'class="entity-section"' in p.text  # not the non-existent "card"
+    assert 'class="data-table"' in p.text  # not the non-existent "table"
+    assert "Close citations panel" in p.text  # dismissible
     # Create a name-scoped citation.
     r = await client.post(
         f"/admin/person-names/{nid}/citations/",

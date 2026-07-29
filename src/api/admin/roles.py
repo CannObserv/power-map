@@ -314,6 +314,7 @@ async def role_detail(
             "phone_contacts": phone_contacts,
             "links": links,
             "citations": citations,
+            "entity_id": role_id,
             "cit_base": f"/roles/{role_id}/citations",
             "citable_fields": sorted(CITABLE_FIELDS["role"]),
             "flash_msg": flash_msg,

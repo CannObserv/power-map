@@ -1,6 +1,6 @@
 {# admin/citations/partials/_citation_form_row.html — shared create/edit form (#319) #}
 {% set f = form if form is defined else None %}
-<tr id="{% if c %}citation-row-{{ c.id }}{% else %}citation-row-new{% endif %}">
+<tr id="{% if c %}citation-row-{{ c.id }}{% else %}citation-row-new-{{ entity_id }}{% endif %}">
   <td colspan="4" style="padding:var(--space-2) var(--space-4)">
     <form {% if c %}
           hx-post="/admin{{ cit_base }}/{{ c.id }}/edit-row/"
@@ -8,7 +8,7 @@
           hx-swap="outerHTML"
           {% else %}
           hx-post="/admin{{ cit_base }}/"
-          hx-target="#citation-row-new"
+          hx-target="#citation-row-new-{{ entity_id }}"
           hx-swap="outerHTML"
           {% endif %}
           style="display:grid;gap:var(--space-2)">
@@ -44,9 +44,9 @@
         <div class="form-group" style="margin-bottom:0;flex:2;min-width:12rem">
           <label>Excerpt
             <input type="text" name="excerpt" placeholder="Supporting quote (optional)"
-                   aria-describedby="citation-excerpt-opt-{% if c %}{{ c.id }}{% else %}new{% endif %}"
+                   aria-describedby="citation-excerpt-opt-{% if c %}{{ c.id }}{% else %}new-{{ entity_id }}{% endif %}"
                    value="{{ (f.excerpt if f else (c.excerpt if c else '')) or '' }}">
-            <span class="visually-hidden" id="citation-excerpt-opt-{% if c %}{{ c.id }}{% else %}new{% endif %}">Optional</span>
+            <span class="visually-hidden" id="citation-excerpt-opt-{% if c %}{{ c.id }}{% else %}new-{{ entity_id }}{% endif %}">Optional</span>
           </label>
         </div>
         <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
