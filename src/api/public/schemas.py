@@ -819,6 +819,75 @@ class EventObservationsResponse(BaseModel):
     results: list[EventObservationResult] = Field(default_factory=list)
 
 
+# ── Citations (#319) ──────────────────────────────────────────────────────────
+
+
+class CitationObservationItem(BaseModel):
+    """One citation claim in a citation observation batch (#319).
+
+    Identity = (entity, field_name, url); title/excerpt/accessed_at are mutable
+    payload. ``pm_citation_id`` addresses an existing citation for id-scoped
+    refine/retract; absent → natural-key observe (refine-or-create). ``op``:
+    ``observe`` (default) refines/creates, ``retract`` archives the pm_citation_id
+    row.
+    """
+
+    field_name: str | None = None
+    url: str | None = None
+    title: str | None = None
+    excerpt: str | None = None
+    accessed_at: datetime | None = None
+    op: Literal["observe", "retract"] = "observe"
+    pm_citation_id: str | None = None
+
+
+class CitationObservationsRequest(BaseModel):
+    """Payload for POST /api/v1/citations/{entity_type}/{entity_id}/observations."""
+
+    citations: list[CitationObservationItem] = Field(default_factory=list)
+
+
+class CitationObservationResult(BaseModel):
+    """Per-citation outcome (#319). ``reason`` is a machine-readable slug on rejection."""
+
+    disposition: str  # 'new' | 'auto-attached' | 'updated' | 'retracted' | 'rejected'
+    citation_id: str | None = None  # None only when disposition == 'rejected'
+    reason: str | None = None  # rejection reason slug; None on non-rejected
+
+
+class CitationObservationsResponse(BaseModel):
+    """Per-citation results of a partial-success citation observation batch (#319)."""
+
+    results: list[CitationObservationResult] = Field(default_factory=list)
+
+
+class CitationRead(BaseModel):
+    """A citation as returned by the read endpoint (#319)."""
+
+    id: str
+    entity_type: str
+    entity_id: str
+    field_name: str | None = None
+    url: str | None = None
+    title: str | None = None
+    excerpt: str | None = None
+    accessed_at: datetime | None = None
+    archived_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("accessed_at", "archived_at", "created_at", "updated_at")
+    def _serialize_ts(self, v: datetime | None) -> str | None:
+        return fmt_ts(v)
+
+
+class CitationListResponse(BaseModel):
+    """Paginated citation list: {data, meta} (#319)."""
+
+    data: list[CitationRead] = Field(default_factory=list)
+    meta: SearchMeta
+
+
 class ObservationResponse(BaseModel):
     """Response returned by POST /api/v1/observations."""
 

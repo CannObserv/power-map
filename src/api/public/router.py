@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 
 from src.api.public.assignments import router as assignments_router
 from src.api.public.changes import router as changes_router
+from src.api.public.citations import router as citations_router
 from src.api.public.deps import require_api_key
 from src.api.public.embeddings import router as embeddings_router
 from src.api.public.entity_event_types import router as entity_event_types_router
@@ -29,6 +30,7 @@ router = APIRouter(
 )
 router.include_router(assignments_router)
 router.include_router(changes_router)
+router.include_router(citations_router)
 # Within subscriptions_router, GET /subscriptions/discover is defined before
 # DELETE /subscriptions/{entity_id} so FastAPI does not match 'discover' as entity_id.
 router.include_router(subscriptions_router)

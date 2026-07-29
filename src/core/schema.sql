@@ -2009,6 +2009,16 @@ INSERT INTO api_key_scope_types (id, display_name, description) VALUES
      'Submit identity observations via POST /api/v1/observations')
 ON CONFLICT (id) DO NOTHING;
 
+-- Citation provenance scopes (#319).
+INSERT INTO api_key_scope_types (id, display_name, description) VALUES
+    ('citations:write',
+     'Citations: Write',
+     'Observe/retract source citations via POST /api/v1/citations/{entity_type}/{id}/observations'),
+    ('citations:read',
+     'Citations: Read',
+     'Read source citations via GET /api/v1/citations/{entity_type}/{id}')
+ON CONFLICT (id) DO NOTHING;
+
 -- =============================================================================
 -- API Request Log (#260)
 -- =============================================================================
