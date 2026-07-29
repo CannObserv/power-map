@@ -40,6 +40,9 @@ ALLOWED_DIRECT_ACCESS = {
     # citations existence-checks a person_name id before attaching provenance
     # (#319) — a legal_only/hidden name is still citable. No display is performed.
     "src/core/citations.py",
+    # resolves a name's owning person_id for the non-htmx redirect after a citation
+    # write (#319) — no name display is performed.
+    "src/api/admin/people_name_citations.py",
     # dup detection intentionally includes legal_only names (visibility != 'hidden')
     # so a person's legal name can surface as a dup signal. hidden names are still
     # excluded. No display is performed — the name is only used for similarity scoring.

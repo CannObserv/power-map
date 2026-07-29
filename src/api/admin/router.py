@@ -8,6 +8,7 @@ from src.api.admin import activity_requests as activity_requests_module
 from src.api.admin import dashboard as dashboard_module
 from src.api.admin import dup_badges as dup_badges_module
 from src.api.admin import entities as entities_module
+from src.api.admin import entity_event_citations as entity_event_citations_module
 from src.api.admin import imports as imports_module
 from src.api.admin import jurisdictions as jurisdictions_module
 from src.api.admin import jurisdictions_addresses as jurisdictions_addresses_module
@@ -39,6 +40,7 @@ from src.api.admin import people_identifiers as people_identifiers_module
 from src.api.admin import people_links as people_links_module
 from src.api.admin import people_locale_script_search as people_locale_script_search_module
 from src.api.admin import people_merge as people_merge_module
+from src.api.admin import people_name_citations as people_name_citations_module
 from src.api.admin import people_name_suggest as people_name_suggest_module
 from src.api.admin import people_names as people_names_module
 from src.api.admin import people_reading_target_search as people_reading_target_search_module
@@ -103,6 +105,8 @@ admin_router.include_router(people_names_module.router)
 admin_router.include_router(people_name_suggest_module.router)
 admin_router.include_router(people_contacts_module.router)
 admin_router.include_router(people_citations_module.router)
+admin_router.include_router(people_name_citations_module.router)
+admin_router.include_router(entity_event_citations_module.router)
 admin_router.include_router(people_addresses_module.router)
 admin_router.include_router(people_links_module.router)
 admin_router.include_router(people_identifiers_module.router)

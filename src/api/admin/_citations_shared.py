@@ -11,7 +11,8 @@ model — no app-layer emit). ``field_name`` is validated against ``CITABLE_FIEL
 admin delete is a hard delete (curator removing a mistaken row).
 """
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -27,6 +28,7 @@ templates = Jinja2Templates(directory="src/templates")
 
 _FORM_ROW = "admin/citations/partials/_citation_form_row.html"
 _READ_ROW = "admin/citations/partials/_citation_row.html"
+_PANEL = "admin/citations/partials/_citations_panel.html"
 
 
 def _clean(v: str | None) -> str | None:
@@ -41,10 +43,20 @@ def make_citations_router(
     entity_table: str,
     entity_not_found_msg: str,
     detail_url: Callable[[str], str],
+    redirect_resolver: Callable[[str, Any], Awaitable[str]] | None = None,
+    inline_panel: bool = False,
 ) -> APIRouter:
     """Return a configured citations APIRouter for the given entity type.
 
     ``prefix`` must contain ``{entity_id}`` (e.g. ``/orgs/{entity_id}/citations``).
+
+    ``redirect_resolver`` (optional) resolves the non-htmx fallback URL with DB
+    access — used by sub-entity routers (person_name → owning person, entity_event
+    → owning entity) whose parent isn't derivable from the id alone. When absent,
+    the sync ``detail_url`` is used.
+
+    ``inline_panel=True`` registers a ``GET /`` route rendering the whole citations
+    panel for one entity — the lazy-load target for a sub-entity's expandable row.
     """
     router = APIRouter(prefix=prefix, tags=tags)
     citable_fields = sorted(CITABLE_FIELDS.get(entity_type, frozenset()))
@@ -54,6 +66,11 @@ def make_citations_router(
         if not row:
             raise HTTPException(status_code=404, detail=entity_not_found_msg)
 
+    async def _dest(entity_id: str, db) -> str:
+        if redirect_resolver is not None:
+            return await redirect_resolver(entity_id, db)
+        return detail_url(entity_id)
+
     def _ctx(entity_id: str, **extra) -> dict:
         return {
             "entity_id": entity_id,
@@ -61,6 +78,25 @@ def make_citations_router(
             "citable_fields": citable_fields,
             **extra,
         }
+
+    if inline_panel:
+
+        @router.get("/")
+        async def citation_panel(
+            entity_id: str,
+            request: Request,
+            user: AdminUser = Depends(get_admin_user),
+            db=Depends(get_db),
+        ):
+            """Render the whole citations panel for one entity (inline lazy-load)."""
+            await _get_entity_or_404(entity_id, db)
+            citations = await db.fetch(
+                "SELECT * FROM citations WHERE entity_type=$1 AND entity_id=$2"
+                " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
+                entity_type,
+                entity_id,
+            )
+            return templates.TemplateResponse(request, _PANEL, _ctx(entity_id, citations=citations))
 
     def _validate(field_name: str | None, url: str | None, title: str | None) -> str | None:
         if field_name is not None and field_name not in CITABLE_FIELDS.get(
@@ -123,7 +159,7 @@ def make_citations_router(
                 error = "A citation with this field and URL already exists."
         if error:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(await _dest(entity_id, db), status_code=303)
             return templates.TemplateResponse(
                 request,
                 _FORM_ROW,
@@ -141,7 +177,7 @@ def make_citations_router(
             )
         row = await db.fetchrow("SELECT * FROM citations WHERE id=$1", cid)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(await _dest(entity_id, db), status_code=303)
         return templates.TemplateResponse(
             request,
             _READ_ROW,
@@ -230,13 +266,13 @@ def make_citations_router(
                 error = "A citation with this field and URL already exists."
         if error:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(await _dest(entity_id, db), status_code=303)
             return templates.TemplateResponse(
                 request, _FORM_ROW, _ctx(entity_id, c=existing, error=error)
             )
         row = await db.fetchrow("SELECT * FROM citations WHERE id=$1", citation_id)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(await _dest(entity_id, db), status_code=303)
         return templates.TemplateResponse(
             request,
             _READ_ROW,

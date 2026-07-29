@@ -208,3 +208,105 @@ async def test_all_detail_pages_render_citations_panel(client, db, entity_type, 
     assert r.status_code == 200, r.text
     assert "Citations" in r.text
     assert f"{entity_type} Src" in r.text
+
+
+# ── sub-entity inline citations (person_name, entity_event) ───────────────────
+
+
+async def _seed_name(db) -> str:
+    pid, nid = generate_id(), generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type) VALUES ($1,$2,'Jo','legal')",
+        nid,
+        pid,
+    )
+    return nid
+
+
+async def _seed_event(db) -> str:
+    oid, eid = generate_id(), generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id)"
+        " VALUES ($1,'organization',$2,(SELECT id FROM entity_event_types LIMIT 1))",
+        eid,
+        oid,
+    )
+    return eid
+
+
+async def test_person_name_inline_panel_and_create(client, db):
+    nid = await _seed_name(db)
+    # Inline panel GET renders the shared panel.
+    p = await client.get(f"/admin/person-names/{nid}/citations/", headers=AUTH)
+    assert p.status_code == 200
+    assert "Citations" in p.text
+    # Create a name-scoped citation.
+    r = await client.post(
+        f"/admin/person-names/{nid}/citations/",
+        headers=HTMX,
+        data={"field_name": "name", "url": "https://s/name", "title": "Name Src"},
+    )
+    assert r.status_code == 200, r.text
+    row = await db.fetchrow(
+        "SELECT * FROM citations WHERE entity_type='person_name' AND entity_id=$1", nid
+    )
+    assert row["url"] == "https://s/name"
+
+
+async def test_entity_event_inline_panel_and_create(client, db):
+    eid = await _seed_event(db)
+    p = await client.get(f"/admin/entity-events/{eid}/citations/", headers=AUTH)
+    assert p.status_code == 200
+    r = await client.post(
+        f"/admin/entity-events/{eid}/citations/",
+        headers=HTMX,
+        data={"field_name": "date", "url": "https://s/evt"},
+    )
+    assert r.status_code == 200, r.text
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM citations WHERE entity_type='entity_event' AND entity_id=$1", eid
+        )
+        == 1
+    )
+
+
+async def test_person_name_citation_touches_owning_person_via_admin(client, db):
+    # Admin create on a name self-emits the owning person's 'updated' signal (trigger).
+    nid = await _seed_name(db)
+    pid = await db.fetchval("SELECT person_id FROM person_names WHERE id=$1", nid)
+    before = await db.fetchval(
+        "SELECT count(*) FROM entity_changes WHERE entity_type='person'"
+        " AND entity_id=$1 AND change_kind='updated'",
+        pid,
+    )
+    await client.post(
+        f"/admin/person-names/{nid}/citations/",
+        headers=HTMX,
+        data={"field_name": "name", "url": "https://s/n"},
+    )
+    after = await db.fetchval(
+        "SELECT count(*) FROM entity_changes WHERE entity_type='person'"
+        " AND entity_id=$1 AND change_kind='updated'",
+        pid,
+    )
+    assert after > before
+
+
+async def test_name_and_event_rows_show_cite_button(client, db):
+    nid = await _seed_name(db)
+    pid = await db.fetchval("SELECT person_id FROM person_names WHERE id=$1", nid)
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id)"
+        " VALUES ($1,'person',$2,(SELECT id FROM entity_event_types WHERE applies_to IN"
+        " ('person','both') LIMIT 1))",
+        generate_id(),
+        pid,
+    )
+    r = await client.get(f"/admin/people/{pid}/", headers=AUTH)
+    assert r.status_code == 200
+    assert f"/admin/person-names/{nid}/citations/" in r.text
+    assert 'id="names-citations-drawer"' in r.text
+    assert 'id="events-citations-drawer"' in r.text
