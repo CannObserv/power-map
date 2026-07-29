@@ -12,6 +12,7 @@ from src.api.admin import imports as imports_module
 from src.api.admin import jurisdictions as jurisdictions_module
 from src.api.admin import jurisdictions_addresses as jurisdictions_addresses_module
 from src.api.admin import jurisdictions_affiliations as jurisdictions_affiliations_module
+from src.api.admin import jurisdictions_citations as jurisdictions_citations_module
 from src.api.admin import jurisdictions_contacts as jurisdictions_contacts_module
 from src.api.admin import jurisdictions_identifiers as jurisdictions_identifiers_module
 from src.api.admin import jurisdictions_links as jurisdictions_links_module
@@ -19,6 +20,7 @@ from src.api.admin import jurisdictions_relationships as jurisdictions_relations
 from src.api.admin import orgs as orgs_module
 from src.api.admin import orgs_acronyms as orgs_acronyms_module
 from src.api.admin import orgs_addresses as orgs_addresses_module
+from src.api.admin import orgs_citations as orgs_citations_module
 from src.api.admin import orgs_contacts as orgs_contacts_module
 from src.api.admin import orgs_events as orgs_events_module
 from src.api.admin import orgs_identifiers as orgs_identifiers_module
@@ -29,6 +31,7 @@ from src.api.admin import orgs_roles as orgs_roles_module
 from src.api.admin import people as people_module
 from src.api.admin import people_addresses as people_addresses_module
 from src.api.admin import people_assignments as people_assignments_module
+from src.api.admin import people_citations as people_citations_module
 from src.api.admin import people_contacts as people_contacts_module
 from src.api.admin import people_embeddings as people_embeddings_module
 from src.api.admin import people_events as people_events_module
@@ -40,11 +43,13 @@ from src.api.admin import people_name_suggest as people_name_suggest_module
 from src.api.admin import people_names as people_names_module
 from src.api.admin import people_reading_target_search as people_reading_target_search_module
 from src.api.admin import role_assignments as role_assignments_module
+from src.api.admin import role_assignments_citations as role_assignments_citations_module
 from src.api.admin import role_assignments_contacts as role_assignments_contacts_module
 from src.api.admin import role_assignments_identifiers as role_assignments_identifiers_module
 from src.api.admin import role_assignments_links as role_assignments_links_module
 from src.api.admin import roles as roles_module
 from src.api.admin import roles_assignments_inline as roles_assignments_inline_module
+from src.api.admin import roles_citations as roles_citations_module
 from src.api.admin import roles_contacts as roles_contacts_module
 from src.api.admin import roles_detail as roles_detail_module
 from src.api.admin import roles_links as roles_links_module
@@ -75,6 +80,7 @@ admin_router.include_router(orgs_names_module.router)
 admin_router.include_router(orgs_acronyms_module.router)
 admin_router.include_router(orgs_addresses_module.router)
 admin_router.include_router(orgs_contacts_module.router)
+admin_router.include_router(orgs_citations_module.router)
 admin_router.include_router(orgs_links_module.router)
 admin_router.include_router(orgs_identifiers_module.router)
 admin_router.include_router(orgs_events_module.router)
@@ -96,6 +102,7 @@ admin_router.include_router(people_names_module.router)
 # `/suggest-parts/` suffix doesn't conflict with any route there.
 admin_router.include_router(people_name_suggest_module.router)
 admin_router.include_router(people_contacts_module.router)
+admin_router.include_router(people_citations_module.router)
 admin_router.include_router(people_addresses_module.router)
 admin_router.include_router(people_links_module.router)
 admin_router.include_router(people_identifiers_module.router)
@@ -104,6 +111,7 @@ admin_router.include_router(people_events_module.router)
 admin_router.include_router(people_embeddings_module.router)
 admin_router.include_router(jurisdictions_module.router)
 admin_router.include_router(jurisdictions_contacts_module.router)
+admin_router.include_router(jurisdictions_citations_module.router)
 admin_router.include_router(jurisdictions_links_module.router)
 admin_router.include_router(jurisdictions_identifiers_module.router)
 admin_router.include_router(jurisdictions_addresses_module.router)
@@ -113,9 +121,11 @@ admin_router.include_router(jurisdictions_affiliations_module.org_router)
 admin_router.include_router(roles_module.router)
 admin_router.include_router(roles_detail_module.router)
 admin_router.include_router(roles_contacts_module.router)
+admin_router.include_router(roles_citations_module.router)
 admin_router.include_router(roles_links_module.router)
 admin_router.include_router(roles_assignments_inline_module.router)
 admin_router.include_router(role_assignments_module.router)
 admin_router.include_router(role_assignments_contacts_module.router)
+admin_router.include_router(role_assignments_citations_module.router)
 admin_router.include_router(role_assignments_links_module.router)
 admin_router.include_router(role_assignments_identifiers_module.router)

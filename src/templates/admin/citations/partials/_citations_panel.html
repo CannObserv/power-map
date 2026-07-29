@@ -1,0 +1,35 @@
+{# admin/citations/partials/_citations_panel.html — shared citations section (#319)
+
+   Context: cit_base (e.g. /people/{id}/citations), citable_fields, entity_id,
+   citations (list of rows). Include from any entity detail page. #}
+<section class="card" aria-labelledby="citations-heading">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-2)">
+    <h2 id="citations-heading" style="margin:0">
+      <span aria-hidden="true">📚</span> Citations
+      {% if citations %}<span class="badge">{{ citations | length }}</span>{% endif %}
+    </h2>
+    <button type="button" class="btn btn--sm btn--primary"
+            hx-get="/admin{{ cit_base }}/new-row/"
+            hx-target="#citation-row-new"
+            hx-swap="outerHTML">Add citation</button>
+  </div>
+  <table class="table" style="margin-top:var(--space-3)">
+    <thead>
+      <tr>
+        <th scope="col">Source</th>
+        <th scope="col">Field</th>
+        <th scope="col">Excerpt</th>
+        <th scope="col" style="text-align:right">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in citations %}
+      {% include "admin/citations/partials/_citation_row.html" %}
+      {% endfor %}
+      <tr id="citation-row-new"></tr>
+      {% if not citations %}
+      <tr id="citations-empty"><td colspan="4" style="color:var(--color-text-muted)">No citations yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</section>

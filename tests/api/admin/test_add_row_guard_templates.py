@@ -117,6 +117,7 @@ FORM_ROW_PARTIALS = [
     "admin/settings/partials/_identifier_type_edit_row.html",
     "admin/settings/partials/_link_type_edit_row.html",
     "admin/shared/_event_form_row.html",
+    "admin/citations/partials/_citation_form_row.html",
 ]
 
 # A <button …> opening tag (attributes span multiple lines, no '>' until close).

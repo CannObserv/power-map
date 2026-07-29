@@ -1,0 +1,66 @@
+{# admin/citations/partials/_citation_form_row.html — shared create/edit form (#319) #}
+{% set f = form if form is defined else None %}
+<tr id="{% if c %}citation-row-{{ c.id }}{% else %}citation-row-new{% endif %}">
+  <td colspan="4" style="padding:var(--space-2) var(--space-4)">
+    <form {% if c %}
+          hx-post="/admin{{ cit_base }}/{{ c.id }}/edit-row/"
+          hx-target="#citation-row-{{ c.id }}"
+          hx-swap="outerHTML"
+          {% else %}
+          hx-post="/admin{{ cit_base }}/"
+          hx-target="#citation-row-new"
+          hx-swap="outerHTML"
+          {% endif %}
+          style="display:grid;gap:var(--space-2)">
+      {% if error %}
+      <div class="alert alert--error" role="alert">{{ error }}</div>
+      {% endif %}
+      <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:end">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Field
+            <select name="field_name" aria-label="Cited field">
+              <option value="">(whole record)</option>
+              {% for opt in citable_fields %}
+              <option value="{{ opt }}"
+                {%- if (c and c.field_name == opt) or (f and f.field_name == opt) %} selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="form-group" style="margin-bottom:0;flex:1;min-width:16rem">
+          <label>URL
+            <input type="url" name="url" placeholder="https://source.example/…"
+                   value="{{ (f.url if f else (c.url if c else '')) or '' }}">
+          </label>
+        </div>
+      </div>
+      <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:end">
+        <div class="form-group" style="margin-bottom:0;flex:1;min-width:12rem">
+          <label>Title
+            <input type="text" name="title" placeholder="Source title (required if no URL)"
+                   value="{{ (f.title if f else (c.title if c else '')) or '' }}">
+          </label>
+        </div>
+        <div class="form-group" style="margin-bottom:0;flex:2;min-width:12rem">
+          <label>Excerpt
+            <input type="text" name="excerpt" placeholder="Supporting quote (optional)"
+                   aria-describedby="citation-excerpt-opt-{% if c %}{{ c.id }}{% else %}new{% endif %}"
+                   value="{{ (f.excerpt if f else (c.excerpt if c else '')) or '' }}">
+            <span class="visually-hidden" id="citation-excerpt-opt-{% if c %}{{ c.id }}{% else %}new{% endif %}">Optional</span>
+          </label>
+        </div>
+        <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
+          <button type="submit" class="btn btn--sm btn--primary">Save</button>
+          <button type="button" class="btn btn--sm btn--secondary"
+                  {% if c %}
+                  hx-get="/admin{{ cit_base }}/{{ c.id }}/read-row/"
+                  hx-target="#citation-row-{{ c.id }}"
+                  hx-swap="outerHTML"
+                  {% else %}
+                  onclick="this.closest('tr').remove(); document.dispatchEvent(new CustomEvent('powerMap:newRowClosed'));"
+                  {% endif %}>Cancel</button>
+        </div>
+      </div>
+    </form>
+  </td>
+</tr>
