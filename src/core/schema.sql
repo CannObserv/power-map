@@ -564,6 +564,49 @@ CREATE INDEX IF NOT EXISTS idx_identifiers_entity
 CREATE INDEX IF NOT EXISTS idx_identifiers_lookup
     ON identifiers(entity_identifier_type_id, value);
 
+-- Citations (#319): human-checkable source provenance for a fact — a URL/title/
+-- excerpt/accessed-date attached to an entity or one of its fields. Polymorphic
+-- with NO FK (ancillary convention, like links/contact_methods); the daily
+-- ancillary-orphans audit guards dangling rows. Distinct from the four existing
+-- provenance axes: source_key_id (actor), import_provenance (ingestion batch),
+-- field_confidence (automated reliability). Curated, observable, retractable.
+--
+-- field_name NULL = whole-entity citation; non-NULL = a field-level citation
+-- (validated against a per-entity-type allowlist in src/core/citations.py).
+-- url nullable for offline sources (a book, a records request); a URL-less
+-- citation must still carry a title (the CHECK) and dedups on its NULL url slot.
+CREATE TABLE IF NOT EXISTS citations (
+    id            TEXT        PRIMARY KEY,
+    entity_type   TEXT        NOT NULL
+                              CHECK (entity_type IN ('organization', 'person', 'role',
+                                     'role_assignment', 'jurisdiction', 'person_name',
+                                     'entity_event')),
+    entity_id     TEXT        NOT NULL,
+    field_name    TEXT,
+    url           TEXT,
+    title         TEXT,
+    excerpt       TEXT,
+    accessed_at   TIMESTAMPTZ,
+    source_key_id TEXT        REFERENCES api_keys(id) ON DELETE SET NULL,
+    archived_at   TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_citation_url_or_title CHECK (url IS NOT NULL OR title IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_citations_entity
+    ON citations(entity_type, entity_id);
+
+-- Identity — active rows only. NULLS NOT DISTINCT so a NULL url (and a NULL
+-- field_name) is one distinct slot: at most one URL-less citation per
+-- (entity, field), and re-observing the same (entity, field, url) refines that
+-- single row in place rather than duplicating. Same trick role_assignments uses
+-- for a NULL start_date. title/excerpt/accessed_at are mutable payload, never
+-- identity.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_citation_identity
+    ON citations(entity_type, entity_id, field_name, url) NULLS NOT DISTINCT
+    WHERE archived_at IS NULL;
+
 -- =============================================================================
 -- Schema evolution: archived_at columns
 -- =============================================================================
@@ -1475,6 +1518,68 @@ $$;
 CREATE OR REPLACE TRIGGER trg_touch_entity_on_link_change
     AFTER INSERT OR UPDATE OR DELETE ON links
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_link_change();
+
+-- Citations (#319) touch-cascade: any citation write (admin CRUD, public
+-- observation, merge re-homing, direct SQL) bumps the parent's updated_at →
+-- entity_changes outbox, single source for all paths (#327 model). Two of the
+-- seven citable types are sub-entities whose change the feed tracks under a
+-- top-level entity, so the touch indirects: a person_name citation touches the
+-- owning person; an entity_event citation touches the event's owning entity.
+CREATE OR REPLACE FUNCTION touch_parent_on_citation_change()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_entity_type TEXT;
+    v_entity_id   TEXT;
+    v_owner_type  TEXT;
+    v_owner_id    TEXT;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_entity_type := OLD.entity_type;
+        v_entity_id   := OLD.entity_id;
+    ELSE
+        v_entity_type := NEW.entity_type;
+        v_entity_id   := NEW.entity_id;
+    END IF;
+
+    -- Resolve a sub-entity citation up to the top-level entity the feed tracks.
+    IF v_entity_type = 'person_name' THEN
+        SELECT 'person', person_id INTO v_owner_type, v_owner_id
+        FROM person_names WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'entity_event' THEN
+        SELECT entity_type, entity_id INTO v_owner_type, v_owner_id
+        FROM entity_events WHERE id = v_entity_id;
+    ELSE
+        v_owner_type := v_entity_type;
+        v_owner_id   := v_entity_id;
+    END IF;
+
+    IF v_owner_id IS NULL THEN
+        RETURN NULL;  -- parent already gone (e.g. cascade delete); nothing to touch
+    END IF;
+
+    IF v_owner_type = 'organization' THEN
+        UPDATE organizations SET updated_at = NOW() WHERE id = v_owner_id;
+    ELSIF v_owner_type = 'person' THEN
+        UPDATE people SET updated_at = NOW() WHERE id = v_owner_id;
+    ELSIF v_owner_type = 'jurisdiction' THEN
+        UPDATE jurisdictions SET updated_at = NOW() WHERE id = v_owner_id;
+    ELSIF v_owner_type = 'role' THEN
+        UPDATE roles SET updated_at = NOW() WHERE id = v_owner_id;
+    ELSIF v_owner_type = 'role_assignment' THEN
+        UPDATE role_assignments SET updated_at = NOW() WHERE id = v_owner_id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_entity_on_citation_change
+    AFTER INSERT OR UPDATE OR DELETE ON citations
+    FOR EACH ROW EXECUTE FUNCTION touch_parent_on_citation_change();
+
+CREATE OR REPLACE TRIGGER trg_updated_at_citations
+    BEFORE UPDATE ON citations
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =============================================================================
 -- Migration: urls/social_links/url_types/platforms → link_types/links
