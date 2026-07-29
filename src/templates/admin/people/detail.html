@@ -61,7 +61,10 @@
           <th scope="col">Name</th>
           <th scope="col" style="text-align:right;width:6rem">Type</th>
           <th scope="col" style="text-align:right;width:6rem">Canonical</th>
-          <th scope="col" style="width:9rem"></th>
+          <!-- Actions: wide enough for Cite + Edit + Delete on one line (#319).
+               14rem cleared the buttons by only ~9px under table-layout:fixed +
+               2rem cell padding; 15rem gives headroom for font-rendering variance. -->
+          <th scope="col" style="width:15rem"></th>
         </tr></thead>
         <tbody>
           {% for n in names %}
