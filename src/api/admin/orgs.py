@@ -19,6 +19,7 @@ from src.api.admin.deps import (
 from src.api.admin.entity_lookup import search_entities
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
+from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 from src.core.logging import get_logger
 from src.core.org_lifecycle import resolve_lifespan_banner
@@ -462,6 +463,11 @@ async def org_detail(
         org_id,
     )
     events = await fetch_entity_events(org_id, "organization", db)
+    citations = await db.fetch(
+        "SELECT * FROM citations WHERE entity_type='organization' AND entity_id=$1"
+        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
+        org_id,
+    )
     open_assignment_count, org_ended_on = await resolve_lifespan_banner(db, org)
     parent = None
     if org["parent_id"]:
@@ -515,6 +521,9 @@ async def org_detail(
             "children": children,
             "roles": roles,
             "events": events,
+            "citations": citations,
+            "cit_base": f"/orgs/{org_id}/citations",
+            "citable_fields": sorted(CITABLE_FIELDS["organization"]),
             "org_ended_on": org_ended_on,
             "open_assignment_count": open_assignment_count,
             "parent": parent,

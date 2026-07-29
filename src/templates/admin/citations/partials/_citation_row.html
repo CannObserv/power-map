@@ -1,0 +1,25 @@
+{# admin/citations/partials/_citation_row.html — shared read row (#319) #}
+<tr id="citation-row-{{ c.id }}">
+  <td>
+    {% if c.url %}
+    <a href="{{ c.url }}" target="_blank" rel="noopener noreferrer">{{ c.title or c.url }}</a>
+    {% else %}
+    {{ c.title }}
+    {% endif %}
+  </td>
+  <td>{{ c.field_name or '(whole record)' }}</td>
+  <td>{{ c.excerpt or '—' }}</td>
+  <td style="text-align:right;white-space:nowrap">
+    <button type="button" class="btn btn--sm btn--secondary"
+            aria-label="Edit citation"
+            hx-get="/admin{{ cit_base }}/{{ c.id }}/edit-row/"
+            hx-target="#citation-row-{{ c.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button type="button" class="btn btn--sm btn--danger"
+            aria-label="Delete citation"
+            hx-delete="/admin{{ cit_base }}/{{ c.id }}/"
+            hx-target="#citation-row-{{ c.id }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this citation?">Delete</button>
+  </td>
+</tr>

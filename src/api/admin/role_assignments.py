@@ -17,6 +17,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.role_assignments_queries import VALID_STATUSES, query_role_assignments_rows
+from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 from src.core.org_lifecycle import (
     AssignmentOutsideOrgLifespan,
@@ -265,6 +266,12 @@ async def ra_detail(
         ra_id,
     )
 
+    citations = await db.fetch(
+        "SELECT * FROM citations WHERE entity_type='role_assignment' AND entity_id=$1"
+        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
+        ra_id,
+    )
+
     return templates.TemplateResponse(
         request,
         "admin/role_assignments/detail.html",
@@ -276,6 +283,9 @@ async def ra_detail(
             "phone_contacts": phone_contacts,
             "links": links,
             "identifiers": identifiers,
+            "citations": citations,
+            "cit_base": f"/role-assignments/{ra_id}/citations",
+            "citable_fields": sorted(CITABLE_FIELDS["role_assignment"]),
             "flash_msg": flash_msg,
         },
         headers=resp_headers,

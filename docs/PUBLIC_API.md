@@ -342,6 +342,37 @@ Per-event `disposition` ∈ `new｜auto-attached｜updated｜retracted｜rejecte
 
 ---
 
+## Citations — source provenance (#319)
+
+A **citation** attaches human-checkable evidence (`url` / `title` / `excerpt` / `accessed_at`) to an entity or one of its fields — "where did this fact come from". Citable entity types: `organization`, `person`, `role`, `role_assignment`, `jurisdiction`, `person_name`, `entity_event`.
+
+**Scopes:** `citations:write` (observe/retract), `citations:read` (read).
+
+### Write — two transports
+
+- **Embedded** — a `citations: [...]` array on a `POST /orgs/observations` or `POST /people/observations` payload, attached to the resolved entity. All-or-nothing with the parent (a rejected citation → whole observation `rejected`); per-citation dispositions echo in `ObservationResponse.citations`.
+- **Citation-native** — `POST /api/v1/citations/{entity_type}/{entity_id}/observations` (`citations:write`; body `{ "citations": [...] }`), **partial-success**: each claim lands under its own savepoint and returns its own `{disposition, citation_id?, reason?}` in `results`. 422 if `entity_type` is not citable.
+
+Each citation item:
+
+| Field | Notes |
+|-------|-------|
+| `field_name` | optional. NULL = whole-entity citation; non-NULL must be in the entity's citable-field allowlist (else `citable_field_unknown`). |
+| `url` | optional (offline sources). One of `url`/`title` is required. |
+| `title` / `excerpt` / `accessed_at` | mutable payload, **full-replace** — see below. `accessed_at` is ISO-8601 (`Z`). |
+| `pm_citation_id` | optional. Set → id-addressed refine of the mutable payload; identity (`entity`, `field_name`, `url`) is immutable (`identity_immutable`). Absent → natural-key observe: identity `(entity, field_name, url)` → refine the matched active row or create. |
+| `op` | `observe` (default) or `retract`. `retract` **archives** the `pm_citation_id` row → `retracted` (requires `pm_citation_id` else `invalid`; supplied `url`/`field_name` must match else `identity_immutable`; already-archived → `auto-attached` no-op). Re-observing retracted content stays retracted (anti-resurrection). |
+
+**Full-replace payload.** A refine (id-addressed *or* natural-key) writes the whole mutable set (`title`, `excerpt`, `accessed_at`) — a field omitted from the claim is **cleared to NULL**, same model as event refine. Always send the complete payload on every observe; do not send a partial refine expecting the other fields to persist. `url` and `title` are only required on a genuine **create** (`missing_required_field` — a refine of an existing row is exempt, its identity is already pinned).
+
+Identity uses `NULLS NOT DISTINCT`: at most one URL-less citation per `(entity, field)`. Writes are gated on `source_key_id` (same-or-NULL, else `provenance_conflict`). Per-citation `disposition` ∈ `new｜auto-attached｜updated｜retracted｜rejected`. Reason slugs: transient `entity_unresolved`; terminal `identity_immutable`, `citation_not_found`, `provenance_conflict`, `citable_field_unknown`, `missing_required_field`, `invalid`.
+
+### Read — `GET /api/v1/citations/{entity_type}/{entity_id}`
+
+`citations:read`. Query: `field_name` (narrow to one field), `include_archived` (default false), `limit`/`offset`. Standard `{data, meta}`, newest first (`created_at DESC, id DESC` — unique tail).
+
+---
+
 ## Jurisdictions
 
 ### Endpoints

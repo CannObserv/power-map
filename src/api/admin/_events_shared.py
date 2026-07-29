@@ -10,6 +10,7 @@ from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.entity_lookup import ENTITY_TYPES, entity_exists, resolve_entity_label
+from src.core.ancillary_migrate import delete_citations
 from src.core.db import generate_id
 from src.core.types import EVENT_PLACE_PRECISIONS
 
@@ -654,7 +655,12 @@ def make_events_router(
         ev = await _get_event_or_404(event_id, entity_id, db)
         if not ev["archived_at"]:
             raise HTTPException(status_code=409, detail="Event must be archived before deletion")
-        await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
+        # Drop the event's own citations first (no FK; would orphan otherwise, #319),
+        # atomically with the event delete so a mid-op failure can't leave the event
+        # citation-less (#319 CR).
+        async with db.transaction():
+            await delete_citations(db, "entity_event", event_id)
+            await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
         if not is_htmx(request):
             return RedirectResponse(detail_url(entity_id), status_code=303)
         return HTMLResponse(

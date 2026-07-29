@@ -23,7 +23,12 @@ from src.api.admin.people_dups import (
     invalidate_dup_count_cache as invalidate_person_dup_count_cache,
 )
 from src.api.admin.people_queries import VALID_STATUSES, query_people_rows
-from src.core.ancillary_migrate import rehome_conflicting_assignment_ancillary
+from src.core.ancillary_migrate import (
+    delete_event_citations_for_owner,
+    migrate_citations,
+    rehome_citations,
+    rehome_conflicting_assignment_ancillary,
+)
 from src.core.db import generate_id
 from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
 
@@ -262,6 +267,15 @@ async def merge_person_into(
             winner_id,
         )
 
+    # #319: snapshot the loser's name ids before any name delete. A name that is
+    # re-pointed keeps its id (its citations stay valid); one that is deleted (dedup
+    # or curated drop) loses it. After the name ops, citations still pointing at a
+    # vanished loser name id are cleaned up (dedup-matched ones are re-homed to the
+    # winner name first, just below the dedup DELETE).
+    loser_name_ids = [
+        r["id"] for r in await db.fetch("SELECT id FROM person_names WHERE person_id=$1", loser_id)
+    ]
+
     # Curated merge (#255): when the admin made an explicit keep/drop selection in
     # the preview modal, drop the unchecked loser names FIRST; the standard
     # demote+dedup+transfer below then moves only what remains. `keep_name_ids=None`
@@ -341,6 +355,24 @@ async def merge_person_into(
     # person blank, defeating the heal below. It also silently dropped
     # `legal_only` claims, breaking the #121 guarantee that the winner inherits
     # the loser's restricted names.
+    # #319: re-home citations off each loser name about to be deduped away → the
+    # winner's surviving equivalent (same LATERAL lowest-id pick as the reading
+    # re-point), so a matched-duplicate name's provenance follows the winner name
+    # rather than orphaning. Must precede the dedup DELETE.
+    dedup_name_pairs = await db.fetch(
+        "SELECT l.id AS loser, m.id AS winner FROM person_names l"
+        " CROSS JOIN LATERAL ("
+        "     SELECT w.id FROM person_names w WHERE w.person_id=$2 AND"
+        + _NAME_IDENTITY_MATCH_SQL
+        + " ORDER BY w.id LIMIT 1"
+        " ) m WHERE l.person_id=$1",
+        loser_id,
+        winner_id,
+        list(NO_AUTO_CANONICAL_NAME_TYPES),
+    )
+    for pair in dedup_name_pairs:
+        await migrate_citations(db, "person_name", pair["loser"], pair["winner"])
+
     await db.execute(
         _DEDUP_LOSER_NAMES_SQL,
         loser_id,
@@ -352,6 +384,17 @@ async def merge_person_into(
         winner_id,
         loser_id,
     )
+    # #319: any citation still pointing at a loser name id that was deleted (a
+    # curated drop, or a dedup with no re-home target) is now a true orphan — the
+    # name assertion is gone. Drop them (re-pointed names kept their id, so their
+    # citations survive this NOT EXISTS filter).
+    if loser_name_ids:
+        await db.execute(
+            "DELETE FROM citations WHERE entity_type='person_name'"
+            " AND entity_id = ANY($1::text[])"
+            " AND NOT EXISTS (SELECT 1 FROM person_names pn WHERE pn.id = citations.entity_id)",
+            loser_name_ids,
+        )
     # The loser's canonical was demoted above, so a winner that had no display
     # pointer would end up blank even though a usable name just arrived (CR4
     # #29). Merge is the only mutation left that can violate the #308 invariant
@@ -507,6 +550,13 @@ async def merge_person_into(
         winner_id,
         loser_id,
     )
+
+    # Citations (#319) on the loser person move to the winner before the delete
+    # (whole-entity + field citations; NULL-safe dedup, self-emitting trigger).
+    await rehome_citations(db, "person", [(loser_id, winner_id)])
+    # The loser's entity_events aren't re-pointed by merge (they dangle when the
+    # person is deleted), so their citations would orphan — drop them (#319).
+    await delete_event_citations_for_owner(db, "person", loser_id)
 
     await db.execute("DELETE FROM people WHERE id=$1", loser_id)
     await db.execute(

@@ -73,6 +73,9 @@
         </tbody>
       </table>
     </div>
+    {# Inline citations drawer: a name row's "Cite" button hx-loads that name's
+       citations panel here (#319). One open at a time. #}
+    <div id="names-citations-drawer"></div>
 
     {% include "admin/people/partials/_pronouns_read.html" %}
 
@@ -109,7 +112,12 @@
       </tbody>
     </table>
   </div>
+  {# Inline citations drawer: an event row's "Cite" button hx-loads that event's
+     citations panel here (#319). #}
+  <div id="events-citations-drawer"></div>
 </section>
+
+{% include "admin/citations/partials/_citations_panel.html" %}
 
 <section class="entity-section">
   <h2>Contact Information</h2>

@@ -18,6 +18,7 @@ from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
 from src.api.admin.roles_shared import fetch_role_types, positionless_seat_error
 from src.core.ancillary_migrate import delete_role_ancillary
+from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 from src.core.role_title import synthesize_role_title
 
@@ -293,6 +294,12 @@ async def role_detail(
         role_id,
     )
 
+    citations = await db.fetch(
+        "SELECT * FROM citations WHERE entity_type='role' AND entity_id=$1"
+        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
+        role_id,
+    )
+
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
@@ -306,6 +313,9 @@ async def role_detail(
             "email_contacts": email_contacts,
             "phone_contacts": phone_contacts,
             "links": links,
+            "citations": citations,
+            "cit_base": f"/roles/{role_id}/citations",
+            "citable_fields": sorted(CITABLE_FIELDS["role"]),
             "flash_msg": flash_msg,
         },
         headers=resp_headers,

@@ -19,6 +19,7 @@ from src.api.admin.entity_lookup import search_entities
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.people_embeddings import fetch_person_embeddings
 from src.api.admin.people_queries import VALID_STATUSES, query_people_rows
+from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -292,6 +293,12 @@ async def person_detail(
 
     events = await fetch_entity_events(person_id, "person", db)
 
+    citations = await db.fetch(
+        "SELECT * FROM citations WHERE entity_type='person' AND entity_id=$1"
+        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
+        person_id,
+    )
+
     embeddings, embeddings_archived_count = await fetch_person_embeddings(
         db,
         request.app.state.embedding_registry,
@@ -318,6 +325,9 @@ async def person_detail(
             "identifiers": identifiers,
             "role_assignments": role_assignments,
             "events": events,
+            "citations": citations,
+            "cit_base": f"/people/{person_id}/citations",
+            "citable_fields": sorted(CITABLE_FIELDS["person"]),
             "embeddings": embeddings,
             "embeddings_archived_count": embeddings_archived_count,
             "show_archived_embeddings": show_archived_embeddings,
