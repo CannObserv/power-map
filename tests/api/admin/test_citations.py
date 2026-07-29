@@ -140,3 +140,71 @@ async def test_detail_page_shows_citations_panel(client, db, person):
     assert r.status_code == 200
     assert "Citations" in r.text
     assert "Panel Src" in r.text
+
+
+async def _seed_org(db) -> tuple[str, str]:
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    return oid, f"/admin/orgs/{oid}/"
+
+
+async def _seed_role(db) -> tuple[str, str]:
+    oid, rid = generate_id(), generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Director')", rid, oid
+    )
+    return rid, f"/admin/roles/{rid}/"
+
+
+async def _seed_role_assignment(db) -> tuple[str, str]:
+    oid, rid, pid, raid = (generate_id() for _ in range(4))
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Director')", rid, oid
+    )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current) VALUES ($1,$2,$3,TRUE)",
+        raid,
+        pid,
+        rid,
+    )
+    return raid, f"/admin/role-assignments/{raid}/"
+
+
+async def _seed_jurisdiction(db) -> tuple[str, str]:
+    jid = generate_id()
+    type_id = await db.fetchval("SELECT id FROM jurisdiction_types WHERE slug='county'")
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,'Testland',$3)",
+        jid,
+        f"testland-{jid[-6:].lower()}",
+        type_id,
+    )
+    return jid, f"/admin/jurisdictions/{jid}/"
+
+
+@pytest.mark.parametrize(
+    "entity_type,seeder",
+    [
+        ("organization", _seed_org),
+        ("role", _seed_role),
+        ("role_assignment", _seed_role_assignment),
+        ("jurisdiction", _seed_jurisdiction),
+    ],
+)
+async def test_all_detail_pages_render_citations_panel(client, db, entity_type, seeder):
+    entity_id, detail = await seeder(db)
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url, title)"
+        " VALUES ($1,$2,$3,'https://s/panel',$4)",
+        generate_id(),
+        entity_type,
+        entity_id,
+        f"{entity_type} Src",
+    )
+    r = await client.get(detail, headers=AUTH)
+    assert r.status_code == 200, r.text
+    assert "Citations" in r.text
+    assert f"{entity_type} Src" in r.text

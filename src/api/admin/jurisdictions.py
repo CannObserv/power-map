@@ -25,6 +25,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.jurisdictions_queries import VALID_STATUSES, query_jurisdictions_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
+from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 from src.core.jurisdictions import fetch_lineage
 
@@ -454,6 +455,12 @@ async def jurisdiction_detail(
         jurisdiction_id,
     )
 
+    citations = await db.fetch(
+        "SELECT * FROM citations WHERE entity_type='jurisdiction' AND entity_id=$1"
+        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
+        jurisdiction_id,
+    )
+
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
         request,
@@ -473,6 +480,9 @@ async def jurisdiction_detail(
             "lineage": lineage,
             "affiliations": affiliations,
             "roles": roles,
+            "citations": citations,
+            "cit_base": f"/jurisdictions/{jurisdiction_id}/citations",
+            "citable_fields": sorted(CITABLE_FIELDS["jurisdiction"]),
             "flash_msg": flash_msg,
         },
         headers=resp_headers,
