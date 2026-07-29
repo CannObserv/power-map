@@ -221,6 +221,10 @@ async def rehome_conflicting_assignment_ancillary(
     touched_survivors: set[str] = set()
     for loser_id, winner_id in pairs:
         counts = await migrate_role_assignment_ancillary(db, loser_id, winner_id)
+        # Citations (#319) on the deleted assignment move to the survivor too;
+        # NULL-safe identity, self-emitting touch trigger (no manual signal).
+        c_moved, c_deduped = await migrate_citations(db, "role_assignment", loser_id, winner_id)
+        counts["citations"] = (c_moved, c_deduped)
         for table, (moved, deduped) in counts.items():
             totals[table][0] += moved
             totals[table][1] += deduped
@@ -304,8 +308,11 @@ async def rehome_role_ancillary(
     an identical one. Both role specs (``links`` / ``contact_methods``) carry touch
     triggers (#327), so a re-point self-emits the survivor 'role' 'updated' signal
     (one per moved row) — no manual emit here. Returns per-table ``(moved, deduped)``.
+    Role citations (#319) re-home alongside (NULL-safe, self-emitting trigger).
     """
-    return await _migrate_specs(db, _ROLE_SPECS, loser_id, winner_id)
+    result = await _migrate_specs(db, _ROLE_SPECS, loser_id, winner_id)
+    result["citations"] = await migrate_citations(db, "role", loser_id, winner_id)
+    return result
 
 
 async def delete_role_ancillary(db: asyncpg.Connection, role_id: str) -> None:
@@ -317,3 +324,102 @@ async def delete_role_ancillary(db: asyncpg.Connection, role_id: str) -> None:
     """
     for table in ("links", "contact_methods"):
         await db.execute(f"DELETE FROM {table} WHERE entity_type='role' AND entity_id=$1", role_id)
+    # Citations (#319) are polymorphic no-FK too; drop the role's own before delete.
+    await db.execute("DELETE FROM citations WHERE entity_type='role' AND entity_id=$1", role_id)
+
+
+# ---------------------------------------------------------------------------
+# Citations (#319)
+#
+# Citations are polymorphic no-FK ancillary spanning **all seven** citable entity
+# types (org / person / role / role_assignment / jurisdiction / person_name /
+# entity_event), so a merge that collapses any of them can strand a citation. The
+# identity that dedups a citation within an entity is (field_name, url) with
+# NULLS NOT DISTINCT (mirrors uq_citation_identity over active rows) — so the
+# generic _AncillarySpec machinery (exact ``=`` on non-null keys) can't serve it;
+# the migrator below is NULL-safe. Citations carry a touch-cascade trigger, so a
+# re-point self-emits the survivor 'updated' signal — no manual emit here.
+# ---------------------------------------------------------------------------
+
+# Existence table per citable entity type — used by the orphan audit.
+_CITATION_ENTITY_TABLES = {
+    "organization": "organizations",
+    "person": "people",
+    "role": "roles",
+    "role_assignment": "role_assignments",
+    "jurisdiction": "jurisdictions",
+    "person_name": "person_names",
+    "entity_event": "entity_events",
+}
+
+
+async def migrate_citations(
+    db: asyncpg.Connection, entity_type: str, from_id: str, to_id: str
+) -> tuple[int, int]:
+    """Re-point one entity's citations onto another; dedup active identity twins.
+
+    Returns ``(moved, deduped)``. A loser citation that is **active** and whose
+    ``(field_name, url)`` already exists **active** on the survivor is deleted
+    (would otherwise violate ``uq_citation_identity``); everything else re-points.
+    Archived rows always re-point — they're outside the active unique index, so no
+    collision is possible. Both DELETE and UPDATE fire the citation touch trigger,
+    so the survivor's 'updated' signal is emitted automatically.
+    """
+    moved = deduped = 0
+    rows = await db.fetch(
+        "SELECT id, field_name, url, archived_at FROM citations"
+        " WHERE entity_type=$1 AND entity_id=$2",
+        entity_type,
+        from_id,
+    )
+    for row in rows:
+        if row["archived_at"] is None:
+            twin = await db.fetchval(
+                "SELECT 1 FROM citations WHERE entity_type=$1 AND entity_id=$2"
+                " AND field_name IS NOT DISTINCT FROM $3 AND url IS NOT DISTINCT FROM $4"
+                " AND archived_at IS NULL",
+                entity_type,
+                to_id,
+                row["field_name"],
+                row["url"],
+            )
+            if twin:
+                await db.execute("DELETE FROM citations WHERE id=$1", row["id"])
+                deduped += 1
+                continue
+        await db.execute("UPDATE citations SET entity_id=$2 WHERE id=$1", row["id"], to_id)
+        moved += 1
+    return moved, deduped
+
+
+async def rehome_citations(
+    db: asyncpg.Connection, entity_type: str, pairs: list[tuple[str, str]]
+) -> tuple[int, int]:
+    """Migrate citations for every ``(loser, winner)`` pair of one entity type.
+
+    Call immediately before a merge hard-deletes the losers. Returns aggregate
+    ``(moved, deduped)``. The touch trigger self-emits every survivor signal.
+    """
+    moved = deduped = 0
+    for loser_id, winner_id in pairs:
+        m, d = await migrate_citations(db, entity_type, loser_id, winner_id)
+        moved += m
+        deduped += d
+    return moved, deduped
+
+
+async def count_orphaned_citations(db: asyncpg.Connection) -> dict[str, int]:
+    """Count citations pointing at an entity id that no longer exists, per type.
+
+    Covers all seven citable entity types (#319). The daily guard warns when any
+    count is non-zero; keys are namespaced ``citation.<entity_type>`` by the audit.
+    """
+    counts: dict[str, int] = {}
+    for entity_type, table in _CITATION_ENTITY_TABLES.items():
+        counts[entity_type] = await db.fetchval(
+            "SELECT count(*) FROM citations c"
+            " WHERE c.entity_type=$1"
+            f" AND NOT EXISTS (SELECT 1 FROM {table} e WHERE e.id = c.entity_id)",
+            entity_type,
+        )
+    return counts

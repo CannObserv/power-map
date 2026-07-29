@@ -21,6 +21,7 @@ from src.api.admin.org_dups import (
 )
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.core.ancillary_migrate import (
+    rehome_citations,
     rehome_conflicting_assignment_ancillary,
     rehome_role_ancillary,
 )
@@ -501,6 +502,9 @@ async def _execute_merge(
             winner_id,
             loser_id,
         )
+        # Citations (#319) on the loser org move to the winner before the delete.
+        await rehome_citations(db, "organization", [(loser_id, winner_id)])
+
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
         await db.execute(
             "INSERT INTO deleted_entities (entity_type, entity_id, merged_into)"

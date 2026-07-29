@@ -23,7 +23,10 @@ from src.api.admin.people_dups import (
     invalidate_dup_count_cache as invalidate_person_dup_count_cache,
 )
 from src.api.admin.people_queries import VALID_STATUSES, query_people_rows
-from src.core.ancillary_migrate import rehome_conflicting_assignment_ancillary
+from src.core.ancillary_migrate import (
+    rehome_citations,
+    rehome_conflicting_assignment_ancillary,
+)
 from src.core.db import generate_id
 from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
 
@@ -507,6 +510,10 @@ async def merge_person_into(
         winner_id,
         loser_id,
     )
+
+    # Citations (#319) on the loser person move to the winner before the delete
+    # (whole-entity + field citations; NULL-safe dedup, self-emitting trigger).
+    await rehome_citations(db, "person", [(loser_id, winner_id)])
 
     await db.execute("DELETE FROM people WHERE id=$1", loser_id)
     await db.execute(

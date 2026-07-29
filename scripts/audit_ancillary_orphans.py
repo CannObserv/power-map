@@ -31,6 +31,7 @@ import sys
 import asyncpg
 
 from src.core.ancillary_migrate import (
+    count_orphaned_citations,
     count_orphaned_role_ancillary,
     count_orphaned_role_assignment_ancillary,
 )
@@ -44,23 +45,26 @@ async def _run(database_url: str) -> int:
     try:
         ra_counts = await count_orphaned_role_assignment_ancillary(conn)
         role_counts = await count_orphaned_role_ancillary(conn)
+        citation_counts = await count_orphaned_citations(conn)
     finally:
         await conn.close()
 
-    # Namespace by entity type so a table name shared by both scopes stays distinct.
+    # Namespace by scope so a table name shared across scopes stays distinct.
     counts = {
         **{f"role_assignment.{t}": n for t, n in ra_counts.items()},
         **{f"role.{t}": n for t, n in role_counts.items()},
+        **{f"citation.{t}": n for t, n in citation_counts.items()},
     }
     total = sum(counts.values())
     if total == 0:
-        logger.info("role/role_assignment ancillary orphan audit: clean (0 orphans)")
+        logger.info("role/role_assignment/citation ancillary orphan audit: clean (0 orphans)")
         return 0
 
     breakdown = ", ".join(f"{table}={n}" for table, n in counts.items() if n)
     logger.warning(
-        "role/role_assignment ancillary orphans detected: %d total (%s) — "
-        "run scripts.cleanup_role_assignment_ancillary_orphans",
+        "ancillary orphans detected: %d total (%s) — "
+        "run scripts.cleanup_role_assignment_ancillary_orphans (role_assignment scope) "
+        "or triage citation.* / role.* manually",
         total,
         breakdown,
     )
