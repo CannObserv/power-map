@@ -209,6 +209,29 @@ async def test_refine_by_id_updates_payload(db):
     assert (await _row(db, first.citation_id))["title"] == "new"
 
 
+async def test_refine_by_id_needs_no_url_or_title(db):
+    """An id-addressed refine needn't resupply url/title — identity is pinned by the
+    id, so the url-or-title requirement is scoped to genuine creates (#319 CR).
+    Also pins the full-replace contract: omitted mutable fields clear to NULL."""
+    pid = await _person(db)
+    ts = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    [first] = await write_citations(
+        db,
+        "person",
+        pid,
+        None,
+        [CitationClaim(field_name="notes", url="https://s/x", title="t", excerpt="e")],
+    )
+    [res] = await apply_citation_observations(
+        db, "person", pid, None, [CitationClaim(pm_citation_id=first.citation_id, accessed_at=ts)]
+    )
+    assert res.disposition is CitationDisposition.UPDATED
+    row = await _row(db, first.citation_id)
+    assert row["accessed_at"] == ts
+    assert row["url"] == "https://s/x"  # identity, untouched
+    assert row["title"] is None and row["excerpt"] is None  # full-replace clears omitted
+
+
 async def test_refine_by_id_url_change_is_identity_immutable(db):
     pid = await _person(db)
     [first] = await write_citations(

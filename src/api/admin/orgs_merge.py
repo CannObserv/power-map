@@ -346,25 +346,32 @@ async def _execute_merge(
             w_role = conflict["winner_role_id"]
             l_role = conflict["loser_role_id"]
             active = await db.fetch(
-                "SELECT person_id, start_date, end_date, is_current, notes"
+                "SELECT id, person_id, start_date, end_date, is_current, notes"
                 " FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
                 l_role,
             )
+            # Each active loser assignment resolves to a target winner assignment —
+            # either the newly-inserted copy or the existing same-(person,role,start)
+            # row. Its ancillary (#324 links/contacts/identifiers/field_confidence +
+            # #319 citations) must re-home onto that target before the loser row is
+            # hard-deleted below, exactly like the role_pairs_to_merge block above.
+            anc_pairs: list[tuple[str, str]] = []
             for a in active:
-                exists = await db.fetchval(
-                    "SELECT 1 FROM role_assignments"
+                target_id = await db.fetchval(
+                    "SELECT id FROM role_assignments"
                     " WHERE person_id=$1 AND role_id=$2 AND archived_at IS NULL"
                     " AND start_date IS NOT DISTINCT FROM $3",
                     a["person_id"],
                     w_role,
                     a["start_date"],
                 )
-                if not exists:
+                if target_id is None:
+                    target_id = generate_id()
                     await db.execute(
                         "INSERT INTO role_assignments"
                         " (id, person_id, role_id, start_date, end_date, is_current, notes)"
                         " VALUES ($1,$2,$3,$4,$5,$6,$7)",
-                        generate_id(),
+                        target_id,
                         a["person_id"],
                         w_role,
                         a["start_date"],
@@ -374,12 +381,15 @@ async def _execute_merge(
                     )
                 else:
                     dropped_assignments += 1
+                anc_pairs.append((a["id"], target_id))
             await db.execute(
                 "UPDATE role_assignments SET role_id=$1"
                 " WHERE role_id=$2 AND archived_at IS NOT NULL",
                 w_role,
                 l_role,
             )
+            # Re-home the deleted-to-be loser assignments' ancillary before the DELETE.
+            await rehome_conflicting_assignment_ancillary(db, anc_pairs)
             await db.execute(
                 "DELETE FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
                 l_role,

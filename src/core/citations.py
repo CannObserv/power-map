@@ -42,17 +42,23 @@ logger = get_logger(__name__)
 # Vocabulary
 # ---------------------------------------------------------------------------
 
-CITABLE_ENTITY_TYPES = frozenset(
-    {
-        "organization",
-        "person",
-        "role",
-        "role_assignment",
-        "jurisdiction",
-        "person_name",
-        "entity_event",
-    }
-)
+# Single source of truth for citable entity types + their existence-check table.
+# CITABLE_ENTITY_TYPES derives from the keys; the orphan audit in
+# ancillary_migrate imports this same map (no duplicate that can drift, #319 CR).
+# person_names is queried by id only (no visibility filter): a legal_only/hidden
+# name is still citable and no display is performed (allow-listed in
+# tests/core/test_visible_names_filter.py).
+CITABLE_ENTITY_TABLES: dict[str, str] = {
+    "organization": "organizations",
+    "person": "people",
+    "role": "roles",
+    "role_assignment": "role_assignments",
+    "jurisdiction": "jurisdictions",
+    "person_name": "person_names",
+    "entity_event": "entity_events",
+}
+
+CITABLE_ENTITY_TYPES = frozenset(CITABLE_ENTITY_TABLES)
 
 # Per-entity-type field allowlist (#319). field_name NULL is always allowed
 # (a whole-entity citation); a non-NULL field_name outside its entity's set is
@@ -67,19 +73,6 @@ CITABLE_FIELDS: dict[str, frozenset[str]] = {
     "jurisdiction": frozenset({"notes"}),
     "person_name": frozenset({"name"}),
     "entity_event": frozenset({"date", "place", "notes"}),
-}
-
-# Existence-check table per citable entity type. person_names is queried by id
-# only (no visibility filter): a legal_only/hidden name is still citable and no
-# display is performed (allow-listed in tests/core/test_visible_names_filter.py).
-_EXISTS_TABLE = {
-    "organization": "organizations",
-    "person": "people",
-    "role": "roles",
-    "role_assignment": "role_assignments",
-    "jurisdiction": "jurisdictions",
-    "person_name": "person_names",
-    "entity_event": "entity_events",
 }
 
 
@@ -153,7 +146,7 @@ class _SavepointRollback(Exception):
 
 async def _citable_entity_exists(conn, entity_type: str, entity_id: str) -> bool:
     """True if the citation target resolves to a live row of the given kind."""
-    table = _EXISTS_TABLE[entity_type]
+    table = CITABLE_ENTITY_TABLES[entity_type]
     return bool(await conn.fetchval(f"SELECT 1 FROM {table} WHERE id=$1", entity_id))
 
 
@@ -178,13 +171,15 @@ async def _apply_one_citation(
         if claim.op != "observe":
             raise _CitationRejected(CitationRejectReason.INVALID)
 
-        # Observe-path validation (shared by refine + create).
+        # field_name allowlist gates every observe path (identity-relevant).
         if claim.field_name is not None and claim.field_name not in CITABLE_FIELDS.get(
             entity_type, frozenset()
         ):
             raise _CitationRejected(CitationRejectReason.CITABLE_FIELD_UNKNOWN)
-        if claim.url is None and claim.title is None:
-            raise _CitationRejected(CitationRejectReason.MISSING_REQUIRED_FIELD)
+        # The url-or-title requirement is scoped to the create branch only (#319 CR):
+        # an id-addressed refine has identity pinned by pm_citation_id, and a
+        # natural-key refine matches an existing row that already satisfies
+        # chk_citation_url_or_title — neither needs url/title resupplied.
 
         if claim.pm_citation_id is not None:
             return await _refine_citation_in_place(conn, entity_type, entity_id, key_id, claim)
@@ -233,6 +228,11 @@ async def _create_or_refine_natural(
     )
     if archived_id is not None:
         return CitationResult(CitationDisposition.AUTO_ATTACHED, archived_id)
+
+    # Genuine create — the row must satisfy chk_citation_url_or_title. Enforced
+    # here (the true create branch, #319 CR) so a refine never trips it.
+    if claim.url is None and claim.title is None:
+        raise _CitationRejected(CitationRejectReason.MISSING_REQUIRED_FIELD)
 
     new_id = generate_id()
     await conn.execute(
@@ -415,11 +415,11 @@ async def apply_citation_observations(
                     raise _SavepointRollback(result)
         except _SavepointRollback as sr:
             result = sr.result
-        except (
-            asyncpg.CheckViolationError,
-            asyncpg.ForeignKeyViolationError,
-            asyncpg.UniqueViolationError,
-        ):
+        except asyncpg.PostgresError:
+            # Any per-claim DB error (unique/check/FK, or a rarer not-null/data
+            # error) rolls back only this claim's savepoint and is isolated as a
+            # rejection so siblings still land — the partial-success contract (#319
+            # CR: widened from the three-error tuple to the PostgresError base).
             result = CitationResult(
                 CitationDisposition.REJECTED, None, CitationRejectReason.INVALID
             )

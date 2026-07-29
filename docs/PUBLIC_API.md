@@ -359,9 +359,11 @@ Each citation item:
 |-------|-------|
 | `field_name` | optional. NULL = whole-entity citation; non-NULL must be in the entity's citable-field allowlist (else `citable_field_unknown`). |
 | `url` | optional (offline sources). One of `url`/`title` is required. |
-| `title` / `excerpt` / `accessed_at` | mutable payload. `accessed_at` is ISO-8601 (`Z`). |
+| `title` / `excerpt` / `accessed_at` | mutable payload, **full-replace** — see below. `accessed_at` is ISO-8601 (`Z`). |
 | `pm_citation_id` | optional. Set → id-addressed refine of the mutable payload; identity (`entity`, `field_name`, `url`) is immutable (`identity_immutable`). Absent → natural-key observe: identity `(entity, field_name, url)` → refine the matched active row or create. |
 | `op` | `observe` (default) or `retract`. `retract` **archives** the `pm_citation_id` row → `retracted` (requires `pm_citation_id` else `invalid`; supplied `url`/`field_name` must match else `identity_immutable`; already-archived → `auto-attached` no-op). Re-observing retracted content stays retracted (anti-resurrection). |
+
+**Full-replace payload.** A refine (id-addressed *or* natural-key) writes the whole mutable set (`title`, `excerpt`, `accessed_at`) — a field omitted from the claim is **cleared to NULL**, same model as event refine. Always send the complete payload on every observe; do not send a partial refine expecting the other fields to persist. `url` and `title` are only required on a genuine **create** (`missing_required_field` — a refine of an existing row is exempt, its identity is already pinned).
 
 Identity uses `NULLS NOT DISTINCT`: at most one URL-less citation per `(entity, field)`. Writes are gated on `source_key_id` (same-or-NULL, else `provenance_conflict`). Per-citation `disposition` ∈ `new｜auto-attached｜updated｜retracted｜rejected`. Reason slugs: transient `entity_unresolved`; terminal `identity_immutable`, `citation_not_found`, `provenance_conflict`, `citable_field_unknown`, `missing_required_field`, `invalid`.
 

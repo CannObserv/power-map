@@ -674,10 +674,12 @@ class CitationObservationItem(BaseModel):
     """One citation claim in a citation observation batch (#319).
 
     Identity = (entity, field_name, url); title/excerpt/accessed_at are mutable
-    payload. ``pm_citation_id`` addresses an existing citation for id-scoped
-    refine/retract; absent → natural-key observe (refine-or-create). ``op``:
-    ``observe`` (default) refines/creates, ``retract`` archives the pm_citation_id
-    row.
+    payload with **full-replace** semantics — a refine writes the whole mutable set,
+    so a field omitted from the claim is cleared to NULL (same model as event
+    refine). Send the complete payload on every observe/refine. ``pm_citation_id``
+    addresses an existing citation for id-scoped refine/retract; absent → natural-key
+    observe (refine-or-create). ``op``: ``observe`` (default) refines/creates,
+    ``retract`` archives the pm_citation_id row.
     """
 
     field_name: str | None = None

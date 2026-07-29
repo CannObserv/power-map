@@ -35,6 +35,8 @@ from typing import NamedTuple
 
 import asyncpg
 
+from src.core.citations import CITABLE_ENTITY_TABLES
+
 # Ancillary tables with NO touch-cascade trigger (#327): a re-point does not
 # self-emit, so a survivor whose only change is one of these needs a manual
 # entity_changes signal. Everything else (links/contact_methods/identifiers) is
@@ -341,17 +343,6 @@ async def delete_role_ancillary(db: asyncpg.Connection, role_id: str) -> None:
 # re-point self-emits the survivor 'updated' signal — no manual emit here.
 # ---------------------------------------------------------------------------
 
-# Existence table per citable entity type — used by the orphan audit.
-_CITATION_ENTITY_TABLES = {
-    "organization": "organizations",
-    "person": "people",
-    "role": "roles",
-    "role_assignment": "role_assignments",
-    "jurisdiction": "jurisdictions",
-    "person_name": "person_names",
-    "entity_event": "entity_events",
-}
-
 
 async def migrate_citations(
     db: asyncpg.Connection, entity_type: str, from_id: str, to_id: str
@@ -443,7 +434,7 @@ async def count_orphaned_citations(db: asyncpg.Connection) -> dict[str, int]:
     count is non-zero; keys are namespaced ``citation.<entity_type>`` by the audit.
     """
     counts: dict[str, int] = {}
-    for entity_type, table in _CITATION_ENTITY_TABLES.items():
+    for entity_type, table in CITABLE_ENTITY_TABLES.items():
         counts[entity_type] = await db.fetchval(
             "SELECT count(*) FROM citations c"
             " WHERE c.entity_type=$1"
