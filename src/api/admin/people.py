@@ -326,6 +326,7 @@ async def person_detail(
             "role_assignments": role_assignments,
             "events": events,
             "citations": citations,
+            "entity_id": person_id,
             "cit_base": f"/people/{person_id}/citations",
             "citable_fields": sorted(CITABLE_FIELDS["person"]),
             "embeddings": embeddings,

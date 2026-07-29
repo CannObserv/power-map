@@ -1,35 +1,52 @@
 {# admin/citations/partials/_citations_panel.html — shared citations section (#319)
 
    Context: cit_base (e.g. /people/{id}/citations), citable_fields, entity_id,
-   citations (list of rows). Include from any entity detail page. #}
-<section class="card" aria-labelledby="citations-heading">
+   citations (list of rows). Include from any entity detail page. When loaded into
+   an inline drawer (a person_name / entity_event row's "Cite" button), the route
+   passes dismissible=True so the panel renders a Close control. #}
+<section class="entity-section" aria-labelledby="citations-heading-{{ entity_id }}">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-2)">
-    <h2 id="citations-heading" style="margin:0">
+    <h2 id="citations-heading-{{ entity_id }}" style="margin:0">
       <span aria-hidden="true">📚</span> Citations
-      {% if citations %}<span class="badge">{{ citations | length }}</span>{% endif %}
+      {% if citations %}<span class="badge badge--neutral">{{ citations | length }}</span>{% endif %}
     </h2>
-    <button type="button" class="btn btn--sm btn--primary"
-            hx-get="/admin{{ cit_base }}/new-row/"
-            hx-target="#citation-row-new"
-            hx-swap="outerHTML">Add citation</button>
-  </div>
-  <table class="table" style="margin-top:var(--space-3)">
-    <thead>
-      <tr>
-        <th scope="col">Source</th>
-        <th scope="col">Field</th>
-        <th scope="col">Excerpt</th>
-        <th scope="col" style="text-align:right">Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for c in citations %}
-      {% include "admin/citations/partials/_citation_row.html" %}
-      {% endfor %}
-      <tr id="citation-row-new"></tr>
-      {% if not citations %}
-      <tr id="citations-empty"><td colspan="4" style="color:var(--color-text-muted)">No citations yet.</td></tr>
+    <div style="display:flex;gap:var(--space-2);white-space:nowrap">
+      {# Guarded add (add-row-guard.js opts in via data-new-row-id); prepends the
+         form into this panel's own tbody so multiple panels on one page don't
+         collide and repeated adds work (matches the names/events pattern). #}
+      <button type="button" class="btn btn--sm btn--primary"
+              data-new-row-id="citation-row-new-{{ entity_id }}"
+              hx-get="/admin{{ cit_base }}/new-row/"
+              hx-target="#citations-tbody-{{ entity_id }}"
+              hx-swap="afterbegin"
+              hx-sync="this:drop">Add citation</button>
+      {% if dismissible %}
+      <button type="button" class="btn btn--sm btn--secondary"
+              aria-label="Close citations panel"
+              onclick="this.closest('section').remove()">Close</button>
       {% endif %}
-    </tbody>
-  </table>
+    </div>
+  </div>
+  <div class="table-wrapper" style="margin-top:var(--space-3)">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">Source</th>
+          <th scope="col" style="width:8rem">Field</th>
+          <th scope="col">Excerpt</th>
+          <th scope="col" style="width:9rem"></th>
+        </tr>
+      </thead>
+      <tbody id="citations-tbody-{{ entity_id }}">
+        {% for c in citations %}
+        {% include "admin/citations/partials/_citation_row.html" %}
+        {% endfor %}
+        {% if not citations %}
+        <tr id="citations-empty-{{ entity_id }}">
+          <td colspan="4" style="color:var(--color-text-muted)">No citations yet.</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
 </section>

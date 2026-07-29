@@ -481,6 +481,7 @@ async def jurisdiction_detail(
             "affiliations": affiliations,
             "roles": roles,
             "citations": citations,
+            "entity_id": jurisdiction_id,
             "cit_base": f"/jurisdictions/{jurisdiction_id}/citations",
             "citable_fields": sorted(CITABLE_FIELDS["jurisdiction"]),
             "flash_msg": flash_msg,
