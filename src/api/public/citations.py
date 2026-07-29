@@ -32,6 +32,26 @@ from src.core.citations import (
 router = APIRouter(prefix="/citations", tags=["public-api"])
 
 
+def to_citation_claims(items) -> list[CitationClaim]:
+    """Map API CitationObservationItem models → core CitationClaim dataclasses.
+
+    Shared by the native endpoint and the embedded transport (citations[] on an
+    org/person observation payload).
+    """
+    return [
+        CitationClaim(
+            field_name=c.field_name,
+            url=c.url,
+            title=c.title,
+            excerpt=c.excerpt,
+            accessed_at=c.accessed_at,
+            op=c.op,
+            pm_citation_id=c.pm_citation_id,
+        )
+        for c in items
+    ]
+
+
 def _validate_entity_type(entity_type: str) -> None:
     if entity_type not in CITABLE_ENTITY_TYPES:
         raise HTTPException(
@@ -61,18 +81,7 @@ async def submit_citation_observations(
     natural-key observe (identity = entity/field/url; refine-or-create).
     """
     _validate_entity_type(entity_type)
-    claims = [
-        CitationClaim(
-            field_name=c.field_name,
-            url=c.url,
-            title=c.title,
-            excerpt=c.excerpt,
-            accessed_at=c.accessed_at,
-            op=c.op,
-            pm_citation_id=c.pm_citation_id,
-        )
-        for c in request.citations
-    ]
+    claims = to_citation_claims(request.citations)
     async with db.transaction():
         results = await apply_citation_observations(db, entity_type, entity_id, auth.key_id, claims)
     return CitationObservationsResponse(

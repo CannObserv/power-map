@@ -667,158 +667,6 @@ class ObservationAdditionalIdentifier(BaseModel):
     identifier_value: str
 
 
-class ObservationEventItem(BaseModel):
-    """A lifecycle event claim included in an observation."""
-
-    # #321: when set, addresses an existing event by PM id — supplied mutable
-    # fields (date/notes/place/visibility) update it in place; identity
-    # (event_type, linked_entity) is immutable. Absent → natural create/dedup.
-    pm_event_id: str | None = None
-
-    # #322: "observe" (default) creates/refines; "retract" archives the
-    # pm_event_id-addressed event (the only correction for a dateless linked
-    # event — succeeded_by/split_from/merged_with — which has no mutable field
-    # to refine). Retract is always id-addressed; identity + provenance gated,
-    # payload ignored.
-    op: Literal["observe", "retract"] = "observe"
-
-    event_type_id: str | None = None
-    event_type_slug: str | None = None  # XOR with event_type_id
-
-    event_year: int | None = None
-    event_month: int | None = None
-    event_day: int | None = None
-    event_hour: int | None = None
-    event_minute: int | None = None
-    event_second: int | None = None
-
-    event_place_text: str | None = None
-    event_place_address_id: str | None = None
-    linked_entity_type: Literal["person", "organization"] | None = None
-    linked_entity_id: str | None = None
-    notes: str | None = None
-    visibility: Literal["public", "legal_only", "hidden"] = "public"
-
-    @model_validator(mode="after")
-    def _xor_event_type(self) -> "ObservationEventItem":
-        has_id = self.event_type_id is not None
-        has_slug = self.event_type_slug is not None
-        if has_id and has_slug:
-            raise ValueError("Specify event_type_id or event_type_slug, not both")
-        if not has_id and not has_slug:
-            raise ValueError("One of event_type_id or event_type_slug is required")
-        return self
-
-    @model_validator(mode="after")
-    def _linked_entity_pair(self) -> "ObservationEventItem":
-        has_type = self.linked_entity_type is not None
-        has_id = self.linked_entity_id is not None
-        if has_type != has_id:
-            raise ValueError(
-                "linked_entity_type and linked_entity_id must both be present or both absent"
-            )
-        return self
-
-
-class PeopleObservationRequest(BaseModel):
-    """Payload for POST /api/v1/people/observations."""
-
-    identifier_type: str
-    identifier_value: str
-
-    names: list[ObservationPersonName] = Field(default_factory=list)
-    personal_pronouns: str | None = None
-    role_assignments: list[ObservationRoleAssignment] = Field(default_factory=list)
-    links: list[ObservationLink] = Field(default_factory=list)
-    contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
-    addresses: list[ObservationAddress] = Field(default_factory=list)
-    additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
-    events: list[ObservationEventItem] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def _single_canonical_name(self) -> "PeopleObservationRequest":
-        if sum(1 for n in self.names if n.is_canonical) > 1:
-            raise ValueError("At most one name per request may have is_canonical=True")
-        return self
-
-
-class ObservationJurisdictionAffiliation(BaseModel):
-    """A jurisdiction affiliation claim in an observation payload."""
-
-    jurisdiction_id: str
-    affiliation_type_slug: str
-
-
-class OrganizationObservationRequest(BaseModel):
-    """Payload for POST /api/v1/orgs/observations."""
-
-    identifier_type: str
-    identifier_value: str
-
-    names: list[ObservationOrgName] = Field(default_factory=list)
-    org_acronyms: list[ObservationAcronym] = Field(default_factory=list)
-    organization_parent_id: str | None = None
-    organization_parent_name: str | None = None
-    organization_parent_acronym: str | None = None
-    links: list[ObservationLink] = Field(default_factory=list)
-    contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
-    addresses: list[ObservationAddress] = Field(default_factory=list)
-    additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
-    jurisdiction_affiliations: list[ObservationJurisdictionAffiliation] = Field(
-        default_factory=list
-    )
-    events: list[ObservationEventItem] = Field(default_factory=list)
-    # Orgs-only domain axis (#240). None/omitted ⇒ leave the flag unchanged;
-    # an explicit bool asserts it. Rejected when the target org is archived.
-    active: bool | None = None
-
-    @model_validator(mode="after")
-    def _xor_org_parent(self) -> "OrganizationObservationRequest":
-        parent_fields = [
-            self.organization_parent_id,
-            self.organization_parent_name,
-            self.organization_parent_acronym,
-        ]
-        if sum(1 for f in parent_fields if f is not None) > 1:
-            raise ValueError(
-                "Specify at most one of organization_parent_id, "
-                "organization_parent_name, organization_parent_acronym"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def _single_canonical_name(self) -> "OrganizationObservationRequest":
-        if sum(1 for n in self.names if n.is_canonical) > 1:
-            raise ValueError("At most one name per request may have is_canonical=True")
-        return self
-
-    @model_validator(mode="after")
-    def _single_canonical_acronym(self) -> "OrganizationObservationRequest":
-        if sum(1 for a in self.org_acronyms if a.is_canonical) > 1:
-            raise ValueError("At most one acronym per request may have is_canonical=True")
-        return self
-
-
-class EventObservationResult(BaseModel):
-    """Per-event outcome (#321/#322). ``reason`` is a machine-readable slug on rejection."""
-
-    disposition: str  # 'new' | 'auto-attached' | 'updated' | 'retracted' | 'rejected'
-    event_id: str | None = None  # None only when disposition == 'rejected'
-    reason: str | None = None  # rejection reason slug; None on non-rejected
-
-
-class OrgEventObservationsRequest(BaseModel):
-    """Payload for POST /api/v1/orgs/{org_id}/events/observations (#321)."""
-
-    events: list[ObservationEventItem] = Field(default_factory=list)
-
-
-class EventObservationsResponse(BaseModel):
-    """Per-event results of a partial-success event observation batch (#321)."""
-
-    results: list[EventObservationResult] = Field(default_factory=list)
-
-
 # ── Citations (#319) ──────────────────────────────────────────────────────────
 
 
@@ -888,6 +736,164 @@ class CitationListResponse(BaseModel):
     meta: SearchMeta
 
 
+class ObservationEventItem(BaseModel):
+    """A lifecycle event claim included in an observation."""
+
+    # #321: when set, addresses an existing event by PM id — supplied mutable
+    # fields (date/notes/place/visibility) update it in place; identity
+    # (event_type, linked_entity) is immutable. Absent → natural create/dedup.
+    pm_event_id: str | None = None
+
+    # #322: "observe" (default) creates/refines; "retract" archives the
+    # pm_event_id-addressed event (the only correction for a dateless linked
+    # event — succeeded_by/split_from/merged_with — which has no mutable field
+    # to refine). Retract is always id-addressed; identity + provenance gated,
+    # payload ignored.
+    op: Literal["observe", "retract"] = "observe"
+
+    event_type_id: str | None = None
+    event_type_slug: str | None = None  # XOR with event_type_id
+
+    event_year: int | None = None
+    event_month: int | None = None
+    event_day: int | None = None
+    event_hour: int | None = None
+    event_minute: int | None = None
+    event_second: int | None = None
+
+    event_place_text: str | None = None
+    event_place_address_id: str | None = None
+    linked_entity_type: Literal["person", "organization"] | None = None
+    linked_entity_id: str | None = None
+    notes: str | None = None
+    visibility: Literal["public", "legal_only", "hidden"] = "public"
+
+    @model_validator(mode="after")
+    def _xor_event_type(self) -> "ObservationEventItem":
+        has_id = self.event_type_id is not None
+        has_slug = self.event_type_slug is not None
+        if has_id and has_slug:
+            raise ValueError("Specify event_type_id or event_type_slug, not both")
+        if not has_id and not has_slug:
+            raise ValueError("One of event_type_id or event_type_slug is required")
+        return self
+
+    @model_validator(mode="after")
+    def _linked_entity_pair(self) -> "ObservationEventItem":
+        has_type = self.linked_entity_type is not None
+        has_id = self.linked_entity_id is not None
+        if has_type != has_id:
+            raise ValueError(
+                "linked_entity_type and linked_entity_id must both be present or both absent"
+            )
+        return self
+
+
+class PeopleObservationRequest(BaseModel):
+    """Payload for POST /api/v1/people/observations."""
+
+    identifier_type: str
+    identifier_value: str
+
+    names: list[ObservationPersonName] = Field(default_factory=list)
+    personal_pronouns: str | None = None
+    role_assignments: list[ObservationRoleAssignment] = Field(default_factory=list)
+    links: list[ObservationLink] = Field(default_factory=list)
+    contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
+    addresses: list[ObservationAddress] = Field(default_factory=list)
+    additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
+    events: list[ObservationEventItem] = Field(default_factory=list)
+    # #319: source citations attached to the resolved person (whole-entity or a
+    # citable field). Embedded = all-or-nothing with the observation.
+    citations: list["CitationObservationItem"] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _single_canonical_name(self) -> "PeopleObservationRequest":
+        if sum(1 for n in self.names if n.is_canonical) > 1:
+            raise ValueError("At most one name per request may have is_canonical=True")
+        return self
+
+
+class ObservationJurisdictionAffiliation(BaseModel):
+    """A jurisdiction affiliation claim in an observation payload."""
+
+    jurisdiction_id: str
+    affiliation_type_slug: str
+
+
+class OrganizationObservationRequest(BaseModel):
+    """Payload for POST /api/v1/orgs/observations."""
+
+    identifier_type: str
+    identifier_value: str
+
+    names: list[ObservationOrgName] = Field(default_factory=list)
+    org_acronyms: list[ObservationAcronym] = Field(default_factory=list)
+    organization_parent_id: str | None = None
+    organization_parent_name: str | None = None
+    organization_parent_acronym: str | None = None
+    links: list[ObservationLink] = Field(default_factory=list)
+    contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
+    addresses: list[ObservationAddress] = Field(default_factory=list)
+    additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
+    jurisdiction_affiliations: list[ObservationJurisdictionAffiliation] = Field(
+        default_factory=list
+    )
+    events: list[ObservationEventItem] = Field(default_factory=list)
+    # #319: source citations attached to the resolved org (whole-entity or a
+    # citable field). Embedded = all-or-nothing with the observation.
+    citations: list["CitationObservationItem"] = Field(default_factory=list)
+    # Orgs-only domain axis (#240). None/omitted ⇒ leave the flag unchanged;
+    # an explicit bool asserts it. Rejected when the target org is archived.
+    active: bool | None = None
+
+    @model_validator(mode="after")
+    def _xor_org_parent(self) -> "OrganizationObservationRequest":
+        parent_fields = [
+            self.organization_parent_id,
+            self.organization_parent_name,
+            self.organization_parent_acronym,
+        ]
+        if sum(1 for f in parent_fields if f is not None) > 1:
+            raise ValueError(
+                "Specify at most one of organization_parent_id, "
+                "organization_parent_name, organization_parent_acronym"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _single_canonical_name(self) -> "OrganizationObservationRequest":
+        if sum(1 for n in self.names if n.is_canonical) > 1:
+            raise ValueError("At most one name per request may have is_canonical=True")
+        return self
+
+    @model_validator(mode="after")
+    def _single_canonical_acronym(self) -> "OrganizationObservationRequest":
+        if sum(1 for a in self.org_acronyms if a.is_canonical) > 1:
+            raise ValueError("At most one acronym per request may have is_canonical=True")
+        return self
+
+
+class EventObservationResult(BaseModel):
+    """Per-event outcome (#321/#322). ``reason`` is a machine-readable slug on rejection."""
+
+    disposition: str  # 'new' | 'auto-attached' | 'updated' | 'retracted' | 'rejected'
+    event_id: str | None = None  # None only when disposition == 'rejected'
+    reason: str | None = None  # rejection reason slug; None on non-rejected
+
+
+class OrgEventObservationsRequest(BaseModel):
+    """Payload for POST /api/v1/orgs/{org_id}/events/observations (#321)."""
+
+    events: list[ObservationEventItem] = Field(default_factory=list)
+
+
+class EventObservationsResponse(BaseModel):
+    """Per-event results of a partial-success event observation batch (#321)."""
+
+    results: list[EventObservationResult] = Field(default_factory=list)
+
+
 class ObservationResponse(BaseModel):
     """Response returned by POST /api/v1/observations."""
 
@@ -902,6 +908,9 @@ class ObservationResponse(BaseModel):
     # events were submitted. On the all-or-nothing embedded path, present only on
     # full success (a rejected event raises → whole observation rejected).
     events: list[EventObservationResult] | None = None
+    # #319: per-citation dispositions when the payload carried citations[]. None
+    # when none submitted; present only on full success (all-or-nothing embedded).
+    citations: list["CitationObservationResult"] | None = None
 
 
 class JurisdictionObservationRequest(BaseModel):

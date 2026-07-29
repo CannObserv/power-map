@@ -6,6 +6,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
+from src.api.public.citations import to_citation_claims
 from src.api.public.deps import AuthedKey, identifier_filter, require_api_key, require_scope
 from src.api.public.events import (
     events_cache_headers,
@@ -14,6 +15,7 @@ from src.api.public.events import (
 )
 from src.api.public.schemas import (
     NOT_MODIFIED,
+    CitationObservationResult,
     EntityEventsResponse,
     EventObservationResult,
     ObservationResponse,
@@ -22,6 +24,7 @@ from src.api.public.schemas import (
     PersonSearchResponse,
     make_etag,
 )
+from src.core.citations import write_citations
 from src.core.db import visible_names_filter
 from src.core.embedding_registry import EmbeddingRegistry
 from src.core.observation import (
@@ -83,6 +86,9 @@ async def submit_people_observation(
             event_results = await write_entity_events(
                 db, entity_id, entity_type, auth.key_id, request.events
             )
+            citation_results = await write_citations(
+                db, entity_type, entity_id, auth.key_id, to_citation_claims(request.citations)
+            )
     except ObservationRejected as exc:
         return ObservationResponse(disposition="rejected", reason=exc.detail)
     except IdentifierConflict as exc:
@@ -106,6 +112,13 @@ async def submit_people_observation(
                 disposition=r.disposition.value, event_id=r.event_id, reason=r.reason
             )
             for r in event_results
+        ]
+        or None,
+        citations=[
+            CitationObservationResult(
+                disposition=r.disposition.value, citation_id=r.citation_id, reason=r.reason
+            )
+            for r in citation_results
         ]
         or None,
     )

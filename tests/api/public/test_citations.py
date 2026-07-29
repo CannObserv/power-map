@@ -174,3 +174,44 @@ async def test_unknown_entity_type_422(client, write_key):
         json={"citations": [{"url": "https://s/x"}]},
     )
     assert r.status_code == 422
+
+
+# ── embedded transport (citations[] on a person observation) ──────────────────
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def obs_key(db) -> str:
+    return await _key_with_scopes(db, ["observations:write"])
+
+
+async def test_embedded_citation_on_person_observation(client, obs_key):
+    r = await client.post(
+        "/api/v1/people/observations",
+        headers={"X-API-Key": obs_key},
+        json={
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": generate_id(),
+            "citations": [{"field_name": "notes", "url": "https://s/embed", "title": "E"}],
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] in ("new", "auto-attached")
+    assert body["citations"][0]["disposition"] == "new"
+    assert body["citations"][0]["citation_id"]
+
+
+async def test_embedded_bad_citation_rejects_whole_observation(client, obs_key):
+    r = await client.post(
+        "/api/v1/people/observations",
+        headers={"X-API-Key": obs_key},
+        json={
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": generate_id(),
+            "citations": [{"field_name": "bogus_field", "url": "https://s/x"}],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "citable_field_unknown"
