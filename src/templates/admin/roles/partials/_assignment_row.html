@@ -1,4 +1,5 @@
 {# admin/roles/partials/_assignment_row.html — single assignment read row #}
+{% from "admin/macros/citation_indicator.html" import citation_indicator %}
 <tr id="assignment-row-{{ ra.id }}">
   <td><a href="/admin/people/{{ ra.person_id }}/">{{ ra.person_name or '(unnamed)' }}</a></td>
   <td>{{ ra.start_date or '—' }}</td>
@@ -8,6 +9,7 @@
     {% elif ra.is_current %}<span class="badge badge--active">Current</span>
     {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
     {% if ra.notes %}<span class="note-indicator" role="img" aria-label="Has notes"><span aria-hidden="true">📝</span></span>{% endif %}
+    {{ citation_indicator(ra.citation_count, href="/admin/role-assignments/" ~ ra.id ~ "/") }}
   </td>
   <td style="text-align:right; white-space:nowrap">
     <a href="/admin/role-assignments/{{ ra.id }}/" class="btn btn--sm btn--ghost" aria-label="Open assignment for {{ ra.person_name or '(unnamed)' }}">Open</a>

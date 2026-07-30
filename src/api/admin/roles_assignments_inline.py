@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from src.api.admin._citations_shared import citation_count_lateral
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.roles_shared import (
     _check_assignment_within_bounds,
@@ -25,12 +26,14 @@ router = APIRouter(prefix="/roles/{role_id}", tags=["admin-roles-assignments"])
 async def fetch_role_assignments(role_id: str, db) -> list:
     """Fetch all assignments for a role, sorted for display."""
     return await db.fetch(
-        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
+        f"""SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
+                  cc_j.citation_count,
                   p.id AS person_id,
                   pn.display_name AS person_name
            FROM role_assignments ra
            JOIN people p ON p.id = ra.person_id
            LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
+           {citation_count_lateral("role_assignment", "ra.id")}
            WHERE ra.role_id = $1
            ORDER BY ra.is_current DESC, ra.start_date DESC NULLS LAST""",
         role_id,
@@ -40,12 +43,14 @@ async def fetch_role_assignments(role_id: str, db) -> list:
 async def _get_assignment(assignment_id: str, role_id: str, db):
     """Fetch a single assignment with person name, or raise 404."""
     row = await db.fetchrow(
-        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
+        f"""SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
+                  cc_j.citation_count,
                   p.id AS person_id,
                   pn.display_name AS person_name
            FROM role_assignments ra
            JOIN people p ON p.id = ra.person_id
            LEFT JOIN v_person_display_names pn ON pn.person_id = p.id
+           {citation_count_lateral("role_assignment", "ra.id")}
            WHERE ra.id = $1 AND ra.role_id = $2""",
         assignment_id,
         role_id,

@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
+from tests.api.admin.html_slices import table_html
 
 pytestmark = [
     pytest.mark.integration,
@@ -191,3 +192,40 @@ async def test_roles_create_empty_title_non_htmx_redirects(client, org):
         follow_redirects=False,
     )
     assert r.status_code == 303
+
+
+# ---------------------------------------------------------------------------
+# Citations indicator (#341)
+# ---------------------------------------------------------------------------
+
+
+async def test_org_role_row_shows_citations_indicator(client, db, org):
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Cited Role')",
+        rid,
+        org,
+    )
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url)"
+        " VALUES ($1, 'role', $2, 'https://example.com/a')",
+        generate_id(),
+        rid,
+    )
+    r = await client.get(f"/admin/orgs/{org}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    roles_table = table_html(r.text, "roles-table")
+    assert 'class="citation-indicator"' in roles_table
+    assert 'aria-label="1 citation"' in roles_table
+
+
+async def test_org_role_row_omits_indicator_without_citations(client, db, org):
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Plain Role')",
+        rid,
+        org,
+    )
+    r = await client.get(f"/admin/orgs/{org}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "citation-indicator" not in table_html(r.text, "roles-table")

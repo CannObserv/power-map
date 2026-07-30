@@ -823,3 +823,68 @@ async def test_inline_hard_delete_route_removed(client, person_id, assignment_id
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Citations indicator (#341) — reuses the module's `assignment_id` fixture
+# ---------------------------------------------------------------------------
+
+
+async def _add_citation(db, entity_type: str, entity_id: str, url: str, archived: bool = False):
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url, archived_at)"
+        " VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN now() END)",
+        generate_id(),
+        entity_type,
+        entity_id,
+        url,
+        archived,
+    )
+
+
+async def test_read_row_shows_citations_indicator(client, db, person_id, assignment_id):
+    await _add_citation(db, "role_assignment", assignment_id, "https://example.com/a")
+    await _add_citation(db, "role_assignment", assignment_id, "https://example.com/b")
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    body = r.text
+    assert 'class="citation-indicator"' in body
+    assert 'aria-label="2 citations"' in body
+    assert "📚" in body
+    assert f'href="/admin/role-assignments/{assignment_id}/"' in body
+
+
+async def test_read_row_omits_indicator_without_citations(client, person_id, assignment_id):
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert "citation-indicator" not in r.text
+
+
+async def test_indicator_excludes_archived_citations(client, db, person_id, assignment_id):
+    await _add_citation(db, "role_assignment", assignment_id, "https://example.com/a")
+    await _add_citation(
+        db, "role_assignment", assignment_id, "https://example.com/x", archived=True
+    )
+    r = await client.get(
+        f"/admin/people/{person_id}/assignments/{assignment_id}/read-row/",
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    assert 'aria-label="1 citation"' in r.text
+    assert 'aria-label="1 citations"' not in r.text
+
+
+async def test_person_detail_assignments_table_shows_indicator(
+    client, db, person_id, assignment_id
+):
+    """Batch path: the detail-page assignments table carries the count (no N+1)."""
+    await _add_citation(db, "role_assignment", assignment_id, "https://example.com/a")
+    r = await client.get(f"/admin/people/{person_id}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert 'aria-label="1 citation"' in r.text

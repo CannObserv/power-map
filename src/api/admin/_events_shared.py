@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._citations_shared import citation_count_lateral
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.entity_lookup import ENTITY_TYPES, entity_exists, resolve_entity_label
 from src.core.ancillary_migrate import delete_citations
@@ -83,24 +84,27 @@ def _validate_date_time(
     return None
 
 
-_EVENT_FETCH_QUERY = """
+_EVENT_FETCH_QUERY = f"""
 SELECT ee.id, ee.event_year, ee.event_month, ee.event_day,
        ee.event_hour, ee.event_minute, ee.event_second,
        ee.event_place_text, ee.event_place_address_id,
        ee.linked_entity_type, ee.linked_entity_id,
        ee.notes, ee.visibility, ee.archived_at,
+       cc_j.citation_count,
        eet.slug AS event_type_slug, eet.display_name AS event_type_name,
        pa.city AS place_city, pa.region AS place_region,
        pa.standardized AS place_standardized, pa.precision AS place_precision
 FROM entity_events ee
 JOIN entity_event_types eet ON eet.id = ee.event_type_id
 LEFT JOIN addresses pa ON pa.id = ee.event_place_address_id
+{citation_count_lateral("entity_event", "ee.id")}
 WHERE ee.entity_id = $1 AND ee.entity_type = $2
 ORDER BY ee.archived_at IS NOT NULL, ee.event_year DESC NULLS LAST, ee.created_at DESC
 """
 
-_EVENT_SINGLE_QUERY = """
+_EVENT_SINGLE_QUERY = f"""
 SELECT ee.*,
+       cc_j.citation_count,
        eet.slug AS event_type_slug, eet.display_name AS event_type_name,
        eet.requires_year, eet.requires_linked_entity,
        pa.city AS place_city, pa.region AS place_region,
@@ -108,6 +112,7 @@ SELECT ee.*,
 FROM entity_events ee
 JOIN entity_event_types eet ON eet.id = ee.event_type_id
 LEFT JOIN addresses pa ON pa.id = ee.event_place_address_id
+{citation_count_lateral("entity_event", "ee.id")}
 WHERE ee.id = $1 AND ee.entity_id = $2 AND ee.entity_type = $3
 """
 

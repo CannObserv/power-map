@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._citations_shared import citation_count_lateral
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.api.admin.list_filters import parse_list_filters
 from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
@@ -41,9 +42,11 @@ async def _get_org_or_404(org_id: str, db) -> None:
         raise HTTPException(status_code=404, detail="Organization not found")
 
 
-async def _fetch_roles(org_id: str, db) -> list:
+async def fetch_org_roles(org_id: str, db) -> list:
+    """Fetch active roles for an org with assignment + citation counts (#341)."""
     return await db.fetch(
-        """SELECT r.id, r.title, sub.assignment_count, sub.current_count
+        f"""SELECT r.id, r.title, sub.assignment_count, sub.current_count,
+                  cc_j.citation_count
            FROM roles r
            CROSS JOIN LATERAL (
                SELECT COUNT(*) AS assignment_count,
@@ -51,6 +54,7 @@ async def _fetch_roles(org_id: str, db) -> list:
                FROM role_assignments
                WHERE role_id = r.id AND archived_at IS NULL
            ) sub
+           {citation_count_lateral("role", "r.id")}
            WHERE r.organization_id = $1 AND r.archived_at IS NULL
            ORDER BY r.title""",
         org_id,
@@ -124,7 +128,7 @@ async def role_create(
         )
     if not is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
-    roles = await _fetch_roles(org_id, db)
+    roles = await fetch_org_roles(org_id, db)
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_role_rows.html",
@@ -253,7 +257,7 @@ async def role_merge(
                 headers=flash_trigger("success", body),
             )
         # Org-detail roles-table branch (existing) — keep working unchanged.
-        roles = await _fetch_roles(org_id, db)
+        roles = await fetch_org_roles(org_id, db)
         return templates.TemplateResponse(
             request,
             "admin/orgs/partials/_role_rows.html",

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from src.api.admin._citations_shared import citation_count_lateral
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
 from src.core.db import generate_id
 from src.core.org_lifecycle import (
@@ -38,7 +39,8 @@ async def _get_person_or_404(person_id: str, db):
 async def fetch_person_assignments(person_id: str, db) -> list:
     """Fetch all assignments for a person, sorted for display."""
     return await db.fetch(
-        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
+        f"""SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
+                  cc_j.citation_count,
                   r.id AS role_id, r.title AS role_title,
                   o.id AS org_id,
                   dn.display_name AS org_name
@@ -46,6 +48,7 @@ async def fetch_person_assignments(person_id: str, db) -> list:
            JOIN roles r ON r.id = ra.role_id
            JOIN organizations o ON o.id = r.organization_id
            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           {citation_count_lateral("role_assignment", "ra.id")}
            WHERE ra.person_id = $1
            ORDER BY ra.is_current DESC, ra.start_date DESC NULLS LAST""",
         person_id,
@@ -55,7 +58,8 @@ async def fetch_person_assignments(person_id: str, db) -> list:
 async def _get_assignment(assignment_id: str, person_id: str, db):
     """Fetch a single assignment with role/org info, or raise 404."""
     row = await db.fetchrow(
-        """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
+        f"""SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
+                  cc_j.citation_count,
                   r.id AS role_id, r.title AS role_title,
                   o.id AS org_id,
                   dn.display_name AS org_name
@@ -63,6 +67,7 @@ async def _get_assignment(assignment_id: str, person_id: str, db):
            JOIN roles r ON r.id = ra.role_id
            JOIN organizations o ON o.id = r.organization_id
            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           {citation_count_lateral("role_assignment", "ra.id")}
            WHERE ra.id = $1 AND ra.person_id = $2""",
         assignment_id,
         person_id,

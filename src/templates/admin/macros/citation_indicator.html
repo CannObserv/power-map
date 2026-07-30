@@ -1,0 +1,13 @@
+{# admin/macros/citation_indicator.html — compact "has citations" signal (#341).
+   Renders nothing when count is 0/None. Count is visible text (not emoji-only);
+   pass href to make it actionable (links to the page hosting the citations panel). #}
+{% macro citation_indicator(count, href=None) -%}
+{%- if count -%}
+{%- set label = count ~ (' citation' if count == 1 else ' citations') -%}
+{%- if href -%}
+<a class="citation-indicator" href="{{ href }}" aria-label="{{ label }}"><span aria-hidden="true">📚</span> {{ count }}</a>
+{%- else -%}
+<span class="citation-indicator" role="img" aria-label="{{ label }}"><span aria-hidden="true">📚</span> {{ count }}</span>
+{%- endif -%}
+{%- endif -%}
+{%- endmacro %}

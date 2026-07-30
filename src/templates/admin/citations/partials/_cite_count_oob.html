@@ -1,0 +1,7 @@
+{# admin/citations/partials/_cite_count_oob.html — OOB refresh of the parent
+   row's Cite-button count span (#341 CR1). Mutation handlers emit this
+   unconditionally: htmx silently drops the fragment when the page has no
+   cite-count-<id> span (panel-hosted entity types have no row button). #}
+{%- if cite_count_oob is defined and cite_count_oob is not none -%}
+<span id="cite-count-{{ entity_id }}" hx-swap-oob="true">{% if cite_count_oob %} ({{ cite_count_oob }}){% endif %}</span>
+{%- endif -%}

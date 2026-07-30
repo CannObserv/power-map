@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._citations_shared import citation_count_lateral
 from src.api.admin.deps import (
     AdminUser,
     build_parts_summary,
@@ -451,6 +452,7 @@ def make_names_router(
             f"SELECT pn.*,"
             "  parent.name AS reading_of_name,"
             "  COALESCE(c.cnt, 0) AS reading_child_count,"
+            "  cc_j.citation_count,"
             "  pnp.given_names      AS pnp_given_names,"
             "  pnp.family_names     AS pnp_family_names,"
             "  pnp.additional_names AS pnp_additional_names"
@@ -461,6 +463,7 @@ def make_names_router(
             f"   SELECT COUNT(*) AS cnt FROM {names_table} ch"
             "   WHERE ch.reading_of_id = pn.id"
             " ) c ON TRUE"
+            f"{citation_count_lateral('person_name', 'pn.id')}"
             f" WHERE pn.{entity_fk}=$1"
             " ORDER BY pn.is_canonical DESC, pn.name_type, pn.name",
             entity_id,
@@ -684,7 +687,9 @@ def make_names_router(
         if not name_row:
             raise HTTPException(status_code=404)
         # Attach parts_summary so the cancel-from-edit transition keeps
-        # the subtitle (parity with the post-mutation tbody re-render).
+        # the subtitle (parity with the post-mutation tbody re-render), and
+        # citation_count so the Cite button keeps its #341 count. Single-row
+        # render — one extra scalar query, not an N+1.
         n_ctx: object = name_row
         if supports_person_metadata:
             parts_row = await db.fetchrow(
@@ -692,8 +697,14 @@ def make_names_router(
                 " FROM person_name_parts WHERE person_name_id=$1",
                 name_id,
             )
+            citation_count = await db.fetchval(
+                "SELECT count(*) FROM citations"
+                " WHERE entity_type='person_name' AND entity_id=$1 AND archived_at IS NULL",
+                name_id,
+            )
             n_ctx = {
                 **dict(name_row),
+                "citation_count": citation_count,
                 "parts_summary": build_parts_summary(
                     parts_row["family_names"] if parts_row else None,
                     parts_row["given_names"] if parts_row else None,

@@ -1063,3 +1063,33 @@ async def test_edit_end_after_abolished_returns_error(client, bounded_role_id, p
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# Citations indicator (#341)
+# ---------------------------------------------------------------------------
+
+
+async def test_read_row_shows_citations_indicator(client, db, role_id, person_id):
+    raid = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        raid,
+        person_id,
+        role_id,
+    )
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url)"
+        " VALUES ($1, 'role_assignment', $2, 'https://example.com/a')",
+        generate_id(),
+        raid,
+    )
+    r = await client.get(
+        f"/admin/roles/{role_id}/assignments/{raid}/read-row/", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    body = r.text
+    assert 'class="citation-indicator"' in body
+    assert 'aria-label="1 citation"' in body
+    assert f'href="/admin/role-assignments/{raid}/"' in body

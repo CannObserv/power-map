@@ -16,12 +16,12 @@ from typing import Any
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
-from src.core.citations import CITABLE_FIELDS
+from src.core.citations import CITABLE_ENTITY_TYPES, CITABLE_FIELDS
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -33,6 +33,27 @@ _PANEL = "admin/citations/partials/_citations_panel.html"
 
 def _clean(v: str | None) -> str | None:
     return v.strip() if v and v.strip() else None
+
+
+def citation_count_lateral(entity_type: str, id_expr: str, *, alias: str = "cc") -> str:
+    """SQL fragment adding ``citation_count`` (active rows only) to a row query.
+
+    Embedding the count in the row-fetch SQL — rather than a side dict passed to
+    the template — keeps the #341 indicator alive across every render path of a
+    row partial (list tbody, single-row HTMX re-renders). One LATERAL probe per
+    row on ``idx_citations_entity``; still a single query per list.
+
+    ``id_expr`` is interpolated verbatim: it must be a code-supplied column
+    expression (e.g. ``"ra.id"``), never user input.
+    """
+    if entity_type not in CITABLE_ENTITY_TYPES:
+        raise ValueError(f"not a citable entity type: {entity_type!r}")
+    return (
+        f" LEFT JOIN LATERAL ("
+        f"SELECT count(*) AS citation_count FROM citations {alias}"
+        f" WHERE {alias}.entity_type = '{entity_type}' AND {alias}.entity_id = {id_expr}"
+        f" AND {alias}.archived_at IS NULL) {alias}_j ON TRUE "
+    )
 
 
 def make_citations_router(
@@ -85,6 +106,15 @@ def make_citations_router(
 
     router = APIRouter(prefix=prefix, tags=tags)
     citable_fields = sorted(CITABLE_FIELDS.get(entity_type, frozenset()))
+
+    async def _active_count(entity_id: str, db) -> int:
+        """Fresh active-citation count for the parent row's Cite button (#341 CR1)."""
+        return await db.fetchval(
+            "SELECT count(*) FROM citations"
+            " WHERE entity_type=$1 AND entity_id=$2 AND archived_at IS NULL",
+            entity_type,
+            entity_id,
+        )
 
     async def _get_entity_or_404(entity_id: str, db):
         row = await db.fetchrow(f"SELECT id FROM {entity_table} WHERE id=$1", entity_id)
@@ -221,10 +251,16 @@ def make_citations_router(
             return RedirectResponse(await _dest(entity_id, db), status_code=303)
         # remove_empty → the read row carries an OOB delete for the panel's
         # "No citations yet." row so the first citation doesn't render above it.
+        # cite_count_oob → OOB refresh of the parent row's Cite-button count.
         return templates.TemplateResponse(
             request,
             _READ_ROW,
-            _ctx(entity_id, c=row, remove_empty=True),
+            _ctx(
+                entity_id,
+                c=row,
+                remove_empty=True,
+                cite_count_oob=await _active_count(entity_id, db),
+            ),
             headers=flash_trigger(
                 "success", f"Citation <strong>{escape(f_url or f_title)}</strong> added."
             ),
@@ -340,9 +376,12 @@ def make_citations_router(
         if not existing:
             raise HTTPException(status_code=404)
         await db.execute("DELETE FROM citations WHERE id=$1", citation_id)
-        return HTMLResponse(
-            content="",
-            status_code=200,
+        # Body is only the OOB count fragment: the deleted row's outerHTML swap
+        # resolves to nothing, while the parent row's Cite button refreshes.
+        return templates.TemplateResponse(
+            request,
+            "admin/citations/partials/_cite_count_oob.html",
+            _ctx(entity_id, cite_count_oob=await _active_count(entity_id, db)),
             headers=flash_trigger("info", "Citation removed."),
         )
 

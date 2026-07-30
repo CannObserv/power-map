@@ -27,3 +27,4 @@
 {# OOB-remove the panel's "No citations yet." row after the first citation lands. #}
 <tr id="citations-empty-{{ entity_id }}" hx-swap-oob="delete"></tr>
 {% endif %}
+{% include "admin/citations/partials/_cite_count_oob.html" %}
