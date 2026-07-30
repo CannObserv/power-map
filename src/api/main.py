@@ -19,6 +19,7 @@ from src.api.admin.assets import (
     inject_rel_category_label_into_admin_templates,
 )
 from src.api.admin.router import admin_router
+from src.api.health import APP_VERSION, health_router
 from src.api.public import ratelimit
 from src.api.public.middleware import RequestLogMiddleware, drain_pending_writes
 from src.api.public.router import router as public_router
@@ -49,7 +50,9 @@ async def lifespan(app: FastAPI):
     await db.close_pool()
 
 
-app = FastAPI(title="power-map", version="0.1.0", lifespan=lifespan)
+# Version derived from package metadata (#343) — never hardcode a third copy;
+# check-version-sync only guards pyproject.toml <-> package.json.
+app = FastAPI(title="power-map", version=APP_VERSION, lifespan=lifespan)
 
 
 def _sanitize_nonfinite(obj: object) -> object:
@@ -81,6 +84,7 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
 # non-/api/v1 path, so admin/static traffic is untouched.
 app.add_middleware(RequestLogMiddleware)
 
+app.include_router(health_router)
 app.include_router(admin_router)
 app.include_router(public_router)
 
