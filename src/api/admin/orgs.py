@@ -618,6 +618,8 @@ async def children_remove(
     if not child:
         raise HTTPException(status_code=404)
     await db.execute("UPDATE organizations SET parent_id=NULL WHERE id=$1", child_id)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return HTMLResponse(
         content="",
         status_code=200,

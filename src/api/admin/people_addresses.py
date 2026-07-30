@@ -614,6 +614,8 @@ async def address_delete(
     async with db.transaction():
         await db.execute("DELETE FROM entity_addresses WHERE id=$1", addr_id)
         await db.execute("DELETE FROM addresses WHERE id=$1", address_id)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
     return HTMLResponse(
         content="",
         status_code=200,

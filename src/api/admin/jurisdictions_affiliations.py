@@ -177,6 +177,8 @@ async def jur_affiliation_delete(
     if not existing:
         raise HTTPException(status_code=404, detail="Affiliation not found")
     await db.execute("DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/jurisdictions/{jurisdiction_id}/", status_code=303)
     return HTMLResponse(
         content="", status_code=200, headers=flash_trigger("info", "Affiliation removed.")
     )
@@ -292,6 +294,8 @@ async def org_affiliation_delete(
     if not existing:
         raise HTTPException(status_code=404, detail="Affiliation not found")
     await db.execute("DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
     return HTMLResponse(
         content="", status_code=200, headers=flash_trigger("info", "Affiliation removed.")
     )
