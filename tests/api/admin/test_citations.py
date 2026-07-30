@@ -426,10 +426,9 @@ async def test_cite_button_toggles_own_subrow(client, db):
     pid = await db.fetchval("SELECT person_id FROM person_names WHERE id=$1", nid)
     r = await client.get(f"/admin/people/{pid}/", headers=AUTH)
     assert r.status_code == 200
-    # Toggle: the handler cancels the fetch when this row's own sub-row is already
-    # open (references its own subrow id + preventDefault), else fetches.
-    assert f"citations-subrow-{nid}" in r.text
-    assert "preventDefault" in r.text
+    # Toggle is wired by citations.js via data-citations-toggle naming this row's
+    # own sub-row id; the JS closes others and cancels the re-fetch when reopened.
+    assert f'data-citations-toggle="citations-subrow-{nid}"' in r.text
 
 
 async def test_locked_field_panel_drops_field_column(client, db):

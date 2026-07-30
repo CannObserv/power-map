@@ -48,14 +48,14 @@
     {% endif %}
   </td>
   <td style="text-align:right;white-space:nowrap">
-    {# Toggle: close any open citations sub-row (one at a time); if this row's own
-       sub-row was the open one, cancel the fetch so Cite closes it (#319). #}
+    {# Toggle handled by citations.js (data-citations-toggle): one open at a time,
+       and re-clicking this row's own open sub-row closes it (#319). #}
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Citations for {{ ev.event_type_name }} event"
             hx-get="/admin/entity-events/{{ ev.id }}/citations/"
             hx-target="#{{ _ev_row_prefix }}-{{ ev.id }}"
             hx-swap="afterend"
-            hx-on:htmx:before-request="var o=document.getElementById('citations-subrow-{{ ev.id }}');document.querySelectorAll('tr.citations-subrow').forEach(function(e){e.remove()});if(o)event.preventDefault()">Cite</button>
+            data-citations-toggle="citations-subrow-{{ ev.id }}">Cite</button>
     {% if not ev.archived_at %}
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit {{ ev.event_type_name }} event"
