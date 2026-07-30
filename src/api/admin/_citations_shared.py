@@ -47,6 +47,7 @@ def make_citations_router(
     subject_resolver: Callable[[str, Any], Awaitable[str | None]] | None = None,
     inline_panel: bool = False,
     locked_field: str | None = None,
+    subrow_colspan: int = 1,
 ) -> APIRouter:
     """Return a configured citations APIRouter for the given entity type.
 
@@ -70,6 +71,11 @@ def make_citations_router(
     itself): the form drops the field picker and the server ignores any posted
     ``field_name``. Prevents a name/event drawer from silently minting a
     whole-record citation that reads as redundant with the owner's panel (#319).
+
+    ``subrow_colspan`` must equal the parent table's exact column count when
+    ``inline_panel`` is used (person_name → 4, entity_event → 6). It is NOT a
+    "span everything" sentinel: an over-large value implies phantom columns that
+    collapse the real ones under ``table-layout:fixed`` (#319 scrunch regression).
     """
     router = APIRouter(prefix=prefix, tags=tags)
     citable_fields = sorted(CITABLE_FIELDS.get(entity_type, frozenset()))
@@ -90,6 +96,7 @@ def make_citations_router(
             "cit_base": prefix.replace("{entity_id}", entity_id),
             "citable_fields": citable_fields,
             "locked_field": locked_field,
+            "subrow_colspan": subrow_colspan,
             **extra,
         }
 

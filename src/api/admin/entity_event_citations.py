@@ -41,4 +41,6 @@ router = make_citations_router(
     subject_resolver=_event_subject,
     inline_panel=True,
     # Events keep the field picker — date / place / notes are all citable.
+    # Events table columns: Type / Date / Place / Linked Entity / Status / actions.
+    subrow_colspan=6,
 )
