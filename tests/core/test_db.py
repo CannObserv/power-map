@@ -55,6 +55,57 @@ def test_get_pool_raises_when_not_initialised():
         db_module._pool = original
 
 
+def _ready_pool(conn):
+    """Mock pool whose acquire/release drive ``check_ready`` (#343)."""
+    pool = MagicMock()
+    pool.acquire = AsyncMock(return_value=conn)
+    pool.release = AsyncMock()
+    return pool
+
+
+async def test_check_ready_acquires_with_timeout_and_selects_one():
+    """check_ready must bound acquire — a bare acquire on an exhausted pool
+    hangs forever, making pool exhaustion indistinguishable from process death."""
+    conn = AsyncMock()
+    pool = _ready_pool(conn)
+    with patch.object(db_module, "_pool", pool):
+        await db_module.check_ready()
+    (_, kwargs) = pool.acquire.await_args
+    assert kwargs.get("timeout", 0) > 0
+    conn.fetchval.assert_awaited_once_with("SELECT 1")
+    pool.release.assert_awaited_once_with(conn)
+
+
+async def test_check_ready_releases_connection_on_query_failure():
+    """A failing SELECT must not leak the acquired connection."""
+    conn = AsyncMock()
+    conn.fetchval.side_effect = asyncpg.PostgresError("boom")
+    pool = _ready_pool(conn)
+    with patch.object(db_module, "_pool", pool), pytest.raises(asyncpg.PostgresError):
+        await db_module.check_ready()
+    pool.release.assert_awaited_once_with(conn)
+
+
+async def test_check_ready_raises_without_pool():
+    """No pool initialised → RuntimeError (the route maps it to 503 no_pool)."""
+    with (
+        patch.object(db_module, "_pool", None),
+        pytest.raises(RuntimeError, match="not initialised"),
+    ):
+        await db_module.check_ready()
+
+
+@pytest.mark.integration
+async def test_check_ready_against_real_pool(db_pool):
+    """End-to-end: check_ready completes against a live asyncpg pool.
+
+    Guards the real ``Pool.acquire(timeout=...)`` call signature, which the
+    mocked tests cannot.
+    """
+    with patch.object(db_module, "_pool", db_pool):
+        await db_module.check_ready()
+
+
 def test_generate_id_timestamp_nondecreasing():
     """The 10-char timestamp prefix of sequential ULIDs must be non-decreasing.
 

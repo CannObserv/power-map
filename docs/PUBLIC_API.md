@@ -782,3 +782,8 @@ When submitting a `POST /people/observations` or `POST /orgs/observations`, an o
 ## Health check
 
 `GET /api/v1/` returns `{"status": "ok", "version": "v1"}` when authenticated. Use it to confirm key validity before hitting data endpoints.
+
+Unauthenticated probes live at root level, outside `/api/v1` (#343) — not part of the keyed API surface, exempt from rate limits and request logging:
+
+- `GET /health` — liveness: `{"status": "ok", "build": "<version>"}`; no external calls.
+- `GET /ready` — readiness: bounded DB pool check; `200 {"status": "ok"}` or `503 {"status": "unavailable", "reason": "no_pool" | "pool_timeout" | "db_error"}`.
