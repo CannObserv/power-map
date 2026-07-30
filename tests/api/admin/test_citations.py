@@ -340,6 +340,9 @@ async def test_person_name_panel_is_scoped_labeled_subrow(client, db):
     # Heading names the subject so it can't be confused with the person panel.
     assert "Jo" in p.text
     assert "for" in p.text  # "Citations for …"
+    # Close must remove the whole sub-row, not just the inner <section> — else an
+    # empty tr lingers as a trailing footer strip (#319 regression).
+    assert "tr.citations-subrow" in p.text
 
 
 async def test_entity_event_panel_subrow_spans_events_table(client, db):

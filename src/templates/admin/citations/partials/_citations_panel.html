@@ -24,9 +24,11 @@
               hx-swap="afterbegin"
               hx-sync="this:drop">Add citation</button>
       {% if dismissible %}
+      {# Remove the whole sub-row when inline (else its empty tr lingers as a
+         trailing footer strip); fall back to the section for a non-subrow panel. #}
       <button type="button" class="btn btn--sm btn--secondary"
               aria-label="Close citations panel"
-              onclick="this.closest('section').remove()">Close</button>
+              onclick="(this.closest('tr.citations-subrow') || this.closest('section')).remove()">Close</button>
       {% endif %}
     </div>
   </div>
