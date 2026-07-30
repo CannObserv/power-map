@@ -1193,7 +1193,9 @@ async def write_org_parent(
       external-identifier match): write-if-null. Fills the parent only when it
       is currently NULL and claims ``source_key_id`` on that first write; an org
       that already has a parent is left untouched — a natural-key match never
-      reparents.
+      reparents. Filling a NULL parent with a descendant would close a loop; that
+      is rejected ``parent_cycle`` (mapped from ``trg_no_org_cycle``) rather than
+      bubbling a 500.
     - **Authoritative** (``authoritative=True``, the id-addressed ``pm_org_id``
       path): the producer proves it means exactly this org, so the supplied
       parent *replaces* the stored one (reparent). Gated on provenance —
@@ -1202,20 +1204,28 @@ async def write_org_parent(
       pre-#334) is claimed (COALESCE) on write. An identical redelivery (parent
       already as supplied) is a quiet no-op *before* the gate, so a mirroring
       producer never sees a rejection. Also rejects ``parent_not_found``
-      (unknown/archived parent) and ``parent_cycle`` (self-parent or an ancestor
-      loop caught from ``trg_no_org_cycle``).
+      (unknown/archived parent) and ``parent_cycle`` — a self-parent (caught by
+      the app pre-check) or an ancestor loop at any depth (caught from the
+      recursive ``trg_no_org_cycle``).
 
     Must run inside the caller's transaction so a rejection rolls the whole
     observation back.
     """
     if not authoritative:
-        await conn.execute(
-            "UPDATE organizations SET parent_id=$1, source_key_id=COALESCE(source_key_id, $3)"
-            " WHERE id=$2 AND parent_id IS NULL",
-            parent_id,
-            organization_id,
-            source_key_id,
-        )
+        try:
+            await conn.execute(
+                "UPDATE organizations SET parent_id=$1, source_key_id=COALESCE(source_key_id, $3)"
+                " WHERE id=$2 AND parent_id IS NULL",
+                parent_id,
+                organization_id,
+                source_key_id,
+            )
+        except asyncpg.RaiseError as exc:
+            # trg_no_org_cycle: filling a NULL parent with a descendant closes an
+            # ancestor loop. Map to a clean rejection — the endpoint handler does
+            # not catch RaiseError, so an unwrapped raise would 500 (#334 CR).
+            logger.warning("write_org_parent: cycle org=%s parent=%s", organization_id, parent_id)
+            raise ObservationRejected("parent_cycle") from exc
         return
 
     row = await conn.fetchrow(

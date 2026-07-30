@@ -1754,6 +1754,42 @@ async def test_write_org_parent_authoritative_parent_not_found(db, org_id, api_k
         )
 
 
+async def test_write_org_parent_authoritative_owner_reparents_owned(db, org_id, api_key_id):
+    """The owning key can reparent an org it already owns (source non-NULL == caller)."""
+    p1 = await _mk_org(db)
+    p2 = await _mk_org(db)
+    # First authoritative write claims the org for api_key_id.
+    await write_org_parent(db, org_id, p1, source_key_id=api_key_id, authoritative=True)
+    # Second reparent by the same key exercises the source-matches → proceed branch.
+    await write_org_parent(db, org_id, p2, source_key_id=api_key_id, authoritative=True)
+    row = await db.fetchrow(
+        "SELECT parent_id, source_key_id FROM organizations WHERE id=$1", org_id
+    )
+    assert row["parent_id"] == p2
+    assert row["source_key_id"] == api_key_id
+
+
+async def test_write_org_parent_authoritative_deep_cycle_rejected(db, org_id, api_key_id):
+    """A multi-level ancestor loop (A→B→C→A) is caught, not just the immediate parent."""
+    b = await _mk_org(db)
+    c = await _mk_org(db)
+    # Chain: c → b → org_id  (c's parent is b, b's parent is org_id).
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, b)
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", b, c)
+    # Setting org_id's parent to c closes the 3-node loop two levels up.
+    with pytest.raises(ObservationRejected, match="parent_cycle"):
+        await write_org_parent(db, org_id, c, source_key_id=api_key_id, authoritative=True)
+
+
+async def test_write_org_parent_nonauthoritative_cycle_rejected(db, org_id, api_key_id):
+    """A write-if-null fill that closes a loop is a clean parent_cycle, not a 500 (#334 CR)."""
+    child = await _mk_org(db)
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, child)
+    # org_id has no parent; filling it with its own descendant `child` closes a loop.
+    with pytest.raises(ObservationRejected, match="parent_cycle"):
+        await write_org_parent(db, org_id, child, source_key_id=api_key_id)
+
+
 # ---------------------------------------------------------------------------
 # write_pronouns
 # ---------------------------------------------------------------------------

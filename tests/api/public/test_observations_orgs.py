@@ -532,6 +532,41 @@ async def test_org_external_match_does_not_reparent(client, org_write_key, db):
         await db.execute("DELETE FROM organizations WHERE id IN ($1,$2)", chamber, committee)
 
 
+async def test_org_external_match_cycle_rejected_not_500(client, org_write_key, db):
+    """#334 CR: a write-if-null fill that closes a loop returns a clean rejection.
+
+    Regression guard — the endpoint handler does not catch asyncpg.RaiseError,
+    so an unwrapped cycle from the non-authoritative path would 500.
+    """
+    raw, _ = org_write_key
+    ubi = _unique_id()
+    # Create `parent` (parentless) via its external identifier.
+    r_new = await _post(client, raw, {"identifier_type": "org_ubi", "identifier_value": ubi})
+    parent = r_new.json()["entity_id"]
+    child = generate_id()
+    await db.execute("INSERT INTO organizations (id, parent_id) VALUES ($1, $2)", child, parent)
+    try:
+        # Re-match `parent` by its external id and try to fill its NULL parent
+        # with its own descendant `child` → cycle on the write-if-null path.
+        r = await _post(
+            client,
+            raw,
+            {
+                "identifier_type": "org_ubi",
+                "identifier_value": ubi,
+                "organization_parent_id": child,
+            },
+        )
+        assert r.status_code == 200  # not a 500
+        assert r.json()["disposition"] == "rejected"
+        assert r.json()["reason"] == "parent_cycle"
+        row = await db.fetchrow("SELECT parent_id FROM organizations WHERE id=$1", parent)
+        assert row["parent_id"] is None  # unchanged
+    finally:
+        await db.execute("DELETE FROM organizations WHERE id=$1", child)
+        await db.execute("DELETE FROM organizations WHERE id=$1", parent)
+
+
 async def test_org_parent_by_name_ambiguous_rejected(client, org_write_key, db):
     """Two orgs with same canonical name → parent_name lookup → rejected."""
     raw, kid = org_write_key
