@@ -50,12 +50,14 @@
   <td style="text-align:right;white-space:nowrap">
     {# Toggle handled by citations.js (data-citations-toggle): one open at a time,
        and re-clicking this row's own open sub-row closes it (#319). #}
+    {# Count lives in the cite-count span so drawer mutations can OOB-refresh it
+       (#341 CR1); aria-label stays count-free — a stale label is worse than none. #}
     <button type="button" class="btn btn--sm btn--secondary"
-            aria-label="Citations for {{ ev.event_type_name }} event{% if ev.citation_count %} — {{ ev.citation_count }} existing{% endif %}"
+            aria-label="Citations for {{ ev.event_type_name }} event"
             hx-get="/admin/entity-events/{{ ev.id }}/citations/"
             hx-target="#{{ _ev_row_prefix }}-{{ ev.id }}"
             hx-swap="afterend"
-            data-citations-toggle="citations-subrow-{{ ev.id }}">Cite{% if ev.citation_count %} ({{ ev.citation_count }}){% endif %}</button>
+            data-citations-toggle="citations-subrow-{{ ev.id }}">Cite<span id="cite-count-{{ ev.id }}">{% if ev.citation_count %} ({{ ev.citation_count }}){% endif %}</span></button>
     {% if not ev.archived_at %}
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit {{ ev.event_type_name }} event"

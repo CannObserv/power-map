@@ -701,14 +701,14 @@ async def test_event_row_cite_button_shows_count(client, db, person_with_event):
         )
     r = await client.get(f"/admin/people/{pid}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert "Cite (2)" in r.text
+    assert f'<span id="cite-count-{eid}"> (2)</span>' in r.text
 
 
 async def test_event_row_cite_button_plain_without_citations(client, person_with_event):
     pid, _etid, _eid = person_with_event
     r = await client.get(f"/admin/people/{pid}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert "Cite (" not in r.text
+    assert f'<span id="cite-count-{_eid}"></span>' in r.text
 
 
 async def test_event_row_cite_count_excludes_archived(client, db, person_with_event):
@@ -727,4 +727,4 @@ async def test_event_row_cite_count_excludes_archived(client, db, person_with_ev
     )
     r = await client.get(f"/admin/people/{pid}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert "Cite (1)" in r.text
+    assert f'<span id="cite-count-{eid}"> (1)</span>' in r.text

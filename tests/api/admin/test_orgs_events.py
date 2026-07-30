@@ -644,4 +644,4 @@ async def test_event_row_cite_button_shows_count(client, db, org_with_event):
     )
     r = await client.get(f"/admin/orgs/{oid}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert "Cite (1)" in r.text
+    assert f'<span id="cite-count-{eid}"> (1)</span>' in r.text

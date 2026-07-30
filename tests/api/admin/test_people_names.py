@@ -574,6 +574,11 @@ async def test_edit_canonical_with_omitted_visibility_rejected(client, person_on
 # ---------------------------------------------------------------------------
 
 
+def _table_html(page: str, table_id: str) -> str:
+    """Slice a rendered page down to one table's markup (#341 CR1 — scoped asserts)."""
+    return page.partition(f'id="{table_id}"')[2].partition("</table>")[0]
+
+
 async def test_name_read_row_cite_button_shows_count(client, db, person_and_name):
     pid, nid = person_and_name
     for url in ("https://example.com/a", "https://example.com/b"):
@@ -586,14 +591,14 @@ async def test_name_read_row_cite_button_shows_count(client, db, person_and_name
         )
     r = await client.get(f"/admin/people/{pid}/names/{nid}/read-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert "Cite (2)" in r.text
+    assert f'<span id="cite-count-{nid}"> (2)</span>' in r.text
 
 
 async def test_name_read_row_cite_button_plain_without_citations(client, person_and_name):
     pid, nid = person_and_name
     r = await client.get(f"/admin/people/{pid}/names/{nid}/read-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert "Cite (" not in r.text
+    assert f'<span id="cite-count-{nid}"></span>' in r.text
 
 
 async def test_person_detail_name_row_cite_button_shows_count(client, db, person_and_name):
@@ -607,4 +612,32 @@ async def test_person_detail_name_row_cite_button_shows_count(client, db, person
     )
     r = await client.get(f"/admin/people/{pid}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert "Cite (1)" in r.text
+    names_table = _table_html(r.text, "names-table")
+    assert f'<span id="cite-count-{nid}"> (1)</span>' in names_table
+
+
+async def test_cite_drawer_create_refreshes_button_count_oob(client, db, person_and_name):
+    """#341 CR1: in-drawer create OOB-refreshes the row's cite-count span."""
+    _pid, nid = person_and_name
+    r = await client.post(
+        f"/admin/person-names/{nid}/citations/",
+        headers=HTMX_HEADERS,
+        data={"url": "https://example.com/a", "title": "", "excerpt": "", "field_name": ""},
+    )
+    assert r.status_code == 200
+    assert f'<span id="cite-count-{nid}" hx-swap-oob="true"> (1)</span>' in r.text
+
+
+async def test_cite_drawer_delete_refreshes_button_count_oob(client, db, person_and_name):
+    """#341 CR1: in-drawer delete OOB-clears the row's cite-count span."""
+    _pid, nid = person_and_name
+    cid = generate_id()
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, field_name, url)"
+        " VALUES ($1, 'person_name', $2, 'name', 'https://example.com/a')",
+        cid,
+        nid,
+    )
+    r = await client.delete(f"/admin/person-names/{nid}/citations/{cid}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert f'<span id="cite-count-{nid}" hx-swap-oob="true"></span>' in r.text

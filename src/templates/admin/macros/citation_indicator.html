@@ -7,7 +7,7 @@
 {%- if href -%}
 <a class="citation-indicator" href="{{ href }}" aria-label="{{ label }}"><span aria-hidden="true">📚</span> {{ count }}</a>
 {%- else -%}
-<span class="citation-indicator" aria-label="{{ label }}"><span aria-hidden="true">📚</span> {{ count }}</span>
+<span class="citation-indicator" role="img" aria-label="{{ label }}"><span aria-hidden="true">📚</span> {{ count }}</span>
 {%- endif -%}
 {%- endif -%}
 {%- endmacro %}

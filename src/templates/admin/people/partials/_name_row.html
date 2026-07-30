@@ -42,12 +42,14 @@
   <td style="text-align:right;white-space:nowrap">
     {# Toggle handled by citations.js (data-citations-toggle): one open at a time,
        and re-clicking this row's own open sub-row closes it (#319). #}
+    {# Count lives in the cite-count span so drawer mutations can OOB-refresh it
+       (#341 CR1); aria-label stays count-free — a stale label is worse than none. #}
     <button type="button" class="btn btn--sm btn--secondary"
-            aria-label="Citations for name {{ n.name }}{% if n.citation_count %} — {{ n.citation_count }} existing{% endif %}"
+            aria-label="Citations for name {{ n.name }}"
             hx-get="/admin/person-names/{{ n.id }}/citations/"
             hx-target="#name-row-{{ n.id }}"
             hx-swap="afterend"
-            data-citations-toggle="citations-subrow-{{ n.id }}">Cite{% if n.citation_count %} ({{ n.citation_count }}){% endif %}</button>
+            data-citations-toggle="citations-subrow-{{ n.id }}">Cite<span id="cite-count-{{ n.id }}">{% if n.citation_count %} ({{ n.citation_count }}){% endif %}</span></button>
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit name {{ n.name }}"
             hx-get="/admin/people/{{ person_id }}/names/{{ n.id }}/edit-row/"

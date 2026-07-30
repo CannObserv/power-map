@@ -60,6 +60,7 @@ Full conventions → `docs/STYLE.md §32`
 - Flash: `flash_trigger(level, body, extra=None)` on mutation routes; always `markupsafe.escape()` DB-derived values
 - Dup counts: `await invalidate_dup_count_cache(db)` (from `org_dups` or `people_dups`) after any merge or dismiss; `db` must be the route's connection
 - List status filters (#306): each `*_queries.py` declares `STATUS_PREDICATES` + `VALID_STATUSES` (incl. first-class `all`); unknown status → `active`, never no-filter. A search must never silently hide other-status matches — `query_*_rows` returns `hidden_matches` (grouped `count(*) FILTER` pass via `list_status.count_with_hidden_matches`) rendered as the "N more matches — Show all" affordance (`admin/_hidden_matches.html`; plain link, not hx-get). Full rules → `docs/STYLE.md` §32
+- Citations indicator (#341): row-level active-citation counts come from the **row-fetch SQL** via `citation_count_lateral` (`_citations_shared.py`) — never a side template dict (side dicts go stale on single-row HTMX re-renders). Non-drawer rows render the `citation_indicator` macro; #319 Cite-drawer rows (names/events) hold the count in a `cite-count-<id>` span the citations factory OOB-refreshes on create/delete. Full rules → `docs/STYLE.md` §32
 
 ## Public API Key Rules
 
