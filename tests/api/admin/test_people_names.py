@@ -10,6 +10,7 @@ from src.api.admin.deps import get_db
 from src.api.admin.people_names import _maybe_promote_sole_name
 from src.api.main import app
 from src.core.db import generate_id
+from tests.api.admin.html_slices import table_html
 
 pytestmark = [
     pytest.mark.integration,
@@ -574,11 +575,6 @@ async def test_edit_canonical_with_omitted_visibility_rejected(client, person_on
 # ---------------------------------------------------------------------------
 
 
-def _table_html(page: str, table_id: str) -> str:
-    """Slice a rendered page down to one table's markup (#341 CR1 — scoped asserts)."""
-    return page.partition(f'id="{table_id}"')[2].partition("</table>")[0]
-
-
 async def test_name_read_row_cite_button_shows_count(client, db, person_and_name):
     pid, nid = person_and_name
     for url in ("https://example.com/a", "https://example.com/b"):
@@ -612,7 +608,7 @@ async def test_person_detail_name_row_cite_button_shows_count(client, db, person
     )
     r = await client.get(f"/admin/people/{pid}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    names_table = _table_html(r.text, "names-table")
+    names_table = table_html(r.text, "names-table")
     assert f'<span id="cite-count-{nid}"> (1)</span>' in names_table
 
 

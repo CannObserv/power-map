@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
+from tests.api.admin.html_slices import table_html
 
 pytestmark = [
     pytest.mark.integration,
@@ -198,11 +199,6 @@ async def test_roles_create_empty_title_non_htmx_redirects(client, org):
 # ---------------------------------------------------------------------------
 
 
-def _table_html(page: str, table_id: str) -> str:
-    """Slice a rendered page down to one table's markup (#341 CR1 — scoped asserts)."""
-    return page.partition(f'id="{table_id}"')[2].partition("</table>")[0]
-
-
 async def test_org_role_row_shows_citations_indicator(client, db, org):
     rid = generate_id()
     await db.execute(
@@ -218,7 +214,7 @@ async def test_org_role_row_shows_citations_indicator(client, db, org):
     )
     r = await client.get(f"/admin/orgs/{org}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    roles_table = _table_html(r.text, "roles-table")
+    roles_table = table_html(r.text, "roles-table")
     assert 'class="citation-indicator"' in roles_table
     assert 'aria-label="1 citation"' in roles_table
 
@@ -232,4 +228,4 @@ async def test_org_role_row_omits_indicator_without_citations(client, db, org):
     )
     r = await client.get(f"/admin/orgs/{org}/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert "citation-indicator" not in _table_html(r.text, "roles-table")
+    assert "citation-indicator" not in table_html(r.text, "roles-table")
