@@ -682,3 +682,49 @@ async def test_event_form_linked_typeahead_hx_include_is_row_scoped(client, pers
     assert 'id="linked-entity-type-new"' in r.text
     assert 'hx-include="#linked-entity-type-new"' in r.text
     assert "[name='linked_entity_type']" not in r.text
+
+
+# ---------------------------------------------------------------------------
+# Cite button citation count (#341)
+# ---------------------------------------------------------------------------
+
+
+async def test_event_row_cite_button_shows_count(client, db, person_with_event):
+    pid, _etid, eid = person_with_event
+    for url in ("https://example.com/a", "https://example.com/b"):
+        await db.execute(
+            "INSERT INTO citations (id, entity_type, entity_id, url)"
+            " VALUES ($1, 'entity_event', $2, $3)",
+            generate_id(),
+            eid,
+            url,
+        )
+    r = await client.get(f"/admin/people/{pid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "Cite (2)" in r.text
+
+
+async def test_event_row_cite_button_plain_without_citations(client, person_with_event):
+    pid, _etid, _eid = person_with_event
+    r = await client.get(f"/admin/people/{pid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "Cite (" not in r.text
+
+
+async def test_event_row_cite_count_excludes_archived(client, db, person_with_event):
+    pid, _etid, eid = person_with_event
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url)"
+        " VALUES ($1, 'entity_event', $2, 'https://example.com/a')",
+        generate_id(),
+        eid,
+    )
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url, archived_at)"
+        " VALUES ($1, 'entity_event', $2, 'https://example.com/x', now())",
+        generate_id(),
+        eid,
+    )
+    r = await client.get(f"/admin/people/{pid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "Cite (1)" in r.text

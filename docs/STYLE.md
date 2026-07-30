@@ -2160,6 +2160,17 @@ Caveat: cache is not shared across gunicorn workers — counts may lag by up to 
 - **Archived toggle**: `?show_archived_embeddings=1` full-page reload (mirrors the Names `show_historical` pattern) reveals archived rows dimmed; the toggle label shows the archived count.
 - **Lifecycle** (archive-model conventions): Delete soft-archives (409 if already archived); Restore clears `archived_at` (409 if already active); **Delete permanently** hard-deletes and **requires the row be archived first** (409 otherwise). Each write is guarded on `archived_at IS [NOT] NULL … RETURNING id` to close the check-then-act window; a matched-nothing write re-checks existence to report 404 (row gone) vs 409 (wrong state). Mutations re-render the **whole** `#person-embeddings-section` (header + table) via `_embeddings_section.html` — not just the tbody — so the "Show archived (N)" toggle refreshes with a fresh count; the current `show_archived_embeddings` state passes through a query param so the swap stays in the same mode; all carry `flash_trigger` + a `RedirectResponse` non-HTMX fallback.
 
+### Citations indicator on entity rows (#341)
+
+Rows whose entity carries active citations surface a compact count so sub-entity citations (esp. `role_assignment`) are discoverable without opening the row.
+
+- **Count lives in the row-fetch SQL, never a side dict.** Every query that feeds a row partial joins `citation_count_lateral(entity_type, id_expr)` (from `src.api.admin._citations_shared`) — one `LEFT JOIN LATERAL count(*)` probe per row on `idx_citations_entity`, active rows only (`archived_at IS NULL`). Rationale: row partials re-render standalone via single-row HTMX routes (read-row Cancel, archive, edit-save); a template-context dict would have to be recomputed on every such path or the indicator silently disappears after a swap. Single-row handlers that build a dict context (e.g. names factory `name_read_row`) may instead attach one scalar `count(*)` — one row, not an N+1.
+- **Rendering — two affordance shapes:**
+  - Rows *without* an inline Cite drawer (assignment rows, org-roles rows): the `citation_indicator(count, href=…)` macro (`admin/macros/citation_indicator.html`) — `📚 N`, emoji `aria-hidden`, wrapper `aria-label="N citation(s)"`, count as visible text (never emoji-only); pass `href` to the page hosting the citations panel (assignment detail / role detail). Renders nothing at 0.
+  - Rows *with* the #319 Cite drawer-toggle button (person-name rows, event rows): the count renders **inside the existing button** (`Cite (N)`) — no second icon; aria-label appends `— N existing`.
+- **Scope:** citable sub-entities shown as rows. Top-level entity lists (orgs / people / jurisdictions) are out — those surface citations on their own detail panel. `org_name` is **not** a citable type; org name rows never get a count.
+- **Tests:** indicator renders with count ≥ 1, absent at 0, archived citations excluded, and the single-row re-render path keeps the indicator (the regression the SQL-embedding rule exists to prevent).
+
 ---
 
 ## 33. Vitest test conventions

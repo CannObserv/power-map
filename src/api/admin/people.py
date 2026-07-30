@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from src.api.admin._citations_shared import citation_count_lateral
 from src.api.admin._events_shared import fetch_entity_events
 from src.api.admin.deps import (
     AdminUser,
@@ -224,6 +225,7 @@ async def person_detail(
     raw_names = await db.fetch(
         "SELECT pn.*, parent.name AS reading_of_name,"
         "       COALESCE(c.cnt, 0) AS reading_child_count,"
+        "       cc_j.citation_count,"
         "       pnp.given_names      AS pnp_given_names,"
         "       pnp.family_names     AS pnp_family_names,"
         "       pnp.additional_names AS pnp_additional_names"
@@ -234,6 +236,7 @@ async def person_detail(
         "   SELECT COUNT(*) AS cnt FROM person_names ch"
         "   WHERE ch.reading_of_id = pn.id"
         " ) c ON TRUE"
+        f"{citation_count_lateral('person_name', 'pn.id')}"
         f" WHERE pn.person_id = $1{visibility_filter}"
         " ORDER BY pn.is_canonical DESC, pn.name_type, pn.name",
         person_id,

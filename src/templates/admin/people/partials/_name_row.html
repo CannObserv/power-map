@@ -43,11 +43,11 @@
     {# Toggle handled by citations.js (data-citations-toggle): one open at a time,
        and re-clicking this row's own open sub-row closes it (#319). #}
     <button type="button" class="btn btn--sm btn--secondary"
-            aria-label="Citations for name {{ n.name }}"
+            aria-label="Citations for name {{ n.name }}{% if n.citation_count %} — {{ n.citation_count }} existing{% endif %}"
             hx-get="/admin/person-names/{{ n.id }}/citations/"
             hx-target="#name-row-{{ n.id }}"
             hx-swap="afterend"
-            data-citations-toggle="citations-subrow-{{ n.id }}">Cite</button>
+            data-citations-toggle="citations-subrow-{{ n.id }}">Cite{% if n.citation_count %} ({{ n.citation_count }}){% endif %}</button>
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit name {{ n.name }}"
             hx-get="/admin/people/{{ person_id }}/names/{{ n.id }}/edit-row/"

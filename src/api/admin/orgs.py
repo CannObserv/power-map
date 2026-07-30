@@ -18,6 +18,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.entity_lookup import search_entities
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
+from src.api.admin.orgs_roles import fetch_org_roles
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
@@ -449,19 +450,7 @@ async def org_detail(
            WHERE o.parent_id = $1 ORDER BY dn.display_name""",
         org_id,
     )
-    roles = await db.fetch(
-        """SELECT r.id, r.title, sub.assignment_count, sub.current_count
-           FROM roles r
-           CROSS JOIN LATERAL (
-               SELECT COUNT(*) AS assignment_count,
-                      COUNT(*) FILTER (WHERE is_current) AS current_count
-               FROM role_assignments
-               WHERE role_id = r.id AND archived_at IS NULL
-           ) sub
-           WHERE r.organization_id = $1 AND r.archived_at IS NULL
-           ORDER BY r.title""",
-        org_id,
-    )
+    roles = await fetch_org_roles(org_id, db)
     events = await fetch_entity_events(org_id, "organization", db)
     citations = await db.fetch(
         "SELECT * FROM citations WHERE entity_type='organization' AND entity_id=$1"

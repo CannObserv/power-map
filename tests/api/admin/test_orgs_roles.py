@@ -191,3 +191,39 @@ async def test_roles_create_empty_title_non_htmx_redirects(client, org):
         follow_redirects=False,
     )
     assert r.status_code == 303
+
+
+# ---------------------------------------------------------------------------
+# Citations indicator (#341)
+# ---------------------------------------------------------------------------
+
+
+async def test_org_role_row_shows_citations_indicator(client, db, org):
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Cited Role')",
+        rid,
+        org,
+    )
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url)"
+        " VALUES ($1, 'role', $2, 'https://example.com/a')",
+        generate_id(),
+        rid,
+    )
+    r = await client.get(f"/admin/orgs/{org}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert 'class="citation-indicator"' in r.text
+    assert 'aria-label="1 citation"' in r.text
+
+
+async def test_org_role_row_omits_indicator_without_citations(client, db, org):
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Plain Role')",
+        rid,
+        org,
+    )
+    r = await client.get(f"/admin/orgs/{org}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "citation-indicator" not in r.text

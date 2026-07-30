@@ -631,3 +631,17 @@ async def test_org_event_edit_row_prefills_linked_entity_name(
     r = await client.get(f"/admin/orgs/{oid}/events/{eid}/edit-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert pname in r.text  # display name, not the raw ULID
+
+
+async def test_event_row_cite_button_shows_count(client, db, org_with_event):
+    """#341: the org events table surfaces active-citation counts on Cite."""
+    oid, _etid, eid = org_with_event
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url)"
+        " VALUES ($1, 'entity_event', $2, 'https://example.com/a')",
+        generate_id(),
+        eid,
+    )
+    r = await client.get(f"/admin/orgs/{oid}/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "Cite (1)" in r.text
