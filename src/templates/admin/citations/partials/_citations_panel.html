@@ -37,7 +37,7 @@
       <thead>
         <tr>
           <th scope="col">Source</th>
-          <th scope="col" style="width:8rem">Field</th>
+          {% if not locked_field %}<th scope="col" style="width:8rem">Field</th>{% endif %}
           <th scope="col">Excerpt</th>
           <th scope="col" style="width:9rem"></th>
         </tr>
@@ -48,7 +48,7 @@
         {% endfor %}
         {% if not citations %}
         <tr id="citations-empty-{{ entity_id }}">
-          <td colspan="4" style="color:var(--color-text-muted)">No citations yet.</td>
+          <td colspan="{{ 3 if locked_field else 4 }}" style="color:var(--color-text-muted)">No citations yet.</td>
         </tr>
         {% endif %}
       </tbody>

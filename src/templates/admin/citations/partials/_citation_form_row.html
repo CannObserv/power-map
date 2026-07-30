@@ -1,7 +1,7 @@
 {# admin/citations/partials/_citation_form_row.html — shared create/edit form (#319) #}
 {% set f = form if form is defined else None %}
 <tr id="{% if c %}citation-row-{{ c.id }}{% else %}citation-row-new-{{ entity_id }}{% endif %}">
-  <td colspan="4" style="padding:var(--space-2) var(--space-4)">
+  <td colspan="{{ 3 if locked_field else 4 }}" style="padding:var(--space-2) var(--space-4)">
     <form {% if c %}
           hx-post="/admin{{ cit_base }}/{{ c.id }}/edit-row/"
           hx-target="#citation-row-{{ c.id }}"

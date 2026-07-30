@@ -388,6 +388,78 @@ async def test_entity_event_new_row_keeps_field_selector(client, db):
     assert '<select name="field_name"' in r.text
 
 
+# ── CR round 2 fixes (#319) ──────────────────────────────────────────────────
+
+
+async def test_first_citation_removes_empty_state(client, db, person):
+    # person starts with zero citations → panel shows the "No citations yet." row.
+    # Creating the first one must OOB-remove that row so it doesn't linger below.
+    r = await client.post(
+        _base(person) + "/",
+        headers=HTMX,
+        data={"field_name": "notes", "url": "https://s/first"},
+    )
+    assert r.status_code == 200, r.text
+    assert f'id="citations-empty-{person}"' in r.text
+    assert 'hx-swap-oob="delete"' in r.text
+
+
+def test_inline_panel_requires_subrow_colspan():
+    # An inline_panel router with a default (1) colspan re-introduces the
+    # table-layout:fixed scrunch — fail loudly at build time instead.
+    from src.api.admin._citations_shared import make_citations_router
+
+    with pytest.raises(ValueError):
+        make_citations_router(
+            entity_type="person_name",
+            prefix="/x/{entity_id}/citations",
+            tags=["t"],
+            entity_table="person_names",
+            entity_not_found_msg="nf",
+            detail_url=lambda e: "/",
+            inline_panel=True,  # no subrow_colspan → invalid
+        )
+
+
+async def test_cite_button_toggles_own_subrow(client, db):
+    nid = await _seed_name(db)
+    pid = await db.fetchval("SELECT person_id FROM person_names WHERE id=$1", nid)
+    r = await client.get(f"/admin/people/{pid}/", headers=AUTH)
+    assert r.status_code == 200
+    # Toggle is wired by citations.js via data-citations-toggle naming this row's
+    # own sub-row id; the JS closes others and cancels the re-fetch when reopened.
+    assert f'data-citations-toggle="citations-subrow-{nid}"' in r.text
+
+
+async def test_locked_field_panel_drops_field_column(client, db):
+    nid = await _seed_name(db)
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, field_name, url, title)"
+        " VALUES ($1,'person_name',$2,'name','https://s/n','N')",
+        generate_id(),
+        nid,
+    )
+    p = await client.get(f"/admin/person-names/{nid}/citations/", headers=AUTH)
+    assert p.status_code == 200
+    # Locked-field panel drops the redundant Field column (header + cells).
+    assert ">Field</th>" not in p.text
+
+
+async def test_locked_field_new_row_spans_three_inner_columns(client, db):
+    nid = await _seed_name(db)
+    r = await client.get(f"/admin/person-names/{nid}/citations/new-row/", headers=AUTH)
+    assert r.status_code == 200
+    # Inner citations table is Source/Excerpt/actions = 3 when the Field col is dropped.
+    assert 'colspan="3"' in r.text
+
+
+async def test_event_panel_keeps_field_column(client, db):
+    eid = await _seed_event(db)
+    p = await client.get(f"/admin/entity-events/{eid}/citations/", headers=AUTH)
+    assert p.status_code == 200
+    assert ">Field</th>" in p.text
+
+
 # ── sub-entity delete drops its citations (no orphan) ─────────────────────────
 
 
