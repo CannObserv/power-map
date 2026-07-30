@@ -40,11 +40,14 @@
   <td style="text-align:right">{{ n.name_type }}</td>
   <td style="text-align:right">{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>
   <td style="text-align:right;white-space:nowrap">
+    {# Panel expands as a sub-row directly beneath this name row (tethered, #319).
+       Wipe any open citations sub-row first so only one is open at a time. #}
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Citations for name {{ n.name }}"
             hx-get="/admin/person-names/{{ n.id }}/citations/"
-            hx-target="#names-citations-drawer"
-            hx-swap="innerHTML">Cite</button>
+            hx-target="#name-row-{{ n.id }}"
+            hx-swap="afterend"
+            hx-on:htmx:before-request="document.querySelectorAll('tr.citations-subrow').forEach(function(e){e.remove()})">Cite</button>
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit name {{ n.name }}"
             hx-get="/admin/people/{{ person_id }}/names/{{ n.id }}/edit-row/"

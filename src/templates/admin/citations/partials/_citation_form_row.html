@@ -16,6 +16,11 @@
       <div class="alert alert--error" role="alert">{{ error }}</div>
       {% endif %}
       <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:end">
+        {% if locked_field %}
+        {# Field is pinned (e.g. a name citation is always about the name) — no
+           picker; the server ignores any posted field_name regardless. #}
+        <input type="hidden" name="field_name" value="{{ locked_field }}">
+        {% else %}
         <div class="form-group" style="margin-bottom:0">
           <label>Field
             <select name="field_name" aria-label="Cited field">
@@ -27,6 +32,7 @@
             </select>
           </label>
         </div>
+        {% endif %}
         <div class="form-group" style="margin-bottom:0;flex:1;min-width:16rem">
           <label>URL
             <input type="url" name="url" placeholder="https://source.example/…"

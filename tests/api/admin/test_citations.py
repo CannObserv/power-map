@@ -140,8 +140,10 @@ async def test_detail_page_shows_citations_panel(client, db, person):
     assert r.status_code == 200
     assert "Citations" in r.text
     assert "Panel Src" in r.text
-    # The permanent detail-page panel is not dismissible (no Close control).
+    # The permanent detail-page panel is not dismissible (no Close control) and
+    # renders as a plain section, never a nested sub-row (that is drawer-only).
     assert "Close citations panel" not in r.text
+    assert "citations-subrow" not in r.text
     # entity_id must reach the panel so its ids are entity-scoped (no empty suffix).
     assert f'id="citations-tbody-{person}"' in r.text
 
@@ -316,8 +318,57 @@ async def test_name_and_event_rows_show_cite_button(client, db):
     r = await client.get(f"/admin/people/{pid}/", headers=AUTH)
     assert r.status_code == 200
     assert f"/admin/person-names/{nid}/citations/" in r.text
-    assert 'id="names-citations-drawer"' in r.text
-    assert 'id="events-citations-drawer"' in r.text
+    # The Cite button tethers the panel to its own row (afterend), not a shared
+    # bottom drawer — the drawer divs are gone (#319 scoping fix).
+    assert f'hx-target="#name-row-{nid}"' in r.text
+    assert 'hx-swap="afterend"' in r.text
+    assert 'id="names-citations-drawer"' not in r.text
+    assert 'id="events-citations-drawer"' not in r.text
+
+
+async def test_person_name_panel_is_scoped_labeled_subrow(client, db):
+    nid = await _seed_name(db)  # name "Jo", type legal
+    p = await client.get(f"/admin/person-names/{nid}/citations/", headers=AUTH)
+    assert p.status_code == 200
+    # Rendered as a full-width sub-row so it nests under the clicked name row.
+    assert "citations-subrow" in p.text
+    assert 'colspan="99"' in p.text
+    # Heading names the subject so it can't be confused with the person panel.
+    assert "Jo" in p.text
+    assert "for" in p.text  # "Citations for …"
+
+
+async def test_person_name_new_row_locks_field(client, db):
+    nid = await _seed_name(db)
+    r = await client.get(f"/admin/person-names/{nid}/citations/new-row/", headers=AUTH)
+    assert r.status_code == 200
+    # No field picker on a name citation — it is always about the name.
+    assert 'name="field_name"' in r.text
+    assert "<select" not in r.text
+    assert 'type="hidden" name="field_name" value="name"' in r.text
+
+
+async def test_person_name_create_forces_locked_field(client, db):
+    nid = await _seed_name(db)
+    # Even if a rogue client posts a different field_name, the server pins it.
+    r = await client.post(
+        f"/admin/person-names/{nid}/citations/",
+        headers=HTMX,
+        data={"field_name": "notes", "url": "https://s/x"},
+    )
+    assert r.status_code == 200, r.text
+    row = await db.fetchrow(
+        "SELECT * FROM citations WHERE entity_type='person_name' AND entity_id=$1", nid
+    )
+    assert row["field_name"] == "name"
+
+
+async def test_entity_event_new_row_keeps_field_selector(client, db):
+    eid = await _seed_event(db)
+    r = await client.get(f"/admin/entity-events/{eid}/citations/new-row/", headers=AUTH)
+    assert r.status_code == 200
+    # Events have multiple citable fields → the selector is legitimate.
+    assert '<select name="field_name"' in r.text
 
 
 # ── sub-entity delete drops its citations (no orphan) ─────────────────────────

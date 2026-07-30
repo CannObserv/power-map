@@ -19,6 +19,17 @@ async def _resolve_owner(event_id: str, db) -> str:
     return f"/admin/{base}/{row['entity_id']}/"
 
 
+async def _event_subject(event_id: str, db) -> str | None:
+    # Heading label for the inline drawer: the event type name.
+    name = await db.fetchval(
+        "SELECT t.display_name FROM entity_events e"
+        " JOIN entity_event_types t ON t.id = e.event_type_id"
+        " WHERE e.id=$1",
+        event_id,
+    )
+    return f"{name} event" if name else None
+
+
 router = make_citations_router(
     entity_type="entity_event",
     prefix="/entity-events/{entity_id}/citations",
@@ -27,5 +38,7 @@ router = make_citations_router(
     entity_not_found_msg="Event not found",
     detail_url=lambda eid: "/admin/",
     redirect_resolver=_resolve_owner,
+    subject_resolver=_event_subject,
     inline_panel=True,
+    # Events keep the field picker — date / place / notes are all citable.
 )

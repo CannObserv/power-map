@@ -48,11 +48,14 @@
     {% endif %}
   </td>
   <td style="text-align:right;white-space:nowrap">
+    {# Panel expands as a sub-row directly beneath this event row (tethered, #319).
+       Wipe any open citations sub-row first so only one is open at a time. #}
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Citations for {{ ev.event_type_name }} event"
             hx-get="/admin/entity-events/{{ ev.id }}/citations/"
-            hx-target="#events-citations-drawer"
-            hx-swap="innerHTML">Cite</button>
+            hx-target="#{{ _ev_row_prefix }}-{{ ev.id }}"
+            hx-swap="afterend"
+            hx-on:htmx:before-request="document.querySelectorAll('tr.citations-subrow').forEach(function(e){e.remove()})">Cite</button>
     {% if not ev.archived_at %}
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit {{ ev.event_type_name }} event"
