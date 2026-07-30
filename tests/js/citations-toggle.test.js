@@ -78,6 +78,24 @@ describe('citations toggle', () => {
     expect(evt.defaultPrevented).toBe(true);
   });
 
+  it('reopening one row with several open removes them all and cancels', () => {
+    // Intersection of the two behaviors: multiple sub-rows open, reopen one →
+    // every sub-row is closed AND the re-fetch is cancelled.
+    document.body.innerHTML = `
+      <table><tbody>
+        <tr id="name-row-A"></tr>
+        <tr class="citations-subrow" id="citations-subrow-A"><td></td></tr>
+        <tr id="name-row-B"></tr>
+        <tr class="citations-subrow" id="citations-subrow-B"><td></td></tr>
+      </tbody></table>
+      <button id="cite-A" data-citations-toggle="citations-subrow-A" type="button">Cite</button>
+    `;
+    mount();
+    const evt = fireBeforeRequest(document.getElementById('cite-A'));
+    expect(document.querySelectorAll('tr.citations-subrow').length).toBe(0);
+    expect(evt.defaultPrevented).toBe(true);
+  });
+
   it('ignores requests from non-citations elements', () => {
     document.body.innerHTML = `
       <table><tbody>
