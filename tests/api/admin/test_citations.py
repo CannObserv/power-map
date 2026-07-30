@@ -332,10 +332,24 @@ async def test_person_name_panel_is_scoped_labeled_subrow(client, db):
     assert p.status_code == 200
     # Rendered as a full-width sub-row so it nests under the clicked name row.
     assert "citations-subrow" in p.text
-    assert 'colspan="99"' in p.text
+    # colspan must equal the names table's exact column count (Name/Type/Canonical/
+    # actions = 4). An over-large colspan (e.g. 99) implies phantom columns that
+    # collapse the real ones under table-layout:fixed (#319 scrunch regression).
+    assert 'colspan="4"' in p.text
+    assert 'colspan="99"' not in p.text
     # Heading names the subject so it can't be confused with the person panel.
     assert "Jo" in p.text
     assert "for" in p.text  # "Citations for …"
+
+
+async def test_entity_event_panel_subrow_spans_events_table(client, db):
+    eid = await _seed_event(db)
+    p = await client.get(f"/admin/entity-events/{eid}/citations/", headers=AUTH)
+    assert p.status_code == 200
+    assert "citations-subrow" in p.text
+    # Events table has 6 columns (Type/Date/Place/Linked/Status/actions).
+    assert 'colspan="6"' in p.text
+    assert 'colspan="99"' not in p.text
 
 
 async def test_person_name_new_row_locks_field(client, db):

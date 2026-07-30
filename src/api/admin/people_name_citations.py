@@ -37,4 +37,6 @@ router = make_citations_router(
     inline_panel=True,
     # A name citation is inherently about the name — no field picker, always 'name'.
     locked_field="name",
+    # Names table columns: Name / Type / Canonical / actions.
+    subrow_colspan=4,
 )

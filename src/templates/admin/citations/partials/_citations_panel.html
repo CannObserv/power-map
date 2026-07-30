@@ -6,7 +6,7 @@
    passes dismissible=True (renders a Close control), as_subrow=True (wraps the
    panel as a full-width table row so it nests under the clicked parent row), and
    subject_label (heading names what is being cited). #}
-{% if as_subrow %}<tr class="citations-subrow" id="citations-subrow-{{ entity_id }}"><td colspan="99">{% endif %}
+{% if as_subrow %}<tr class="citations-subrow" id="citations-subrow-{{ entity_id }}"><td colspan="{{ subrow_colspan }}">{% endif %}
 <section class="entity-section" aria-labelledby="citations-heading-{{ entity_id }}">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-2)">
     <h2 id="citations-heading-{{ entity_id }}" style="margin:0">
