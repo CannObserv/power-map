@@ -1178,16 +1178,24 @@ async def write_role_assignments(
 
 
 async def _set_org_parent(
-    conn, organization_id: str, parent_id: str, source_key_id: str | None, sql: str
+    conn, organization_id: str, parent_id: str, source_key_id: str | None, where_sql: str
 ) -> None:
-    """Run a parent-setting UPDATE, mapping an org-cycle trigger raise to a rejection.
+    """Run the parent-setting UPDATE, mapping an org-cycle trigger raise to a rejection.
+
+    Owns the shared ``UPDATE organizations SET parent_id …, source_key_id …``
+    statement; the caller supplies only the differing row predicate via
+    ``where_sql`` (a trusted static literal — ``"parent_id IS NULL"`` for the
+    write-if-null fill, ``"archived_at IS NULL"`` for the authoritative reparent).
 
     On an ``organizations`` UPDATE the only ``PL/pgSQL RAISE`` (SQLSTATE P0001 →
     ``asyncpg.RaiseError``) is ``trg_no_org_cycle``; the endpoint handler does not
     catch ``RaiseError``, so an unwrapped raise would surface as a 500. Both the
-    write-if-null and authoritative paths share this mapping (#334). ``sql`` binds
-    ``$1=parent_id, $2=organization_id, $3=source_key_id``.
+    write-if-null and authoritative paths share this mapping (#334).
     """
+    sql = (
+        "UPDATE organizations SET parent_id=$1, source_key_id=COALESCE(source_key_id, $3)"
+        f" WHERE id=$2 AND {where_sql}"  # noqa: S608 — where_sql is a trusted literal, not input
+    )
     try:
         await conn.execute(sql, parent_id, organization_id, source_key_id)
     except asyncpg.RaiseError as exc:
@@ -1230,14 +1238,7 @@ async def write_org_parent(
     observation back.
     """
     if not authoritative:
-        await _set_org_parent(
-            conn,
-            organization_id,
-            parent_id,
-            source_key_id,
-            "UPDATE organizations SET parent_id=$1, source_key_id=COALESCE(source_key_id, $3)"
-            " WHERE id=$2 AND parent_id IS NULL",
-        )
+        await _set_org_parent(conn, organization_id, parent_id, source_key_id, "parent_id IS NULL")
         return
 
     row = await conn.fetchrow(
@@ -1268,14 +1269,7 @@ async def write_org_parent(
         )
         raise ObservationRejected("source_key_mismatch")
 
-    await _set_org_parent(
-        conn,
-        organization_id,
-        parent_id,
-        source_key_id,
-        "UPDATE organizations SET parent_id=$1, source_key_id=COALESCE(source_key_id, $3)"
-        " WHERE id=$2 AND archived_at IS NULL",
-    )
+    await _set_org_parent(conn, organization_id, parent_id, source_key_id, "archived_at IS NULL")
     logger.info("Reparented org id=%s parent_id=%s", organization_id, parent_id)
 
 
