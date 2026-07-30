@@ -262,6 +262,8 @@ def make_contacts_router(
         if not existing:
             raise HTTPException(status_code=404)
         await db.execute("DELETE FROM contact_methods WHERE id=$1", contact_id)
+        if not is_htmx(request):
+            return RedirectResponse(detail_url(entity_id), status_code=303)
         return HTMLResponse(
             content="",
             status_code=200,

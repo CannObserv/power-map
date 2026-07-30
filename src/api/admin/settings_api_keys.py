@@ -290,6 +290,8 @@ async def api_key_delete(
     if not existing:
         raise HTTPException(status_code=404)
     await db.execute("DELETE FROM api_keys WHERE id=$1", key_id)
+    if not is_htmx(request):
+        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
     return HTMLResponse(
         content="",
         status_code=200,

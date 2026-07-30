@@ -281,6 +281,8 @@ async def relationship_delete(
     """Hard-delete a relationship edge (mistake correction)."""
     await _get_edge_or_404(rel_id, jurisdiction_id, db)
     await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", rel_id)
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/jurisdictions/{jurisdiction_id}/", status_code=303)
     return HTMLResponse(
         content="", status_code=200, headers=flash_trigger("info", "Relationship removed.")
     )

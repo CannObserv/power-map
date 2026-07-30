@@ -209,6 +209,8 @@ def make_identifiers_router(
         if not existing:
             raise HTTPException(status_code=404)
         await db.execute("DELETE FROM identifiers WHERE id=$1", ident_id)
+        if not is_htmx(request):
+            return RedirectResponse(detail_url(entity_id), status_code=303)
         return HTMLResponse(
             content="",
             status_code=200,

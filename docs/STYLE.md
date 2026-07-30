@@ -1990,6 +1990,8 @@ Deliberate exception: the public API `/search` endpoints (orgs, people) filter a
 
 Always include a `RedirectResponse` fallback on mutation routes for graceful degradation without JS.
 
+**Non-HTMX fallback is CI-enforced (#349).** Every admin mutation route (POST/PUT/DELETE/PATCH) must carry the branch — delete handlers included, even when the HTMX response is just an empty body or OOB fragment: non-HTMX → `RedirectResponse(<owning detail/list url>, status_code=303)` after the mutation. The archive-style variant (`Response(204, HX-Location)` for HTMX + `RedirectResponse` fallback) also satisfies it. `tests/api/admin/test_mutation_fallback_sweep.py` AST-sweeps `src/api/admin/*.py` and fails on any mutation handler whose body lacks `is_htmx` / `RedirectResponse` / `HX-Location`; vetted exceptions go in its `ALLOWED` set with a reason. #349 retrofitted 12 delete-family handlers (the four ancillary factories + addresses, relationships, affiliations, org children, API keys). Shared-factory redirects use the factory's `detail_url` param — citations via its `_dest` helper, which prefers `redirect_resolver` for indirect citable types (`person_name` → owning person).
+
 ### hx-boost re-execution
 
 `hx-boost="true"` on `admin-layout` makes navigation a boosted swap: htmx fetches the full page, then **discards the response `<head>` entirely** (its fragment parser strips `<head>…</head>`) and swaps only the `<body>` plus `<title>`. Two consequences:

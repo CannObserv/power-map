@@ -376,6 +376,8 @@ def make_citations_router(
         if not existing:
             raise HTTPException(status_code=404)
         await db.execute("DELETE FROM citations WHERE id=$1", citation_id)
+        if not is_htmx(request):
+            return RedirectResponse(await _dest(entity_id, db), status_code=303)
         # Body is only the OOB count fragment: the deleted row's outerHTML swap
         # resolves to nothing, while the parent row's Cite button refreshes.
         return templates.TemplateResponse(
