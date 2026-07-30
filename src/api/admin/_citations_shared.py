@@ -44,7 +44,9 @@ def make_citations_router(
     entity_not_found_msg: str,
     detail_url: Callable[[str], str],
     redirect_resolver: Callable[[str, Any], Awaitable[str]] | None = None,
+    subject_resolver: Callable[[str, Any], Awaitable[str | None]] | None = None,
     inline_panel: bool = False,
+    locked_field: str | None = None,
 ) -> APIRouter:
     """Return a configured citations APIRouter for the given entity type.
 
@@ -55,8 +57,19 @@ def make_citations_router(
     → owning entity) whose parent isn't derivable from the id alone. When absent,
     the sync ``detail_url`` is used.
 
+    ``subject_resolver`` (optional) resolves a human label for the panel heading
+    ("Citations for …") so a sub-entity drawer names what it cites and can never be
+    confused with the owning entity's own panel.
+
     ``inline_panel=True`` registers a ``GET /`` route rendering the whole citations
-    panel for one entity — the lazy-load target for a sub-entity's expandable row.
+    panel for one entity — the lazy-load target for a sub-entity's expandable row;
+    it renders as a full-width sub-row so it nests under the clicked parent row.
+
+    ``locked_field`` (optional) pins every citation on this entity to a single
+    field (e.g. ``"name"`` for person_name, whose only citable field is the name
+    itself): the form drops the field picker and the server ignores any posted
+    ``field_name``. Prevents a name/event drawer from silently minting a
+    whole-record citation that reads as redundant with the owner's panel (#319).
     """
     router = APIRouter(prefix=prefix, tags=tags)
     citable_fields = sorted(CITABLE_FIELDS.get(entity_type, frozenset()))
@@ -76,6 +89,7 @@ def make_citations_router(
             "entity_id": entity_id,
             "cit_base": prefix.replace("{entity_id}", entity_id),
             "citable_fields": citable_fields,
+            "locked_field": locked_field,
             **extra,
         }
 
@@ -96,10 +110,20 @@ def make_citations_router(
                 entity_type,
                 entity_id,
             )
-            # dismissible=True → the panel renders a Close control (this route is
-            # the inline drawer target for person_name / entity_event rows).
+            subject_label = await subject_resolver(entity_id, db) if subject_resolver else None
+            # dismissible=True → Close control; as_subrow=True → the panel is wrapped
+            # as a full-width table row so it nests directly under the clicked
+            # person_name / entity_event row (tethered, not a bottom drawer, #319).
             return templates.TemplateResponse(
-                request, _PANEL, _ctx(entity_id, citations=citations, dismissible=True)
+                request,
+                _PANEL,
+                _ctx(
+                    entity_id,
+                    citations=citations,
+                    dismissible=True,
+                    as_subrow=True,
+                    subject_label=subject_label,
+                ),
             )
 
     def _validate(field_name: str | None, url: str | None, title: str | None) -> str | None:
@@ -134,7 +158,7 @@ def make_citations_router(
     ):
         await _get_entity_or_404(entity_id, db)
         f_field, f_url, f_title, f_excerpt = (
-            _clean(field_name),
+            locked_field or _clean(field_name),
             _clean(url),
             _clean(title),
             _clean(excerpt),
@@ -248,7 +272,7 @@ def make_citations_router(
         if not existing:
             raise HTTPException(status_code=404)
         f_field, f_url, f_title, f_excerpt = (
-            _clean(field_name),
+            locked_field or _clean(field_name),
             _clean(url),
             _clean(title),
             _clean(excerpt),

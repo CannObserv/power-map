@@ -3,11 +3,14 @@
    Context: cit_base (e.g. /people/{id}/citations), citable_fields, entity_id,
    citations (list of rows). Include from any entity detail page. When loaded into
    an inline drawer (a person_name / entity_event row's "Cite" button), the route
-   passes dismissible=True so the panel renders a Close control. #}
+   passes dismissible=True (renders a Close control), as_subrow=True (wraps the
+   panel as a full-width table row so it nests under the clicked parent row), and
+   subject_label (heading names what is being cited). #}
+{% if as_subrow %}<tr class="citations-subrow" id="citations-subrow-{{ entity_id }}"><td colspan="99">{% endif %}
 <section class="entity-section" aria-labelledby="citations-heading-{{ entity_id }}">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-2)">
     <h2 id="citations-heading-{{ entity_id }}" style="margin:0">
-      <span aria-hidden="true">📚</span> Citations
+      <span aria-hidden="true">📚</span> Citations{% if subject_label %} <span style="font-weight:400;color:var(--color-text-muted)">for {{ subject_label }}</span>{% endif %}
       {% if citations %}<span class="badge badge--neutral">{{ citations | length }}</span>{% endif %}
     </h2>
     <div style="display:flex;gap:var(--space-2);white-space:nowrap">
@@ -50,3 +53,4 @@
     </table>
   </div>
 </section>
+{% if as_subrow %}</td></tr>{% endif %}
