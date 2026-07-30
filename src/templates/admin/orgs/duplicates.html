@@ -1,4 +1,6 @@
 {% extends "admin/base.html" %}
+{% from "admin/macros/flash.html" import message %}
+{% block flash %}{% if flash_msg %}{{ message(flash_msg.level, flash_msg.body) }}{% endif %}{% endblock %}
 {% block title %}Duplicate Organizations{% endblock %}
 {% block breadcrumb %}
   <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>

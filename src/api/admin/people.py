@@ -15,6 +15,7 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
     resolve_query_flash,
+    with_flash,
 )
 from src.api.admin.entity_lookup import search_entities
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
@@ -167,7 +168,7 @@ async def person_create(
         person_id,
         name,
     )
-    return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+    return RedirectResponse(with_flash(f"/admin/people/{person_id}/", "saved"), status_code=303)
 
 
 @router.get("/search/")
@@ -462,7 +463,7 @@ async def person_notes_save(
         "SELECT id, notes, archived_at FROM people WHERE id = $1", person_id
     )
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/people/{person_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/people/partials/_notes_read.html",
@@ -527,7 +528,7 @@ async def person_pronouns_save(
         "SELECT id, personal_pronouns, archived_at FROM people WHERE id = $1", person_id
     )
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/people/{person_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/people/partials/_pronouns_read.html",

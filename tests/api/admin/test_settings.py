@@ -355,7 +355,7 @@ async def test_create_link_type_non_htmx_redirects(client, db):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/settings/link-types/"
+    assert response.headers["location"] == "/admin/settings/link-types/?flash=saved"
     await db.execute("DELETE FROM link_types WHERE slug=$1", slug)
 
 
@@ -376,7 +376,7 @@ async def test_link_type_edit_row_post_non_htmx_redirects(client, db):
             follow_redirects=False,
         )
         assert response.status_code == 303
-        assert response.headers["location"] == "/admin/settings/link-types/"
+        assert response.headers["location"] == "/admin/settings/link-types/?flash=saved"
     finally:
         await db.execute("DELETE FROM link_types WHERE id=$1", lid)
 
@@ -406,7 +406,7 @@ async def test_identifier_type_edit_row_post_non_htmx_redirects(client, db):
             follow_redirects=False,
         )
         assert response.status_code == 303
-        assert response.headers["location"] == "/admin/settings/identifier-types/"
+        assert response.headers["location"] == "/admin/settings/identifier-types/?flash=saved"
     finally:
         await db.execute("DELETE FROM entity_identifier_types WHERE id=$1", iid)
 
@@ -434,7 +434,7 @@ async def test_create_identifier_type_non_htmx_redirects(client, db):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/settings/identifier-types/"
+    assert response.headers["location"] == "/admin/settings/identifier-types/?flash=saved"
     await db.execute("DELETE FROM entity_identifier_types WHERE slug=$1", slug)
 
 

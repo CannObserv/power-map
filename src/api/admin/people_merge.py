@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 import asyncpg
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
@@ -14,6 +14,8 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    resolve_query_flash,
+    with_flash,
 )
 from src.api.admin.list_filters import parse_list_filters
 from src.api.admin.people_dups import (
@@ -173,15 +175,18 @@ async def _fetch_duplicate_pairs(db) -> list:
 @router.get("/duplicates/")
 async def people_duplicates(
     request: Request,
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """List near-duplicate person pairs for review."""
     pairs = await _fetch_duplicate_pairs(db)
+    flash_msg, resp_headers = resolve_query_flash(request, {}, flash)
     ctx = {
         "user": user,
         "active_section": "people_duplicates",
         "pairs": pairs,
+        "flash_msg": flash_msg,
     }
     return templates.TemplateResponse(
         request,
@@ -189,6 +194,7 @@ async def people_duplicates(
         if is_htmx(request)
         else "admin/people/duplicates.html",
         ctx,
+        headers=resp_headers,
     )
 
 
@@ -624,7 +630,7 @@ async def person_merge(
             ctx,
             headers=flash_trigger("success", body, extra={"refreshDupBadge": True}),
         )
-    return RedirectResponse("/admin/people/duplicates/", status_code=303)
+    return RedirectResponse(with_flash("/admin/people/duplicates/", "saved"), status_code=303)
 
 
 @router.get("/{winner_id}/merge-preview/{loser_id}/")
@@ -772,7 +778,7 @@ async def person_merge_with(
             "",
             headers={**flash_trigger("success", body), "HX-Redirect": redirect_url},
         )
-    return RedirectResponse(redirect_url, status_code=303)
+    return RedirectResponse(with_flash(redirect_url, "saved"), status_code=303)
 
 
 @router.post("/{id_a}/dismiss-duplicate/{id_b}/")
@@ -812,4 +818,4 @@ async def person_dismiss_duplicate(
                 "info", "Pair marked as not a duplicate.", extra={"refreshDupBadge": True}
             ),
         )
-    return RedirectResponse("/admin/people/duplicates/", status_code=303)
+    return RedirectResponse(with_flash("/admin/people/duplicates/", "removed"), status_code=303)

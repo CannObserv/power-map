@@ -12,7 +12,14 @@ from src.api.admin._addresses_shared import (
     field_context,
     parse_validity,
 )
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    with_flash,
+)
 from src.core.db import generate_id
 from src.core.normalizers.address import get_address_normalizer
 
@@ -224,7 +231,9 @@ async def address_create(
     }
     if _is_all_blank(address_line_1, city, region, postal_code):
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/people/partials/_address_form_row.html",
@@ -237,7 +246,9 @@ async def address_create(
         )
     if mode == "edit":
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/people/partials/_address_form_row.html",
@@ -251,7 +262,9 @@ async def address_create(
         _valid_from, _valid_until = parse_validity(valid_from, valid_until)
     except ValueError as exc:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/people/partials/_address_form_row.html",
@@ -305,7 +318,9 @@ async def address_create(
             )
         except ValueError:
             if not is_htmx(request):
-                return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+                return RedirectResponse(
+                    with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+                )
             return templates.TemplateResponse(
                 request,
                 "admin/people/partials/_address_form_row.html",
@@ -354,7 +369,7 @@ async def address_create(
     )
     row = await _get_entity_address_or_404(eaid, person_id, db)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/people/{person_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/people/partials/_address_row.html",
@@ -436,7 +451,9 @@ async def address_edit_row_post(
     }
     if _is_all_blank(address_line_1, city, region, postal_code):
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/people/partials/_address_form_row.html",
@@ -449,7 +466,9 @@ async def address_edit_row_post(
         )
     if mode == "edit":
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/people/partials/_address_form_row.html",
@@ -463,7 +482,9 @@ async def address_edit_row_post(
         _valid_from, _valid_until = parse_validity(valid_from, valid_until)
     except ValueError as exc:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/people/partials/_address_form_row.html",
@@ -515,7 +536,9 @@ async def address_edit_row_post(
             )
         except ValueError:
             if not is_htmx(request):
-                return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+                return RedirectResponse(
+                    with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+                )
             return templates.TemplateResponse(
                 request,
                 "admin/people/partials/_address_form_row.html",
@@ -561,7 +584,7 @@ async def address_edit_row_post(
     )
     row = await _get_entity_address_or_404(addr_id, person_id, db)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/people/{person_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/people/partials/_address_row.html",
@@ -615,7 +638,9 @@ async def address_delete(
         await db.execute("DELETE FROM entity_addresses WHERE id=$1", addr_id)
         await db.execute("DELETE FROM addresses WHERE id=$1", address_id)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/people/{person_id}/", "removed"), status_code=303
+        )
     return HTMLResponse(
         content="",
         status_code=200,

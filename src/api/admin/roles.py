@@ -12,6 +12,7 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
     resolve_query_flash,
+    with_flash,
 )
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
@@ -38,6 +39,7 @@ async def roles_list(
     status: str = "active",
     page: int = Query(1, ge=1),
     page_size: int = Query(PAGE_SIZE_DEFAULT, ge=PAGE_SIZE_MIN, le=PAGE_SIZE_MAX),
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -48,6 +50,7 @@ async def roles_list(
         db, q=q, org_q=org_q, status=status, page=page, page_size=page_size
     )
 
+    flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     ctx = {
         "user": user,
         "active_section": "roles",
@@ -58,6 +61,7 @@ async def roles_list(
         "page_size": page_size,
         "total": count,
         "hidden_matches": hidden_matches,
+        "flash_msg": flash_msg,
         **pctx,
     }
     template = (
@@ -65,7 +69,7 @@ async def roles_list(
         if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
         else "admin/roles/list.html"
     )
-    return templates.TemplateResponse(request, template, ctx)
+    return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
 async def _fetch_orgs(db):
@@ -212,7 +216,7 @@ async def role_create(
         return await _reload(
             "The selected organization, role type, or jurisdiction no longer exists."
         )
-    return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+    return RedirectResponse(with_flash(f"/admin/roles/{role_id}/", "saved"), status_code=303)
 
 
 @router.get("/search/")
@@ -368,4 +372,4 @@ async def role_delete(
         raise HTTPException(status_code=409, detail="Cannot delete role with existing assignments")
     if is_htmx(request):
         return HTMLResponse(content="", status_code=200, headers={"HX-Redirect": "/admin/roles/"})
-    return RedirectResponse("/admin/roles/", status_code=303)
+    return RedirectResponse(with_flash("/admin/roles/", "removed"), status_code=303)

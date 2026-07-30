@@ -108,7 +108,7 @@ async def test_contact_delete_nonhtmx_redirects(client, db):
         oid,
     )
     r = await client.delete(f"/admin/orgs/{oid}/contacts/{cid}/", headers=AUTH_HEADERS)
-    _assert_303(r, f"/admin/orgs/{oid}/")
+    _assert_303(r, f"/admin/orgs/{oid}/?flash=removed")
     assert await db.fetchval("SELECT count(*) FROM contact_methods WHERE id=$1", cid) == 0
 
 
@@ -123,7 +123,7 @@ async def test_link_delete_nonhtmx_redirects(client, db):
         lt_id,
     )
     r = await client.delete(f"/admin/orgs/{oid}/links/{lid}/", headers=AUTH_HEADERS)
-    _assert_303(r, f"/admin/orgs/{oid}/")
+    _assert_303(r, f"/admin/orgs/{oid}/?flash=removed")
     assert await db.fetchval("SELECT count(*) FROM links WHERE id=$1", lid) == 0
 
 
@@ -142,7 +142,7 @@ async def test_identifier_delete_nonhtmx_redirects(client, db):
         type_id,
     )
     r = await client.delete(f"/admin/orgs/{oid}/identifiers/{iid}/", headers=AUTH_HEADERS)
-    _assert_303(r, f"/admin/orgs/{oid}/")
+    _assert_303(r, f"/admin/orgs/{oid}/?flash=removed")
     assert await db.fetchval("SELECT count(*) FROM identifiers WHERE id=$1", iid) == 0
 
 
@@ -155,7 +155,7 @@ async def test_citation_delete_nonhtmx_redirects_detail_url(client, db):
         oid,
     )
     r = await client.delete(f"/admin/orgs/{oid}/citations/{cid}/", headers=AUTH_HEADERS)
-    _assert_303(r, f"/admin/orgs/{oid}/")
+    _assert_303(r, f"/admin/orgs/{oid}/?flash=removed")
     assert await db.fetchval("SELECT count(*) FROM citations WHERE id=$1", cid) == 0
 
 
@@ -175,7 +175,7 @@ async def test_citation_delete_nonhtmx_redirects_via_resolver(client, db):
         nid,
     )
     r = await client.delete(f"/admin/person-names/{nid}/citations/{cid}/", headers=AUTH_HEADERS)
-    _assert_303(r, f"/admin/people/{pid}/")
+    _assert_303(r, f"/admin/people/{pid}/?flash=removed")
     assert await db.fetchval("SELECT count(*) FROM citations WHERE id=$1", cid) == 0
 
 
@@ -186,7 +186,7 @@ async def test_org_address_delete_nonhtmx_redirects(client, db):
     oid = await _seed_org(db)
     ea_id = await _seed_entity_address(db, "organization", oid)
     r = await client.delete(f"/admin/orgs/{oid}/addresses/{ea_id}/", headers=AUTH_HEADERS)
-    _assert_303(r, f"/admin/orgs/{oid}/")
+    _assert_303(r, f"/admin/orgs/{oid}/?flash=removed")
     assert await db.fetchval("SELECT count(*) FROM entity_addresses WHERE id=$1", ea_id) == 0
 
 
@@ -194,7 +194,7 @@ async def test_person_address_delete_nonhtmx_redirects(client, db):
     pid = await _seed_person(db)
     ea_id = await _seed_entity_address(db, "person", pid)
     r = await client.delete(f"/admin/people/{pid}/addresses/{ea_id}/", headers=AUTH_HEADERS)
-    _assert_303(r, f"/admin/people/{pid}/")
+    _assert_303(r, f"/admin/people/{pid}/?flash=removed")
     assert await db.fetchval("SELECT count(*) FROM entity_addresses WHERE id=$1", ea_id) == 0
 
 
@@ -202,7 +202,7 @@ async def test_jurisdiction_address_delete_nonhtmx_redirects(client, db):
     jid = await _seed_jurisdiction(db, "addr")
     ea_id = await _seed_entity_address(db, "jurisdiction", jid)
     r = await client.delete(f"/admin/jurisdictions/{jid}/addresses/{ea_id}/", headers=AUTH_HEADERS)
-    _assert_303(r, f"/admin/jurisdictions/{jid}/")
+    _assert_303(r, f"/admin/jurisdictions/{jid}/?flash=removed")
     assert await db.fetchval("SELECT count(*) FROM entity_addresses WHERE id=$1", ea_id) == 0
 
 
@@ -224,7 +224,7 @@ async def test_relationship_delete_nonhtmx_redirects(client, db):
     r = await client.delete(
         f"/admin/jurisdictions/{jid_a}/relationships/{rel_id}/", headers=AUTH_HEADERS
     )
-    _assert_303(r, f"/admin/jurisdictions/{jid_a}/")
+    _assert_303(r, f"/admin/jurisdictions/{jid_a}/?flash=removed")
     assert (
         await db.fetchval("SELECT count(*) FROM jurisdiction_relationships WHERE id=$1", rel_id)
         == 0
@@ -253,7 +253,7 @@ async def test_jur_affiliation_delete_nonhtmx_redirects(client, db):
     r = await client.delete(
         f"/admin/jurisdictions/{jid}/affiliations/{aff_id}/", headers=AUTH_HEADERS
     )
-    _assert_303(r, f"/admin/jurisdictions/{jid}/")
+    _assert_303(r, f"/admin/jurisdictions/{jid}/?flash=removed")
     assert (
         await db.fetchval(
             "SELECT count(*) FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id
@@ -268,7 +268,7 @@ async def test_org_affiliation_delete_nonhtmx_redirects(client, db):
     r = await client.delete(
         f"/admin/orgs/{oid}/jurisdiction-affiliations/{aff_id}/", headers=AUTH_HEADERS
     )
-    _assert_303(r, f"/admin/orgs/{oid}/")
+    _assert_303(r, f"/admin/orgs/{oid}/?flash=removed")
     assert (
         await db.fetchval(
             "SELECT count(*) FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id
@@ -282,7 +282,7 @@ async def test_children_remove_nonhtmx_redirects(client, db):
     child = generate_id()
     await db.execute("INSERT INTO organizations (id, parent_id) VALUES ($1,$2)", child, parent)
     r = await client.delete(f"/admin/orgs/{parent}/children/{child}/", headers=AUTH_HEADERS)
-    _assert_303(r, f"/admin/orgs/{parent}/")
+    _assert_303(r, f"/admin/orgs/{parent}/?flash=removed")
     assert await db.fetchval("SELECT parent_id FROM organizations WHERE id=$1", child) is None
 
 
@@ -299,7 +299,7 @@ async def test_api_key_delete_nonhtmx_redirects(client, db):
         "349afeed" * 8,
     )
     r = await client.delete(f"/admin/settings/api-keys/{kid}/", headers=AUTH_HEADERS)
-    _assert_303(r, "/admin/settings/api-keys/")
+    _assert_303(r, "/admin/settings/api-keys/?flash=removed")
     assert await db.fetchval("SELECT count(*) FROM api_keys WHERE id=$1", kid) == 0
 
 

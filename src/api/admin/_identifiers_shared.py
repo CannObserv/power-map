@@ -7,7 +7,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    with_flash,
+)
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -120,7 +127,7 @@ def make_identifiers_router(
         )
         row = await _get_identifier_or_404(iid, entity_id, db)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         return templates.TemplateResponse(
             request,
             tmpl_read_row,
@@ -181,7 +188,7 @@ def make_identifiers_router(
         )
         row = await _get_identifier_or_404(ident_id, entity_id, db)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         return templates.TemplateResponse(
             request,
             tmpl_read_row,
@@ -210,7 +217,7 @@ def make_identifiers_router(
             raise HTTPException(status_code=404)
         await db.execute("DELETE FROM identifiers WHERE id=$1", ident_id)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "removed"), status_code=303)
         return HTMLResponse(
             content="",
             status_code=200,

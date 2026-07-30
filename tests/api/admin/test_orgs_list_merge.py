@@ -330,7 +330,7 @@ async def test_non_htmx_merge_still_redirects(client, org_pair):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/admin/orgs/duplicates/"
+    assert response.headers["location"] == "/admin/orgs/duplicates/?flash=saved"
 
 
 # ── A/B regression on HX-Target branching ───────────────────────────────────

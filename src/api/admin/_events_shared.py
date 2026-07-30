@@ -9,7 +9,14 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin._citations_shared import citation_count_lateral
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    with_flash,
+)
 from src.api.admin.entity_lookup import ENTITY_TYPES, entity_exists, resolve_entity_label
 from src.core.ancillary_migrate import delete_citations
 from src.core.db import generate_id
@@ -328,7 +335,9 @@ def make_events_router(
         )
         if date_error:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(request, entity_id, None, event_types, error=date_error)
 
@@ -341,7 +350,9 @@ def make_events_router(
             raise HTTPException(status_code=400, detail="Unknown event type")
         if etype_row["requires_year"] and year_val is None:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(
                 request,
@@ -352,7 +363,9 @@ def make_events_router(
             )
         if etype_row["requires_linked_entity"] and not linked_entity_id.strip():
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(
                 request,
@@ -367,14 +380,18 @@ def make_events_router(
         )
         if linked_error:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(request, entity_id, None, event_types, error=linked_error)
 
         place_addr_id, addr_error = await _validate_event_place_address(db, event_place_address_id)
         if addr_error:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(request, entity_id, None, event_types, error=addr_error)
 
@@ -407,7 +424,7 @@ def make_events_router(
         )
         row = await _get_event_or_404(eid, entity_id, db)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         return templates.TemplateResponse(
             request,
             tmpl_read_row,
@@ -481,7 +498,9 @@ def make_events_router(
         )
         if date_error:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(
                 request,
@@ -501,7 +520,9 @@ def make_events_router(
             raise HTTPException(status_code=400, detail="Unknown event type")
         if etype_row["requires_year"] and year_val is None:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(
                 request,
@@ -513,7 +534,9 @@ def make_events_router(
             )
         if etype_row["requires_linked_entity"] and not linked_entity_id.strip():
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(
                 request,
@@ -540,7 +563,9 @@ def make_events_router(
             )
         if linked_error:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(
                 request,
@@ -554,7 +579,9 @@ def make_events_router(
         place_addr_id, addr_error = await _validate_event_place_address(db, event_place_address_id)
         if addr_error:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(
                 request,
@@ -591,7 +618,7 @@ def make_events_router(
         )
         row = await _get_event_or_404(event_id, entity_id, db)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         return templates.TemplateResponse(
             request,
             tmpl_read_row,
@@ -616,7 +643,7 @@ def make_events_router(
             raise HTTPException(status_code=409, detail="Event is already archived")
         await db.execute("UPDATE entity_events SET archived_at = NOW() WHERE id=$1", event_id)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         events = await fetch_entity_events(entity_id, entity_type, db)
         return templates.TemplateResponse(
             request,
@@ -639,7 +666,7 @@ def make_events_router(
             raise HTTPException(status_code=409, detail="Event is not archived")
         await db.execute("UPDATE entity_events SET archived_at = NULL WHERE id=$1", event_id)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         events = await fetch_entity_events(entity_id, entity_type, db)
         return templates.TemplateResponse(
             request,
@@ -667,7 +694,7 @@ def make_events_router(
             await delete_citations(db, "entity_event", event_id)
             await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "removed"), status_code=303)
         return HTMLResponse(
             content="",
             status_code=200,

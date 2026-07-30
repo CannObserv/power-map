@@ -1,7 +1,7 @@
 """Admin settings: link type CRUD views."""
 
 import asyncpg
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
@@ -12,6 +12,8 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    resolve_query_flash,
+    with_flash,
 )
 from src.core.db import generate_id
 
@@ -51,11 +53,13 @@ def _base_ctx(user, active_section: str = "settings"):
 @router.get("/")
 async def link_types_page(
     request: Request,
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     general = await _fetch_link_types(db, False)
     social = await _fetch_link_types(db, True)
+    flash_msg, resp_headers = resolve_query_flash(request, {}, flash)
     return templates.TemplateResponse(
         request,
         "admin/settings/link_types.html",
@@ -63,7 +67,9 @@ async def link_types_page(
             **_base_ctx(user, "settings_link_types"),
             "general": general,
             "social": social,
+            "flash_msg": flash_msg,
         },  # noqa: E501
+        headers=resp_headers,
     )
 
 
@@ -104,7 +110,7 @@ async def link_type_create(
     )
     rows = await _fetch_link_types(db, is_social)
     if not is_htmx(request):
-        return RedirectResponse("/admin/settings/link-types/", status_code=303)
+        return RedirectResponse(with_flash("/admin/settings/link-types/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_link_type_rows.html",
@@ -172,7 +178,7 @@ async def link_type_edit_row_post(
         item_id,
     )
     if not is_htmx(request):
-        return RedirectResponse("/admin/settings/link-types/", status_code=303)
+        return RedirectResponse(with_flash("/admin/settings/link-types/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_link_type_row.html",

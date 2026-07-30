@@ -1,7 +1,7 @@
 """Admin settings: entity identifier type CRUD views."""
 
 import asyncpg
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
@@ -12,6 +12,8 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    resolve_query_flash,
+    with_flash,
 )
 from src.core.db import generate_id
 from src.core.types import VALID_ENTITY_TYPES
@@ -42,17 +44,21 @@ def _base_ctx(user, active_section: str = "settings"):
 @router.get("/")
 async def identifier_types_page(
     request: Request,
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     rows = await _fetch_identifier_types(db)
+    flash_msg, resp_headers = resolve_query_flash(request, {}, flash)
     return templates.TemplateResponse(
         request,
         "admin/settings/identifier_types.html",
         {
             **_base_ctx(user, "settings_identifier_types"),
             "rows": rows,
+            "flash_msg": flash_msg,
         },  # noqa: E501
+        headers=resp_headers,
     )
 
 
@@ -102,7 +108,9 @@ async def identifier_type_create(
     )
     rows = await _fetch_identifier_types(db)
     if not is_htmx(request):
-        return RedirectResponse("/admin/settings/identifier-types/", status_code=303)
+        return RedirectResponse(
+            with_flash("/admin/settings/identifier-types/", "saved"), status_code=303
+        )
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_identifier_type_rows.html",
@@ -176,7 +184,9 @@ async def identifier_type_edit_row_post(
         item_id,
     )
     if not is_htmx(request):
-        return RedirectResponse("/admin/settings/identifier-types/", status_code=303)
+        return RedirectResponse(
+            with_flash("/admin/settings/identifier-types/", "saved"), status_code=303
+        )
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_identifier_type_row.html",

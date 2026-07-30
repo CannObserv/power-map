@@ -17,6 +17,7 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    with_flash,
 )
 from src.api.admin.people_name_parts import upsert_or_delete_parts
 from src.core.ancillary_migrate import delete_citations
@@ -657,7 +658,7 @@ def make_names_router(
             # both the name insert and any partial parts write are undone.
             return _form_error_response(str(exc), request, from_exc=exc)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         names = await _fetch_names_for_rows(db, entity_id)
         return templates.TemplateResponse(
             request,
@@ -833,7 +834,9 @@ def make_names_router(
             )
             if not other_canonical:
                 if not is_htmx(request):
-                    return RedirectResponse(detail_url(entity_id), status_code=303)
+                    return RedirectResponse(
+                        with_flash(detail_url(entity_id), "exists"), status_code=303
+                    )
                 return HTMLResponse(
                     content="",
                     status_code=200,
@@ -909,7 +912,7 @@ def make_names_router(
             # both the name update and any partial parts write are undone.
             return _form_error_response(str(exc), request, from_exc=exc)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         names = await _fetch_names_for_rows(db, entity_id)
         return templates.TemplateResponse(
             request,
@@ -957,7 +960,7 @@ def make_names_router(
             await db.execute(f"DELETE FROM {names_table} WHERE id=$1", name_id)
             await maybe_promote_sole_name(entity_id, db)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "removed"), status_code=303)
         names = await _fetch_names_for_rows(db, entity_id)
         return templates.TemplateResponse(
             request,

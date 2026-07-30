@@ -12,7 +12,14 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    with_flash,
+)
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -151,7 +158,9 @@ async def jur_affiliation_create(
         )
     row = await db.fetchrow(_JUR_AFF_ROW_SQL, aid)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/jurisdictions/{jurisdiction_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "saved"), status_code=303
+        )
     return templates.TemplateResponse(
         request,
         "admin/jurisdictions/partials/_affiliation_row.html",
@@ -178,7 +187,9 @@ async def jur_affiliation_delete(
         raise HTTPException(status_code=404, detail="Affiliation not found")
     await db.execute("DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/jurisdictions/{jurisdiction_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "removed"), status_code=303
+        )
     return HTMLResponse(
         content="", status_code=200, headers=flash_trigger("info", "Affiliation removed.")
     )
@@ -268,7 +279,7 @@ async def org_affiliation_create(
         )
     row = await db.fetchrow(_ORG_AFF_ROW_SQL, aid)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_jurisdiction_affiliation_row.html",
@@ -295,7 +306,7 @@ async def org_affiliation_delete(
         raise HTTPException(status_code=404, detail="Affiliation not found")
     await db.execute("DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "removed"), status_code=303)
     return HTMLResponse(
         content="", status_code=200, headers=flash_trigger("info", "Affiliation removed.")
     )

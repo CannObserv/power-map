@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx, with_flash
 from src.api.admin.roles_shared import (
     _check_assignment_within_bounds,
     _get_role,
@@ -66,7 +66,9 @@ async def role_inline_org_post(
     resolved = organization_id.strip()
     if not resolved:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/roles/{role_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_org_form.html",
@@ -76,7 +78,9 @@ async def role_inline_org_post(
     exists = await db.fetchval("SELECT id FROM organizations WHERE id=$1", resolved)
     if not exists:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/roles/{role_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_org_form.html",
@@ -86,7 +90,7 @@ async def role_inline_org_post(
     await db.execute("UPDATE roles SET organization_id=$1 WHERE id=$2", resolved, role_id)
     role = await _get_role(role_id, db)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/roles/{role_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_org_read.html",
@@ -146,7 +150,9 @@ async def role_inline_title_post(
     # the admin can't become a drift vector.
     if role["role_type_id"]:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/roles/{role_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_title_read.html",
@@ -159,7 +165,9 @@ async def role_inline_title_post(
     cleaned = title.strip()
     if not cleaned:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/roles/{role_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_title_form.html",
@@ -170,7 +178,9 @@ async def role_inline_title_post(
         await db.execute("UPDATE roles SET title=$1 WHERE id=$2", cleaned, role_id)
     except asyncpg.UniqueViolationError:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/roles/{role_id}/", "exists"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_title_form.html",
@@ -183,7 +193,7 @@ async def role_inline_title_post(
         )
     role = await _get_role(role_id, db)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/roles/{role_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_title_read.html",
@@ -238,7 +248,7 @@ async def role_inline_notes_post(
     await db.execute("UPDATE roles SET notes=$1 WHERE id=$2", notes.strip() or None, role_id)
     role = await _get_role(role_id, db)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/roles/{role_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_notes_read.html",
@@ -397,7 +407,7 @@ async def role_inline_structural_post(
 
     role = await _get_role(role_id, db)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/roles/{role_id}/", "saved"), status_code=303)
     flash_body = (
         "Role type cleared — the previous title was retained. Edit the title if needed."
         if demoted
@@ -478,7 +488,9 @@ async def role_inline_dates_post(
         abolished_on_val = _parse_date(abolished_on)
     except ValueError:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/roles/{role_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_dates_form.html",
@@ -488,7 +500,9 @@ async def role_inline_dates_post(
 
     if established_on_val and abolished_on_val and established_on_val > abolished_on_val:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/roles/{role_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_dates_form.html",
@@ -516,7 +530,9 @@ async def role_inline_dates_post(
             f"fall{'s' if count == 1 else ''} outside these boundaries."
         )
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/roles/{role_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/roles/partials/_dates_form.html",
@@ -532,7 +548,7 @@ async def role_inline_dates_post(
     )
     role = await _get_role(role_id, db)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/roles/{role_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_dates_read.html",

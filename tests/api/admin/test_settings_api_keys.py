@@ -215,7 +215,7 @@ async def test_api_keys_create_non_htmx_redirects(client, db):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == "/admin/settings/api-keys/"
+    assert r.headers["location"] == "/admin/settings/api-keys/?flash=saved"
     await db.execute("DELETE FROM api_keys WHERE user_id='usr_test'")
     await db.execute("DELETE FROM app_users WHERE id='usr_test'")
 

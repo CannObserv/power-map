@@ -141,7 +141,7 @@ async def test_address_create_confirm_non_htmx_persists_and_redirects(
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == f"/admin/jurisdictions/{jid}/"
+    assert r.headers["location"] == f"/admin/jurisdictions/{jid}/?flash=saved"
 
     row = await db.fetchrow(
         "SELECT a.address_line_1, a.city, a.region, a.postal_code, a.standardized"
@@ -192,7 +192,7 @@ async def test_address_edit_confirm_non_htmx_persists_and_redirects(
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == f"/admin/jurisdictions/{jid}/"
+    assert r.headers["location"] == f"/admin/jurisdictions/{jid}/?flash=saved"
 
     row = await db.fetchrow(
         "SELECT a.address_line_1, a.city, a.standardized"

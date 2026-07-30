@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin._citations_shared import citation_count_lateral
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx, with_flash
 from src.api.admin.list_filters import parse_list_filters
 from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
 from src.core.ancillary_migrate import (
@@ -90,7 +90,9 @@ async def role_create(
     title = title.strip()
     if not title:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/orgs/partials/_role_form_row.html",
@@ -111,7 +113,7 @@ async def role_create(
         )
     except asyncpg.UniqueViolationError:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "exists"), status_code=303)
         return templates.TemplateResponse(
             request,
             "admin/orgs/partials/_role_form_row.html",
@@ -127,7 +129,7 @@ async def role_create(
             },
         )
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
     roles = await fetch_org_roles(org_id, db)
     return templates.TemplateResponse(
         request,
@@ -264,7 +266,7 @@ async def role_merge(
             {"roles": roles},
             headers=flash_trigger("success", body),
         )
-    return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
 
 
 @router.get("/{winner_id}/merge-preview/{loser_id}/")
