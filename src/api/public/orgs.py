@@ -95,7 +95,16 @@ async def submit_org_observation(
                 )
 
             if parent_id:
-                await write_org_parent(db, entity_id, parent_id)
+                # Authoritative (reparent) only when the org was id-addressed by
+                # pm_org_id — the producer proves it means exactly this org
+                # (#334). Natural / external-identifier matches stay write-if-null.
+                await write_org_parent(
+                    db,
+                    entity_id,
+                    parent_id,
+                    source_key_id=auth.key_id,
+                    authoritative=request.identifier_type == "pm_org_id",
+                )
 
             await write_additional_identifiers(db, entity_id, request.additional_identifiers)
             event_results = await write_entity_events(

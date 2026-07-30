@@ -1645,23 +1645,149 @@ async def test_resolve_assignment_no_close_when_is_current_asserted(
 # ---------------------------------------------------------------------------
 
 
+async def _mk_org(db) -> str:
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    return oid
+
+
+# -- Non-authoritative (natural / external-identifier match): write-if-null --
+
+
 async def test_write_org_parent_sets_when_null(db, org_id):
-    parent_id = generate_id()
-    await db.execute("INSERT INTO organizations (id) VALUES ($1)", parent_id)
+    parent_id = await _mk_org(db)
     await write_org_parent(db, org_id, parent_id)
     row = await db.fetchrow("SELECT parent_id FROM organizations WHERE id=$1", org_id)
     assert row["parent_id"] == parent_id
 
 
 async def test_write_org_parent_noop_when_set(db, org_id):
-    p1 = generate_id()
-    p2 = generate_id()
-    await db.execute("INSERT INTO organizations (id) VALUES ($1)", p1)
-    await db.execute("INSERT INTO organizations (id) VALUES ($1)", p2)
+    p1 = await _mk_org(db)
+    p2 = await _mk_org(db)
     await write_org_parent(db, org_id, p1)
     await write_org_parent(db, org_id, p2)
     row = await db.fetchrow("SELECT parent_id FROM organizations WHERE id=$1", org_id)
     assert row["parent_id"] == p1
+
+
+async def test_write_org_parent_null_fill_claims_source(db, org_id, api_key_id):
+    """A write-if-null fill stamps source_key_id so the producer owns parent."""
+    parent_id = await _mk_org(db)
+    await write_org_parent(db, org_id, parent_id, source_key_id=api_key_id)
+    row = await db.fetchrow("SELECT source_key_id FROM organizations WHERE id=$1", org_id)
+    assert row["source_key_id"] == api_key_id
+
+
+# -- Authoritative (id-addressed pm_org_id): reparent, provenance-gated (#334) --
+
+
+async def test_write_org_parent_authoritative_reparents(db, org_id, api_key_id):
+    """An already-anchored org's parent is replaced and source claimed."""
+    p1 = await _mk_org(db)
+    p2 = await _mk_org(db)
+    await write_org_parent(db, org_id, p1)  # existing parent (chamber)
+    await write_org_parent(db, org_id, p2, source_key_id=api_key_id, authoritative=True)
+    row = await db.fetchrow(
+        "SELECT parent_id, source_key_id FROM organizations WHERE id=$1", org_id
+    )
+    assert row["parent_id"] == p2
+    assert row["source_key_id"] == api_key_id
+
+
+async def test_write_org_parent_authoritative_claims_null_source(db, org_id, api_key_id):
+    """Reparenting an org with NULL source (admin/pre-#334) claims provenance."""
+    p1 = await _mk_org(db)
+    p2 = await _mk_org(db)
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", p1, org_id)
+    await write_org_parent(db, org_id, p2, source_key_id=api_key_id, authoritative=True)
+    row = await db.fetchrow(
+        "SELECT parent_id, source_key_id FROM organizations WHERE id=$1", org_id
+    )
+    assert row["parent_id"] == p2
+    assert row["source_key_id"] == api_key_id
+
+
+async def test_write_org_parent_authoritative_source_mismatch(db, org_id, api_key_id):
+    """A parent owned by another key is not reparentable (source_key_mismatch)."""
+    other = await _other_api_key(db)
+    p1 = await _mk_org(db)
+    p2 = await _mk_org(db)
+    await write_org_parent(db, org_id, p1, source_key_id=other, authoritative=True)
+    with pytest.raises(ObservationRejected, match="source_key_mismatch"):
+        await write_org_parent(db, org_id, p2, source_key_id=api_key_id, authoritative=True)
+    row = await db.fetchrow("SELECT parent_id FROM organizations WHERE id=$1", org_id)
+    assert row["parent_id"] == p1  # untouched
+
+
+async def test_write_org_parent_authoritative_identical_redelivery_quiet(db, org_id, api_key_id):
+    """Re-asserting the same parent is a quiet no-op even from a foreign key."""
+    other = await _other_api_key(db)
+    p1 = await _mk_org(db)
+    await write_org_parent(db, org_id, p1, source_key_id=other, authoritative=True)
+    # Identical value from a different key → no raise, ownership unchanged.
+    await write_org_parent(db, org_id, p1, source_key_id=api_key_id, authoritative=True)
+    row = await db.fetchrow(
+        "SELECT parent_id, source_key_id FROM organizations WHERE id=$1", org_id
+    )
+    assert row["parent_id"] == p1
+    assert row["source_key_id"] == other
+
+
+async def test_write_org_parent_authoritative_self_parent_rejected(db, org_id, api_key_id):
+    with pytest.raises(ObservationRejected, match="parent_cycle"):
+        await write_org_parent(db, org_id, org_id, source_key_id=api_key_id, authoritative=True)
+
+
+async def test_write_org_parent_authoritative_cycle_rejected(db, org_id, api_key_id):
+    """Reparenting an ancestor under its descendant is rejected parent_cycle."""
+    child = await _mk_org(db)
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, child)
+    # org_id is child's parent; making org_id a child of `child` closes the loop.
+    with pytest.raises(ObservationRejected, match="parent_cycle"):
+        await write_org_parent(db, org_id, child, source_key_id=api_key_id, authoritative=True)
+
+
+async def test_write_org_parent_authoritative_parent_not_found(db, org_id, api_key_id):
+    with pytest.raises(ObservationRejected, match="parent_not_found"):
+        await write_org_parent(
+            db, org_id, generate_id(), source_key_id=api_key_id, authoritative=True
+        )
+
+
+async def test_write_org_parent_authoritative_owner_reparents_owned(db, org_id, api_key_id):
+    """The owning key can reparent an org it already owns (source non-NULL == caller)."""
+    p1 = await _mk_org(db)
+    p2 = await _mk_org(db)
+    # First authoritative write claims the org for api_key_id.
+    await write_org_parent(db, org_id, p1, source_key_id=api_key_id, authoritative=True)
+    # Second reparent by the same key exercises the source-matches → proceed branch.
+    await write_org_parent(db, org_id, p2, source_key_id=api_key_id, authoritative=True)
+    row = await db.fetchrow(
+        "SELECT parent_id, source_key_id FROM organizations WHERE id=$1", org_id
+    )
+    assert row["parent_id"] == p2
+    assert row["source_key_id"] == api_key_id
+
+
+async def test_write_org_parent_authoritative_deep_cycle_rejected(db, org_id, api_key_id):
+    """A multi-level ancestor loop (A→B→C→A) is caught, not just the immediate parent."""
+    b = await _mk_org(db)
+    c = await _mk_org(db)
+    # Chain: c → b → org_id  (c's parent is b, b's parent is org_id).
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, b)
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", b, c)
+    # Setting org_id's parent to c closes the 3-node loop two levels up.
+    with pytest.raises(ObservationRejected, match="parent_cycle"):
+        await write_org_parent(db, org_id, c, source_key_id=api_key_id, authoritative=True)
+
+
+async def test_write_org_parent_nonauthoritative_cycle_rejected(db, org_id, api_key_id):
+    """A write-if-null fill that closes a loop is a clean parent_cycle, not a 500 (#334 CR)."""
+    child = await _mk_org(db)
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, child)
+    # org_id has no parent; filling it with its own descendant `child` closes a loop.
+    with pytest.raises(ObservationRejected, match="parent_cycle"):
+        await write_org_parent(db, org_id, child, source_key_id=api_key_id)
 
 
 # ---------------------------------------------------------------------------

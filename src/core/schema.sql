@@ -3348,3 +3348,17 @@ UPDATE api_key_scope_types
 
 ALTER TABLE role_assignments
     ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;
+
+-- =============================================================================
+-- Migration (#334): organizations provenance — which API key owns parent_id
+-- =============================================================================
+-- Same pattern as role_assignments (#311). NULL for pre-#334, admin-set, and
+-- externally-matched rows; claimed (COALESCE) on the first authoritative
+-- (id-addressed pm_org_id) parent write or write-if-null fill. Update authority:
+-- an org whose source_key_id is non-NULL is only reparentable through the
+-- observation API by that key (`source_key_mismatch` otherwise). ADD COLUMN
+-- IF NOT EXISTS is itself the reconciliation — it reaches a table that predates
+-- the column (unlike an inline CREATE TABLE modifier, #307/#312/#315).
+
+ALTER TABLE organizations
+    ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;
