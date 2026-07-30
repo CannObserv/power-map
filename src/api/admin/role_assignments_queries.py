@@ -7,6 +7,7 @@ so the assignments list follows the same declarative status-axis shape as
 missed by the original #306 parity pass.
 """
 
+from src.api.admin._citations_shared import citation_count_lateral
 from src.api.admin.list_status import count_with_hidden_matches
 from src.api.admin.pagination import pagination_context
 
@@ -18,8 +19,9 @@ STATUS_PREDICATES: dict[str, str] = {
 }
 VALID_STATUSES: set[str] = set(STATUS_PREDICATES) | {"all"}
 
-_LIST_SELECT = """
+_LIST_SELECT = f"""
     SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.created_at,
+           cc_j.citation_count,
            p.id AS person_id,
            pn.display_name AS person_name,
            r.id AS role_id, r.title AS role_title,
@@ -31,6 +33,7 @@ _LIST_SELECT = """
     JOIN roles r ON r.id = ra.role_id
     JOIN organizations o ON o.id = r.organization_id
     LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+    {citation_count_lateral("role_assignment", "ra.id")}
 """
 
 # ra.id: unique tiebreaker for stable offset pagination under the non-unique sort keys (#297)

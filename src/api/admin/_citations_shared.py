@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
-from src.core.citations import CITABLE_FIELDS
+from src.core.citations import CITABLE_ENTITY_TYPES, CITABLE_FIELDS
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -33,6 +33,24 @@ _PANEL = "admin/citations/partials/_citations_panel.html"
 
 def _clean(v: str | None) -> str | None:
     return v.strip() if v and v.strip() else None
+
+
+def citation_count_lateral(entity_type: str, id_expr: str, *, alias: str = "cc") -> str:
+    """SQL fragment adding ``citation_count`` (active rows only) to a row query.
+
+    Embedding the count in the row-fetch SQL — rather than a side dict passed to
+    the template — keeps the #341 indicator alive across every render path of a
+    row partial (list tbody, single-row HTMX re-renders). One LATERAL probe per
+    row on ``idx_citations_entity``; still a single query per list.
+    """
+    if entity_type not in CITABLE_ENTITY_TYPES:
+        raise ValueError(f"not a citable entity type: {entity_type!r}")
+    return (
+        f" LEFT JOIN LATERAL ("
+        f"SELECT count(*) AS citation_count FROM citations {alias}"
+        f" WHERE {alias}.entity_type = '{entity_type}' AND {alias}.entity_id = {id_expr}"
+        f" AND {alias}.archived_at IS NULL) {alias}_j ON TRUE "
+    )
 
 
 def make_citations_router(

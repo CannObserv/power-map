@@ -1,3 +1,4 @@
+{% from "admin/macros/citation_indicator.html" import citation_indicator %}
 {% for ra in assignments %}
 <tr class="{% if ra.archived_at %}is-archived{% endif %}">
   <td>
@@ -9,6 +10,7 @@
     {% if ra.archived_at %}<span class="badge badge--archived">Archived</span>
     {% elif ra.is_current %}<span class="badge badge--active">Current</span>
     {% else %}<span class="badge badge--inactive">Former</span>{% endif %}
+    {{ citation_indicator(ra.citation_count, href="/admin/role-assignments/" ~ ra.id ~ "/") }}
   </td>
   <td>{{ ra.start_date or '—' }}</td>
   <td>{{ ra.end_date or '—' }}</td>
