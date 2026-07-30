@@ -45,7 +45,9 @@ def _mutation_handlers_without_fallback() -> list[str]:
             )
             if not is_mutation:
                 continue
-            body_src = ast.unparse(node)
+            # Scan only the handler body — a marker in a decorator argument
+            # must not satisfy the guard (CR #350 finding 2).
+            body_src = "\n".join(ast.unparse(stmt) for stmt in node.body)
             if any(marker in body_src for marker in _FALLBACK_MARKERS):
                 continue
             offenders.append(f"{path.name}::{node.name}")
