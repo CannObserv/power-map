@@ -77,6 +77,12 @@ def make_citations_router(
     "span everything" sentinel: an over-large value implies phantom columns that
     collapse the real ones under ``table-layout:fixed`` (#319 scrunch regression).
     """
+    if inline_panel and subrow_colspan < 2:
+        raise ValueError(
+            "inline_panel routers must set subrow_colspan to the parent table's"
+            f" column count (>=2); got {subrow_colspan} for {entity_type}."
+        )
+
     router = APIRouter(prefix=prefix, tags=tags)
     citable_fields = sorted(CITABLE_FIELDS.get(entity_type, frozenset()))
 
@@ -213,10 +219,12 @@ def make_citations_router(
         row = await db.fetchrow("SELECT * FROM citations WHERE id=$1", cid)
         if not is_htmx(request):
             return RedirectResponse(await _dest(entity_id, db), status_code=303)
+        # remove_empty → the read row carries an OOB delete for the panel's
+        # "No citations yet." row so the first citation doesn't render above it.
         return templates.TemplateResponse(
             request,
             _READ_ROW,
-            _ctx(entity_id, c=row),
+            _ctx(entity_id, c=row, remove_empty=True),
             headers=flash_trigger(
                 "success", f"Citation <strong>{escape(f_url or f_title)}</strong> added."
             ),

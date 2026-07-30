@@ -7,7 +7,7 @@
     {{ c.title }}
     {% endif %}
   </td>
-  <td>{{ c.field_name or '(whole record)' }}</td>
+  {% if not locked_field %}<td>{{ c.field_name or '(whole record)' }}</td>{% endif %}
   <td>{{ c.excerpt or '—' }}</td>
   <td style="text-align:right;white-space:nowrap">
     <button type="button" class="btn btn--sm btn--secondary"
@@ -23,3 +23,7 @@
             hx-confirm="Delete this citation?">Delete</button>
   </td>
 </tr>
+{% if remove_empty %}
+{# OOB-remove the panel's "No citations yet." row after the first citation lands. #}
+<tr id="citations-empty-{{ entity_id }}" hx-swap-oob="delete"></tr>
+{% endif %}
