@@ -59,6 +59,28 @@ async def org_write_key(db, org_obs_scope):
 
 
 @pytest_asyncio.fixture(loop_scope="session")
+async def org_write_key2(db, org_obs_scope):
+    """A second observations:write key, for cross-key parent authority (#334)."""
+    uid = generate_id()
+    kid = generate_id()
+    raw = "pm_" + os.urandom(16).hex()
+    key_hash = hashlib.sha256(raw.encode()).hexdigest()
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "org_obs2@test.com")
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        uid,
+        "Org Obs Key 2",
+        raw[:8],
+        key_hash,
+    )
+    await db.execute(
+        "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, org_obs_scope
+    )
+    return raw, kid
+
+
+@pytest_asyncio.fixture(loop_scope="session")
 async def org_read_key(db):
     """Read-only API key (no scope) for 403 scope checks."""
     uid = generate_id()
@@ -405,6 +427,109 @@ async def test_org_parent_by_id(client, org_write_key, db):
 
     row = await db.fetchrow("SELECT parent_id FROM organizations WHERE id=$1", child_id)
     assert row["parent_id"] == parent_id
+
+
+async def test_org_reparent_via_pm_org_id(client, org_write_key, db):
+    """#334: an id-addressed (pm_org_id) observation reparents an anchored org.
+
+    The exact reported scenario: a subcommittee already anchored under the
+    chamber is re-observed by pm_org_id with the correct parent committee.
+    """
+    raw, _ = org_write_key
+    chamber = generate_id()
+    committee = generate_id()
+    sub = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", chamber)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", committee)
+    await db.execute("INSERT INTO organizations (id, parent_id) VALUES ($1, $2)", sub, chamber)
+    try:
+        r = await _post(
+            client,
+            raw,
+            {
+                "identifier_type": "pm_org_id",
+                "identifier_value": sub,
+                "organization_parent_id": committee,
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["disposition"] == "auto-attached"
+        row = await db.fetchrow("SELECT parent_id FROM organizations WHERE id=$1", sub)
+        assert row["parent_id"] == committee  # reparented, not left at chamber
+    finally:
+        await db.execute("DELETE FROM organizations WHERE id=$1", sub)
+        await db.execute("DELETE FROM organizations WHERE id IN ($1,$2)", chamber, committee)
+
+
+async def test_org_reparent_via_pm_org_id_foreign_key_rejected(
+    client, org_write_key, org_write_key2, db
+):
+    """#334: a parent owned by another key can't be reparented (source_key_mismatch)."""
+    raw1, _ = org_write_key
+    raw2, _ = org_write_key2
+    p1 = generate_id()
+    p2 = generate_id()
+    sub = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", p1)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", p2)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", sub)
+    try:
+        # key1 claims the parent authoritatively.
+        r1 = await _post(
+            client,
+            raw1,
+            {"identifier_type": "pm_org_id", "identifier_value": sub, "organization_parent_id": p1},
+        )
+        assert r1.json()["disposition"] == "auto-attached"
+        # key2 tries to reparent → rejected, parent unchanged.
+        r2 = await _post(
+            client,
+            raw2,
+            {"identifier_type": "pm_org_id", "identifier_value": sub, "organization_parent_id": p2},
+        )
+        assert r2.status_code == 200
+        body = r2.json()
+        assert body["disposition"] == "rejected"
+        assert body["reason"] == "source_key_mismatch"
+        row = await db.fetchrow("SELECT parent_id FROM organizations WHERE id=$1", sub)
+        assert row["parent_id"] == p1
+    finally:
+        await db.execute("DELETE FROM organizations WHERE id=$1", sub)
+        await db.execute("DELETE FROM organizations WHERE id IN ($1,$2)", p1, p2)
+
+
+async def test_org_external_match_does_not_reparent(client, org_write_key, db):
+    """A natural-key (external identifier) auto-attach never overwrites parent."""
+    raw, _ = org_write_key
+    ubi = _unique_id()
+    chamber = generate_id()
+    committee = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", chamber)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", committee)
+    # Create + parent the org via its external identifier.
+    r_new = await _post(
+        client,
+        raw,
+        {"identifier_type": "org_ubi", "identifier_value": ubi, "organization_parent_id": chamber},
+    )
+    sub = r_new.json()["entity_id"]
+    try:
+        # Re-observe the SAME external identifier with a different parent → no-op.
+        r2 = await _post(
+            client,
+            raw,
+            {
+                "identifier_type": "org_ubi",
+                "identifier_value": ubi,
+                "organization_parent_id": committee,
+            },
+        )
+        assert r2.json()["disposition"] == "auto-attached"
+        row = await db.fetchrow("SELECT parent_id FROM organizations WHERE id=$1", sub)
+        assert row["parent_id"] == chamber  # write-if-null preserved
+    finally:
+        await db.execute("DELETE FROM organizations WHERE id=$1", sub)
+        await db.execute("DELETE FROM organizations WHERE id IN ($1,$2)", chamber, committee)
 
 
 async def test_org_parent_by_name_ambiguous_rejected(client, org_write_key, db):

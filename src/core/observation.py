@@ -1177,13 +1177,90 @@ async def write_role_assignments(
         )
 
 
-async def write_org_parent(conn, organization_id: str, parent_id: str) -> None:
-    """Set organizations.parent_id if currently NULL (write-if-null)."""
-    await conn.execute(
-        "UPDATE organizations SET parent_id=$1 WHERE id=$2 AND parent_id IS NULL",
-        parent_id,
+async def write_org_parent(
+    conn,
+    organization_id: str,
+    parent_id: str,
+    *,
+    source_key_id: str | None = None,
+    authoritative: bool = False,
+) -> None:
+    """Set organizations.parent_id from an observation (#334).
+
+    Two modes, mirroring the assignment split (#311):
+
+    - **Non-authoritative** (``authoritative=False``, the natural /
+      external-identifier match): write-if-null. Fills the parent only when it
+      is currently NULL and claims ``source_key_id`` on that first write; an org
+      that already has a parent is left untouched — a natural-key match never
+      reparents.
+    - **Authoritative** (``authoritative=True``, the id-addressed ``pm_org_id``
+      path): the producer proves it means exactly this org, so the supplied
+      parent *replaces* the stored one (reparent). Gated on provenance —
+      rejected ``source_key_mismatch`` when the org's ``source_key_id`` is
+      non-NULL and differs from the caller's; a NULL source (admin-set or
+      pre-#334) is claimed (COALESCE) on write. An identical redelivery (parent
+      already as supplied) is a quiet no-op *before* the gate, so a mirroring
+      producer never sees a rejection. Also rejects ``parent_not_found``
+      (unknown/archived parent) and ``parent_cycle`` (self-parent or an ancestor
+      loop caught from ``trg_no_org_cycle``).
+
+    Must run inside the caller's transaction so a rejection rolls the whole
+    observation back.
+    """
+    if not authoritative:
+        await conn.execute(
+            "UPDATE organizations SET parent_id=$1, source_key_id=COALESCE(source_key_id, $3)"
+            " WHERE id=$2 AND parent_id IS NULL",
+            parent_id,
+            organization_id,
+            source_key_id,
+        )
+        return
+
+    row = await conn.fetchrow(
+        "SELECT parent_id, source_key_id FROM organizations WHERE id=$1 AND archived_at IS NULL",
         organization_id,
     )
+    if row is None:
+        raise ObservationRejected("org_not_found")
+    if row["parent_id"] == parent_id:
+        # Idempotent — parent already as supplied. Checked before the authority
+        # gate so an identical redelivery by a foreign key stays a quiet no-op.
+        return
+
+    if parent_id == organization_id:
+        raise ObservationRejected("parent_cycle")
+    parent_exists = await conn.fetchval(
+        "SELECT 1 FROM organizations WHERE id=$1 AND archived_at IS NULL", parent_id
+    )
+    if not parent_exists:
+        raise ObservationRejected("parent_not_found")
+
+    if row["source_key_id"] is not None and row["source_key_id"] != source_key_id:
+        logger.warning(
+            "write_org_parent: source mismatch org=%s owner=%s caller=%s",
+            organization_id,
+            row["source_key_id"],
+            source_key_id,
+        )
+        raise ObservationRejected("source_key_mismatch")
+
+    try:
+        await conn.execute(
+            "UPDATE organizations SET parent_id=$1, source_key_id=COALESCE(source_key_id, $3)"
+            " WHERE id=$2 AND archived_at IS NULL",
+            parent_id,
+            organization_id,
+            source_key_id,
+        )
+    except asyncpg.RaiseError as exc:
+        # trg_no_org_cycle raises a bare exception (SQLSTATE P0001) when the new
+        # parent would close an ancestor loop.
+        logger.warning("write_org_parent: cycle org=%s parent=%s", organization_id, parent_id)
+        raise ObservationRejected("parent_cycle") from exc
+
+    logger.info("Reparented org id=%s parent_id=%s", organization_id, parent_id)
 
 
 async def write_org_active(conn, organization_id: str, active: bool) -> None:
