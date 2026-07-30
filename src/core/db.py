@@ -83,15 +83,19 @@ async def check_ready(timeout: float = READY_ACQUIRE_TIMEOUT_S) -> None:
     acquire on an exhausted pool hangs forever, making pool exhaustion
     indistinguishable at the client from process death.
 
+    The query is bounded too: an idle pooled connection acquires instantly,
+    then an unbounded ``SELECT`` would hang on a wedged DB (network partition,
+    stuck backend) — the same failure mode one layer down.
+
     Raises:
         RuntimeError: pool not initialised (``DATABASE_URL`` unset).
-        TimeoutError: pool exhausted — acquire timed out.
+        TimeoutError: pool exhausted or probe query timed out.
         Exception: any driver/DB failure from the probe query.
     """
     pool = get_pool()
     conn = await pool.acquire(timeout=timeout)
     try:
-        await conn.fetchval("SELECT 1")
+        await conn.fetchval("SELECT 1", timeout=timeout)
     finally:
         await pool.release(conn)
 

@@ -72,7 +72,11 @@ async def test_check_ready_acquires_with_timeout_and_selects_one():
         await db_module.check_ready()
     (_, kwargs) = pool.acquire.await_args
     assert kwargs.get("timeout", 0) > 0
-    conn.fetchval.assert_awaited_once_with("SELECT 1")
+    # The query itself must be bounded too (CR #343): an idle pooled connection
+    # acquires instantly, then an unbounded SELECT hangs on a wedged DB.
+    (args, q_kwargs) = conn.fetchval.await_args
+    assert args == ("SELECT 1",)
+    assert q_kwargs.get("timeout", 0) > 0
     pool.release.assert_awaited_once_with(conn)
 
 

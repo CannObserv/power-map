@@ -48,7 +48,7 @@ class NotReadyResponse(BaseModel):
     reason: str
 
 
-@health_router.get("/health", response_model=HealthResponse, operation_id="healthLiveness")
+@health_router.get("/health", response_model=HealthResponse, operation_id="getHealth")
 async def health() -> HealthResponse:
     """Liveness: the process is up. No external calls."""
     return HealthResponse(status="ok", build=APP_VERSION)
@@ -57,7 +57,7 @@ async def health() -> HealthResponse:
 @health_router.get(
     "/ready",
     response_model=ReadyResponse,
-    operation_id="healthReadiness",
+    operation_id="getReadiness",
     responses={503: {"model": NotReadyResponse, "description": "Dependency not ready"}},
 )
 async def ready() -> ReadyResponse | JSONResponse:
@@ -73,7 +73,7 @@ async def ready() -> ReadyResponse | JSONResponse:
         logger.warning("readiness probe failed: pool not initialised")
     except TimeoutError:
         reason = "pool_timeout"
-        logger.warning("readiness probe failed: pool acquire timed out")
+        logger.warning("readiness probe failed: pool acquire or probe query timed out")
     except Exception:
         reason = "db_error"
         logger.exception("readiness probe failed: database error")
