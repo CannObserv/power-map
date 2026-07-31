@@ -11,12 +11,15 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from src.api.admin.deps import (
+    SHARED_FLASH_MESSAGES,
     AdminUser,
     flash_trigger,
     get_admin_user,
     get_db,
     is_htmx,
     parse_validity_fields,
+    resolve_query_flash,
+    with_flash,
 )
 from src.api.main import app
 from tests.api.admin.conftest import AUTH_HEADERS
@@ -191,6 +194,78 @@ async def test_admin_dashboard_returns_200_when_authenticated(client):
     response = await client.get("/admin/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "Power Map" in response.text
+
+
+# --- with_flash (append ?flash= to a §32 fallback redirect URL, #351) --------
+
+
+def test_with_flash_appends_query_param_to_bare_path():
+    assert with_flash("/admin/orgs/org_123/", "saved") == "/admin/orgs/org_123/?flash=saved"
+
+
+def test_with_flash_preserves_existing_query_params():
+    out = with_flash("/admin/orgs/?status=active&q=foo", "removed")
+    # flash added; existing params retained
+    assert "flash=removed" in out
+    assert "status=active" in out
+    assert "q=foo" in out
+
+
+def test_with_flash_overwrites_existing_flash_param():
+    out = with_flash("/admin/orgs/org_1/?flash=stale", "saved")
+    assert out.count("flash=") == 1
+    assert "flash=saved" in out
+    assert "stale" not in out
+
+
+def test_with_flash_preserves_fragment():
+    out = with_flash("/admin/orgs/org_1/#links", "saved")
+    assert out.endswith("#links")
+    assert "flash=saved" in out
+
+
+def test_with_flash_keys_are_registered():
+    """Every key with_flash callers use must resolve; guard against typos."""
+    for key in ("saved", "removed", "invalid", "exists"):
+        assert key in SHARED_FLASH_MESSAGES
+
+
+# --- resolve_query_flash falls back to the shared registry (#351) ------------
+
+
+def _req(htmx: bool = False, url: str = "http://test/admin/orgs/org_1/?flash=saved"):
+    from starlette.datastructures import URL
+
+    request = MagicMock()
+    request.headers = {"HX-Request": "true"} if htmx else {}
+    request.url = URL(url)
+    return request
+
+
+def test_resolve_query_flash_resolves_shared_key_absent_from_route_dict():
+    """A §32 fallback key lives in SHARED_FLASH_MESSAGES, not the route-local dict."""
+    flash_msg, _ = resolve_query_flash(_req(), {"archived": ("success", "Archived.")}, "saved")
+    assert flash_msg is not None
+    assert flash_msg["level"] == SHARED_FLASH_MESSAGES["saved"][0]
+    assert flash_msg["body"] == SHARED_FLASH_MESSAGES["saved"][1]
+
+
+def test_resolve_query_flash_route_dict_wins_over_shared():
+    """A route-local key of the same name must take precedence over the shared one."""
+    flash_msg, _ = resolve_query_flash(_req(), {"saved": ("info", "Route-specific.")}, "saved")
+    assert flash_msg == {"level": "info", "body": "Route-specific."}
+
+
+def test_resolve_query_flash_unknown_key_returns_none():
+    flash_msg, headers = resolve_query_flash(_req(), {}, "not-a-real-key")
+    assert flash_msg is None
+    assert headers == {}
+
+
+def test_resolve_query_flash_shared_key_strips_param_on_non_htmx():
+    _, headers = resolve_query_flash(_req(htmx=False), {}, "removed")
+    assert "HX-Replace-Url" in headers
+    assert "flash" not in headers["HX-Replace-Url"]
 
 
 # --- parse_validity_fields (shared admin-form validity parser) ---------------

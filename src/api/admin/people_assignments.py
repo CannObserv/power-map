@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin._citations_shared import citation_count_lateral
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx, with_flash
 from src.core.db import generate_id
 from src.core.org_lifecycle import (
     AssignmentOutsideOrgLifespan,
@@ -134,7 +134,9 @@ async def assignment_create(
 
     if not role_id_val:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return _form_error("Role is required.")
 
     try:
@@ -142,7 +144,9 @@ async def assignment_create(
         end_date_val = _parse_date(end_date)
     except ValueError:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return _form_error("Invalid date format. Use YYYY-MM-DD.")
 
     try:
@@ -155,7 +159,9 @@ async def assignment_create(
         )
     except AssignmentOutsideOrgLifespan as exc:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return _form_error(lifespan_error_message(exc))
 
     ra_id = generate_id()
@@ -173,19 +179,25 @@ async def assignment_create(
         )
     except asyncpg.CheckViolationError:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return _form_error("Current assignments cannot have an end date.")
     except asyncpg.UniqueViolationError:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "exists"), status_code=303
+            )
         return _form_error("An assignment for this role with this start date already exists.")
     except asyncpg.ForeignKeyViolationError:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return _form_error("Role not found.")
 
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/people/{person_id}/", "saved"), status_code=303)
 
     assignments = await fetch_person_assignments(person_id, db)
     return templates.TemplateResponse(
@@ -269,7 +281,9 @@ async def assignment_edit_row_post(
         end_date_val = _parse_date(end_date)
     except ValueError:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/people/partials/_assignment_edit_row.html",
@@ -291,7 +305,9 @@ async def assignment_edit_row_post(
         )
     except AssignmentOutsideOrgLifespan as exc:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/people/partials/_assignment_edit_row.html",
@@ -315,7 +331,9 @@ async def assignment_edit_row_post(
         )
     except asyncpg.CheckViolationError:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/people/{person_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/people/partials/_assignment_edit_row.html",
@@ -328,7 +346,7 @@ async def assignment_edit_row_post(
         )
 
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/people/{person_id}/", "saved"), status_code=303)
 
     assignments = await fetch_person_assignments(person_id, db)
     return templates.TemplateResponse(
@@ -353,7 +371,9 @@ async def assignment_archive(
         raise HTTPException(status_code=409, detail="Role assignment is already archived")
     await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id=$1", assignment_id)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/people/{person_id}/", "removed"), status_code=303
+        )
     assignments = await fetch_person_assignments(person_id, db)
     return templates.TemplateResponse(
         request,

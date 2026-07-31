@@ -19,6 +19,7 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
     parse_validity_fields,
+    with_flash,
 )
 from src.core.db import generate_id
 
@@ -174,7 +175,9 @@ async def relationship_create(
 
     row = await db.fetchrow(_REL_ROW_SQL, rid)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/jurisdictions/{jurisdiction_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "saved"), status_code=303
+        )
     return templates.TemplateResponse(
         request,
         "admin/jurisdictions/partials/_relationship_row.html",
@@ -261,7 +264,9 @@ async def relationship_edit_row_post(
         )
     updated = await db.fetchrow(_REL_ROW_SQL, rel_id)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/jurisdictions/{jurisdiction_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "saved"), status_code=303
+        )
     return templates.TemplateResponse(
         request,
         "admin/jurisdictions/partials/_relationship_row.html",
@@ -282,7 +287,9 @@ async def relationship_delete(
     await _get_edge_or_404(rel_id, jurisdiction_id, db)
     await db.execute("DELETE FROM jurisdiction_relationships WHERE id=$1", rel_id)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/jurisdictions/{jurisdiction_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "removed"), status_code=303
+        )
     return HTMLResponse(
         content="", status_code=200, headers=flash_trigger("info", "Relationship removed.")
     )

@@ -12,7 +12,14 @@ from src.api.admin._addresses_shared import (
     field_context,
     parse_validity,
 )
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    with_flash,
+)
 from src.core.db import generate_id
 from src.core.normalizers.address import get_address_normalizer
 
@@ -233,7 +240,9 @@ async def address_create(
     }
     if _is_all_blank(address_line_1, city, region, postal_code):
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/orgs/partials/_address_form_row.html",
@@ -245,8 +254,14 @@ async def address_create(
             },
         )
     if mode == "edit":
+        # `edit` is the confirm-flow "go back and revise" step, driven by the
+        # HTMX modal; a pure non-HTMX POST always sends the default mode="confirm",
+        # so this fallback is a near-unreachable defensive branch — `invalid` is a
+        # safe generic key for it, not a claim the input was actually bad (#351 CR).
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/orgs/partials/_address_form_row.html",
@@ -260,7 +275,9 @@ async def address_create(
         _valid_from, _valid_until = parse_validity(valid_from, valid_until)
     except ValueError as exc:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/orgs/partials/_address_form_row.html",
@@ -314,7 +331,9 @@ async def address_create(
             )
         except ValueError:
             if not is_htmx(request):
-                return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+                return RedirectResponse(
+                    with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
+                )
             return templates.TemplateResponse(
                 request,
                 "admin/orgs/partials/_address_form_row.html",
@@ -363,7 +382,7 @@ async def address_create(
     )
     row = await _get_entity_address_or_404(eaid, org_id, db)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_row.html",
@@ -445,7 +464,9 @@ async def address_edit_row_post(
     }
     if _is_all_blank(address_line_1, city, region, postal_code):
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/orgs/partials/_address_form_row.html",
@@ -457,8 +478,14 @@ async def address_edit_row_post(
             },
         )
     if mode == "edit":
+        # `edit` is the confirm-flow "go back and revise" step, driven by the
+        # HTMX modal; a pure non-HTMX POST always sends the default mode="confirm",
+        # so this fallback is a near-unreachable defensive branch — `invalid` is a
+        # safe generic key for it, not a claim the input was actually bad (#351 CR).
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/orgs/partials/_address_form_row.html",
@@ -472,7 +499,9 @@ async def address_edit_row_post(
         _valid_from, _valid_until = parse_validity(valid_from, valid_until)
     except ValueError as exc:
         if not is_htmx(request):
-            return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+            return RedirectResponse(
+                with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             "admin/orgs/partials/_address_form_row.html",
@@ -524,7 +553,9 @@ async def address_edit_row_post(
             )
         except ValueError:
             if not is_htmx(request):
-                return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+                return RedirectResponse(
+                    with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
+                )
             return templates.TemplateResponse(
                 request,
                 "admin/orgs/partials/_address_form_row.html",
@@ -570,7 +601,7 @@ async def address_edit_row_post(
     )
     row = await _get_entity_address_or_404(addr_id, org_id, db)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_row.html",
@@ -624,7 +655,7 @@ async def address_delete(
         await db.execute("DELETE FROM entity_addresses WHERE id=$1", addr_id)
         await db.execute("DELETE FROM addresses WHERE id=$1", address_id)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "removed"), status_code=303)
     return HTMLResponse(
         content="",
         status_code=200,

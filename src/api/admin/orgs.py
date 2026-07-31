@@ -15,6 +15,7 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
     resolve_query_flash,
+    with_flash,
 )
 from src.api.admin.entity_lookup import search_entities
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
@@ -162,7 +163,7 @@ async def org_create(
                 org_id,
                 acronym.strip(),
             )
-    return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+    return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
 
 
 @router.get("/search/")
@@ -214,7 +215,7 @@ async def org_inline_active_post(
         # Org hard-deleted in the window between commit and this re-fetch.
         raise HTTPException(status_code=404)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
     # Re-derive the open-assignment banner state for the new active flag so the
     # toggle can OOB-swap it in place (#320) — shared gating with the detail GET.
     open_assignment_count, org_ended_on = await resolve_lifespan_banner(db, org)
@@ -282,7 +283,7 @@ async def org_inline_notes_post(
     )
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_notes_read.html",
@@ -347,7 +348,7 @@ async def org_inline_parent_post(
             org["parent_id"],
         )
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
     if parent:
         flash_body = f"Parent set to <strong>{escape(parent['display_name'])}</strong>."
         flash_level = "success"
@@ -591,7 +592,7 @@ async def children_add(
         child_id,
     )
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_child_row.html",
@@ -619,7 +620,7 @@ async def children_remove(
         raise HTTPException(status_code=404)
     await db.execute("UPDATE organizations SET parent_id=NULL WHERE id=$1", child_id)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "removed"), status_code=303)
     return HTMLResponse(
         content="",
         status_code=200,

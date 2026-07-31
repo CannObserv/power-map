@@ -501,7 +501,7 @@ async def test_hard_delete_archived_role_non_htmx_redirects(client, db, role_id)
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers.get("location") == "/admin/roles/"
+    assert response.headers.get("location") == "/admin/roles/?flash=removed"
 
 
 async def test_hard_delete_archived_role_writes_tombstone(client, db, role_id):

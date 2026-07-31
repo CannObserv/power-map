@@ -3,7 +3,7 @@
 import json
 from dataclasses import dataclass
 from datetime import date
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from fastapi import Depends, HTTPException, Request
 
@@ -85,6 +85,44 @@ def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str,
     return {"HX-Trigger": json.dumps(payload)}
 
 
+# Shared §32 fallback-flash registry (#351). Non-HTMX mutation fallbacks across
+# every admin section append one of these keys via ``with_flash`` so a successful
+# create/edit/delete confirms like a Danger Zone action does. The registry is
+# deliberately generic (the static ?flash= param can't carry a per-row value the
+# HTMX HX-Trigger flash includes) and consulted by ``resolve_query_flash`` as a
+# fallback after each route's own ``_FLASH_MESSAGES``. Semantic split:
+#   saved   — a create or edit succeeded
+#   removed — a delete/unlink succeeded
+#   invalid — a create/edit was rejected for bad input (nothing changed)
+#   exists  — a create/edit hit a uniqueness conflict (nothing changed)
+SHARED_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
+    "saved": ("success", "Saved."),
+    # `removed` is `info` to match the HTMX delete path's flash_trigger("info", …);
+    # Danger Zone deletes flash `success`, an inconsistency audited in #353.
+    "removed": ("info", "Removed."),
+    "invalid": ("warning", "Couldn't save — check your input."),
+    "exists": ("warning", "That already exists."),
+}
+
+
+def with_flash(url: str, flash_key: str) -> str:
+    """Return ``url`` with ``?flash=<flash_key>`` set, preserving path/query/fragment.
+
+    Use on §32 non-HTMX fallback redirects so the target detail/list route can
+    surface a confirmation via ``resolve_query_flash`` (#351). Any pre-existing
+    ``flash`` param is overwritten; other query params and the fragment survive.
+
+    Callers pass query-less targets (bare detail/list URLs). Any pre-existing
+    query is round-tripped through ``parse_qsl``/``urlencode`` and so may be
+    re-encoded (e.g. a space renders as ``+``); harmless for equivalent URLs but
+    worth knowing if a fallback ever redirects to a URL carrying filter state.
+    """
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["flash"] = flash_key
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
 def resolve_query_flash(
     request: Request,
     flash_messages: dict[str, tuple[str, str]],
@@ -93,11 +131,16 @@ def resolve_query_flash(
     """Resolve a ``?flash=<key>`` query param against a router-local registry.
 
     Returns ``(flash_msg, headers)``. ``flash_msg`` is ``{"level", "body"}`` or ``None``.
-    When a flash is resolved on a non-HTMX request, ``headers`` carries an
-    ``HX-Replace-Url`` entry that strips the ``flash`` query param so a refresh
+    Resolution order: the route-local ``flash_messages`` first, then the shared
+    ``SHARED_FLASH_MESSAGES`` (the §32 fallback keys, #351) — so a route need not
+    re-declare the generic ancillary keys, and a route-local key of the same name
+    still wins. When a flash is resolved on a non-HTMX request, ``headers`` carries
+    an ``HX-Replace-Url`` entry that strips the ``flash`` query param so a refresh
     won't re-trigger the message. HTMX requests get an empty headers dict.
     """
     pair = flash_messages.get(flash_key) if flash_key else None
+    if pair is None and flash_key:
+        pair = SHARED_FLASH_MESSAGES.get(flash_key)
     flash_msg = {"level": pair[0], "body": pair[1]} if pair else None
     headers: dict[str, str] = {}
     if flash_msg and not is_htmx(request):

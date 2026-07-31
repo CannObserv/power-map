@@ -8,7 +8,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    with_flash,
+)
 from src.core.db import generate_id
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
@@ -112,7 +119,9 @@ def make_contacts_router(
                 raw_value = _phone_normalizer.normalize(raw_value).value
         except ValueError:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             return templates.TemplateResponse(
                 request,
                 tmpl_form_row,
@@ -138,7 +147,7 @@ def make_contacts_router(
         )
         row = await db.fetchrow("SELECT * FROM contact_methods WHERE id=$1", cid)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         return templates.TemplateResponse(
             request,
             tmpl_read_row,
@@ -216,7 +225,9 @@ def make_contacts_router(
                 raw_value = _phone_normalizer.normalize(raw_value).value
         except ValueError:
             if not is_htmx(request):
-                return RedirectResponse(detail_url(entity_id), status_code=303)
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
             return templates.TemplateResponse(
                 request,
                 tmpl_form_row,
@@ -236,7 +247,7 @@ def make_contacts_router(
         )
         row = await db.fetchrow("SELECT * FROM contact_methods WHERE id=$1", contact_id)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         return templates.TemplateResponse(
             request,
             tmpl_read_row,
@@ -263,7 +274,7 @@ def make_contacts_router(
             raise HTTPException(status_code=404)
         await db.execute("DELETE FROM contact_methods WHERE id=$1", contact_id)
         if not is_htmx(request):
-            return RedirectResponse(detail_url(entity_id), status_code=303)
+            return RedirectResponse(with_flash(detail_url(entity_id), "removed"), status_code=303)
         return HTMLResponse(
             content="",
             status_code=200,

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx, with_flash
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
 
 router = APIRouter(prefix="/people/{person_id}/embeddings", tags=["admin-person-embeddings"])
@@ -165,7 +165,9 @@ async def archive_embedding(
     if updated is None:
         await _raise_lost_race(db, table, embedding_id, person_id, "Embedding is already archived")
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/people/{person_id}/", "removed"), status_code=303
+        )
     return await _render_section(
         request,
         db,
@@ -210,7 +212,7 @@ async def restore_embedding(
     if updated is None:
         await _raise_lost_race(db, table, embedding_id, person_id, "Embedding is already active")
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(with_flash(f"/admin/people/{person_id}/", "saved"), status_code=303)
     return await _render_section(
         request,
         db,
@@ -264,7 +266,9 @@ async def hard_delete_embedding(
             "Archive the embedding before deleting it permanently",
         )
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/people/{person_id}/", "removed"), status_code=303
+        )
     return await _render_section(
         request,
         db,

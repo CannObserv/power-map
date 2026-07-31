@@ -3,7 +3,7 @@
 import hashlib
 import os
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
@@ -14,6 +14,8 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
     provision_app_user,
+    resolve_query_flash,
+    with_flash,
 )
 from src.core.db import generate_id
 
@@ -44,6 +46,7 @@ def _base_ctx(user):
 @router.get("/")
 async def api_keys_list(
     request: Request,
+    flash: str | None = Query(None),
     user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
@@ -52,10 +55,12 @@ async def api_keys_list(
         " FROM api_keys WHERE user_id=$1 ORDER BY created_at DESC",
         user.id,
     )
+    flash_msg, resp_headers = resolve_query_flash(request, {}, flash)
     return templates.TemplateResponse(
         request,
         "admin/settings/api_keys.html",
-        {**_base_ctx(user), "keys": keys},
+        {**_base_ctx(user), "keys": keys, "flash_msg": flash_msg},
+        headers=resp_headers,
     )
 
 
@@ -92,7 +97,7 @@ async def api_key_create(
         key_hash,
     )
     if not is_htmx(request):
-        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
+        return RedirectResponse(with_flash("/admin/settings/api-keys/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_api_key_new_key_modal.html",
@@ -142,7 +147,7 @@ async def api_key_edit_row_post(
         key_id,
     )
     if not is_htmx(request):
-        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
+        return RedirectResponse(with_flash("/admin/settings/api-keys/", "saved"), status_code=303)
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_api_key_row.html",
@@ -231,7 +236,7 @@ async def api_key_scope_grant(
     if not scope_type:
         raise HTTPException(status_code=422, detail="Unknown scope")
     if not is_htmx(request):
-        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
+        return RedirectResponse(with_flash("/admin/settings/api-keys/", "saved"), status_code=303)
     await db.execute(
         "INSERT INTO api_key_scopes (api_key_id, scope_id, granted_by)"
         " VALUES ($1,$2,$3)"
@@ -262,7 +267,7 @@ async def api_key_scope_revoke(
     if not key:
         raise HTTPException(status_code=404)
     if not is_htmx(request):
-        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
+        return RedirectResponse(with_flash("/admin/settings/api-keys/", "removed"), status_code=303)
     await db.execute(
         "DELETE FROM api_key_scopes WHERE api_key_id=$1 AND scope_id=$2",
         key_id,
@@ -291,7 +296,7 @@ async def api_key_delete(
         raise HTTPException(status_code=404)
     await db.execute("DELETE FROM api_keys WHERE id=$1", key_id)
     if not is_htmx(request):
-        return RedirectResponse("/admin/settings/api-keys/", status_code=303)
+        return RedirectResponse(with_flash("/admin/settings/api-keys/", "removed"), status_code=303)
     return HTMLResponse(
         content="",
         status_code=200,

@@ -20,7 +20,14 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    with_flash,
+)
 from src.core.citations import CITABLE_ENTITY_TYPES, CITABLE_FIELDS
 from src.core.db import generate_id
 
@@ -207,6 +214,7 @@ def make_citations_router(
             _clean(excerpt),
         )
         error = _validate(f_field, f_url, f_title)
+        conflict = False
         if error is None:
             cid = generate_id()
             try:
@@ -228,9 +236,15 @@ def make_citations_router(
                     )
             except asyncpg.UniqueViolationError:
                 error = "A citation with this field and URL already exists."
+                conflict = True
         if error:
             if not is_htmx(request):
-                return RedirectResponse(await _dest(entity_id, db), status_code=303)
+                # A uniqueness conflict flashes `exists`; a validation failure
+                # flashes `invalid` — both funnel into one `error` here (#351 CR).
+                return RedirectResponse(
+                    with_flash(await _dest(entity_id, db), "exists" if conflict else "invalid"),
+                    status_code=303,
+                )
             return templates.TemplateResponse(
                 request,
                 _FORM_ROW,
@@ -248,7 +262,9 @@ def make_citations_router(
             )
         row = await db.fetchrow("SELECT * FROM citations WHERE id=$1", cid)
         if not is_htmx(request):
-            return RedirectResponse(await _dest(entity_id, db), status_code=303)
+            return RedirectResponse(
+                with_flash(await _dest(entity_id, db), "saved"), status_code=303
+            )
         # remove_empty → the read row carries an OOB delete for the panel's
         # "No citations yet." row so the first citation doesn't render above it.
         # cite_count_oob → OOB refresh of the parent row's Cite-button count.
@@ -329,6 +345,7 @@ def make_citations_router(
             _clean(excerpt),
         )
         error = _validate(f_field, f_url, f_title)
+        conflict = False
         if error is None:
             try:
                 async with db.transaction():
@@ -343,15 +360,23 @@ def make_citations_router(
                     )
             except asyncpg.UniqueViolationError:
                 error = "A citation with this field and URL already exists."
+                conflict = True
         if error:
             if not is_htmx(request):
-                return RedirectResponse(await _dest(entity_id, db), status_code=303)
+                # A uniqueness conflict flashes `exists`; a validation failure
+                # flashes `invalid` — both funnel into one `error` here (#351 CR).
+                return RedirectResponse(
+                    with_flash(await _dest(entity_id, db), "exists" if conflict else "invalid"),
+                    status_code=303,
+                )
             return templates.TemplateResponse(
                 request, _FORM_ROW, _ctx(entity_id, c=existing, error=error)
             )
         row = await db.fetchrow("SELECT * FROM citations WHERE id=$1", citation_id)
         if not is_htmx(request):
-            return RedirectResponse(await _dest(entity_id, db), status_code=303)
+            return RedirectResponse(
+                with_flash(await _dest(entity_id, db), "saved"), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             _READ_ROW,
@@ -377,7 +402,9 @@ def make_citations_router(
             raise HTTPException(status_code=404)
         await db.execute("DELETE FROM citations WHERE id=$1", citation_id)
         if not is_htmx(request):
-            return RedirectResponse(await _dest(entity_id, db), status_code=303)
+            return RedirectResponse(
+                with_flash(await _dest(entity_id, db), "removed"), status_code=303
+            )
         # Body is only the OOB count fragment: the deleted row's outerHTML swap
         # resolves to nothing, while the parent row's Cite button refreshes.
         return templates.TemplateResponse(

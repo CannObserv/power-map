@@ -402,7 +402,7 @@ async def test_create_org_with_acronym_stores_acronym(client, db):
     )
     assert response.status_code in (302, 303)
     location = response.headers["location"]
-    created_id = location.rstrip("/").split("/")[-1]
+    created_id = location.split("?")[0].rstrip("/").split("/")[-1]
 
     row = await db.fetchrow(
         "SELECT acronym FROM organization_acronyms"
@@ -421,7 +421,7 @@ async def test_create_org_without_acronym_succeeds(client, db):
         follow_redirects=False,
     )
     assert response.status_code in (302, 303)
-    created_id = response.headers["location"].rstrip("/").split("/")[-1]
+    created_id = response.headers["location"].split("?")[0].rstrip("/").split("/")[-1]
 
     row = await db.fetchrow(
         "SELECT id FROM organization_acronyms WHERE organization_id = $1", created_id

@@ -1,7 +1,7 @@
 """Admin views for org merge and duplicate review."""
 
 import asyncpg
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
@@ -13,6 +13,8 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    resolve_query_flash,
+    with_flash,
 )
 from src.api.admin.list_filters import parse_list_filters
 from src.api.admin.org_dups import (
@@ -533,20 +535,23 @@ async def _execute_merge(
 @router.get("/duplicates/")
 async def orgs_duplicates(
     request: Request,
+    flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """List near-duplicate organization pairs for review."""
     pairs = await _fetch_duplicate_pairs(db)
+    flash_msg, resp_headers = resolve_query_flash(request, {}, flash)
     ctx = {
         "user": user,
         "active_section": "orgs_duplicates",
         "pairs": pairs,
+        "flash_msg": flash_msg,
     }
     template = (
         "admin/orgs/_duplicates_region.html" if is_htmx(request) else "admin/orgs/duplicates.html"
     )
-    return templates.TemplateResponse(request, template, ctx)
+    return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
 @router.post("/{winner_id}/merge/{loser_id}/")
@@ -603,7 +608,7 @@ async def org_merge(
             ctx,
             headers=flash_trigger("success", body, extra={"refreshDupBadge": True}),
         )
-    return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
+    return RedirectResponse(with_flash("/admin/orgs/duplicates/", "saved"), status_code=303)
 
 
 @router.post("/{winner_id}/merge-with/{loser_id}/")
@@ -662,7 +667,7 @@ async def org_merge_with(
             "",
             headers={**flash_trigger("success", body), "HX-Redirect": redirect_url},
         )
-    return RedirectResponse(redirect_url, status_code=303)
+    return RedirectResponse(with_flash(redirect_url, "saved"), status_code=303)
 
 
 @router.post("/{id_a}/dismiss-duplicate/{id_b}/")
@@ -701,7 +706,7 @@ async def org_dismiss_duplicate(
                 "info", "Pair marked as not a duplicate.", extra={"refreshDupBadge": True}
             ),
         )
-    return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
+    return RedirectResponse(with_flash("/admin/orgs/duplicates/", "removed"), status_code=303)
 
 
 @router.get("/{org_id}/merge-target-search/")

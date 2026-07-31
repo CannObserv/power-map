@@ -527,7 +527,7 @@ async def test_merge_non_htmx_redirects_to_org_detail(client, role_pair):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == f"/admin/orgs/{org_id}/"
+    assert response.headers["location"] == f"/admin/orgs/{org_id}/?flash=saved"
 
 
 # ── List-flow merge (#251): merge initiated from /admin/roles/ ───────────────

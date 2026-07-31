@@ -22,6 +22,7 @@ from src.api.admin.deps import (
     is_htmx,
     parse_validity_fields,
     resolve_query_flash,
+    with_flash,
 )
 from src.api.admin.jurisdictions_queries import VALID_STATUSES, query_jurisdictions_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
@@ -225,7 +226,7 @@ async def jurisdiction_create(
         errors["type_id"] = "Unknown jurisdiction type"
         return await _render_jur_form(request, user, db, form=form, errors=errors, status_code=422)
 
-    return RedirectResponse(f"/admin/jurisdictions/{jid}/", status_code=303)
+    return RedirectResponse(with_flash(f"/admin/jurisdictions/{jid}/", "saved"), status_code=303)
 
 
 @router.get("/{jurisdiction_id}/details/")
@@ -341,7 +342,9 @@ async def jurisdiction_details_save(
 
     updated = await _fetch_jur_row(db, jurisdiction_id)
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/jurisdictions/{jurisdiction_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "saved"), status_code=303
+        )
     return templates.TemplateResponse(
         request,
         "admin/jurisdictions/partials/_details_read.html",

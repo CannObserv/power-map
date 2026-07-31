@@ -14,6 +14,7 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
     resolve_query_flash,
+    with_flash,
 )
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.role_assignments_queries import VALID_STATUSES, query_role_assignments_rows
@@ -222,7 +223,9 @@ async def ra_create(
             status_code=200,
         )
 
-    return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+    return RedirectResponse(
+        with_flash(f"/admin/role-assignments/{ra_id}/", "saved"), status_code=303
+    )
 
 
 @router.get("/{ra_id}/")
@@ -378,7 +381,9 @@ async def ra_inline_is_current(
     if not updated:
         raise HTTPException(status_code=404, detail="Role assignment not found")
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/role-assignments/{ra_id}/", "saved"), status_code=303
+        )
     ra = await _get_ra(ra_id, db)
     return templates.TemplateResponse(
         request,
@@ -494,7 +499,9 @@ async def ra_inline_dates_post(
     if not updated:
         raise HTTPException(status_code=404, detail="Role assignment not found")
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/role-assignments/{ra_id}/", "saved"), status_code=303
+        )
     ra = await _get_ra(ra_id, db)
     return templates.TemplateResponse(
         request,
@@ -554,7 +561,9 @@ async def ra_inline_notes_post(
     if not updated:
         raise HTTPException(status_code=404, detail="Role assignment not found")
     if not is_htmx(request):
-        return RedirectResponse(f"/admin/role-assignments/{ra_id}/", status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/role-assignments/{ra_id}/", "saved"), status_code=303
+        )
     ra = await _get_ra(ra_id, db)
     return templates.TemplateResponse(
         request,
