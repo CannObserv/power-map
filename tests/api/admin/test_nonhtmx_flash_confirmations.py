@@ -104,6 +104,29 @@ async def test_contact_invalid_nonhtmx_flashes_invalid(client, db):
     assert r.headers["location"] == f"/admin/orgs/{oid}/?flash=invalid"
 
 
+async def test_citation_conflict_nonhtmx_flashes_exists(client, db):
+    """A duplicate citation flashes `exists`, not `invalid` — the two share one
+    error branch keyed off a `conflict` flag (#351 CR finding 1)."""
+    oid = await _seed_org(db)
+    payload = {"field_name": "", "url": "https://dup.src/", "title": "", "excerpt": ""}
+    await client.post(f"/admin/orgs/{oid}/citations/", data=payload, headers=AUTH_HEADERS)
+    r = await client.post(f"/admin/orgs/{oid}/citations/", data=payload, headers=AUTH_HEADERS)
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/admin/orgs/{oid}/?flash=exists"
+
+
+async def test_citation_invalid_nonhtmx_flashes_invalid(client, db):
+    """A citation with neither url nor title fails validation → `invalid`."""
+    oid = await _seed_org(db)
+    r = await client.post(
+        f"/admin/orgs/{oid}/citations/",
+        data={"field_name": "", "url": "", "title": "", "excerpt": ""},
+        headers=AUTH_HEADERS,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/admin/orgs/{oid}/?flash=invalid"
+
+
 # --- the flash actually renders on the followed page --------------------------
 
 

@@ -214,6 +214,7 @@ def make_citations_router(
             _clean(excerpt),
         )
         error = _validate(f_field, f_url, f_title)
+        conflict = False
         if error is None:
             cid = generate_id()
             try:
@@ -235,10 +236,14 @@ def make_citations_router(
                     )
             except asyncpg.UniqueViolationError:
                 error = "A citation with this field and URL already exists."
+                conflict = True
         if error:
             if not is_htmx(request):
+                # A uniqueness conflict flashes `exists`; a validation failure
+                # flashes `invalid` — both funnel into one `error` here (#351 CR).
                 return RedirectResponse(
-                    with_flash(await _dest(entity_id, db), "invalid"), status_code=303
+                    with_flash(await _dest(entity_id, db), "exists" if conflict else "invalid"),
+                    status_code=303,
                 )
             return templates.TemplateResponse(
                 request,
@@ -340,6 +345,7 @@ def make_citations_router(
             _clean(excerpt),
         )
         error = _validate(f_field, f_url, f_title)
+        conflict = False
         if error is None:
             try:
                 async with db.transaction():
@@ -354,10 +360,14 @@ def make_citations_router(
                     )
             except asyncpg.UniqueViolationError:
                 error = "A citation with this field and URL already exists."
+                conflict = True
         if error:
             if not is_htmx(request):
+                # A uniqueness conflict flashes `exists`; a validation failure
+                # flashes `invalid` — both funnel into one `error` here (#351 CR).
                 return RedirectResponse(
-                    with_flash(await _dest(entity_id, db), "invalid"), status_code=303
+                    with_flash(await _dest(entity_id, db), "exists" if conflict else "invalid"),
+                    status_code=303,
                 )
             return templates.TemplateResponse(
                 request, _FORM_ROW, _ctx(entity_id, c=existing, error=error)

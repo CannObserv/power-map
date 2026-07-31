@@ -254,6 +254,10 @@ async def address_create(
             },
         )
     if mode == "edit":
+        # `edit` is the confirm-flow "go back and revise" step, driven by the
+        # HTMX modal; a pure non-HTMX POST always sends the default mode="confirm",
+        # so this fallback is a near-unreachable defensive branch — `invalid` is a
+        # safe generic key for it, not a claim the input was actually bad (#351 CR).
         if not is_htmx(request):
             return RedirectResponse(
                 with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
@@ -474,6 +478,10 @@ async def address_edit_row_post(
             },
         )
     if mode == "edit":
+        # `edit` is the confirm-flow "go back and revise" step, driven by the
+        # HTMX modal; a pure non-HTMX POST always sends the default mode="confirm",
+        # so this fallback is a near-unreachable defensive branch — `invalid` is a
+        # safe generic key for it, not a claim the input was actually bad (#351 CR).
         if not is_htmx(request):
             return RedirectResponse(
                 with_flash(f"/admin/orgs/{org_id}/", "invalid"), status_code=303
