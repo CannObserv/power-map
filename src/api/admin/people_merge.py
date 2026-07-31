@@ -815,7 +815,7 @@ async def person_dismiss_duplicate(
             "admin/people/_duplicates_region.html",
             ctx,
             headers=flash_trigger(
-                "info", "Pair marked as not a duplicate.", extra={"refreshDupBadge": True}
+                "success", "Pair marked as not a duplicate.", extra={"refreshDupBadge": True}
             ),
         )
     return RedirectResponse(with_flash("/admin/people/duplicates/", "removed"), status_code=303)

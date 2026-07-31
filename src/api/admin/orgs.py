@@ -220,7 +220,9 @@ async def org_inline_active_post(
     # toggle can OOB-swap it in place (#320) — shared gating with the detail GET.
     open_assignment_count, org_ended_on = await resolve_lifespan_banner(db, org)
     label = "Marked active." if new_active else "Marked inactive."
-    level = "success" if new_active else "info"
+    # Both directions are a successful state change → success (#353); only the
+    # deactivate-with-open-assignments lingering-state case escalates to warning.
+    level = "success"
     if not new_active and open_assignment_count:
         level = "warning"
         noun = "assignment remains" if open_assignment_count == 1 else "assignments remain"
@@ -351,15 +353,14 @@ async def org_inline_parent_post(
         return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
     if parent:
         flash_body = f"Parent set to <strong>{escape(parent['display_name'])}</strong>."
-        flash_level = "success"
     else:
         flash_body = "Parent organization cleared."
-        flash_level = "info"
+    # Set and clear are both successful edits → success (#353).
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_parent_read.html",
         {"org": org, "parent": parent},
-        headers=flash_trigger(flash_level, flash_body),
+        headers=flash_trigger("success", flash_body),
     )
 
 
@@ -624,7 +625,7 @@ async def children_remove(
     return HTMLResponse(
         content="",
         status_code=200,
-        headers=flash_trigger("info", "Child organization unlinked."),
+        headers=flash_trigger("success", "Child organization unlinked."),
     )
 
 

@@ -173,4 +173,4 @@ async def test_identifiers_delete_returns_info_flash(client, person_and_identifi
     r = await client.delete(f"/admin/people/{pid}/identifiers/{iid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"

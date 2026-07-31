@@ -107,7 +107,7 @@ def _form_error_response(
     return HTMLResponse(
         content="",
         status_code=200,
-        headers=flash_trigger("error", escape(error)),
+        headers=flash_trigger("warning", escape(error)),
     )
 
 
@@ -841,7 +841,7 @@ def make_names_router(
                     content="",
                     status_code=200,
                     headers=flash_trigger(
-                        "error",
+                        "warning",
                         "Cannot remove canonical. Promote another name first.",
                     ),
                 )
@@ -951,7 +951,7 @@ def make_names_router(
                 return HTMLResponse(
                     content="",
                     status_code=200,
-                    headers=flash_trigger("error", last_identity_error_msg),
+                    headers=flash_trigger("warning", last_identity_error_msg),
                 )
             # person_name is citable (#319) with no FK; drop its citations first so
             # they don't orphan. organization_names is not citable — skip.
@@ -966,7 +966,9 @@ def make_names_router(
             request,
             tmpl_rows,
             _ctx(entity_id, names=names),
-            headers=flash_trigger("info", "Name removed.", extra=await header_extra(entity_id, db)),
+            headers=flash_trigger(
+                "success", "Name removed.", extra=await header_extra(entity_id, db)
+            ),
         )
 
     return router

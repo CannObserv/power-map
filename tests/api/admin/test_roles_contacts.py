@@ -92,7 +92,7 @@ async def test_delete(client, role_and_contact):
     r = await client.delete(f"/admin/roles/{rid}/contacts/{cid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 async def test_create_unknown_role_404(client):

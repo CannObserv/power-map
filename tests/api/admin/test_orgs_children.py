@@ -116,4 +116,4 @@ async def test_remove_child_returns_info_flash(client, parent_and_child):
     r = await client.delete(f"/admin/orgs/{pid}/children/{cid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"

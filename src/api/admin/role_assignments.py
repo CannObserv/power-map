@@ -352,7 +352,7 @@ async def ra_inline_is_current(
                 request,
                 "admin/role_assignments/partials/_is_current_toggle.html",
                 {"ra": ra},
-                headers=flash_trigger("error", lifespan_error_message(exc)),
+                headers=flash_trigger("warning", lifespan_error_message(exc)),
             )
     try:
         # Savepoint: a CHECK violation aborts only this write (see create above).
@@ -374,7 +374,7 @@ async def ra_inline_is_current(
             "admin/role_assignments/partials/_is_current_toggle.html",
             {"ra": ra},
             headers=flash_trigger(
-                "error",
+                "warning",
                 "Current assignments cannot have an end date. Clear the end date first.",
             ),
         )

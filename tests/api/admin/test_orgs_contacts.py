@@ -220,7 +220,7 @@ async def test_contacts_delete_returns_info_flash(client, org_and_contact):
     r = await client.delete(f"/admin/orgs/{oid}/contacts/{cid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 # ---------------------------------------------------------------------------

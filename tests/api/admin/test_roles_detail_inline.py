@@ -167,7 +167,7 @@ async def test_org_post_empty_returns_error(client, role_id):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert b"org-search" in r.content
 
 
@@ -217,7 +217,7 @@ async def test_title_post_empty_returns_error(client, role_id):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert b'name="title"' in r.content
 
 
@@ -367,7 +367,7 @@ async def test_dates_post_rejects_inverted_order(client, role_id):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert b"established_on" in r.content  # form re-rendered
 
 
@@ -390,7 +390,7 @@ async def test_dates_post_rejects_when_assignments_outside_bounds(client, role_i
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert b"established_on" in r.content  # form re-rendered
 
 

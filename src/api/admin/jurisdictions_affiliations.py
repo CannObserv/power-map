@@ -191,7 +191,7 @@ async def jur_affiliation_delete(
             with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "removed"), status_code=303
         )
     return HTMLResponse(
-        content="", status_code=200, headers=flash_trigger("info", "Affiliation removed.")
+        content="", status_code=200, headers=flash_trigger("success", "Affiliation removed.")
     )
 
 
@@ -308,5 +308,5 @@ async def org_affiliation_delete(
     if not is_htmx(request):
         return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "removed"), status_code=303)
     return HTMLResponse(
-        content="", status_code=200, headers=flash_trigger("info", "Affiliation removed.")
+        content="", status_code=200, headers=flash_trigger("success", "Affiliation removed.")
     )

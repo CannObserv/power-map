@@ -184,7 +184,7 @@ async def test_ra_toggle_current_on_ended_org_rejected(client, db, former_ra_id)
         data={"is_current": "true"},
     )
     assert r.status_code == 200
-    assert _flash_level(r) == "error"
+    assert _flash_level(r) == "warning"
     assert (
         await db.fetchval("SELECT is_current FROM role_assignments WHERE id = $1", former_ra_id)
         is False
@@ -219,7 +219,7 @@ async def test_role_inline_create_current_on_ended_org_rejected(
         data={"person_id": person_id, "is_current": "true"},
     )
     assert r.status_code == 200
-    assert _flash_level(r) == "error"
+    assert _flash_level(r) == "warning"
     count = await db.fetchval(
         "SELECT count(*) FROM role_assignments WHERE role_id = $1 AND is_current",
         ended_role_id,
@@ -236,7 +236,7 @@ async def test_role_inline_edit_current_on_ended_org_rejected(
         data={"is_current": "true"},
     )
     assert r.status_code == 200
-    assert _flash_level(r) == "error"
+    assert _flash_level(r) == "warning"
     assert (
         await db.fetchval("SELECT is_current FROM role_assignments WHERE id = $1", former_ra_id)
         is False
@@ -257,7 +257,7 @@ async def test_person_inline_create_current_on_ended_org_rejected(
         data={"role_id": ended_role_id, "is_current": "true"},
     )
     assert r.status_code == 200
-    assert _flash_level(r) == "error"
+    assert _flash_level(r) == "warning"
     count = await db.fetchval(
         "SELECT count(*) FROM role_assignments WHERE role_id = $1 AND is_current",
         ended_role_id,
@@ -272,7 +272,7 @@ async def test_person_inline_edit_end_after_org_end_rejected(client, db, person_
         data={"start_date": "2022-01-01", "end_date": "2024-06-01"},
     )
     assert r.status_code == 200
-    assert _flash_level(r) == "error"
+    assert _flash_level(r) == "warning"
     assert (
         await db.fetchval("SELECT end_date FROM role_assignments WHERE id = $1", former_ra_id)
         is None
@@ -345,7 +345,7 @@ async def test_deactivate_flash_plain_when_no_open_assignments(client, db):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
     assert "open assignment" not in trigger["showFlash"]["body"]
 
 

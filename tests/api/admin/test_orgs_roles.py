@@ -126,7 +126,7 @@ async def test_roles_create_duplicate_returns_error_flash(client, org, db):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     # Form must be returned (not the tbody) so user can correct input
     assert "<form" in r.text
 
@@ -148,7 +148,7 @@ async def test_roles_create_duplicate_case_insensitive(client, org, db):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
 
 
 async def test_roles_create_non_htmx_redirects(client, org):
@@ -180,7 +180,7 @@ async def test_roles_create_empty_title_returns_error_flash(client, org):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert "<form" in r.text
 
 

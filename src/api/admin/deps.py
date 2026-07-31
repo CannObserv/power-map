@@ -90,16 +90,24 @@ def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str,
 # create/edit/delete confirms like a Danger Zone action does. The registry is
 # deliberately generic (the static ?flash= param can't carry a per-row value the
 # HTMX HX-Trigger flash includes) and consulted by ``resolve_query_flash`` as a
-# fallback after each route's own ``_FLASH_MESSAGES``. Semantic split:
+# fallback after each route's own ``_FLASH_MESSAGES``.
+#
+# Flash-level taxonomy (#353), one convention per action class across every
+# admin surface — HTMX HX-Trigger and non-HTMX fallback alike:
+#   success — any mutation that changed state (create/edit/delete/archive/unarchive);
+#             the *body text* ("Saved."/"Removed.") carries the create-vs-delete meaning
+#   warning — rejected, nothing changed (bad input, uniqueness/409 conflict)
+#   error   — unexpected server/operation failure only (none currently)
+#   info    — retired from mutation confirmations
+# So `removed` flashes `success` (was `info` pre-#353) — a delete is a successful
+# mutation, matching the Danger Zone `deleted` precedent. Keys:
 #   saved   — a create or edit succeeded
 #   removed — a delete/unlink succeeded
 #   invalid — a create/edit was rejected for bad input (nothing changed)
 #   exists  — a create/edit hit a uniqueness conflict (nothing changed)
 SHARED_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "saved": ("success", "Saved."),
-    # `removed` is `info` to match the HTMX delete path's flash_trigger("info", …);
-    # Danger Zone deletes flash `success`, an inconsistency audited in #353.
-    "removed": ("info", "Removed."),
+    "removed": ("success", "Removed."),
     "invalid": ("warning", "Couldn't save — check your input."),
     "exists": ("warning", "That already exists."),
 }

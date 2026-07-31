@@ -291,5 +291,5 @@ async def relationship_delete(
             with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "removed"), status_code=303
         )
     return HTMLResponse(
-        content="", status_code=200, headers=flash_trigger("info", "Relationship removed.")
+        content="", status_code=200, headers=flash_trigger("success", "Relationship removed.")
     )

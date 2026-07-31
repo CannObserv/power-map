@@ -301,7 +301,7 @@ async def api_key_delete(
         content="",
         status_code=200,
         headers=flash_trigger(
-            "info",
+            "success",
             f"Key <strong>{escape(existing['label'])}</strong> deleted.",
         ),
     )

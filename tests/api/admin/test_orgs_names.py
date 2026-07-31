@@ -245,7 +245,7 @@ async def test_names_delete_returns_info_flash(client, org_and_name, db):
     r = await client.delete(f"/admin/orgs/{oid}/names/{nid2}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 async def test_name_edit_sole_uncanonical_is_blocked(client, org_and_name, db):
@@ -259,7 +259,7 @@ async def test_name_edit_sole_uncanonical_is_blocked(client, org_and_name, db):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
 
     is_canonical = await _fetch_is_canonical(db, nid)
     assert is_canonical is True, "sole name must remain canonical after blocked edit"
@@ -326,7 +326,7 @@ async def test_name_delete_last_name_blocked_when_no_acronym(client, org_and_nam
     r = await client.delete(f"/admin/orgs/{oid}/names/{nid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     # Name must still exist in the DB
     row = await db.fetchrow("SELECT id FROM organization_names WHERE id=$1", nid)
     assert row is not None, "name must not be deleted"
@@ -357,7 +357,7 @@ async def test_name_delete_last_name_allowed_when_canonical_acronym_exists(
     r = await client.delete(f"/admin/orgs/{oid}/names/{nid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 # ---------------------------------------------------------------------------
@@ -424,7 +424,7 @@ async def test_name_edit_uncanonical_with_multiple_names_blocked(client, org_and
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
 
     is_canonical = await _fetch_is_canonical(db, canonical_nid)
     assert is_canonical is True, "canonical must not be changed"
@@ -550,7 +550,7 @@ async def test_name_create_start_after_end_flashes_error(client, org_and_name, d
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert await _fetch_effective(db, oid, "Backwards Interval") is None
 
 
@@ -605,7 +605,7 @@ async def test_name_edit_start_after_end_flashes_error(client, org_and_name, db)
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert await _fetch_effective(db, oid, "Original Name") == (None, None)
 
 
@@ -625,7 +625,7 @@ async def test_name_create_invalid_date_flashes_error(client, org_and_name, db):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert await _fetch_effective(db, oid, "Bad Date Name") is None
 
 
@@ -645,5 +645,5 @@ async def test_name_edit_invalid_date_flashes_error(client, org_and_name, db):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert await _fetch_effective(db, oid, "Original Name") == (None, None)

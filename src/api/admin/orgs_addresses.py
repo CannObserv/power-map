@@ -659,5 +659,5 @@ async def address_delete(
     return HTMLResponse(
         content="",
         status_code=200,
-        headers=flash_trigger("info", "Address removed."),
+        headers=flash_trigger("success", "Address removed."),
     )

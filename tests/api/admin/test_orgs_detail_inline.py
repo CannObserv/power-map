@@ -314,7 +314,7 @@ async def test_active_post_deactivate_returns_info_flash(client, org_id):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 async def test_notes_post_returns_success_flash(client, org_id):
@@ -359,7 +359,7 @@ async def test_parent_post_clear_returns_info_flash(client, org_id, db):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 # ---------------------------------------------------------------------------
