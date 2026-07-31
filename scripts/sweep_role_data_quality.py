@@ -34,6 +34,7 @@ import argparse
 import asyncio
 import os
 from collections import Counter
+from datetime import UTC, datetime
 from typing import Literal, TypedDict
 
 import asyncpg
@@ -64,7 +65,10 @@ def canonical_rename(title: str) -> str | None:
 
 
 ArchiveStatus = Literal["archived", "planned"]
-RenameStatus = Literal["renamed", "merged", "planned"]
+# Dry run distinguishes the two rename outcomes — an in-place UPDATE vs a
+# destructive merge into an existing canonical role — so the risky path is
+# visible before --execute. Execute reports the terminal "renamed" / "merged".
+RenameStatus = Literal["renamed", "merged", "would_rename", "would_merge"]
 
 
 class ArchiveAction(TypedDict):
@@ -118,12 +122,17 @@ WHERE r.archived_at IS NULL
 ORDER BY r.title, r.id
 """
 
-# A same-org active plain role already at the canonical title (excluding self).
+# A same-org active role already at the canonical title (excluding self). Scoped
+# to exactly uq_role_org_title's predicate (jurisdiction_id IS NULL AND
+# archived_at IS NULL) — deliberately NOT also role_type_id IS NULL: the index
+# covers non-jurisdictional roles regardless of role_type, so a *typed* peer at
+# the canonical title would still collide on a bare in-place UPDATE. Detecting it
+# routes the typo through a merge instead (untyped loser folds into the typed
+# winner — the better outcome), never tripping the constraint.
 _CANONICAL_PEER_SQL = """
 SELECT r.id
 FROM roles r
-WHERE r.archived_at IS NULL
-  AND r.role_type_id IS NULL AND r.jurisdiction_id IS NULL
+WHERE r.archived_at IS NULL AND r.jurisdiction_id IS NULL
   AND r.organization_id = $1 AND lower(r.title) = $2 AND r.id <> $3
 ORDER BY r.id
 LIMIT 1
@@ -163,6 +172,10 @@ WHERE ra.role_id = $1 AND ra.archived_at IS NULL
 _REPOINT_ASSIGNMENTS_SQL = "UPDATE role_assignments SET role_id = $1 WHERE role_id = $2"
 _DELETE_ROLE_SQL = "DELETE FROM roles WHERE id = $1"
 
+_LOSER_ROLE_SQL = "SELECT title, notes FROM roles WHERE id = $1"
+_WINNER_NOTES_SQL = "SELECT notes FROM roles WHERE id = $1"
+_APPEND_WINNER_NOTES_SQL = "UPDATE roles SET notes = $2 WHERE id = $1"
+
 
 async def _archive_artifacts(conn: asyncpg.Connection, *, execute: bool) -> list[ArchiveAction]:
     """Archive artifact roles (Guest / Visitor or Guest) and their active assignments."""
@@ -192,6 +205,20 @@ async def _archive_artifacts(conn: asyncpg.Connection, *, execute: bool) -> list
 
 async def _merge_into_canonical(conn: asyncpg.Connection, loser_id: str, winner_id: str) -> None:
     """Fold a typo role into the same-org canonical role (mirrors admin role_merge)."""
+    # Preserve the loser role's notes on the survivor before the hard-delete
+    # (mirrors role_merge; the script is the actor in place of a curator email).
+    loser = await conn.fetchrow(_LOSER_ROLE_SQL, loser_id)
+    if loser is not None and loser["notes"]:
+        winner_notes = await conn.fetchval(_WINNER_NOTES_SQL, winner_id)
+        merge_date = datetime.now(UTC).strftime("%Y-%m-%d")
+        prefix = (
+            f"Merged from {loser['title']} on {merge_date}"
+            " by scripts.sweep_role_data_quality (#304)"
+        )
+        appended = f"{prefix}\n{loser['notes']}"
+        new_notes = f"{winner_notes}\n\n{appended}" if winner_notes else appended
+        await conn.execute(_APPEND_WINNER_NOTES_SQL, winner_id, new_notes)
+
     conflict_pairs = await conn.fetch(_CONFLICT_PAIRS_SQL, loser_id, winner_id)
     await rehome_conflicting_assignment_ancillary(
         conn, [(r["loser_ra"], r["winner_ra"]) for r in conflict_pairs]
@@ -218,7 +245,7 @@ async def _normalize_typos(conn: asyncpg.Connection, *, execute: bool) -> list[R
             "from_title": row["title"],
             "to_title": canonical,
             "target_role_id": peer,
-            "status": "planned",
+            "status": "would_merge" if peer is not None else "would_rename",
         }
         actions.append(action)
         if not execute:

@@ -442,6 +442,38 @@ uv run "${env_args[@]}" python -m scripts.split_speaker_designate            # d
 uv run "${env_args[@]}" python -m scripts.split_speaker_designate --execute  # commit
 ```
 
+## Role data-quality sweep (idempotent, #304)
+
+`scripts/sweep_role_data_quality.py` — follow-on to #266, data-only. Operates **only**
+on plain free-text roles (`role_type_id IS NULL AND jurisdiction_id IS NULL`, whose
+match key is `(org, lower(title))` = `uq_role_org_title`):
+
+- **Archive non-role artifacts** — `Guest` / `Visitor or Guest`: attendance noise that
+  leaks into membership queries. Archives active assignments, then the role (never
+  hard-deleted).
+- **Normalize typo'd titles** — `Principle` → `Principal`: a misspelling orphans the
+  `(org, lower(title))` match key. Renames in place; when the same org already carries
+  the canonical role (would collide on `uq_role_org_title`), instead **merges** the typo
+  role in — assignments re-pointed with `(person, start_date)` dedup, loser notes +
+  role-level ancillary preserved onto the survivor (#324/#326), loser hard-deleted
+  (mirrors admin `role_merge`).
+
+The `Participant` disposition, bare `Chairman` normalization, and `Ranking Democratic
+Member` typed-fold are deliberately **out of scope** — vocabulary judgment calls for
+#266, not a mechanical sweep. Idempotent: canonical titles aren't typo keys and artifact
+roles archive once, so re-runs no-op. The dry run distinguishes `would_rename` vs the
+destructive `would_merge` per row.
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.sweep_role_data_quality            # dry run
+uv run "${env_args[@]}" python -m scripts.sweep_role_data_quality --execute  # commit
+```
+
 ## Notes → citations migration (issue #319)
 
 `scripts/migrate_notes_to_citations.py` extracts bare `http(s)` URLs from

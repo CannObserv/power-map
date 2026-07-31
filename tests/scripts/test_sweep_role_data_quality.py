@@ -138,7 +138,7 @@ async def test_dry_run_mutates_nothing(db):
     archived = {a["role_id"]: a for a in report["archived"]}
     renamed = {a["role_id"]: a for a in report["renamed"]}
     assert archived[guest]["status"] == "planned"
-    assert renamed[typo]["status"] == "planned"
+    assert renamed[typo]["status"] == "would_rename"  # dry run distinguishes rename vs merge
     # ...but nothing changed.
     assert (await _role_state(db, guest))["archived_at"] is None
     assert await _active_assign_count(db, guest) == 1
@@ -226,6 +226,72 @@ async def test_rename_merges_into_existing_canonical_on_collision(db):
     # Loser role gone; its assignment re-homed onto the canonical role.
     assert await _role_state(db, typo) is None
     assert await _active_assign_count(db, canonical) == 2
+
+
+@pytest.mark.integration
+async def test_dry_run_flags_a_would_be_merge(db):
+    """A dry run marks a colliding typo 'would_merge' so the destructive path is visible."""
+    org = await _org(db)
+    await _role(db, org, "Principal")
+    typo = await _role(db, org, "Principle")
+
+    report = await sweep_role_data_quality(db, execute=False)
+
+    action = {a["role_id"]: a for a in report["renamed"]}[typo]
+    assert action["status"] == "would_merge"
+    assert await _role_state(db, typo) is not None  # dry run mutated nothing
+
+
+@pytest.mark.integration
+async def test_rename_merges_into_typed_canonical_peer(db):
+    """A typed non-jurisdictional canonical peer is inside uq_role_org_title's scope too
+    (index is WHERE jurisdiction_id IS NULL — role_type irrelevant), so the typo must
+    merge into it, never trip the constraint with a bare in-place UPDATE."""
+    org = await _org(db)
+    p1, p2 = await _person(db), await _person(db)
+    rt_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_types (id, slug, display_name) VALUES ($1,$2,'DQ Sweep Test Type')",
+        rt_id,
+        f"dq_sweep_test_{rt_id.lower()}",
+    )
+    canonical = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title, role_type_id)"
+        " VALUES ($1,$2,'Principal',$3)",
+        canonical,
+        org,
+        rt_id,
+    )
+    await _assign(db, canonical, p1)
+    typo = await _role(db, org, "Principle")
+    await _assign(db, typo, p2)
+
+    report = await sweep_role_data_quality(db, execute=True)
+
+    merged = {a["role_id"]: a for a in report["renamed"]}[typo]
+    assert merged["status"] == "merged"
+    assert merged["target_role_id"] == canonical
+    # No unique_violation; typo folded into the typed canonical role.
+    assert await _role_state(db, typo) is None
+    assert await _active_assign_count(db, canonical) == 2
+
+
+@pytest.mark.integration
+async def test_merge_appends_loser_notes_to_winner(db):
+    """Merge preserves the loser role's notes on the survivor (mirrors admin role_merge)."""
+    org = await _org(db)
+    canonical = await _role(db, org, "Principal")
+    await db.execute("UPDATE roles SET notes='winner note' WHERE id=$1", canonical)
+    typo = await _role(db, org, "Principle")
+    await db.execute("UPDATE roles SET notes='typo note' WHERE id=$1", typo)
+
+    await sweep_role_data_quality(db, execute=True)
+
+    notes = await db.fetchval("SELECT notes FROM roles WHERE id=$1", canonical)
+    assert "winner note" in notes
+    assert "typo note" in notes
+    assert "Merged from Principle" in notes
 
 
 @pytest.mark.integration
