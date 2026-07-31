@@ -64,8 +64,19 @@ async def _seed_org(db) -> str:
     return oid
 
 
-def _flash_body(key: str) -> str:
-    return SHARED_FLASH_MESSAGES[key][1]
+def _flash_html(key: str) -> str:
+    """The exact rendered flash-message element for a shared key.
+
+    Scopes render assertions to `#flash-region`'s `flash__body` (see
+    `admin/macros/flash.html`) instead of a bare page-wide substring, so a
+    stray "Saved."/"Removed." elsewhere on the page can't pass the test
+    (#351 CR3 finding 9).
+    """
+    return f'<div class="flash__body">{SHARED_FLASH_MESSAGES[key][1]}</div>'
+
+
+def _flash_level_class(key: str) -> str:
+    return f"flash--{SHARED_FLASH_MESSAGES[key][0]}"
 
 
 # --- factory create/edit success carries ?flash=saved -------------------------
@@ -139,17 +150,19 @@ async def test_followed_redirect_renders_flash_message(following_client, db):
         headers=AUTH_HEADERS,
     )
     assert r.status_code == 200
-    assert _flash_body("saved") in r.text
+    assert _flash_html("saved") in r.text
 
 
 @pytest.mark.parametrize("key", ["saved", "removed", "invalid", "exists"])
 async def test_detail_page_renders_each_shared_flash_key(following_client, db, key):
     """Every SHARED_FLASH_MESSAGES key renders on a detail-page landing — the
-    warning keys (removed/invalid/exists) not just saved (#351 CR2 finding 7)."""
+    warning keys (removed/invalid/exists) not just saved (#351 CR2 finding 7),
+    at the correct severity level (#351 CR3 finding 9)."""
     oid = await _seed_org(db)
     r = await following_client.get(f"/admin/orgs/{oid}/?flash={key}", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert _flash_body(key) in r.text
+    assert _flash_html(key) in r.text
+    assert _flash_level_class(key) in r.text
 
 
 # --- a settings-catalog target (list route) renders the shared flash ----------
@@ -158,4 +171,4 @@ async def test_detail_page_renders_each_shared_flash_key(following_client, db, k
 async def test_settings_link_types_list_renders_flash(following_client, db):
     r = await following_client.get("/admin/settings/link-types/?flash=saved", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert _flash_body("saved") in r.text
+    assert _flash_html("saved") in r.text
