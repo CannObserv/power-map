@@ -703,7 +703,7 @@ async def org_dismiss_duplicate(
             "admin/orgs/_duplicates_region.html",
             ctx,
             headers=flash_trigger(
-                "info", "Pair marked as not a duplicate.", extra={"refreshDupBadge": True}
+                "success", "Pair marked as not a duplicate.", extra={"refreshDupBadge": True}
             ),
         )
     return RedirectResponse(with_flash("/admin/orgs/duplicates/", "removed"), status_code=303)

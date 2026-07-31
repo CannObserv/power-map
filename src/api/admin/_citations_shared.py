@@ -411,7 +411,7 @@ def make_citations_router(
             request,
             "admin/citations/partials/_cite_count_oob.html",
             _ctx(entity_id, cite_count_oob=await _active_count(entity_id, db)),
-            headers=flash_trigger("info", "Citation removed."),
+            headers=flash_trigger("success", "Citation removed."),
         )
 
     return router

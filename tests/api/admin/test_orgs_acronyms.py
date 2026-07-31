@@ -306,7 +306,7 @@ async def test_acronym_delete_returns_info_flash(client, org_id, db):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 async def test_acronym_delete_promotes_sole_remaining_non_canonical(client, org_id, db):
@@ -377,7 +377,7 @@ async def test_acronym_delete_last_acronym_blocked_when_no_canonical_name(client
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     row = await db.fetchrow("SELECT id FROM organization_acronyms WHERE id=$1", aid)
     assert row is not None, "acronym must not be deleted"
 
@@ -397,7 +397,7 @@ async def test_acronym_delete_last_acronym_allowed_when_canonical_name_exists(cl
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
     row = await db.fetchrow("SELECT id FROM organization_acronyms WHERE id=$1", aid)
     assert row is None, "acronym must be deleted"
 

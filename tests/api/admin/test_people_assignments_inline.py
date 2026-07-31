@@ -206,7 +206,7 @@ async def test_create_missing_role_returns_error(client, person_id):
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert b"<form" in r.content
 
 
@@ -223,7 +223,7 @@ async def test_create_current_with_end_date_returns_error(client, person_id, rol
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
 
 
 async def test_create_duplicate_start_date_returns_error(client, person_id, role_id, db):
@@ -242,7 +242,7 @@ async def test_create_duplicate_start_date_returns_error(client, person_id, role
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert b"<form" in r.content
 
 
@@ -603,7 +603,7 @@ async def test_edit_row_post_current_with_end_date_returns_error(client, person_
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert b'name="start_date"' in r.content
 
 
@@ -615,7 +615,7 @@ async def test_edit_row_post_bad_date_returns_error(client, person_id, assignmen
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
     assert b"not-a-date" in r.content
 
 

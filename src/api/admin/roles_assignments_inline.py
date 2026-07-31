@@ -116,7 +116,7 @@ async def assignment_create(
                 "is_current_input": is_current_val,
             },
             headers={
-                **flash_trigger("error", "Person is required."),
+                **flash_trigger("warning", "Person is required."),
                 "HX-Retarget": "#assignment-row-new",
                 "HX-Reswap": "outerHTML",
             },
@@ -141,7 +141,7 @@ async def assignment_create(
                 "is_current_input": is_current_val,
             },
             headers={
-                **flash_trigger("error", "Invalid date format. Use YYYY-MM-DD."),
+                **flash_trigger("warning", "Invalid date format. Use YYYY-MM-DD."),
                 "HX-Retarget": "#assignment-row-new",
                 "HX-Reswap": "outerHTML",
             },
@@ -180,7 +180,7 @@ async def assignment_create(
                 "is_current_input": is_current_val,
             },
             headers={
-                **flash_trigger("error", bound_err),
+                **flash_trigger("warning", bound_err),
                 "HX-Retarget": "#assignment-row-new",
                 "HX-Reswap": "outerHTML",
             },
@@ -215,7 +215,7 @@ async def assignment_create(
                 "is_current_input": is_current_val,
             },
             headers={
-                **flash_trigger("error", "Current assignments cannot have an end date."),
+                **flash_trigger("warning", "Current assignments cannot have an end date."),
                 "HX-Retarget": "#assignment-row-new",
                 "HX-Reswap": "outerHTML",
             },
@@ -237,7 +237,7 @@ async def assignment_create(
             },
             headers={
                 **flash_trigger(
-                    "error",
+                    "warning",
                     "An assignment for this person with this start date already exists.",
                 ),
                 "HX-Retarget": "#assignment-row-new",
@@ -347,7 +347,7 @@ async def assignment_edit_row_post(
             "admin/roles/partials/_assignment_edit_row.html",
             _error_ctx(),
             headers={
-                **flash_trigger("error", "Invalid date format. Use YYYY-MM-DD."),
+                **flash_trigger("warning", "Invalid date format. Use YYYY-MM-DD."),
                 "HX-Retarget": f"#assignment-row-{assignment_id}",
                 "HX-Reswap": "outerHTML",
             },
@@ -380,7 +380,7 @@ async def assignment_edit_row_post(
             "admin/roles/partials/_assignment_edit_row.html",
             _error_ctx(),
             headers={
-                **flash_trigger("error", bound_err),
+                **flash_trigger("warning", bound_err),
                 "HX-Retarget": f"#assignment-row-{assignment_id}",
                 "HX-Reswap": "outerHTML",
             },
@@ -406,7 +406,7 @@ async def assignment_edit_row_post(
             "admin/roles/partials/_assignment_edit_row.html",
             _error_ctx(),
             headers={
-                **flash_trigger("error", "Current assignments cannot have an end date."),
+                **flash_trigger("warning", "Current assignments cannot have an end date."),
                 "HX-Retarget": f"#assignment-row-{assignment_id}",
                 "HX-Reswap": "outerHTML",
             },
@@ -422,7 +422,7 @@ async def assignment_edit_row_post(
             _error_ctx(),
             headers={
                 **flash_trigger(
-                    "error",
+                    "warning",
                     "An assignment for this person with this start date already exists.",
                 ),
                 "HX-Retarget": f"#assignment-row-{assignment_id}",

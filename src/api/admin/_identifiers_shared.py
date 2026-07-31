@@ -221,7 +221,7 @@ def make_identifiers_router(
         return HTMLResponse(
             content="",
             status_code=200,
-            headers=flash_trigger("info", "Identifier removed."),
+            headers=flash_trigger("success", "Identifier removed."),
         )
 
     return router

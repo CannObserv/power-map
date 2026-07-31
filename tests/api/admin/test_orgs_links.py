@@ -168,7 +168,7 @@ async def test_links_delete_returns_info_flash(client, org_and_link):
     r = await client.delete(f"/admin/orgs/{oid}/links/{lid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 async def test_links_create_duplicate_returns_409_not_500(client, org_and_link, db):

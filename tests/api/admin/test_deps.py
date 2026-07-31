@@ -149,6 +149,8 @@ def test_flash_trigger_payload_shape():
     headers = flash_trigger("error", "<strong>Oops</strong>")
     payload = json.loads(headers["HX-Trigger"])
     assert "showFlash" in payload
+    # Mechanics test: flash_trigger passes any level through verbatim (no #353
+    # taxonomy validation here — that's guarded at source by test_flash_levels).
     assert payload["showFlash"]["level"] == "error"
     assert payload["showFlash"]["body"] == "<strong>Oops</strong>"
 

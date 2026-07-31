@@ -202,7 +202,7 @@ async def test_contacts_delete_returns_info_flash(client, person_and_contact):
     r = await client.delete(f"/admin/people/{pid}/contacts/{cid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 async def test_contact_create_email_invalid_returns_form_with_error(client, person_and_contact):

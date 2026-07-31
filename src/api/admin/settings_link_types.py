@@ -243,10 +243,10 @@ async def link_type_delete(
         return HTMLResponse(
             content="",
             status_code=200,
-            headers=flash_trigger("error", "Cannot delete: this link type is in use."),
+            headers=flash_trigger("warning", "Cannot delete: this link type is in use."),
         )
     return HTMLResponse(
         content="",
         status_code=200,
-        headers=flash_trigger("info", "Link type deleted."),
+        headers=flash_trigger("success", "Link type deleted."),
     )

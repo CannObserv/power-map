@@ -165,7 +165,7 @@ async def test_names_delete_last_blocked(client, person_and_name, db):
     r = await client.delete(f"/admin/people/{pid}/names/{nid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
 
     row = await db.fetchrow("SELECT id FROM person_names WHERE id=$1", nid)
     assert row is not None
@@ -188,7 +188,7 @@ async def test_name_edit_sole_uncanonical_is_blocked(client, person_and_name, db
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
 
     is_canonical = await _fetch_is_canonical(db, nid)
     assert is_canonical is True, "sole name must remain canonical after blocked edit"
@@ -207,7 +207,7 @@ async def test_name_edit_uncanonical_with_multiple_names_blocked(client, person_
     )
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "error"
+    assert trigger["showFlash"]["level"] == "warning"
 
     is_canonical = await _fetch_is_canonical(db, canonical_nid)
     assert is_canonical is True, "canonical must not be changed"

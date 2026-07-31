@@ -698,7 +698,7 @@ def make_events_router(
         return HTMLResponse(
             content="",
             status_code=200,
-            headers=flash_trigger("info", "Event deleted."),
+            headers=flash_trigger("success", "Event deleted."),
         )
 
     return router

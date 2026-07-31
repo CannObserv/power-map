@@ -156,8 +156,9 @@ async def test_followed_redirect_renders_flash_message(following_client, db):
 @pytest.mark.parametrize("key", ["saved", "removed", "invalid", "exists"])
 async def test_detail_page_renders_each_shared_flash_key(following_client, db, key):
     """Every SHARED_FLASH_MESSAGES key renders on a detail-page landing — the
-    warning keys (removed/invalid/exists) not just saved (#351 CR2 finding 7),
-    at the correct severity level (#351 CR3 finding 9)."""
+    non-saved keys (removed/invalid/exists) not just saved (#351 CR2 finding 7),
+    at the correct severity level (#351 CR3 finding 9; #353 taxonomy: saved/removed
+    → success, invalid/exists → warning)."""
     oid = await _seed_org(db)
     r = await following_client.get(f"/admin/orgs/{oid}/?flash={key}", headers=AUTH_HEADERS)
     assert r.status_code == 200

@@ -228,7 +228,7 @@ async def test_addresses_delete_returns_info_flash(client, org_and_address):
     r = await client.delete(f"/admin/orgs/{oid}/addresses/{eaid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 async def test_address_create_blank_returns_form_with_error(client, org_and_address):

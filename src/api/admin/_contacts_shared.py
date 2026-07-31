@@ -278,7 +278,7 @@ def make_contacts_router(
         return HTMLResponse(
             content="",
             status_code=200,
-            headers=flash_trigger("info", "Contact removed."),
+            headers=flash_trigger("success", "Contact removed."),
         )
 
     return router

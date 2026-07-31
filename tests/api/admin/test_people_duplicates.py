@@ -137,7 +137,7 @@ async def test_dismiss_htmx_sends_hx_trigger_flash(client, person_pair):
     assert response.status_code == 200
     assert "HX-Trigger" in response.headers
     payload = json.loads(response.headers["HX-Trigger"])
-    assert payload["showFlash"]["level"] == "info"
+    assert payload["showFlash"]["level"] == "success"
     assert "hx-swap-oob" not in response.text
 
 

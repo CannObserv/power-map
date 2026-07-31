@@ -236,7 +236,7 @@ async def acronym_delete(
                 content="",
                 status_code=200,
                 headers=flash_trigger(
-                    "error",
+                    "warning",
                     "Cannot remove the only acronym when the organization has no canonical name.",
                 ),
             )
@@ -253,5 +253,7 @@ async def acronym_delete(
         request,
         "admin/orgs/partials/_acronym_rows.html",
         {"org_id": org_id, "acronyms": acronyms},
-        headers=flash_trigger("info", "Acronym removed.", extra=await org_header_extra(org_id, db)),
+        headers=flash_trigger(
+            "success", "Acronym removed.", extra=await org_header_extra(org_id, db)
+        ),
     )

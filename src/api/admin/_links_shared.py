@@ -249,7 +249,7 @@ def make_links_router(
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "removed"), status_code=303)
         return HTMLResponse(
-            content="", status_code=200, headers=flash_trigger("info", "Link removed.")
+            content="", status_code=200, headers=flash_trigger("success", "Link removed.")
         )
 
     return router

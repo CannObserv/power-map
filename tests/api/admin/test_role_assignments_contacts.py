@@ -102,7 +102,7 @@ async def test_delete(client, assignment_and_contact):
     r = await client.delete(f"/admin/role-assignments/{raid}/contacts/{cid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
-    assert trigger["showFlash"]["level"] == "info"
+    assert trigger["showFlash"]["level"] == "success"
 
 
 async def test_detail_renders_contact_section(client, assignment_and_contact):

@@ -244,10 +244,10 @@ async def identifier_type_delete(
         return HTMLResponse(
             content="",
             status_code=200,
-            headers=flash_trigger("error", "Cannot delete: this identifier type is in use."),
+            headers=flash_trigger("warning", "Cannot delete: this identifier type is in use."),
         )
     return HTMLResponse(
         content="",
         status_code=200,
-        headers=flash_trigger("info", "Identifier type deleted."),
+        headers=flash_trigger("success", "Identifier type deleted."),
     )

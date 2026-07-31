@@ -73,7 +73,7 @@ async def role_inline_org_post(
             request,
             "admin/roles/partials/_org_form.html",
             {"role": role},
-            headers=flash_trigger("error", "Organization is required."),
+            headers=flash_trigger("warning", "Organization is required."),
         )
     exists = await db.fetchval("SELECT id FROM organizations WHERE id=$1", resolved)
     if not exists:
@@ -85,7 +85,7 @@ async def role_inline_org_post(
             request,
             "admin/roles/partials/_org_form.html",
             {"role": role},
-            headers=flash_trigger("error", "Organization not found."),
+            headers=flash_trigger("warning", "Organization not found."),
         )
     await db.execute("UPDATE roles SET organization_id=$1 WHERE id=$2", resolved, role_id)
     role = await _get_role(role_id, db)
@@ -158,7 +158,7 @@ async def role_inline_title_post(
             "admin/roles/partials/_title_read.html",
             {"role": role},
             headers=flash_trigger(
-                "error",
+                "warning",
                 "This title is generated from the role type, jurisdiction, and qualifier.",
             ),
         )
@@ -172,7 +172,7 @@ async def role_inline_title_post(
             request,
             "admin/roles/partials/_title_form.html",
             {"role": role},
-            headers=flash_trigger("error", "Title cannot be empty."),
+            headers=flash_trigger("warning", "Title cannot be empty."),
         )
     try:
         await db.execute("UPDATE roles SET title=$1 WHERE id=$2", cleaned, role_id)
@@ -186,7 +186,7 @@ async def role_inline_title_post(
             "admin/roles/partials/_title_form.html",
             {"role": role},
             headers=flash_trigger(
-                "error",
+                "warning",
                 f"A role named <strong>{escape(cleaned)}</strong>"
                 " already exists for this organization.",
             ),
@@ -351,7 +351,7 @@ async def role_inline_structural_post(
                 sel_jurisdiction_name=jur_name,
                 sel_qualifier=qual,
             ),
-            headers=flash_trigger("error", error),
+            headers=flash_trigger("warning", error),
         )
 
     # Mirror the DB check-constraints with clear messages.
@@ -495,7 +495,7 @@ async def role_inline_dates_post(
             request,
             "admin/roles/partials/_dates_form.html",
             _form_ctx(established_on, abolished_on),
-            headers=flash_trigger("error", "Invalid date format. Use YYYY-MM-DD."),
+            headers=flash_trigger("warning", "Invalid date format. Use YYYY-MM-DD."),
         )
 
     if established_on_val and abolished_on_val and established_on_val > abolished_on_val:
@@ -507,7 +507,9 @@ async def role_inline_dates_post(
             request,
             "admin/roles/partials/_dates_form.html",
             _form_ctx(established_on, abolished_on),
-            headers=flash_trigger("error", "Established date must be on or before abolished date."),
+            headers=flash_trigger(
+                "warning", "Established date must be on or before abolished date."
+            ),
         )
 
     # Check existing active assignments
@@ -537,7 +539,7 @@ async def role_inline_dates_post(
             request,
             "admin/roles/partials/_dates_form.html",
             _form_ctx(established_on, abolished_on),
-            headers=flash_trigger("error", msg),
+            headers=flash_trigger("warning", msg),
         )
 
     await db.execute(
