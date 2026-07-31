@@ -29,14 +29,16 @@ ADMIN_DIR = Path(__file__).resolve().parents[3] / "src" / "api" / "admin"
 # design — every current error flash is a rejection and belongs at `warning`.
 ERROR_ALLOWED: frozenset[str] = frozenset()
 
+# "<file>.py::L<line>" flash_trigger(<var>, …) sites whose level is a variable
+# rather than a string constant. These bypass the level sweeps below (the AST
+# can't resolve the value), so each must be vetted by hand and allowlisted here.
+# orgs.py active-toggle resolves `level` to success/warning only (#353).
+DYNAMIC_LEVEL_ALLOWED: frozenset[str] = frozenset({"orgs.py::L237"})
 
-def _flash_trigger_level_sites() -> list[tuple[str, int, str]]:
-    """Every ``flash_trigger(<const-level>, …)`` call: (filename, lineno, level).
 
-    AST-based so both the ``headers=flash_trigger(...)`` and ``**flash_trigger(...)``
-    spellings are caught, and a mention in a comment/string is not.
-    """
-    sites: list[tuple[str, int, str]] = []
+def _flash_trigger_calls() -> list[tuple[str, int, ast.expr]]:
+    """Every ``flash_trigger(<level>, …)`` call: (filename, lineno, first-arg AST node)."""
+    calls: list[tuple[str, int, ast.expr]] = []
     for path in sorted(ADMIN_DIR.glob("*.py")):
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
@@ -45,11 +47,45 @@ def _flash_trigger_level_sites() -> list[tuple[str, int, str]]:
                 and isinstance(node.func, ast.Name)
                 and node.func.id == "flash_trigger"
                 and node.args
-                and isinstance(node.args[0], ast.Constant)
-                and isinstance(node.args[0].value, str)
             ):
-                sites.append((path.name, node.lineno, node.args[0].value))
-    return sites
+                calls.append((path.name, node.lineno, node.args[0]))
+    return calls
+
+
+def _flash_trigger_level_sites() -> list[tuple[str, int, str]]:
+    """Every ``flash_trigger(<const-level>, …)`` call: (filename, lineno, level).
+
+    AST-based so both the ``headers=flash_trigger(...)`` and ``**flash_trigger(...)``
+    spellings are caught, and a mention in a comment/string is not. Dynamic-level
+    calls (variable first arg) are excluded here — they can't be resolved and are
+    covered separately by ``test_flash_trigger_level_is_constant``.
+    """
+    return [
+        (name, line, arg.value)
+        for name, line, arg in _flash_trigger_calls()
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+    ]
+
+
+def test_flash_trigger_level_is_constant():
+    """Every server-side flash_trigger level is a string constant, else allowlisted (#353).
+
+    The level sweeps below only see constant-level calls; a `flash_trigger(level, …)`
+    with a variable level slips past them. This guards the blind spot: a new dynamic
+    level must be vetted by hand and added to DYNAMIC_LEVEL_ALLOWED, so `info`/`error`
+    can't sneak back in through a variable.
+    """
+    offenders = [
+        f"{name}:{line}"
+        for name, line, arg in _flash_trigger_calls()
+        if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str))
+        and f"{name}::L{line}" not in DYNAMIC_LEVEL_ALLOWED
+    ]
+    assert not offenders, (
+        "flash_trigger called with a non-constant level bypasses the #353 level "
+        "sweeps. Vet the resolved values and add the site to DYNAMIC_LEVEL_ALLOWED. "
+        f"Offending sites: {offenders}"
+    )
 
 
 def test_no_info_flash_level_in_admin_mutations():

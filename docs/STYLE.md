@@ -2027,10 +2027,10 @@ Detail pages once injected their scripts via `{% block extra_head %}`. **Do not*
 |---|---|---|
 | `success` | any mutation that **changed state** — create / edit / delete / archive / unarchive / dismiss / toggle | "Saved.", "Name removed.", "Person deleted.", "Marked inactive." |
 | `warning` | mutation **rejected, nothing changed** — bad input, uniqueness / 409 conflict, business-rule violation | "Couldn't save — check your input.", "Cannot delete: this link type is in use.", "Current assignments cannot have an end date." |
-| `error` | **unexpected server / operation failure only** (not user error) — none exist today | reserved |
+| `error` | **unexpected operation failure only** (not user error) | client-side "Copy failed — clipboard access denied" (`_link_row.html`) |
 | `info` | **retired** from mutation confirmations | — |
 
-Deletes/removes flash **`success`** (the body — "removed"/"deleted" — carries the destructive meaning), never `info`: `info` would put an irreversible Danger Zone hard-delete at a *lower* alarm than unlinking a re-addable child. A user-input rejection flashes **`warning`**, never `error`: red is reserved for server failures. CI-enforced by `test_flash_levels.py` (no `info` level; no `error` level outside `ERROR_ALLOWED`; registries conform). The generic §32 fallback keys map `saved`/`removed` → success, `invalid`/`exists` → warning (`SHARED_FLASH_MESSAGES`).
+Deletes/removes flash **`success`** (the body — "removed"/"deleted" — carries the destructive meaning), never `info`: `info` would put an irreversible Danger Zone hard-delete at a *lower* alarm than unlinking a re-addable child. A user-input rejection flashes **`warning`**, never `error`: red is reserved for real operation failures. No server-side `flash_trigger` emits `error` — the only `error`-level flash is the client-side clipboard-copy failure in `admin/*/partials/_link_row.html` (a genuine operation failure, the exemplar of the reserved level). CI-enforced by `test_flash_levels.py` (no `info` level; no `error` level outside `ERROR_ALLOWED`; every server-side `flash_trigger` level is a string constant unless allowlisted; registries conform). The generic §32 fallback keys map `saved`/`removed` → success, `invalid`/`exists` → warning (`SHARED_FLASH_MESSAGES`).
 
 ### Page header sync
 

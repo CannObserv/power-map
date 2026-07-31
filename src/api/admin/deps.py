@@ -97,7 +97,10 @@ def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str,
 #   success — any mutation that changed state (create/edit/delete/archive/unarchive);
 #             the *body text* ("Saved."/"Removed.") carries the create-vs-delete meaning
 #   warning — rejected, nothing changed (bad input, uniqueness/409 conflict)
-#   error   — unexpected server/operation failure only (none currently)
+#   error   — unexpected operation failure only. None on this server-side
+#             flash_trigger path; the sole `error` use is the client-side
+#             clipboard-copy failure in admin/*/partials/_link_row.html — a
+#             genuine operation failure, the exemplar of the reserved level.
 #   info    — retired from mutation confirmations
 # So `removed` flashes `success` (was `info` pre-#353) — a delete is a successful
 # mutation, matching the Danger Zone `deleted` precedent. Keys:
