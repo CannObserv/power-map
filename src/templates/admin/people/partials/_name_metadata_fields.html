@@ -56,7 +56,8 @@
            aria-controls="locale-search-results-{{ _uid }}"
            aria-autocomplete="list">
     <button type="button" class="typeahead-clear" id="locale-clear-{{ _uid }}"
-            data-typeahead-clear aria-label="Clear locale">&times;</button>
+            data-typeahead-clear aria-label="Clear locale"
+            {% if not (n and n.locale) %}style="display:none"{% endif %}>&times;</button>
   </div>
   <input type="hidden" name="locale" id="locale-hidden-{{ _uid }}"
          value="{{ n.locale if n and n.locale else '' }}">
@@ -81,7 +82,8 @@
            aria-controls="script-search-results-{{ _uid }}"
            aria-autocomplete="list">
     <button type="button" class="typeahead-clear" id="script-clear-{{ _uid }}"
-            data-typeahead-clear aria-label="Clear script">&times;</button>
+            data-typeahead-clear aria-label="Clear script"
+            {% if not (n and n.script) %}style="display:none"{% endif %}>&times;</button>
   </div>
   <input type="hidden" name="script" id="script-hidden-{{ _uid }}"
          value="{{ n.script if n and n.script else '' }}">
@@ -109,7 +111,8 @@
            aria-controls="reading-of-results-{{ _uid }}"
            aria-autocomplete="list">
     <button type="button" class="typeahead-clear" id="reading-of-clear-{{ _uid }}"
-            data-typeahead-clear aria-label="Clear reading-of target">&times;</button>
+            data-typeahead-clear aria-label="Clear reading-of target"
+            {% if not (n and n.reading_of_id) %}style="display:none"{% endif %}>&times;</button>
   </div>
   <input type="hidden" name="reading_of_id" id="reading-of-hidden-{{ _uid }}"
          value="{{ n.reading_of_id if n and n.reading_of_id else '' }}">

@@ -120,7 +120,8 @@
                      aria-controls="linked-entity-results-{{ _le_key }}"
                      aria-autocomplete="list">
               <button type="button" class="typeahead-clear" id="linked-entity-clear-{{ _le_key }}"
-                      data-typeahead-clear aria-label="Clear linked entity">&times;</button>
+                      data-typeahead-clear aria-label="Clear linked entity"
+                      {% if not (ev and ev.linked_entity_id) %}style="display:none"{% endif %}>&times;</button>
             </div>
             <input type="hidden" name="linked_entity_id" id="linked-entity-id-{{ _le_key }}"
                    value="{{ ev.linked_entity_id or '' if ev else '' }}">

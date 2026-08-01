@@ -77,7 +77,16 @@ let initStub;
 let addSpy;
 
 beforeEach(() => {
-  initStub = vi.fn();
+  // Mimic the real factory's return handle: clear() empties the input + hidden
+  // fields it was wired to, so the scope-switch path (combo.clear()) is exercised.
+  initStub = vi.fn((opts) => ({
+    clear: () => {
+      const i = opts && document.getElementById(opts.inputId);
+      const h = opts && document.getElementById(opts.hiddenId);
+      if (i) i.value = '';
+      if (h) h.value = '';
+    },
+  }));
   window.initTypeaheadCombobox = initStub;
   addSpy = vi.spyOn(document, 'addEventListener');
 });

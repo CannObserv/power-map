@@ -1201,10 +1201,13 @@ Wrap the visible input in `.typeahead-input-wrap` (so the button centres over th
 <div class="typeahead-input-wrap">
   <input id="jurisdiction-search" ...>
   <button type="button" class="typeahead-clear" id="jurisdiction-clear"
-          data-typeahead-clear aria-label="Clear jurisdiction">&times;</button>
+          data-typeahead-clear aria-label="Clear jurisdiction"
+          {% if not sel_jurisdiction_id %}style="display:none"{% endif %}>&times;</button>
 </div>
 <input type="hidden" name="jurisdiction_id" id="jurisdiction-id-hidden" value="...">
 ```
+
+Seed `style="display:none"` on the button when the field renders empty (mirror the hidden id's condition): the factory reconciles visibility on mount, but the inline seed avoids a pre-hydration flash of a `×` with nothing to clear.
 
 ```javascript
 window.initTypeaheadCombobox({

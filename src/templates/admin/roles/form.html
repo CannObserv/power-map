@@ -66,7 +66,8 @@
                    aria-controls="jurisdiction-search-results"
                    aria-autocomplete="list">
             <button type="button" class="typeahead-clear" id="jurisdiction-clear"
-                    data-typeahead-clear aria-label="Clear jurisdiction">&times;</button>
+                    data-typeahead-clear aria-label="Clear jurisdiction"
+                    {% if not v.get('jurisdiction_id') %}style="display:none"{% endif %}>&times;</button>
           </div>
           <input type="hidden" name="jurisdiction_id" id="jurisdiction-id-hidden"
                  value="{{ v.get('jurisdiction_id') or '' }}">

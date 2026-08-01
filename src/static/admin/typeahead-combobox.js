@@ -180,4 +180,13 @@ window.initTypeaheadCombobox = function initTypeaheadCombobox({
 
   // Reflect the server-rendered selection state on mount.
   syncClearBtn();
+
+  // Handle for callers that clear a selection outside the factory's own inputs
+  // (e.g. the event row nulls its linked entity on a scope switch) so the hidden
+  // id, dropdown, and "×" visibility all stay in sync (#358 CR).
+  return {
+    clear: function () {
+      clearSelection(false);
+    },
+  };
 };

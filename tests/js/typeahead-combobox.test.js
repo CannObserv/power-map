@@ -346,7 +346,7 @@ function setupClearable({ presetLabel = '', presetId = '', withButton = false, o
     </div>
   `;
   eval(scriptCode);
-  window.initTypeaheadCombobox({
+  return window.initTypeaheadCombobox({
     inputId: INPUT_ID,
     listboxId: LIST_ID,
     hiddenId: HIDDEN_ID,
@@ -476,5 +476,31 @@ describe('clear button visibility (#358 CR)', () => {
     setupClearable({ presetLabel: 'District 43', presetId: 'jur-1', withButton: true });
     typeInto('');
     expect(clearBtn().style.display).toBe('none');
+  });
+});
+
+describe('exposed clear() handle (#358 CR)', () => {
+  it('returns a handle with a clear() method', () => {
+    const api = setupClearable();
+    expect(typeof api.clear).toBe('function');
+  });
+
+  it('clear() empties the input, hidden id, and hides the button', () => {
+    const api = setupClearable({
+      presetLabel: 'District 43',
+      presetId: 'jur-1',
+      withButton: true,
+    });
+    api.clear();
+    expect(inp().value).toBe('');
+    expect(hidden().value).toBe('');
+    expect(clearBtn().style.display).toBe('none');
+  });
+
+  it('clear() fires onClear when a selection existed', () => {
+    const onClear = vi.fn();
+    const api = setupClearable({ presetLabel: 'District 43', presetId: 'jur-1', onClear });
+    api.clear();
+    expect(onClear).toHaveBeenCalledTimes(1);
   });
 });
