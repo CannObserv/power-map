@@ -1,0 +1,34 @@
+{# admin/role_assignments/partials/_relationship_row.html — one edge, read view (#301) #}
+{% set from_here = rel.from_assignment_id == ra_id %}
+<tr id="relationship-row-{{ rel.id }}">
+  <td>
+    {% if from_here %}
+      <strong>{{ rel.from_person or '(unnamed)' }}</strong>
+      <span style="color:var(--color-text-muted);font-size:var(--font-size-sm)">({{ rel.from_role }})</span>
+    {% else %}
+      <a href="/admin/role-assignments/{{ rel.from_assignment_id }}/">{{ rel.from_person or '(unnamed)' }}</a>
+      <span style="color:var(--color-text-muted);font-size:var(--font-size-sm)">({{ rel.from_role }})</span>
+    {% endif %}
+    <span style="color:var(--color-text-muted)">&mdash; {{ rel.rel_type_name | lower }} &rarr;</span>
+    {% if not from_here %}
+      <strong>{{ rel.to_person or '(unnamed)' }}</strong>
+      <span style="color:var(--color-text-muted);font-size:var(--font-size-sm)">({{ rel.to_role }})</span>
+    {% else %}
+      <a href="/admin/role-assignments/{{ rel.to_assignment_id }}/">{{ rel.to_person or '(unnamed)' }}</a>
+      <span style="color:var(--color-text-muted);font-size:var(--font-size-sm)">({{ rel.to_role }})</span>
+    {% endif %}
+    {% if rel.notes %}<span style="color:var(--color-text-muted);font-size:var(--font-size-sm)"> &middot; {{ rel.notes }}</span>{% endif %}
+  </td>
+  <td>{{ rel.valid_from.strftime('%Y-%m-%d') if rel.valid_from else '—' }}{% if rel.valid_until %} &ndash; {{ rel.valid_until.strftime('%Y-%m-%d') }}{% endif %}</td>
+  <td style="white-space:nowrap;text-align:right">
+    <button class="btn btn--sm btn--secondary" type="button"
+            aria-label="Edit {{ rel.rel_type_name }} relationship"
+            hx-get="/admin/role-assignments/{{ ra_id }}/relationships/{{ rel.id }}/edit-row/"
+            hx-target="#relationship-row-{{ rel.id }}" hx-swap="outerHTML">Edit</button>
+    <button class="btn btn--sm btn--danger" type="button"
+            aria-label="Remove {{ rel.rel_type_name }} relationship"
+            hx-delete="/admin/role-assignments/{{ ra_id }}/relationships/{{ rel.id }}/"
+            hx-target="#relationship-row-{{ rel.id }}" hx-swap="outerHTML"
+            hx-confirm="Remove this relationship?">Remove</button>
+  </td>
+</tr>

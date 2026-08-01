@@ -106,6 +106,7 @@ FORM_ROW_PARTIALS = [
     "admin/role_assignments/partials/_contact_form_row.html",
     "admin/role_assignments/partials/_link_form_row.html",
     "admin/role_assignments/partials/_identifier_form_row.html",
+    "admin/role_assignments/partials/_relationship_form_row.html",
     "admin/jurisdictions/partials/_contact_form_row.html",
     "admin/jurisdictions/partials/_address_form_row.html",
     "admin/jurisdictions/partials/_link_form_row.html",

@@ -18,6 +18,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.role_assignments_queries import VALID_STATUSES, query_role_assignments_rows
+from src.api.admin.role_assignments_relationships import fetch_panel_rows
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 from src.core.org_lifecycle import (
@@ -275,6 +276,8 @@ async def ra_detail(
         ra_id,
     )
 
+    relationships = await fetch_panel_rows(db, ra_id)
+
     return templates.TemplateResponse(
         request,
         "admin/role_assignments/detail.html",
@@ -282,11 +285,13 @@ async def ra_detail(
             "user": user,
             "active_section": "role_assignments",
             "ra": ra,
+            "ra_id": ra_id,
             "email_contacts": email_contacts,
             "phone_contacts": phone_contacts,
             "links": links,
             "identifiers": identifiers,
             "citations": citations,
+            "relationships": relationships,
             "entity_id": ra_id,
             "cit_base": f"/role-assignments/{ra_id}/citations",
             "citable_fields": sorted(CITABLE_FIELDS["role_assignment"]),

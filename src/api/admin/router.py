@@ -49,6 +49,9 @@ from src.api.admin import role_assignments_citations as role_assignments_citatio
 from src.api.admin import role_assignments_contacts as role_assignments_contacts_module
 from src.api.admin import role_assignments_identifiers as role_assignments_identifiers_module
 from src.api.admin import role_assignments_links as role_assignments_links_module
+from src.api.admin import (
+    role_assignments_relationships as role_assignments_relationships_module,
+)
 from src.api.admin import roles as roles_module
 from src.api.admin import roles_assignments_inline as roles_assignments_inline_module
 from src.api.admin import roles_citations as roles_citations_module
@@ -133,3 +136,4 @@ admin_router.include_router(role_assignments_contacts_module.router)
 admin_router.include_router(role_assignments_citations_module.router)
 admin_router.include_router(role_assignments_links_module.router)
 admin_router.include_router(role_assignments_identifiers_module.router)
+admin_router.include_router(role_assignments_relationships_module.router)

@@ -162,6 +162,33 @@
   </div>
 </section>
 
+<section class="entity-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
+    <h2>Relationships</h2>
+    {% if not ra.archived_at %}
+    <button class="btn btn--sm btn--secondary"
+            data-new-row-id="relationship-row-new"
+            hx-get="/admin/role-assignments/{{ ra.id }}/relationships/new-row/"
+            hx-sync="this:drop"
+            hx-target="#relationships-table tbody"
+            hx-swap="afterbegin"
+            type="button">+ Add relationship</button>
+    {% endif %}
+  </div>
+  <div class="table-wrapper">
+    <table id="relationships-table" class="data-table">
+      <thead><tr><th scope="col">Relationship</th><th scope="col">Window</th><th scope="col"></th></tr></thead>
+      <tbody>
+        {% for rel in relationships %}
+        {% include "admin/role_assignments/partials/_relationship_row.html" %}
+        {% else %}
+        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No relationships</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
 {% include "admin/citations/partials/_citations_panel.html" %}
 
 <p style="color:var(--color-text-muted);font-size:var(--font-size-sm);margin-top:var(--space-6)">
