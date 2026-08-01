@@ -98,16 +98,19 @@ describe('person-name-row-typeahead', () => {
       inputId: 'locale-search-display-nid_abc',
       listboxId: 'locale-search-results-nid_abc',
       hiddenId: 'locale-hidden-nid_abc',
+      clearButtonId: 'locale-clear-nid_abc',
     });
     expect(callArgs).toContainEqual({
       inputId: 'script-search-display-nid_abc',
       listboxId: 'script-search-results-nid_abc',
       hiddenId: 'script-hidden-nid_abc',
+      clearButtonId: 'script-clear-nid_abc',
     });
     expect(callArgs).toContainEqual({
       inputId: 'reading-of-display-nid_abc',
       listboxId: 'reading-of-results-nid_abc',
       hiddenId: 'reading-of-hidden-nid_abc',
+      clearButtonId: 'reading-of-clear-nid_abc',
     });
   });
 

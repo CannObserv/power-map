@@ -103,21 +103,26 @@
             </select>
           </div>
           <div class="form-group" style="margin-bottom:0;flex:1;position:relative">
-            <input type="text" autocomplete="off" placeholder="Search by name…"
-                   aria-label="Search for a linked entity"
-                   id="linked-entity-search-{{ _le_key }}"
-                   value="{{ linked_entity_label or (ev.linked_entity_id if ev else '') or '' }}"
-                   hx-get="/admin/entities/search/"
-                   hx-trigger="input changed delay:200ms"
-                   hx-target="#linked-entity-results-{{ _le_key }}"
-                   hx-swap="innerHTML"
-                   hx-include="#linked-entity-type-{{ _le_key }}"
-                   name="q"
-                   role="combobox"
-                   aria-expanded="false"
-                   aria-haspopup="listbox"
-                   aria-controls="linked-entity-results-{{ _le_key }}"
-                   aria-autocomplete="list">
+            <div class="typeahead-input-wrap">
+              <input type="text" autocomplete="off" placeholder="Search by name…"
+                     aria-label="Search for a linked entity"
+                     id="linked-entity-search-{{ _le_key }}"
+                     value="{{ linked_entity_label or (ev.linked_entity_id if ev else '') or '' }}"
+                     hx-get="/admin/entities/search/"
+                     hx-trigger="input changed delay:200ms"
+                     hx-target="#linked-entity-results-{{ _le_key }}"
+                     hx-swap="innerHTML"
+                     hx-include="#linked-entity-type-{{ _le_key }}"
+                     name="q"
+                     role="combobox"
+                     aria-expanded="false"
+                     aria-haspopup="listbox"
+                     aria-controls="linked-entity-results-{{ _le_key }}"
+                     aria-autocomplete="list">
+              <button type="button" class="typeahead-clear" id="linked-entity-clear-{{ _le_key }}"
+                      data-typeahead-clear aria-label="Clear linked entity"
+                      {% if not (ev and ev.linked_entity_id) %}style="display:none"{% endif %}>&times;</button>
+            </div>
             <input type="hidden" name="linked_entity_id" id="linked-entity-id-{{ _le_key }}"
                    value="{{ ev.linked_entity_id or '' if ev else '' }}">
             <ul id="linked-entity-results-{{ _le_key }}" class="typeahead-results" role="listbox"></ul>

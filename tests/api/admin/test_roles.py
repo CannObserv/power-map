@@ -627,6 +627,37 @@ async def test_structural_inline_edit_form_renders(client, structural_role):
     assert 'name="qualifier"' in r.text
 
 
+async def test_structural_inline_edit_form_has_jurisdiction_clear(client, structural_role):
+    """#358: jurisdiction picker exposes a "×" clear button wired to the factory."""
+    r = await client.get(
+        f"/admin/roles/{structural_role['role_id']}/inline/structural/edit/", headers=AUTH_HEADERS
+    )
+    assert r.status_code == 200
+    assert 'id="structural-jurisdiction-clear"' in r.text
+    assert "data-typeahead-clear" in r.text
+    assert "clearButtonId: 'structural-jurisdiction-clear'" in r.text
+
+
+async def test_structural_inline_clears_jurisdiction_keeping_role_type(client, db, structural_role):
+    """#358: an empty jurisdiction_id nulls the jurisdiction while the role type stays."""
+    r = await client.post(
+        f"/admin/roles/{structural_role['role_id']}/inline/structural/",
+        data={
+            "role_type_id": structural_role["rt_id"],
+            "jurisdiction_id": "",
+            "qualifier": "",
+        },
+        headers=AUTH_HEADERS,
+    )
+    assert r.status_code == 200
+    row = await db.fetchrow(
+        "SELECT role_type_id, jurisdiction_id FROM roles WHERE id=$1",
+        structural_role["role_id"],
+    )
+    assert row["jurisdiction_id"] is None
+    assert row["role_type_id"] == structural_role["rt_id"]
+
+
 async def test_structural_inline_update_qualifier_persists(client, db, structural_role):
     """Non-WA role: qualifier updates; unsynthesizable title left untouched."""
     r = await client.post(

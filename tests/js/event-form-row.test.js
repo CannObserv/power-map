@@ -77,7 +77,16 @@ let initStub;
 let addSpy;
 
 beforeEach(() => {
-  initStub = vi.fn();
+  // Mimic the real factory's return handle: clear() empties the input + hidden
+  // fields it was wired to, so the scope-switch path (combo.clear()) is exercised.
+  initStub = vi.fn((opts) => ({
+    clear: () => {
+      const i = opts && document.getElementById(opts.inputId);
+      const h = opts && document.getElementById(opts.hiddenId);
+      if (i) i.value = '';
+      if (h) h.value = '';
+    },
+  }));
   window.initTypeaheadCombobox = initStub;
   addSpy = vi.spyOn(document, 'addEventListener');
 });
@@ -101,6 +110,7 @@ describe('event-form-row', () => {
       inputId: 'linked-entity-search-ev_abc',
       listboxId: 'linked-entity-results-ev_abc',
       hiddenId: 'linked-entity-id-ev_abc',
+      clearButtonId: 'linked-entity-clear-ev_abc',
     });
   });
 

@@ -44,18 +44,24 @@
       search.disabled = !linkedTypeSel.value;
     }
 
-    eventTypeSel.addEventListener('change', syncSection);
-    linkedTypeSel.addEventListener('change', function () {
-      // Switching scope invalidates any prior person/org selection.
-      search.value = '';
-      hidden.value = '';
-      syncSearchDisabled();
-    });
-
-    window.initTypeaheadCombobox({
+    var combo = window.initTypeaheadCombobox({
       inputId: 'linked-entity-search-' + uid,
       listboxId: 'linked-entity-results-' + uid,
       hiddenId: 'linked-entity-id-' + uid,
+      clearButtonId: 'linked-entity-clear-' + uid,
+    });
+
+    eventTypeSel.addEventListener('change', syncSection);
+    linkedTypeSel.addEventListener('change', function () {
+      // Switching scope invalidates any prior person/org selection. Route the
+      // clear through the factory so the "×" visibility stays in sync (#358 CR);
+      // fall back to a direct clear if an older factory returns no handle.
+      if (combo && combo.clear) combo.clear();
+      else {
+        search.value = '';
+        hidden.value = '';
+      }
+      syncSearchDisabled();
     });
 
     syncSection();
