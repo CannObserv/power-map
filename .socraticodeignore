@@ -1,0 +1,6 @@
+# Exclude vendored skill trees from the semantic index (issue #360).
+# Layered on SocratiCode's built-in defaults + .gitignore.
+# skills/ itself is kept: it holds the first-party `brainstorming` skill.
+# Its other entries are symlinks that resolve into the excluded skills-vendor/ tree.
+skills-vendor/
+.claude/skills/
