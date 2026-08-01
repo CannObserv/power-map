@@ -3027,9 +3027,13 @@ BEGIN
     LOOP
         v_from := r.valid_from;
         v_until := r.valid_until;
-        IF r.lo IS NOT NULL AND (v_from IS NULL OR v_from < r.lo) THEN
+        -- valid_from: clamp a DEFINED start up to the endpoint start; never
+        -- materialize a NULL (unknown) start — that would invent one (#307).
+        IF r.lo IS NOT NULL AND v_from IS NOT NULL AND v_from < r.lo THEN
             v_from := r.lo;
         END IF;
+        -- valid_until: clamp a defined end down, AND close a NULL (ongoing) edge
+        -- at a defined endpoint end — the relationship dies when the employment does.
         IF r.hi IS NOT NULL AND (v_until IS NULL OR v_until > r.hi) THEN
             v_until := r.hi;
         END IF;

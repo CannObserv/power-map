@@ -230,6 +230,19 @@ async def test_cascade_clamp_ongoing_edge_on_endpoint_end(conn):
     assert row["valid_until"] == D(2024, 12, 31)
 
 
+async def test_cascade_does_not_materialize_unknown_start(conn):
+    frm, to = await _two_assignments(conn)
+    # edge with an UNKNOWN start (valid_from NULL); moving an endpoint start later
+    # must NOT invent a start for the edge (#307 — unknown bounds are never invented)
+    eid = await _edge(conn, frm, to, valid_from=None, valid_until=D(2024, 12, 31))
+    await conn.execute(
+        "UPDATE role_assignments SET start_date = $2 WHERE id = $1", frm, D(2023, 6, 1)
+    )
+    row = await _edge_row(conn, eid)
+    assert row["archived_at"] is None
+    assert row["valid_from"] is None  # stays unknown, not materialized to 2023-06-01
+
+
 async def test_cascade_invert_archives(conn):
     frm, to = await _two_assignments(conn)
     eid = await _edge(conn, frm, to, valid_from=D(2023, 1, 1), valid_until=D(2023, 12, 31))
