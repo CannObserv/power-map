@@ -39,52 +39,50 @@
 </div>
 {# Locale typeahead — display input + hidden code value + listbox #}
 <div class="form-group" style="margin-bottom:0;position:relative;min-width:9rem">
-  <label style="font-size:0.75rem;display:block">Locale (BCP-47)
-    <span class="typeahead-input-wrap" style="display:block">
-      <input id="locale-search-display-{{ _uid }}" type="text" autocomplete="off"
-             placeholder="e.g. en, en-US, ja-JP"
-             value="{{ n.locale if n and n.locale else '' }}"
-             hx-get="/admin/people/_locale_search"
-             hx-trigger="input changed delay:200ms"
-             hx-target="#locale-search-results-{{ _uid }}"
-             hx-swap="innerHTML"
-             hx-vals='js:{q: (event && event.target ? event.target.value : "")}'
-             aria-label="Locale"
-             role="combobox"
-             aria-expanded="false"
-             aria-haspopup="listbox"
-             aria-controls="locale-search-results-{{ _uid }}"
-             aria-autocomplete="list">
-      <button type="button" class="typeahead-clear" id="locale-clear-{{ _uid }}"
-              data-typeahead-clear aria-label="Clear locale">&times;</button>
-    </span>
-  </label>
+  <label for="locale-search-display-{{ _uid }}" style="font-size:0.75rem;display:block">Locale (BCP-47)</label>
+  <div class="typeahead-input-wrap">
+    <input id="locale-search-display-{{ _uid }}" type="text" autocomplete="off"
+           placeholder="e.g. en, en-US, ja-JP"
+           value="{{ n.locale if n and n.locale else '' }}"
+           hx-get="/admin/people/_locale_search"
+           hx-trigger="input changed delay:200ms"
+           hx-target="#locale-search-results-{{ _uid }}"
+           hx-swap="innerHTML"
+           hx-vals='js:{q: (event && event.target ? event.target.value : "")}'
+           aria-label="Locale"
+           role="combobox"
+           aria-expanded="false"
+           aria-haspopup="listbox"
+           aria-controls="locale-search-results-{{ _uid }}"
+           aria-autocomplete="list">
+    <button type="button" class="typeahead-clear" id="locale-clear-{{ _uid }}"
+            data-typeahead-clear aria-label="Clear locale">&times;</button>
+  </div>
   <input type="hidden" name="locale" id="locale-hidden-{{ _uid }}"
          value="{{ n.locale if n and n.locale else '' }}">
   <ul id="locale-search-results-{{ _uid }}" class="typeahead-results" role="listbox"></ul>
 </div>
 {# Script typeahead — same shape against iso15924_scripts #}
 <div class="form-group" style="margin-bottom:0;position:relative;min-width:9rem">
-  <label style="font-size:0.75rem;display:block">Script (ISO 15924)
-    <span class="typeahead-input-wrap" style="display:block">
-      <input id="script-search-display-{{ _uid }}" type="text" autocomplete="off"
-             placeholder="e.g. Latn, Jpan, Cyrl"
-             value="{{ n.script if n and n.script else '' }}"
-             hx-get="/admin/people/_script_search"
-             hx-trigger="input changed delay:200ms"
-             hx-target="#script-search-results-{{ _uid }}"
-             hx-swap="innerHTML"
-             hx-vals='js:{q: (event && event.target ? event.target.value : "")}'
-             aria-label="Script"
-             role="combobox"
-             aria-expanded="false"
-             aria-haspopup="listbox"
-             aria-controls="script-search-results-{{ _uid }}"
-             aria-autocomplete="list">
-      <button type="button" class="typeahead-clear" id="script-clear-{{ _uid }}"
-              data-typeahead-clear aria-label="Clear script">&times;</button>
-    </span>
-  </label>
+  <label for="script-search-display-{{ _uid }}" style="font-size:0.75rem;display:block">Script (ISO 15924)</label>
+  <div class="typeahead-input-wrap">
+    <input id="script-search-display-{{ _uid }}" type="text" autocomplete="off"
+           placeholder="e.g. Latn, Jpan, Cyrl"
+           value="{{ n.script if n and n.script else '' }}"
+           hx-get="/admin/people/_script_search"
+           hx-trigger="input changed delay:200ms"
+           hx-target="#script-search-results-{{ _uid }}"
+           hx-swap="innerHTML"
+           hx-vals='js:{q: (event && event.target ? event.target.value : "")}'
+           aria-label="Script"
+           role="combobox"
+           aria-expanded="false"
+           aria-haspopup="listbox"
+           aria-controls="script-search-results-{{ _uid }}"
+           aria-autocomplete="list">
+    <button type="button" class="typeahead-clear" id="script-clear-{{ _uid }}"
+            data-typeahead-clear aria-label="Clear script">&times;</button>
+  </div>
   <input type="hidden" name="script" id="script-hidden-{{ _uid }}"
          value="{{ n.script if n and n.script else '' }}">
   <ul id="script-search-results-{{ _uid }}" class="typeahead-results" role="listbox"></ul>
@@ -94,26 +92,25 @@
 {% set _is_reading_type = n and n.name_type in ('reading','romanization','mrz') %}
 <div id="reading-of-block-{{ _uid }}" class="form-group"
      style="margin-bottom:0;position:relative;min-width:11rem;{% if not _is_reading_type %}display:none;{% endif %}">
-  <label style="font-size:0.75rem;display:block">Reading of
-    <span class="typeahead-input-wrap" style="display:block">
-      <input id="reading-of-display-{{ _uid }}" type="text" autocomplete="off"
-             placeholder="Visual row this reading transliterates"
-             value="{{ n.reading_of_name if n and n.reading_of_name else '' }}"
-             hx-get="/admin/people/{{ person_id }}/_reading_target_search"
-             hx-trigger="input changed delay:200ms"
-             hx-target="#reading-of-results-{{ _uid }}"
-             hx-swap="innerHTML"
-             hx-vals='js:{q: (event && event.target ? event.target.value : "")}'
-             aria-label="Reading of"
-             role="combobox"
-             aria-expanded="false"
-             aria-haspopup="listbox"
-             aria-controls="reading-of-results-{{ _uid }}"
-             aria-autocomplete="list">
-      <button type="button" class="typeahead-clear" id="reading-of-clear-{{ _uid }}"
-              data-typeahead-clear aria-label="Clear reading-of target">&times;</button>
-    </span>
-  </label>
+  <label for="reading-of-display-{{ _uid }}" style="font-size:0.75rem;display:block">Reading of</label>
+  <div class="typeahead-input-wrap">
+    <input id="reading-of-display-{{ _uid }}" type="text" autocomplete="off"
+           placeholder="Visual row this reading transliterates"
+           value="{{ n.reading_of_name if n and n.reading_of_name else '' }}"
+           hx-get="/admin/people/{{ person_id }}/_reading_target_search"
+           hx-trigger="input changed delay:200ms"
+           hx-target="#reading-of-results-{{ _uid }}"
+           hx-swap="innerHTML"
+           hx-vals='js:{q: (event && event.target ? event.target.value : "")}'
+           aria-label="Reading of"
+           role="combobox"
+           aria-expanded="false"
+           aria-haspopup="listbox"
+           aria-controls="reading-of-results-{{ _uid }}"
+           aria-autocomplete="list">
+    <button type="button" class="typeahead-clear" id="reading-of-clear-{{ _uid }}"
+            data-typeahead-clear aria-label="Clear reading-of target">&times;</button>
+  </div>
   <input type="hidden" name="reading_of_id" id="reading-of-hidden-{{ _uid }}"
          value="{{ n.reading_of_id if n and n.reading_of_id else '' }}">
   <ul id="reading-of-results-{{ _uid }}" class="typeahead-results" role="listbox"></ul>

@@ -4,7 +4,8 @@
  * Usage (inline <script> in an HTMX partial, runs after the factory is loaded):
  *   window.initTypeaheadCombobox({ inputId, listboxId, hiddenId, clearButtonId, onSelect, onClear });
  * onSelect (optional): callback(selectedId) invoked when an item is selected.
- * clearButtonId (optional): id of a "×" button that clears the selection.
+ * clearButtonId (optional): id of a "×" button that clears the selection. The
+ *   factory shows it only while a selection exists (hidden id non-empty).
  * onClear (optional): callback() invoked when a non-empty selection is cleared
  *   (via the clear button, an emptied input, or text edited away from the label).
  *
@@ -59,11 +60,18 @@ window.initTypeaheadCombobox = function initTypeaheadCombobox({
     inp.setAttribute('aria-activedescendant', activeIdx >= 0 ? items[activeIdx].id || '' : '');
   }
 
+  // Show the "×" only while a selection exists — an empty picker has nothing
+  // to clear, so the affordance would be noise (#358 CR).
+  function syncClearBtn() {
+    if (clearBtn) clearBtn.style.display = hidden.value ? '' : 'none';
+  }
+
   function selectItem(li) {
     hidden.value = li.dataset.id;
     inp.value = li.dataset.label;
     selectedLabel = li.dataset.label;
     closeDropdown();
+    syncClearBtn();
     if (onSelect) onSelect(li.dataset.id);
   }
 
@@ -75,6 +83,7 @@ window.initTypeaheadCombobox = function initTypeaheadCombobox({
     inp.value = '';
     selectedLabel = '';
     closeDropdown();
+    syncClearBtn();
     if (focus) inp.focus();
     if (had && onClear) onClear();
   }
@@ -156,6 +165,7 @@ window.initTypeaheadCombobox = function initTypeaheadCombobox({
     if (inp.value !== selectedLabel && hidden.value !== '') {
       hidden.value = '';
       selectedLabel = '';
+      syncClearBtn();
       if (onClear) onClear();
     }
   });
@@ -167,4 +177,7 @@ window.initTypeaheadCombobox = function initTypeaheadCombobox({
       clearSelection(true);
     });
   }
+
+  // Reflect the server-rendered selection state on mount.
+  syncClearBtn();
 };

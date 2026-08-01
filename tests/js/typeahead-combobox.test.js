@@ -447,3 +447,34 @@ describe('clear button', () => {
     expect(() => setupClearable()).not.toThrow();
   });
 });
+
+describe('clear button visibility (#358 CR)', () => {
+  it('is hidden when no selection exists', () => {
+    setupClearable({ withButton: true });
+    expect(clearBtn().style.display).toBe('none');
+  });
+
+  it('is visible when a server-rendered selection is present', () => {
+    setupClearable({ presetLabel: 'District 43', presetId: 'jur-1', withButton: true });
+    expect(clearBtn().style.display).not.toBe('none');
+  });
+
+  it('appears after selecting an item', () => {
+    setupClearable({ withButton: true });
+    populateResults([{ id: 'jur-2', label: 'District 44' }]);
+    getItems()[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    expect(clearBtn().style.display).not.toBe('none');
+  });
+
+  it('hides after clearing via the button', () => {
+    setupClearable({ presetLabel: 'District 43', presetId: 'jur-1', withButton: true });
+    clearBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(clearBtn().style.display).toBe('none');
+  });
+
+  it('hides after blank-to-clear', () => {
+    setupClearable({ presetLabel: 'District 43', presetId: 'jur-1', withButton: true });
+    typeInto('');
+    expect(clearBtn().style.display).toBe('none');
+  });
+});

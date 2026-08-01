@@ -1216,7 +1216,7 @@ window.initTypeaheadCombobox({
 });
 ```
 
-- The `×` button clears text + hidden id, closes the dropdown, and refocuses the input.
+- The `×` button clears text + hidden id, closes the dropdown, and refocuses the input. The factory shows it only while a selection exists (hidden id non-empty), so an empty picker carries no clear affordance.
 - `onClear()` fires (from either clear path) only when a non-empty selection was actually dropped — use it to reset dependent UI (e.g. a relationship phrase preview). Do **not** reuse `onSelect('')` for this; `onSelect` consumers that navigate on select (e.g. the merge target picker) must not fire on a clear.
 
 ---
