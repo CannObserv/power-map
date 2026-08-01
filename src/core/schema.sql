@@ -400,6 +400,74 @@ EXCEPTION WHEN unique_violation THEN
 END $$;
 
 -- =============================================================================
+-- Role-Assignment relationships (#301)
+--
+-- A directional, temporal edge between two role_assignments: the staffer's
+-- assignment (from) serves a principal legislator's seat assignment (to). The
+-- flat role model cannot hold a person->person staff relationship; this edge
+-- does, while preserving the object assignment context (org, role, window) on
+-- both sides. Biennium turnover = new assignments on both sides = a new edge.
+-- =============================================================================
+
+-- Governed vocabulary of assignment-relationship kinds (mirrors
+-- jurisdiction_relationship_types). is_symmetric kept for catalog parity; the
+-- seeded staff_of type is strictly directional (from = staffer, to = principal).
+CREATE TABLE IF NOT EXISTS role_assignment_relationship_types (
+    id           TEXT        PRIMARY KEY,
+    slug         TEXT        NOT NULL UNIQUE,
+    display_name TEXT        NOT NULL,
+    description  TEXT,
+    is_symmetric BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO role_assignment_relationship_types (id, slug, display_name, description, is_symmetric) VALUES
+    ('01KYZC3AJM0G638CTPS4QAEJF0', 'staff_of', 'Staff Of',
+     'from = staffer''s assignment serves to = principal legislator''s seat assignment', FALSE)
+ON CONFLICT (id) DO UPDATE SET
+    slug         = EXCLUDED.slug,
+    display_name = EXCLUDED.display_name,
+    description  = EXCLUDED.description,
+    is_symmetric = EXCLUDED.is_symmetric;
+
+-- Directional temporal edge. valid_from/valid_until is the edge's OWN window,
+-- independent of but bounded by both endpoint assignment windows (enforced by
+-- trg_edge_within_assignments + the app guard; cascade-clamped by
+-- trg_cascade_assignment_relationships when an endpoint window shrinks/archives).
+-- ON DELETE CASCADE is only a hard-delete backstop; merges re-home edges onto the
+-- survivor before the losing assignment's DELETE (src/core/ancillary_migrate.py).
+-- source_key_id's FK to api_keys is added by a reconciliation ALTER after the
+-- api_keys table is defined (forward references fail in the batched apply).
+CREATE TABLE IF NOT EXISTS role_assignment_relationships (
+    id                 TEXT        PRIMARY KEY,
+    from_assignment_id TEXT        NOT NULL REFERENCES role_assignments(id) ON DELETE CASCADE,
+    to_assignment_id   TEXT        NOT NULL REFERENCES role_assignments(id) ON DELETE CASCADE,
+    rel_type_id        TEXT        NOT NULL REFERENCES role_assignment_relationship_types(id),
+    valid_from         DATE,
+    valid_until        DATE,
+    source_key_id      TEXT,
+    notes              TEXT,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at        TIMESTAMPTZ,
+    CONSTRAINT chk_no_self_rel_assignment CHECK (from_assignment_id <> to_assignment_id),
+    CONSTRAINT chk_edge_valid_range
+        CHECK (valid_from IS NULL OR valid_until IS NULL OR valid_from <= valid_until)
+);
+
+-- Identity / refine-in-place key: one active edge per (from, to, rel_type).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assignment_relationship_identity
+    ON role_assignment_relationships (from_assignment_id, to_assignment_id, rel_type_id)
+    WHERE archived_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_assignment_relationships_from
+    ON role_assignment_relationships (from_assignment_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_relationships_to
+    ON role_assignment_relationships (to_assignment_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_relationships_type
+    ON role_assignment_relationships (rel_type_id);
+
+-- =============================================================================
 -- Jurisdiction Entities (#168)
 -- =============================================================================
 
@@ -2338,6 +2406,21 @@ ALTER TABLE person_names
 ALTER TABLE organization_names
     ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;
 
+-- Migration (#301): add the source_key_id -> api_keys FK on role_assignment_relationships
+-- here rather than inline (the table is defined before api_keys, so a forward FK
+-- reference fails in the batched apply). Idempotent: skip when the FK already exists.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'role_assignment_relationships_source_key_id_fkey'
+          AND conrelid = 'role_assignment_relationships'::regclass
+    ) THEN
+        ALTER TABLE role_assignment_relationships
+            ADD CONSTRAINT role_assignment_relationships_source_key_id_fkey
+            FOREIGN KEY (source_key_id) REFERENCES api_keys(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
 -- Migration (#162 CR): drop redundant api_key_scopes_key index — the PK on
 -- (api_key_id, scope_id) already supports lookups by api_key_id alone.
 DROP INDEX IF EXISTS idx_api_key_scopes_key;
@@ -2345,7 +2428,7 @@ DROP INDEX IF EXISTS idx_api_key_scopes_key;
 -- Migration (#163): change feed — deleted_entities tombstone + updated_at indexes.
 
 CREATE TABLE IF NOT EXISTS deleted_entities (
-    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('person', 'organization', 'jurisdiction', 'role', 'role_assignment')),
+    entity_type  TEXT        NOT NULL CHECK (entity_type IN ('person', 'organization', 'jurisdiction', 'role', 'role_assignment', 'role_assignment_relationship')),
     entity_id    TEXT        NOT NULL,
     deleted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (entity_type, entity_id)
@@ -2467,6 +2550,59 @@ DO $$ BEGIN
         ALTER TABLE deleted_entities ADD CONSTRAINT deleted_entities_entity_type_check
             CHECK (entity_type IN
                 ('person', 'organization', 'jurisdiction', 'role', 'role_assignment'));
+    END IF;
+END $$;
+
+-- =============================================================================
+-- Migration (#301): extend the change-feed entity_type CHECKs to include
+-- 'role_assignment_relationship' on existing DBs (fresh DBs get the full shape
+-- from the CREATE TABLE definitions above). Keyed on absence of '_relationship'
+-- in the existing clause. Covers all three change-feed surfaces:
+-- entity_changes (outbox), deleted_entities (tombstone), api_key_entity_subscriptions.
+-- =============================================================================
+
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'entity_changes_entity_type_check'
+          AND check_clause NOT LIKE '%role_assignment_relationship%'
+    ) THEN
+        ALTER TABLE entity_changes DROP CONSTRAINT entity_changes_entity_type_check;
+        ALTER TABLE entity_changes ADD CONSTRAINT entity_changes_entity_type_check
+            CHECK (entity_type IN
+                ('person', 'organization', 'jurisdiction', 'role',
+                 'role_assignment', 'role_assignment_relationship'));
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'deleted_entities_entity_type_check'
+          AND check_clause NOT LIKE '%role_assignment_relationship%'
+    ) THEN
+        ALTER TABLE deleted_entities DROP CONSTRAINT deleted_entities_entity_type_check;
+        ALTER TABLE deleted_entities ADD CONSTRAINT deleted_entities_entity_type_check
+            CHECK (entity_type IN
+                ('person', 'organization', 'jurisdiction', 'role',
+                 'role_assignment', 'role_assignment_relationship'));
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_schema = 'public'
+          AND constraint_name = 'api_key_entity_subscriptions_entity_type_check'
+          AND check_clause NOT LIKE '%role_assignment_relationship%'
+    ) THEN
+        ALTER TABLE api_key_entity_subscriptions DROP CONSTRAINT api_key_entity_subscriptions_entity_type_check;
+        ALTER TABLE api_key_entity_subscriptions ADD CONSTRAINT api_key_entity_subscriptions_entity_type_check
+            CHECK (entity_type IN
+                ('person', 'organization', 'jurisdiction', 'role',
+                 'role_assignment', 'role_assignment_relationship'));
     END IF;
 END $$;
 
@@ -2763,7 +2899,8 @@ CREATE TABLE IF NOT EXISTS entity_changes (
     entity_type  TEXT         NOT NULL
                               CHECK (entity_type IN
                                 ('person', 'organization', 'jurisdiction',
-                                 'role', 'role_assignment')),
+                                 'role', 'role_assignment',
+                                 'role_assignment_relationship')),
     entity_id    TEXT         NOT NULL,
     change_kind  TEXT         NOT NULL
                               CHECK (change_kind IN ('updated', 'deleted')),
@@ -2789,6 +2926,7 @@ BEGIN
             WHEN 'jurisdictions'     THEN 'jurisdiction'
             WHEN 'roles'             THEN 'role'
             WHEN 'role_assignments'  THEN 'role_assignment'
+            WHEN 'role_assignment_relationships' THEN 'role_assignment_relationship'
         END,
         NEW.id,
         'updated'
@@ -2817,6 +2955,96 @@ CREATE OR REPLACE TRIGGER trg_entity_changes_role_assignments
     AFTER INSERT OR UPDATE ON role_assignments
     FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
 
+-- Edge gets its own addressable change-feed entity_type (#301): a create /
+-- refine / retract on the relationship is independently observable, and archiving
+-- surfaces as an 'updated' row carrying archived_at (subscribers drop the anchor,
+-- same model as event retract #322).
+CREATE OR REPLACE TRIGGER trg_entity_changes_role_assignment_relationships
+    AFTER INSERT OR UPDATE ON role_assignment_relationships
+    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
+
+-- Touch both endpoint assignments so a relationship edit also surfaces on each
+-- assignment's change feed (mirrors touch_parent_jurisdiction for jurisdiction
+-- edges, #275). The UPDATE bumps updated_at → fires trg_entity_changes_role_assignments.
+-- The cascade trigger below is WHEN-gated on start/end/archived_at, so these
+-- updated_at-only bumps do NOT re-enter the cascade (no trigger recursion).
+CREATE OR REPLACE FUNCTION touch_assignments_on_relationship_change()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE role_assignments SET updated_at = NOW()
+    WHERE id IN (COALESCE(NEW.from_assignment_id, OLD.from_assignment_id),
+                 COALESCE(NEW.to_assignment_id, OLD.to_assignment_id));
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_assignments_on_relationship_change
+    AFTER INSERT OR UPDATE OR DELETE ON role_assignment_relationships
+    FOR EACH ROW EXECUTE FUNCTION touch_assignments_on_relationship_change();
+
+-- Cascade (#301): when an endpoint assignment's window shrinks or it is archived,
+-- keep dependent active edges logically valid — no orphaned/out-of-window records.
+--   endpoint archived     → archive dependent active edges
+--   window shrinks         → clamp edge valid_from up to / valid_until down to the
+--                            intersection of both endpoint windows
+--   clamp inverts window   → archive the edge
+-- Every mutation is an UPDATE on the edge, so it fires trg_entity_changes_*
+-- (observable auto-clamp, not silent). GREATEST/LEAST ignore NULLs (open bounds).
+CREATE OR REPLACE FUNCTION cascade_assignment_relationships()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    r      RECORD;
+    v_from DATE;
+    v_until DATE;
+BEGIN
+    IF NEW.archived_at IS NOT NULL AND OLD.archived_at IS NULL THEN
+        UPDATE role_assignment_relationships
+           SET archived_at = NOW()
+         WHERE archived_at IS NULL
+           AND (from_assignment_id = NEW.id OR to_assignment_id = NEW.id);
+        RETURN NULL;
+    END IF;
+
+    FOR r IN
+        SELECT rr.id, rr.valid_from, rr.valid_until,
+               GREATEST(f.start_date, t.start_date) AS lo,
+               LEAST(f.end_date, t.end_date)        AS hi
+          FROM role_assignment_relationships rr
+          JOIN role_assignments f ON f.id = rr.from_assignment_id
+          JOIN role_assignments t ON t.id = rr.to_assignment_id
+         WHERE rr.archived_at IS NULL
+           AND (rr.from_assignment_id = NEW.id OR rr.to_assignment_id = NEW.id)
+    LOOP
+        v_from := r.valid_from;
+        v_until := r.valid_until;
+        IF r.lo IS NOT NULL AND (v_from IS NULL OR v_from < r.lo) THEN
+            v_from := r.lo;
+        END IF;
+        IF r.hi IS NOT NULL AND (v_until IS NULL OR v_until > r.hi) THEN
+            v_until := r.hi;
+        END IF;
+        IF v_from IS NOT NULL AND v_until IS NOT NULL AND v_from > v_until THEN
+            UPDATE role_assignment_relationships
+               SET archived_at = NOW()
+             WHERE id = r.id AND archived_at IS NULL;
+        ELSIF v_from IS DISTINCT FROM r.valid_from OR v_until IS DISTINCT FROM r.valid_until THEN
+            UPDATE role_assignment_relationships
+               SET valid_from = v_from, valid_until = v_until
+             WHERE id = r.id AND archived_at IS NULL;
+        END IF;
+    END LOOP;
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_cascade_assignment_relationships
+    AFTER UPDATE ON role_assignments
+    FOR EACH ROW
+    WHEN (OLD.start_date  IS DISTINCT FROM NEW.start_date
+       OR OLD.end_date    IS DISTINCT FROM NEW.end_date
+       OR OLD.archived_at IS DISTINCT FROM NEW.archived_at)
+    EXECUTE FUNCTION cascade_assignment_relationships();
+
 -- ---------------------------------------------------------------------------
 -- Trigger function: deleted_entities INSERT → outbox tombstone row
 -- ---------------------------------------------------------------------------
@@ -2844,7 +3072,8 @@ CREATE TABLE IF NOT EXISTS api_key_entity_subscriptions (
     entity_type  TEXT         NOT NULL
                               CHECK (entity_type IN
                                 ('person', 'organization', 'jurisdiction',
-                                 'role', 'role_assignment')),
+                                 'role', 'role_assignment',
+                                 'role_assignment_relationship')),
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     PRIMARY KEY (api_key_id, entity_id)
 );

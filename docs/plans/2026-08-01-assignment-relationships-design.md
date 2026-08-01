@@ -68,8 +68,11 @@ other rows). Same shape as the #307 org-lifespan invariant.
 Enforcement split:
 
 - **Admin / direct writes** → `check_edge_within_assignments()` app guard raises
-  `EdgeOutsideAssignmentWindow` (409), plus a DB trigger
-  `trg_edge_within_assignments` on the edge as a backstop for direct-SQL paths.
+  `EdgeOutsideAssignmentWindow` (409). App-layer only, **no blanket DB invariant
+  trigger** — a hard `BEFORE` trigger cannot distinguish admin writes from the
+  observation path and would block the latter's "record freely" contract (the
+  same reason #307 is enforced app-layer only). Cascade + audit are the DB-side
+  integrity layer.
 - **Observation path** → records freely; a daily audit
   (`scripts/audit_assignment_relationship_windows.py`) reconciles, `--execute`
   clamps. (Mirrors `audit_org_lifecycle_assignments.py` under #307.)

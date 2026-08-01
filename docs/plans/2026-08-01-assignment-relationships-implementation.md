@@ -44,8 +44,9 @@ a later one.
    `chk_no_self_rel`, `chk_edge_valid_range`, identity unique index). Add triggers:
    `trg_entity_changes_role_assignment_relationships` (extend `fn_record_entity_change`
    CASE), `trg_touch_assignments_on_relationship_change` (bump both endpoints),
-   `trg_cascade_assignment_relationships` on `role_assignments` (archive/clamp/invert→archive),
-   `trg_edge_within_assignments` (invariant backstop). Extend `entity_type` CHECK
+   `trg_cascade_assignment_relationships` on `role_assignments` (archive/clamp/invert→archive).
+   (No blanket edge-window invariant trigger — it would block the observation
+   path's record-freely contract; enforcement is app-guard-only per #307.) Extend `entity_type` CHECK
    on `entity_changes` / `deleted_entities` / `api_key_entity_subscriptions` via
    idempotent reconciliation `DO` blocks (#312). *Verify:* `apply-schema.sh` on a
    fresh scratch DB clean; pgTAP-style/asyncpg trigger tests for each cascade branch
