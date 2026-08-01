@@ -13,6 +13,7 @@ from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db,
 from src.api.admin.list_filters import parse_list_filters
 from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
 from src.core.ancillary_migrate import (
+    rehome_assignment_relationships,
     rehome_conflicting_assignment_ancillary,
     rehome_role_ancillary,
 )
@@ -199,9 +200,11 @@ async def role_merge(
             loser_id,
             winner_id,
         )
-        await rehome_conflicting_assignment_ancillary(
-            db, [(r["loser_ra"], r["winner_ra"]) for r in conflict_pairs]
-        )
+        _conflict_pairs = [(r["loser_ra"], r["winner_ra"]) for r in conflict_pairs]
+        await rehome_conflicting_assignment_ancillary(db, _conflict_pairs)
+        # #301: re-point active relationship edges onto the winner before the
+        # hard-delete (FK ON DELETE CASCADE would otherwise drop them silently).
+        await rehome_assignment_relationships(db, _conflict_pairs)
         await db.execute(
             """DELETE FROM role_assignments ra
                WHERE ra.role_id=$1 AND ra.archived_at IS NULL

@@ -24,6 +24,7 @@ from src.api.admin.org_dups import (
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.core.ancillary_migrate import (
     delete_event_citations_for_owner,
+    rehome_assignment_relationships,
     rehome_citations,
     rehome_conflicting_assignment_ancillary,
     rehome_role_ancillary,
@@ -222,6 +223,9 @@ async def _execute_merge(
                         dropped_assignments += 1
                     anc_pairs.append((a["id"], target_id))
                 await rehome_conflicting_assignment_ancillary(db, anc_pairs)
+                # #301: re-point active relationship edges onto the target assignment
+                # before deleting the loser-role assignments (FK CASCADE else drops them).
+                await rehome_assignment_relationships(db, anc_pairs)
                 # Transfer archived assignments to winner role (no dedup needed)
                 await db.execute(
                     "UPDATE role_assignments SET role_id=$1"
@@ -392,6 +396,9 @@ async def _execute_merge(
             )
             # Re-home the deleted-to-be loser assignments' ancillary before the DELETE.
             await rehome_conflicting_assignment_ancillary(db, anc_pairs)
+            # #301: re-point active relationship edges onto the target assignment
+            # before deleting the loser-role assignments (FK CASCADE else drops them).
+            await rehome_assignment_relationships(db, anc_pairs)
             await db.execute(
                 "DELETE FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
                 l_role,

@@ -28,6 +28,7 @@ from src.api.admin.people_queries import VALID_STATUSES, query_people_rows
 from src.core.ancillary_migrate import (
     delete_event_citations_for_owner,
     migrate_citations,
+    rehome_assignment_relationships,
     rehome_citations,
     rehome_conflicting_assignment_ancillary,
 )
@@ -424,9 +425,11 @@ async def merge_person_into(
         loser_id,
         winner_id,
     )
-    await rehome_conflicting_assignment_ancillary(
-        db, [(r["loser_ra"], r["winner_ra"]) for r in conflict_pairs]
-    )
+    _conflict_pairs = [(r["loser_ra"], r["winner_ra"]) for r in conflict_pairs]
+    await rehome_conflicting_assignment_ancillary(db, _conflict_pairs)
+    # #301: re-point the loser assignments' active relationship edges onto the
+    # winner before the hard-delete, else FK ON DELETE CASCADE silently drops them.
+    await rehome_assignment_relationships(db, _conflict_pairs)
     # Delete exactly the rows we just re-homed — deriving the DELETE set from the
     # same `conflict_pairs` (rather than re-deriving via a COALESCE sentinel) keeps
     # the re-homed set and the deleted set provably identical, so no conflict row
