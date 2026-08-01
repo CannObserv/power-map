@@ -56,6 +56,7 @@
       inputId: 'linked-entity-search-' + uid,
       listboxId: 'linked-entity-results-' + uid,
       hiddenId: 'linked-entity-id-' + uid,
+      clearButtonId: 'linked-entity-clear-' + uid,
     });
 
     syncSection();

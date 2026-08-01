@@ -32,16 +32,19 @@
       inputId: 'locale-search-display-' + uid,
       listboxId: 'locale-search-results-' + uid,
       hiddenId: 'locale-hidden-' + uid,
+      clearButtonId: 'locale-clear-' + uid,
     });
     window.initTypeaheadCombobox({
       inputId: 'script-search-display-' + uid,
       listboxId: 'script-search-results-' + uid,
       hiddenId: 'script-hidden-' + uid,
+      clearButtonId: 'script-clear-' + uid,
     });
     window.initTypeaheadCombobox({
       inputId: 'reading-of-display-' + uid,
       listboxId: 'reading-of-results-' + uid,
       hiddenId: 'reading-of-hidden-' + uid,
+      clearButtonId: 'reading-of-clear-' + uid,
     });
     // Reading-of block visibility: shown only when name_type is one of
     // {reading, romanization, mrz} — matches the person_names.name_type

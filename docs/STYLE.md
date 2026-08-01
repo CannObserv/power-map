@@ -1189,6 +1189,35 @@ The factory implements:
 | **Escape** | Close dropdown without selection |
 | **Mouse select** | `ul.addEventListener('mousedown')` + `e.preventDefault()` — delegate to `closest('[data-id]')`. `mousedown` is used instead of `click` because mousedown fires first; without `preventDefault`, the input loses focus before `click` fires and the event is swallowed or re-routed in some browsers. |
 | **Scoped IDs** | In `afterSwap`, prefix each `li.id` with the listbox's own `id` to prevent duplicate IDs when two typeaheads are mounted |
+| **Stale-id guard (#358)** | The hidden id is valid only while the visible text equals the label of the last selection (seeded from the server-rendered value). Any input that diverges — emptying the box, or editing it — clears the hidden id, so blanking the search box can never silently re-submit the previous selection. |
+
+### Clearing a selection (#358)
+
+An optional visible "×" button lets a user unset an **optional** picker (e.g. a role's jurisdiction, an event's linked entity) without editing the text. Required pickers need no button — blanking + submit surfaces the existing "select an X" validation error.
+
+Wrap the visible input in `.typeahead-input-wrap` (so the button centres over the input, not a label above it) and pass `clearButtonId`:
+
+```html
+<div class="typeahead-input-wrap">
+  <input id="jurisdiction-search" ...>
+  <button type="button" class="typeahead-clear" id="jurisdiction-clear"
+          data-typeahead-clear aria-label="Clear jurisdiction">&times;</button>
+</div>
+<input type="hidden" name="jurisdiction_id" id="jurisdiction-id-hidden" value="...">
+```
+
+```javascript
+window.initTypeaheadCombobox({
+  inputId: 'jurisdiction-search',
+  listboxId: 'jurisdiction-search-results',
+  hiddenId: 'jurisdiction-id-hidden',
+  clearButtonId: 'jurisdiction-clear',   // optional — omit for required pickers
+  onClear: () => { /* optional — react to a cleared selection */ },
+});
+```
+
+- The `×` button clears text + hidden id, closes the dropdown, and refocuses the input.
+- `onClear()` fires (from either clear path) only when a non-empty selection was actually dropped — use it to reset dependent UI (e.g. a relationship phrase preview). Do **not** reuse `onSelect('')` for this; `onSelect` consumers that navigate on select (e.g. the merge target picker) must not fire on a clear.
 
 ---
 

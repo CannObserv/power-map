@@ -101,6 +101,7 @@ describe('event-form-row', () => {
       inputId: 'linked-entity-search-ev_abc',
       listboxId: 'linked-entity-results-ev_abc',
       hiddenId: 'linked-entity-id-ev_abc',
+      clearButtonId: 'linked-entity-clear-ev_abc',
     });
   });
 

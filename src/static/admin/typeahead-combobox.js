@@ -2,8 +2,11 @@
  * typeahead-combobox.js — factory for HTMX-backed typeahead combobox inputs.
  *
  * Usage (inline <script> in an HTMX partial, runs after the factory is loaded):
- *   window.initTypeaheadCombobox({ inputId, listboxId, hiddenId, onSelect });
+ *   window.initTypeaheadCombobox({ inputId, listboxId, hiddenId, clearButtonId, onSelect, onClear });
  * onSelect (optional): callback(selectedId) invoked when an item is selected.
+ * clearButtonId (optional): id of a "×" button that clears the selection.
+ * onClear (optional): callback() invoked when a non-empty selection is cleared
+ *   (via the clear button, an emptied input, or text edited away from the label).
  *
  * The input must have:
  *   hx-get="<search endpoint>"
@@ -19,17 +22,28 @@
  *   causes mouse selection to silently fail in some browsers: mousedown fires
  *   first, moves focus away from the input, and the subsequent click may be
  *   swallowed or re-routed before the listbox handler can run.
+ *
+ * Stale-id guard (#358): the hidden id is valid only while the visible text
+ * exactly equals the label of the last selection.  Any input that diverges from
+ * that label (emptying the box, or editing it) clears the hidden id — otherwise
+ * blanking the search box would silently re-submit the previously-selected id.
  */
 window.initTypeaheadCombobox = function initTypeaheadCombobox({
   inputId,
   listboxId,
   hiddenId,
+  clearButtonId,
   onSelect,
+  onClear,
 }) {
   var inp = document.getElementById(inputId);
   var ul = document.getElementById(listboxId);
   var hidden = document.getElementById(hiddenId);
+  var clearBtn = clearButtonId ? document.getElementById(clearButtonId) : null;
   var activeIdx = -1;
+  // The label the hidden id currently corresponds to.  Seeded from the
+  // server-rendered value so editing an existing selection invalidates it.
+  var selectedLabel = inp.value;
 
   function getItems() {
     return Array.from(ul.querySelectorAll('li[data-id]'));
@@ -48,8 +62,21 @@ window.initTypeaheadCombobox = function initTypeaheadCombobox({
   function selectItem(li) {
     hidden.value = li.dataset.id;
     inp.value = li.dataset.label;
+    selectedLabel = li.dataset.label;
     closeDropdown();
     if (onSelect) onSelect(li.dataset.id);
+  }
+
+  // Clear the current selection.  `focus` refocuses the input (clear-button
+  // path); onClear fires only when something was actually cleared.
+  function clearSelection(focus) {
+    var had = hidden.value !== '';
+    hidden.value = '';
+    inp.value = '';
+    selectedLabel = '';
+    closeDropdown();
+    if (focus) inp.focus();
+    if (had && onClear) onClear();
   }
 
   function openDropdown() {
@@ -120,4 +147,24 @@ window.initTypeaheadCombobox = function initTypeaheadCombobox({
     e.preventDefault();
     selectItem(li);
   });
+
+  // Stale-id guard (#358): once the visible text diverges from the label the
+  // hidden id was set for, the id no longer describes what the user sees — drop
+  // it so the form can't silently re-submit a stale selection.  Fires alongside
+  // (not instead of) HTMX's own input-triggered search.
+  inp.addEventListener('input', function () {
+    if (inp.value !== selectedLabel && hidden.value !== '') {
+      hidden.value = '';
+      selectedLabel = '';
+      if (onClear) onClear();
+    }
+  });
+
+  // Optional visible "×" clear button.
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      clearSelection(true);
+    });
+  }
 };

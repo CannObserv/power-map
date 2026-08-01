@@ -318,3 +318,132 @@ describe('onSelect callback', () => {
     ).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Clearing the selection (#358)
+//
+// The hidden id was only ever *set* on selection, never cleared when the visible
+// text was emptied or edited away from the chosen label — so blanking the search
+// box silently re-submitted the previous id.  Two clear paths now exist:
+//   1. Blank-/edit-to-clear: any input that diverges from the selected label
+//      invalidates the hidden id.
+//   2. An optional visible "×" clear button (clearButtonId).
+// Both fire an optional onClear callback so dependent UI (e.g. relationship
+// phrase preview) can react.
+// ---------------------------------------------------------------------------
+
+/** Mount the factory with optional clear button + preset values + onClear. */
+function setupClearable({ presetLabel = '', presetId = '', withButton = false, onClear } = {}) {
+  document.body.innerHTML = `
+    <div style="position:relative">
+      <input id="${INPUT_ID}" type="text" autocomplete="off"
+             role="combobox" aria-expanded="false"
+             aria-haspopup="listbox" aria-controls="${LIST_ID}" aria-autocomplete="list"
+             value="${presetLabel}">
+      <input type="hidden" id="${HIDDEN_ID}" value="${presetId}">
+      ${withButton ? `<button type="button" id="test-clear" data-typeahead-clear aria-label="Clear">×</button>` : ''}
+      <ul id="${LIST_ID}" class="typeahead-results" role="listbox" style="display:none"></ul>
+    </div>
+  `;
+  eval(scriptCode);
+  window.initTypeaheadCombobox({
+    inputId: INPUT_ID,
+    listboxId: LIST_ID,
+    hiddenId: HIDDEN_ID,
+    ...(withButton ? { clearButtonId: 'test-clear' } : {}),
+    ...(onClear ? { onClear } : {}),
+  });
+}
+
+function clearBtn() {
+  return document.getElementById('test-clear');
+}
+
+/** Fire a realistic edit: set the value then dispatch an 'input' event. */
+function typeInto(value) {
+  inp().value = value;
+  inp().dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+describe('blank-/edit-to-clear', () => {
+  it('clears the hidden id when the input is emptied after a selection', () => {
+    setupClearable();
+    populateResults([{ id: 'jur-1', label: 'District 43' }]);
+    getItems()[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    expect(hidden().value).toBe('jur-1');
+    typeInto('');
+    expect(hidden().value).toBe('');
+  });
+
+  it('clears the hidden id when the text is edited away from the selected label', () => {
+    setupClearable();
+    populateResults([{ id: 'jur-1', label: 'District 43' }]);
+    getItems()[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    typeInto('District 4');
+    expect(hidden().value).toBe('');
+  });
+
+  it('invalidates a server-rendered selection once its text is edited', () => {
+    setupClearable({ presetLabel: 'District 43', presetId: 'jur-1' });
+    expect(hidden().value).toBe('jur-1');
+    typeInto('District 4');
+    expect(hidden().value).toBe('');
+  });
+
+  it('keeps the hidden id while the text still matches the selected label', () => {
+    setupClearable({ presetLabel: 'District 43', presetId: 'jur-1' });
+    // An input event that does not change the text (matches label) must not clear.
+    typeInto('District 43');
+    expect(hidden().value).toBe('jur-1');
+  });
+
+  it('fires onClear once when a selection is invalidated by editing', () => {
+    const onClear = vi.fn();
+    setupClearable({ presetLabel: 'District 43', presetId: 'jur-1', onClear });
+    typeInto('District');
+    typeInto('Distric');
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire onClear when the hidden id was already empty', () => {
+    const onClear = vi.fn();
+    setupClearable({ onClear });
+    typeInto('typing without selecting');
+    typeInto('');
+    expect(onClear).not.toHaveBeenCalled();
+  });
+});
+
+describe('clear button', () => {
+  it('clears both the input and hidden id on click', () => {
+    setupClearable({ presetLabel: 'District 43', presetId: 'jur-1', withButton: true });
+    clearBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(inp().value).toBe('');
+    expect(hidden().value).toBe('');
+  });
+
+  it('refocuses the input after clearing', () => {
+    setupClearable({ presetLabel: 'District 43', presetId: 'jur-1', withButton: true });
+    clearBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.activeElement).toBe(inp());
+  });
+
+  it('closes the dropdown on clear', () => {
+    setupClearable({ presetLabel: 'District 43', presetId: 'jur-1', withButton: true });
+    populateResults([{ id: 'jur-2', label: 'District 44' }]);
+    expect(ul().style.display).toBe('block');
+    clearBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(ul().style.display).toBe('none');
+  });
+
+  it('fires onClear on clear-button click when something was selected', () => {
+    const onClear = vi.fn();
+    setupClearable({ presetLabel: 'District 43', presetId: 'jur-1', withButton: true, onClear });
+    clearBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not throw when clearButtonId is not provided', () => {
+    expect(() => setupClearable()).not.toThrow();
+  });
+});

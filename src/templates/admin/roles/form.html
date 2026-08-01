@@ -50,20 +50,24 @@
       <div id="structural-jurisdictional" {% if not v.get('role_type_id') %}hidden{% endif %}>
         <div class="form-group" style="position:relative">
           <label for="jurisdiction-search">Jurisdiction</label>
-          <input id="jurisdiction-search" type="text" autocomplete="off"
-                 placeholder="Type to search…"
-                 value="{{ v.get('jurisdiction_name') or '' }}"
-                 hx-get="/admin/jurisdictions/search/"
-                 hx-trigger="input changed delay:200ms"
-                 hx-target="#jurisdiction-search-results"
-                 hx-swap="innerHTML"
-                 hx-params="q"
-                 name="q"
-                 role="combobox"
-                 aria-expanded="false"
-                 aria-haspopup="listbox"
-                 aria-controls="jurisdiction-search-results"
-                 aria-autocomplete="list">
+          <div class="typeahead-input-wrap">
+            <input id="jurisdiction-search" type="text" autocomplete="off"
+                   placeholder="Type to search…"
+                   value="{{ v.get('jurisdiction_name') or '' }}"
+                   hx-get="/admin/jurisdictions/search/"
+                   hx-trigger="input changed delay:200ms"
+                   hx-target="#jurisdiction-search-results"
+                   hx-swap="innerHTML"
+                   hx-params="q"
+                   name="q"
+                   role="combobox"
+                   aria-expanded="false"
+                   aria-haspopup="listbox"
+                   aria-controls="jurisdiction-search-results"
+                   aria-autocomplete="list">
+            <button type="button" class="typeahead-clear" id="jurisdiction-clear"
+                    data-typeahead-clear aria-label="Clear jurisdiction">&times;</button>
+          </div>
           <input type="hidden" name="jurisdiction_id" id="jurisdiction-id-hidden"
                  value="{{ v.get('jurisdiction_id') or '' }}">
           <ul id="jurisdiction-search-results" class="typeahead-results" role="listbox"></ul>
@@ -112,6 +116,7 @@
         inputId: 'jurisdiction-search',
         listboxId: 'jurisdiction-search-results',
         hiddenId: 'jurisdiction-id-hidden',
+        clearButtonId: 'jurisdiction-clear',
       });
     }
   })();
