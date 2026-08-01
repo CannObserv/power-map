@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends
 
+from src.api.public.assignment_relationships import router as assignment_relationships_router
 from src.api.public.assignments import router as assignments_router
 from src.api.public.changes import router as changes_router
 from src.api.public.citations import router as citations_router
@@ -29,6 +30,7 @@ router = APIRouter(
     },
 )
 router.include_router(assignments_router)
+router.include_router(assignment_relationships_router)
 router.include_router(changes_router)
 router.include_router(citations_router)
 # Within subscriptions_router, GET /subscriptions/discover is defined before

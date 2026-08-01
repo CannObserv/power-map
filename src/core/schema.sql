@@ -2087,6 +2087,16 @@ INSERT INTO api_key_scope_types (id, display_name, description) VALUES
      'Read source citations via GET /api/v1/citations/{entity_type}/{id}')
 ON CONFLICT (id) DO NOTHING;
 
+-- Assignment-relationship scopes (#301).
+INSERT INTO api_key_scope_types (id, display_name, description) VALUES
+    ('assignment_relationships:write',
+     'Assignment Relationships: Write',
+     'Observe/retract role-assignment relationships via POST /api/v1/assignment-relationships/observations'),
+    ('assignment_relationships:read',
+     'Assignment Relationships: Read',
+     'Read role-assignment relationships via GET /api/v1/assignments/{pm_assignment_id}/relationships')
+ON CONFLICT (id) DO NOTHING;
+
 -- =============================================================================
 -- API Request Log (#260)
 -- =============================================================================

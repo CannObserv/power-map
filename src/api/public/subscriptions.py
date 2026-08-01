@@ -20,7 +20,14 @@ from src.api.public.schemas import (
 
 router = APIRouter()
 
-EntityType = Literal["person", "organization", "jurisdiction", "role", "role_assignment"]
+EntityType = Literal[
+    "person",
+    "organization",
+    "jurisdiction",
+    "role",
+    "role_assignment",
+    "role_assignment_relationship",
+]
 RootType = Literal["jurisdiction", "organization"]
 
 _VALID_FOLLOW = frozenset(
@@ -346,6 +353,9 @@ FROM (
     UNION ALL
     SELECT 'role_assignment' AS entity_type, id AS entity_id
     FROM role_assignments WHERE id = ANY($1::text[])
+    UNION ALL
+    SELECT 'role_assignment_relationship' AS entity_type, id AS entity_id
+    FROM role_assignment_relationships WHERE id = ANY($1::text[])
     UNION ALL
     SELECT entity_type, entity_id
     FROM deleted_entities WHERE entity_id = ANY($1::text[])
