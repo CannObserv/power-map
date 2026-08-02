@@ -252,8 +252,13 @@ async def rehome_conflicting_assignment_ancillary(
 # assignment would silently CASCADE-delete its active edges (a staffer/principal
 # relationship vanishing). Every merge that hard-deletes an assignment must
 # re-home the loser's *active* edges onto the survivor BEFORE the delete. Archived
-# edges are left to CASCADE (already retracted). The edge's own touch + change
-# triggers self-emit on the re-point / dedup-delete, so no manual signal here.
+# edges are left to CASCADE (already retracted — they emitted their 'updated' +
+# archived_at on retract). The re-point UPDATE self-emits the edge's own change row
+# (trg_entity_changes_* is INSERT/UPDATE) plus touches both endpoints; a dedup /
+# CASCADE hard-delete fires only the touch trigger (the change trigger is not a
+# DELETE trigger) — so a hard-deleted edge leaves no per-edge tombstone, exactly
+# how merged role_assignments are handled (the parent person/org tombstone covers
+# it). Either way, no manual signal here.
 # ---------------------------------------------------------------------------
 
 
@@ -268,8 +273,11 @@ async def rehome_assignment_relationships(
     ``from``/``to``/``rel_type``) — those are deleted (the winner's copy wins),
     mirroring the ancillary dedup. Call immediately before the merge hard-deletes
     the loser assignments; the FK ``ON DELETE CASCADE`` then cleans up only the
-    now-archived remainder. No manual outbox emit — the edge's touch + entity_changes
-    triggers fire on both the UPDATE and the DELETE.
+    now-archived remainder. No manual outbox emit: the re-point UPDATE self-emits the
+    edge's change row + touches both endpoints, while a dedup / CASCADE hard-delete
+    fires only the touch trigger (``trg_entity_changes_*`` is INSERT/UPDATE-only, so a
+    hard-deleted edge emits no per-edge tombstone — consistent with merged
+    role_assignments, whose parent person/org tombstone covers them).
     """
     for loser_id, winner_id in pairs:
         if loser_id == winner_id:
