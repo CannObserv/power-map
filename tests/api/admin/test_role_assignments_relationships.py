@@ -185,3 +185,23 @@ async def test_detail_page_renders_panel(client, db):
     assert d.status_code == 200
     assert "Relationships" in d.text
     assert "Panel Boss" in d.text
+
+
+async def test_create_archived_target_rejected(client, db):
+    """A direct POST naming an archived target (typeahead hides them) is refused —
+    no edge to a logically-dead endpoint (#301 CR)."""
+    staffer = await _assignment(db, "Live Staffer", "Aide")
+    principal = await _assignment(db, "Retired Boss", "Senator")
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id=$1", principal)
+    rt = await _staff_of_id(db)
+    r = await client.post(
+        f"{_base(staffer)}/",
+        headers=HTMX,
+        data={"target_id": principal, "rel_type_id": rt, "direction": "outgoing"},
+    )
+    assert r.status_code == 422, r.text
+    assert "archived" in r.text
+    minted = await db.fetchval(
+        "SELECT count(*) FROM role_assignment_relationships WHERE from_assignment_id=$1", staffer
+    )
+    assert minted == 0

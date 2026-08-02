@@ -189,7 +189,9 @@ the operator cleans up from the emitted match list once this lands.
 
 - Cascade-trigger unit tests: archive, clamp-earlier-end, clamp-later-start,
   clamp-inverts→archive.
-- Invariant guard: app `check_edge_within_assignments` + DB trigger backstop.
+- Invariant guard: app `check_edge_within_assignments` only (no DB invariant
+  trigger — it would block the observation record-freely contract); the daily
+  audit reconciles drift.
 - Observation: refine-in-place, `pm_relationship_id` refine, `op="retract"` +
   anti-resurrection, `source_key_id` same-or-NULL gate, partial-success
   dispositions.

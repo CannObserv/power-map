@@ -431,9 +431,12 @@ ON CONFLICT (id) DO UPDATE SET
     is_symmetric = EXCLUDED.is_symmetric;
 
 -- Directional temporal edge. valid_from/valid_until is the edge's OWN window,
--- independent of but bounded by both endpoint assignment windows (enforced by
--- trg_edge_within_assignments + the app guard; cascade-clamped by
--- trg_cascade_assignment_relationships when an endpoint window shrinks/archives).
+-- independent of but bounded by both endpoint assignment windows. Enforced by the
+-- app guard (check_edge_within_assignments) on admin/direct writes only — the
+-- observation path records freely (mirrors #307); the daily audit reconciles drift.
+-- There is deliberately NO blanket DB invariant trigger (it would block that
+-- record-freely contract). The window IS cascade-clamped by
+-- trg_cascade_assignment_relationships when an endpoint window shrinks/archives.
 -- ON DELETE CASCADE is only a hard-delete backstop; merges re-home edges onto the
 -- survivor before the losing assignment's DELETE (src/core/ancillary_migrate.py).
 -- source_key_id's FK to api_keys is added by a reconciliation ALTER after the
@@ -1356,6 +1359,13 @@ CREATE OR REPLACE TRIGGER trg_updated_at_iso15924_scripts
 
 CREATE OR REPLACE TRIGGER trg_updated_at_jurisdictions
     BEFORE UPDATE ON jurisdictions
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- #301: maintain updated_at on the relationship edge so a refine / retract /
+-- cascade-clamp advances it (the public read exposes updated_at; without this it
+-- would stay frozen at created_at). CREATE OR REPLACE → picks up on existing DBs.
+CREATE OR REPLACE TRIGGER trg_updated_at_role_assignment_relationships
+    BEFORE UPDATE ON role_assignment_relationships
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =============================================================================

@@ -77,6 +77,15 @@ async def _get_ra_or_404(ra_id: str, db):
     return row
 
 
+async def _assignment_is_live(assignment_id: str, db) -> bool:
+    """True if the id resolves to a live (non-archived) role_assignment."""
+    return bool(
+        await db.fetchval(
+            "SELECT 1 FROM role_assignments WHERE id=$1 AND archived_at IS NULL", assignment_id
+        )
+    )
+
+
 async def _get_edge_or_404(rel_id: str, ra_id: str, db):
     row = await db.fetchrow(
         _REL_ROW_SQL + " AND (r.from_assignment_id = $2 OR r.to_assignment_id = $2)",
@@ -187,6 +196,14 @@ async def relationship_create(
         errors["rel_type_id"] = "Select a relationship type"
     if target_id.strip() and target_id.strip() == ra_id:
         errors["target_id"] = "An assignment can't relate to itself"
+    # The typeahead only surfaces live assignments, but a direct POST could name an
+    # archived one — refuse rather than mint an edge to a logically-dead endpoint.
+    if (
+        target_id.strip()
+        and "target_id" not in errors
+        and not await _assignment_is_live(target_id.strip(), db)
+    ):
+        errors["target_id"] = "That assignment is archived or does not exist"
     vf, vu = parse_validity_fields(valid_from, valid_until, errors)
     if errors:
         return await _render_add_form(

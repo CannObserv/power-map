@@ -252,3 +252,32 @@ async def test_cascade_invert_archives(conn):
     )
     row = await _edge_row(conn, eid)
     assert row["archived_at"] is not None
+
+
+# --------------------------------------------------------------------------- #
+# updated_at maintenance (#301 CR)
+# --------------------------------------------------------------------------- #
+
+
+async def test_updated_at_is_trigger_maintained_on_refine(conn):
+    """updated_at is maintained by the set_updated_at trigger, not the column DEFAULT:
+    an UPDATE forces it to NOW() even when the statement supplies a stale value. (NOW()
+    is transaction-time, so it can't *exceed* created_at inside one test txn — instead
+    prove the trigger overrides a manual write, which a missing trigger would let stand.)"""
+    frm, to = await _two_assignments(conn)
+    eid = await _edge(conn, frm, to, valid_until=D(2024, 12, 31))
+    created_at = await conn.fetchval(
+        "SELECT created_at FROM role_assignment_relationships WHERE id=$1", eid
+    )
+    stale = datetime.datetime(2000, 1, 1, tzinfo=datetime.UTC)
+    await conn.execute(
+        "UPDATE role_assignment_relationships SET valid_until=$2, updated_at=$3 WHERE id=$1",
+        eid,
+        D(2024, 6, 30),
+        stale,
+    )
+    after = await conn.fetchval(
+        "SELECT updated_at FROM role_assignment_relationships WHERE id=$1", eid
+    )
+    assert after != stale  # trigger overrode the manual stale write
+    assert after == created_at  # both resolve to transaction NOW()
