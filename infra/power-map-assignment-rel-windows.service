@@ -16,6 +16,3 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # drift, sharing the trigger's exact clamp rule. Read-only in this mode — a human
 # runs `--execute` to clamp/archive after reviewing the report.
 ExecStart=uv run python -m scripts.audit_assignment_relationship_windows
-
-[Install]
-WantedBy=multi-user.target
