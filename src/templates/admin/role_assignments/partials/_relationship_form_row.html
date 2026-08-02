@@ -1,0 +1,75 @@
+{# admin/role_assignments/partials/_relationship_form_row.html — add a directional edge (#301) #}
+<tr id="relationship-row-new">
+  <td colspan="3" style="padding:var(--space-2) var(--space-4)">
+    <form hx-post="/admin/role-assignments/{{ ra_id }}/relationships/"
+          hx-target="#relationship-row-new" hx-swap="outerHTML"
+          style="display:grid;gap:var(--space-2)">
+      {% if errors.target_id %}<div class="alert alert--error" role="alert">{{ errors.target_id }}</div>{% endif %}
+      {% if errors.rel_type_id %}<div class="alert alert--error" role="alert">{{ errors.rel_type_id }}</div>{% endif %}
+      {% if errors.valid_from %}<div class="alert alert--error" role="alert">{{ errors.valid_from }}</div>{% endif %}
+      {% if errors.valid_until %}<div class="alert alert--error" role="alert">{{ errors.valid_until }}</div>{% endif %}
+
+      <div style="display:flex;gap:var(--space-2);align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="margin-bottom:0">
+          <label for="rel-type-new">Relationship</label>
+          <select id="rel-type-new" name="rel_type_id">
+            <option value="">— select —</option>
+            {% for t in rel_types %}
+            <option value="{{ t.id }}" {% if values.rel_type_id == t.id %}selected{% endif %}>{{ t.display_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0">
+          <label for="rel-direction-new">Direction</label>
+          <select id="rel-direction-new" name="direction">
+            <option value="outgoing" {% if values.direction != 'incoming' %}selected{% endif %}>This &rarr; target</option>
+            <option value="incoming" {% if values.direction == 'incoming' %}selected{% endif %}>Target &rarr; this</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;position:relative;flex:1;min-width:14rem">
+          <label for="rel-target-search-new">Target assignment</label>
+          <input id="rel-target-search-new" type="text" autocomplete="off" placeholder="Type person or role&hellip;"
+                 value="{{ target_label or '' }}"
+                 hx-get="/admin/role-assignments/{{ ra_id }}/relationships/search/"
+                 hx-trigger="input changed delay:200ms"
+                 hx-target="#rel-target-results-new" hx-swap="innerHTML" hx-params="q" name="q"
+                 role="combobox" aria-expanded="false" aria-haspopup="listbox"
+                 aria-controls="rel-target-results-new" aria-autocomplete="list">
+          <input type="hidden" name="target_id" id="rel-target-id-new" value="{{ values.target_id or '' }}">
+          <ul id="rel-target-results-new" class="typeahead-results" role="listbox"></ul>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:var(--space-2);align-items:center">
+        <label for="rel-vf-new" style="font-size:var(--font-size-sm);color:var(--color-text-muted);white-space:nowrap">Valid from</label>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" id="rel-vf-new" name="valid_from" value="{{ values.valid_from or '' }}">
+        </div>
+        <span aria-hidden="true" style="color:var(--color-text-muted)">to</span>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" name="valid_until" aria-label="Valid until" value="{{ values.valid_until or '' }}">
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:0">
+        <label for="rel-notes-new">Notes</label>
+        <input type="text" id="rel-notes-new" name="notes" value="{{ values.notes or '' }}">
+      </div>
+
+      <div style="display:flex;gap:var(--space-2)">
+        <button class="btn btn--sm btn--primary" type="submit">Add</button>
+        <button class="btn btn--sm btn--secondary" type="button"
+                onclick="this.closest('tr').remove(); document.dispatchEvent(new CustomEvent('powerMap:newRowClosed'));">Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>
+<script>
+  window.initTypeaheadCombobox({
+    inputId: "rel-target-search-new",
+    listboxId: "rel-target-results-new",
+    hiddenId: "rel-target-id-new",
+  });
+</script>

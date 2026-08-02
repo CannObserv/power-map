@@ -1,0 +1,35 @@
+{# admin/role_assignments/partials/_relationship_edit_row.html — inline validity/notes edit (#301) #}
+<tr id="relationship-row-{{ rel.id }}">
+  <td colspan="3" style="padding:var(--space-2) var(--space-4)">
+    <form hx-post="/admin/role-assignments/{{ ra_id }}/relationships/{{ rel.id }}/edit-row/"
+          hx-target="#relationship-row-{{ rel.id }}" hx-swap="outerHTML"
+          style="display:grid;gap:var(--space-2)">
+      {% if errors.valid_from %}<div class="alert alert--error" role="alert">{{ errors.valid_from }}</div>{% endif %}
+      {% if errors.valid_until %}<div class="alert alert--error" role="alert">{{ errors.valid_until }}</div>{% endif %}
+
+      <div style="display:flex;gap:var(--space-2);align-items:center">
+        <label style="font-size:var(--font-size-sm);color:var(--color-text-muted);white-space:nowrap">Valid from</label>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" name="valid_from" aria-label="Valid from" value="{{ rel.valid_from.strftime('%Y-%m-%d') if rel.valid_from else '' }}">
+        </div>
+        <span aria-hidden="true" style="color:var(--color-text-muted)">to</span>
+        <div class="form-group" style="margin-bottom:0">
+          <input type="date" name="valid_until" aria-label="Valid until"
+                 value="{{ rel.valid_until.strftime('%Y-%m-%d') if rel.valid_until else '' }}">
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:0">
+        <label for="rel-notes-{{ rel.id }}">Notes</label>
+        <input type="text" id="rel-notes-{{ rel.id }}" name="notes" value="{{ rel.notes or '' }}">
+      </div>
+
+      <div style="display:flex;gap:var(--space-2)">
+        <button class="btn btn--sm btn--primary" type="submit">Save</button>
+        <button class="btn btn--sm btn--secondary" type="button"
+                hx-get="/admin/role-assignments/{{ ra_id }}/relationships/{{ rel.id }}/read-row/"
+                hx-target="#relationship-row-{{ rel.id }}" hx-swap="outerHTML">Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>

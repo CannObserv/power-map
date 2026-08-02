@@ -31,6 +31,7 @@ _REFERENCE_TABLES = frozenset(
         "entity_event_types",
         "jurisdiction_types",
         "jurisdiction_relationship_types",
+        "role_assignment_relationship_types",
         "organization_jurisdiction_affiliation_types",
         "role_types",
         "bcp47_locales",

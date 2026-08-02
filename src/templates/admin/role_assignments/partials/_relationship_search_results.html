@@ -1,0 +1,4 @@
+{# admin/role_assignments/partials/_relationship_search_results.html — assignment typeahead (#301) #}
+{% for r in results %}
+<li id="opt-{{ r.id }}" role="option" data-id="{{ r.id }}" data-label="{{ r.label }}">{{ r.label }}</li>
+{% endfor %}

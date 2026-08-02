@@ -14,7 +14,14 @@ from pydantic import (
     model_validator,
 )
 
-EntityType = Literal["person", "organization", "jurisdiction", "role", "role_assignment"]
+EntityType = Literal[
+    "person",
+    "organization",
+    "jurisdiction",
+    "role",
+    "role_assignment",
+    "role_assignment_relationship",
+]
 
 
 def _validate_embedding_values(v: list[float]) -> list[float]:
@@ -1502,3 +1509,75 @@ class AssignmentObservationRequest(BaseModel):
         ):
             raise ValueError("start_date must be <= end_date")
         return self
+
+
+# ---------------------------------------------------------------------------
+# Role-assignment relationships (#301)
+# ---------------------------------------------------------------------------
+
+
+class RelationshipObservationItem(BaseModel):
+    """One relationship claim in an observation batch (#301).
+
+    Identity = (from_pm_assignment_id, to_pm_assignment_id, rel_type); valid_from /
+    valid_until / notes are mutable payload with **full-replace** semantics — a
+    refine writes the whole mutable set, so an omitted field is cleared to NULL.
+    ``pm_relationship_id`` addresses an existing edge for id-scoped refine/retract
+    (identity immutable); absent → natural-key observe (refine-or-create). ``op``:
+    ``observe`` (default) refines/creates, ``retract`` archives the pm_relationship_id row.
+    """
+
+    from_pm_assignment_id: str | None = None
+    to_pm_assignment_id: str | None = None
+    rel_type: str = "staff_of"
+    valid_from: date | None = None
+    valid_until: date | None = None
+    notes: str | None = None
+    op: Literal["observe", "retract"] = "observe"
+    pm_relationship_id: str | None = None
+
+
+class RelationshipObservationsRequest(BaseModel):
+    """Payload for POST /api/v1/assignment-relationships/observations."""
+
+    relationships: list[RelationshipObservationItem] = Field(default_factory=list)
+
+
+class RelationshipObservationResult(BaseModel):
+    """Per-relationship outcome (#301). ``reason`` is a machine-readable slug on rejection."""
+
+    disposition: str  # 'new' | 'auto-attached' | 'updated' | 'retracted' | 'rejected'
+    relationship_id: str | None = None  # None only when disposition == 'rejected'
+    reason: str | None = None  # rejection reason slug; None on non-rejected
+
+
+class RelationshipObservationsResponse(BaseModel):
+    """Per-relationship results of a partial-success observation batch (#301)."""
+
+    results: list[RelationshipObservationResult] = Field(default_factory=list)
+
+
+class RelationshipRead(BaseModel):
+    """A role-assignment relationship as returned by the read endpoint (#301)."""
+
+    id: str
+    from_assignment_id: str
+    to_assignment_id: str
+    rel_type: str
+    valid_from: date | None = None
+    valid_until: date | None = None
+    notes: str | None = None
+    archived_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("archived_at", "created_at", "updated_at")
+    def _serialize_ts(self, v: datetime | None) -> str | None:
+        return fmt_ts(v)
+
+
+class RelationshipListResponse(BaseModel):
+    """Paginated relationship list: {data, meta} (#301)."""
+
+    data: list[RelationshipRead] = Field(default_factory=list)
+    meta: SearchMeta

@@ -244,6 +244,87 @@ async def rehome_conflicting_assignment_ancillary(
 
 
 # ---------------------------------------------------------------------------
+# Role-assignment relationship edges (#301)
+#
+# Unlike the polymorphic ancillary above, role_assignment_relationships is an
+# FK-backed table (ON DELETE CASCADE on both endpoints). So it can never *orphan*
+# — but that CASCADE is exactly the hazard on merge: hard-deleting a losing
+# assignment would silently CASCADE-delete its active edges (a staffer/principal
+# relationship vanishing). Every merge that hard-deletes an assignment must
+# re-home the loser's *active* edges onto the survivor BEFORE the delete. Archived
+# edges are left to CASCADE (already retracted — they emitted their 'updated' +
+# archived_at on retract). The re-point UPDATE self-emits the edge's own change row
+# (trg_entity_changes_* is INSERT/UPDATE) plus touches both endpoints; a dedup /
+# CASCADE hard-delete fires only the touch trigger (the change trigger is not a
+# DELETE trigger) — so a hard-deleted edge leaves no per-edge tombstone, exactly
+# how merged role_assignments are handled (the parent person/org tombstone covers
+# it). Either way, no manual signal here.
+# ---------------------------------------------------------------------------
+
+
+async def rehome_assignment_relationships(
+    db: asyncpg.Connection, pairs: list[tuple[str, str]]
+) -> None:
+    """Re-point active relationship edges off each ``(loser, winner)`` assignment.
+
+    For every loser assignment, its active edges (either endpoint) move to the
+    winner, EXCEPT where the move would create a self-edge (the other endpoint is
+    already the winner) or collide with an edge the winner already has (same
+    ``from``/``to``/``rel_type``) — those are deleted (the winner's copy wins),
+    mirroring the ancillary dedup. Call immediately before the merge hard-deletes
+    the loser assignments; the FK ``ON DELETE CASCADE`` then cleans up only the
+    now-archived remainder. No manual outbox emit: the re-point UPDATE self-emits the
+    edge's change row + touches both endpoints, while a dedup / CASCADE hard-delete
+    fires only the touch trigger (``trg_entity_changes_*`` is INSERT/UPDATE-only, so a
+    hard-deleted edge emits no per-edge tombstone — consistent with merged
+    role_assignments, whose parent person/org tombstone covers them).
+    """
+    for loser_id, winner_id in pairs:
+        if loser_id == winner_id:
+            continue
+        # from-side: drop self-edges + winner collisions, then re-point the rest.
+        await db.execute(
+            """DELETE FROM role_assignment_relationships r
+               WHERE r.from_assignment_id=$1 AND r.archived_at IS NULL
+                 AND ( r.to_assignment_id=$2
+                       OR EXISTS (
+                           SELECT 1 FROM role_assignment_relationships s
+                           WHERE s.from_assignment_id=$2
+                             AND s.to_assignment_id=r.to_assignment_id
+                             AND s.rel_type_id=r.rel_type_id
+                             AND s.archived_at IS NULL) )""",
+            loser_id,
+            winner_id,
+        )
+        await db.execute(
+            "UPDATE role_assignment_relationships SET from_assignment_id=$2"
+            " WHERE from_assignment_id=$1 AND archived_at IS NULL",
+            loser_id,
+            winner_id,
+        )
+        # to-side: same, mirrored.
+        await db.execute(
+            """DELETE FROM role_assignment_relationships r
+               WHERE r.to_assignment_id=$1 AND r.archived_at IS NULL
+                 AND ( r.from_assignment_id=$2
+                       OR EXISTS (
+                           SELECT 1 FROM role_assignment_relationships s
+                           WHERE s.to_assignment_id=$2
+                             AND s.from_assignment_id=r.from_assignment_id
+                             AND s.rel_type_id=r.rel_type_id
+                             AND s.archived_at IS NULL) )""",
+            loser_id,
+            winner_id,
+        )
+        await db.execute(
+            "UPDATE role_assignment_relationships SET to_assignment_id=$2"
+            " WHERE to_assignment_id=$1 AND archived_at IS NULL",
+            loser_id,
+            winner_id,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Role-level ancillary (#326)
 #
 # A role *definition* carries only two of the polymorphic ancillary surfaces —

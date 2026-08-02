@@ -593,6 +593,45 @@ uv run "${env_args[@]}" python -m scripts.audit_org_lifecycle_assignments --exec
 
 Idempotent — a compliant DB yields no findings and `--execute` is a no-op.
 
+## Assignment-relationship window audit (issue #301)
+
+`scripts/audit_assignment_relationship_windows.py` reconciles active
+role-assignment relationship edges whose window has drifted outside the
+intersection of both endpoint assignment windows (the observation path records
+freely) — the steady-state counterpart to the `cascade_assignment_relationships`
+trigger, sharing its exact clamp rule. Categories:
+
+- `clamp` — `--execute` raises a defined `valid_from` up / lowers-or-materializes
+  `valid_until` down to the endpoint intersection (unknown start never invented, #307)
+- `inverted` — clamp inverts the window; `--execute` archives the edge
+- `archived_endpoint` — an endpoint assignment is archived; `--execute` archives the edge
+
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.audit_assignment_relationship_windows            # report
+uv run "${env_args[@]}" python -m scripts.audit_assignment_relationship_windows --execute  # fix
+```
+
+Idempotent. Intended as a daily timer (`power-map-assignment-rel-windows.timer`,
+install analogous to the ancillary-orphans timer — deploy-time infra step).
+
+## Assignment-relationship backfill (issue #301)
+
+`scripts/backfill_assignment_relationships.py` mints the 3 staffer→principal
+edges descoped from #266: each staff role's active assignment `--staff_of-->`
+the principal's overlapping seat assignment. Heuristic + supervised — any
+staffer/principal/seat that doesn't resolve to exactly one is reported, never
+guessed. `notes` on the staff role/assignment are left untouched for operator
+cleanup.
+
+```bash
+uv run "${env_args[@]}" python -m scripts.backfill_assignment_relationships            # dry-run
+uv run "${env_args[@]}" python -m scripts.backfill_assignment_relationships --execute  # mint
+```
+
 ## Org end-event backfill (issue #313)
 
 `scripts/backfill_313_org_end_events.py` resolves the nine `missing_end_event`
