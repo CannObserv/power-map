@@ -615,8 +615,10 @@ uv run "${env_args[@]}" python -m scripts.audit_assignment_relationship_windows 
 uv run "${env_args[@]}" python -m scripts.audit_assignment_relationship_windows --execute  # fix
 ```
 
-Idempotent. Intended as a daily timer (`power-map-assignment-rel-windows.timer`,
-install analogous to the ancillary-orphans timer — deploy-time infra step).
+Idempotent. Report mode **exits 3 when any drift is found** (0 when clean), so the
+daily `power-map-assignment-rel-windows.timer` shows as failed in `systemctl --failed`
+and can drive `OnFailure=` — same convention as the ancillary-orphans / schema-parity
+audits (#363). `--execute` reconciles the drift and always exits 0.
 
 ## Assignment-relationship backfill (issue #301)
 

@@ -30,6 +30,7 @@ import argparse
 import asyncio
 import datetime
 import os
+import sys
 
 import asyncpg
 
@@ -140,7 +141,20 @@ def _log_report(findings: dict[str, list[dict]], *, execute: bool) -> None:
         logger.info("Pass --execute to apply")
 
 
-async def run(*, execute: bool) -> None:
+def _exit_code(findings: dict[str, list[dict]], *, execute: bool) -> int:
+    """Exit 3 when a report-only run found drift, else 0 (#363).
+
+    Mirrors the sibling audits (``audit_ancillary_orphans`` / ``audit_schema_constraint_parity``)
+    so the systemd unit shows as failed in ``systemctl --failed`` and can drive
+    ``OnFailure=``. ``--execute`` reconciled the drift, so it always exits 0.
+    """
+    if execute:
+        return 0
+    total = sum(len(rows) for rows in findings.values())
+    return 3 if total else 0
+
+
+async def run(*, execute: bool) -> int:
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL not set")
@@ -152,6 +166,7 @@ async def run(*, execute: bool) -> None:
         else:
             findings = await run_audit(conn, execute=False)
         _log_report(findings, execute=execute)
+        return _exit_code(findings, execute=execute)
     finally:
         await conn.close()
 
@@ -165,7 +180,7 @@ def main() -> None:
         help="Clamp/archive drifted edges (default is report-only)",
     )
     args = parser.parse_args()
-    asyncio.run(run(execute=args.execute))
+    sys.exit(asyncio.run(run(execute=args.execute)))
 
 
 if __name__ == "__main__":

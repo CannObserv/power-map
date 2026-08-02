@@ -5,7 +5,14 @@ import datetime
 import pytest
 import pytest_asyncio
 
-from scripts.audit_assignment_relationship_windows import _clamp, audit, classify, run_audit
+from scripts.audit_assignment_relationship_windows import (
+    FINDING_CATEGORIES,
+    _clamp,
+    _exit_code,
+    audit,
+    classify,
+    run_audit,
+)
 from src.core.db import generate_id
 
 D = datetime.date
@@ -90,6 +97,36 @@ def test_classify_noop():
 
 
 # --------------------------------------------------------------------------- #
+# Exit code (#363) — report mode signals findings; execute reconciles → 0
+# --------------------------------------------------------------------------- #
+
+
+def _findings(**counts):
+    """Build a findings dict shaped like audit()'s return, with n blank rows/category."""
+    base = {c: [] for c in FINDING_CATEGORIES}
+    for cat, n in counts.items():
+        base[cat] = [{} for _ in range(n)]
+    return base
+
+
+def test_exit_code_report_clean_is_zero():
+    assert _exit_code(_findings(), execute=False) == 0
+
+
+def test_exit_code_report_with_findings_is_three():
+    assert _exit_code(_findings(clamp=2, inverted=1), execute=False) == 3
+
+
+def test_exit_code_execute_is_zero_even_with_findings():
+    # --execute reconciled the drift, so it exits 0 (mirrors issue #363).
+    assert _exit_code(_findings(archived_endpoint=3), execute=True) == 0
+
+
+def test_exit_code_execute_clean_is_zero():
+    assert _exit_code(_findings(), execute=True) == 0
+
+
+# --------------------------------------------------------------------------- #
 # DB reconcile
 # --------------------------------------------------------------------------- #
 
@@ -160,6 +197,16 @@ async def test_reconcile_clamps_and_is_idempotent(conn):
     # idempotent: a second pass finds nothing
     again = await audit(conn)
     assert sum(len(v) for v in again.values()) == 0
+
+
+@integration
+async def test_report_mode_real_drift_exits_three(conn):
+    # A real drifted edge → audit() findings → report-mode exit code 3 (#363).
+    frm = await _assignment(conn, start=D(2023, 1, 1))
+    to = await _assignment(conn, start=D(2023, 1, 1), end=D(2024, 12, 31))
+    await _edge(conn, frm, to, vf=D(2023, 1, 1), vu=D(2030, 1, 1))
+    findings = await audit(conn)  # report-only, no mutation
+    assert _exit_code(findings, execute=False) == 3
 
 
 @integration
