@@ -221,7 +221,15 @@ Surfacing (two layers): the unit shows in `systemctl --failed` on any failure
 (the ambient signal the SessionStart hook `.claude/hooks/a11y-status-reminder.sh`
 reads and echoes when you open Claude on the VM); and on failure the runner
 opens-or-updates a single `a11y-regression` GitHub issue (closing it on the next
-green run — GitHub's notification email covers the "email me" need).
+green run — GitHub's notification email covers the "email me" need). The issue
+carries a **one-line summary + a pointer to the journal only** — never raw
+output, since this is a public repo. Full failing detail (axe violations,
+tracebacks) lives in `journalctl -u power-map-a11y` on the VM.
+
+To exercise the failure → open-issue → recover → close cycle without breaking a
+tier, run with the self-test hatch: `A11Y_SWEEP_FORCE_FAIL=1 bash
+scripts/run-a11y-sweep.sh` (opens a synthetic-failure issue), then a normal green
+run closes it. `A11Y_SWEEP_NO_GH=1` logs the GitHub actions instead of doing them.
 
 One-time VM setup (the guard fails until this is done):
 
