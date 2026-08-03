@@ -320,9 +320,12 @@ async def test_hard_delete_archived_org(client, org_id, db):
         f"/admin/orgs/{org_id}/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )
-    assert response.status_code == 204
-    assert "HX-Location" in response.headers
-    assert "flash=deleted" in response.headers["HX-Location"]
+    # Delete → list uses HX-Redirect (full browser nav), not HX-Location (#376):
+    # HX-Location AJAX-GETs the list, which renders the _region.html partial under
+    # is_htmx and swaps table-only content into <body> — losing header/nav.
+    assert response.status_code == 200
+    assert "HX-Location" not in response.headers
+    assert "flash=deleted" in response.headers["HX-Redirect"]
 
 
 async def test_hard_delete_archived_org_non_htmx_redirects(client, org_id, db):

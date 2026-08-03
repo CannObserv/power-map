@@ -641,8 +641,14 @@ async def ra_delete(
             ra_id,
         )
     if is_htmx(request):
+        # HX-Redirect (full browser navigation), not HX-Location: the delete lands
+        # on the *list*, and HX-Location's client-side ajax GET carries HX-Request,
+        # so the list returns its _region.html partial and HTMX swaps the table-only
+        # fragment into <body> — losing header/nav (#376). A real navigation GETs the
+        # full list.html. (Archive/unarchive keep HX-Location: they target the detail
+        # page, which always renders full.)
         return Response(
-            status_code=204,
-            headers={"HX-Location": "/admin/role-assignments/?flash=deleted"},
+            status_code=200,
+            headers={"HX-Redirect": "/admin/role-assignments/?flash=deleted"},
         )
     return RedirectResponse("/admin/role-assignments/?flash=deleted", status_code=303)

@@ -184,7 +184,11 @@ async def test_hard_delete_requires_archive(client, person_id):
 
 
 async def test_hard_delete_archived_person(client, person_id):
-    """HTMX delete returns 204 + HX-Location pointing at the people list with flash."""
+    """HTMX delete → list uses HX-Redirect (full browser nav), not HX-Location (#376).
+
+    HX-Location would AJAX-GET the list, which returns the ``_region.html`` partial
+    under ``is_htmx`` and swaps table-only content into ``<body>`` — no header/nav.
+    """
     await client.post(
         f"/admin/people/{person_id}/archive/", headers=AUTH_HEADERS, follow_redirects=False
     )
@@ -192,10 +196,10 @@ async def test_hard_delete_archived_person(client, person_id):
         f"/admin/people/{person_id}/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )
-    assert response.status_code == 204
-    assert "HX-Location" in response.headers
-    assert "/admin/people/" in response.headers["HX-Location"]
-    assert "flash=deleted" in response.headers["HX-Location"]
+    assert response.status_code == 200
+    assert "HX-Location" not in response.headers
+    assert "/admin/people/" in response.headers["HX-Redirect"]
+    assert "flash=deleted" in response.headers["HX-Redirect"]
 
 
 async def test_hard_delete_archived_person_non_htmx_redirects(client, person_id):
