@@ -1,0 +1,25 @@
+[Unit]
+Description=power-map weekly a11y sweep (lxml render + Playwright/axe browser tiers) (issue #369)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv) and gh (/bin/gh); see infra/power-map.service.
+# One-time VM setup:
+#   uv sync --group browser && uv run --group browser playwright install chromium
+# The runner's guard launches Chromium and exits 2 if it is absent, so a missing
+# browser fails loudly instead of the browser tier importorskipping to a vacuous pass.
+#
+# Runs both accessibility tiers against TEST_DATABASE_URL — never prod: the browser
+# tier's dbname guard refuses anything but the test DB, and it launches its own
+# uvicorn on an ephemeral port (no collision with prod :8000 / dev :8001). A
+# non-zero exit shows the unit in `systemctl --failed` (the ambient signal the
+# SessionStart hook reads). On failure the runner opens-or-updates the
+# `a11y-regression` GitHub issue; on recovery it closes it. Touches only the test DB.
+ExecStart=/home/exedev/power-map/scripts/run-a11y-sweep.sh
+# Two pytest sessions + a real browser launch; give it ample headroom.
+TimeoutStartSec=1200

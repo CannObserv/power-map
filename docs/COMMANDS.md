@@ -196,9 +196,9 @@ uv run --group browser --env-file /etc/power-map/.env --env-file .env \
 ```
 
 Notes:
-- **Run it as a pre-release gate** (before tagging a version / restarting prod),
-  not on a timer — a scheduled failure nobody watches is worse than an explicit
-  manual check.
+- **Automated weekly** by `power-map-a11y.timer` (#369, below) — it runs this tier
+  plus the lxml render tier and surfaces failures. Run it manually too as a
+  pre-release gate (before tagging a version / restarting prod).
 - **Isolation:** the tier launches uvicorn on an ephemeral port against the
   dedicated test DB, which it truncates-and-seeds at session start and resets on
   teardown (the managed-PG test role has no `CREATEDB`, so a disposable
@@ -207,7 +207,40 @@ Notes:
 - axe-core is SHA-pinned under `tests/vendor/` (see that README); the run
   verifies the hash at import.
 - v1 scope is full pages only. axe-after-interaction (open edit rows, modals)
-  and real-browser flow smoke are planned follow-ups.
+  and real-browser flow smoke are planned follow-ups (#367, #368).
+
+### Weekly a11y sweep timer (production, #369)
+
+`power-map-a11y.timer` runs `scripts/run-a11y-sweep.sh` weekly (Sundays 04:00 UTC):
+both a11y tiers (lxml `test_a11y_render.py -m integration` + browser
+`test_a11y_browser.py -m browser`) against the test DB. A **Chromium guard**
+launches a real browser first and exits 2 if it's absent, so a missing install
+fails loudly instead of the browser tier importorskipping to a vacuous pass.
+
+Surfacing (two layers): the unit shows in `systemctl --failed` on any failure
+(the ambient signal the SessionStart hook `.claude/hooks/a11y-status-reminder.sh`
+reads and echoes when you open Claude on the VM); and on failure the runner
+opens-or-updates a single `a11y-regression` GitHub issue (closing it on the next
+green run — GitHub's notification email covers the "email me" need).
+
+One-time VM setup (the guard fails until this is done):
+
+```bash
+uv sync --group browser && uv run --group browser playwright install chromium
+```
+
+Install / update the timer:
+
+```bash
+sudo cp infra/power-map-a11y.service infra/power-map-a11y.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now power-map-a11y.timer
+
+# Inspect
+systemctl list-timers power-map-a11y.timer     # next/last run
+sudo systemctl start power-map-a11y.service    # run once, now (~60s)
+sudo journalctl -u power-map-a11y -f           # live run + surfacing log
+```
 
 ## JS Testing
 
