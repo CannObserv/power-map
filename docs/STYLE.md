@@ -327,6 +327,10 @@ HTMX dispatches a `showFlash` DOM event when it processes the `HX-Trigger` respo
 
 **Timing:** `HX-Trigger` fires immediately on response receipt, before the DOM swap. This is imperceptible for fixed-position flash overlays. If a future route needs to reference post-swap DOM state, use `HX-Trigger-After-Settle` as the header name instead.
 
+**Query-param flash (`?flash=<key>`) — the redirect-landing variant.** A redirect that ends on a full page (the Danger-Zone delete → list `HX-Redirect` navigation, #376; a non-HTMX 303 fallback, #351) can't carry an `HX-Trigger`, so it passes a `?flash=<key>` query param that the target route resolves via `resolve_query_flash` and renders server-side into `{% block flash %}`. Two mechanisms then clear the now-consumed param from the address bar so a manual refresh won't re-show the message:
+- **Boosted navigations** — `resolve_query_flash` returns an `HX-Replace-Url` header (on non-HTMX requests) that htmx honors while processing the boosted response.
+- **Hard navigations** — `HX-Replace-Url` is inert when htmx isn't driving the request (`window.location` from `HX-Redirect`, a plain 303→GET). `flash.js` covers this: on every full page load it strips a `flash` param via `history.replaceState`, preserving other params (#379). The two are complementary — keep both.
+
 ### Mutation form pattern
 
 ```html

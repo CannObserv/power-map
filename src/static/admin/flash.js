@@ -4,6 +4,28 @@
  * HX-Trigger response header containing {"showFlash": {"level": "...", "body": "..."}}.
  * This listener catches that event and injects a flash notification into #flash-region.
  */
+
+/* Strip a consumed ?flash= param from the URL on load (#379).
+ *
+ * A full-page navigation that lands on a flash-bearing URL — the HX-Redirect
+ * delete→list landing (#376) or a non-HTMX 303 fallback — leaves ?flash=<key>
+ * in the address bar. The flash is already server-rendered into #flash-region,
+ * so removing the param here only stops a manual refresh from re-showing it.
+ * Boosted navigations are handled server-side by HX-Replace-Url (htmx honors
+ * that header only on htmx-initiated requests), so this covers the hard-nav gap.
+ */
+(function () {
+  try {
+    var url = new URL(window.location.href);
+    if (!url.searchParams.has('flash')) return;
+    url.searchParams.delete('flash');
+    // url.search is '' when no params remain, so this handles both cases.
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  } catch {
+    /* no-op: URL / history API unavailable */
+  }
+})();
+
 (function () {
   var AUTO_DISMISS_MS = 4000;
 
