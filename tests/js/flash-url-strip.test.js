@@ -13,19 +13,33 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const scriptCode = readFileSync(resolve(__dirname, '../../src/static/admin/flash.js'), 'utf-8');
 
 function setUrl(url) {
   // happy-dom: authoritative way to (re)point window.location without a real nav.
+  if (!window.happyDOM) throw new Error('these tests require the happy-dom vitest environment');
   window.happyDOM.setURL(url);
 }
 
 describe('flash.js — ?flash= URL strip on load', () => {
+  // eval()-ing flash.js registers a document 'showFlash' listener each run;
+  // spy on addEventListener and remove them in afterEach so they don't
+  // accumulate across tests (same guard as dark-mode.test.js).
+  let addSpy;
+
   beforeEach(() => {
+    addSpy = vi.spyOn(document, 'addEventListener');
     setUrl('http://localhost/admin/');
+  });
+
+  afterEach(() => {
+    for (const [type, fn] of addSpy.mock.calls) {
+      document.removeEventListener(type, fn);
+    }
+    addSpy.mockRestore();
   });
 
   it('removes a lone ?flash= param, preserving the path', () => {

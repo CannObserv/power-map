@@ -19,12 +19,8 @@
     var url = new URL(window.location.href);
     if (!url.searchParams.has('flash')) return;
     url.searchParams.delete('flash');
-    var qs = url.searchParams.toString();
-    window.history.replaceState(
-      window.history.state,
-      '',
-      url.pathname + (qs ? '?' + qs : '') + url.hash,
-    );
+    // url.search is '' when no params remain, so this handles both cases.
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
   } catch {
     /* no-op: URL / history API unavailable */
   }
