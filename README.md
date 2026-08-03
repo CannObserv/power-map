@@ -12,7 +12,7 @@ uv sync
 ## Development
 
 ```bash
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config src/core/log_config.json
 ```
 
 ## Testing

@@ -11,7 +11,7 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); verify: systemctl show power-map --property=Environment
 ExecStartPre=uv sync --quiet
 ExecStartPre=bash scripts/apply-schema.sh
-ExecStart=uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 2
+ExecStart=uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 2 --log-config src/core/log_config.json
 Restart=on-failure
 RestartSec=5s
 
