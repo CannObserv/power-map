@@ -32,6 +32,7 @@ To add a new external skill repo: follow the `managing-skills` skill.
 |---|---|---|
 | `reviewing-code-python-fastapi` | `gregoryfoster-skills` | CR, code review, perform a review |
 | `reviewing-architecture` | `gregoryfoster-skills` | AR, architecture review, architectural review |
+| `enforcing-architecture` | `gregoryfoster-skills` | add a fitness function, enforce this contract, lock this rule |
 | `shipping-work-python-fastapi` | `gregoryfoster-skills` | ship it, push GH, close GH, wrap up |
 | `brainstorming` | Local override | brainstorm, design this, let's design |
 | `systematic-debugging` | `obra-superpowers` | description-driven¹ |
