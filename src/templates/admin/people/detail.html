@@ -64,7 +64,7 @@
           <!-- Actions: wide enough for Cite + Edit + Delete on one line (#319).
                14rem cleared the buttons by only ~9px under table-layout:fixed +
                2rem cell padding; 15rem gives headroom for font-rendering variance. -->
-          <th scope="col" style="width:15rem"></th>
+          <th scope="col" style="width:15rem"><span class="sr-only">Actions</span></th>
         </tr></thead>
         <tbody>
           {% for n in names %}
@@ -103,7 +103,7 @@
           <th scope="col">Place</th>
           <th scope="col">Linked Entity</th>
           <th scope="col" style="width:6rem">Status</th>
-          <th scope="col"></th>
+          <th scope="col"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>
@@ -134,7 +134,7 @@
     </div>
     <div class="table-wrapper">
       <table id="emails-table" class="data-table">
-        <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for c in email_contacts %}
           {% set person_id = person.id %}
@@ -160,7 +160,7 @@
     </div>
     <div class="table-wrapper">
       <table id="phones-table" class="data-table">
-        <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for c in phone_contacts %}
           {% set person_id = person.id %}
@@ -186,7 +186,7 @@
     </div>
     <div class="table-wrapper">
       <table id="addresses-table" class="data-table">
-        <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col">Validity</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col">Validity</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for a in addresses %}
           {% set person_id = person.id %}
@@ -216,7 +216,7 @@
   </div>
   <div class="table-wrapper">
     <table id="links-table" class="data-table">
-      <thead><tr><th scope="col">URL</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
+      <thead><tr><th scope="col">URL</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {% for l in links %}
         {% set person_id = person.id %}
@@ -244,7 +244,7 @@
   </div>
   <div class="table-wrapper">
     <table id="identifiers-table" class="data-table">
-      <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"></th></tr></thead>
+      <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {% for ident in identifiers %}
         {% set person_id = person.id %}
@@ -279,7 +279,7 @@
           <th scope="col">Start</th>
           <th scope="col">End</th>
           <th scope="col">Status</th>
-          <th scope="col"></th>
+          <th scope="col"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>

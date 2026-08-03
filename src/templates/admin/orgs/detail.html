@@ -43,7 +43,7 @@
     </div>
     <div class="table-wrapper">
       <table id="names-table" class="data-table" style="table-layout:fixed">
-        <thead><tr><th scope="col">Name</th><th scope="col" style="text-align:right;width:5rem">Type</th><th scope="col" style="text-align:right;width:11rem">Effective</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"></th></tr></thead>
+        <thead><tr><th scope="col">Name</th><th scope="col" style="text-align:right;width:5rem">Type</th><th scope="col" style="text-align:right;width:11rem">Effective</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for n in names %}
           {% include "admin/orgs/partials/_name_row.html" %}
@@ -66,7 +66,7 @@
     </div>
     <div class="table-wrapper">
       <table id="acronyms-table" class="data-table" style="table-layout:fixed">
-        <thead><tr><th scope="col">Acronym</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"></th></tr></thead>
+        <thead><tr><th scope="col">Acronym</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for a in acronyms %}
           {% include "admin/orgs/partials/_acronym_row.html" %}
@@ -89,7 +89,7 @@
     <h3 class="field-group-label" style="margin:0 0 var(--space-3)">Parent Organization</h3>
     <div class="table-wrapper">
       <table id="parent-table" class="data-table">
-        <thead><tr><th scope="col">Name</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Name</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% include "admin/orgs/partials/_parent_read.html" %}
         </tbody>
@@ -108,7 +108,7 @@
     </div>
     <div class="table-wrapper">
       <table id="children-table" class="data-table">
-        <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for child in children %}
           {% include "admin/orgs/partials/_child_row.html" %}
@@ -136,7 +136,7 @@
     <table id="org-events-table" class="data-table">
       <thead>
         <tr>
-          <th scope="col" style="width:10rem">Type</th><th scope="col" style="width:9rem">Date</th><th scope="col">Place</th><th scope="col">Linked Entity</th><th scope="col" style="width:6rem">Status</th><th scope="col"></th>
+          <th scope="col" style="width:10rem">Type</th><th scope="col" style="width:9rem">Date</th><th scope="col">Place</th><th scope="col">Linked Entity</th><th scope="col" style="width:6rem">Status</th><th scope="col"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>
@@ -164,7 +164,7 @@
     </div>
     <div class="table-wrapper">
       <table id="emails-table" class="data-table">
-        <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for c in email_contacts %}
           {% include "admin/orgs/partials/_contact_row.html" %}
@@ -187,7 +187,7 @@
     </div>
     <div class="table-wrapper">
       <table id="phones-table" class="data-table">
-        <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for c in phone_contacts %}
           {% include "admin/orgs/partials/_contact_row.html" %}
@@ -210,7 +210,7 @@
     </div>
     <div class="table-wrapper">
       <table id="addresses-table" class="data-table">
-        <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col">Validity</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col">Validity</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for a in addresses %}
           {% include "admin/orgs/partials/_address_row.html" %}
@@ -237,7 +237,7 @@
   </div>
   <div class="table-wrapper">
     <table id="links-table" class="data-table">
-      <thead><tr><th scope="col">URL</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
+      <thead><tr><th scope="col">URL</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {% for l in links %}
         {% include "admin/orgs/partials/_link_row.html" %}
@@ -262,7 +262,7 @@
   </div>
   <div class="table-wrapper">
     <table id="identifiers-table" class="data-table">
-      <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"></th></tr></thead>
+      <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {% for ident in identifiers %}
         {% include "admin/orgs/partials/_identifier_row.html" %}
@@ -295,7 +295,7 @@
   <div class="table-wrapper" style="position:relative">
     <table id="roles-table" class="data-table" data-org-id="{{ org.id }}">
       <thead><tr>
-        <th scope="col" class="merge-col" style="display:none;width:2rem;padding-right:0"></th>
+        <th scope="col" class="merge-col" style="display:none;width:2rem;padding-right:0"><span class="sr-only">Select</span></th>
         <th scope="col">Title</th>
         <th scope="col" style="text-align:right">Assignments</th>
         <th scope="col" style="text-align:right">Current</th>

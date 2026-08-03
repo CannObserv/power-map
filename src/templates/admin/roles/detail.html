@@ -63,7 +63,7 @@
           <th scope="col">Start</th>
           <th scope="col">End</th>
           <th scope="col">Current</th>
-          <th scope="col" style="width:6rem"></th>
+          <th scope="col" style="width:6rem"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody>
@@ -91,7 +91,7 @@
     </div>
     <div class="table-wrapper">
       <table id="emails-table" class="data-table">
-        <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for c in email_contacts %}
           {% include "admin/roles/partials/_contact_row.html" %}
@@ -116,7 +116,7 @@
     </div>
     <div class="table-wrapper">
       <table id="phones-table" class="data-table">
-        <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {% for c in phone_contacts %}
           {% include "admin/roles/partials/_contact_row.html" %}
@@ -145,7 +145,7 @@
   </div>
   <div class="table-wrapper">
     <table id="links-table" class="data-table">
-      <thead><tr><th scope="col">URL</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
+      <thead><tr><th scope="col">URL</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {% for l in links %}
         {% include "admin/roles/partials/_link_row.html" %}

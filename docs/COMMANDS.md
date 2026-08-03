@@ -176,6 +176,39 @@ uv run pytest tests/path/to/test_file.py --no-cov
 uv run pytest -m integration
 ```
 
+## Browser Testing (axe-core a11y sweep, #300)
+
+Real-browser tier: headless Chromium + axe-core full ruleset (colour contrast,
+ARIA roles, landmarks, focus order) over every full-page admin GET route —
+coverage the render-based lxml sweep (#246) can't reach. Marker-gated
+(`-m browser`), **excluded by default and never run in pre-commit**. Reuses the
+route enumeration + seed dataset in `tests/api/admin/admin_routes.py`, so it and
+the lxml tier never drift.
+
+```bash
+# One-time setup (installs Playwright + a ~120MB Chromium; not in the dev group)
+uv sync --group browser
+uv run --group browser playwright install chromium
+
+# Run the sweep (needs TEST_DATABASE_URL; env flags per § Environment)
+uv run --group browser --env-file /etc/power-map/.env --env-file .env \
+    pytest tests/api/admin/test_a11y_browser.py -m browser
+```
+
+Notes:
+- **Run it as a pre-release gate** (before tagging a version / restarting prod),
+  not on a timer — a scheduled failure nobody watches is worse than an explicit
+  manual check.
+- **Isolation:** the tier launches uvicorn on an ephemeral port against the
+  dedicated test DB, which it truncates-and-seeds at session start and resets on
+  teardown (the managed-PG test role has no `CREATEDB`, so a disposable
+  `CREATE DATABASE` per session isn't possible). Run it **alone** — never
+  alongside the integration suite against the same DB.
+- axe-core is SHA-pinned under `tests/vendor/` (see that README); the run
+  verifies the hash at import.
+- v1 scope is full pages only. axe-after-interaction (open edit rows, modals)
+  and real-browser flow smoke are planned follow-ups.
+
 ## JS Testing
 
 ```bash
