@@ -1,0 +1,14 @@
+[Unit]
+Description=power-map weekly a11y sweep (issue #369)
+
+[Timer]
+# Sundays 04:00 UTC (VM is Etc/UTC; suffix pins it regardless). Weekly cadence to
+# start; tighten later if regressions warrant.
+OnCalendar=Sun *-*-* 04:00:00 UTC
+Persistent=true
+# Spread off the exact minute to avoid contention with any daily job that lands
+# near the same time.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
