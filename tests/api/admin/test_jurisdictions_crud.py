@@ -342,6 +342,32 @@ async def test_delete_archived_ok(client, county_type_id, db):
     )
 
 
+async def test_delete_archived_htmx_uses_hx_redirect(client, county_type_id, db):
+    """HTMX delete → list uses HX-Redirect (full browser nav), not HX-Location (#376).
+
+    HX-Location AJAX-GETs the list, which renders the _region.html partial under
+    is_htmx and swaps table-only content into <body> — losing header/nav.
+    """
+    jid = generate_id()
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+        " VALUES ($1,$2,$3,$4,NOW())",
+        jid,
+        f"delh-{jid[-8:].lower()}",
+        "DeletableHtmx",
+        county_type_id,
+    )
+    r = await client.request(
+        "DELETE",
+        f"/admin/jurisdictions/{jid}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    assert "HX-Location" not in r.headers
+    assert "/admin/jurisdictions/" in r.headers["HX-Redirect"]
+    assert "flash=deleted" in r.headers["HX-Redirect"]
+
+
 async def test_delete_referenced_returns_409(client, county_type_id, db):
     jid, oid, rid = generate_id(), generate_id(), generate_id()
     await db.execute(

@@ -698,8 +698,11 @@ async def org_delete(
             detail="Cannot delete: organization has related records (roles, etc.)",
         )
     if is_htmx(request):
+        # HX-Redirect (full browser navigation), not HX-Location: delete lands on the
+        # *list*, whose is_htmx branch returns the _region.html partial — HX-Location's
+        # ajax GET would swap the table-only fragment into <body> (no header/nav, #376).
         return Response(
-            status_code=204,
-            headers={"HX-Location": "/admin/orgs/?flash=deleted"},
+            status_code=200,
+            headers={"HX-Redirect": "/admin/orgs/?flash=deleted"},
         )
     return RedirectResponse("/admin/orgs/?flash=deleted", status_code=303)

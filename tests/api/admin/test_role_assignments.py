@@ -278,13 +278,21 @@ async def test_hard_delete_requires_archive(client, ra_id):
 
 
 async def test_hard_delete_archived_ra(client, db, ra_id):
+    """Delete → list must use HX-Redirect (full browser navigation), not HX-Location.
+
+    HX-Location fires a client-side ``htmx.ajax`` GET that carries ``HX-Request``,
+    so the list route returns its ``_region.html`` partial and HTMX swaps the
+    table-only fragment into ``<body>`` — no header/nav (#376). HX-Redirect does a
+    real ``window.location`` navigation → clean GET → full ``list.html``.
+    """
     await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
     response = await client.delete(
         f"/admin/role-assignments/{ra_id}/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
     )
-    assert response.status_code == 204
-    assert response.headers.get("HX-Location") == "/admin/role-assignments/?flash=deleted"
+    assert response.status_code == 200
+    assert response.headers.get("HX-Redirect") == "/admin/role-assignments/?flash=deleted"
+    assert "HX-Location" not in response.headers
 
 
 async def test_hard_delete_archived_ra_writes_tombstone(client, db, ra_id):
@@ -315,7 +323,7 @@ async def test_hard_delete_archived_ra_writes_tombstone(client, db, ra_id):
 
 
 async def test_detail_delete_button_has_no_legacy_push_url(client, db, ra_id):
-    """Delete button relies on server HX-Location redirect, not hx-target/hx-push-url."""
+    """Delete button relies on the server HX-Redirect (#376), not hx-target/hx-push-url."""
     await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
     response = await client.get(f"/admin/role-assignments/{ra_id}/", headers=AUTH_HEADERS)
     assert response.status_code == 200
