@@ -77,6 +77,12 @@ _HTMX_ONLY_PATHS = frozenset(EXTRA_HEADERS)
 # assert the count clears a floor well below the ~28 currently swept — mirrors
 # the lxml tier's `_MIN_TOTAL_CONTROLS` guard. A filtered `-k` subset can't reach
 # the full-set count, so the check no-ops there instead of false-failing.
+#
+# xdist caveat (same as test_a11y_render.py): these are process-global counters.
+# Under `pytest-xdist` (not used yet) each worker runs only a shard, so `_cases_run`
+# never reaches len(ADMIN_GET_PATHS) on any worker and the floor silently no-ops.
+# Before enabling xdist, move the aggregate to a cross-worker mechanism (e.g. a
+# `pytest_sessionfinish` hook) or the backstop disappears without warning.
 _MIN_FULL_PAGES_SWEPT = 20
 _axe_pages_swept = 0
 _cases_run = 0
@@ -171,9 +177,8 @@ async def live_server(browser_db, seeded_ids):
     # Capture the child's output to a temp file (not a PIPE we'd never drain — at
     # --log-level warning volume is tiny, but a file can't deadlock) so a startup
     # failure surfaces the actual traceback, not a bare exit code (CR #4).
-    log_file = tempfile.NamedTemporaryFile(  # noqa: SIM115 — closed in finally
-        mode="w+", suffix=".uvicorn.log", prefix="a11y-browser-"
-    )
+    # Closed (and, being a NamedTemporaryFile, deleted) in the finally below.
+    log_file = tempfile.NamedTemporaryFile(mode="w+", suffix=".uvicorn.log", prefix="a11y-browser-")
 
     def _log_tail() -> str:
         log_file.flush()
