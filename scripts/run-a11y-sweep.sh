@@ -45,7 +45,7 @@ env_args=()
 # On fail: open-or-update the labelled issue with SUMMARY ONLY (never raw output
 # — public repo). On pass: close any open one. Best-effort — never aborts the run.
 gh_surface() {
-    local status="$1" summary="${2:-}" ts host existing body
+    local status="$1" summary="${2:-}" ts host existing body list_rc
     ts="$(date -u +%FT%TZ)"
     host="$(hostname)"
 
@@ -64,7 +64,16 @@ gh_surface() {
             --description "Automated weekly a11y sweep regression (power-map-a11y.timer, #369)" \
             2>/dev/null || true
     fi
-    existing="$(gh issue list --label "$LABEL" --state open --json number -q '.[0].number' 2>/dev/null || true)"
+    # Distinguish a genuine "no open issue" (list ok, empty result) from a
+    # transient gh failure — on error, skip surfacing this run rather than risk
+    # opening a duplicate or closing nothing (#369 CR2 finding 5).
+    existing="$(gh issue list --label "$LABEL" --state open --json number -q '.[0].number' 2>/dev/null)"
+    list_rc=$?
+    [ "$existing" = "null" ] && existing=""
+    if [ "$list_rc" -ne 0 ]; then
+        log "gh issue list failed (rc=$list_rc) — skipping surfacing this run to avoid a duplicate"
+        return 0
+    fi
 
     if [ "$status" = "fail" ]; then
         # Summary + journal pointer ONLY — no raw internals (public repo, #369 CR).
