@@ -35,6 +35,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -48,11 +49,12 @@ from tests.api.admin.a11y import is_full_document
 from tests.api.admin.admin_routes import (
     ADMIN_GET_PATHS,
     AUTH_HEADERS,
+    EXTRA_HEADERS,
     QUERY_PARAMS,
     param_values,
     seed_admin_fixtures,
 )
-from tests.conftest import _reset_data_tables
+from tests.db_utils import reset_data_tables
 
 # Skip the whole module cleanly when the browser extra isn't installed (default
 # `uv run` syncs only the `dev` group, so Playwright is absent there).
@@ -62,6 +64,22 @@ playwright_async = pytest.importorskip(
 )
 
 pytestmark = [pytest.mark.browser]
+
+# Routes that only render a partial for an HX-Request and otherwise 400 / 303 —
+# HTMX-only, never standalone browser pages, so skipped. Every *other* route must
+# render a real 200 (full page or a 200 fragment); an unexpected redirect/non-200
+# there is a failure, not a silent skip (CR #2).
+_HTMX_ONLY_PATHS = frozenset(EXTRA_HEADERS)
+
+# Vacuous-pass guard (CR #1): if a global break (auth, base template) made every
+# route redirect/error/skip, the sweep would pass with zero axe runs. Count the
+# pages axe actually ran on and, when the *whole* parametrized set executed,
+# assert the count clears a floor well below the ~28 currently swept — mirrors
+# the lxml tier's `_MIN_TOTAL_CONTROLS` guard. A filtered `-k` subset can't reach
+# the full-set count, so the check no-ops there instead of false-failing.
+_MIN_FULL_PAGES_SWEPT = 20
+_axe_pages_swept = 0
+_cases_run = 0
 
 # SHA-pinned vendored axe-core (see tests/vendor/README.md). Verified at import
 # so a corrupted or silently-swapped copy fails loudly, not with garbage results.
@@ -117,7 +135,7 @@ async def browser_db():
     conn = await asyncpg.connect(dsn)
     try:
         await apply_schema(conn)  # absorb any schema.sql change on this branch
-        await _reset_data_tables(conn)
+        await reset_data_tables(conn)
     finally:
         await conn.close()
     try:
@@ -125,7 +143,7 @@ async def browser_db():
     finally:
         conn = await asyncpg.connect(dsn)
         try:
-            await _reset_data_tables(conn)
+            await reset_data_tables(conn)
         finally:
             await conn.close()
 
@@ -150,6 +168,18 @@ async def live_server(browser_db, seeded_ids):
     env["DATABASE_URL"] = browser_db
     env["DB_POOL_MIN_SIZE"] = "1"
     env["DB_POOL_MAX_SIZE"] = "4"
+    # Capture the child's output to a temp file (not a PIPE we'd never drain — at
+    # --log-level warning volume is tiny, but a file can't deadlock) so a startup
+    # failure surfaces the actual traceback, not a bare exit code (CR #4).
+    log_file = tempfile.NamedTemporaryFile(  # noqa: SIM115 — closed in finally
+        mode="w+", suffix=".uvicorn.log", prefix="a11y-browser-"
+    )
+
+    def _log_tail() -> str:
+        log_file.flush()
+        log_file.seek(0)
+        return "".join(log_file.readlines()[-40:]).rstrip()
+
     proc = subprocess.Popen(
         [
             sys.executable,
@@ -164,13 +194,17 @@ async def live_server(browser_db, seeded_ids):
             "warning",
         ],
         env=env,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
     )
     base_url = f"http://127.0.0.1:{port}"
     try:
         async with httpx.AsyncClient() as c:
             for _ in range(120):  # up to ~30s
                 if proc.poll() is not None:
-                    raise RuntimeError(f"uvicorn exited early with code {proc.returncode}")
+                    raise RuntimeError(
+                        f"uvicorn exited early with code {proc.returncode}:\n{_log_tail()}"
+                    )
                 try:
                     r = await c.get(f"{base_url}/health", timeout=1.0)
                     if r.status_code == 200:
@@ -179,7 +213,7 @@ async def live_server(browser_db, seeded_ids):
                     pass
                 await asyncio.sleep(0.25)
             else:
-                raise RuntimeError("uvicorn did not become ready within 30s")
+                raise RuntimeError(f"uvicorn did not become ready within 30s:\n{_log_tail()}")
         yield base_url
     finally:
         proc.terminate()
@@ -188,6 +222,7 @@ async def live_server(browser_db, seeded_ids):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
+        log_file.close()
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
@@ -221,21 +256,47 @@ def _format_violations(url: str, violations: list[dict]) -> str:
     return "\n".join(lines)
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _assert_pages_swept_floor():
+    """After the module runs, assert axe actually ran on a floor of full pages —
+    but only when the whole parametrized set executed (a filtered subset can't
+    reach it and would false-fail). Catches a vacuous pass where a global break
+    makes every route skip/fail out of the axe path (CR #1)."""
+    yield
+    if _cases_run == len(ADMIN_GET_PATHS):
+        assert _axe_pages_swept >= _MIN_FULL_PAGES_SWEPT, (
+            f"axe ran on only {_axe_pages_swept} full pages across {_cases_run} routes"
+            f" (floor {_MIN_FULL_PAGES_SWEPT}) — pages may have silently stopped rendering"
+            " as full documents (auth/base-template break?)"
+        )
+
+
 @pytest.mark.parametrize("path", ADMIN_GET_PATHS)
 async def test_admin_full_page_axe_clean(path, live_server, seeded_ids, page):
     """Navigate each admin GET route; run axe-core on the ones that are real full
-    pages. Fragments / redirecting HTMX-only partials are out of v1 scope."""
+    pages. HTMX-only routes and 200 fragments are out of v1 scope — but an
+    *unexpected* redirect/non-200 on any other route fails (CR #2)."""
+    global _axe_pages_swept, _cases_run
+    _cases_run += 1
+    if path in _HTMX_ONLY_PATHS:
+        pytest.skip(f"{path} is HTMX-only (needs HX-Request) — not a standalone browser page")
+
     url = live_server + path.format_map(param_values(path, seeded_ids)) + QUERY_PARAMS.get(path, "")
     resp = await page.goto(url, wait_until="domcontentloaded")
     assert resp is not None, f"no response for {url}"
 
-    if resp.request.redirected_from is not None:
-        pytest.skip(f"{path} redirected (HTMX-only/partial) — target swept under its own route")
-    if resp.status != 200:
-        pytest.skip(f"{path} -> {resp.status} (partial needs HX-Request) — out of full-page scope")
+    # Every non-HTMX-only route must render a real page. A silent redirect or
+    # error here (e.g. auth broke → 307 to login) must fail, not skip, so it
+    # can't drop out of coverage unnoticed.
+    assert resp.request.redirected_from is None, (
+        f"{path} unexpectedly redirected to {resp.url} — a full-page admin route must not redirect"
+    )
+    assert resp.status == 200, f"{url} -> {resp.status}: {(await resp.text())[:300]}"
+
     if not is_full_document(await resp.text()):
-        pytest.skip(f"{path} is an HTMX fragment — out of full-page axe scope")
+        pytest.skip(f"{path} renders an HTMX fragment — out of full-page axe scope")
 
     await page.add_script_tag(content=_AXE_SOURCE)
     violations = await page.evaluate(_AXE_RUN_JS)
+    _axe_pages_swept += 1
     assert not violations, _format_violations(url, violations)
