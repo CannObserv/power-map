@@ -46,6 +46,12 @@ async def get_changes(
     """
     rows = await db.fetch(_QUERY, auth.key_id, after, limit + 1)
 
+    # Oldest-retained outbox id = the prune horizon (#388). Global (not
+    # subscription-scoped): pruning is global by changed_at, so this is the
+    # single point below which any event — subscribed or not — may have been
+    # pruned unseen. NULL when the outbox is empty. Cheap: MIN over the PK index.
+    min_seq = await db.fetchval("SELECT MIN(id) FROM entity_changes")
+
     has_more = len(rows) > limit
     rows = rows[:limit]
 
@@ -70,5 +76,6 @@ async def get_changes(
             count=len(items),
             has_more=has_more,
             next_after=next_after,
+            min_seq=min_seq,
         ),
     )

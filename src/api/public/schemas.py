@@ -1050,6 +1050,10 @@ class ChangeMeta(BaseModel):
     count: int
     has_more: bool
     next_after: int  # outbox seq_id — pass as ?after= on the next poll
+    # Oldest-retained outbox seq_id — the prune horizon (#388). null when the
+    # outbox is empty. If your persisted ``after`` is below ``min_seq - 1``,
+    # events may have been pruned before you read them — full-reconcile.
+    min_seq: int | None = None
 
 
 class ChangeFeedResponse(BaseModel):

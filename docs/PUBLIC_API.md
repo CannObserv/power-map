@@ -260,7 +260,8 @@ GET /api/v1/subscriptions/discover
     "limit": 50,
     "count": 2,
     "has_more": false,
-    "next_after": 4301
+    "next_after": 4301,
+    "min_seq": 118
   }
 }
 ```
@@ -270,6 +271,8 @@ GET /api/v1/subscriptions/discover
 `merged_into` is `null` for genuine deletes and for all `"updated"` events. When `change_kind` is `"deleted"` and the entity was merged rather than hard-deleted, `merged_into` contains the id of the winner entity of the same type — the subscriber should re-anchor its reference to that id rather than retiring the entity locally.
 
 `seq_id` is a strictly increasing integer from the append-only outbox log (`BIGSERIAL`). It is **monotonic**, not gapless — the log is an offset cursor, not a contiguous counter. Do not infer "missed events" from a gap between consecutive `seq_id`s: the sequence skips values for rolled-back or failed writes, and the id space is global across all entities while your feed is subscription-filtered, so consecutive delivered ids are expected to jump. See **Delivery semantics** below for the exactly-what-is-guaranteed contract (it is *at-least-once*, not exactly-once) — read it before building a consumer that trims or removes a reconciliation backstop.
+
+`meta.min_seq` is the **oldest outbox `seq_id` still retained** — the prune horizon (`null` when the outbox is empty). It is global, not subscription-scoped: pruning is a global `changed_at`-based delete, so `min_seq` is the single id below which *any* event, subscribed or not, may already have been pruned. Use it to detect that a persisted cursor has fallen off the retention window — if your stored `after` is below `min_seq - 1`, events may have been pruned before you read them, so full-reconcile against the read endpoints (see **Falling off the horizon** below).
 
 ### Polling pattern
 
@@ -304,7 +307,7 @@ while True:
 - **Exclusive cursor.** `after` uses `>` semantics — `next_after` will never appear again in the next page.
 - **Subscription-filtered.** Events for entities not in the subscription set are never returned, regardless of cursor.
 - **Retention window — the feed is recent-changes, not a permanent event store.** Outbox rows older than **90 days** (age-based, pruned daily by `changed_at`; size-unbounded, issue #204) are deleted. Polling from `after=0` returns every *retained* event for your subscribed entities (the subscription filter applies at query time), but only within that window — it is **not** a full-history backfill. To obtain the **current state** of a newly subscribed entity (including one unchanged for longer than the window, which therefore has no recent outbox row), fetch it directly from its read endpoint, then poll incrementally from the returned `next_after`. A consumer dark longer than the retention window may miss intervening events and must full-reconcile against the read endpoints.
-- **Falling off the horizon is silent.** If your persisted `after` predates the prune horizon, `GET /changes` does **not** error or reset — it simply returns the oldest *surviving* rows with `id > after`. You cannot distinguish "nothing changed since `after`" (empty page, `next_after` echoes `after`) from "events between `after` and the oldest retained row were pruned" (non-empty page whose first `seq_id` is far above `after`) from the response alone. There is currently no oldest-retained watermark in `meta`. If your poll cadence could ever exceed the retention window, treat a resume where the first returned `seq_id` jumps well past your stored `after` as "possibly lost the tail" and full-reconcile.
+- **Falling off the horizon is silent — detect it with `min_seq`.** If your persisted `after` predates the prune horizon, `GET /changes` does **not** error or reset — it simply returns the oldest *surviving* rows with `id > after`. From the data alone you cannot distinguish "nothing changed since `after`" (empty page, `next_after` echoes `after`) from "events between `after` and the oldest retained row were pruned" (non-empty page whose first `seq_id` is far above `after`). Use `meta.min_seq` (the oldest retained id) as the explicit horizon: **on every resume, if your stored `after` is below `min_seq - 1`, treat it as "possibly lost the tail" and full-reconcile** against the read endpoints before trusting incremental deltas. (`min_seq` is global and conservative — it may prompt a reconcile even when none of the pruned events matched your subscription; that is the safe direction.)
 - **Deleted entities.** Hard deletes and merges write a tombstone to an internal `deleted_entities` table for all five entity types (`person`, `organization`, `jurisdiction`, `role`, `role_assignment` — the latter two since #277), pruned on the same 90-day TTL as the outbox (issue #204). After the TTL, `GET /api/v1/people/{id}` or `/orgs/{id}` returning 404 is the fallback signal that an entity was removed.
 - **Order.** Results are ordered by outbox `seq_id ASC`. Monotonic within a page and across pages, but see **Delivery semantics** for the concurrent-writer caveat that makes a purely incremental cursor *not* strictly complete.
 - **No total count.** `meta.count` is the page count, not a dataset total.
