@@ -211,6 +211,26 @@ async def test_changes_min_seq_present_on_empty_page(client, api_key, change_fix
     assert body["meta"]["min_seq"] == expected
 
 
+async def test_changes_min_seq_null_when_outbox_empty(client, api_key, db):
+    """min_seq is null when the outbox is empty (#388).
+
+    Deletes all outbox rows inside the test's rolled-back transaction (the client
+    shares this connection), so MIN(id) is NULL and the endpoint reports the
+    empty-horizon case a fresh install would see.
+    """
+    await db.execute("DELETE FROM entity_changes")
+    r = await client.get(
+        "/api/v1/changes",
+        params={"after": 0},
+        headers={"X-API-Key": api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["data"] == []
+    assert body["meta"]["min_seq"] is None
+    assert body["meta"]["next_after"] == 0
+
+
 async def test_changes_min_seq_not_above_returned_seq_ids(client, api_key, change_fixtures):
     """min_seq never exceeds any delivered seq_id — it is the oldest, not newest (#388)."""
     r = await client.get(
