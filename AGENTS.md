@@ -123,7 +123,7 @@ exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 |---|---|
 | After code change (production) | `sudo systemctl restart power-map` — also applies any schema changes |
 | After schema change only (no restart) | `bash scripts/apply-schema.sh` |
-| Worktree dev testing | kill+restart dev server on 8001 with `--reload` from worktree dir |
+| Worktree dev testing | kill+restart dev server on 8001 with `--reload --log-config src/core/log_config.json` from worktree dir (see README / `docs/COMMANDS.md` for the full command) |
 | Service debugging | `sudo journalctl -u power-map -f` |
 | Quick prod health check | `curl -fsS localhost:8000/health && curl -fsS localhost:8000/ready` — unauthenticated probes (#343); `/ready` 503 reason: `no_pool`/`pool_timeout`/`db_error` |
 | Outbox/tombstone TTL prune | daily `power-map-prune.timer` runs `scripts/prune_outbox.py --execute` (90-day window, `entity_changes` + `deleted_entities`); see `docs/COMMANDS.md` |
