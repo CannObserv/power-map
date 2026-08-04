@@ -150,7 +150,7 @@ env_args=()
 
 # Kill any existing dev server on 8001, then start fresh from your worktree
 fuser -k 8001/tcp 2>/dev/null; sleep 1
-uv run "${env_args[@]}" uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run "${env_args[@]}" uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config src/core/log_config.json
 
 # Inject admin auth headers locally via mitmdump reverse proxy (port 3000 → 8001)
 mitmdump \
