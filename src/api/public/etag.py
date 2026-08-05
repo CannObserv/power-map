@@ -15,14 +15,12 @@ than uniform strictness. ``tests/api/public/test_conditional_get.py`` sweeps for
 re-implementations.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import format_datetime
 from types import MappingProxyType
 from typing import Final
 
 from fastapi import Request, Response
-
-# RFC 9110 §5.6.7 IMF-fixdate — the only format a Last-Modified header may use.
-HTTP_DATE_FMT: Final = "%a, %d %b %Y %H:%M:%S GMT"
 
 # OpenAPI declaration for endpoints supporting If-None-Match revalidation
 # (#292 CR): spread into the route decorator via ``responses=NOT_MODIFIED``.
@@ -39,6 +37,25 @@ def make_etag(entity_id: str, updated_at: datetime) -> str:
     return f'"{entity_id}-{ts_ms}"'
 
 
+def http_date(value: datetime) -> str:
+    """Format *value* as an RFC 9110 §5.6.7 IMF-fixdate.
+
+    Not ``strftime("%a, %d %b …")``: ``%a`` and ``%b`` are **locale-dependent**,
+    so a single ``setlocale(LC_TIME, …)`` anywhere in the process would emit an
+    invalid HTTP-date from every conditional GET at once (CR #392). Nothing here
+    calls it today — but the formatter is single-sourced, so harden it once.
+    ``email.utils.format_datetime`` is locale-independent by construction.
+
+    A naive input is *stamped* UTC rather than converted, per the project's
+    all-UTC rule — ``astimezone`` alone would silently read it as host-local.
+    An offset-aware input is converted, not relabelled: the pre-CR code wrote
+    the wall clock of whatever offset it was handed and appended ``GMT``.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return format_datetime(value.astimezone(UTC), usegmt=True)
+
+
 def cache_headers(etag: str, last_modified: datetime | None = None) -> dict[str, str]:
     """Header set every conditional GET carries, on both the 200 and the 304.
 
@@ -52,7 +69,7 @@ def cache_headers(etag: str, last_modified: datetime | None = None) -> dict[str,
         "Vary": "X-API-Key",
     }
     if last_modified is not None:
-        headers["Last-Modified"] = last_modified.strftime(HTTP_DATE_FMT)
+        headers["Last-Modified"] = http_date(last_modified)
     return headers
 
 

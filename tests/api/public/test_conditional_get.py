@@ -10,9 +10,11 @@ Three tiers:
    plus a source sweep asserting no public route re-implements the check.
 """
 
+import ast
 import hashlib
+import locale
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -106,6 +108,40 @@ def test_cache_headers_with_last_modified():
     }
 
 
+def test_cache_headers_http_date_is_locale_independent():
+    """``%a``/``%b`` render localized abbreviations under a non-C LC_TIME (CR #392/2).
+
+    Nothing in this repo calls ``setlocale``, so the C locale holds today — but
+    the formatter is single-sourced across every conditional GET, so one import
+    that does would invalidate the date on all of them at once.
+    """
+    for candidate in ("de_DE.UTF-8", "fr_FR.UTF-8", "es_ES.UTF-8"):
+        try:
+            locale.setlocale(locale.LC_TIME, candidate)
+        except locale.Error:
+            continue
+        try:
+            headers = cache_headers(_ETAG, datetime(2026, 8, 5, 12, 30, 45, tzinfo=UTC))
+            assert headers["Last-Modified"] == "Wed, 05 Aug 2026 12:30:45 GMT"
+        finally:
+            locale.setlocale(locale.LC_TIME, "C")
+        return
+    pytest.skip("no non-C LC_TIME locale installed on this host")
+
+
+def test_cache_headers_normalizes_non_utc_offset():
+    """An offset-aware timestamp is converted, not rejected or mislabelled GMT."""
+    tzinfo = timezone(timedelta(hours=-7))
+    headers = cache_headers(_ETAG, datetime(2026, 8, 5, 5, 30, 45, tzinfo=tzinfo))
+    assert headers["Last-Modified"] == "Wed, 05 Aug 2026 12:30:45 GMT"
+
+
+def test_cache_headers_treats_naive_as_utc():
+    """Naive input is stamped UTC, never reinterpreted as host-local time."""
+    headers = cache_headers(_ETAG, datetime(2026, 8, 5, 12, 30, 45))
+    assert headers["Last-Modified"] == "Wed, 05 Aug 2026 12:30:45 GMT"
+
+
 def test_cache_headers_without_last_modified():
     """An empty collection was never modified — no Last-Modified, ETag still revalidates."""
     headers = cache_headers(_ETAG, None)
@@ -166,6 +202,38 @@ def test_conditional_response_hit_leaves_outer_response_unstamped():
 # ---------------------------------------------------------------------------
 
 
+PUBLIC_DIR = Path(__file__).resolve().parents[3] / "src" / "api" / "public"
+
+_HEADER = "if-none-match"
+
+
+def _header_reads(tree: ast.AST) -> list[int]:
+    """Line numbers where the header name is *used to look something up*.
+
+    AST rather than a substring scan (CR #392/4): a docstring or comment naming
+    the header is prose, not a read, and only the lookup positions —
+    ``headers.get("if-none-match")`` / ``headers["if-none-match"]`` — are the
+    convention breach. Indirection through a module constant would still slip
+    past; the guard is a ratchet against the copy-paste that actually happened,
+    not a proof.
+    """
+    hits = []
+    for node in ast.walk(tree):
+        operands = []
+        if isinstance(node, ast.Call):
+            operands = list(node.args)
+        elif isinstance(node, ast.Subscript):
+            operands = [node.slice]
+        hits.extend(
+            node.lineno
+            for operand in operands
+            if isinstance(operand, ast.Constant)
+            and isinstance(operand.value, str)
+            and operand.value.lower() == _HEADER
+        )
+    return hits
+
+
 def test_no_public_route_parses_if_none_match_directly():
     """``if-none-match`` may only be read inside the shared helper (#392).
 
@@ -173,13 +241,27 @@ def test_no_public_route_parses_if_none_match_directly():
     strict where the helper is tolerant — a client that learns list syntax works
     on one endpoint and not another is worse than uniform strictness.
     """
-    public = Path(__file__).resolve().parents[3] / "src" / "api" / "public"
-    offenders = [
-        path.name
-        for path in sorted(public.glob("*.py"))
-        if path.name != "etag.py" and "if-none-match" in path.read_text().lower()
-    ]
-    assert not offenders, f"modules reading If-None-Match outside etag.py: {offenders}"
+    offenders = []
+    for path in sorted(PUBLIC_DIR.glob("*.py")):
+        if path.name == "etag.py":
+            continue
+        tree = ast.parse(path.read_text(), filename=str(path))
+        offenders.extend(f"{path.name}:{line}" for line in _header_reads(tree))
+    assert not offenders, f"If-None-Match read outside etag.py: {offenders}"
+
+
+def test_sweep_detects_a_planted_header_read():
+    """The guard must fail on the shape it exists to catch — and ignore prose."""
+    breach = ast.parse(
+        "def h(request, etag):\n"
+        '    if request.headers.get("If-None-Match") == etag:\n'
+        "        return 304\n"
+        '    return request.headers["if-none-match"]\n'
+    )
+    assert len(_header_reads(breach)) == 2
+
+    prose = ast.parse('"""Mentions If-None-Match in a docstring."""\nX = 1  # if-none-match\n')
+    assert _header_reads(prose) == []
 
 
 # ---------------------------------------------------------------------------
