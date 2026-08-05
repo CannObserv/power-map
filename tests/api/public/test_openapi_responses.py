@@ -2,8 +2,8 @@
 
 Pure unit — inspects ``app.openapi()`` without touching the DB. Every public
 route can 429 (the limiter runs in the shared auth dep), so the 429 response
-is declared once at the router level; the seven conditional GET endpoints
-additionally declare 304.
+is declared once at the router level; the conditional GET endpoints listed in
+``_CONDITIONAL_GETS`` additionally declare 304.
 """
 
 from src.api.main import app
@@ -16,6 +16,12 @@ _CONDITIONAL_GETS = [
     "/api/v1/orgs/{org_id}/events",
     "/api/v1/roles/{role_id}",
     "/api/v1/jurisdictions/{jurisdiction_id}",
+    # #392 PR-B — sub-resources (watermark validator) + catalogs (content hash)
+    "/api/v1/citations/{entity_type}/{entity_id}",
+    "/api/v1/assignments/{pm_assignment_id}/relationships",
+    "/api/v1/role-types",
+    "/api/v1/link-types",
+    "/api/v1/entity-event-types",
 ]
 
 

@@ -97,3 +97,34 @@ async def test_entity_event_types_with_invalid_key_returns_401(client):
     """GET /api/v1/entity-event-types with invalid key returns 401."""
     response = await client.get("/api/v1/entity-event-types", headers={"X-API-Key": "pm_invalid"})
     assert response.status_code == 401
+
+
+# ── conditional GET (#392) ────────────────────────────────────────────────────
+
+
+async def test_entity_event_types_etag_round_trips_to_304(client, api_key):
+    first = await client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
+    assert first.status_code == 200
+    etag = first.headers["etag"]
+
+    r = await client.get(
+        "/api/v1/entity-event-types", headers={"X-API-Key": api_key, "If-None-Match": etag}
+    )
+    assert r.status_code == 304
+    assert r.content == b""
+    assert r.headers["vary"] == "X-API-Key"
+    assert "last-modified" not in r.headers
+
+
+async def test_entity_event_types_etag_changes_on_in_place_edit(client, db, api_key):
+    before = (
+        await client.get("/api/v1/entity-event-types", headers={"X-API-Key": api_key})
+    ).headers["etag"]
+    await db.execute(
+        "UPDATE entity_event_types SET display_name = display_name || ' (renamed)'"
+        " WHERE id = (SELECT id FROM entity_event_types ORDER BY slug LIMIT 1)"
+    )
+    after = await client.get(
+        "/api/v1/entity-event-types", headers={"X-API-Key": api_key, "If-None-Match": before}
+    )
+    assert after.status_code == 200, "in-place rename still revalidated as unchanged"

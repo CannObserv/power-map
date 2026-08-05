@@ -13,10 +13,11 @@ in every router — citations are uniform across all seven citable types.
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, require_scope
+from src.api.public.etag import NOT_MODIFIED, collection_etag, conditional_response
 from src.api.public.schemas import (
     CitationListResponse,
     CitationObservationResult,
@@ -94,14 +95,26 @@ async def submit_citation_observations(
     )
 
 
+_VERSION_SQL = """
+    SELECT count(*) AS n, max(updated_at) AS last
+    FROM citations
+    WHERE entity_type = $1 AND entity_id = $2
+      AND ($3::boolean OR archived_at IS NULL)
+      AND ($4::text IS NULL OR field_name IS NOT DISTINCT FROM $4)
+"""
+
+
 @router.get(
     "/{entity_type}/{entity_id}",
     response_model=CitationListResponse,
     operation_id="listCitations",
+    responses=NOT_MODIFIED,
 )
 async def list_citations(
     entity_type: str,
     entity_id: str,
+    request: Request,
+    response: Response,
     field_name: str | None = Query(default=None),
     include_archived: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=100),
@@ -115,8 +128,26 @@ async def list_citations(
     including whole-entity citations). ``include_archived=true`` includes retracted
     rows. Stable offset pagination — ``ORDER BY created_at DESC, id DESC`` ends on
     a unique column (#297).
+
+    Conditional GET (#392): watermark validator over the *same* filter the body
+    uses — a retract archives rather than deletes, so only a count taken over
+    the active-only set moves when the default view loses a row.
     """
     _validate_entity_type(entity_type)
+
+    version = await db.fetchrow(_VERSION_SQL, entity_type, entity_id, include_archived, field_name)
+    etag = collection_etag(
+        f"{entity_type}-{entity_id}-citations",
+        version["n"],
+        version["last"],
+        field_name,
+        include_archived,
+        limit,
+        offset,
+    )
+    cached = conditional_response(request, response, etag, version["last"])
+    if cached is not None:
+        return cached
 
     rows = await db.fetch(
         """
