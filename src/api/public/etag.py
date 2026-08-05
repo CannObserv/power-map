@@ -13,6 +13,12 @@ server-to-server client, wrong the moment a proxy is interposed; and a client
 that learns list syntax works on one endpoint but not another is a nastier bug
 than uniform strictness. ``tests/api/public/test_conditional_get.py`` sweeps for
 re-implementations.
+
+Revalidation is **ETag-only by decision**: ``If-Modified-Since`` is not honored,
+so a request carrying it (and no matching ``If-None-Match``) gets a full 200.
+The ``Last-Modified`` we emit is informational — a second, date-based
+revalidation path is a second thing to keep correct, and no consumer has asked
+for one. Documented in ``docs/PUBLIC_API.md`` § Conditional requests.
 """
 
 from datetime import UTC, datetime

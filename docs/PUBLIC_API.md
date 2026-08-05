@@ -103,9 +103,9 @@ Send `If-None-Match: <etag>` to receive `304 Not Modified` when the record is un
 
 ---
 
-## Conditional requests — every conditional GET (#392)
+## Conditional requests
 
-**This section applies API-wide, not just to the detail endpoints above.** Every endpoint that advertises an `ETag` — the five detail endpoints and the two `/{id}/events` sub-resources — shares one parser, so the forms below behave identically on all of them.
+**This section applies API-wide, not just to the detail endpoints above** (#392). Every endpoint that advertises an `ETag` — the five detail endpoints and the two `/{id}/events` sub-resources — shares one parser, so the forms below behave identically on all of them.
 
 ### `If-None-Match` forms accepted
 
@@ -790,7 +790,7 @@ POST /api/v1/assignments/observations
 
 ### Response shape — `GET /people/{id}/events` and `GET /orgs/{id}/events`
 
-Both events endpoints support conditional requests (#292): every 200 response carries `ETag`, `Cache-Control: no-cache`, `Vary: X-API-Key`, and (when the entity has at least one visible event) `Last-Modified`. Pass the ETag back as `If-None-Match` to receive `304 Not Modified` when the collection is unchanged — including the empty-collection case. The ETag covers the entity's whole visible-events set plus the `limit`/`offset` pair, so it changes when an event is added, edited, archived, or hidden. The accepted `If-None-Match` forms (tag lists, `W/` weak tags, `*`) are the API-wide set — see [Conditional requests](#conditional-requests--every-conditional-get-392).
+Both events endpoints support conditional requests (#292): every 200 response carries `ETag`, `Cache-Control: no-cache`, `Vary: X-API-Key`, and (when the entity has at least one visible event) `Last-Modified`. Pass the ETag back as `If-None-Match` to receive `304 Not Modified` when the collection is unchanged — including the empty-collection case. The ETag covers the entity's whole visible-events set plus the `limit`/`offset` pair, so it changes when an event is added, edited, archived, or hidden. The accepted `If-None-Match` forms (tag lists, `W/` weak tags, `*`) are the API-wide set — see [Conditional requests](#conditional-requests).
 
 Standard paginated envelope, newest first — ordered by event date (year, month, day) descending, then `created_at` descending, then an `id` tiebreaker for a stable total order, so offset pagination is complete even when events share a date. Each item:
 

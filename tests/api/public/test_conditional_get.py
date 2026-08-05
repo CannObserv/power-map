@@ -115,18 +115,19 @@ def test_cache_headers_http_date_is_locale_independent():
     the formatter is single-sourced across every conditional GET, so one import
     that does would invalidate the date on all of them at once.
     """
-    for candidate in ("de_DE.UTF-8", "fr_FR.UTF-8", "es_ES.UTF-8"):
-        try:
-            locale.setlocale(locale.LC_TIME, candidate)
-        except locale.Error:
-            continue
-        try:
+    saved = locale.setlocale(locale.LC_TIME)  # restore what was there, not a guessed "C"
+    try:
+        for candidate in ("de_DE.UTF-8", "fr_FR.UTF-8", "es_ES.UTF-8"):
+            try:
+                locale.setlocale(locale.LC_TIME, candidate)
+            except locale.Error:
+                continue
             headers = cache_headers(_ETAG, datetime(2026, 8, 5, 12, 30, 45, tzinfo=UTC))
             assert headers["Last-Modified"] == "Wed, 05 Aug 2026 12:30:45 GMT"
-        finally:
-            locale.setlocale(locale.LC_TIME, "C")
-        return
-    pytest.skip("no non-C LC_TIME locale installed on this host")
+            return
+        pytest.skip("no non-C LC_TIME locale installed on this host")
+    finally:
+        locale.setlocale(locale.LC_TIME, saved)
 
 
 def test_cache_headers_normalizes_non_utc_offset():
