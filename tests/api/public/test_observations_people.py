@@ -428,3 +428,37 @@ async def test_rejected_unknown_type_includes_reason(client, ppl_write_key):
     assert body["disposition"] == "rejected"
     assert body["reason"] is not None
     assert "zzz_nonexistent_xyz" in body["reason"]
+
+
+async def test_role_assignment_embedded_no_resurrect_archived(
+    client, ppl_write_key, ppl_role_id, db
+):
+    """#391: the embedded people-observation path is the second door onto the
+    same identity — it must honour a retract too. Its dedup keys on the *open*
+    tenure, so an archived row no longer matches and a re-emit would silently
+    mint a fresh active twin, defeating the retract.
+    """
+    raw, _ = ppl_write_key
+    value = _unique_id()
+    payload = {
+        "identifier_type": "person_wa_pdc",
+        "identifier_value": value,
+        "role_assignments": [{"role_id": ppl_role_id}],
+    }
+    r1 = await _post(client, raw, payload)
+    eid = r1.json()["entity_id"]
+    aid = await db.fetchval(
+        "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2", eid, ppl_role_id
+    )
+    await db.execute("UPDATE role_assignments SET archived_at=NOW() WHERE id=$1", aid)
+
+    r2 = await _post(client, raw, payload)
+    assert r2.status_code == 200, r2.text
+
+    rows = await db.fetch(
+        "SELECT id, archived_at FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+        eid,
+        ppl_role_id,
+    )
+    assert len(rows) == 1  # no fresh active twin
+    assert rows[0]["archived_at"] is not None  # the retract stuck
