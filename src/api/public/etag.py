@@ -74,6 +74,13 @@ def collection_etag(prefix: str, count: int, last: datetime | None, *params: obj
     still revalidatable — the dominant poll case is exactly the empty/unchanged
     one. Callers must compute *count* and *last* over the same ``WHERE`` clause
     the body uses, minus ``LIMIT``/``OFFSET``.
+
+    **Compute the validator before fetching the body** (CR #392/15). Routes hold
+    a pooled connection with no enclosing transaction, so the two queries see
+    separate snapshots. Version-first means the tag can only ever describe an
+    *older* state than the body, whose worst case is one redundant 200 on the
+    next poll. Body-first inverts that: the tag would describe a state newer
+    than the bytes sent, and the client would 304 on its stale copy forever.
     """
     last_ms = int(last.timestamp() * 1000) if last is not None else 0
     tail = "".join(f"-{_encode_param(p)}" for p in params)

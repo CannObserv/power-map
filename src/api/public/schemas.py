@@ -1213,8 +1213,9 @@ class JurisdictionRelationship(BaseModel):
     recorded_at: datetime
     superseded_at: datetime | None = None
     created_at: datetime
+    updated_at: datetime
 
-    @field_serializer("recorded_at", "superseded_at", "created_at")
+    @field_serializer("recorded_at", "superseded_at", "created_at", "updated_at")
     def _serialize_ts(self, v: datetime | None) -> str | None:
         return fmt_ts(v)
 

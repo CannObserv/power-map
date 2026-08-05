@@ -508,6 +508,7 @@ CREATE TABLE IF NOT EXISTS jurisdiction_relationships (
     superseded_at TIMESTAMPTZ,
     notes         TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT chk_no_self_rel CHECK (from_id <> to_id),
     CONSTRAINT chk_rel_valid_range
         CHECK (valid_from IS NULL OR valid_until IS NULL OR valid_from <= valid_until)
@@ -1366,6 +1367,35 @@ CREATE OR REPLACE TRIGGER trg_updated_at_jurisdictions
 -- would stay frozen at created_at). CREATE OR REPLACE → picks up on existing DBs.
 CREATE OR REPLACE TRIGGER trg_updated_at_role_assignment_relationships
     BEFORE UPDATE ON role_assignment_relationships
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Migration (#392): jurisdiction_relationships.updated_at — the watermark a
+-- conditional GET keys on. `CREATE TABLE IF NOT EXISTS` no-ops on an existing
+-- table, so the inline column in the CREATE TABLE never reaches a DB whose
+-- table predates it (#307/#312/#315 drift class). Added nullable, backfilled,
+-- then constrained — a straight `ADD COLUMN ... NOT NULL DEFAULT NOW()` would
+-- stamp every historical row with the deploy time, inventing a modification
+-- that never happened. Backfill prefers superseded_at (the last real mutation)
+-- over created_at.
+--
+-- ORDER IS LOAD-BEARING (CR #392/11): this block MUST run before the trigger
+-- below. apply_schema executes this file top-to-bottom in one transaction, and
+-- set_updated_at() overwrites NEW.updated_at with NOW() unconditionally — so a
+-- trigger created first silently clobbers the backfill, giving every historical
+-- row the deploy timestamp (the exact outcome the block exists to avoid).
+-- Guarded by tests/core/test_schema_jurisdiction_rel_updated_at.py.
+ALTER TABLE jurisdiction_relationships ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+UPDATE jurisdiction_relationships
+    SET updated_at = COALESCE(superseded_at, created_at)
+    WHERE updated_at IS NULL;
+ALTER TABLE jurisdiction_relationships ALTER COLUMN updated_at SET DEFAULT NOW();
+ALTER TABLE jurisdiction_relationships ALTER COLUMN updated_at SET NOT NULL;
+
+-- #392: same trigger treatment as the #301 edge above. The table shipped
+-- mutable but watermark-less (created_at only), so an admin edit was invisible
+-- to any validator.
+CREATE OR REPLACE TRIGGER trg_updated_at_jurisdiction_relationships
+    BEFORE UPDATE ON jurisdiction_relationships
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =============================================================================

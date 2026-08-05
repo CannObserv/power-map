@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, require_api_key, require_scope
-from src.api.public.etag import NOT_MODIFIED, conditional_response, make_etag
+from src.api.public.etag import (
+    NOT_MODIFIED,
+    catalog_validator,
+    collection_etag,
+    conditional_response,
+    make_etag,
+)
 from src.api.public.schemas import (
     JurisdictionLineageResponse,
     JurisdictionListResponse,
@@ -81,6 +87,7 @@ def _row_to_rel(r: Any) -> dict[str, Any]:
         "recorded_at": r["recorded_at"],
         "superseded_at": r["superseded_at"],
         "created_at": r["created_at"],
+        "updated_at": r["updated_at"],
     }
 
 
@@ -235,13 +242,30 @@ async def get_jurisdiction(
 # ---------------------------------------------------------------------------
 
 
+_REL_VERSION_SQL = """
+    SELECT count(*) AS n, max(jr.updated_at) AS last
+    FROM jurisdiction_relationships jr
+    JOIN jurisdiction_relationship_types jrt ON jrt.id = jr.rel_type_id
+    WHERE (
+        ($2 = 'from' AND jr.from_id = $1) OR
+        ($2 = 'to'   AND jr.to_id   = $1) OR
+        ($2 = 'both' AND (jr.from_id = $1 OR jr.to_id = $1))
+    )
+      AND ($3::text IS NULL OR jrt.category = $3)
+      AND ($4::text IS NULL OR jrt.slug = $4)
+"""
+
+
 @router.get(
     "/{jurisdiction_id}/relationships",
     response_model=JurisdictionRelationshipsResponse,
     operation_id="listJurisdictionRelationships",
+    responses=NOT_MODIFIED,
 )
 async def list_jurisdiction_relationships(
     jurisdiction_id: str,
+    request: Request,
+    response: Response,
     direction: Literal["from", "to", "both"] = Query(default="both"),
     category: str | None = Query(default=None, description="Filter by relationship category"),
     rel_type: str | None = Query(default=None, description="Filter by relationship type slug"),
@@ -253,6 +277,10 @@ async def list_jurisdiction_relationships(
     """Return relationships (edges) involving the given jurisdiction.
 
     Lookup accepts ULID or slug for ``jurisdiction_id``.
+
+    Conditional GET (#392): watermark over the same filtered set the body uses.
+    Keyed on the resolved id, so the ULID and slug spellings of one jurisdiction
+    share a tag rather than splitting the cache.
     """
     jur = await db.fetchrow(
         "SELECT id FROM jurisdictions WHERE id = $1 OR slug = $1", jurisdiction_id
@@ -260,6 +288,21 @@ async def list_jurisdiction_relationships(
     if not jur:
         raise HTTPException(status_code=404, detail="Jurisdiction not found")
     jid = jur["id"]
+
+    version = await db.fetchrow(_REL_VERSION_SQL, jid, direction, category, rel_type)
+    etag = collection_etag(
+        f"{jid}-jur-relationships",
+        version["n"],
+        version["last"],
+        direction,
+        category,
+        rel_type,
+        limit,
+        offset,
+    )
+    cached = conditional_response(request, response, etag, version["last"])
+    if cached is not None:
+        return cached
 
     rows = await db.fetch(
         """
@@ -271,7 +314,7 @@ async def list_jurisdiction_relationships(
             jrt.category     AS rel_type_category,
             jrt.is_symmetric AS rel_type_is_symmetric,
             jr.valid_from, jr.valid_until,
-            jr.recorded_at, jr.superseded_at, jr.created_at
+            jr.recorded_at, jr.superseded_at, jr.created_at, jr.updated_at
         FROM jurisdiction_relationships jr
         JOIN jurisdiction_relationship_types jrt ON jrt.id = jr.rel_type_id
         WHERE (
@@ -308,9 +351,12 @@ async def list_jurisdiction_relationships(
     "/{jurisdiction_id}/lineage",
     response_model=JurisdictionLineageResponse,
     operation_id="getJurisdictionLineage",
+    responses=NOT_MODIFIED,
 )
 async def get_jurisdiction_lineage(
     jurisdiction_id: str,
+    request: Request,
+    response: Response,
     depth: int = Query(default=10, ge=1, le=50),
     _: str = Depends(require_api_key),
     db=Depends(get_db),
@@ -332,6 +378,14 @@ async def get_jurisdiction_lineage(
     jid = jur["id"]
 
     rows = await fetch_lineage(db, jid, depth)
+    # Content hash, not a watermark (#392): the result is a recursive traversal
+    # over jurisdictions *and* lineage edges, so no single table's max(updated_at)
+    # covers it — and any validator that did would still have to run the
+    # traversal. Hashing what the traversal returned is exact and covers a rename
+    # of any member reached along the chain. Saves serialization + transfer only.
+    cached = conditional_response(request, response, catalog_validator(rows))
+    if cached is not None:
+        return cached
     return {"data": [_row_to_jur(r) for r in rows]}
 
 
