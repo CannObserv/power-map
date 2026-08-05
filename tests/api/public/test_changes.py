@@ -174,7 +174,75 @@ async def test_changes_meta_structure(client, api_key, change_fixtures):
     assert "count" in meta
     assert "has_more" in meta
     assert "next_after" in meta
+    assert "min_seq" in meta
     assert isinstance(meta["next_after"], int)
+
+
+async def test_changes_meta_includes_min_seq(client, api_key, change_fixtures, db):
+    """meta.min_seq is the global oldest-retained outbox id (prune horizon, #388)."""
+    r = await client.get(
+        "/api/v1/changes",
+        params={"after": change_fixtures["before_seq"]},
+        headers={"X-API-Key": api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    meta = r.json()["meta"]
+    assert "min_seq" in meta
+    expected = await db.fetchval("SELECT MIN(id) FROM entity_changes")
+    assert meta["min_seq"] == expected
+    assert isinstance(meta["min_seq"], int)  # outbox is non-empty in the seeded DB
+
+
+async def test_changes_min_seq_present_on_empty_page(client, api_key, change_fixtures, db):
+    """min_seq reflects the global horizon even when the page itself is empty (#388).
+
+    A consumer resuming from a cursor beyond the max still needs the horizon to
+    tell whether an earlier stored cursor would have fallen off the window.
+    """
+    r = await client.get(
+        "/api/v1/changes",
+        params={"after": 999_999_999},
+        headers={"X-API-Key": api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["data"] == []
+    expected = await db.fetchval("SELECT MIN(id) FROM entity_changes")
+    assert body["meta"]["min_seq"] == expected
+
+
+async def test_changes_min_seq_null_when_outbox_empty(client, api_key, db):
+    """min_seq is null when the outbox is empty (#388).
+
+    Deletes all outbox rows inside the test's rolled-back transaction (the client
+    shares this connection), so MIN(id) is NULL and the endpoint reports the
+    empty-horizon case a fresh install would see.
+    """
+    await db.execute("DELETE FROM entity_changes")
+    r = await client.get(
+        "/api/v1/changes",
+        params={"after": 0},
+        headers={"X-API-Key": api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["data"] == []
+    assert body["meta"]["min_seq"] is None
+    assert body["meta"]["next_after"] == 0
+
+
+async def test_changes_min_seq_not_above_returned_seq_ids(client, api_key, change_fixtures):
+    """min_seq never exceeds any delivered seq_id — it is the oldest, not newest (#388)."""
+    r = await client.get(
+        "/api/v1/changes",
+        params={"after": 0, "limit": 1000},
+        headers={"X-API-Key": api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    min_seq = body["meta"]["min_seq"]
+    for item in body["data"]:
+        assert min_seq <= item["seq_id"]
 
 
 async def test_changes_next_after_advances(client, api_key, change_fixtures):

@@ -10,15 +10,30 @@ from src.api.public.schemas import ChangeFeedResponse, ChangeItem, ChangeMeta
 
 router = APIRouter()
 
+# Single round-trip: the page rows plus the global prune horizon (#388). The
+# horizon CTE always yields exactly one row (MIN is NULL when the outbox is
+# empty); LEFT JOIN page ON true carries min_seq onto every page row, and still
+# returns one placeholder row (page columns NULL) when the page is empty — so
+# min_seq is available even on an empty page without a second query. min_seq is
+# global, not subscription-scoped: pruning is a global changed_at delete, so it
+# is the single id below which any event may already be gone.
 _QUERY = """
-SELECT ec.id, ec.entity_type, ec.entity_id, ec.change_kind, ec.changed_at, ec.merged_into
-FROM entity_changes ec
-JOIN api_key_entity_subscriptions s
-    ON s.entity_id = ec.entity_id
-    AND s.api_key_id = $1
-WHERE ec.id > $2
-ORDER BY ec.id ASC
-LIMIT $3
+WITH horizon AS (SELECT MIN(id) AS min_seq FROM entity_changes),
+page AS (
+    SELECT ec.id, ec.entity_type, ec.entity_id, ec.change_kind, ec.changed_at, ec.merged_into
+    FROM entity_changes ec
+    JOIN api_key_entity_subscriptions s
+        ON s.entity_id = ec.entity_id
+        AND s.api_key_id = $1
+    WHERE ec.id > $2
+    ORDER BY ec.id ASC
+    LIMIT $3
+)
+SELECT h.min_seq,
+       p.id, p.entity_type, p.entity_id, p.change_kind, p.changed_at, p.merged_into
+FROM horizon h
+LEFT JOIN page p ON true
+ORDER BY p.id ASC NULLS LAST
 """
 
 
@@ -46,8 +61,13 @@ async def get_changes(
     """
     rows = await db.fetch(_QUERY, auth.key_id, after, limit + 1)
 
-    has_more = len(rows) > limit
-    rows = rows[:limit]
+    # The horizon CTE guarantees ≥1 row; min_seq is the same on every row.
+    min_seq = rows[0]["min_seq"] if rows else None
+    # Drop the empty-page placeholder (page columns NULL) before paginating.
+    page = [row for row in rows if row["id"] is not None]
+
+    has_more = len(page) > limit
+    page = page[:limit]
 
     items = [
         ChangeItem(
@@ -58,10 +78,10 @@ async def get_changes(
             changed_at=row["changed_at"],
             merged_into=row["merged_into"],
         )
-        for row in rows
+        for row in page
     ]
 
-    next_after = rows[-1]["id"] if rows else after
+    next_after = page[-1]["id"] if page else after
 
     return ChangeFeedResponse(
         data=items,
@@ -70,5 +90,6 @@ async def get_changes(
             count=len(items),
             has_more=has_more,
             next_after=next_after,
+            min_seq=min_seq,
         ),
     )
