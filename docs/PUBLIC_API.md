@@ -95,11 +95,34 @@ Detail endpoints (`GET /api/v1/orgs/{id}`, `GET /api/v1/people/{id}`, `GET /api/
 | Header | Value |
 |--------|-------|
 | `ETag` | `"<id>-<updated_at_ms>"` — strong ETag based on last-update timestamp |
-| `Last-Modified` | RFC 7231 format |
+| `Last-Modified` | RFC 9110 §5.6.7 IMF-fixdate — e.g. `Wed, 05 Aug 2026 12:30:45 GMT`, always UTC |
 | `Cache-Control` | `no-cache` — revalidation required before serving from cache |
 | `Vary` | `X-API-Key` |
 
 Send `If-None-Match: <etag>` to receive `304 Not Modified` when the record is unchanged. `Vary: X-API-Key` means shared proxy caches store a separate entry per key — if multiple services share one key they share a cache entry.
+
+---
+
+## Conditional requests
+
+**This section applies API-wide, not just to the detail endpoints above** (#392). Every endpoint that advertises an `ETag` — the five detail endpoints and the two `/{id}/events` sub-resources — shares one parser, so the forms below behave identically on all of them.
+
+### `If-None-Match` forms accepted
+
+The header is parsed per RFC 9110 §13.1.2, so an interposed proxy's rewriting doesn't defeat revalidation. All of these revalidate:
+
+| Form | Example |
+|------|---------|
+| A single tag | `If-None-Match: "01J…-1754400000000"` |
+| A comma-separated list — any member matching wins | `If-None-Match: "stale", "01J…-1754400000000"` |
+| A weak tag — `If-None-Match` on GET uses **weak comparison**, so `W/"x"` and `"x"` match | `If-None-Match: W/"01J…-1754400000000"` |
+| `*` — matches any current representation of an existing resource | `If-None-Match: *` |
+
+A comma inside a quoted tag is part of the tag, not a separator.
+
+**`If-Modified-Since` is not honored.** Revalidation is ETag-only: a request carrying `If-Modified-Since` (and no matching `If-None-Match`) always receives a full `200`, despite the `Last-Modified` header we send. `Last-Modified` is informational — always revalidate with `If-None-Match`.
+
+**A 304 still costs a rate-limit token.** The limiter runs in the auth dependency, ahead of the handler, so conditional requests reduce transfer and serialization — not your effective poll ceiling. Use `GET /api/v1/changes` to lower request *count*.
 
 ---
 
@@ -767,7 +790,7 @@ POST /api/v1/assignments/observations
 
 ### Response shape — `GET /people/{id}/events` and `GET /orgs/{id}/events`
 
-Both events endpoints support conditional requests (#292): every 200 response carries `ETag`, `Cache-Control: no-cache`, `Vary: X-API-Key`, and (when the entity has at least one visible event) `Last-Modified`. Pass the ETag back as `If-None-Match` to receive `304 Not Modified` when the collection is unchanged — including the empty-collection case. The ETag covers the entity's whole visible-events set plus the `limit`/`offset` pair, so it changes when an event is added, edited, archived, or hidden.
+Both events endpoints support conditional requests (#292): every 200 response carries `ETag`, `Cache-Control: no-cache`, `Vary: X-API-Key`, and (when the entity has at least one visible event) `Last-Modified`. Pass the ETag back as `If-None-Match` to receive `304 Not Modified` when the collection is unchanged — including the empty-collection case. The ETag covers the entity's whole visible-events set plus the `limit`/`offset` pair, so it changes when an event is added, edited, archived, or hidden. The accepted `If-None-Match` forms (tag lists, `W/` weak tags, `*`) are the API-wide set — see [Conditional requests](#conditional-requests).
 
 Standard paginated envelope, newest first — ordered by event date (year, month, day) descending, then `created_at` descending, then an `id` tiebreaker for a stable total order, so offset pagination is complete even when events share a date. Each item:
 

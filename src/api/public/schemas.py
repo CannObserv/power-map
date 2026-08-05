@@ -2,8 +2,7 @@
 
 import math
 from datetime import date, datetime
-from types import MappingProxyType
-from typing import Annotated, Final, Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     AfterValidator,
@@ -48,21 +47,6 @@ EmbeddingVector = Annotated[list[float], AfterValidator(_validate_embedding_valu
 def fmt_ts(v: datetime | None) -> str | None:
     """Serialize a UTC datetime to ISO 8601 with Z suffix."""
     return v.isoformat().replace("+00:00", "Z") if v else None
-
-
-def make_etag(entity_id: str, updated_at: datetime) -> str:
-    """Return a strong ETag for a detail resource: ``"<id>-<updated_at_ms>"``."""
-    ts_ms = int(updated_at.timestamp() * 1000)
-    return f'"{entity_id}-{ts_ms}"'
-
-
-# OpenAPI declaration for endpoints supporting If-None-Match revalidation
-# (#292 CR): spread into the route decorator via ``responses=NOT_MODIFIED``.
-# Immutable (MappingProxyType + Final): shared by seven route decorators — an
-# in-place mutation anywhere would silently change them all.
-NOT_MODIFIED: Final = MappingProxyType(
-    {304: {"description": "Not modified — the If-None-Match ETag still matches."}}
-)
 
 
 class OrgSearchResult(BaseModel):

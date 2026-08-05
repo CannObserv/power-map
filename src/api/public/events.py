@@ -36,18 +36,6 @@ async def events_collection_validator(
     return etag, last
 
 
-def events_cache_headers(etag: str, last: datetime | None) -> dict[str, str]:
-    """Header set for events list responses — mirrors the detail endpoints' contract."""
-    headers = {
-        "ETag": etag,
-        "Cache-Control": "no-cache",
-        "Vary": "X-API-Key",
-    }
-    if last is not None:
-        headers["Last-Modified"] = last.strftime("%a, %d %b %Y %H:%M:%S GMT")
-    return headers
-
-
 def row_to_event(r: asyncpg.Record) -> dict:
     """Convert an entity_events DB row (with joined event_type fields) to a response dict."""
     return {
