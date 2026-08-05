@@ -7,13 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, require_api_key, require_scope
+from src.api.public.etag import NOT_MODIFIED, conditional_response, make_etag
 from src.api.public.schemas import (
-    NOT_MODIFIED,
     ObservationResponse,
     RoleDetail,
     RoleListResponse,
     RoleObservationRequest,
-    make_etag,
 )
 from src.core.observation import (
     Disposition,
@@ -160,17 +159,9 @@ async def get_role(
         raise HTTPException(status_code=404, detail="Role not found")
 
     etag = make_etag(row["id"], row["updated_at"])
-    cache_headers = {
-        "ETag": etag,
-        "Last-Modified": row["updated_at"].strftime("%a, %d %b %Y %H:%M:%S GMT"),
-        "Cache-Control": "no-cache",
-        "Vary": "X-API-Key",
-    }
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers=cache_headers)
-
-    for k, v in cache_headers.items():
-        response.headers[k] = v
+    cached = conditional_response(request, response, etag, row["updated_at"])
+    if cached is not None:
+        return cached
 
     links, contact_methods, addresses = await _fetch_role_arrays(role_id, db)
     return {

@@ -101,6 +101,21 @@ Detail endpoints (`GET /api/v1/orgs/{id}`, `GET /api/v1/people/{id}`, `GET /api/
 
 Send `If-None-Match: <etag>` to receive `304 Not Modified` when the record is unchanged. `Vary: X-API-Key` means shared proxy caches store a separate entry per key — if multiple services share one key they share a cache entry.
 
+### `If-None-Match` forms accepted (#392)
+
+The header is parsed per RFC 9110 §13.1.2, so an interposed proxy's rewriting doesn't defeat revalidation. All of these revalidate:
+
+| Form | Example |
+|------|---------|
+| A single tag | `If-None-Match: "01J…-1754400000000"` |
+| A comma-separated list — any member matching wins | `If-None-Match: "stale", "01J…-1754400000000"` |
+| A weak tag — `If-None-Match` on GET uses **weak comparison**, so `W/"x"` and `"x"` match | `If-None-Match: W/"01J…-1754400000000"` |
+| `*` — matches any current representation of an existing resource | `If-None-Match: *` |
+
+A comma inside a quoted tag is part of the tag, not a separator. Every conditional GET on this API shares one parser, so these forms behave identically on all of them.
+
+**A 304 still costs a rate-limit token.** The limiter runs in the auth dependency, ahead of the handler, so conditional requests reduce transfer and serialization — not your effective poll ceiling. Use `GET /api/v1/changes` to lower request *count*.
+
 ---
 
 ## Versioning

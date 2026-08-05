@@ -8,13 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from src.api.deps import get_db
 from src.api.public.citations import to_citation_claims
 from src.api.public.deps import AuthedKey, identifier_filter, require_api_key, require_scope
+from src.api.public.etag import NOT_MODIFIED, conditional_response, make_etag
 from src.api.public.events import (
-    events_cache_headers,
     events_collection_validator,
     row_to_event,
 )
 from src.api.public.schemas import (
-    NOT_MODIFIED,
     CitationObservationResult,
     EntityEventsResponse,
     EventObservationResult,
@@ -22,7 +21,6 @@ from src.api.public.schemas import (
     PeopleObservationRequest,
     PersonDetail,
     PersonSearchResponse,
-    make_etag,
 )
 from src.core.citations import write_citations
 from src.core.db import visible_names_filter
@@ -251,17 +249,9 @@ async def get_person(
         raise HTTPException(status_code=404, detail="Person not found")
 
     etag = make_etag(row["id"], row["updated_at"])
-    cache_headers = {
-        "ETag": etag,
-        "Last-Modified": row["updated_at"].strftime("%a, %d %b %Y %H:%M:%S GMT"),
-        "Cache-Control": "no-cache",
-        "Vary": "X-API-Key",
-    }
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers=cache_headers)
-
-    for k, v in cache_headers.items():
-        response.headers[k] = v
+    cached = conditional_response(request, response, etag, row["updated_at"])
+    if cached is not None:
+        return cached
 
     names, identifiers, voice_count = await _fetch_detail_arrays(person_id, db, registry)
 
@@ -298,11 +288,9 @@ async def list_person_events(
         raise HTTPException(status_code=404, detail="Person not found")
 
     etag, last = await events_collection_validator(db, person_id, "person", limit, offset)
-    cache_headers = events_cache_headers(etag, last)
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers=cache_headers)
-    for k, v in cache_headers.items():
-        response.headers[k] = v
+    cached = conditional_response(request, response, etag, last)
+    if cached is not None:
+        return cached
 
     rows = await db.fetch(
         """
