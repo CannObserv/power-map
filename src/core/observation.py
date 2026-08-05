@@ -2,7 +2,7 @@
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -255,6 +255,29 @@ class Disposition(StrEnum):
     # observation endpoints never return it.
     RETRACTED = "retracted"
     REJECTED = "rejected"
+
+
+@dataclass(frozen=True)
+class AssignmentResolution:
+    """Outcome of resolving an assignment observation (#311/#391).
+
+    Mirrors the result dataclasses the newer observation surfaces return
+    (``EventResult`` / ``CitationResult`` / ``RelationshipResult``) rather than
+    the positional tuple :func:`resolve_assignment` returned through #391.
+
+    ``unapplied`` carries the field names supplied but not written, so a producer
+    can stop retrying (#311). ``attached_archived`` marks the #391
+    anti-resurrection attach — an archived twin matched — and obliges the caller
+    to skip every ancillary write: links / contact methods / addresses on a
+    retracted row are meaningless, and each one fires a #327 touch trigger,
+    emitting an ``entity_changes`` row for an entity subscribers have dropped.
+    """
+
+    assignment_id: str
+    disposition: Disposition
+    reason: str | None = None
+    unapplied: list[str] = field(default_factory=list)
+    attached_archived: bool = False
 
 
 class EventDisposition(StrEnum):
@@ -1174,18 +1197,13 @@ async def write_role_assignments(
             continue
         start_date = date.fromisoformat(ra.start_date) if ra.start_date else None
         end_date = date.fromisoformat(ra.end_date) if ra.end_date else None
-        archived_twin = await conn.fetchval(
-            "SELECT id FROM role_assignments"
-            " WHERE person_id=$1 AND role_id=$2 AND start_date IS NOT DISTINCT FROM $3"
-            "   AND archived_at IS NOT NULL",
-            person_id,
-            ra.role_id,
-            start_date,
+        archived_twin = await _find_archived_assignment_twin(
+            conn, person_id, ra.role_id, start_date
         )
         if archived_twin is not None:
             logger.info(
                 "write_role_assignments: skipping retracted twin id=%s (no resurrect)",
-                archived_twin,
+                archived_twin["id"],
             )
             continue
         await conn.execute(
@@ -1829,6 +1847,31 @@ async def apply_event_observations(
     return results
 
 
+async def _find_archived_assignment_twin(
+    conn, person_id: str, role_id: str, start_date: date | None
+) -> asyncpg.Record | None:
+    """Return the most recently archived assignment on this identity, if any (#391).
+
+    Shared by both create doors — :func:`resolve_assignment` and
+    :func:`write_role_assignments` — because an anti-resurrection rule that lives
+    in two hand-copied queries drifts: the two copies were already inconsistent
+    (one lacked the ``ORDER BY``) within the commit that introduced them.
+
+    ``uq_role_assignment_person_role_start`` is partial on active rows, so
+    several archived rows may share one identity; the newest wins. Callers that
+    only need existence ignore the extra columns.
+    """
+    return await conn.fetchrow(
+        "SELECT id, end_date, is_current FROM role_assignments"
+        " WHERE person_id=$1 AND role_id=$2 AND start_date IS NOT DISTINCT FROM $3"
+        "   AND archived_at IS NOT NULL"
+        " ORDER BY archived_at DESC, id DESC LIMIT 1",
+        person_id,
+        role_id,
+        start_date,
+    )
+
+
 async def resolve_assignment(
     conn,
     person_id: str,
@@ -1839,13 +1882,13 @@ async def resolve_assignment(
     is_current: bool | None = None,
     notes: str | None = None,
     source_key_id: str | None = None,
-) -> tuple[str, Disposition, str | None, list[str]]:
+) -> AssignmentResolution:
     """Match or create a role assignment by (person_id, role_id, start_date).
 
-    Returns (assignment_id, disposition, reason, unapplied).
-    disposition is AUTO_ATTACHED if an active (non-archived) match is found,
-    NEW if created, REJECTED if person_id or role_id does not exist.
-    reason is a human-readable string on REJECTED, None otherwise.
+    Returns an :class:`AssignmentResolution`. ``disposition`` is AUTO_ATTACHED if
+    an active (non-archived) match is found, NEW if created, REJECTED if
+    person_id or role_id does not exist; ``reason`` is a human-readable string on
+    REJECTED, None otherwise.
 
     On AUTO_ATTACHED (#311):
 
@@ -1867,14 +1910,14 @@ async def resolve_assignment(
     )
     if not person_exists:
         logger.warning("resolve_assignment: unknown person_id=%r", person_id)
-        return "", Disposition.REJECTED, f"person_not_found: {person_id!r}", []
+        return AssignmentResolution("", Disposition.REJECTED, f"person_not_found: {person_id!r}")
 
     role_exists = await conn.fetchval(
         "SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", role_id
     )
     if not role_exists:
         logger.warning("resolve_assignment: unknown role_id=%r", role_id)
-        return "", Disposition.REJECTED, f"role_not_found: {role_id!r}", []
+        return AssignmentResolution("", Disposition.REJECTED, f"role_not_found: {role_id!r}")
 
     existing = await conn.fetchrow(
         "SELECT id, end_date, is_current, source_key_id FROM role_assignments"
@@ -1912,31 +1955,42 @@ async def resolve_assignment(
             unapplied.append("end_date")
         if is_current is not None and is_current != stored_current:
             unapplied.append("is_current")
-        return existing["id"], Disposition.AUTO_ATTACHED, None, unapplied
+        return AssignmentResolution(existing["id"], Disposition.AUTO_ATTACHED, unapplied=unapplied)
 
     # No active twin. An archived twin means this tenure was retracted (#391) or
     # suppressed by a curator — attach to it rather than minting a fresh active
     # row (anti-resurrection, mirrors events #322 / citations #319 /
     # relationships #301). uq_role_assignment_person_role_start is partial on
     # active rows, so the DB *permits* the re-create; the app declines. Without
-    # this a re-emitting producer defeats the retract every sync cycle. No
-    # enrichment is applied to an archived row and nothing is reported
-    # ``unapplied`` — the producer's read-mirror sees ``archived_at`` and knows.
+    # this a re-emitting producer defeats the retract every sync cycle.
     # Un-retract stays a deliberate admin unarchive.
-    archived_twin = await conn.fetchval(
-        "SELECT id FROM role_assignments"
-        " WHERE person_id=$1 AND role_id=$2 AND start_date IS NOT DISTINCT FROM $3"
-        "   AND archived_at IS NOT NULL"
-        " ORDER BY archived_at DESC, id DESC LIMIT 1",
-        person_id,
-        role_id,
-        start_date,
-    )
+    archived_twin = await _find_archived_assignment_twin(conn, person_id, role_id, start_date)
     if archived_twin is not None:
+        # Every supplied mutable field is withheld and reported — *unconditionally*,
+        # unlike the active-row path above, which skips a value equal to what's
+        # stored. That equivalence does not transfer: on an active row "equals
+        # stored" means the claim is already true in PM, but on a retracted row PM
+        # asserts the tenure never existed, so the identical claim is contradicted
+        # rather than satisfied. Comparing here left the likeliest payload silent —
+        # a producer re-emitting a currently-held tenure sends is_current=true,
+        # exactly what the row stored when it was retracted. `notes` stays exempt
+        # (create-only, never reported — the #311 rule). The caller adds the
+        # ancillary it skips (links/contacts/addresses) to this list.
+        unapplied = [
+            name
+            for name, supplied in (("end_date", end_date), ("is_current", is_current))
+            if supplied is not None
+        ]
         logger.info(
-            "resolve_assignment: attaching to archived twin id=%s (no resurrect)", archived_twin
+            "resolve_assignment: attaching to archived twin id=%s (no resurrect)",
+            archived_twin["id"],
         )
-        return archived_twin, Disposition.AUTO_ATTACHED, None, []
+        return AssignmentResolution(
+            archived_twin["id"],
+            Disposition.AUTO_ATTACHED,
+            unapplied=unapplied,
+            attached_archived=True,
+        )
 
     assignment_id = generate_id()
     try:
@@ -1964,7 +2018,7 @@ async def resolve_assignment(
             role_id,
             start_date,
         )
-        return "", Disposition.REJECTED, "unique_violation", []
+        return AssignmentResolution("", Disposition.REJECTED, "unique_violation")
 
     logger.info(
         "Created role_assignment id=%s person=%s role=%s start=%s",
@@ -1973,7 +2027,7 @@ async def resolve_assignment(
         role_id,
         start_date,
     )
-    return assignment_id, Disposition.NEW, None, []
+    return AssignmentResolution(assignment_id, Disposition.NEW)
 
 
 async def update_assignment_fields(
@@ -2104,7 +2158,12 @@ async def retract_assignment(
     quiet no-op a stateful producer needs (mirrors ``_retract_event``, #322).
 
     - already archived → diff-gate no-op (``AUTO_ATTACHED``, no UPDATE, no clock
-      bump); checked **before** provenance so a foreign re-emit stays quiet
+      bump); checked **before** provenance so a foreign re-emit stays quiet.
+      This ordering also places it before the identity guard, so a copy-pasted
+      id that lands on an *already-archived* row returns quietly and the caller
+      never learns its intended assignment is still live. Deliberate, and the
+      same trade #322 made: inverting the order would make every re-emit noisy,
+      which is the failure mode that actually recurs every sync cycle.
     - id unresolved → ``assignment_not_found``
     - supplied ``person_id`` / ``role_id`` differing from the stored row →
       ``identity_immutable`` (guards a copy-paste ``pm_assignment_id``)

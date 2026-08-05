@@ -201,11 +201,18 @@ async def submit_assignment_observation(
     correction for a produced **artifact** (a tenure that never happened), which
     closing cannot express and un-producing would only orphan. Always id-addressed
     (natural-key → ``invalid``), refine payload and ancillary ignored, re-emit is a
-    quiet ``auto-attached`` no-op. The retract is authoritative: a later natural-key
-    re-observation attaches to the archived row rather than resurrecting it.
+    quiet ``auto-attached`` no-op.
+
+    The retract is **authoritative**: a later natural-key re-observation attaches
+    to the archived row rather than resurrecting it, and that attach **writes
+    nothing at all** — bound deltas are withheld and ancillary (``links`` /
+    ``contact_methods`` / ``addresses``) is skipped rather than pinned to a
+    retracted row. Every withheld field name comes back in ``unapplied`` so a
+    producer still emitting the tenure is told rather than silently no-op'd.
     """
     is_pm_native = req.identifier_type == "pm_assignment_id"
     unapplied: list[str] = []
+    attached_archived = False
     try:
         if req.op == "retract":
             if not is_pm_native:
@@ -243,7 +250,7 @@ async def submit_assignment_observation(
                     source_key_id=auth.key_id,
                 )
             else:
-                assignment_id, disposition, reason, unapplied = await resolve_assignment(
+                resolution = await resolve_assignment(
                     db,
                     req.person_id,
                     req.role_id,
@@ -253,11 +260,36 @@ async def submit_assignment_observation(
                     notes=req.notes,
                     source_key_id=auth.key_id,
                 )
-                if disposition is Disposition.REJECTED:
-                    raise ObservationRejected(reason)
-            await write_links(db, assignment_id, "role_assignment", req.links)
-            await write_contact_methods(db, assignment_id, "role_assignment", req.contact_methods)
-            await write_addresses(db, assignment_id, "role_assignment", req.addresses)
+                if resolution.disposition is Disposition.REJECTED:
+                    raise ObservationRejected(resolution.reason)
+                assignment_id = resolution.assignment_id
+                disposition = resolution.disposition
+                # Copy on read: `frozen=True` does not freeze the list itself, and
+                # the archived branch below extends this in place — without the
+                # copy that mutation reaches back into the returned resolution.
+                unapplied = [*resolution.unapplied]
+                attached_archived = resolution.attached_archived
+            if attached_archived:
+                # #391 anti-resurrection attach: the match is a *retracted* row.
+                # Writing ancillary onto it would attach evidence to a
+                # soft-deleted entity and emit an entity_changes row (via the
+                # #327 touch triggers) for something subscribers have dropped.
+                # Report what was withheld instead — the #311 signaling rule.
+                unapplied += [
+                    name
+                    for name, supplied in (
+                        ("links", req.links),
+                        ("contact_methods", req.contact_methods),
+                        ("addresses", req.addresses),
+                    )
+                    if supplied
+                ]
+            else:
+                await write_links(db, assignment_id, "role_assignment", req.links)
+                await write_contact_methods(
+                    db, assignment_id, "role_assignment", req.contact_methods
+                )
+                await write_addresses(db, assignment_id, "role_assignment", req.addresses)
     except ObservationRejected as exc:
         return ObservationResponse(disposition="rejected", reason=exc.detail)
     except (

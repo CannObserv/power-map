@@ -1619,11 +1619,11 @@ async def test_resolve_assignment_no_close_when_is_current_asserted(
     The API validator blocks is_current=True + dated end_date; this guards the
     same invariant for core callers that bypass the request model.
     """
-    aid, disp, _, _ = await resolve_assignment(
+    first = await resolve_assignment(
         db, person_id, role_id, date(2023, 1, 9), is_current=True, source_key_id=api_key_id
     )
-    assert disp is Disposition.NEW
-    aid2, disp2, _, unapplied = await resolve_assignment(
+    assert first.disposition is Disposition.NEW
+    second = await resolve_assignment(
         db,
         person_id,
         role_id,
@@ -1632,12 +1632,58 @@ async def test_resolve_assignment_no_close_when_is_current_asserted(
         is_current=True,
         source_key_id=api_key_id,
     )
-    assert disp2 is Disposition.AUTO_ATTACHED
-    assert aid2 == aid
-    assert unapplied == ["end_date"]
-    row = await db.fetchrow("SELECT end_date, is_current FROM role_assignments WHERE id=$1", aid)
+    assert second.disposition is Disposition.AUTO_ATTACHED
+    assert second.assignment_id == first.assignment_id
+    assert second.unapplied == ["end_date"]
+    assert second.attached_archived is False  # ACTIVE row matched, not an archived twin (#391)
+    row = await db.fetchrow(
+        "SELECT end_date, is_current FROM role_assignments WHERE id=$1", first.assignment_id
+    )
     assert row["end_date"] is None  # close not applied
     assert row["is_current"] is True
+
+
+async def test_resolve_assignment_archived_twin_attaches_without_resurrect(
+    db, person_id, role_id, api_key_id
+):
+    """CR round 3 (#391): the anti-resurrection branch, pinned at the core level.
+
+    The API tests cover it end-to-end; this asserts the `AssignmentResolution`
+    contract the handler branches on — same id, AUTO_ATTACHED, the
+    `attached_archived` flag set, and every supplied mutable field echoed
+    (including one that *equals* what the archived row stores, which the active
+    path would suppress).
+    """
+    created = await resolve_assignment(
+        db, person_id, role_id, date(2021, 1, 11), is_current=True, source_key_id=api_key_id
+    )
+    assert created.disposition is Disposition.NEW
+    await db.execute(
+        "UPDATE role_assignments SET archived_at=NOW() WHERE id=$1", created.assignment_id
+    )
+
+    again = await resolve_assignment(
+        db,
+        person_id,
+        role_id,
+        date(2021, 1, 11),
+        is_current=True,  # identical to stored — still withheld, still reported
+        source_key_id=api_key_id,
+    )
+    assert again.disposition is Disposition.AUTO_ATTACHED
+    assert again.assignment_id == created.assignment_id  # the archived row, not a new one
+    assert again.attached_archived is True
+    assert again.unapplied == ["is_current"]
+
+    rows = await db.fetch(
+        "SELECT id, archived_at FROM role_assignments"
+        " WHERE person_id=$1 AND role_id=$2 AND start_date=$3",
+        person_id,
+        role_id,
+        date(2021, 1, 11),
+    )
+    assert len(rows) == 1  # nothing minted
+    assert rows[0]["archived_at"] is not None  # and it stayed retracted
 
 
 # ---------------------------------------------------------------------------

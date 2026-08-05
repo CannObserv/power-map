@@ -1428,3 +1428,115 @@ async def test_retract_cascades_relationship_edges(client, write_key, obs_entiti
         "SELECT archived_at FROM role_assignment_relationships WHERE id=$1", edge_id
     )
     assert edge_archived is not None
+
+
+async def test_reobserve_after_retract_skips_ancillary(
+    client, write_key, obs_entities, db, local_address_normalizer
+):
+    """#391 CR1: the anti-resurrection attach must not write the rest of the
+    payload onto the retracted row. Ancillary on a soft-deleted assignment is
+    meaningless and each new row fires the #327 touch trigger — an outbox emit
+    for an entity subscribers have already dropped. Withheld names come back in
+    `unapplied` so the producer can stop retrying (the #311 honest-signaling rule).
+    """
+    raw, _ = write_key
+    aid, role_id = await _seed_assignment(client, raw, db, obs_entities, "2010-01-11")
+    assert (await _post(client, raw, _retract(aid))).json()["disposition"] == "retracted"
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "person_id": obs_entities["person_id"],
+            "role_id": role_id,
+            "start_date": "2010-01-11",
+            "links": [{"url": "https://example.org/ghost", "link_type_slug": "website"}],
+            "contact_methods": [{"contact_type": "email", "value": "ghost@example.com"}],
+            "addresses": [{"raw_input": "1 Ghost Way"}],
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["entity_id"] == aid
+    assert set(body["unapplied"] or []) == {"links", "contact_methods", "addresses"}
+
+    for label, sql in (
+        (
+            "links",
+            "SELECT COUNT(*) FROM links WHERE entity_type='role_assignment' AND entity_id=$1",
+        ),
+        (
+            "contact_methods",
+            "SELECT COUNT(*) FROM contact_methods"
+            " WHERE entity_type='role_assignment' AND entity_id=$1",
+        ),
+        (
+            "entity_addresses",
+            "SELECT COUNT(*) FROM entity_addresses"
+            " WHERE entity_type='role_assignment' AND entity_id=$1",
+        ),
+    ):
+        assert await db.fetchval(sql, aid) == 0, f"{label} written onto a retracted assignment"
+
+
+async def test_reobserve_after_retract_reports_unapplied_bounds(
+    client, write_key, obs_entities, db
+):
+    """#391 CR1: a bound delta supplied against a retracted twin is withheld and
+    echoed — not silently swallowed into a response identical to a clean attach."""
+    raw, _ = write_key
+    aid, role_id = await _seed_assignment(client, raw, db, obs_entities, "2011-01-10")
+    assert (await _post(client, raw, _retract(aid))).json()["disposition"] == "retracted"
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "person_id": obs_entities["person_id"],
+            "role_id": role_id,
+            "start_date": "2011-01-10",
+            "end_date": "2013-01-14",
+        },
+    )
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["unapplied"] == ["end_date"]
+    row = await db.fetchrow("SELECT end_date, archived_at FROM role_assignments WHERE id=$1", aid)
+    assert row["end_date"] is None  # never applied to a retracted row
+    assert row["archived_at"] is not None
+
+
+async def test_reobserve_after_retract_reports_matching_claim_unapplied(
+    client, write_key, obs_entities, db
+):
+    """#391 CR2: a claim that *equals* the archived row's stored value is still
+    withheld — and must still be reported.
+
+    On an ACTIVE row "equals stored" means the claim is already true in PM. On a
+    RETRACTED row PM asserts the tenure never existed, so the same claim is
+    contradicted, not satisfied. Reusing the active-path equality test here left
+    the likeliest payload silent: a producer re-emitting a currently-held tenure
+    sends is_current=true, which is exactly what the row stored when retracted.
+    """
+    raw, _ = write_key
+    aid, role_id = await _seed_assignment(
+        client, raw, db, obs_entities, "2012-01-09", is_current=True
+    )
+    assert (await _post(client, raw, _retract(aid))).json()["disposition"] == "retracted"
+    stored = await db.fetchrow("SELECT is_current FROM role_assignments WHERE id=$1", aid)
+    assert stored["is_current"] is True  # the claim below matches stored exactly
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "person_id": obs_entities["person_id"],
+            "role_id": role_id,
+            "start_date": "2012-01-09",
+            "is_current": True,
+        },
+    )
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["unapplied"] == ["is_current"]
