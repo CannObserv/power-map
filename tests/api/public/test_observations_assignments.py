@@ -1161,3 +1161,270 @@ async def test_attach_matching_values_nothing_unapplied(client, write_key, obs_e
     body = r.json()
     assert body["disposition"] == "auto-attached"
     assert body.get("unapplied") in (None, [])
+
+
+# ---------------------------------------------------------------------------
+# Retraction — op="retract" (#391)
+# ---------------------------------------------------------------------------
+
+
+async def _outbox_count(db, assignment_id):
+    """entity_changes rows for an assignment — the BIGSERIAL outbox is a true
+    in-transaction observable (unlike now(), which is transaction-constant under
+    the rollback client, so updated_at can't distinguish a bump from a no-op)."""
+    return await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_id=$1 AND entity_type='role_assignment'",
+        assignment_id,
+    )
+
+
+async def _seed_assignment(client, raw, db, obs_entities, start_date, **extra):
+    """Create an assignment on a dedicated role so the test owns its identity slot."""
+    role_id = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,$3)",
+        role_id,
+        obs_entities["org_id"],
+        f"Retract Role {role_id[:8]}",
+    )
+    r = await _post(
+        client,
+        raw,
+        {
+            "person_id": obs_entities["person_id"],
+            "role_id": role_id,
+            "start_date": start_date,
+            **extra,
+        },
+    )
+    assert r.json()["disposition"] == "new", r.text
+    return r.json()["entity_id"], role_id
+
+
+def _retract(assignment_id, **extra):
+    return {
+        "identifier_type": "pm_assignment_id",
+        "identifier_value": assignment_id,
+        "op": "retract",
+        **extra,
+    }
+
+
+async def test_retract_archives_assignment(client, write_key, obs_entities, db):
+    """op=retract on a pm-native observation archives the tenure (never hard-delete)."""
+    raw, _ = write_key
+    aid, _ = await _seed_assignment(client, raw, db, obs_entities, "2001-01-08")
+
+    before = await _outbox_count(db, aid)
+    r = await _post(client, raw, _retract(aid))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] == "retracted"
+    assert body["entity_id"] == aid
+    assert body["entity_type"] == "role_assignment"
+
+    archived = await db.fetchval("SELECT archived_at FROM role_assignments WHERE id=$1", aid)
+    assert archived is not None
+    # the archive is an UPDATE → trg_entity_changes_role_assignments → outbox row
+    # (subscribers mirror archived_at and drop the anchor)
+    assert await _outbox_count(db, aid) > before
+
+
+async def test_retract_re_emit_is_noop_no_outbox(client, write_key, obs_entities, db):
+    """Re-retracting an already-archived assignment → auto-attached, no new outbox row.
+
+    A stateful producer keeps sending the retract every cycle; the second one must
+    skip the UPDATE (no producer<->PM ping-pong) — proven by a steady outbox count.
+    """
+    raw, _ = write_key
+    aid, _ = await _seed_assignment(client, raw, db, obs_entities, "2002-01-14")
+
+    r1 = await _post(client, raw, _retract(aid))
+    assert r1.json()["disposition"] == "retracted"
+    after_first = await _outbox_count(db, aid)
+
+    r2 = await _post(client, raw, _retract(aid))
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["entity_id"] == aid
+    assert await _outbox_count(db, aid) == after_first  # no-op, no emit
+
+
+async def test_retract_without_pm_assignment_id_invalid(client, write_key, obs_entities, db):
+    """Retract is always id-addressed; a natural-key payload → rejected/invalid."""
+    raw, _ = write_key
+    aid, role_id = await _seed_assignment(client, raw, db, obs_entities, "2003-01-13")
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "person_id": obs_entities["person_id"],
+            "role_id": role_id,
+            "start_date": "2003-01-13",
+            "op": "retract",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "invalid"
+    archived = await db.fetchval("SELECT archived_at FROM role_assignments WHERE id=$1", aid)
+    assert archived is None
+
+
+async def test_retract_unknown_id_assignment_not_found(client, write_key):
+    raw, _ = write_key
+    r = await _post(client, raw, _retract("01NONEXISTENTASGN000000000"))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "assignment_not_found"
+
+
+async def test_retract_foreign_source_key_mismatch(client, write_key, write_key2, obs_entities, db):
+    """A different key retracting a source-stamped assignment → source_key_mismatch."""
+    raw_a, _ = write_key
+    raw_b, _ = write_key2
+    aid, _ = await _seed_assignment(client, raw_a, db, obs_entities, "2004-01-12")
+
+    r = await _post(client, raw_b, _retract(aid))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "source_key_mismatch"
+    archived = await db.fetchval("SELECT archived_at FROM role_assignments WHERE id=$1", aid)
+    assert archived is None
+
+
+async def test_retract_identity_mismatch_immutable(client, write_key, obs_entities, db):
+    """A retract naming a person_id that isn't the stored one → identity_immutable.
+
+    Guards a copy-paste pm_assignment_id that points at a different tenure.
+    """
+    raw, _ = write_key
+    aid, _ = await _seed_assignment(client, raw, db, obs_entities, "2005-01-10")
+    other_person = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", other_person)
+
+    r = await _post(client, raw, _retract(aid, person_id=other_person))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "identity_immutable"
+    archived = await db.fetchval("SELECT archived_at FROM role_assignments WHERE id=$1", aid)
+    assert archived is None
+
+
+async def test_retract_ignores_payload(client, write_key, obs_entities, db):
+    """Retract ignores the refine payload — bounds untouched, no ancillary written."""
+    raw, _ = write_key
+    aid, _ = await _seed_assignment(
+        client, raw, db, obs_entities, "2006-01-09", end_date="2008-01-13"
+    )
+
+    r = await _post(
+        client,
+        raw,
+        _retract(
+            aid,
+            start_date="1999-01-01",
+            end_date=None,
+            is_current=True,
+            links=[{"url": "https://example.org/retract", "link_type_slug": "website"}],
+        ),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["disposition"] == "retracted"
+
+    row = await db.fetchrow(
+        "SELECT start_date, end_date, is_current, archived_at FROM role_assignments WHERE id=$1",
+        aid,
+    )
+    assert str(row["start_date"]) == "2006-01-09"  # unmoved
+    assert str(row["end_date"]) == "2008-01-13"  # not cleared
+    assert row["is_current"] is False  # not flipped
+    assert row["archived_at"] is not None
+    links = await db.fetchval(
+        "SELECT COUNT(*) FROM links WHERE entity_type='role_assignment' AND entity_id=$1", aid
+    )
+    assert links == 0
+
+
+async def test_reobserve_after_retract_stays_retracted(client, write_key, obs_entities, db):
+    """Anti-resurrection: a natural-key re-observe of retracted content does NOT
+    mint a fresh active row — it dedups against the archived twin (auto-attached),
+    mirroring events #322 / citations #319 / relationships #301. A retract is
+    authoritative; un-retract is a deliberate admin unarchive only.
+    """
+    raw, _ = write_key
+    aid, role_id = await _seed_assignment(client, raw, db, obs_entities, "2007-01-08")
+    r1 = await _post(client, raw, _retract(aid))
+    assert r1.json()["disposition"] == "retracted"
+
+    r2 = await _post(
+        client,
+        raw,
+        {
+            "person_id": obs_entities["person_id"],
+            "role_id": role_id,
+            "start_date": "2007-01-08",
+        },
+    )
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["entity_id"] == aid  # the archived row, not a new one
+
+    rows = await db.fetch(
+        "SELECT id, archived_at FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+        obs_entities["person_id"],
+        role_id,
+    )
+    assert len(rows) == 1  # re-observation minted nothing
+    assert rows[0]["archived_at"] is not None  # and the retract stuck
+
+
+async def test_retract_cascades_relationship_edges(client, write_key, obs_entities, db):
+    """Retracting a seat archives its dependent staff_of edges via the #301
+    cascade trigger (WHEN-gated on archived_at) — no orphaned edges left behind."""
+    raw, _ = write_key
+    principal_id, _ = await _seed_assignment(client, raw, db, obs_entities, "2009-01-12")
+    staffer_person = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", staffer_person)
+    staffer_role = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Retract Staffer')",
+        staffer_role,
+        obs_entities["org_id"],
+    )
+    staffer_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+        " VALUES ($1,$2,$3,'2009-01-12')",
+        staffer_id,
+        staffer_person,
+        staffer_role,
+    )
+    rel_type_id = await db.fetchval(
+        "SELECT id FROM role_assignment_relationship_types WHERE slug='staff_of'"
+    )
+    edge_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignment_relationships"
+        " (id, from_assignment_id, to_assignment_id, rel_type_id)"
+        " VALUES ($1,$2,$3,$4)",
+        edge_id,
+        staffer_id,
+        principal_id,
+        rel_type_id,
+    )
+
+    r = await _post(client, raw, _retract(principal_id))
+    assert r.json()["disposition"] == "retracted"
+
+    edge_archived = await db.fetchval(
+        "SELECT archived_at FROM role_assignment_relationships WHERE id=$1", edge_id
+    )
+    assert edge_archived is not None

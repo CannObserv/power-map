@@ -906,7 +906,9 @@ class EventObservationsResponse(BaseModel):
 class ObservationResponse(BaseModel):
     """Response returned by POST /api/v1/observations."""
 
-    disposition: str  # 'auto-attached', 'new', or 'rejected'
+    # 'auto-attached', 'new', 'rejected', or — assignments only (#391) —
+    # 'retracted' when op="retract" archived the id-addressed tenure.
+    disposition: str
     entity_id: str | None = None  # None only when disposition == 'rejected'
     entity_type: EntityType | None = None  # None when rejected
     reason: str | None = None  # human-readable rejection cause; None on non-rejected
@@ -1477,10 +1479,17 @@ class AssignmentObservationRequest(BaseModel):
       - Standard:  person_id + role_id (match or create by person+role+start_date)
       - PM-native: identifier_type="pm_assignment_id" + identifier_value=<assignment ULID>
                    (attach to known assignment; never creates; person_id/role_id not required)
+
+    ``op`` is ``observe`` (default) or ``retract`` (#391). ``retract`` archives the
+    id-addressed assignment — always PM-native, refine payload ignored.
     """
 
     identifier_type: str | None = None
     identifier_value: str | None = None
+    # #391: retract is a verb, not mutable payload — spelled `op` for parity with
+    # events (#322) / citations (#319) / relationships (#301), all of which carry
+    # the same guard set (identity-immutable, provenance gate, no-op re-emit).
+    op: Literal["observe", "retract"] = "observe"
 
     person_id: str | None = None
     role_id: str | None = None
@@ -1503,6 +1512,11 @@ class AssignmentObservationRequest(BaseModel):
                 raise ValueError("identifier_type must be 'pm_assignment_id' when supplied")
             if not self.identifier_value:
                 raise ValueError("identifier_value is required when identifier_type is supplied")
+        elif self.op == "retract":
+            # A natural-key retract is answered by the handler with a
+            # `rejected`/`invalid` disposition rather than a 422 — same contract
+            # shape the other retract surfaces speak (#391).
+            pass
         else:
             if not self.person_id or not self.role_id:
                 raise ValueError(
@@ -1512,6 +1526,8 @@ class AssignmentObservationRequest(BaseModel):
 
     @model_validator(mode="after")
     def _check_constraints(self) -> "AssignmentObservationRequest":
+        if self.op == "retract":
+            return self  # refine payload is ignored on a retract — don't validate it
         if self.is_current and self.end_date is not None:
             raise ValueError("is_current cannot be True when end_date is set")
         if (

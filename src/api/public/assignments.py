@@ -20,6 +20,7 @@ from src.core.observation import (
     ObservationRejected,
     resolve_assignment,
     resolve_entity,
+    retract_assignment,
     update_assignment_fields,
     write_addresses,
     write_contact_methods,
@@ -195,10 +196,33 @@ async def submit_assignment_observation(
     an explicit ``end_date: null`` clears (reopen), is_current sets/clears —
     gated on source_key_id provenance. In standard mode an auto-attach applies
     only the open-tenure close; other deltas are echoed back in ``unapplied``.
+
+    ``op="retract"`` (#391) archives the id-addressed tenure instead — the
+    correction for a produced **artifact** (a tenure that never happened), which
+    closing cannot express and un-producing would only orphan. Always id-addressed
+    (natural-key → ``invalid``), refine payload and ancillary ignored, re-emit is a
+    quiet ``auto-attached`` no-op. The retract is authoritative: a later natural-key
+    re-observation attaches to the archived row rather than resurrecting it.
     """
     is_pm_native = req.identifier_type == "pm_assignment_id"
     unapplied: list[str] = []
     try:
+        if req.op == "retract":
+            if not is_pm_native:
+                raise ObservationRejected("invalid")
+            async with db.transaction():
+                disposition = await retract_assignment(
+                    db,
+                    req.identifier_value,
+                    person_id=req.person_id,
+                    role_id=req.role_id,
+                    source_key_id=auth.key_id,
+                )
+            return ObservationResponse(
+                disposition=disposition.value,
+                entity_id=req.identifier_value,
+                entity_type="role_assignment",
+            )
         # Resolution + all writes share one transaction so any rejection or
         # constraint failure rolls the whole observation back — nothing
         # half-written (a REJECTED disposition is raised to trigger rollback).
