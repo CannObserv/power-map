@@ -21,10 +21,12 @@ revalidation path is a second thing to keep correct, and no consumer has asked
 for one. Documented in ``docs/PUBLIC_API.md`` § Conditional requests.
 """
 
+import hashlib
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from types import MappingProxyType
-from typing import Final
+from typing import Any, Final
 
 from fastapi import Request, Response
 
@@ -41,6 +43,66 @@ def make_etag(entity_id: str, updated_at: datetime) -> str:
     """Return a strong ETag for a detail resource: ``"<id>-<updated_at_ms>"``."""
     ts_ms = int(updated_at.timestamp() * 1000)
     return f'"{entity_id}-{ts_ms}"'
+
+
+def _encode_param(value: object) -> str:
+    """Render one filter param as an unambiguous ETag token.
+
+    ``-`` is the tag's own separator, so it is escaped inside a value — without
+    that, ``(field="a", limit=1)`` and ``(field="a-1", limit=None)`` could fuse
+    into the same tag and a filter change would revalidate as unchanged.
+    ``None`` (filter absent) gets its own token so it can never be confused with
+    the empty string.
+    """
+    if value is None:
+        return "~"
+    if isinstance(value, bool):
+        return "T" if value else "F"
+    return str(value).replace("%", "%25").replace("-", "%2D")
+
+
+def collection_etag(prefix: str, count: int, last: datetime | None, *params: object) -> str:
+    """Watermark validator for a filtered collection: count + max(updated_at).
+
+    Count catches a row entering or leaving the *filtered* set — an archived or
+    hidden row's own ``updated_at`` bump is invisible once the filter excludes
+    it — and the watermark catches an in-place edit. Every param that changes
+    the response body (filters *and* the pagination window) is baked in, so a
+    different window can never revalidate against another's tag.
+
+    ``last=None`` (empty collection) renders a ``0`` watermark: still stable,
+    still revalidatable — the dominant poll case is exactly the empty/unchanged
+    one. Callers must compute *count* and *last* over the same ``WHERE`` clause
+    the body uses, minus ``LIMIT``/``OFFSET``.
+    """
+    last_ms = int(last.timestamp() * 1000) if last is not None else 0
+    tail = "".join(f"-{_encode_param(p)}" for p in params)
+    return f'"{prefix}-{last_ms}-{count}{tail}"'
+
+
+def catalog_validator(rows: Iterable[Any]) -> str:
+    """Content-hash validator for a small, fully-materialized resource.
+
+    For a table with no ``updated_at`` to watermark (`role_types`, `link_types`,
+    `entity_event_types`): a ``count(*)`` + ``max(created_at)`` tag would be
+    *stable across an in-place rename*, and `link_types` is admin-editable —
+    a 304ing consumer would hold the stale ``display_name`` indefinitely.
+
+    Hashes the fetched rows, so it is exact by construction. The honest
+    trade-off: this saves serialization and transfer, **not** the query — the
+    rows must be fetched to compute it. On a catalog of tens of rows that is the
+    whole win anyway. Keys are hashed alongside values so a column rename is
+    caught, and ``repr`` keeps ``None``/``""`` and ``True``/``1`` distinct.
+
+    Row order is part of the representation (every caller has an ``ORDER BY``).
+    No prefix is needed: ETags are scoped per-URL, so two catalogs cannot
+    collide even on identical content.
+    """
+    digest = hashlib.sha256()
+    for row in rows:
+        digest.update(repr(tuple(row.items())).encode())
+        digest.update(b"\x1e")
+    return f'"{digest.hexdigest()[:32]}"'
 
 
 def http_date(value: datetime) -> str:

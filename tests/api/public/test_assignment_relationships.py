@@ -181,3 +181,88 @@ async def test_invalid_key_401(client, db):
         f"/api/v1/assignments/{frm}/relationships", headers={"X-API-Key": "pm_bogus"}
     )
     assert r.status_code == 401
+
+
+# ── conditional GET (#392) ────────────────────────────────────────────────────
+
+
+def _rels(aid: str) -> str:
+    return f"/api/v1/assignments/{aid}/relationships"
+
+
+async def _edge(client, write_key, frm: str, to: str) -> str:
+    r = await client.post(
+        OBS,
+        headers={"X-API-Key": write_key},
+        json={
+            "relationships": [
+                {"from_pm_assignment_id": frm, "to_pm_assignment_id": to, "rel_type": "staff_of"}
+            ]
+        },
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["results"][0]["relationship_id"]
+
+
+async def test_relationships_etag_round_trips_to_304(client, db, read_key):
+    aid = await _assignment(db)
+    first = await client.get(_rels(aid), headers={"X-API-Key": read_key})
+    assert first.status_code == 200
+    etag = first.headers["etag"]
+
+    r = await client.get(_rels(aid), headers={"X-API-Key": read_key, "If-None-Match": etag})
+    assert r.status_code == 304
+    assert r.content == b""
+    assert r.headers["vary"] == "X-API-Key"
+
+
+async def test_relationships_empty_collection_revalidates(client, db, read_key):
+    aid = await _assignment(db)
+    first = await client.get(_rels(aid), headers={"X-API-Key": read_key})
+    assert "last-modified" not in first.headers
+    r = await client.get(
+        _rels(aid), headers={"X-API-Key": read_key, "If-None-Match": first.headers["etag"]}
+    )
+    assert r.status_code == 304
+
+
+async def test_relationships_etag_changes_on_new_edge_from_either_direction(
+    client, db, write_key, read_key
+):
+    """The read spans both directions, so an inbound edge must move the tag too."""
+    frm, to = await _assignment(db), await _assignment(db)
+    before = (await client.get(_rels(to), headers={"X-API-Key": read_key})).headers["etag"]
+    await _edge(client, write_key, frm, to)
+    after = await client.get(_rels(to), headers={"X-API-Key": read_key, "If-None-Match": before})
+    assert after.status_code == 200
+
+
+async def test_relationships_etag_changes_on_retract(client, db, write_key, read_key):
+    frm, to = await _assignment(db), await _assignment(db)
+    rid = await _edge(client, write_key, frm, to)
+    before = (await client.get(_rels(frm), headers={"X-API-Key": read_key})).headers["etag"]
+
+    r = await client.post(
+        OBS,
+        headers={"X-API-Key": write_key},
+        json={"relationships": [{"op": "retract", "pm_relationship_id": rid}]},
+    )
+    assert r.status_code == 200, r.text
+
+    after = await client.get(_rels(frm), headers={"X-API-Key": read_key, "If-None-Match": before})
+    assert after.status_code == 200, "retracted edge still revalidated as unchanged"
+
+
+async def test_relationships_etag_is_per_filter_and_per_window(client, db, write_key, read_key):
+    frm, to = await _assignment(db), await _assignment(db)
+    await _edge(client, write_key, frm, to)
+
+    async def tag(query: str) -> str:
+        r = await client.get(f"{_rels(frm)}{query}", headers={"X-API-Key": read_key})
+        assert r.status_code == 200
+        return r.headers["etag"]
+
+    plain = await tag("")
+    assert await tag("?include_archived=true") != plain
+    assert await tag("?limit=5") != plain
+    assert await tag("?offset=1") != plain

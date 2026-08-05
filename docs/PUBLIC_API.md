@@ -105,7 +105,21 @@ Send `If-None-Match: <etag>` to receive `304 Not Modified` when the record is un
 
 ## Conditional requests
 
-**This section applies API-wide, not just to the detail endpoints above** (#392). Every endpoint that advertises an `ETag` — the five detail endpoints and the two `/{id}/events` sub-resources — shares one parser, so the forms below behave identically on all of them.
+**This section applies API-wide, not just to the detail endpoints above** (#392). Every endpoint that advertises an `ETag` shares one parser, so the forms below behave identically on all of them.
+
+| Endpoint | Validator |
+|---|---|
+| `GET /orgs/{id}`, `/people/{id}`, `/roles/{id}`, `/assignments/{id}`, `/jurisdictions/{id}` | `"<id>-<updated_at_ms>"` |
+| `GET /people/{id}/events`, `/orgs/{id}/events` | watermark |
+| `GET /citations/{entity_type}/{entity_id}` | watermark |
+| `GET /assignments/{pm_assignment_id}/relationships` | watermark |
+| `GET /role-types`, `/link-types`, `/entity-event-types` | content hash |
+
+**Watermark** = `count(*)` + `max(updated_at)` over the *visible* set, with every filter and the `limit`/`offset` window baked into the tag. Count catches a row entering or leaving the filtered set — a retract archives rather than deletes, so the row's own `updated_at` bump is invisible once the default (active-only) filter excludes it — and `max` catches an in-place edit. A tag from one filter/window never revalidates against another's.
+
+**Content hash** = a digest of the returned rows, used where the table carries no `updated_at` to watermark. Exact by construction: an in-place rename of a catalog entry invalidates, which a `count(*)` + `max(created_at)` tag would not. It saves serialization and transfer, not the query.
+
+Search and list endpoints (`/people/search`, `/orgs/search`, `/roles`, `/assignments`, `/jurisdictions`) deliberately have **no** validator — a collection validator over a filtered, paginated, ranked result set costs about as much as serving the page. `/changes` is a cursor feed and needs none.
 
 ### `If-None-Match` forms accepted
 
@@ -599,7 +613,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 |--------|------|------|-------------|
 | `GET` | `/api/v1/roles` | API key | Paginated list of roles, optionally filtered by org. |
 | `GET` | `/api/v1/roles/{id}` | API key | Full role record (links, contact methods, addresses) with ETag caching. |
-| `GET` | `/api/v1/role-types` | API key | Full (unpaginated) catalog of role-type classifiers — the structural-match vocabulary. |
+| `GET` | `/api/v1/role-types` | API key | Full (unpaginated) catalog of role-type classifiers — the structural-match vocabulary. ETag caching (content hash) — see [Conditional requests](#conditional-requests). |
 | `POST` | `/api/v1/roles/observations` | `observations:write` scope | Submit a role observation (match-or-create). |
 
 ### List — `GET /api/v1/roles`
@@ -786,7 +800,7 @@ POST /api/v1/assignments/observations
 |--------|------|------|-------------|
 | `GET` | `/api/v1/people/{id}/events` | API key | Paginated lifecycle events for a person. |
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. |
-| `GET` | `/api/v1/entity-event-types` | API key | Unpaginated list of all event type vocabulary entries. |
+| `GET` | `/api/v1/entity-event-types` | API key | Unpaginated list of all event type vocabulary entries. ETag caching (content hash) — see [Conditional requests](#conditional-requests). |
 
 ### Response shape — `GET /people/{id}/events` and `GET /orgs/{id}/events`
 

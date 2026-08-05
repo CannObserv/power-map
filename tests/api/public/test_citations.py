@@ -215,3 +215,98 @@ async def test_embedded_bad_citation_rejects_whole_observation(client, obs_key):
     body = r.json()
     assert body["disposition"] == "rejected"
     assert body["reason"] == "citable_field_unknown"
+
+
+# ── conditional GET (#392) ────────────────────────────────────────────────────
+
+
+async def _cite(client, write_key, person, url: str, field: str | None = "notes") -> str:
+    r = await client.post(
+        f"{_base('person', person)}/observations",
+        headers={"X-API-Key": write_key},
+        json={"citations": [{"field_name": field, "url": url, "title": "T"}]},
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["results"][0]["citation_id"]
+
+
+async def test_citations_etag_round_trips_to_304(client, read_key, person):
+    url = _base("person", person)
+    first = await client.get(url, headers={"X-API-Key": read_key})
+    assert first.status_code == 200
+    etag = first.headers["etag"]
+    assert etag.startswith('"') and etag.endswith('"')
+
+    r = await client.get(url, headers={"X-API-Key": read_key, "If-None-Match": etag})
+    assert r.status_code == 304
+    assert r.content == b""
+    assert r.headers["cache-control"] == "no-cache"
+    assert r.headers["vary"] == "X-API-Key"
+
+
+async def test_citations_empty_collection_revalidates_without_last_modified(
+    client, read_key, person
+):
+    """The 99.9%-empty poll must be 304-able; nothing was ever modified."""
+    url = _base("person", person)
+    first = await client.get(url, headers={"X-API-Key": read_key})
+    assert first.status_code == 200
+    assert "last-modified" not in first.headers
+    r = await client.get(
+        url, headers={"X-API-Key": read_key, "If-None-Match": first.headers["etag"]}
+    )
+    assert r.status_code == 304
+
+
+async def test_citations_etag_changes_when_a_citation_is_added(client, write_key, read_key, person):
+    url = _base("person", person)
+    before = (await client.get(url, headers={"X-API-Key": read_key})).headers["etag"]
+    await _cite(client, write_key, person, "https://s/new")
+    after = await client.get(url, headers={"X-API-Key": read_key, "If-None-Match": before})
+    assert after.status_code == 200
+    assert after.headers["etag"] != before
+
+
+async def test_citations_etag_changes_when_a_citation_is_retracted(
+    client, write_key, read_key, person
+):
+    """A retract archives rather than deletes — the count over the *filtered*
+    (active-only) set is what moves, so the default view must not 304 through it."""
+    cid = await _cite(client, write_key, person, "https://s/gone")
+    url = _base("person", person)
+    before = (await client.get(url, headers={"X-API-Key": read_key})).headers["etag"]
+
+    r = await client.post(
+        f"{url}/observations",
+        headers={"X-API-Key": write_key},
+        json={"citations": [{"op": "retract", "pm_citation_id": cid}]},
+    )
+    assert r.status_code == 200, r.text
+
+    after = await client.get(url, headers={"X-API-Key": read_key, "If-None-Match": before})
+    assert after.status_code == 200, "retracted citation still revalidated as unchanged"
+
+
+async def test_citations_etag_is_per_filter_and_per_window(client, write_key, read_key, person):
+    """Every param that changes the body is baked into the tag."""
+    await _cite(client, write_key, person, "https://s/a", field="notes")
+    base = _base("person", person)
+
+    async def tag(query: str) -> str:
+        r = await client.get(f"{base}{query}", headers={"X-API-Key": read_key})
+        assert r.status_code == 200
+        return r.headers["etag"]
+
+    plain = await tag("")
+    assert await tag("?field_name=notes") != plain
+    assert await tag("?include_archived=true") != plain
+    assert await tag("?limit=5") != plain
+    assert await tag("?offset=1") != plain
+
+
+async def test_citations_etag_does_not_cross_entities(client, write_key, read_key, person, db):
+    other = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", other)
+    a = (await client.get(_base("person", person), headers={"X-API-Key": read_key})).headers["etag"]
+    b = (await client.get(_base("person", other), headers={"X-API-Key": read_key})).headers["etag"]
+    assert a != b

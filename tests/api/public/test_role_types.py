@@ -168,3 +168,53 @@ def test_role_types_without_key_returns_403(unit_client):
 async def test_role_types_with_invalid_key_returns_401(client):
     response = await client.get("/api/v1/role-types", headers={"X-API-Key": "pm_invalid"})
     assert response.status_code == 401
+
+
+# ── conditional GET (#392) ────────────────────────────────────────────────────
+
+
+@pytest.mark.integration
+async def test_role_types_etag_round_trips_to_304(client, api_key):
+    first = await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    assert first.status_code == 200
+    etag = first.headers["etag"]
+
+    r = await client.get(
+        "/api/v1/role-types", headers={"X-API-Key": api_key, "If-None-Match": etag}
+    )
+    assert r.status_code == 304
+    assert r.content == b""
+    assert r.headers["vary"] == "X-API-Key"
+    assert "last-modified" not in r.headers
+
+
+@pytest.mark.integration
+async def test_role_types_etag_changes_on_in_place_edit(client, db, api_key):
+    """The governed vocabulary churns by design (#266) — renames must invalidate."""
+    before = (await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})).headers[
+        "etag"
+    ]
+    await db.execute(
+        "UPDATE role_types SET display_name = display_name || ' (renamed)'"
+        " WHERE id = (SELECT id FROM role_types ORDER BY slug LIMIT 1)"
+    )
+    after = await client.get(
+        "/api/v1/role-types", headers={"X-API-Key": api_key, "If-None-Match": before}
+    )
+    assert after.status_code == 200, "in-place rename still revalidated as unchanged"
+
+
+@pytest.mark.integration
+async def test_role_types_etag_changes_on_flag_flip(client, db, api_key):
+    """`requires_qualifier` is enforced (#273) — a flag flip changes the contract."""
+    before = (await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})).headers[
+        "etag"
+    ]
+    await db.execute(
+        "UPDATE role_types SET requires_qualifier = NOT requires_qualifier"
+        " WHERE id = (SELECT id FROM role_types ORDER BY slug LIMIT 1)"
+    )
+    after = await client.get(
+        "/api/v1/role-types", headers={"X-API-Key": api_key, "If-None-Match": before}
+    )
+    assert after.status_code == 200

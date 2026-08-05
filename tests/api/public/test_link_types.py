@@ -78,3 +78,64 @@ async def test_link_types_with_invalid_key_returns_401(client):
     """GET /api/v1/link-types with invalid key returns 401."""
     response = await client.get("/api/v1/link-types", headers={"X-API-Key": "pm_invalid"})
     assert response.status_code == 401
+
+
+# ── conditional GET (#392) ────────────────────────────────────────────────────
+
+
+@pytest.mark.integration
+async def test_link_types_etag_round_trips_to_304(client, api_key):
+    first = await client.get("/api/v1/link-types", headers={"X-API-Key": api_key})
+    assert first.status_code == 200
+    etag = first.headers["etag"]
+    assert etag.startswith('"') and etag.endswith('"')
+
+    r = await client.get(
+        "/api/v1/link-types", headers={"X-API-Key": api_key, "If-None-Match": etag}
+    )
+    assert r.status_code == 304
+    assert r.content == b""
+    assert r.headers["cache-control"] == "no-cache"
+    assert r.headers["vary"] == "X-API-Key"
+    # A catalog with no updated_at column has no defensible Last-Modified.
+    assert "last-modified" not in r.headers
+
+
+@pytest.mark.integration
+async def test_link_types_etag_changes_on_in_place_rename(client, db, api_key):
+    """The reason this catalog gets a content hash rather than a watermark.
+
+    `link_types` is admin-editable (`settings_link_types.py` UPDATEs
+    display_name/slug) and has only `created_at` — a count + max(created_at)
+    tag would be *stable* across this rename and a 304ing consumer would hold
+    the stale label indefinitely.
+    """
+    before = (await client.get("/api/v1/link-types", headers={"X-API-Key": api_key})).headers[
+        "etag"
+    ]
+    await db.execute(
+        "UPDATE link_types SET display_name = display_name || ' (renamed)'"
+        " WHERE id = (SELECT id FROM link_types ORDER BY slug LIMIT 1)"
+    )
+    after = await client.get(
+        "/api/v1/link-types", headers={"X-API-Key": api_key, "If-None-Match": before}
+    )
+    assert after.status_code == 200, "in-place rename still revalidated as unchanged"
+    assert after.headers["etag"] != before
+
+
+@pytest.mark.integration
+async def test_link_types_etag_changes_on_row_add(client, db, api_key):
+    before = (await client.get("/api/v1/link-types", headers={"X-API-Key": api_key})).headers[
+        "etag"
+    ]
+    await db.execute(
+        "INSERT INTO link_types (id, slug, display_name, is_social) VALUES ($1,$2,$3,FALSE)",
+        generate_id(),
+        "zzz-conditional-get-probe",
+        "Probe",
+    )
+    after = await client.get(
+        "/api/v1/link-types", headers={"X-API-Key": api_key, "If-None-Match": before}
+    )
+    assert after.status_code == 200

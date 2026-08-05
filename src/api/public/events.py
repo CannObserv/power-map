@@ -4,6 +4,7 @@ from datetime import datetime
 
 import asyncpg
 
+from src.api.public.etag import collection_etag
 from src.api.public.schemas import fmt_ts
 
 _EVENTS_VERSION_SQL = """
@@ -31,8 +32,7 @@ async def events_collection_validator(
     """
     row = await db.fetchrow(_EVENTS_VERSION_SQL, entity_id, entity_type)
     last: datetime | None = row["last"]
-    last_ms = int(last.timestamp() * 1000) if last is not None else 0
-    etag = f'"{entity_id}-events-{last_ms}-{row["n"]}-{limit}-{offset}"'
+    etag = collection_etag(f"{entity_id}-events", row["n"], last, limit, offset)
     return etag, last
 
 

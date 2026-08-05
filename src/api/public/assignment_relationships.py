@@ -12,10 +12,11 @@ A directional temporal edge between two role_assignments (staffer -> principal).
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, require_scope
+from src.api.public.etag import NOT_MODIFIED, collection_etag, conditional_response
 from src.api.public.schemas import (
     RelationshipListResponse,
     RelationshipObservationResult,
@@ -81,13 +82,24 @@ async def submit_relationship_observations(
     )
 
 
+_VERSION_SQL = """
+    SELECT count(*) AS n, max(updated_at) AS last
+    FROM role_assignment_relationships
+    WHERE (from_assignment_id = $1 OR to_assignment_id = $1)
+      AND ($2::boolean OR archived_at IS NULL)
+"""
+
+
 @router.get(
     "/assignments/{pm_assignment_id}/relationships",
     response_model=RelationshipListResponse,
     operation_id="listAssignmentRelationships",
+    responses=NOT_MODIFIED,
 )
 async def list_assignment_relationships(
     pm_assignment_id: str,
+    request: Request,
+    response: Response,
     include_archived: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -99,7 +111,24 @@ async def list_assignment_relationships(
     ``include_archived=true`` includes retracted / cascade-archived edges. Stable
     offset pagination — ``ORDER BY created_at DESC, id DESC`` ends on a unique
     column (#297).
+
+    Conditional GET (#392): watermark validator spanning *both* directions, so an
+    inbound edge moves the tag too; the cascade (#301) archives edges when an
+    endpoint shrinks, which the active-only count catches.
     """
+    version = await db.fetchrow(_VERSION_SQL, pm_assignment_id, include_archived)
+    etag = collection_etag(
+        f"{pm_assignment_id}-relationships",
+        version["n"],
+        version["last"],
+        include_archived,
+        limit,
+        offset,
+    )
+    cached = conditional_response(request, response, etag, version["last"])
+    if cached is not None:
+        return cached
+
     rows = await db.fetch(
         """
         SELECT r.id, r.from_assignment_id, r.to_assignment_id, t.slug AS rel_type,
