@@ -5,10 +5,10 @@
 # Uses the migrations user (DDL privileges) rather than the app user (DML only).
 # Idempotent — safe to re-run; all DDL uses IF NOT EXISTS guards.
 #
-# Usage (from the repo root):
+# Usage (any cwd — the script works from the checkout that owns it):
 #   bash scripts/apply-schema.sh              # PRODUCTION; main checkout only
 #   bash scripts/apply-schema.sh --test       # TEST_DATABASE_URL; allowed anywhere
-#   bash scripts/apply-schema.sh --yes        # PRODUCTION; skip the guards
+#   bash scripts/apply-schema.sh --yes|-y     # PRODUCTION; skip the guards
 #   bash scripts/apply-schema.sh --dry-run    # guards + target echo, then stop
 #
 # Called automatically by the systemd unit (ExecStartPre) on every restart.
@@ -20,7 +20,11 @@
 #
 #   refuse (exit 2)  targeting production from a linked git worktree
 #   refuse (exit 2)  targeting production interactively without confirmation
-#   warn only        dirty checkout / branch other than main
+#   warn only        tracked modifications / branch other than main
+#   degrade          the target echo, when the DSN or python3 will not cooperate
+#
+# That last rule is the same rule: diagnostics on this path may not abort a
+# restart, and a DSN that is not a parseable URL is never echoed at all.
 #
 # Exit codes: 0 applied (or dry run), 1 usage or configuration error,
 # 2 guard refusal (nothing was applied).
@@ -63,13 +67,17 @@ done
 # The applied schema.sql, the git context the guards read, and the uv project
 # must all describe one tree — otherwise the "checkout:" line below reports a
 # different tree than the file the caller invoked. Resolved without `dirname`
-# so the guards survive a threadbare PATH.
+# so the guards survive a threadbare PATH — which also means symlinks are not
+# followed: invoking a symlink to this script from another tree is unsupported.
 script_dir="${BASH_SOURCE[0]}"
 case "$script_dir" in
     */*) script_dir="${script_dir%/*}" ;;
     *)   script_dir="." ;;
 esac
-cd "$script_dir/.."
+cd "$script_dir/.." || {
+    echo "cannot reach the repo root from ${script_dir}" >&2
+    exit 1
+}
 
 # ── Resolve the DSN ──────────────────────────────────────────────────────────
 # The environment wins (systemd populates it from EnvironmentFile); a manual
@@ -95,6 +103,10 @@ fi
 # path, so neither a missing python3 nor an unparseable DSN may abort the run.
 # A DSN that is not a real URL is never echoed at all — urlparse would hand
 # back the credentials as the "path" and we would print them into the journal.
+# Two lines come back: the database name first (it is the one that can be
+# empty, and command substitution eats trailing newlines), the description
+# second. Stderr is suppressed because a traceback would echo argv — i.e. the
+# DSN — so the tests below are what keep the parsing path honest.
 TARGET_DESC=""
 TARGET_DB=""
 if redacted="$(
@@ -113,12 +125,12 @@ except ValueError:
 user = u.username + "@" if u.username else ""
 tail = ":" + str(port) if port else ""
 db = (u.path or "").lstrip("/")
-print(user + u.hostname + tail + "/" + (db or "?"))
 print(db)
+print(user + u.hostname + tail + "/" + (db or "?"))
 PY
 )"; then
-    TARGET_DESC="${redacted%%$'\n'*}"
-    TARGET_DB="${redacted##*$'\n'}"
+    TARGET_DB="${redacted%%$'\n'*}"
+    TARGET_DESC="${redacted##*$'\n'}"
 fi
 if [ -z "$TARGET_DESC" ]; then
     TARGET_DESC="(unparsed DSN — cannot redact)"

@@ -24,7 +24,14 @@ echo "==> Reading Terraform outputs"
 TF_JSON=$(terraform -chdir="$TF_DIR" output -json)
 DOADMIN_URI=$(echo "$TF_JSON" | jq -r '.doadmin_uri.value')
 
-TEST_DATABASE_URL=$(grep -E "^TEST_DATABASE_URL=" /etc/power-map/.env | cut -d= -f2-)
+# Read through uv's dotenv parser rather than grep/cut: it handles quoting and
+# `export ` prefixes, and it is the same parser apply-schema.sh's fallback is
+# written to match (#398). A weaker parse here would pre-empt the stricter one
+# downstream.
+TEST_DATABASE_URL=$(
+    uv run --env-file /etc/power-map/.env python -c \
+        'import os, sys; sys.stdout.write(os.environ.get("TEST_DATABASE_URL", ""))'
+)
 if [[ -z "$TEST_DATABASE_URL" ]]; then
     echo "ERROR: TEST_DATABASE_URL not found in /etc/power-map/.env — run write-db-secrets.sh first" >&2
     exit 1
@@ -63,7 +70,9 @@ done
 # inline — one code path for "apply schema.sql to the test database".
 echo "==> Applying schema to co_pm_db_test"
 
-TEST_DATABASE_URL="$TEST_DATABASE_URL" bash "$SCRIPT_DIR/apply-schema.sh" --test
+# No env prefix: apply-schema.sh resolves TEST_DATABASE_URL itself, so there is
+# one resolution path rather than a parent's pre-empting a child's.
+bash "$SCRIPT_DIR/apply-schema.sh" --test
 
 # ── 5. Seed lookup tables on test database ───────────────────────────────────
 # bcp47_locales and iso15924_scripts must be populated for integration tests

@@ -391,7 +391,13 @@ def test_non_git_directory_warns_but_proceeds(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def _run_on_tty(cwd: Path, tmp_path: Path, reply: bytes | None, *args: str) -> tuple[int, str]:
+def _run_on_tty(
+    cwd: Path,
+    tmp_path: Path,
+    reply: bytes | None,
+    *args: str,
+    **over: str | None,
+) -> tuple[int, str]:
     master, slave = pty.openpty()
     proc = subprocess.Popen(
         ["bash", "scripts/apply-schema.sh", *args],
@@ -400,7 +406,7 @@ def _run_on_tty(cwd: Path, tmp_path: Path, reply: bytes | None, *args: str) -> t
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        env=_env(tmp_path),
+        env=_env(tmp_path, **over),
     )
     os.close(slave)
     try:
@@ -440,3 +446,40 @@ def test_interactive_test_target_never_prompts(repo, tmp_path):
 
     assert code == 0, out
     assert "guarddb_test" in out
+
+
+def test_confirmation_prompt_names_only_the_database(repo, tmp_path):
+    """The token must be the database name, not the whole target description."""
+    code, out = _run_on_tty(repo, tmp_path, b"guarddb\n", "--dry-run")
+
+    assert code == 0, out
+    assert "(guarddb)" in out
+
+
+def test_confirmation_falls_back_when_the_dsn_has_no_database(repo, tmp_path):
+    """A pathless DSN yields no database name — ask for a fixed word instead."""
+    code, out = _run_on_tty(
+        repo,
+        tmp_path,
+        b"production\n",
+        "--dry-run",
+        MIGRATIONS_DATABASE_URL="postgresql://guard_user:s3kr3t-prod@guard.example.invalid:25060",
+    )
+
+    assert code == 0, out
+    assert "(production)" in out
+    assert SECRET not in out
+
+
+def test_confirmation_falls_back_when_the_dsn_is_unparsable(repo, tmp_path):
+    code, out = _run_on_tty(
+        repo,
+        tmp_path,
+        b"production\n",
+        "--dry-run",
+        MIGRATIONS_DATABASE_URL="host=db.example password=hunter2 dbname=x",
+    )
+
+    assert code == 0, out
+    assert "(production)" in out
+    assert "hunter2" not in out
