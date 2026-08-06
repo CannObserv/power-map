@@ -1,23 +1,16 @@
 """Shared connection-target diagnostics for operational scripts (#402).
 
-`DATABASE_URL` comes from `/etc/power-map/.env` and points at **production**,
-from any directory — main checkout, worktree, anywhere on the VM. A script that
-prints nothing about where it connected leaves no way, during or after the run,
-to tell which database it touched.
+`DATABASE_URL` resolves to **production** from any directory, so a script that
+prints nothing about where it connected leaves no way to tell which database it
+touched. Call `echo_target(dsn)` before opening a connection.
 
-Every function here is diagnostic: none of them may raise on a caller's behalf.
-A DSN that is not a parseable URL is reported as unredactable and **never
-echoed** — `urlparse` hands the credentials back as the "path" for a libpq
-keyword/value DSN, and printing that would put the password in the journal.
+Every function here is diagnostic and none may raise on a caller's behalf. A
+DSN that is not a parseable URL is reported as unredactable and **never
+echoed** — callers must not fall back to the raw string.
 
-Seeded by #402 for the two scripts it gates. #399 extends this module with
-prod/test labelling (keyed on `(host, port, dbname)`, not DSN string equality —
-production has two DSNs for one database) and retrofits it across the live
-scripts, with an AST sweep to keep it from depending on memory.
-
-`scripts/apply-schema.sh` deliberately keeps its own copy of this logic: it
-runs as `ExecStartPre` on the systemd unit, where an import failure would mean
-a failed production restart.
+Rationale, the two dry-run shapes, and why `apply-schema.sh` keeps its own copy
+→ `docs/CONVENTIONS.md` §"Operational scripts — dry run by default & target
+echo".
 """
 
 import sys

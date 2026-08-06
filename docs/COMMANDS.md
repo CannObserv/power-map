@@ -73,7 +73,7 @@ bash scripts/sync-schema-to-do.sh
 bash scripts/sync-data-to-do.sh
 
 # 7. Seed BCP 47 / ISO 15924 lookup tables (once per fresh DB)
-#    Dry run without --execute (#402)
+#    Writes; omit --execute to preview first (#402)
 uv run --group seed scripts/seed_locales_scripts.py --execute
 
 # 8. Cutover — see docs/RUNBOOK_DB_MIGRATION.md for the maintenance window steps

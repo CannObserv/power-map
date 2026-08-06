@@ -480,6 +480,7 @@ Enabled via `CREATE EXTENSION IF NOT EXISTS pg_trgm` in `apply_schema`. Required
 - Address standardization uses the external address-validator service when `ADDRESS_VALIDATOR_API_KEY` is set; falls back to local `usaddress` parsing otherwise
 - `addresses.precision` indicates the specificity tier of the geocoded result (`street`, `postal`, `city`, `region`, `country`; NULL = unset or pre-geocoding historical record). Event place linkage (`entity_events.event_place_address_id`) requires city-level or finer (`city`, `postal`, `street`) — or NULL; `country`/`region` precision is rejected. See `EVENT_PLACE_PRECISIONS` in `src/core/types.py`.
 - `VALIDATE_ADDRESSES=true` (or `--validate-addresses` CLI flag) enables the `/validate` endpoint
+- `ImportConfig.local_addresses_only=True` (#402) forces local `usaddress` parsing regardless of `ADDRESS_VALIDATOR_API_KEY` — standardization otherwise fires whenever the key is set, so this is the only lever that keeps a run off the external service. Set by `import_cannabis_observer.py` on a dry run so a preview does not spend the rate-limited quota; address fields in a preview may therefore differ from a committed run
 - `role_index` is pre-populated from the DB at pipeline startup (Pass 3) so re-runs are idempotent across batches
 
 ## Operational scripts — dry run by default & target echo (#402)

@@ -103,16 +103,24 @@ def _apply_schema_target(dsn: str, tmp_path: Path) -> str:
     """Run apply-schema.sh's own redaction and return the `target:` line's payload.
 
     `--test --dry-run` stops after the target echo, and POWER_MAP_ENV_FILE
-    redirects the DSN lookup at a throwaway file — no real database is read or
-    contacted.
+    redirects the DSN lookup at a throwaway file.
+
+    Belt and braces on reaching production: `--test` is what selects the test
+    target, but this runs the real script from the real checkout, so the
+    production DSNs are stripped from the child environment too. A future
+    refactor that broke flag parsing then fails this test instead of opening a
+    connection to prod.
     """
     env_file = tmp_path / "env"
     env_file.write_text(f"TEST_DATABASE_URL={dsn}\n")
+    env = {
+        k: v for k, v in os.environ.items() if k not in ("DATABASE_URL", "MIGRATIONS_DATABASE_URL")
+    }
     proc = subprocess.run(
         ["bash", str(APPLY_SCHEMA), "--test", "--dry-run"],
         capture_output=True,
         text=True,
-        env={**os.environ, "POWER_MAP_ENV_FILE": str(env_file), "TEST_DATABASE_URL": dsn},
+        env={**env, "POWER_MAP_ENV_FILE": str(env_file), "TEST_DATABASE_URL": dsn},
     )
     assert proc.returncode == 0, proc.stderr
     for line in proc.stderr.splitlines():
