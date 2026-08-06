@@ -52,16 +52,23 @@ def _git(cwd: Path, *args: str) -> None:
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    """A throwaway main checkout containing the script under test."""
-    main = tmp_path / "main"
-    (main / "scripts").mkdir(parents=True)
-    shutil.copy(SCRIPT, main / "scripts" / "apply-schema.sh")
-    _git(main, "init", "-q", "-b", "main")
+    """A throwaway main checkout containing the script under test.
+
+    Deliberately *not* named ``main``: an assertion that the branch was echoed
+    must not be satisfiable by the checkout path.
+    """
+    root = tmp_path / "checkout"
+    (root / "scripts").mkdir(parents=True)
+    shutil.copy(SCRIPT, root / "scripts" / "apply-schema.sh")
+    # A committed file the dirty-tree tests can modify without touching the
+    # script they are about to run.
+    (root / "README").write_text("committed\n")
+    _git(root, "init", "-q", "-b", "main")
     # Fails loudly if a leaked GIT_DIR ever aims init somewhere else.
-    assert (main / ".git").is_dir()
-    _git(main, "add", "-A")
-    _git(main, "commit", "-q", "-m", "init")
-    return main
+    assert (root / ".git").is_dir()
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "init")
+    return root
 
 
 @pytest.fixture
@@ -153,7 +160,7 @@ def test_test_target_allowed_from_worktree(worktree, tmp_path):
 def test_test_target_is_labelled_not_production(worktree, tmp_path):
     result = _run(worktree, tmp_path, "--test", "--dry-run")
 
-    assert "test" in _out(result).lower()
+    assert "(test)" in _out(result)
     assert "PRODUCTION" not in _out(result)
 
 
@@ -189,8 +196,8 @@ def test_target_echo_reports_branch_and_sha(repo, tmp_path):
     ).stdout.strip()
 
     out = _out(result)
-    assert "main" in out
-    assert sha in out
+    assert "branch=main" in out
+    assert f"sha={sha}" in out
 
 
 # --------------------------------------------------------------------------- #
@@ -204,14 +211,24 @@ def test_clean_main_checkout_warns_about_nothing(repo, tmp_path):
     assert "WARNING" not in _out(result)
 
 
-def test_dirty_checkout_warns_but_succeeds(repo, tmp_path):
-    (repo / "scratch.txt").write_text("uncommitted\n")
+def test_modified_tracked_file_warns_but_succeeds(repo, tmp_path):
+    (repo / "README").write_text("edited\n")
 
     result = _run(repo, tmp_path, "--dry-run")
 
     assert result.returncode == 0, _out(result)
     assert "WARNING" in _out(result)
     assert "uncommitted" in _out(result).lower()
+
+
+def test_untracked_file_does_not_warn(repo, tmp_path):
+    """Untracked files cannot change schema.sql — warning on every restart is noise."""
+    (repo / "scratch.txt").write_text("untracked\n")
+
+    result = _run(repo, tmp_path, "--dry-run")
+
+    assert result.returncode == 0, _out(result)
+    assert "WARNING" not in _out(result)
 
 
 def test_non_default_branch_warns_but_succeeds(repo, tmp_path):
@@ -243,6 +260,25 @@ def test_unknown_flag_exits_1(repo, tmp_path):
     assert "usage" in _out(result).lower()
 
 
+def test_help_goes_to_stdout(repo, tmp_path):
+    result = _run(repo, tmp_path, "--help")
+
+    assert result.returncode == 0
+    assert "usage" in result.stdout.lower()
+    assert result.stderr == ""
+
+
+def test_short_yes_alias_overrides_the_worktree_refusal(worktree, tmp_path):
+    result = _run(worktree, tmp_path, "-y", "--dry-run")
+
+    assert result.returncode == 0, _out(result)
+
+
+# --------------------------------------------------------------------------- #
+# DSN resolution from the env file
+# --------------------------------------------------------------------------- #
+
+
 def test_env_file_supplies_the_dsn_when_unset(repo, tmp_path):
     env_file = tmp_path / "present.env"
     env_file.write_text(f"OTHER=1\nMIGRATIONS_DATABASE_URL={PROD_DSN}\n")
@@ -257,6 +293,97 @@ def test_env_file_supplies_the_dsn_when_unset(repo, tmp_path):
 
     assert result.returncode == 0, _out(result)
     assert "guarddb" in _out(result)
+
+
+def test_env_file_value_may_be_quoted_or_exported(repo, tmp_path):
+    """uv's dotenv parser handled these; the bash fallback must too."""
+    env_file = tmp_path / "quoted.env"
+    env_file.write_text(f'export MIGRATIONS_DATABASE_URL="{PROD_DSN}"\n')
+
+    result = _run(
+        repo,
+        tmp_path,
+        "--dry-run",
+        MIGRATIONS_DATABASE_URL=None,
+        POWER_MAP_ENV_FILE=str(env_file),
+    )
+
+    assert result.returncode == 0, _out(result)
+    assert "guard_user@guard.example.invalid:25060/guarddb" in _out(result)
+    assert '"' not in _out(result)
+
+
+# --------------------------------------------------------------------------- #
+# Redaction must never leak, and never abort a restart (#398 CR 1, 2)
+# --------------------------------------------------------------------------- #
+
+
+def test_unparsable_dsn_is_never_echoed(repo, tmp_path):
+    """A libpq keyword DSN has no URL structure — echoing it would leak the password."""
+    result = _run(
+        repo,
+        tmp_path,
+        "--dry-run",
+        MIGRATIONS_DATABASE_URL="host=db.example password=hunter2 dbname=x",
+    )
+
+    assert result.returncode == 0, _out(result)
+    assert "hunter2" not in _out(result)
+    assert "cannot redact" in _out(result)
+
+
+def test_missing_python3_does_not_abort(repo, tmp_path):
+    """The echo is cosmetic; on ExecStartPre a non-zero exit stops the service."""
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    for tool in ("bash", "git", "grep", "cut", "tail", "cat"):
+        found = shutil.which(tool)
+        if found:
+            (stub_bin / tool).symlink_to(found)
+
+    result = _run(repo, tmp_path, "--dry-run", PATH=str(stub_bin))
+
+    assert result.returncode == 0, _out(result)
+    assert "cannot redact" in _out(result)
+
+
+# --------------------------------------------------------------------------- #
+# The script's own checkout is authoritative, not the caller's cwd (#398 CR 4)
+# --------------------------------------------------------------------------- #
+
+
+def test_worktree_script_invoked_from_main_checkout_still_refuses(repo, worktree, tmp_path):
+    """The tree that owns the script is the tree whose schema.sql gets applied."""
+    result = subprocess.run(
+        ["bash", str(worktree / "scripts" / "apply-schema.sh"), "--dry-run"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        env=_env(tmp_path),
+        timeout=60,
+    )
+
+    assert result.returncode == 2, _out(result)
+    assert str(worktree) in _out(result)
+
+
+def test_non_git_directory_warns_but_proceeds(tmp_path):
+    """A loose copy has no worktree guard — say so rather than pretending."""
+    loose = tmp_path / "loose" / "scripts"
+    loose.mkdir(parents=True)
+    shutil.copy(SCRIPT, loose / "apply-schema.sh")
+
+    result = subprocess.run(
+        ["bash", "scripts/apply-schema.sh", "--dry-run"],
+        cwd=loose.parent,
+        capture_output=True,
+        text=True,
+        env=_env(tmp_path),
+        timeout=60,
+    )
+
+    assert result.returncode == 0, _out(result)
+    assert "not a git checkout" in _out(result)
 
 
 # --------------------------------------------------------------------------- #

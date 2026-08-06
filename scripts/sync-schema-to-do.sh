@@ -11,6 +11,8 @@
 #   bash scripts/sync-schema-to-do.sh
 #
 # Requires: terraform, jq, psql, uv on PATH
+#
+# The schema apply itself is delegated to `apply-schema.sh --test` (#398).
 
 set -euo pipefail
 
@@ -57,25 +59,11 @@ done
 # ── 4. Apply schema to test database ─────────────────────────────────────────
 # Production schema is handled by sync-data-to-do.sh (pg_restore). Test DB
 # needs apply_schema so integration tests have a working empty schema.
+# Delegated to apply-schema.sh --test (#398) rather than duplicating the apply
+# inline — one code path for "apply schema.sql to the test database".
 echo "==> Applying schema to co_pm_db_test"
 
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ]                && env_args+=(--env-file .env)
-
-uv run "${env_args[@]}" python -c "
-import asyncio, asyncpg, os
-from src.core.db import apply_schema
-
-async def main():
-    conn = await asyncpg.connect(os.environ['TEST_DATABASE_URL'])
-    try:
-        await apply_schema(conn)
-    finally:
-        await conn.close()
-
-asyncio.run(main())
-"
+TEST_DATABASE_URL="$TEST_DATABASE_URL" bash "$SCRIPT_DIR/apply-schema.sh" --test
 
 # ── 5. Seed lookup tables on test database ───────────────────────────────────
 # bcp47_locales and iso15924_scripts must be populated for integration tests
