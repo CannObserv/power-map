@@ -345,3 +345,102 @@ async def test_stale_etag_still_returns_200(client, api_key, person_id):
         headers={"X-API-Key": api_key, "If-None-Match": '"stale-1", W/"stale-2"'},
     )
     assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Sweep: every conditional GET declares its 304 (CR #392/21)
+# ---------------------------------------------------------------------------
+
+
+def _routes_calling_conditional_response(tree: ast.AST) -> list[tuple[str, bool]]:
+    """``(handler_name, declares_304)`` for each ``@router.get`` handler using the helper.
+
+    Source-level, so no path→function mapping is needed: the decorator and the
+    body sit in the same node. ``responses=NOT_MODIFIED`` is matched by source
+    text rather than by resolving the name — the constant is imported under that
+    one name at all 14 sites, and a rename would surface as a failure here
+    rather than pass silently.
+    """
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
+            continue
+        gets = [
+            d
+            for d in node.decorator_list
+            if isinstance(d, ast.Call)
+            and isinstance(d.func, ast.Attribute)
+            and d.func.attr == "get"
+        ]
+        if not gets:
+            continue
+        body = "\n".join(ast.unparse(stmt) for stmt in node.body)
+        if "conditional_response" not in body:
+            continue
+        declares = any(
+            kw.arg == "responses" and ast.unparse(kw.value) == "NOT_MODIFIED"
+            for d in gets
+            for kw in d.keywords
+        )
+        out.append((node.name, declares))
+    return out
+
+
+def test_every_conditional_get_declares_304():
+    """A route that revalidates must say so in OpenAPI (#392).
+
+    ``_CONDITIONAL_GETS`` in ``test_openapi_responses.py`` checks the other
+    direction — that *listed* paths declare 304 — but it is hand-maintained, so
+    a new endpoint that omits both the decorator kwarg and the list entry is
+    caught by nothing. An undeclared 304 is invisible to a consumer generating a
+    client from the schema.
+    """
+    undeclared = []
+    for path in sorted(PUBLIC_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        undeclared.extend(
+            f"{path.name}::{name}"
+            for name, declares in _routes_calling_conditional_response(tree)
+            if not declares
+        )
+    assert not undeclared, (
+        f"conditional GET without responses=NOT_MODIFIED: {undeclared} "
+        "— add it to the decorator and to _CONDITIONAL_GETS"
+    )
+
+
+def test_conditional_get_sweep_covers_every_known_route():
+    """Pins the count, so a route that stops using the helper is noticed too."""
+    found = [
+        (path.name, name)
+        for path in sorted(PUBLIC_DIR.glob("*.py"))
+        for name, _ in _routes_calling_conditional_response(ast.parse(path.read_text()))
+    ]
+    assert len(found) == 14, f"expected 14 conditional GETs, found {len(found)}: {found}"
+
+
+def test_sweep_detects_a_route_missing_its_304():
+    """The guard must fail on the shape it exists to catch."""
+    breach = ast.parse(
+        '@router.get("/x", response_model=M, operation_id="x")\n'
+        "async def handler(request, response, db=None):\n"
+        "    cached = conditional_response(request, response, etag)\n"
+        "    return cached\n"
+    )
+    assert _routes_calling_conditional_response(breach) == [("handler", False)]
+
+    compliant = ast.parse(
+        '@router.get("/x", response_model=M, operation_id="x", responses=NOT_MODIFIED)\n'
+        "async def handler(request, response, db=None):\n"
+        "    cached = conditional_response(request, response, etag)\n"
+        "    return cached\n"
+    )
+    assert _routes_calling_conditional_response(compliant) == [("handler", True)]
+
+    # A non-conditional GET is simply out of scope, not a violation.
+    plain = ast.parse(
+        '@router.get("/y", response_model=M, operation_id="y")\n'
+        "async def other(db=None):\n"
+        "    return []\n"
+    )
+    assert _routes_calling_conditional_response(plain) == []
