@@ -35,6 +35,10 @@ Later files win on conflicting keys.
 | `/etc/power-map/.env` (640, root:exedev) | `DATABASE_URL`, `MIGRATIONS_DATABASE_URL`, `TEST_DATABASE_URL`, `ADDRESS_VALIDATOR_API_KEY`, `ADDRESS_VALIDATOR_RUN_VALIDATION` (default false; true → `/validate`, false → `/standardize` only), `ADDRESS_VALIDATOR_BASE_URL` (optional; defaults to `https://address-validator.exe.xyz:8000`), `DB_POOL_MIN_SIZE` (default 2), `DB_POOL_MAX_SIZE` (default 5; tune per DO tier), `API_REQUEST_LOG_MAX_PENDING` (optional; default 50; soft cap on in-flight fire-and-forget `api_request_log` capture writes before shedding — #290; tune relative to `DB_POOL_MAX_SIZE`; `0` disables capture entirely), `RATE_LIMIT_READ_PER_S` / `RATE_LIMIT_READ_BURST` / `RATE_LIMIT_WRITE_PER_S` / `RATE_LIMIT_WRITE_BURST` (optional; defaults 2/120/1/60; per-key token buckets on the public API — #292; per-worker, so effective ceiling ≈ workers × rate; refill ≤ 0 disables that bucket), `API_KEY_LAST_USED_DEBOUNCE_S` (optional; default 60; min seconds between `api_keys.last_used_at` stamps per worker — #292; `0` stamps every request) |
 | `.env` (repo, gitignored) | `GH_TOKEN` |
 
+`POWER_MAP_ENV_FILE` (optional, **test-only**, #398) redirects where `apply-schema.sh` reads its
+DSN fallback from, so the guard tests never see the real `/etc/power-map/.env`. Never set it in
+production.
+
 ## Provisioning
 
 One-time setup for the DO managed PostgreSQL cluster (`co-pm-db-1`, sfo3). State is stored in the `co-pm-spaces-1` DO Spaces bucket.
@@ -127,15 +131,52 @@ sudo journalctl -u power-map -f      # watch startup; schema errors surface here
 If `infra/power-map.service` changed in the pull, reinstall the unit first (see § Service Management —
 "Install (first time or after updating infra/power-map.service)") before restarting.
 
-To apply schema without restarting (e.g. after a manual `git pull` mid-session):
+To apply schema without restarting (e.g. after a manual `git pull` mid-session) — **from the
+main checkout, on `main`**:
 
 ```bash
 bash scripts/apply-schema.sh
 ```
 
 **Note:** `apply-schema.sh` uses `MIGRATIONS_DATABASE_URL` (DDL privileges). `systemctl restart`
-loads this from `EnvironmentFile=/etc/power-map/.env` automatically; standalone invocation
-requires `/etc/power-map/.env` to be present (the script loads it via `--env-file`).
+loads this from `EnvironmentFile=/etc/power-map/.env` automatically; a standalone invocation
+reads the same file directly, so `/etc/power-map/.env` must be present.
+
+### Guards (#398)
+
+The bare invocation writes to **production**. Guards, all skipped by `--yes`:
+
+| Shape | Behaviour |
+|---|---|
+| Linked git worktree | **refuses**, exit 2 — nothing applied; points at `--test` |
+| Interactive (TTY) | prompts for the database name before applying (or the word `production`, when the DSN yields no database name) |
+| Tracked modifications / branch ≠ `main` | WARNING only — never blocks a restart (untracked files are ignored) |
+
+Every run echoes its target first — `target: user@host:port/db (PRODUCTION)` plus the checkout,
+branch and SHA — so a mistaken run is visible in scrollback and in the journal. The echo is
+best-effort by design: a DSN that is not a parseable URL is reported as
+`(unparsed DSN — cannot redact)` and never printed, since it would carry the password, and a
+missing `python3` degrades the same way rather than failing the run.
+
+The guards read the checkout that owns the script, not the caller's cwd — the script `cd`s to its
+own repo root first, so the tree it reports is the tree whose `schema.sql` it applies. A git that
+cannot report its worktree layout (or a directory that is not a checkout) announces the guard as
+unavailable and proceeds, rather than ending a restart on an environmental quirk.
+
+| Flag | Effect |
+|---|---|
+| `--test` | target `TEST_DATABASE_URL` instead; allowed anywhere, never prompts |
+| `--yes`, `-y` | skip the production guards. `ExecStartPre` never passes this — the unit's invocation satisfies the guards instead of skipping them |
+| `--dry-run` | run the guards, echo the target, stop without applying |
+| `--help`, `-h` | usage on stdout, exit 0 |
+
+Exit codes: `0` applied (or dry run), `1` usage/configuration error, `2` guard refusal.
+
+Never add a guard that the systemd shape (main checkout, no TTY, no flags) can trip:
+`apply-schema.sh` is `ExecStartPre`, so a non-zero exit means the service does not start. That
+covers the diagnostics too — the target echo must degrade rather than abort.
+
+`scripts/sync-schema-to-do.sh` delegates its test-database apply to `apply-schema.sh --test`.
 
 ## Development
 
@@ -159,6 +200,18 @@ mitmdump \
   --set modify_headers='/~q/X-Exedev-Email/admin@example.com' \
   --set modify_headers='/~q/X-Exedev-Userid/usr_local_dev'
 ```
+
+### Applying a schema change during development
+
+From a worktree, apply to the **test** database — the bare command targets production and
+refuses to run here (#398):
+
+```bash
+bash scripts/apply-schema.sh --test
+```
+
+Uses `TEST_DATABASE_URL`, the same DB the integration suite applies the schema to
+(`tests/conftest.py`). Production picks the change up on the next `systemctl restart` after merge.
 
 ## Testing
 
