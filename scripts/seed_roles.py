@@ -167,7 +167,8 @@ def main() -> None:
     args = parser.parse_args()
     if not args.seed_file.exists():
         raise SystemExit(f"seed file not found: {args.seed_file}")
-    # Resolved after input validation — see prune_outbox.
+    # Resolved after validation so the echo means "about to connect". See
+    # docs/CONVENTIONS.md §"Operational scripts — dry run by default & target echo".
     dsn = resolve_dsn(args, parser)
     asyncio.run(run(dsn, args.seed_file, execute=args.execute))
 

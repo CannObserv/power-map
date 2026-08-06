@@ -520,6 +520,12 @@ The uniform flags (#399):
 | `--database-url DSN` | that DSN |
 | `--test` | `TEST_DATABASE_URL`; **hard-errors when unset** — never falls back to `DATABASE_URL`, which would be a production write dressed as a test write |
 
+**Resolve last.** The echo means "about to connect", so `resolve_dsn` goes
+*after* any input validation that can abort the run — otherwise the journal
+records a database the run never opened, which is the false attribution the
+echo exists to prevent. `check_api_anomalies` extends this to its
+`threshold <= 0` short-circuit: a disabled run resolves nothing.
+
 Passing `--test` and `--database-url` together is an error, not a precedence
 rule. A script whose target flags are domain-named (`audit_schema_constraint_parity`
 takes `--target-url` / `--reference-url`) uses `default_dsn()` for the default

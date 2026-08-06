@@ -10,7 +10,11 @@ Two groups of function, with **different failure contracts**:
 * Diagnostics — `redact_dsn`, `describe_dsn`, `echo_target`, `default_dsn`.
   These never raise on a caller's behalf. A DSN that is not a parseable URL is
   reported as unredactable and **never echoed**; callers must not fall back to
-  the raw string.
+  the raw string. `default_dsn` is a **narrow escape hatch**, not a shortcut:
+  it exists only for scripts whose target flags are domain-named and so cannot
+  take `add_dsn_args` (`audit_schema_constraint_parity` compares two
+  databases). Reaching for it elsewhere drops both the `--test` guard and the
+  echo — use `add_dsn_args` + `resolve_dsn`.
 * Resolution — `resolve_dsn`. This is a CLI entry point and **exits** via
   `parser.error()` (SystemExit, status 2) on a usage error: no DSN available,
   `--test` without `TEST_DATABASE_URL`, or two targets named at once. Do not
@@ -154,6 +158,9 @@ def default_dsn() -> str | None:
     (`audit_schema_constraint_parity`'s `--target-url` / `--reference-url`) and
     so cannot take `add_dsn_args`. They still echo via `echo_target`; this keeps
     the environment-variable name in one module.
+
+    Not a general-purpose accessor: it gives you neither the `--test` guard nor
+    the echo, so a script that could use `add_dsn_args` + `resolve_dsn` should.
     """
     return os.environ.get("DATABASE_URL") or None
 

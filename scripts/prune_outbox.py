@@ -74,8 +74,9 @@ def main() -> None:
     args = parser.parse_args()
     if args.retention_days < 1:
         parser.error("--retention-days must be >= 1")
-    # Resolved last: the echo means "about to connect", so it must not precede
-    # a usage error that ends the run without one.
+    # Resolved after validation: the echo means "about to connect", so it must
+    # not precede a usage error that ends the run without one. See
+    # docs/CONVENTIONS.md §"Operational scripts — dry run by default & target echo".
     dsn = resolve_dsn(args, parser)
     asyncio.run(run(dsn, execute=args.execute, retention_days=args.retention_days))
 

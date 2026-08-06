@@ -16,7 +16,15 @@ not prevent:
 Deliberately **no allowlist.** An exemption list is a place for a live script
 to hide, and the executed-once migrations cost one mechanical edit each to
 bring into line. If a new script genuinely cannot comply, the fix is to change
-this test with a reason in the diff — not to add a name to a set.
+this test with a reason in the diff — not to add a name to a set. (The one
+exception, `REFERENCE_DSN_EXEMPTION`, names a variable in a file rather than a
+file, and carries its reasoning inline.)
+
+A second section at the bottom holds **detector self-tests**. The sweep passing
+means "no script violates the rules" only if the detectors actually fire — an
+always-false detector looks identical from the outside — so each is shown a
+synthetic violation it must catch and a compliant sample it must not flag.
+Extend those alongside any change to the detectors above.
 """
 
 import ast
@@ -208,6 +216,8 @@ def test_write_sql_requires_an_execute_flag(path):
 # must catch and a compliant sample it must not flag.
 
 
+# Parsed by the detectors, never executed — `conn` is deliberately undefined
+# and the connect result discarded; only the AST shape matters here.
 COMPLIANT = """
 import argparse
 import asyncpg
