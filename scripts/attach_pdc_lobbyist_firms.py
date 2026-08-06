@@ -49,13 +49,13 @@ Usage:
 
 import argparse
 import asyncio
-import os
 from collections import Counter
 from datetime import UTC, date, datetime
 from typing import Literal, TypedDict
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
 from src.core.observation import Disposition, resolve_role
@@ -698,12 +698,8 @@ async def attach_lobbyist_firms(
     return actions
 
 
-async def run(*, execute: bool) -> None:
+async def run(dsn: str, *, execute: bool) -> None:
     """Connect to DATABASE_URL and attach the lobbyist-firm keys."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("DATABASE_URL not set")
-
     conn = await asyncpg.connect(dsn)
     try:
         if execute:
@@ -731,13 +727,15 @@ async def run(*, execute: bool) -> None:
 def main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute",
         action="store_true",
         help="Commit changes (default is dry run)",
     )
     args = parser.parse_args()
-    asyncio.run(run(execute=args.execute))
+    dsn = resolve_dsn(args, parser)
+    asyncio.run(run(dsn, execute=args.execute))
 
 
 if __name__ == "__main__":

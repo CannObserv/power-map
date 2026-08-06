@@ -27,13 +27,13 @@ Pre-conditions:
 
 import argparse
 import asyncio
-import os
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Literal
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.api.admin.people_merge import merge_person_into
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
@@ -308,17 +308,15 @@ CLEANUP_ACTIONS: list[CleanupAction] = [
 async def _main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute",
         action="store_true",
         help="Commit changes. Default is dry run (no changes made).",
     )
     args = parser.parse_args()
+    dsn = resolve_dsn(args, parser)
     dry_run = not args.execute
-
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise SystemExit("DATABASE_URL environment variable is required")
 
     conn = await asyncpg.connect(dsn)
     try:

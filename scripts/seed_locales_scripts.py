@@ -17,7 +17,6 @@ the libraries — the DB FK is the authoritative check.
 
 import argparse
 import asyncio
-import os
 import sys
 from collections.abc import Iterator
 
@@ -26,7 +25,7 @@ import langcodes
 import pycountry
 from langcodes.tag_parser import LanguageTagError
 
-from scripts._dsn import echo_target
+from scripts._dsn import add_dsn_args, resolve_dsn
 
 
 def enumerate_bcp47_locales() -> Iterator[dict]:
@@ -125,7 +124,6 @@ async def preview(conn: asyncpg.Connection, sql: str, rows: list[dict]) -> tuple
 
 async def run(dsn: str, *, execute: bool) -> None:
     """Seed both lookup tables. Dry run (read-only preview) unless ``execute``."""
-    echo_target(dsn)
     conn = await asyncpg.connect(dsn)
     try:
         # Materialized: the enumerations are generators, and a dry run reads
@@ -157,20 +155,15 @@ async def run(dsn: str, *, execute: bool) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--database-url",
-        default=os.environ.get("DATABASE_URL"),
-        help="DSN to seed (default: DATABASE_URL — production).",
-    )
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute",
         action="store_true",
         help="Commit the upserts (default is a read-only dry run).",
     )
     args = parser.parse_args(argv)
-    if not args.database_url:
-        parser.error("no database URL: pass --database-url or set DATABASE_URL")
-    asyncio.run(run(args.database_url, execute=args.execute))
+    dsn = resolve_dsn(args, parser)
+    asyncio.run(run(dsn, execute=args.execute))
 
 
 if __name__ == "__main__":

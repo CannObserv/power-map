@@ -45,6 +45,7 @@ from urllib.parse import urlparse
 
 import asyncpg
 
+from scripts._dsn import default_dsn, echo_target
 from src.core.logging import configure_logging, get_logger
 from src.core.schema_parity import (
     VERSION_SENSITIVE_KINDS,
@@ -223,7 +224,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--target-url",
-        default=os.environ.get("DATABASE_URL"),
+        default=default_dsn(),
         help="DB under audit (default DATABASE_URL)",
     )
     parser.add_argument(
@@ -241,6 +242,11 @@ def main() -> None:
         parser.error(
             "no reference: set PARITY_REFERENCE_URL or TEST_DATABASE_URL, or pass --reference-url"
         )
+
+    # Two connections, so each gets its own labelled line rather than one
+    # ambiguous "target:" — add_dsn_args does not fit a domain-named pair.
+    echo_target(args.target_url, role="target")
+    echo_target(args.reference_url, role="reference")
 
     drift_count = asyncio.run(run(reference_url=args.reference_url, target_url=args.target_url))
     if drift_count:

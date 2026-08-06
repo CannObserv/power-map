@@ -39,13 +39,13 @@ Pre-conditions:
 import argparse
 import asyncio
 import csv
-import os
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.api.admin.people_name_parts import upsert_or_delete_parts
 from src.core.logging import configure_logging, get_logger
 
@@ -153,6 +153,7 @@ async def run_migration(
 async def _main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute",
         action="store_true",
@@ -183,10 +184,9 @@ async def _main() -> None:
             "`uv run python -m scripts.analyse_person_name_parts` first."
         )
 
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise SystemExit("DATABASE_URL environment variable is required")
-
+    # Resolved after validation so the echo means "about to connect". See
+    # docs/CONVENTIONS.md §"Operational scripts — dry run by default & target echo".
+    dsn = resolve_dsn(args, parser)
     conn = await asyncpg.connect(dsn)
     try:
         result = await run_migration(

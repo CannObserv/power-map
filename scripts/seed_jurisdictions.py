@@ -11,13 +11,13 @@ Usage:
 import argparse
 import asyncio
 import json
-import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
 
@@ -135,12 +135,8 @@ async def upsert_jurisdiction_relationships(conn: asyncpg.Connection, rows: Iter
     return count
 
 
-async def run(seed_path: Path, *, execute: bool) -> None:
+async def run(dsn: str, seed_path: Path, *, execute: bool) -> None:
     """Load seed file and upsert all jurisdictions + relationships."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("DATABASE_URL not set")
-
     data = load_seed_file(seed_path)
     jur_rows = data.get("jurisdictions", [])
     rel_rows = data.get("relationships", [])
@@ -170,6 +166,7 @@ async def run(seed_path: Path, *, execute: bool) -> None:
 def main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument("seed_file", type=Path, help="Path to the seed JSON file")
     parser.add_argument(
         "--execute",
@@ -177,7 +174,8 @@ def main() -> None:
         help="Commit changes (default is dry run)",
     )
     args = parser.parse_args()
-    asyncio.run(run(args.seed_file, execute=args.execute))
+    dsn = resolve_dsn(args, parser)
+    asyncio.run(run(dsn, args.seed_file, execute=args.execute))
 
 
 if __name__ == "__main__":

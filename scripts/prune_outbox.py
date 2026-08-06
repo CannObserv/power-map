@@ -17,22 +17,18 @@ Usage:
 
 import argparse
 import asyncio
-import os
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.logging import configure_logging, get_logger
 from src.core.maintenance import DEFAULT_RETENTION_DAYS, count_prunable, prune_outbox
 
 logger = get_logger(__name__)
 
 
-async def run(*, execute: bool, retention_days: int) -> None:
+async def run(dsn: str, *, execute: bool, retention_days: int) -> None:
     """Prune (or, in dry-run mode, count) expired outbox + tombstone rows."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("DATABASE_URL not set")
-
     conn = await asyncpg.connect(dsn)
     try:
         if not execute:
@@ -63,6 +59,7 @@ async def run(*, execute: bool, retention_days: int) -> None:
 def main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute",
         action="store_true",
@@ -77,7 +74,11 @@ def main() -> None:
     args = parser.parse_args()
     if args.retention_days < 1:
         parser.error("--retention-days must be >= 1")
-    asyncio.run(run(execute=args.execute, retention_days=args.retention_days))
+    # Resolved after validation: the echo means "about to connect", so it must
+    # not precede a usage error that ends the run without one. See
+    # docs/CONVENTIONS.md §"Operational scripts — dry run by default & target echo".
+    dsn = resolve_dsn(args, parser)
+    asyncio.run(run(dsn, execute=args.execute, retention_days=args.retention_days))
 
 
 if __name__ == "__main__":

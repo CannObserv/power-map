@@ -21,12 +21,12 @@ Usage:
 
 import argparse
 import asyncio
-import os
 import re
 import sys
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.citations import CitationClaim, apply_citation_observations
 from src.core.logging import configure_logging, get_logger
 
@@ -94,17 +94,16 @@ async def _run(database_url: str, execute: bool, assignment_id: str | None) -> i
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute", action="store_true", help="Write citations (default: dry-run)."
     )
     parser.add_argument("--assignment-id", help="Limit to a single assignment id.")
     args = parser.parse_args()
-    if not args.database_url:
-        parser.error("no database URL: pass --database-url or set DATABASE_URL")
+    dsn = resolve_dsn(args, parser)
 
     configure_logging()
-    sys.exit(asyncio.run(_run(args.database_url, args.execute, args.assignment_id)))
+    sys.exit(asyncio.run(_run(dsn, args.execute, args.assignment_id)))
 
 
 if __name__ == "__main__":

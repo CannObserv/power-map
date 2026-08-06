@@ -19,21 +19,20 @@ Usage:
 import argparse
 import asyncio
 import csv
-import os
 import sys
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
 
-async def main(csv_path: str, execute: bool, has_header: bool) -> None:
+async def main(dsn: str, csv_path: str, execute: bool, has_header: bool) -> None:
     """Read CSV and insert affiliation rows."""
-    database_url = os.environ["DATABASE_URL"]
-    conn = await asyncpg.connect(database_url)
+    conn = await asyncpg.connect(dsn)
     try:
         inserted = 0
         skipped = 0
@@ -141,8 +140,10 @@ async def main(csv_path: str, execute: bool, has_header: bool) -> None:
 if __name__ == "__main__":
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument("csv_path", help="Path to CSV file")
     parser.add_argument("--execute", action="store_true", help="Commit changes (default: dry run)")
     parser.add_argument("--has-header", action="store_true", help="Skip first row of CSV")
     args = parser.parse_args()
-    asyncio.run(main(args.csv_path, args.execute, args.has_header))
+    dsn = resolve_dsn(args, parser)
+    asyncio.run(main(dsn, args.csv_path, args.execute, args.has_header))
