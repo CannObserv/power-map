@@ -22,7 +22,24 @@ Local overrides in `skills/` automatically shadow vendor skills in both systems.
 
 Init after cloning: `git submodule update --init --recursive`
 
-Submodule freshness auto-enforced by `UserPromptSubmit` hook in `.claude/settings.json`. Force-refresh: `git submodule update --remote --merge skills-vendor/gregoryfoster-skills skills-vendor/obra-superpowers`
+### Auto-refresh hook (#386)
+
+Submodule freshness is maintained by the vendored `SessionStart` hook `.claude/hooks/skills-submodule-update.sh` — a **symlink** into `skills-vendor/gregoryfoster-skills/skills/managing-skills/scripts/`, so upstream fixes to the hook arrive with the next submodule bump.
+
+- Once per UTC day (`.git/skills-update.lock`), `main` only, scoped to `skills-vendor/` — never other submodules
+- Auto-commits the pointer bump (`chore: update skills submodules`); logs to `.git/skills-update.log`
+- Exits `0` on every non-fatal condition — a session can never be blocked by it
+- Opportunistically runs `install-doctor.sh` on **every** branch (not day-gated) so `.skills/doctor.sh` self-heals; the commit of that refresh stays behind the `main`-only + daily gates
+
+Replaced the legacy inline `UserPromptSubmit` one-liner, which committed submodule bumps on any branch and never refreshed the doctor. Do not re-add it — two mechanisms racing on the same submodule.
+
+The `command` string is the literal `bash .claude/hooks/skills-submodule-update.sh` (project-dir-relative, not `$CLAUDE_PROJECT_DIR`-prefixed like the other hooks): `managing-skills` keys its idempotence and uninstall jq on that exact string.
+
+Force-refresh: `git submodule update --remote --merge -- skills-vendor/`
+
+### Doctor
+
+`.skills/doctor.sh` diagnoses and repairs broken vendor symlinks / uninitialized submodules. It is a real **file copy**, not a symlink — a symlinked doctor would dangle in exactly the failure mode it exists to repair — and re-syncs itself from the vendored source on every run (upstream skills#84). Check with `bash .skills/doctor.sh --version`; silent + exit `0` means healthy.
 
 To add a new external skill repo: follow the `managing-skills` skill.
 
