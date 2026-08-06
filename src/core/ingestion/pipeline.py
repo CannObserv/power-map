@@ -35,6 +35,10 @@ class ImportConfig:
         service when ADDRESS_VALIDATOR_API_KEY is set in the environment.
         Set validate_addresses=True (or VALIDATE_ADDRESSES=true env var) to
         also run the /validate endpoint for deliverability confirmation.
+
+        local_addresses_only=True keeps the run entirely off the wire — the
+        dry-run setting (#402), so a preview does not spend the rate-limited
+        validator quota. It overrides validate_addresses.
     """
 
     orgs_csv: Path
@@ -43,6 +47,7 @@ class ImportConfig:
     imported_by: str = "import"
     source_reliability: float = 0.8
     validate_addresses: bool = False
+    local_addresses_only: bool = False
     notes: str | None = None
 
     def __post_init__(self) -> None:
@@ -70,13 +75,21 @@ async def _load_reference_data(conn: asyncpg.Connection) -> ReferenceData:
     return ref
 
 
-def _build_address_normalizer(validate_addresses: bool) -> FallbackAddressNormalizer:
+def _build_address_normalizer(
+    validate_addresses: bool, *, local_only: bool = False
+) -> FallbackAddressNormalizer:
     """Build address normalizer from environment.
 
     Uses the shared get_address_normalizer() singleton as the base, but overrides
     run_validation when validate_addresses=True or VALIDATE_ADDRESSES env var is set.
     Falls back to local usaddress parsing if ADDRESS_VALIDATOR_API_KEY is absent.
+
+    ``local_only`` short-circuits all of that with a config-less normalizer:
+    standardization happens whenever ADDRESS_VALIDATOR_API_KEY is set, so this
+    is the only lever that keeps a run off the external service (#402).
     """
+    if local_only:
+        return FallbackAddressNormalizer(config=None)
     normalizer = get_address_normalizer()
     if normalizer.config is None:
         logger.warning("ADDRESS_VALIDATOR_API_KEY not set; using local address parser")
@@ -162,7 +175,9 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
     """Run the full multi-pass import. Returns a summary dict."""
     start = time.monotonic()
     ref = await _load_reference_data(conn)
-    addr_normalizer = _build_address_normalizer(config.validate_addresses)
+    addr_normalizer = _build_address_normalizer(
+        config.validate_addresses, local_only=config.local_addresses_only
+    )
 
     combined_hash = hashlib.sha256(
         (

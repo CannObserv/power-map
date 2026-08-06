@@ -79,8 +79,9 @@ bash "$SCRIPT_DIR/apply-schema.sh" --test
 # that write to person_names.locale / .script (FK-validated) and for tests
 # that assert the "both seeded → no warning" branch in db.py.
 echo "==> Seeding lookup tables on co_pm_db_test"
-DATABASE_URL="$TEST_DATABASE_URL" uv run --group seed scripts/seed_locales_scripts.py
+uv run --group seed scripts/seed_locales_scripts.py \
+    --database-url "$TEST_DATABASE_URL" --execute
 
 echo "==> Done"
 echo "    Production schema: run sync-data-to-do.sh next"
-echo "    Seed lookup tables after cutover: uv run --group seed scripts/seed_locales_scripts.py"
+echo "    Seed lookup tables after cutover: uv run --group seed scripts/seed_locales_scripts.py --execute"

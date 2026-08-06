@@ -73,7 +73,8 @@ bash scripts/sync-schema-to-do.sh
 bash scripts/sync-data-to-do.sh
 
 # 7. Seed BCP 47 / ISO 15924 lookup tables (once per fresh DB)
-uv run --group seed scripts/seed_locales_scripts.py
+#    Writes; omit --execute to preview first (#402)
+uv run --group seed scripts/seed_locales_scripts.py --execute
 
 # 8. Cutover — see docs/RUNBOOK_DB_MIGRATION.md for the maintenance window steps
 ```
@@ -371,24 +372,41 @@ env_args=()
 [ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
 [ -f .env ] && env_args+=(--env-file .env)
 
-# Import Cannabis Observer CSV exports
+# Dry run (#402) — runs the real pipeline, rolls it back, prints the summary
 uv run "${env_args[@]}" python scripts/import_cannabis_observer.py \
     --orgs   data/cannabis_observer/Organizations.csv \
     --people data/cannabis_observer/People.csv \
     --roles  data/cannabis_observer/Roles.csv
+
+# Commit — the default DATABASE_URL is PRODUCTION, from any directory
+uv run "${env_args[@]}" python scripts/import_cannabis_observer.py \
+    --orgs   data/cannabis_observer/Organizations.csv \
+    --people data/cannabis_observer/People.csv \
+    --roles  data/cannabis_observer/Roles.csv \
+    --execute
 
 # Also run address validation (requires ADDRESS_VALIDATOR_API_KEY)
 uv run "${env_args[@]}" python scripts/import_cannabis_observer.py \
     --orgs   data/cannabis_observer/Organizations.csv \
     --people data/cannabis_observer/People.csv \
     --roles  data/cannabis_observer/Roles.csv \
-    --validate-addresses
+    --validate-addresses --execute
 
 # Options
+#   --execute                   Commit (default is a dry run, rolled back)
+#   --database-url DSN          Target another database (default: DATABASE_URL)
+#   --apply-schema              Apply schema.sql first — fresh DB only; requires
+#                               --execute. Prefer scripts/apply-schema.sh (#398).
 #   --source-reliability FLOAT  Source reliability score (0.0–1.0, default: 0.8)
 #   --imported-by STRING        Importer label (default: cannabis-observer-csv-import)
 #   --validate-addresses        Also call /validate for deliverability confirmation
 ```
+
+The target database is echoed (redacted) to stderr before the connection, so a
+run is attributable in scrollback. A dry run still calls the external
+address-validator when `ADDRESS_VALIDATOR_API_KEY` is set — it is the same
+pipeline. Applying schema DDL was implicit before #402; it is now opt-in, and
+`scripts/apply-schema.sh` is the door that carries the production guards.
 
 ## Deduplication (one-time fix)
 
@@ -417,8 +435,17 @@ env_args=()
 
 # Populate bcp47_locales + iso15924_scripts from langcodes + pycountry.
 # Idempotent — safe to re-run to pick up registry updates.
+# Dry run (reports insert/update counts, writes nothing) without --execute:
 uv run "${env_args[@]}" --group seed scripts/seed_locales_scripts.py
+
+# Commit (#402 — the default DATABASE_URL is production):
+uv run "${env_args[@]}" --group seed scripts/seed_locales_scripts.py --execute
 ```
+
+To target the test database, use `scripts/sync-schema-to-do.sh` — it resolves
+`TEST_DATABASE_URL` from `/etc/power-map/.env` itself and passes it through as
+`--database-url`. `$TEST_DATABASE_URL` is **not** set in your shell by the
+`--env-file` flags above; `uv run --env-file` populates the child process only.
 
 Required after a fresh `apply_schema` on a brand-new DB. The FK on
 `person_names.locale` / `.script` is active immediately, so any non-NULL

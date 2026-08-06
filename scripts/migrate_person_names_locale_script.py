@@ -135,7 +135,7 @@ async def _preflight(
     if missing:
         raise SystemExit(
             f"Pre-flight failed — missing: {', '.join(missing)}. "
-            "Run: uv run --group seed scripts/seed_locales_scripts.py"
+            "Run: uv run --group seed scripts/seed_locales_scripts.py --execute"
         )
 
 
