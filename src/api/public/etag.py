@@ -88,12 +88,23 @@ def collection_etag(prefix: str, count: int, last: datetime | None, *params: obj
 
 
 def catalog_validator(rows: Iterable[Any]) -> str:
-    """Content-hash validator for a small, fully-materialized resource.
+    """Content-hash validator for a small, fully-materialized response.
 
-    For a table with no ``updated_at`` to watermark (`role_types`, `link_types`,
-    `entity_event_types`): a ``count(*)`` + ``max(created_at)`` tag would be
-    *stable across an in-place rename*, and `link_types` is admin-editable —
-    a 304ing consumer would hold the stale ``display_name`` indefinitely.
+    Use where **no single** ``updated_at`` covers the rows returned. Two shapes
+    qualify, for different reasons:
+
+    - A catalog whose table has no watermark at all (`role_types`, `link_types`,
+      `entity_event_types`). A ``count(*)`` + ``max(created_at)`` tag would be
+      *stable across an in-place rename*, and `link_types` is admin-editable —
+      a 304ing consumer would hold the stale ``display_name`` indefinitely.
+    - A response spanning several tables, where each has a watermark but none
+      covers the whole result: `GET /jurisdictions/{id}/lineage` walks
+      jurisdictions *and* their lineage edges recursively, and any watermark
+      that did cover it would still have to run the traversal first.
+
+    Corollary for the traversal case: a query param that only *shapes* the walk
+    (`depth`) is deliberately not baked into the tag — the hash already tracks
+    what came back, so two depths reaching the same set correctly share a tag.
 
     Hashes the fetched rows, so it is exact by construction. The honest
     trade-off: this saves serialization and transfer, **not** the query — the

@@ -383,6 +383,9 @@ async def get_jurisdiction_lineage(
     # covers it — and any validator that did would still have to run the
     # traversal. Hashing what the traversal returned is exact and covers a rename
     # of any member reached along the chain. Saves serialization + transfer only.
+    # Hashes the raw CTE rows, which is deliberately *broader* than the serialized
+    # body (traversal bookkeeping columns included): it can only over-invalidate,
+    # never miss a change.
     cached = conditional_response(request, response, catalog_validator(rows))
     if cached is not None:
         return cached

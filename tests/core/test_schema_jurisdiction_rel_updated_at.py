@@ -193,6 +193,11 @@ async def test_backfill_preserves_historical_timestamps(db):
     Drops the trigger and the column (transactional DDL, rolled back with the
     fixture), inserts a backdated edge, then executes the reconciliation block
     and the trigger statement **in the order they appear in schema.sql**.
+
+    Note for a future parallel runner: the DDL takes an ACCESS EXCLUSIVE lock on
+    `jurisdiction_relationships` for this transaction. Harmless while the suite
+    runs serially; under pytest-xdist this module must be isolated from anything
+    else touching that table.
     """
     sql = SCHEMA_SQL.read_text()
     await db.execute(
