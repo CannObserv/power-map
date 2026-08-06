@@ -74,6 +74,13 @@ def collection_etag(prefix: str, count: int, last: datetime | None, *params: obj
     still revalidatable — the dominant poll case is exactly the empty/unchanged
     one. Callers must compute *count* and *last* over the same ``WHERE`` clause
     the body uses, minus ``LIMIT``/``OFFSET``.
+
+    **Compute the validator before fetching the body** (CR #392/15). Routes hold
+    a pooled connection with no enclosing transaction, so the two queries see
+    separate snapshots. Version-first means the tag can only ever describe an
+    *older* state than the body, whose worst case is one redundant 200 on the
+    next poll. Body-first inverts that: the tag would describe a state newer
+    than the bytes sent, and the client would 304 on its stale copy forever.
     """
     last_ms = int(last.timestamp() * 1000) if last is not None else 0
     tail = "".join(f"-{_encode_param(p)}" for p in params)
@@ -81,12 +88,23 @@ def collection_etag(prefix: str, count: int, last: datetime | None, *params: obj
 
 
 def catalog_validator(rows: Iterable[Any]) -> str:
-    """Content-hash validator for a small, fully-materialized resource.
+    """Content-hash validator for a small, fully-materialized response.
 
-    For a table with no ``updated_at`` to watermark (`role_types`, `link_types`,
-    `entity_event_types`): a ``count(*)`` + ``max(created_at)`` tag would be
-    *stable across an in-place rename*, and `link_types` is admin-editable —
-    a 304ing consumer would hold the stale ``display_name`` indefinitely.
+    Use where **no single** ``updated_at`` covers the rows returned. Two shapes
+    qualify, for different reasons:
+
+    - A catalog whose table has no watermark at all (`role_types`, `link_types`,
+      `entity_event_types`). A ``count(*)`` + ``max(created_at)`` tag would be
+      *stable across an in-place rename*, and `link_types` is admin-editable —
+      a 304ing consumer would hold the stale ``display_name`` indefinitely.
+    - A response spanning several tables, where each has a watermark but none
+      covers the whole result: `GET /jurisdictions/{id}/lineage` walks
+      jurisdictions *and* their lineage edges recursively, and any watermark
+      that did cover it would still have to run the traversal first.
+
+    Corollary for the traversal case: a query param that only *shapes* the walk
+    (`depth`) is deliberately not baked into the tag — the hash already tracks
+    what came back, so two depths reaching the same set correctly share a tag.
 
     Hashes the fetched rows, so it is exact by construction. The honest
     trade-off: this saves serialization and transfer, **not** the query — the

@@ -492,3 +492,137 @@ async def test_lineage_by_slug(client, jur_api_key, jur_fixtures):
     assert r.status_code == 200
     ids = {item["id"] for item in r.json()["data"]}
     assert jur_fixtures["ld21_id"] in ids
+
+
+# ---------------------------------------------------------------------------
+# Conditional GET — relationships & lineage (#392 PR-C)
+# ---------------------------------------------------------------------------
+
+
+async def test_relationships_etag_round_trips_to_304(client, jur_api_key, jur_fixtures):
+    url = f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships"
+    first = await client.get(url, headers={"X-API-Key": jur_api_key})
+    assert first.status_code == 200
+    etag = first.headers["etag"]
+
+    r = await client.get(url, headers={"X-API-Key": jur_api_key, "If-None-Match": etag})
+    assert r.status_code == 304
+    assert r.content == b""
+    assert r.headers["cache-control"] == "no-cache"
+    assert r.headers["vary"] == "X-API-Key"
+
+
+async def test_relationships_etag_is_per_filter_and_per_window(client, jur_api_key, jur_fixtures):
+    base = f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships"
+
+    async def tag(query: str) -> str:
+        r = await client.get(f"{base}{query}", headers={"X-API-Key": jur_api_key})
+        assert r.status_code == 200
+        return r.headers["etag"]
+
+    plain = await tag("")
+    assert await tag("?direction=from") != plain
+    assert await tag("?direction=to") != plain
+    assert await tag("?category=lineage") != plain
+    assert await tag("?rel_type=supersedes") != plain
+    assert await tag("?limit=5") != plain
+    assert await tag("?offset=1") != plain
+
+
+async def test_relationships_etag_accepts_slug_and_id_alike(client, jur_api_key, jur_fixtures):
+    """Lookup accepts ULID or slug; both address the same resource version."""
+    by_id = await client.get(
+        f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships",
+        headers={"X-API-Key": jur_api_key},
+    )
+    by_slug = await client.get(
+        "/api/v1/jurisdictions/usa-wa/relationships", headers={"X-API-Key": jur_api_key}
+    )
+    assert by_id.status_code == by_slug.status_code == 200
+    assert by_id.headers["etag"] == by_slug.headers["etag"]
+
+
+async def test_lineage_etag_round_trips_to_304(client, jur_api_key, jur_fixtures):
+    url = f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/lineage"
+    first = await client.get(url, headers={"X-API-Key": jur_api_key})
+    assert first.status_code == 200
+    etag = first.headers["etag"]
+
+    r = await client.get(url, headers={"X-API-Key": jur_api_key, "If-None-Match": etag})
+    assert r.status_code == 304
+    assert r.content == b""
+    assert r.headers["vary"] == "X-API-Key"
+
+
+async def test_lineage_etag_changes_when_a_traversed_jurisdiction_is_renamed(
+    client, db, jur_api_key, jur_fixtures
+):
+    """A content hash over the traversal result covers *every* row it returned —
+    including a predecessor reached through the recursive CTE."""
+    url = f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/lineage"
+    before = (await client.get(url, headers={"X-API-Key": jur_api_key})).headers["etag"]
+
+    await db.execute(
+        "UPDATE jurisdictions SET name = name || ' (renamed)' WHERE id = $1",
+        jur_fixtures["old_ld21_id"],
+    )
+
+    after = await client.get(url, headers={"X-API-Key": jur_api_key, "If-None-Match": before})
+    assert after.status_code == 200, "renamed lineage member still revalidated as unchanged"
+
+
+async def test_lineage_etag_tracks_the_traversal_not_the_depth_param(
+    client, db, jur_api_key, jur_fixtures
+):
+    """`depth` is deliberately *not* baked into the tag.
+
+    A content hash covers the representation the traversal actually produced, so
+    two depths that reach the same set share a tag (correct, and cache-friendly)
+    while a depth that reaches further gets its own. Baking the param in would
+    only manufacture spurious misses.
+    """
+    base = f"/api/v1/jurisdictions/{jur_fixtures['ld21_id']}/lineage"
+
+    async def tag(query: str) -> str:
+        r = await client.get(f"{base}{query}", headers={"X-API-Key": jur_api_key})
+        assert r.status_code == 200
+        return r.headers["etag"]
+
+    # The fixture chain is a single hop, so every depth reaches the same set.
+    assert await tag("?depth=1") == await tag("?depth=10")
+
+    # Extend it by one hop; now depth=1 and depth=10 see different sets.
+    older_id = generate_id()
+    state_type_id = await db.fetchval("SELECT id FROM jurisdiction_types WHERE slug='state'")
+    supersedes_type_id = await db.fetchval(
+        "SELECT id FROM jurisdiction_relationship_types WHERE slug='supersedes'"
+    )
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id) VALUES ($1,$2,$3,$4)",
+        older_id,
+        f"usa-wa-ld-21-older-{older_id}",
+        "Even Older LD 21",
+        state_type_id,
+    )
+    await db.execute(
+        "INSERT INTO jurisdiction_relationships (id, from_id, to_id, rel_type_id)"
+        " VALUES ($1,$2,$3,$4)",
+        generate_id(),
+        jur_fixtures["old_ld21_id"],
+        older_id,
+        supersedes_type_id,
+    )
+
+    assert await tag("?depth=1") != await tag("?depth=10")
+
+
+async def test_relationship_items_expose_updated_at(client, jur_api_key, jur_fixtures):
+    """#392 added the column; expose it like the #301 RA→RA edge does (CR #392/16)."""
+    r = await client.get(
+        f"/api/v1/jurisdictions/{jur_fixtures['wa_id']}/relationships",
+        headers={"X-API-Key": jur_api_key},
+    )
+    assert r.status_code == 200
+    item = r.json()["data"][0]
+    assert "updated_at" in item, "relationship items should expose updated_at"
+    assert item["updated_at"].endswith("Z"), "timestamps serialize ISO 8601 with Z"

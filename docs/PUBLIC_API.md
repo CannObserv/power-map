@@ -113,11 +113,13 @@ Send `If-None-Match: <etag>` to receive `304 Not Modified` when the record is un
 | `GET /people/{id}/events`, `/orgs/{id}/events` | watermark |
 | `GET /citations/{entity_type}/{entity_id}` | watermark |
 | `GET /assignments/{pm_assignment_id}/relationships` | watermark |
+| `GET /jurisdictions/{id}/relationships` | watermark |
+| `GET /jurisdictions/{id}/lineage` | content hash |
 | `GET /role-types`, `/link-types`, `/entity-event-types` | content hash |
 
 **Watermark** = `count(*)` + `max(updated_at)` over the *visible* set, with every filter and the `limit`/`offset` window baked into the tag. Count catches a row entering or leaving the filtered set — a retract archives rather than deletes, so the row's own `updated_at` bump is invisible once the default (active-only) filter excludes it — and `max` catches an in-place edit. A tag from one filter/window never revalidates against another's.
 
-**Content hash** = a digest of the returned rows, used where the table carries no `updated_at` to watermark. Exact by construction: an in-place rename of a catalog entry invalidates, which a `count(*)` + `max(created_at)` tag would not. It saves serialization and transfer, not the query.
+**Content hash** = a digest of the returned rows, used where no single table's `updated_at` covers the response — a catalog whose table has none, or `/lineage`, whose result is a recursive traversal over jurisdictions *and* their lineage edges. Note `/lineage` deliberately does **not** bake `depth` into the tag: the hash tracks what the traversal actually returned, so two depths reaching the same set share a tag and a deeper reach gets its own. Exact by construction: an in-place rename of a catalog entry invalidates, which a `count(*)` + `max(created_at)` tag would not. It saves serialization and transfer, not the query.
 
 Search and list endpoints (`/people/search`, `/orgs/search`, `/roles`, `/assignments`, `/jurisdictions`) deliberately have **no** validator — a collection validator over a filtered, paginated, ranked result set costs about as much as serving the page. `/changes` is a cursor feed and needs none.
 
@@ -443,8 +445,8 @@ Identity uses `NULLS NOT DISTINCT`: at most one URL-less citation per `(entity, 
 | `GET` | `/api/v1/jurisdictions` | API key | Paginated list. Params: `type` (slug filter), `include_archived` (bool, default `false`), `limit` (max 100), `offset`. |
 | `GET` | `/api/v1/jurisdictions/resolve` | API key | Lookup by slug or external identifier. Params: `slug` xor (`scheme` + `value`). Returns a single record or 404. |
 | `GET` | `/api/v1/jurisdictions/{id}` | API key | Detail by ULID or slug. ETag caching — see caching section above. |
-| `GET` | `/api/v1/jurisdictions/{id}/relationships` | API key | Edges involving this jurisdiction. Params: `direction` (`from`/`to`/`both`, default `both`), `category` (`spatial`/`governance`/`functional`/`lineage`), `rel_type` (slug filter), `limit`, `offset`. |
-| `GET` | `/api/v1/jurisdictions/{id}/lineage` | API key | Walk `lineage`-category edges recursively. Returns ordered list of jurisdictions (depth-first). Params: `depth` (default 10, max 50). |
+| `GET` | `/api/v1/jurisdictions/{id}/relationships` | API key | Edges involving this jurisdiction. Params: `direction` (`from`/`to`/`both`, default `both`), `category` (`spatial`/`governance`/`functional`/`lineage`), `rel_type` (slug filter), `limit`, `offset`. ETag caching (watermark) — see [Conditional requests](#conditional-requests). |
+| `GET` | `/api/v1/jurisdictions/{id}/lineage` | API key | Walk `lineage`-category edges recursively. Returns ordered list of jurisdictions (depth-first). Params: `depth` (default 10, max 50). ETag caching (content hash) — see [Conditional requests](#conditional-requests). |
 | `POST` | `/api/v1/jurisdictions/observations` | `observations:write` scope | Submit a jurisdiction identity observation. |
 
 ### Observation write — `POST /jurisdictions/observations`
@@ -482,7 +484,7 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 - **`type` is free-text but registry-backed.** The `type.slug` field comes from the `jurisdiction_types` lookup table seeded at install time (~16 values: `country`, `state`, `county`, `city`, `legislative_district_upper`, etc.). Unknown type slugs in the `type` filter return an empty result set, not a 422.
 - **Relationship directionality.** Edges are stored once in the DB (from→to). Symmetric relationship types (`is_symmetric: true` on `rel_type`) imply both directions at the application layer — `direction=both` queries both `from_id` and `to_id` regardless of symmetry flag. Pass `direction=from` or `direction=to` to see only one side.
 - **Lineage cycle safety.** The lineage endpoint uses a recursive CTE with a visited-array guard. The `depth` cap prevents runaway traversal even on a cyclic graph.
-- **Bitemporal fields.** `valid_from` / `valid_until` are the validity-axis dates (when the jurisdiction or relationship was legally in effect). `recorded_at` / `superseded_at` are the transaction-axis timestamps (when the record was created/replaced in this system). All four may be null.
+- **Bitemporal fields.** `valid_from` / `valid_until` are the validity-axis dates (when the jurisdiction or relationship was legally in effect). `recorded_at` / `superseded_at` are the transaction-axis timestamps (when the record was created/replaced in this system). All four may be null. A relationship additionally carries `updated_at`, which is **neither axis**: it is the row's last-modification clock, maintained by a DB trigger and never null. It advances on any edit — including ones that supersede nothing — so use it for change detection, not for reasoning about when a relationship was in effect or superseded. It is the watermark behind this endpoint's ETag (#392).
 - **`include_archived` default.** Archived jurisdictions (`archived_at` non-null) are excluded from the list endpoint by default. Pass `include_archived=true` to include them. Detail and resolve endpoints always return archived jurisdictions regardless of this flag.
 
 ---
