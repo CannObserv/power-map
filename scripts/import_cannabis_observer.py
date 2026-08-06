@@ -35,13 +35,12 @@ Environment variables:
 
 import argparse
 import asyncio
-import os
 import sys
 from pathlib import Path
 
 import asyncpg
 
-from scripts._dsn import echo_target
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.db import apply_schema
 from src.core.ingestion.pipeline import ImportConfig, run_import
 from src.core.logging import configure_logging, get_logger
@@ -60,11 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--orgs", type=Path, required=True, help="Path to Organizations.csv")
     parser.add_argument("--people", type=Path, required=True, help="Path to People.csv")
     parser.add_argument("--roles", type=Path, required=True, help="Path to Roles.csv")
-    parser.add_argument(
-        "--database-url",
-        default=os.environ.get("DATABASE_URL"),
-        help="DSN to import into (default: DATABASE_URL — production).",
-    )
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute",
         action="store_true",
@@ -100,7 +95,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def run(dsn: str, config: ImportConfig, *, execute: bool, apply_schema_first: bool) -> None:
     """Import *config*. Dry run (rolled back) unless ``execute``."""
-    echo_target(dsn)
     conn = await asyncpg.connect(dsn)
     try:
         if apply_schema_first:
@@ -146,8 +140,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.apply_schema and not args.execute:
         parser.error("--apply-schema requires --execute (a dry run is rolled back)")
 
-    if not args.database_url:
-        parser.error("no database URL: pass --database-url or set DATABASE_URL")
+    dsn = resolve_dsn(args, parser)
 
     config = ImportConfig(
         orgs_csv=args.orgs,
@@ -163,7 +156,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     asyncio.run(
         run(
-            args.database_url,
+            dsn,
             config,
             execute=args.execute,
             apply_schema_first=args.apply_schema,

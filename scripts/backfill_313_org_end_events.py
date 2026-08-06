@@ -28,10 +28,10 @@ Usage (via ``uv run --env-file /etc/power-map/.env``):
 import argparse
 import asyncio
 import datetime
-import os
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
 
@@ -258,11 +258,8 @@ async def run_backfill(conn: asyncpg.Connection, *, execute: bool) -> dict[str, 
     return summary
 
 
-async def run(*, execute: bool) -> None:
+async def run(dsn: str, *, execute: bool) -> None:
     """Connect to DATABASE_URL and run the backfill."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("DATABASE_URL not set")
     conn = await asyncpg.connect(dsn)
     try:
         if execute:
@@ -277,9 +274,11 @@ async def run(*, execute: bool) -> None:
 def main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument("--execute", action="store_true", help="apply changes (default: report)")
     args = parser.parse_args()
-    asyncio.run(run(execute=args.execute))
+    dsn = resolve_dsn(args, parser)
+    asyncio.run(run(dsn, execute=args.execute))
 
 
 if __name__ == "__main__":

@@ -5,14 +5,13 @@ DB-touching aggregation lives in ``src.core.anomaly`` (tested in
 systemd timer invokes.
 """
 
-import asyncio
 import logging
 import sys
 from datetime import UTC, datetime
 
 import pytest
 
-from scripts.check_api_anomalies import main, report, run
+from scripts.check_api_anomalies import main, report
 from src.core.anomaly import KeyActivity
 
 _NOW = datetime(2026, 7, 16, 12, 0, 0, tzinfo=UTC)
@@ -102,21 +101,43 @@ def test_report_empty_or_tiny_activity(caplog, count, expected):
         assert report(acts, threshold=5000) == expected
 
 
+DSN = "postgresql://u:p@anomaly.example.invalid:5432/pmdb"
+
+
 @pytest.mark.parametrize("threshold", [0, -1])
-def test_run_nonpositive_threshold_disables_check(monkeypatch, caplog, threshold):
-    """Threshold <= 0 disables the check (RATE_LIMIT_* convention) — no DB touched."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)  # would RuntimeError if reached
-    with caplog.at_level(logging.INFO):
-        assert asyncio.run(run(threshold=threshold)) == 0
-    assert "disabled" in caplog.text.lower()
+def test_nonpositive_threshold_disables_check(monkeypatch, capsys, threshold):
+    """Threshold <= 0 disables the check (RATE_LIMIT_* convention) — no DB touched.
+
+    Since #399 the short-circuit lives in ``main``, ahead of target resolution:
+    resolving would echo a database this run never contacts. `DATABASE_URL` is
+    unset here, so reaching the resolver at all fails the test with SystemExit.
+
+    Asserted against captured output rather than caplog because ``main`` calls
+    ``configure_logging()``, which replaces the root handlers caplog installed.
+    The JSON log stream is stdout; the target echo is stderr.
+    """
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(sys, "argv", ["check_api_anomalies", "--threshold", str(threshold)])
+    main()  # no SystemExit — neither exit 3 nor an argparse usage error
+    assert "disabled" in capsys.readouterr().out.lower()
+
+
+def test_disabled_check_does_not_echo_a_target(monkeypatch, capsys):
+    """The journal must not record a target the run never connected to."""
+    monkeypatch.setenv("DATABASE_URL", DSN)
+    monkeypatch.setattr(sys, "argv", ["check_api_anomalies", "--threshold", "0"])
+    main()
+    captured = capsys.readouterr()
+    assert "anomaly.example.invalid" not in captured.err + captured.out
 
 
 def test_main_exits_3_on_anomaly(monkeypatch):
     """Anomaly exit code is 3 — distinct from argparse usage errors (exit 2)."""
 
-    async def fake_run(*, threshold):
+    async def fake_run(dsn, *, threshold):
         return 1
 
+    monkeypatch.setenv("DATABASE_URL", DSN)
     monkeypatch.setattr("scripts.check_api_anomalies.run", fake_run)
     monkeypatch.setattr(sys, "argv", ["check_api_anomalies"])
     with pytest.raises(SystemExit) as excinfo:
@@ -125,23 +146,24 @@ def test_main_exits_3_on_anomaly(monkeypatch):
 
 
 def test_main_exits_clean_when_no_anomalies(monkeypatch):
-    async def fake_run(*, threshold):
+    async def fake_run(dsn, *, threshold):
         return 0
 
+    monkeypatch.setenv("DATABASE_URL", DSN)
     monkeypatch.setattr("scripts.check_api_anomalies.run", fake_run)
     monkeypatch.setattr(sys, "argv", ["check_api_anomalies"])
     main()  # no SystemExit
 
 
-def test_main_accepts_zero_threshold_as_disabled(monkeypatch):
-    """--threshold 0 must not be an argparse usage error — it means disabled."""
+def test_main_passes_the_resolved_dsn_to_run(monkeypatch):
     seen = {}
 
-    async def fake_run(*, threshold):
-        seen["threshold"] = threshold
+    async def fake_run(dsn, *, threshold):
+        seen["dsn"] = dsn
         return 0
 
+    monkeypatch.setenv("DATABASE_URL", DSN)
     monkeypatch.setattr("scripts.check_api_anomalies.run", fake_run)
-    monkeypatch.setattr(sys, "argv", ["check_api_anomalies", "--threshold", "0"])
+    monkeypatch.setattr(sys, "argv", ["check_api_anomalies"])
     main()
-    assert seen["threshold"] == 0
+    assert seen["dsn"] == DSN

@@ -39,11 +39,11 @@ Usage:
 
 import argparse
 import asyncio
-import os
 from dataclasses import dataclass, field
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.logging import configure_logging, get_logger
 from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, name_type_priority_sql
 
@@ -180,17 +180,15 @@ async def run_backfill(
 async def _main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute",
         action="store_true",
         help="Commit changes. Default is dry run (no changes made).",
     )
     args = parser.parse_args()
+    dsn = resolve_dsn(args, parser)
     dry_run = not args.execute
-
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise SystemExit("DATABASE_URL environment variable is required")
 
     conn = await asyncpg.connect(dsn)
     try:

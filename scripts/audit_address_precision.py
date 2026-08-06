@@ -23,9 +23,10 @@ Unclassifiable rows are reported but never updated (precision stays NULL).
 
 import argparse
 import asyncio
-import os
 
 import asyncpg
+
+from scripts._dsn import add_dsn_args, resolve_dsn
 
 # ---------------------------------------------------------------------------
 # SQL helpers
@@ -136,17 +137,15 @@ def print_summary(buckets: dict[str, list[str]], *, dry_run: bool) -> None:
 async def _main() -> None:
     """Parse args, connect, audit, and optionally backfill."""
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute",
         action="store_true",
         help="Write derived precision values. Default is dry run (no changes).",
     )
     args = parser.parse_args()
+    dsn = resolve_dsn(args, parser)
     dry_run = not args.execute
-
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise SystemExit("DATABASE_URL environment variable is required")
 
     conn = await asyncpg.connect(dsn)
     try:

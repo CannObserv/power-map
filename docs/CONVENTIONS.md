@@ -498,12 +498,32 @@ more (`import_cannabis_observer.py`, `seed_locales_scripts.py`) and closed
 them. The convention was believed universal before that and was enforced by
 nothing — #399's AST sweep is what makes it stop depending on memory.
 
-**Every script echoes its target before connecting**, via
-`echo_target()` from `scripts/_dsn.py`:
+**Every script echoes its target before connecting**, via `add_dsn_args()` +
+`resolve_dsn()` from `scripts/_dsn.py`:
 
 ```
-target: co_pm_db_user@co-pm-db-1-….ondigitalocean.com:25060/co_pm_db
+target: co_pm_db_production_user@co-pm-db-1-….ondigitalocean.com:25060/co_pm_db_production (production)
 ```
+
+The label is derived by matching `(host, port, dbname)` — **not** the DSN
+string. Production is reached as two different users (`DATABASE_URL` as the app
+user, `MIGRATIONS_DATABASE_URL` as the migrations user); string equality would
+label a migrations DSN `unknown`. Anything unmatched is
+`unknown — assume production`, never `test`: the consequence of guessing wrong
+runs one way.
+
+The uniform flags (#399):
+
+| Flag | Effect |
+|---|---|
+| *(none)* | `DATABASE_URL` — production |
+| `--database-url DSN` | that DSN |
+| `--test` | `TEST_DATABASE_URL`; **hard-errors when unset** — never falls back to `DATABASE_URL`, which would be a production write dressed as a test write |
+
+Passing `--test` and `--database-url` together is an error, not a precedence
+rule. A script whose target flags are domain-named (`audit_schema_constraint_parity`
+takes `--target-url` / `--reference-url`) uses `default_dsn()` for the default
+and calls `echo_target(..., role=…)` per connection, so each gets its own line.
 
 `redact_dsn()` drops the password *and* the query string, and returns `None`
 for anything that is not a parseable URL. **Callers never fall back to printing
@@ -531,6 +551,12 @@ Schema DDL is never implicit. `scripts/apply-schema.sh` owns applying
 `schema.sql` and carries the #398 production guards; the importer's
 `--apply-schema` is opt-in and requires `--execute`, because DDL inside a run
 about to be rolled back would be a lie.
+
+All three rules are enforced by `tests/scripts/test_dsn_sweep.py`, an AST sweep
+over every `scripts/*.py`: it connects ⇒ goes through `_dsn.py`; nobody reads
+`DATABASE_URL` directly; write SQL ⇒ declares `--execute`. **It has no
+allowlist** — an exemption set is a place for a live script to hide. If a new
+script genuinely cannot comply, change the sweep with a reason in the diff.
 
 `apply-schema.sh` deliberately keeps its **own copy** of the redaction logic
 rather than importing `_dsn.py` — it runs as `ExecStartPre` on the systemd

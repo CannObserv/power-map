@@ -32,10 +32,10 @@ Usage:
 
 import argparse
 import asyncio
-import os
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -236,12 +236,8 @@ def _log_report(findings: dict[str, list[dict]], *, execute: bool) -> None:
         logger.info("Pass --execute to merge them")
 
 
-async def run(*, execute: bool) -> None:
+async def run(dsn: str, *, execute: bool) -> None:
     """Connect to DATABASE_URL and run the audit."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("DATABASE_URL not set")
-
     conn = await asyncpg.connect(dsn)
     try:
         if execute:
@@ -258,13 +254,15 @@ def main() -> None:
     """CLI entry point."""
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute",
         action="store_true",
         help="Merge auto-mergeable duplicate pairs (default is report-only)",
     )
     args = parser.parse_args()
-    asyncio.run(run(execute=args.execute))
+    dsn = resolve_dsn(args, parser)
+    asyncio.run(run(dsn, execute=args.execute))
 
 
 if __name__ == "__main__":

@@ -39,13 +39,13 @@ Pre-conditions:
 import argparse
 import asyncio
 import csv
-import os
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.api.admin.people_name_parts import upsert_or_delete_parts
 from src.core.logging import configure_logging, get_logger
 
@@ -153,6 +153,7 @@ async def run_migration(
 async def _main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument(
         "--execute",
         action="store_true",
@@ -172,6 +173,7 @@ async def _main() -> None:
         "reviewed them). Default filter is `trivial` only.",
     )
     args = parser.parse_args()
+    dsn = resolve_dsn(args, parser)
     dry_run = not args.execute
     confidence_filter = {"trivial"}
     if args.include_ambiguous:
@@ -182,10 +184,6 @@ async def _main() -> None:
             f"CSV not found: {args.input}. Run "
             "`uv run python -m scripts.analyse_person_name_parts` first."
         )
-
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise SystemExit("DATABASE_URL environment variable is required")
 
     conn = await asyncpg.connect(dsn)
     try:

@@ -364,6 +364,32 @@ uv run ruff check .
 uv run ruff check --fix .
 ```
 
+## Operational script targets (#399)
+
+Every script in `scripts/` that opens a connection takes the same two flags and
+echoes a labelled target to stderr before connecting:
+
+```bash
+uv run python -m scripts.<name>                      # DATABASE_URL — production
+uv run python -m scripts.<name> --test               # TEST_DATABASE_URL
+uv run python -m scripts.<name> --database-url DSN   # somewhere else
+```
+
+```
+target: co_pm_db_production_user@co-pm-db-1-….ondigitalocean.com:25060/co_pm_db_production (production)
+```
+
+- `--test` **hard-errors** when `TEST_DATABASE_URL` is unset — it never falls
+  back to `DATABASE_URL`.
+- `--test` together with `--database-url` is a usage error.
+- The label keys on `(host, port, dbname)`, so the migrations DSN labels
+  `production` too. An unrecognised target reads `unknown — assume production`.
+- A script that writes still needs `--execute`; the flags above only choose
+  *where*, never *whether*.
+
+Enforced by `tests/scripts/test_dsn_sweep.py` (AST, no allowlist). Full rules →
+`docs/CONVENTIONS.md` §"Operational scripts — dry run by default & target echo".
+
 ## Import
 
 ```bash

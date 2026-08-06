@@ -29,13 +29,13 @@ Pre-conditions:
 import argparse
 import asyncio
 import csv
-import os
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.logging import configure_logging, get_logger
 from src.core.normalizers.person_name import PartsSuggestion, suggest_parts
 
@@ -143,6 +143,7 @@ async def run_analysis(
 async def _main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument(
         "--output",
         "-o",
@@ -151,10 +152,7 @@ async def _main() -> None:
         help="Output CSV path (default: tmp/person_name_parts_analysis.csv)",
     )
     args = parser.parse_args()
-
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise SystemExit("DATABASE_URL environment variable is required")
+    dsn = resolve_dsn(args, parser)
 
     conn = await asyncpg.connect(dsn)
     try:

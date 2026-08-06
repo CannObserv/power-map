@@ -20,12 +20,12 @@ Usage:
 import argparse
 import asyncio
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.logging import configure_logging, get_logger
 from src.core.observation import Disposition, resolve_role
 
@@ -125,12 +125,8 @@ async def preview_roles(conn: asyncpg.Connection, roles: list[dict[str, Any]]) -
     return counts
 
 
-async def run(seed_path: Path, *, execute: bool) -> None:
+async def run(dsn: str, seed_path: Path, *, execute: bool) -> None:
     """Load the seed file and seed roles. Dry run (read-only preview) unless ``execute``."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("DATABASE_URL not set")
-
     roles = load_seed_file(seed_path).get("roles", [])
     conn = await asyncpg.connect(dsn)
     try:
@@ -161,6 +157,7 @@ async def run(seed_path: Path, *, execute: bool) -> None:
 def main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument("seed_file", type=Path, help="Path to the role seed JSON file")
     parser.add_argument(
         "--execute",
@@ -168,9 +165,10 @@ def main() -> None:
         help="Commit changes (default is dry run)",
     )
     args = parser.parse_args()
+    dsn = resolve_dsn(args, parser)
     if not args.seed_file.exists():
         raise SystemExit(f"seed file not found: {args.seed_file}")
-    asyncio.run(run(args.seed_file, execute=args.execute))
+    asyncio.run(run(dsn, args.seed_file, execute=args.execute))
 
 
 if __name__ == "__main__":

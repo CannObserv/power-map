@@ -23,11 +23,11 @@ Usage:
 
 import argparse
 import asyncio
-import os
 import sys
 
 import asyncpg
 
+from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.anomaly import HOURLY_REQUEST_THRESHOLD, KeyActivity, key_activity
 from src.core.logging import configure_logging, get_logger
 
@@ -64,19 +64,12 @@ def report(activities: list[KeyActivity], *, threshold: int) -> int:
     return len(anomalous)
 
 
-async def run(*, threshold: int) -> int:
+async def run(dsn: str, *, threshold: int) -> int:
     """Fetch the trailing hour's per-key activity and report; return anomaly count.
 
-    A threshold <= 0 disables the check entirely (no DB query, always 0).
+    ``main`` short-circuits a threshold <= 0 before resolving a target, so this
+    is reached only when the check is enabled.
     """
-    if threshold <= 0:
-        logger.info("Anomaly check disabled (threshold %d <= 0)", threshold)
-        return 0
-
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("DATABASE_URL not set")
-
     conn = await asyncpg.connect(dsn)
     try:
         activities = await key_activity(conn, window_hours=1)
@@ -89,6 +82,7 @@ def main() -> None:
     """CLI entry point — exits 3 when any key is anomalous (systemd failure hook)."""
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
+    add_dsn_args(parser)
     parser.add_argument(
         "--threshold",
         type=int,
@@ -99,7 +93,14 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
-    anomalous = asyncio.run(run(threshold=args.threshold))
+    if args.threshold <= 0:
+        # Resolved before the target, deliberately: echoing a database this run
+        # will never contact would be a false attribution in the journal.
+        logger.info("Anomaly check disabled (threshold %d <= 0)", args.threshold)
+        return
+
+    dsn = resolve_dsn(args, parser)
+    anomalous = asyncio.run(run(dsn, threshold=args.threshold))
     if anomalous:
         sys.exit(3)
 
