@@ -440,11 +440,12 @@ uv run "${env_args[@]}" --group seed scripts/seed_locales_scripts.py
 
 # Commit (#402 — the default DATABASE_URL is production):
 uv run "${env_args[@]}" --group seed scripts/seed_locales_scripts.py --execute
-
-# Target another database explicitly:
-uv run "${env_args[@]}" --group seed scripts/seed_locales_scripts.py \
-    --database-url "$TEST_DATABASE_URL" --execute
 ```
+
+To target the test database, use `scripts/sync-schema-to-do.sh` — it resolves
+`TEST_DATABASE_URL` from `/etc/power-map/.env` itself and passes it through as
+`--database-url`. `$TEST_DATABASE_URL` is **not** set in your shell by the
+`--env-file` flags above; `uv run --env-file` populates the child process only.
 
 Required after a fresh `apply_schema` on a brand-new DB. The FK on
 `person_names.locale` / `.script` is active immediately, so any non-NULL

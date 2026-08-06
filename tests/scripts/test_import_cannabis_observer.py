@@ -10,7 +10,6 @@ No DB: the connection and the import pipeline are both faked, so what is under
 test is the gating, not the import itself.
 """
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -132,6 +131,26 @@ def test_execute_commits(harness, monkeypatch):
     assert harness.conn.rolled_back is not True, "--execute must not roll back"
 
 
+def test_dry_run_keeps_addresses_local(harness, monkeypatch):
+    """A preview must not spend the external validator's rate-limited quota (#402)."""
+    monkeypatch.setenv("DATABASE_URL", DSN)
+    calls = harness()
+    assert calls["imports"][0].local_addresses_only is True
+
+
+def test_execute_uses_the_address_service(harness, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", DSN)
+    calls = harness("--execute")
+    assert calls["imports"][0].local_addresses_only is False
+
+
+def test_dry_run_says_addresses_were_parsed_locally(harness, monkeypatch, capsys):
+    """The preview differs from the commit here — say so rather than imply parity."""
+    monkeypatch.setenv("DATABASE_URL", DSN)
+    harness()
+    assert "local" in "".join(capsys.readouterr()).lower()
+
+
 def test_bare_invocation_does_not_apply_schema(harness, monkeypatch):
     """The silent DDL is the sharpest half of #402 — it must not fire by default."""
     monkeypatch.setenv("DATABASE_URL", DSN)
@@ -209,7 +228,10 @@ def test_connection_closed_on_dry_run(harness, monkeypatch):
 
 
 def test_dry_run_rollback_sentinel_never_escapes(harness, monkeypatch):
-    """The rollback is driven by an internal exception; it must not reach the caller."""
+    """The rollback is driven by an internal exception; it must not reach the caller.
+
+    Reaching the end of this test *is* the assertion: an escaped
+    ``_DryRunRollback`` would surface as an error here.
+    """
     monkeypatch.setenv("DATABASE_URL", DSN)
-    harness()  # would raise if the sentinel escaped
-    assert asyncio.iscoroutinefunction(cli.run)
+    harness()

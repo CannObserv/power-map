@@ -53,14 +53,8 @@ def redact_dsn(dsn: str | None) -> str | None:
     user = f"{parsed.username}@" if parsed.username else ""
     tail = f":{port}" if port else ""
     database = (parsed.path or "").lstrip("/")
-    return f"{user}{parsed.hostname}{tail}/{database}"
-
-
-def database_name(dsn: str | None) -> str | None:
-    """Return the database name from *dsn*, or None if it is not a parseable URL."""
-    if redact_dsn(dsn) is None:
-        return None
-    return (urlparse(dsn).path or "").lstrip("/") or None
+    # `?` for an absent database name, matching apply-schema.sh (parity-tested).
+    return f"{user}{parsed.hostname}{tail}/{database or '?'}"
 
 
 def echo_target(dsn: str | None, *, role: str = "target", stream: TextIO | None = None) -> None:

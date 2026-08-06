@@ -13,9 +13,10 @@ Dry run by default (#402). The default `DATABASE_URL` is **production**, from
 any directory, and before #402 a bare invocation applied schema DDL and
 committed the whole import with no confirmation. A dry run runs the real
 pipeline inside a transaction it then rolls back, so the summary it prints is
-the summary --execute would produce — but note it still calls the external
-address-validator when ADDRESS_VALIDATOR_API_KEY is set, because that is the
-same pipeline.
+the summary --execute would produce. Addresses are the one deliberate
+difference: a dry run parses them locally rather than spending the
+rate-limited external validator's quota on a run that changes nothing, so
+address fields in a preview may differ from a committed run.
 
 Schema DDL is no longer implicit: `scripts/apply-schema.sh` owns applying
 schema.sql and carries the #398 production guards. `--apply-schema` remains for
@@ -35,6 +36,7 @@ Environment variables:
 import argparse
 import asyncio
 import os
+import sys
 from pathlib import Path
 
 import asyncpg
@@ -117,7 +119,14 @@ async def run(dsn: str, config: ImportConfig, *, execute: bool, apply_schema_fir
 
         logger.info("import summary: %s", summary)
         if not execute:
-            print("dry run — rolled back. Pass --execute to commit.")
+            # Diagnostics go to stderr alongside the target echo, so redirecting
+            # one stream never leaves half the story.
+            print(
+                "dry run — rolled back; addresses parsed locally (no validator "
+                "calls), so address fields may differ from a committed run. "
+                "Pass --execute to commit.",
+                file=sys.stderr,
+            )
     finally:
         await conn.close()
 
@@ -147,6 +156,10 @@ def main(argv: list[str] | None = None) -> None:
         imported_by=args.imported_by,
         source_reliability=args.source_reliability,
         validate_addresses=args.validate_addresses,
+        # A preview must not spend the rate-limited validator quota — and
+        # standardization fires whenever ADDRESS_VALIDATOR_API_KEY is set,
+        # independent of --validate-addresses, so this is the only lever.
+        local_addresses_only=not args.execute,
     )
     asyncio.run(
         run(

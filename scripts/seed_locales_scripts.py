@@ -18,6 +18,7 @@ the libraries — the DB FK is the authoritative check.
 import argparse
 import asyncio
 import os
+import sys
 from collections.abc import Iterator
 
 import asyncpg
@@ -107,13 +108,17 @@ async def upsert_scripts(conn: asyncpg.Connection, rows: Iterator[dict]) -> int:
     return len(payload)
 
 
-async def preview(conn: asyncpg.Connection, table: str, rows: list[dict]) -> tuple[int, int]:
+_EXISTING_LOCALE_CODES_SQL = "SELECT code FROM bcp47_locales"
+_EXISTING_SCRIPT_CODES_SQL = "SELECT code FROM iso15924_scripts"
+
+
+async def preview(conn: asyncpg.Connection, sql: str, rows: list[dict]) -> tuple[int, int]:
     """Read-only classification for dry runs. Returns (would_insert, would_update).
 
     An upsert never deletes, so the split against the codes already present is
     the whole of what --execute would change.
     """
-    existing = {r["code"] for r in await conn.fetch(f"SELECT code FROM {table}")}  # noqa: S608
+    existing = {r["code"] for r in await conn.fetch(sql)}
     codes = {r["code"] for r in rows}
     return len(codes - existing), len(codes & existing)
 
@@ -129,12 +134,15 @@ async def run(dsn: str, *, execute: bool) -> None:
         locales = list(enumerate_bcp47_locales())
 
         if not execute:
-            scr_new, scr_same = await preview(conn, "iso15924_scripts", scripts_)
-            loc_new, loc_same = await preview(conn, "bcp47_locales", locales)
+            scr_new, scr_same = await preview(conn, _EXISTING_SCRIPT_CODES_SQL, scripts_)
+            loc_new, loc_same = await preview(conn, _EXISTING_LOCALE_CODES_SQL, locales)
+            # Diagnostics go to stderr alongside the target echo, so redirecting
+            # one stream never leaves half the story.
             print(
                 f"dry run: {loc_new} locales to insert, {loc_same} to update; "
                 f"{scr_new} scripts to insert, {scr_same} to update. "
-                "Pass --execute to commit."
+                "Pass --execute to commit.",
+                file=sys.stderr,
             )
             return
 

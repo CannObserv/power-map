@@ -6,6 +6,10 @@ that matters in both: a DSN carries a password, so nothing derived from one
 reaches stdout, stderr or a journal with the password in it.
 """
 
+import os
+import subprocess
+from pathlib import Path
+
 import pytest
 
 from scripts._dsn import echo_target, redact_dsn
@@ -40,9 +44,8 @@ def test_dsn_without_user():
 
 
 def test_dsn_without_database():
-    out = redact_dsn("postgresql://u:p@host.invalid:5432/")
-    assert "host.invalid:5432" in out
-    assert "p" not in out.split("@")[0]
+    """An absent database name renders as `?`, matching apply-schema.sh."""
+    assert redact_dsn("postgresql://u:p@host.invalid:5432/") == "u@host.invalid:5432/?"
 
 
 @pytest.mark.parametrize(
@@ -80,3 +83,51 @@ def test_echo_target_writes_to_stderr(capsys):
 def test_echo_target_labels_the_role(capsys):
     echo_target(DSN, role="reference")
     assert "reference:" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- #
+# Parity with scripts/apply-schema.sh
+# --------------------------------------------------------------------------- #
+
+APPLY_SCHEMA = Path(__file__).parents[2] / "scripts" / "apply-schema.sh"
+
+PARITY_DSNS = [
+    DSN,
+    "postgresql://u:p@host.invalid/db",
+    "postgresql://host.invalid:5432/db",
+    "postgresql://u:p@host.invalid:5432/",
+]
+
+
+def _apply_schema_target(dsn: str, tmp_path: Path) -> str:
+    """Run apply-schema.sh's own redaction and return the `target:` line's payload.
+
+    `--test --dry-run` stops after the target echo, and POWER_MAP_ENV_FILE
+    redirects the DSN lookup at a throwaway file — no real database is read or
+    contacted.
+    """
+    env_file = tmp_path / "env"
+    env_file.write_text(f"TEST_DATABASE_URL={dsn}\n")
+    proc = subprocess.run(
+        ["bash", str(APPLY_SCHEMA), "--test", "--dry-run"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "POWER_MAP_ENV_FILE": str(env_file), "TEST_DATABASE_URL": dsn},
+    )
+    assert proc.returncode == 0, proc.stderr
+    for line in proc.stderr.splitlines():
+        if line.startswith("target: "):
+            # Strip the trailing " (test)" label — only the redaction is shared.
+            return line.removeprefix("target: ").rsplit(" (", 1)[0]
+    raise AssertionError(f"no target line in:\n{proc.stderr}")
+
+
+@pytest.mark.parametrize("dsn", PARITY_DSNS)
+def test_redaction_matches_apply_schema_sh(dsn, tmp_path):
+    """The shell copy is duplicated on purpose (#398 ExecStartPre) — pin the agreement.
+
+    apply-schema.sh cannot import this module: an import failure on the
+    ExecStartPre path would be a failed production restart. Duplication is only
+    safe while something checks the two copies still say the same thing.
+    """
+    assert _apply_schema_target(dsn, tmp_path) == redact_dsn(dsn)

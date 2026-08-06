@@ -481,3 +481,58 @@ Enabled via `CREATE EXTENSION IF NOT EXISTS pg_trgm` in `apply_schema`. Required
 - `addresses.precision` indicates the specificity tier of the geocoded result (`street`, `postal`, `city`, `region`, `country`; NULL = unset or pre-geocoding historical record). Event place linkage (`entity_events.event_place_address_id`) requires city-level or finer (`city`, `postal`, `street`) — or NULL; `country`/`region` precision is rejected. See `EVENT_PLACE_PRECISIONS` in `src/core/types.py`.
 - `VALIDATE_ADDRESSES=true` (or `--validate-addresses` CLI flag) enables the `/validate` endpoint
 - `role_index` is pre-populated from the DB at pipeline startup (Pass 3) so re-runs are idempotent across batches
+
+## Operational scripts — dry run by default & target echo (#402)
+
+`DATABASE_URL` comes from `/etc/power-map/.env` and resolves to **production**
+from any directory — main checkout, worktree, anywhere on the VM. Nothing about
+a `scripts/…` invocation signals that. Two rules follow, and they are separate
+concerns: the gate stops an unintended write, the echo makes an intended one
+attributable afterwards.
+
+**Every script that writes gates the write behind `--execute`.** The bare
+invocation is read-only and reports what would change. #398 fixed
+`apply-schema.sh`, the one script that wrote unconditionally; #402 found two
+more (`import_cannabis_observer.py`, `seed_locales_scripts.py`) and closed
+them. The convention was believed universal before that and was enforced by
+nothing — #399's AST sweep is what makes it stop depending on memory.
+
+**Every script echoes its target before connecting**, via
+`echo_target()` from `scripts/_dsn.py`:
+
+```
+target: co_pm_db_user@co-pm-db-1-….ondigitalocean.com:25060/co_pm_db
+```
+
+`redact_dsn()` drops the password *and* the query string, and returns `None`
+for anything that is not a parseable URL. **Callers never fall back to printing
+the raw string**: `urlparse` hands back a libpq keyword/value DSN
+(`host=… password=…`) with the credentials in `path`, so a "best effort" echo
+would put the password in the journal. An absent database name renders `?`.
+
+Two shapes of dry run, both legitimate:
+
+| Shape | Used by | Note |
+|---|---|---|
+| Read-only preview | `seed_locales_scripts.py`, the `audit_*` scripts | Classify against current state; write nothing |
+| Real work, rolled back | `import_cannabis_observer.py` | The summary printed is the summary `--execute` produces |
+
+The rolled-back shape has one trap: **side effects outside the transaction do
+not roll back.** The importer parses addresses locally on a dry run
+(`ImportConfig.local_addresses_only`) rather than spending the rate-limited
+external validator's quota on a run that changes nothing — standardization
+fires whenever `ADDRESS_VALIDATOR_API_KEY` is set, independent of
+`--validate-addresses`, so that flag is the only lever. The cost is that
+address fields in a preview may differ from a committed run; the dry-run notice
+says so.
+
+Schema DDL is never implicit. `scripts/apply-schema.sh` owns applying
+`schema.sql` and carries the #398 production guards; the importer's
+`--apply-schema` is opt-in and requires `--execute`, because DDL inside a run
+about to be rolled back would be a lie.
+
+`apply-schema.sh` deliberately keeps its **own copy** of the redaction logic
+rather than importing `_dsn.py` — it runs as `ExecStartPre` on the systemd
+unit, where an import failure would mean a failed production restart. The two
+copies are pinned in agreement by
+`tests/scripts/test_dsn.py::test_redaction_matches_apply_schema_sh`.
