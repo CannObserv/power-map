@@ -72,9 +72,11 @@ def main() -> None:
         help=f"Retention window in days (default {DEFAULT_RETENTION_DAYS})",
     )
     args = parser.parse_args()
-    dsn = resolve_dsn(args, parser)
     if args.retention_days < 1:
         parser.error("--retention-days must be >= 1")
+    # Resolved last: the echo means "about to connect", so it must not precede
+    # a usage error that ends the run without one.
+    dsn = resolve_dsn(args, parser)
     asyncio.run(run(dsn, execute=args.execute, retention_days=args.retention_days))
 
 

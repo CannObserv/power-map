@@ -79,6 +79,9 @@ bash "$SCRIPT_DIR/apply-schema.sh" --test
 # that write to person_names.locale / .script (FK-validated) and for tests
 # that assert the "both seeded → no warning" branch in db.py.
 echo "==> Seeding lookup tables on co_pm_db_test"
+# --database-url, not --test: TEST_DATABASE_URL is a shell variable here (read
+# from /etc/power-map/.env above) and is never exported, so the child process
+# would not see it.
 uv run --group seed scripts/seed_locales_scripts.py \
     --database-url "$TEST_DATABASE_URL" --execute
 

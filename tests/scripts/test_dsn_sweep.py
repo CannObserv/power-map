@@ -5,8 +5,10 @@ not prevent:
 
 1. A script that opens a connection goes through `scripts/_dsn.py`, so its
    target is echoed and labelled.
-2. Nobody reads `DATABASE_URL` from the environment directly — that is the
-   pattern that made "which database am I about to write to?" invisible.
+2. Nobody reads `DATABASE_URL`, `TEST_DATABASE_URL` or `MIGRATIONS_DATABASE_URL`
+   from the environment directly — reading the first is the pattern that made
+   "which database am I about to write to?" invisible, and reading the second
+   bypasses the `--test` guard against falling through to production.
 3. A script containing write SQL declares `--execute`. This is the assertion
    #402 exists because of: `--execute` was believed universal, two scripts did
    not have it, and nothing checked.
@@ -32,6 +34,16 @@ DSN_MODULE = "_dsn"
 DSN_FUNCTIONS = frozenset({"resolve_dsn", "echo_target"})
 
 CONNECT_FUNCTIONS = frozenset({"connect", "create_pool"})
+
+DSN_ENV_VARS = frozenset({"DATABASE_URL", "TEST_DATABASE_URL", "MIGRATIONS_DATABASE_URL"})
+
+# audit_schema_constraint_parity compares two databases, so its --reference-url
+# default chain (PARITY_REFERENCE_URL, then TEST_DATABASE_URL) is a second real
+# target rather than a bypass of the first. Its --target-url goes through
+# default_dsn() and both connections are echoed with a role, so the guarantee
+# this sweep protects still holds. Narrow on purpose: the variable is named, not
+# just the script.
+REFERENCE_DSN_EXEMPTION = {"audit_schema_constraint_parity.py": {"TEST_DATABASE_URL"}}
 
 WRITE_SQL = re.compile(r"\b(INSERT\s+INTO|UPDATE\s+\w|DELETE\s+FROM)\b", re.IGNORECASE)
 
@@ -69,34 +81,55 @@ def opens_a_connection(tree: ast.Module) -> bool:
 
 
 def uses_dsn_module(tree: ast.Module) -> bool:
+    """Imports *and* calls one of the `_dsn` entry points.
+
+    Both halves are checked: an import alone would satisfy this while the script
+    still connected to an unannounced target. ruff's F401 would also catch the
+    unused import, but this test should not depend on another tool to mean what
+    it says.
+    """
     imported = {
         alias.name
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and node.module and node.module.endswith(DSN_MODULE)
         for alias in node.names
+    } & DSN_FUNCTIONS
+    if not imported:
+        return False
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
-    return bool(imported & DSN_FUNCTIONS)
+    return bool(imported & called)
 
 
-def reads_database_url_directly(tree: ast.Module) -> bool:
-    """`os.environ.get("DATABASE_URL")` or `os.environ["DATABASE_URL"]`."""
+def dsn_env_vars_read(tree: ast.Module) -> set[str]:
+    """DSN environment variables read directly: `os.environ.get(X)` / `os.environ[X]`.
+
+    All three, not just DATABASE_URL: a script reading TEST_DATABASE_URL itself
+    bypasses the `--test` guard (which exists precisely so an unset variable
+    cannot fall through to production), and one reading MIGRATIONS_DATABASE_URL
+    bypasses the label.
+    """
+    found: set[str] = set()
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "get"
-            and any(
-                isinstance(a, ast.Constant) and a.value == "DATABASE_URL" for a in node.args[:1]
-            )
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in DSN_ENV_VARS
         ):
-            return True
+            found.add(node.args[0].value)
         if (
             isinstance(node, ast.Subscript)
             and isinstance(node.slice, ast.Constant)
-            and node.slice.value == "DATABASE_URL"
+            and node.slice.value in DSN_ENV_VARS
         ):
-            return True
-    return False
+            found.add(node.slice.value)
+    return found
 
 
 def contains_write_sql(tree: ast.Module) -> bool:
@@ -143,12 +176,15 @@ def test_connecting_script_resolves_through_dsn_module(path):
 
 
 @pytest.mark.parametrize("path", script_paths(), ids=lambda p: p.name)
-def test_no_direct_database_url_reads(path):
+def test_no_direct_dsn_env_reads(path):
     if path.name == f"{DSN_MODULE}.py":
         pytest.skip("the resolver is the one place that reads the environment")
-    assert not reads_database_url_directly(_tree(path)), (
-        f"{path.name} reads DATABASE_URL from the environment directly. Use "
-        "add_dsn_args(parser) + resolve_dsn(args, parser) so the target is labelled and echoed."
+    allowed = REFERENCE_DSN_EXEMPTION.get(path.name, set())
+    offending = dsn_env_vars_read(_tree(path)) - allowed
+    assert not offending, (
+        f"{path.name} reads {', '.join(sorted(offending))} from the environment directly. Use "
+        "add_dsn_args(parser) + resolve_dsn(args, parser) so the target is labelled and echoed, "
+        "and so --test cannot fall through to production."
     )
 
 
@@ -161,3 +197,89 @@ def test_write_sql_requires_an_execute_flag(path):
         f"{path.name} contains write SQL but declares no --execute flag, so a bare invocation "
         "writes to production. This is the #402 defect; gate the write."
     )
+
+
+# --------------------------------------------------------------------------- #
+# Detector self-tests
+# --------------------------------------------------------------------------- #
+#
+# The sweep above only passes because no script violates it. That is also what
+# a broken detector looks like, so each one is shown a synthetic violation it
+# must catch and a compliant sample it must not flag.
+
+
+COMPLIANT = """
+import argparse
+import asyncpg
+from scripts._dsn import add_dsn_args, resolve_dsn
+
+def main():
+    parser = argparse.ArgumentParser()
+    add_dsn_args(parser)
+    parser.add_argument("--execute", action="store_true")
+    args = parser.parse_args()
+    dsn = resolve_dsn(args, parser)
+    asyncpg.connect(dsn)
+    conn.execute("INSERT INTO t (a) VALUES ($1)")
+"""
+
+
+def test_detector_flags_a_direct_database_url_read():
+    assert dsn_env_vars_read(ast.parse('import os\nx = os.environ.get("DATABASE_URL")')) == {
+        "DATABASE_URL"
+    }
+
+
+def test_detector_flags_a_direct_test_database_url_read():
+    """The #399 addition: reading this directly sidesteps the --test guard."""
+    assert dsn_env_vars_read(ast.parse('import os\nx = os.environ["TEST_DATABASE_URL"]')) == {
+        "TEST_DATABASE_URL"
+    }
+
+
+def test_detector_flags_a_direct_migrations_dsn_read():
+    assert dsn_env_vars_read(
+        ast.parse('import os\nx = os.environ.get("MIGRATIONS_DATABASE_URL")')
+    ) == {"MIGRATIONS_DATABASE_URL"}
+
+
+def test_detector_ignores_unrelated_env_reads():
+    assert (
+        dsn_env_vars_read(ast.parse('import os\nx = os.environ.get("PARITY_REFERENCE_URL")'))
+        == set()
+    )
+
+
+def test_compliant_sample_reads_no_dsn_env_vars():
+    assert dsn_env_vars_read(ast.parse(COMPLIANT)) == set()
+
+
+def test_import_without_a_call_does_not_satisfy_the_dsn_check():
+    """An unused import would otherwise pass assertion 1 while the script
+    connected to a target it never announced."""
+    source = "from scripts._dsn import resolve_dsn\nimport asyncpg\nasyncpg.connect('x')"
+    tree = ast.parse(source)
+    assert opens_a_connection(tree)
+    assert not uses_dsn_module(tree)
+
+
+def test_import_with_a_call_satisfies_the_dsn_check():
+    assert uses_dsn_module(ast.parse(COMPLIANT))
+
+
+def test_connection_detector_finds_create_pool():
+    assert opens_a_connection(ast.parse("import asyncpg\nasyncpg.create_pool('x')"))
+
+
+def test_write_sql_detector_ignores_docstrings():
+    """A module docstring mentioning DELETE FROM is documentation, not a write."""
+    assert not contains_write_sql(ast.parse('"""Explains DELETE FROM rows."""\nx = 1'))
+
+
+def test_write_sql_detector_finds_real_sql():
+    assert contains_write_sql(ast.parse(COMPLIANT))
+
+
+def test_execute_flag_detector():
+    assert declares_execute_flag(ast.parse(COMPLIANT))
+    assert not declares_execute_flag(ast.parse('p.add_argument("--dry-run")'))

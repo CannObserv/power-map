@@ -1,16 +1,24 @@
-"""Shared connection-target diagnostics for operational scripts (#402).
+"""Shared connection targeting for operational scripts (#402, #399).
 
 `DATABASE_URL` resolves to **production** from any directory, so a script that
 prints nothing about where it connected leaves no way to tell which database it
-touched. Call `echo_target(dsn)` before opening a connection.
+touched. Scripts call `add_dsn_args(parser)` + `resolve_dsn(args, parser)`,
+which resolve the target and echo it, labelled, before the first connection.
 
-Every function here is diagnostic and none may raise on a caller's behalf. A
-DSN that is not a parseable URL is reported as unredactable and **never
-echoed** — callers must not fall back to the raw string.
+Two groups of function, with **different failure contracts**:
 
-Rationale, the two dry-run shapes, and why `apply-schema.sh` keeps its own copy
-→ `docs/CONVENTIONS.md` §"Operational scripts — dry run by default & target
-echo".
+* Diagnostics — `redact_dsn`, `describe_dsn`, `echo_target`, `default_dsn`.
+  These never raise on a caller's behalf. A DSN that is not a parseable URL is
+  reported as unredactable and **never echoed**; callers must not fall back to
+  the raw string.
+* Resolution — `resolve_dsn`. This is a CLI entry point and **exits** via
+  `parser.error()` (SystemExit, status 2) on a usage error: no DSN available,
+  `--test` without `TEST_DATABASE_URL`, or two targets named at once. Do not
+  call it from anywhere that must survive bad input.
+
+Rationale, the label's `(host, port, dbname)` keying, the two dry-run shapes,
+and why `apply-schema.sh` keeps its own copy → `docs/CONVENTIONS.md`
+§"Operational scripts — dry run by default & target echo".
 """
 
 import argparse

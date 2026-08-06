@@ -18,9 +18,8 @@ in ``systemctl --failed`` and a hook for future ``OnFailure=`` alerting). Exit 3
 (not 2) stays distinct from argparse usage errors.
 
 Usage:
-    uv run python -m scripts.audit_ancillary_orphans
-    uv run python -m scripts.audit_ancillary_orphans \
-        --database-url "$TEST_DATABASE_URL"
+    uv run python -m scripts.audit_ancillary_orphans          # DATABASE_URL
+    uv run python -m scripts.audit_ancillary_orphans --test   # TEST_DATABASE_URL
 """
 
 import argparse

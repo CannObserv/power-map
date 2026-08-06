@@ -165,9 +165,10 @@ def main() -> None:
         help="Commit changes (default is dry run)",
     )
     args = parser.parse_args()
-    dsn = resolve_dsn(args, parser)
     if not args.seed_file.exists():
         raise SystemExit(f"seed file not found: {args.seed_file}")
+    # Resolved after input validation — see prune_outbox.
+    dsn = resolve_dsn(args, parser)
     asyncio.run(run(dsn, args.seed_file, execute=args.execute))
 
 

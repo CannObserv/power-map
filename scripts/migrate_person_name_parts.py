@@ -173,7 +173,6 @@ async def _main() -> None:
         "reviewed them). Default filter is `trivial` only.",
     )
     args = parser.parse_args()
-    dsn = resolve_dsn(args, parser)
     dry_run = not args.execute
     confidence_filter = {"trivial"}
     if args.include_ambiguous:
@@ -185,6 +184,8 @@ async def _main() -> None:
             "`uv run python -m scripts.analyse_person_name_parts` first."
         )
 
+    # Resolved after input validation — see prune_outbox.
+    dsn = resolve_dsn(args, parser)
     conn = await asyncpg.connect(dsn)
     try:
         result = await run_migration(
