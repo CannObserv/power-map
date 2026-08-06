@@ -113,7 +113,7 @@ BCP 47 / ISO 15924 tables must be populated before any write to
 ```bash
 env_args=(--env-file /etc/power-map/.env)
 [ -f .env ] && env_args+=(--env-file .env)
-uv run "${env_args[@]}" --group seed scripts/seed_locales_scripts.py
+uv run "${env_args[@]}" --group seed scripts/seed_locales_scripts.py --execute
 ```
 
 ---

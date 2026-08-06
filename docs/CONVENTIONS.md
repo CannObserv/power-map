@@ -367,7 +367,7 @@ No curated default-set is maintained — the typeahead's empty state shows a pla
 - locales: `code ILIKE '%q%' OR display_name ILIKE '%q%'`
 - scripts: `code ILIKE '%q%' OR name ILIKE '%q%'`
 
-pg_trgm GIN indexes are present on both columns of both tables (Postgres' planner may still pick Seq Scan at current row counts; the index is load-bearing as the data grows). Re-seed at any time to pick up registry updates: `uv run --group seed scripts/seed_locales_scripts.py`.
+pg_trgm GIN indexes are present on both columns of both tables (Postgres' planner may still pick Seq Scan at current row counts; the index is load-bearing as the data grows). Re-seed at any time to pick up registry updates: `uv run --group seed scripts/seed_locales_scripts.py --execute` (dry run without `--execute`, #402).
 
 ON UPDATE CASCADE is set on both FKs, so a registry-driven `code` rename propagates to existing person_names rows. ON DELETE NO ACTION (default) blocks lookup-row deletion when referenced — the registry doesn't shrink, so this is correct.
 

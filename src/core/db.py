@@ -219,7 +219,7 @@ async def apply_schema(conn: asyncpg.Connection) -> None:
     requires the optional ``seed`` dep group (langcodes + pycountry) and
     runs once per environment via:
 
-        uv run --group seed scripts/seed_locales_scripts.py
+        uv run --group seed scripts/seed_locales_scripts.py --execute
 
     A WARNING is logged when either lookup table is empty after apply,
     since the live FK on ``person_names.locale`` / ``.script`` will
@@ -272,13 +272,13 @@ async def _warn_if_lookup_tables_unseeded(conn: asyncpg.Connection) -> None:
     Empty lookup tables block any non-NULL write to ``person_names.locale``
     or ``.script`` via the FK. Seed with::
 
-        uv run --group seed scripts/seed_locales_scripts.py
+        uv run --group seed scripts/seed_locales_scripts.py --execute
     """
     for table in ("bcp47_locales", "iso15924_scripts"):
         empty = await conn.fetchval(f"SELECT NOT EXISTS (SELECT 1 FROM {table})")
         if empty:
             logger.warning(
-                "%s is empty — run `uv run --group seed scripts/seed_locales_scripts.py` "
+                "%s is empty — run `uv run --group seed scripts/seed_locales_scripts.py --execute` "
                 "before any non-NULL person_names.locale/.script writes",
                 table,
             )
