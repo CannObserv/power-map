@@ -139,24 +139,38 @@ fi
 echo "target: ${TARGET_DESC} (${TARGET_LABEL})" >&2
 
 # ── Git context ──────────────────────────────────────────────────────────────
+# Every git call here degrades rather than aborting: an unusable git must not
+# end a restart, and it must not be *inferred* from either (a blank
+# --git-common-dir would make `cd ""` succeed and mimic a linked worktree).
+# When the layout cannot be read the guard is announced as unavailable and the
+# run proceeds — same as a non-git directory, and the other guards still apply.
 LINKED_WORKTREE=0
 if git rev-parse --git-dir >/dev/null 2>&1; then
-    git_dir="$(cd "$(git rev-parse --git-dir)" && pwd -P)"
-    common_dir="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"
-    # A linked worktree's git dir is <main>/.git/worktrees/<name>; the main
-    # checkout's git dir *is* the common dir.
-    [ "$git_dir" = "$common_dir" ] || LINKED_WORKTREE=1
+    git_dir="$(git rev-parse --git-dir 2>/dev/null || true)"
+    common_dir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+    [ -z "$git_dir" ] || git_dir="$(cd "$git_dir" 2>/dev/null && pwd -P || true)"
+    [ -z "$common_dir" ] || common_dir="$(cd "$common_dir" 2>/dev/null && pwd -P || true)"
 
-    branch="$(git rev-parse --abbrev-ref HEAD)"
-    echo "checkout: $(git rev-parse --show-toplevel) (branch=${branch} sha=$(git rev-parse --short HEAD))" >&2
+    if [ -n "$git_dir" ] && [ -n "$common_dir" ]; then
+        # A linked worktree's git dir is <main>/.git/worktrees/<name>; the main
+        # checkout's git dir *is* the common dir.
+        [ "$git_dir" = "$common_dir" ] || LINKED_WORKTREE=1
+    else
+        echo "WARNING: git did not report its layout — the worktree guard is unavailable" >&2
+    fi
+
+    branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    sha="$(git rev-parse --short HEAD 2>/dev/null || true)"
+    toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    echo "checkout: ${toplevel:-?} (branch=${branch:-?} sha=${sha:-?})" >&2
 
     if [ "$IS_PROD" -eq 1 ]; then
         # Tracked modifications only: untracked files cannot change schema.sql,
         # and a warning that fires on every restart stops being read.
-        if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then
             echo "WARNING: checkout has uncommitted changes — production schema should come from a clean tree" >&2
         fi
-        if [ "$branch" != "$DEFAULT_BRANCH" ]; then
+        if [ -n "$branch" ] && [ "$branch" != "$DEFAULT_BRANCH" ]; then
             echo "WARNING: on branch ${branch}, not ${DEFAULT_BRANCH} — production schema should come from ${DEFAULT_BRANCH}" >&2
         fi
     fi

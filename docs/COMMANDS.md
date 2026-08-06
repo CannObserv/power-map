@@ -149,7 +149,7 @@ The bare invocation writes to **production**. Guards, all skipped by `--yes`:
 | Shape | Behaviour |
 |---|---|
 | Linked git worktree | **refuses**, exit 2 — nothing applied; points at `--test` |
-| Interactive (TTY) | prompts for the database name before applying |
+| Interactive (TTY) | prompts for the database name before applying (or the word `production`, when the DSN yields no database name) |
 | Tracked modifications / branch ≠ `main` | WARNING only — never blocks a restart (untracked files are ignored) |
 
 Every run echoes its target first — `target: user@host:port/db (PRODUCTION)` plus the checkout,
@@ -159,7 +159,9 @@ best-effort by design: a DSN that is not a parseable URL is reported as
 missing `python3` degrades the same way rather than failing the run.
 
 The guards read the checkout that owns the script, not the caller's cwd — the script `cd`s to its
-own repo root first, so the tree it reports is the tree whose `schema.sql` it applies.
+own repo root first, so the tree it reports is the tree whose `schema.sql` it applies. A git that
+cannot report its worktree layout (or a directory that is not a checkout) announces the guard as
+unavailable and proceeds, rather than ending a restart on an environmental quirk.
 
 | Flag | Effect |
 |---|---|

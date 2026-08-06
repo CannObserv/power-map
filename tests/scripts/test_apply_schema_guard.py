@@ -387,6 +387,52 @@ def test_non_git_directory_warns_but_proceeds(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# An unusable git degrades; it never stops a restart (#398 CR 22)
+# --------------------------------------------------------------------------- #
+
+
+def _stub_git_bin(tmp_path: Path) -> Path:
+    """A `git` that predates --git-common-dir (added in git 2.5)."""
+    stub_bin = tmp_path / "oldgit"
+    stub_bin.mkdir()
+    (stub_bin / "git").write_text(
+        "#!/usr/bin/env bash\n"
+        'for a in "$@"; do\n'
+        '  [ "$a" = "--git-common-dir" ] && { echo "error: unknown option" >&2; exit 129; }\n'
+        "done\n"
+        f'exec {shutil.which("git")} "$@"\n'
+    )
+    (stub_bin / "git").chmod(0o755)
+    for tool in ("bash", "grep", "cut", "tail", "cat", "python3"):
+        found = shutil.which(tool)
+        if found:
+            (stub_bin / tool).symlink_to(found)
+    return stub_bin
+
+
+def test_git_without_common_dir_does_not_refuse(repo, tmp_path):
+    """`cd ""` succeeds silently, so a blank common dir must never imply a worktree."""
+    result = _run(repo, tmp_path, "--dry-run", PATH=str(_stub_git_bin(tmp_path)))
+
+    assert result.returncode == 0, _out(result)
+    assert "worktree guard is unavailable" in _out(result)
+    assert "refusing" not in _out(result)
+
+
+def test_commitless_repo_does_not_abort(tmp_path):
+    """rev-parse HEAD fails without commits; set -e would end the restart."""
+    root = tmp_path / "fresh"
+    (root / "scripts").mkdir(parents=True)
+    shutil.copy(SCRIPT, root / "scripts" / "apply-schema.sh")
+    _git(root, "init", "-q", "-b", "main")
+
+    result = _run(root, tmp_path, "--dry-run")
+
+    assert result.returncode == 0, _out(result)
+    assert "schema applied" not in _out(result)
+
+
+# --------------------------------------------------------------------------- #
 # Interactive confirmation (TTY only — systemd never sees this path)
 # --------------------------------------------------------------------------- #
 
