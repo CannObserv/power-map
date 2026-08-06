@@ -127,15 +127,40 @@ sudo journalctl -u power-map -f      # watch startup; schema errors surface here
 If `infra/power-map.service` changed in the pull, reinstall the unit first (see § Service Management —
 "Install (first time or after updating infra/power-map.service)") before restarting.
 
-To apply schema without restarting (e.g. after a manual `git pull` mid-session):
+To apply schema without restarting (e.g. after a manual `git pull` mid-session) — **from the
+main checkout, on `main`**:
 
 ```bash
 bash scripts/apply-schema.sh
 ```
 
 **Note:** `apply-schema.sh` uses `MIGRATIONS_DATABASE_URL` (DDL privileges). `systemctl restart`
-loads this from `EnvironmentFile=/etc/power-map/.env` automatically; standalone invocation
-requires `/etc/power-map/.env` to be present (the script loads it via `--env-file`).
+loads this from `EnvironmentFile=/etc/power-map/.env` automatically; a standalone invocation
+reads the same file directly, so `/etc/power-map/.env` must be present.
+
+### Guards (#398)
+
+The bare invocation writes to **production**. Guards, all skipped by `--yes`:
+
+| Shape | Behaviour |
+|---|---|
+| Linked git worktree | **refuses**, exit 2 — nothing applied; points at `--test` |
+| Interactive (TTY) | prompts for the database name before applying |
+| Dirty tree / branch ≠ `main` | WARNING only — never blocks a restart |
+
+Every run echoes its target first — `target: user@host:port/db (PRODUCTION)` plus the checkout,
+branch and SHA — so a mistaken run is visible in scrollback and in the journal.
+
+| Flag | Effect |
+|---|---|
+| `--test` | target `TEST_DATABASE_URL` instead; allowed anywhere, never prompts |
+| `--yes` | skip the production guards (`ExecStartPre` does **not** pass this — it passes them) |
+| `--dry-run` | run the guards, echo the target, stop without applying |
+
+Exit codes: `0` applied (or dry run), `1` usage/configuration error, `2` guard refusal.
+
+Never add a guard that the systemd shape (main checkout, no TTY, no flags) can trip:
+`apply-schema.sh` is `ExecStartPre`, so a non-zero exit means the service does not start.
 
 ## Development
 
@@ -159,6 +184,18 @@ mitmdump \
   --set modify_headers='/~q/X-Exedev-Email/admin@example.com' \
   --set modify_headers='/~q/X-Exedev-Userid/usr_local_dev'
 ```
+
+### Applying a schema change during development
+
+From a worktree, apply to the **test** database — the bare command targets production and
+refuses to run here (#398):
+
+```bash
+bash scripts/apply-schema.sh --test
+```
+
+Uses `TEST_DATABASE_URL`, the same DB the integration suite applies the schema to
+(`tests/conftest.py`). Production picks the change up on the next `systemctl restart` after merge.
 
 ## Testing
 
