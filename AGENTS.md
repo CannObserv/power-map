@@ -52,7 +52,8 @@ infra/          — systemd units (API + prune timer) + terraform
 
 ## Admin Dashboard Key Rules
 
-Full conventions → `docs/STYLE.md §32` · a11y → `docs/ACCESSIBILITY.md`
+Full conventions → `docs/STYLE.md §32`
+Accessibility rules and their test tiers → `docs/ACCESSIBILITY.md`
 
 - Auth: `user: AdminUser = Depends(get_admin_user)` on every route
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete requires archived (409 otherwise)
