@@ -21,4 +21,7 @@ uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config
 uv run pytest
 ```
 
-See [docs/COMMANDS.md](docs/COMMANDS.md) for full command reference.
+See [docs/COMMANDS.md](docs/COMMANDS.md) for everyday commands,
+[docs/TESTING.md](docs/TESTING.md) for the test tiers, and
+[docs/RUNBOOKS.md](docs/RUNBOOKS.md) for seeds, backfills and audits.
+[AGENTS.md](AGENTS.md) § Detail Docs indexes the whole reference tree.
