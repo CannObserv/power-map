@@ -20,9 +20,9 @@ Reference for public API, database, and ingestion patterns. For admin dashboard 
 
 ### Public API key rules at a glance
 
-One-line-per-rule index of the section above — read this first, then the
-subsection a rule names. Where an entry ends `Full rules → …`, the target is
-a subsection of this same section.
+One-line-per-rule index of this section — read it first, then the subsection
+a rule names. Where an entry ends `Full rules → …`, the target is a
+subsection of this same section.
 
 - Auth deps (all from `src.api.public.deps`): `require_api_key` (read-only, returns `user_id`); `require_key` (returns `AuthedKey(user_id, key_id)` — use when handler needs the key_id, e.g. subscription join); `require_scope("scope:id")` (write, enforces scope); 403 on missing/insufficient scope or absent header, 401 on invalid key
 - Lists: `{"data": [...], "meta": {"limit", "offset", "count", "has_more"}}`; fetch `limit+1` rows for `has_more`. Every paginated `ORDER BY` **must end with a unique column** (usually the PK) — otherwise offset windows over tied rows skip and duplicate (#297)
@@ -56,9 +56,9 @@ a subsection of this same section.
 
 ### DB key rules at a glance
 
-One-line-per-rule index of the section above — read this first, then the
-subsection a rule names. Where an entry ends `Full rules → …`, the target is
-a subsection of this same section.
+One-line-per-rule index of this section — read it first, then the subsection
+a rule names. Where an entry ends `Full rules → …`, the target is a
+subsection of this same section.
 
 - Route handlers acquire connections via `Depends(get_db)` only — never call `src.core.db.acquire()` directly; doing so escapes `app.dependency_overrides` and breaks test isolation. **Sole route exception (#343):** `GET /ready` probes the real pool via `db.check_ready()` (bounded acquire + `SELECT 1`) — a failing `Depends` would 500 instead of 503; tests patch `check_ready` itself
 - Entity search (#316): every `search_tsv @@ …` predicate goes through `pm_prefix_tsquery(cfg, q)` (last-token prefix FTS), never bare `plainto_tsquery`; jurisdictions are the ILIKE exception. Full rules → `docs/CONVENTIONS.md` §"Entity search — last-token prefix FTS".
