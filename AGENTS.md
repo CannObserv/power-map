@@ -46,6 +46,7 @@ src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion)
 src/static/     — Static assets; vendor/ is SHA-pinned and excluded from linting
 tests/          — Mirrors src/ structure; js/ for Vitest
 docs/           — Reference docs (COMMANDS, STYLE, CONVENTIONS, SKILLS, PUBLIC_API)
+                  + ACCESSIBILITY, RUNBOOK_DB_MIGRATION — full index in ## Detail Docs
 scripts/        — One-off operational scripts
 infra/          — systemd units (API + prune timer) + terraform
 ```
@@ -120,8 +121,6 @@ Scheduled timers (outbox prune · API anomaly · schema parity · ancillary orph
 Full command reference: `docs/COMMANDS.md`
 
 ### Environment files
-
-Two env files — `/etc/power-map/.env` (deploy secrets) and the repo `.env` (`GH_TOKEN`); every variable is tabulated in `docs/COMMANDS.md` § Environment Variables.
 
 Load both via uv's dotenv parser (gated on existence — uv errors hard on a missing `--env-file`):
 ```bash

@@ -82,7 +82,3 @@ docs/STYLE.md :: ## 35. Activity › API Requests screens (#260)
 # back-reference — the skill inventory row lists this skill's own trigger
 # phrases, one of which names AGENTS.md. Not a claim about content location.
 docs/SKILLS.md :: | `curating-context` | `gregoryfoster-skills` | curate context, context budget, hone AGENTS.md, trim AGENTS.md, prune context |
-
-# moved-title — the '### Environment Variables' table moved into
-# docs/COMMANDS.md, and this is the pointer that sends readers there. Correct.
-AGENTS.md :: Two env files — `/etc/power-map/.env` (deploy secrets) and the repo `.env` (`GH_TOKEN`); every variable is tabulated in `docs/COMMANDS.md` § Environment Variables.

@@ -1702,7 +1702,8 @@ the dates float without a header.
 ### Key rules at a glance
 
 One-line-per-rule index of the section below — read this first, then the
-subsection a rule points at.
+subsection a rule names. Where an entry ends `Full rules → docs/STYLE.md §32`,
+the target is a subsection of this same section.
 
 - Auth: `user: AdminUser = Depends(get_admin_user)` on every route — raises `HTTPException(307)` redirect when exe.dev headers absent
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete requires archived (409 otherwise); archive/unarchive both return 409 if already in that state

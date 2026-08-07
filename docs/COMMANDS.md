@@ -235,6 +235,8 @@ uv run pytest -m integration
 
 ## Browser Testing (axe-core a11y sweep, #300)
 
+The rules this tier enforces live in [`docs/ACCESSIBILITY.md`](ACCESSIBILITY.md).
+
 Real-browser tier: headless Chromium + axe-core full ruleset (colour contrast,
 ARIA roles, landmarks, focus order) over every full-page admin GET route —
 coverage the render-based lxml sweep (#246) can't reach. Marker-gated
