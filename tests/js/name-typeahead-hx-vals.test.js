@@ -20,7 +20,7 @@
  *
  * Note: this file does not eval any admin script and attaches no document
  * listeners, so the canonical vi.spyOn(document,'addEventListener') cleanup
- * block (docs/STYLE.md §33) is intentionally omitted — there is nothing to
+ * block (docs/TESTING.md § Vitest test conventions) is intentionally omitted — there is nothing to
  * clean up.
  */
 import { readFileSync } from 'node:fs';

@@ -85,7 +85,7 @@ def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str,
     return {"HX-Trigger": json.dumps(payload)}
 
 
-# Shared §32 fallback-flash registry (#351). Non-HTMX mutation fallbacks across
+# Shared `docs/ADMIN.md` fallback-flash registry (#351). Non-HTMX mutation fallbacks across
 # every admin section append one of these keys via ``with_flash`` so a successful
 # create/edit/delete confirms like a Danger Zone action does. The registry is
 # deliberately generic (the static ?flash= param can't carry a per-row value the
@@ -119,7 +119,7 @@ SHARED_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
 def with_flash(url: str, flash_key: str) -> str:
     """Return ``url`` with ``?flash=<flash_key>`` set, preserving path/query/fragment.
 
-    Use on §32 non-HTMX fallback redirects so the target detail/list route can
+    Use on `docs/ADMIN.md` non-HTMX fallback redirects so the target detail/list route can
     surface a confirmation via ``resolve_query_flash`` (#351). Any pre-existing
     ``flash`` param is overwritten; other query params and the fragment survive.
 
@@ -143,7 +143,7 @@ def resolve_query_flash(
 
     Returns ``(flash_msg, headers)``. ``flash_msg`` is ``{"level", "body"}`` or ``None``.
     Resolution order: the route-local ``flash_messages`` first, then the shared
-    ``SHARED_FLASH_MESSAGES`` (the §32 fallback keys, #351) — so a route need not
+    ``SHARED_FLASH_MESSAGES`` (the `docs/ADMIN.md` fallback keys, #351) — so a route need not
     re-declare the generic ancillary keys, and a route-local key of the same name
     still wins. When a flash is resolved on a non-HTMX request, ``headers`` carries
     an ``HX-Replace-Url`` entry that strips the ``flash`` query param so a refresh

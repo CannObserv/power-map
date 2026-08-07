@@ -832,7 +832,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
     - **Dateless claim** (both bounds NULL): matches *any* existing row regardless
       of window (unchanged behavior). Admin end-dating stays authoritative — a
       dateless re-observation never resurrects a closed window
-      (docs/CONVENTIONS.md §"Address validity windows (#181)", #256 decision).
+      (docs/SCHEMA.md §"Address validity windows (#181)", #256 decision).
 
     Raises ObservationRejected on normalizer failure.
     """

@@ -520,7 +520,7 @@ async def test_edit_row_get_bounded_role_surfaces_range_accessibly(
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    # No inaccessible title attribute (STYLE §12 ban).
+    # No inaccessible title attribute (docs/ACCESSIBILITY.md ban).
     assert b"title=" not in r.content
     # Visible hint with the role window on both date inputs.
     assert r.content.count(b"form-group__hint") == 2

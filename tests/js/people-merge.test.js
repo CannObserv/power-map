@@ -9,7 +9,7 @@
  *   - no inline filter
  *   - pagination-swap: .pagination--sticky hidden in merge mode, restored on exit
  *
- * Listener cleanup pattern same as role-merge.test.js — see docs/STYLE.md §33.
+ * Listener cleanup pattern same as role-merge.test.js — see docs/TESTING.md § Vitest test conventions
  */
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

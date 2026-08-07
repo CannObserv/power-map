@@ -11,7 +11,7 @@
  *
  * Pattern mirrors `tests/js/dark-mode.test.js`: build DOM fixture → eval the
  * script → dispatch events → assert state. Global listener cleanup follows
- * docs/STYLE.md §33.
+ * docs/TESTING.md § Vitest test conventions
  */
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

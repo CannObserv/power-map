@@ -9,7 +9,7 @@
  * A non-citations request is ignored.
  *
  * Pattern: build DOM fixture → eval the script → dispatch htmx:beforeRequest →
- * assert sub-row removal + defaultPrevented. Listener-cleanup per STYLE.md §33.
+ * assert sub-row removal + defaultPrevented. Listener-cleanup per STYLE.md `docs/TESTING.md` § Vitest test conventions.
  */
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

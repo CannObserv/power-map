@@ -5,7 +5,7 @@
  * value with the adjacent card's input value, so admins can reorder
  * given_names / family_names / additional_names without retyping.
  *
- * Follows STYLE.md §33 (vi.spyOn document listeners, cleanup in afterEach).
+ * Follows STYLE.md `docs/TESTING.md` § Vitest test conventions (vi.spyOn document listeners, cleanup in afterEach).
  */
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

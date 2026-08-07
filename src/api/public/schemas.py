@@ -623,7 +623,8 @@ class ObservationAddress(BaseModel):
     display_name: str | None = None  # optional label, e.g. "Seattle Office"
     # Validity window (#256); ISO YYYY-MM-DD. NULL = open-ended on that side.
     # Supply only when an upstream source carries dates — dateless claims stay
-    # window-agnostic in write_addresses (see docs/CONVENTIONS.md §181/#256).
+    # window-agnostic in write_addresses (see docs/SCHEMA.md
+    # § Address validity windows (#181), #256 decision).
     valid_from: date | None = None
     valid_until: date | None = None
 

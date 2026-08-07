@@ -202,7 +202,7 @@ def make_names_router(
         ``person_name_parts`` in the post-mutation re-render, and
         pre-populates the structured-parts editor. False (default) for
         ``organization_names``, which has none of the referenced
-        columns or sidecar table. See ``docs/STYLE.md`` §"Person-name
+        columns or sidecar table. See ``docs/ADMIN.md`` §"Person-name
         metadata controls" for the full enumeration. Named
         person-specifically (not ``supports_metadata``) because the
         True branch hard-codes person schema; a third entity type with

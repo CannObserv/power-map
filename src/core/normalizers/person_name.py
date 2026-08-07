@@ -38,7 +38,7 @@ PrimaryIdentifier = Literal["family", "given", "patronymic", "mononym"]
 Confidence = Literal["trivial", "ambiguous", "skip"]
 
 # name_types whose `name` value is not a free human-name string. The parts
-# editor on these rows is meaningless (per docs/CONVENTIONS.md §"Storage
+# editor on these rows is meaningless (per docs/NAMES.md §"Storage
 # rules" — `initials` is e.g. "JFK", `mrz` is "GARCIA<LOPEZ<<JOSE",
 # `reading` / `romanization` are phonetic transcriptions of another row).
 NON_DECOMPOSABLE_TYPES: frozenset[str] = frozenset({"initials", "mrz", "reading", "romanization"})

@@ -14,7 +14,7 @@
  * acronyms, contacts, …) are each guarded independently. Issue #238.
  *
  * Pattern: build DOM fixture → eval the script → simulate events → assert
- * state. Listener-cleanup block per docs/STYLE.md §33 (reference impl:
+ * state. Listener-cleanup block per docs/TESTING.md § Vitest test conventions (reference impl:
  * tests/js/person-name-row-typeahead.test.js).
  */
 import { readFileSync } from 'node:fs';

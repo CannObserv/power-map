@@ -1,6 +1,6 @@
 """Source-level sweep: admin flash *levels* follow one convention per action class (#353).
 
-The §32 flash taxonomy, agreed in #353 after auditing every ``flash_trigger`` call
+The `docs/ADMIN.md` flash taxonomy, agreed in #353 after auditing every ``flash_trigger`` call
 and every ``_FLASH_MESSAGES`` / ``SHARED_FLASH_MESSAGES`` registry:
 
 - ``success`` — any mutation that changed state (create / edit / delete /

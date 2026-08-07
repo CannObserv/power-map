@@ -22,7 +22,7 @@ const scriptCode = readFileSync(
 );
 
 // ---------------------------------------------------------------------------
-// Global listener cleanup — see docs/STYLE.md §33.
+// Global listener cleanup — see docs/TESTING.md § Vitest test conventions
 // Spy on document.addEventListener before every test so we can remove all
 // handlers the IIFE registers. The spy calls through; mockRestore() puts the
 // original back. Without this block, document-level listeners (e.g. the
