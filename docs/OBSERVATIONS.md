@@ -34,7 +34,7 @@ The `(person, role, start_date)` match key is **identity, not payload**: a produ
 - **Provenance:** `role_assignments.source_key_id` (the #162 pattern) is stamped on observation-created rows (both `resolve_assignment` NEW and `write_role_assignments`) and claimed via `COALESCE` on first authoritative update of a pre-#311 NULL row. Updates require `source_key_id IS NULL OR = caller` — admin surfaces are not gated (they operate on any row); only the observation API enforces source authority.
 - **Duplicate cleanup:** `scripts/audit_assignment_duplicates.py` finds overlapping same-`(person, role)` dated pairs (`deepened_start` / `subsumed` auto-merge with `--execute`; `overlapping_review` is report-only). Merge = move side data to the survivor, concatenate notes, **archive** the orphan (never delete) — the archive UPDATE hits the outbox so subscribed producers drop stale anchors.
 
-#### Retraction — `op="retract"` (#391)
+### Retraction — `op="retract"` (#391)
 
 Closing is not retracting. `end_date` + `is_current=false` asserts the tenure **ended**; a produced **artifact** (a tenure that never happened — e.g. the usa-wa WSL sponsor archive's spurious "John Wynne → LD39 State Senator, 2001–02") needs the assertion that it **never existed**. The two pre-#391 levers were both wrong: closing leaves the false claim standing, and simply ceasing to produce the row orphans the anchored PM assignment (the exact backlog `scripts/audit_assignment_duplicates.py` mops up). Reaching into `POST /admin/role-assignments/{id}/archive/` is out-of-band — admin-scoped auth, outside the producer/LWW contract.
 
@@ -103,7 +103,7 @@ All three conflict-delete sites — `people_merge.py`, `orgs_roles.py::role_merg
 
 ---
 
-## Citations — source provenance (#319)
+## Citations — write semantics (#319)
 
 
 A **citation** is human-checkable evidence (`url` / `title` / `excerpt` / `accessed_at`) for a fact, attached to an entity or one of its fields. It is a fifth provenance axis, distinct from `source_key_id` (actor), `import_provenance` (ingestion batch), and `field_confidence` (automated reliability) — curated, observable, and retractable. It supersedes the ad-hoc `role_assignments.notes` capture (#314/#318). Design doc: `docs/plans/2026-07-29-citations-pattern-design.md`.

@@ -1,7 +1,7 @@
 # Seams judged legitimate — one entry per judged line (see check-seams.sh).
 # Entries match the full source line, so an entry expires the moment that line
 # changes, which is exactly when it needs re-judging.
-# Regenerated for the #407 doc split — paths and line contents moved.
+# Regenerated for the #407 doc split and its CR round-1 heading promotions.
 
 # back-reference — points at a section that is still in AGENTS.md, so the
 # reference is correct navigation, not a stale claim.
@@ -32,17 +32,17 @@ docs/CONVENTIONS.md :: ## API request log (#260)
 docs/CONVENTIONS.md :: ## Operational scripts — dry run by default & target echo (#402)
 docs/FORMS.md :: ### Clearing a selection (#358)
 docs/HTMX.md :: ## Activity › API Requests screens (#260)
-docs/NAMES.md :: #### Canonical name = the display pointer (issue #308)
-docs/NAMES.md :: #### Canonical auto-promotion on observation (#308)
-docs/NAMES.md :: #### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
+docs/NAMES.md :: ### Canonical name = the display pointer (issue #308)
+docs/NAMES.md :: ### Canonical auto-promotion on observation (#308)
+docs/NAMES.md :: ### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
 docs/OBSERVATIONS.md :: ## Org lifespan bounds on assignments (#307)
 docs/OBSERVATIONS.md :: ## Assignment observations — update semantics & provenance (#311)
-docs/OBSERVATIONS.md :: #### Retraction — `op="retract"` (#391)
+docs/OBSERVATIONS.md :: ### Retraction — `op="retract"` (#391)
 docs/OBSERVATIONS.md :: ## Org parent — authoritative reparent & provenance (#334)
 docs/OBSERVATIONS.md :: ## Event observations — refine-in-place, partial-success, `succeeded_by` & retract (#321/#322)
 docs/OBSERVATIONS.md :: ## Merge dedup — role_assignment ancillary re-homing (#324)
 docs/OBSERVATIONS.md :: ## Ancillary `entity_changes` emit — DB touch triggers (#327)
-docs/OBSERVATIONS.md :: ## Citations — source provenance (#319)
+docs/OBSERVATIONS.md :: ## Citations — write semantics (#319)
 docs/OBSERVATIONS.md :: ## Role-assignment relationships — RA→RA edges (#301)
 docs/PUBLIC_API.md :: ### Event observations — refine-in-place & partial-success (#321)
 docs/PUBLIC_API.md :: ## Citations — source provenance (#319)

@@ -198,7 +198,7 @@ async def test_admin_dashboard_returns_200_when_authenticated(client):
     assert "Power Map" in response.text
 
 
-# --- with_flash (append ?flash= to a `docs/ADMIN.md` fallback redirect URL, #351) --------
+# --- with_flash (append ?flash= to an admin fallback redirect URL, #351) -----------------
 
 
 def test_with_flash_appends_query_param_to_bare_path():
@@ -245,7 +245,7 @@ def _req(htmx: bool = False, url: str = "http://test/admin/orgs/org_1/?flash=sav
 
 
 def test_resolve_query_flash_resolves_shared_key_absent_from_route_dict():
-    """A `docs/ADMIN.md` fallback key lives in SHARED_FLASH_MESSAGES, not the route-local dict."""
+    """A shared fallback key lives in SHARED_FLASH_MESSAGES, not the route-local dict."""
     flash_msg, _ = resolve_query_flash(_req(), {"archived": ("success", "Archived.")}, "saved")
     assert flash_msg is not None
     assert flash_msg["level"] == SHARED_FLASH_MESSAGES["saved"][0]

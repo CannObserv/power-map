@@ -643,7 +643,7 @@ three** scopes (breakdown namespaced `role.*` / `role_assignment.*` /
 heuristics are assignment-specific; role/citation orphans should not occur now that
 the write paths are fixed, so any that appear go to manual triage). See
 `docs/OBSERVATIONS.md` §"Merge dedup — role_assignment ancillary re-homing" and
-§"Citations — source provenance".
+§"Citations — write semantics".
 
 ```bash
 # Build --env-file flags (see § Environment)

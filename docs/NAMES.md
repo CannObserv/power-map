@@ -11,14 +11,14 @@ lookup tables.
 
 Hybrid model (issue #121): `person_names.name` is the canonical UTF-8 display string; per-name-row metadata (`locale`, `script`, `sort_as`, `visibility`, `reading_of_id`) lives on `person_names`; structured parts live in the `person_name_parts` sidecar (1:0..1, keyed on `person_names.id`).
 
-#### Storage rules
+### Storage rules
 
 - Store user input verbatim. **Never** lowercase, title-case, ASCII-fold, or strip diacritics on input — names like "McNamara", "van der Waals", or "ffrench" rely on specific casing; Vietnamese names rely on diacritics.
 - `name` is the authoritative free string. Structured parts in `person_name_parts` are **never auto-decomposed** — populated only when an upstream source supplies pre-parsed structure (e.g., via the observation endpoint's `names[].parts` field) or when a human confirms a suggestion — the "David Lloyd George" ambiguity is unresolvable without cultural context. **Never auto-write parts to the database** without human confirmation or upstream pre-parsed data. Assisted *suggestion* of parts is allowed via `src.core.normalizers.person_name.suggest_parts(...)` — used by triage/backfill scripts (CSV-mediated review) and, optionally, the admin name editor (pre-fill the form for review). The decomposer never persists; only the existing `upsert_or_delete_parts` path does.
 - Sort with Postgres ICU collations (e.g. `ORDER BY name COLLATE "und-x-icu"`), or by `sort_as` when present. Do not use `LOWER(name)` for sorting.
 - New rows default to `visibility='public'`. The `trg_deadname_visibility` trigger downgrades any `name_type='deadname'` row from `'public'` to `'legal_only'` automatically; an explicit `'hidden'` is preserved.
 
-#### Visibility rule (single, project-wide)
+### Visibility rule (single, project-wide)
 
 A `person_names` row with `visibility ∈ {'legal_only', 'hidden'}` is excluded from:
 
@@ -36,7 +36,7 @@ Enforcement layers:
 - For raw `FROM person_names` / `JOIN person_names` queries, AND-append `visible_names_filter()` from `src.core.db` (or the literal `visibility = 'public'`).
 - `tests/core/test_visible_names_filter.py::test_no_unguarded_person_names_queries` greps for direct access outside `ALLOWED_DIRECT_ACCESS`. New direct-access call sites must either filter visibility inline or be added to the allow-list with a `# visibility-allowlist (issue #121): <reason>` comment.
 
-#### `name_type` values
+### `name_type` values
 
 | Value | Meaning |
 |---|---|
@@ -54,7 +54,7 @@ Enforcement layers:
 | `mrz` | ICAO 9303 Machine-Readable Zone form — link via `reading_of_id` |
 | `variant` | Alt-spelling / nickname of an existing name on the same person (e.g. `Jodi`/`Jody`, `Kip`/`Kristopher`) — see below |
 
-#### `variant` vs neighbouring types
+### `variant` vs neighbouring types
 
 | | `variant` | `alias` | `preferred` | `reading`/`romanization`/`mrz` |
 |---|---|---|---|---|
@@ -64,7 +64,7 @@ Enforcement layers:
 
 A `variant` row sits next to its `legal` row on the same person; both share `person_id`. `is_canonical=FALSE` on the variant; the legal row stays canonical. Use `variant` (not `alias`) when collation against the canonical name matters — e.g. to surface `Jody`-typed search input alongside `Jodi`-keyed records without conflating with truly separate identities.
 
-#### MRZ derivation
+### MRZ derivation
 
 When generating an MRZ row from a Latin-script visual `legal` row:
 
@@ -78,7 +78,7 @@ When generating an MRZ row from a Latin-script visual `legal` row:
 
 No automatic generation pipeline exists in Phase 1 — populate manually or via a future ingestion integration.
 
-#### Structured parts (`person_name_parts` sidecar)
+### Structured parts (`person_name_parts` sidecar)
 
 Parts live in `person_name_parts`, keyed on `person_name_id` (1:0..1 with `person_names`). Each `person_names` row optionally has its *own* parts row — the Hant `legal` and Latn `romanization` of one person each carry distinct decompositions, not a shared set. ON DELETE CASCADE — when a `person_names` row is deleted its parts row is removed too.
 
@@ -93,7 +93,7 @@ A `person_names` row with no corresponding `person_name_parts` row is fully vali
 
 The admin UI surfaces this section as **Details** (issue #127); the DB / route names retain `parts` / `person_name_parts`.
 
-#### Canonical name = the display pointer (issue #308)
+### Canonical name = the display pointer (issue #308)
 
 `person_names.is_canonical` marks **the one name PM displays for a person**. Two constraints carry that meaning:
 
@@ -128,7 +128,7 @@ The heal is best-effort and never aborts its caller: it runs in a savepoint and 
 
 `visibility` is compared on **both** branches, and that is load-bearing twice over. Without it a `hidden` winner row absorbed a `public` loser row carrying the same text; since the loser's canonical is demoted immediately beforehand, that deleted the only promotable name and left the merged person blank — defeating the heal that runs a few lines later. It also silently destroyed `legal_only` claims, breaking the #121 guarantee that the winner inherits the loser's restricted names.
 
-#### Name families are edges, not shared slots (`reading_of_id`)
+### Name families are edges, not shared slots (`reading_of_id`)
 
 Re-keying the canonical index costs nothing, because **PM does not model "the same name written differently" by grouping rows that share `(name_type, locale, script)`** — it models it with an explicit FK.
 
@@ -146,7 +146,7 @@ Admin support for the edge: `people_reading_target_search.py` powers the "readin
 
 **Curated drops keep parents of kept children (#323).** The curated `keep_name_ids` drop (the preview-modal keep/drop selection, #255) shares the same `ON DELETE CASCADE` exposure, but only asymmetrically. Dropping a reading whose parent is kept, or dropping both, are deliberate admin choices and stay as-is. The one case that is *not* an informed choice is a **kept** reading whose parent is left unchecked — dropping the parent would silently destroy the explicitly-kept child. So the curated DELETE extends its keep-set to the parents of any kept `reading_of_id` child — keyed on the FK's presence, not `name_type`, so it covers `reading`, `romanization` **and** `mrz` alike; the dedup DELETE below may still collapse that kept parent into a winner equivalent, at which point the #309 re-point moves the reading. The preview modal surfaces the linkage on both actionable rows — a `(reading of "…")` note on each child and a `(a reading points at this)` note on each parent — both relational, so they stay accurate regardless of which boxes the admin toggles — so the dependency is visible before submission.
 
-#### Canonical auto-promotion on observation (#308)
+### Canonical auto-promotion on observation (#308)
 
 `write_names` guarantees that a person with an eligible name ends up displayable, symmetric with the long-standing org behaviour:
 
@@ -163,7 +163,7 @@ The heal is a read-only probe plus a guarded `UPDATE`. The probe cannot violate 
 
 `scripts/backfill_person_canonical_names.py` repairs people who predate this, selecting with the **same ladder** so both repair paths choose the same row (`test_backfill_matches_heal_choice`).
 
-#### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
+### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
 
 `person_names.locale` and `person_names.script` are FK-constrained to `bcp47_locales(code)` and `iso15924_scripts(code)` respectively. The lookup tables are seeded by `scripts/seed_locales_scripts.py` from the `langcodes` and `pycountry` libraries, which live in the `seed` dependency group only — request-path code never imports them.
 

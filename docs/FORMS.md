@@ -274,7 +274,7 @@ Avoid the bare label "Dates" — it gives no context.
 - **Field sub-labels in edit:** `<label class="field-group-label" style="font-size:var(--font-size-xs)">` — all-caps from the class, xs size from the inline override. Associates correctly with the input for screen readers.
 - **`flex:1` on both form-groups** — inputs share available width equally; no hard widths.
 - **No `flex-wrap`** — date inputs are compact enough to sit side-by-side at all supported viewport widths.
-- **Error alert** between the header row and the inputs — same position used by the contact form inline error pattern (§ DB conventions).
+- **Error alert** between the header row and the inputs — same position used by the contact form inline error pattern.
 - **Non-HTMX fallback:** POST returns `RedirectResponse` to the detail page.
 - **Archived guard:** Edit button hidden when `entity.archived_at` is non-null.
 

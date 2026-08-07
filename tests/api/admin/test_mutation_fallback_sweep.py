@@ -1,6 +1,7 @@
 """Source-level sweep: every admin mutation route carries a non-HTMX fallback (#349).
 
-`docs/ADMIN.md` convention: mutation handlers branch on ``is_htmx(request)``, returning an
+The admin-conventions rule (docs/ADMIN.md): mutation handlers branch on
+``is_htmx(request)``, returning an
 ``HX-Location`` 204 / ``HX-Redirect`` 200 for HTMX clients and a
 ``RedirectResponse`` fallback for the rest.
 This guard parses every ``src/api/admin/*.py`` module and flags any
@@ -22,7 +23,7 @@ ADMIN_DIR = Path(__file__).resolve().parents[3] / "src" / "api" / "admin"
 _MUTATION_METHODS = {"post", "put", "delete", "patch"}
 
 # A handler satisfies the convention when its body mentions any of these:
-# - is_htmx / RedirectResponse: the standard `docs/ADMIN.md` branch
+# - is_htmx / RedirectResponse: the standard admin-conventions branch
 # - HX-Location: the archive-style variant (204 + HX-Location for HTMX,
 #   RedirectResponse otherwise) where the redirect happens client-side
 # - HX-Redirect: the delete-style variant (200 + HX-Redirect for HTMX = full
@@ -74,7 +75,7 @@ def _is_redirect_response_call(node: ast.AST) -> bool:
 
 
 def _redirect_fallbacks_without_flash() -> list[str]:
-    """Every `docs/ADMIN.md` non-HTMX ``RedirectResponse`` fallback must carry a ``?flash=`` (#351).
+    """Every admin non-HTMX ``RedirectResponse`` fallback must carry a ``?flash=`` (#351).
 
     A confirmation flash on a non-HTMX create/edit/delete requires the fallback
     redirect to append a flash key — via ``with_flash(url, key)`` or a literal
@@ -124,7 +125,7 @@ def _redirect_fallbacks_without_flash() -> list[str]:
 def test_every_admin_mutation_route_has_nonhtmx_fallback():
     offenders = _mutation_handlers_without_fallback()
     assert offenders == [], (
-        "Admin mutation routes missing the `docs/ADMIN.md` non-HTMX fallback branch"
+        "Admin mutation routes missing the non-HTMX fallback branch"
         " (is_htmx → RedirectResponse, or 204 + HX-Location):"
         f" {offenders}. Add the branch, or allowlist with a reason."
     )
@@ -133,7 +134,7 @@ def test_every_admin_mutation_route_has_nonhtmx_fallback():
 def test_every_nonhtmx_fallback_redirect_carries_flash():
     offenders = _redirect_fallbacks_without_flash()
     assert offenders == [], (
-        "`docs/ADMIN.md` non-HTMX fallback redirects missing a ?flash= confirmation key (#351)."
+        "Non-HTMX fallback redirects missing a ?flash= confirmation key (#351)."
         " Wrap the URL with with_flash(url, key) — saved/removed/invalid/exists —"
         f" or add a literal ?flash=: {offenders}"
     )
