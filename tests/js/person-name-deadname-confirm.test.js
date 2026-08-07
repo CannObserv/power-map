@@ -17,7 +17,7 @@ const scriptCode = readFileSync(
   'utf-8',
 );
 
-// Global listener cleanup — see docs/STYLE.md §33.
+// Global listener cleanup — see docs/TESTING.md § Vitest test conventions
 let addSpy;
 
 beforeEach(() => {

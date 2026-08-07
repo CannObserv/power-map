@@ -29,7 +29,7 @@ const LIST_ID = 'test-results';
 const HIDDEN_ID = 'test-hidden';
 
 // ---------------------------------------------------------------------------
-// Global listener cleanup — see docs/STYLE.md §33.
+// Global listener cleanup — see docs/TESTING.md § Vitest test conventions
 //
 // The factory registers document-level click + scroll listeners on every
 // openDropdown() call (and removes them on closeDropdown()). Tests that exit

@@ -46,21 +46,21 @@ src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion)
 src/static/     — Static assets; vendor/ is SHA-pinned and excluded from linting
 tests/          — Mirrors src/ structure; js/ for Vitest
 docs/           — Reference docs (COMMANDS, STYLE, CONVENTIONS, SKILLS, PUBLIC_API)
-                  + ACCESSIBILITY, RUNBOOK_DB_MIGRATION — full index in ## Detail Docs
+                  split by subject since #407 — complete index at the end of this file
 scripts/        — One-off operational scripts
 infra/          — systemd units (API + prune timer) + terraform
 ```
 
 ## Admin Dashboard Key Rules
 
-Full conventions → `docs/STYLE.md §32`
+Full conventions → `docs/ADMIN.md`
 Accessibility rules and their test tiers → `docs/ACCESSIBILITY.md`
 
 - Auth: `user: AdminUser = Depends(get_admin_user)` on every route
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete requires archived (409 otherwise)
 - Every mutation route: HTMX partial via `is_htmx(request)` **plus** a `with_flash(url, key)` `RedirectResponse` fallback — CI-enforced by `test_mutation_fallback_sweep.py`
 - Flash: `flash_trigger(level, body)`; always `markupsafe.escape()` DB-derived values
-- Status filters (#306), dup-count invalidation, citation counts (#341): each carries a rule and a sweep test — read `docs/STYLE.md §32` before touching a list or a merge path
+- Status filters (#306), dup-count invalidation, citation counts (#341): each carries a rule and a sweep test — read `docs/ADMIN.md` before touching a list or a merge path
 
 ## Public API Key Rules
 
@@ -75,7 +75,7 @@ Full conventions → `docs/CONVENTIONS.md`
 
 ## DB Key Rules
 
-Full conventions → `docs/CONVENTIONS.md`
+Full conventions → `docs/SCHEMA.md`
 
 - PKs: ULIDs via `generate_id()` from `src.core.db`
 - `updated_at`: maintained by DB triggers — never set manually
@@ -85,7 +85,7 @@ Full conventions → `docs/CONVENTIONS.md`
 - Integration tests: require `TEST_DATABASE_URL`; never run against the production DB
 - Integration test fixtures acquire from the session-scoped `db_pool`; endpoint tests use the lifespan-less rollback client (#288)
 - Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block, placed **before** any `set_updated_at()` trigger on that table (#307/#312/#315/#392); daily `power-map-schema-parity.timer` is the continuous guard
-- Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge re-homing (#324/#327), entity search (#316), role-type vocabulary (#266) — each has exact rules in `docs/CONVENTIONS.md` § DB. Read it before changing any of them.
+- Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge re-homing (#324/#327), entity search (#316), role-type vocabulary (#266) — each has exact rules in `docs/SCHEMA.md` and `docs/OBSERVATIONS.md`. Read them before changing any of them.
 
 ## Infrastructure
 
@@ -170,10 +170,34 @@ Entry points only: call `configure_logging()` once.
 
 ## Detail Docs
 
-- [docs/COMMANDS.md](docs/COMMANDS.md) — every runnable command with its flags: setup, env files, deploy, tests, the one-off scripts, and the scheduled timers
-- [docs/CONVENTIONS.md](docs/CONVENTIONS.md) — public API contracts, observation write semantics, database tables and invariants, unique indexes, the API request log, ingestion
-- [docs/PUBLIC_API.md](docs/PUBLIC_API.md) — per-endpoint behaviour, pagination, subscriptions, the change feed
-- [docs/STYLE.md](docs/STYLE.md) — admin UI style: brand, colour, dark mode, CSS tokens, every client-side component pattern, and §32 admin server conventions
+Each line says what a task would need the doc for — load the one that matches, not the tree.
+
+**Domain & data**
+
+- [docs/SCHEMA.md](docs/SCHEMA.md) — tables, display-name views, temporal validity windows, and the unique indexes that encode entity identity
+- [docs/OBSERVATIONS.md](docs/OBSERVATIONS.md) — observation write semantics: identity vs payload, refine-in-place, `op="retract"`, the `source_key_id` gate, merge re-homing
+- [docs/NAMES.md](docs/NAMES.md) — person and org names: the canonical/display pointer, visibility rules, structured parts, readings, locale/script tables
+
+**Public API**
+
+- [docs/PUBLIC_API.md](docs/PUBLIC_API.md) — auth, scopes, rate limits, pagination, conditional requests, subscriptions, the change feed
+- [docs/API_ENTITIES.md](docs/API_ENTITIES.md) — per-resource endpoint behaviour: filters, response shapes, collection quirks
+- [docs/CONVENTIONS.md](docs/CONVENTIONS.md) — request/response contracts every route follows, the API request log, ingestion, operational-script dry-run rules
+
+**Admin dashboard**
+
+- [docs/ADMIN.md](docs/ADMIN.md) — server side: auth, archive model, HTMX partial responses, flash, per-panel rules
+- [docs/HTMX.md](docs/HTMX.md) — interaction patterns: swaps, redirects, flash, pagination, inline edit, guarded deletes, live header sync
+- [docs/UI.md](docs/UI.md) — components and table/list conventions: buttons, badges, modals, page headers, empty states, the row-key contract
+- [docs/FORMS.md](docs/FORMS.md) — the three hand-built composite controls: typeahead, address confirm, paired dates
+- [docs/MERGE.md](docs/MERGE.md) — duplicate detection and the merge-bar pattern across people, orgs and roles
+- [docs/STYLE.md](docs/STYLE.md) — visual system: brand, colour, dark mode, CSS tokens, layout, breakpoints, i18n, performance
 - [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md) — WCAG 2.1 AA markup rules and the three a11y test tiers
-- [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, SocratiCode MCP tools
+
+**Operating it**
+
+- [docs/COMMANDS.md](docs/COMMANDS.md) — everyday commands: setup, env files, provisioning, deploy, the dev loop, linting, scheduled timers
+- [docs/TESTING.md](docs/TESTING.md) — how to run each test tier, the integration marker, Vitest conventions, the browser a11y sweep
+- [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — one-off and scheduled data operations: importer, seeds, backfills, vocabulary migrations, audits
 - [docs/RUNBOOK_DB_MIGRATION.md](docs/RUNBOOK_DB_MIGRATION.md) — DB cutover checklist, maintenance window, rollback
+- [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, SocratiCode MCP tools

@@ -2,7 +2,7 @@
 
 Each of the 12 delete-family handlers flagged in #349 returned an HTMX-shaped
 body (empty string, OOB fragment) to any caller. These tests drive each route
-without the HX-Request header and assert the §32 fallback: the mutation still
+without the HX-Request header and assert the admin-conventions fallback: the mutation still
 happens, then a 303 redirect to the owning detail/list page. Factory-made
 handlers (contacts/links/identifiers/citations) are covered through one
 representative mount each; citations twice to pin both ``_dest`` paths

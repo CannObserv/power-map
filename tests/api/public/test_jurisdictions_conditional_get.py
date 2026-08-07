@@ -4,7 +4,7 @@ Separate module because these cases need the **committing** client. Postgres
 `now()` is fixed at transaction start, so `updated_at` (set by the trigger) is
 identical for every write inside one transaction — the rollback client freezes
 it, and an assertion that a tag advances after an edit would pass vacuously or
-fail spuriously (`docs/CONVENTIONS.md` § DB). The rest of the endpoint's
+fail spuriously (`docs/SCHEMA.md` § Core rules). The rest of the endpoint's
 conditional-GET coverage lives in `test_jurisdictions.py` on the rollback
 client, where count/content changes are enough.
 

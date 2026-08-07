@@ -2,7 +2,7 @@
 
 Accessibility conventions for the admin dashboard: markup rules the templates must
 follow, and the three test tiers that enforce them. Commands for the browser tier
-live in `docs/COMMANDS.md` § Browser Testing.
+live in `docs/TESTING.md` § Browser Testing.
 
 ---
 

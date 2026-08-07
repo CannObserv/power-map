@@ -1,84 +1,73 @@
 # Seams judged legitimate — one entry per judged line (see check-seams.sh).
 # Entries match the full source line, so an entry expires the moment that line
 # changes, which is exactly when it needs re-judging.
+# Regenerated for the #407 doc split and its CR round-1 heading promotions.
 
 # back-reference — points at a section that is still in AGENTS.md, so the
 # reference is correct navigation, not a stale claim.
+docs/SKILLS.md :: | `curating-context` | `gregoryfoster-skills` | curate context, context budget, hone AGENTS.md, trim AGENTS.md, prune context |
 docs/SKILLS.md :: SocratiCode provides semantic search and dependency graph tools via MCP. Tool selection guide is in `AGENTS.md §Code Exploration Policy`. Infrastructure details:
 
-# moved-title — '### Environment Variables' moved out of AGENTS.md into this
-# same file; the reference was rewritten to point within the file and is right.
-docs/COMMANDS.md :: - `infra/terraform/terraform.tfvars` — DO personal access token + IP allowlist (gitignored; see § Environment Variables above)
-
-# duplicate-heading — per-entity subsections that legitimately repeat under
+# duplicate-heading — per-resource subsections that legitimately repeat under
 # different parents ('## People' > '### Endpoints', '## Organizations' >
-# '### Endpoints'). Byte-identical by design, all predating this curation, so
+# '### Endpoints'). Byte-identical by design and pre-dating the #407 split, so
 # one pattern unavoidably covers several hits and check-seams WARNs about it.
-docs/PUBLIC_API.md :: ### Endpoints
-docs/PUBLIC_API.md :: ### Implicit behaviors
-docs/STYLE.md :: ### HTML structure
-docs/STYLE.md :: ### Rules
-docs/STYLE.md :: ### Routes
+docs/API_ENTITIES.md :: ### Endpoints
 
 # provenance-heading — this repo tags a section with the issue that introduced
-# the rule, and prose across the tree cites sections by that exact title
-# (docs/CONVENTIONS.md §"Assignment observations ... (#311)"). The number is
-# part of the anchor, not curation provenance. Convention predates this run.
+# the rule, and prose across the tree cites sections by that exact title. The
+# number is part of the anchor, not curation provenance. Predates #405/#407.
 docs/ACCESSIBILITY.md :: ## Presence indicators (notes) (#318)
 docs/ACCESSIBILITY.md :: ## Role & assignment attachment panels (#326)
+docs/ADMIN.md :: ### List status filters & search discoverability (#306)
+docs/ADMIN.md :: ### Lingering-state warnings (#307)
+docs/ADMIN.md :: ### Person-name metadata controls (Phase 2a–2d, #123)
+docs/ADMIN.md :: ### Roles — structural fields (#264)
+docs/ADMIN.md :: ### Jurisdictions — admin surface (#275)
+docs/ADMIN.md :: ### Person voice-embeddings section (#284)
+docs/ADMIN.md :: ### Citations indicator on entity rows (#341)
 docs/COMMANDS.md :: ### Guards (#398)
-docs/COMMANDS.md :: ## Browser Testing (axe-core a11y sweep, #300)
-docs/COMMANDS.md :: ### Weekly a11y sweep timer (production, #369)
 docs/COMMANDS.md :: ## Operational script targets (#399)
-docs/COMMANDS.md :: ## Seed WA legislative roles (idempotent, #263)
-docs/COMMANDS.md :: ## Archive legacy legislator roles (idempotent, #265)
-docs/COMMANDS.md :: ## Role-type vocabulary migration + classification (issue #266)
-docs/COMMANDS.md :: ## Speaker Designate / Speaker split (issue #314)
-docs/COMMANDS.md :: ## Role data-quality sweep (idempotent, #304)
-docs/COMMANDS.md :: ## Notes → citations migration (issue #319)
-docs/COMMANDS.md :: ## Outbox + tombstone TTL prune (issue #204)
-docs/COMMANDS.md :: ## Person canonical-name backfill (issue #308)
-docs/COMMANDS.md :: ## Org-lifecycle assignment audit (issue #307)
-docs/COMMANDS.md :: ## Assignment-relationship window audit (issue #301)
-docs/COMMANDS.md :: ## Assignment-relationship backfill (issue #301)
-docs/COMMANDS.md :: ## Org end-event backfill (issue #313)
-docs/COMMANDS.md :: ## Duplicate-assignment audit (issue #311)
-docs/COMMANDS.md :: ## Per-key API anomaly check (issue #294)
-docs/COMMANDS.md :: ## Schema-parity audit (issues #315, #331)
-docs/COMMANDS.md :: ## role / role_assignment / citation ancillary orphan audit & cleanup (issues #324, #326, #319)
-docs/CONVENTIONS.md :: ### Org name effective dates (#239)
-docs/CONVENTIONS.md :: ### Address validity windows (#181)
-docs/CONVENTIONS.md :: ### Org lifespan bounds on assignments (#307)
-docs/CONVENTIONS.md :: ### Assignment observations — update semantics & provenance (#311)
-docs/CONVENTIONS.md :: #### Retraction — `op="retract"` (#391)
-docs/CONVENTIONS.md :: ### Org parent — authoritative reparent & provenance (#334)
-docs/CONVENTIONS.md :: ### Event observations — refine-in-place, partial-success, `succeeded_by` & retract (#321/#322)
-docs/CONVENTIONS.md :: ### Jurisdiction graph broadcast (#275)
-docs/CONVENTIONS.md :: ### Merge dedup — role_assignment ancillary re-homing (#324)
-docs/CONVENTIONS.md :: ### Ancillary `entity_changes` emit — DB touch triggers (#327)
-docs/CONVENTIONS.md :: ### Citations — source provenance (#319)
-docs/CONVENTIONS.md :: ### Role-assignment relationships — RA→RA edges (#301)
-docs/CONVENTIONS.md :: #### Canonical name = the display pointer (issue #308)
-docs/CONVENTIONS.md :: #### Canonical auto-promotion on observation (#308)
-docs/CONVENTIONS.md :: #### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
 docs/CONVENTIONS.md :: ## API request log (#260)
-docs/CONVENTIONS.md :: ### Role-type vocabulary — governance (#266)
-docs/CONVENTIONS.md :: ### Entity search — last-token prefix FTS (#316)
 docs/CONVENTIONS.md :: ## Operational scripts — dry run by default & target echo (#402)
+docs/FORMS.md :: ### Clearing a selection (#358)
+docs/HTMX.md :: ## Activity › API Requests screens (#260)
+docs/NAMES.md :: ### Canonical name = the display pointer (issue #308)
+docs/NAMES.md :: ### Canonical auto-promotion on observation (#308)
+docs/NAMES.md :: ### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
+docs/OBSERVATIONS.md :: ## Org lifespan bounds on assignments (#307)
+docs/OBSERVATIONS.md :: ## Assignment observations — update semantics & provenance (#311)
+docs/OBSERVATIONS.md :: ### Retraction — `op="retract"` (#391)
+docs/OBSERVATIONS.md :: ## Org parent — authoritative reparent & provenance (#334)
+docs/OBSERVATIONS.md :: ## Event observations — refine-in-place, partial-success, `succeeded_by` & retract (#321/#322)
+docs/OBSERVATIONS.md :: ## Merge dedup — role_assignment ancillary re-homing (#324)
+docs/OBSERVATIONS.md :: ## Ancillary `entity_changes` emit — DB touch triggers (#327)
+docs/OBSERVATIONS.md :: ## Citations — write semantics (#319)
+docs/OBSERVATIONS.md :: ## Role-assignment relationships — RA→RA edges (#301)
 docs/PUBLIC_API.md :: ### Event observations — refine-in-place & partial-success (#321)
 docs/PUBLIC_API.md :: ## Citations — source provenance (#319)
+docs/RUNBOOKS.md :: ## Seed WA legislative roles (idempotent, #263)
+docs/RUNBOOKS.md :: ## Archive legacy legislator roles (idempotent, #265)
+docs/RUNBOOKS.md :: ## Role-type vocabulary migration + classification (issue #266)
+docs/RUNBOOKS.md :: ## Speaker Designate / Speaker split (issue #314)
+docs/RUNBOOKS.md :: ## Role data-quality sweep (idempotent, #304)
+docs/RUNBOOKS.md :: ## Notes → citations migration (issue #319)
+docs/RUNBOOKS.md :: ## Outbox + tombstone TTL prune (issue #204)
+docs/RUNBOOKS.md :: ## Person canonical-name backfill (issue #308)
+docs/RUNBOOKS.md :: ## Org-lifecycle assignment audit (issue #307)
+docs/RUNBOOKS.md :: ## Assignment-relationship window audit (issue #301)
+docs/RUNBOOKS.md :: ## Assignment-relationship backfill (issue #301)
+docs/RUNBOOKS.md :: ## Org end-event backfill (issue #313)
+docs/RUNBOOKS.md :: ## Duplicate-assignment audit (issue #311)
+docs/RUNBOOKS.md :: ## Per-key API anomaly check (issue #294)
+docs/RUNBOOKS.md :: ## Schema-parity audit (issues #315, #331)
+docs/RUNBOOKS.md :: ## role / role_assignment / citation ancillary orphan audit & cleanup (issues #324, #326, #319)
+docs/SCHEMA.md :: ## Org name effective dates (#239)
+docs/SCHEMA.md :: ## Address validity windows (#181)
+docs/SCHEMA.md :: ## Jurisdiction graph broadcast (#275)
+docs/SCHEMA.md :: ### Role-type vocabulary — governance (#266)
+docs/SCHEMA.md :: ### Entity search — last-token prefix FTS (#316)
 docs/SKILLS.md :: ### Auto-refresh hook (#386)
 docs/STYLE.md :: ### Three-state toggle (#25)
-docs/STYLE.md :: ### Clearing a selection (#358)
-docs/STYLE.md :: ### List status filters & search discoverability (#306)
-docs/STYLE.md :: ### Lingering-state warnings (#307)
-docs/STYLE.md :: ### Person-name metadata controls (Phase 2a–2d, #123)
-docs/STYLE.md :: ### Roles — structural fields (#264)
-docs/STYLE.md :: ### Jurisdictions — admin surface (#275)
-docs/STYLE.md :: ### Person voice-embeddings section (#284)
-docs/STYLE.md :: ### Citations indicator on entity rows (#341)
-docs/STYLE.md :: ## 35. Activity › API Requests screens (#260)
-
-# back-reference — the skill inventory row lists this skill's own trigger
-# phrases, one of which names AGENTS.md. Not a claim about content location.
-docs/SKILLS.md :: | `curating-context` | `gregoryfoster-skills` | curate context, context budget, hone AGENTS.md, trim AGENTS.md, prune context |
+docs/TESTING.md :: ## Browser Testing (axe-core a11y sweep, #300)
+docs/TESTING.md :: ### Weekly a11y sweep timer (production, #369)

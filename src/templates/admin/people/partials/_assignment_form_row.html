@@ -1,5 +1,5 @@
 {# admin/people/partials/_assignment_form_row.html — multi-instance new-assignment form.
-   row_key contract: docs/STYLE.md §34.
+   row_key contract: docs/UI.md § Multi-instance form-row partials: row-key contract
    Coexists with `_assignment_edit_row` (which namespaces ids with `{{ ra.id }}`). #}
 {%- set row_key = row_key | default('new') -%}
 <tr id="person-assignment-row-{{ row_key }}">

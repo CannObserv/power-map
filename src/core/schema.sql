@@ -1939,7 +1939,7 @@ END $$;
 
 -- Role-type classifier seed (#261, #266). Governance rubric — the aggregation
 -- test, the domain-prefix convention, concept-vs-label, and coarse-vs-specific —
--- lives in docs/CONVENTIONS.md §"Role-type vocabulary — governance". In short:
+-- lives in docs/SCHEMA.md §"Role-type vocabulary — governance". In short:
 -- a slug earns a row only if you'd query "all of them" across orgs; every
 -- non-jurisdictional slug is prefixed by the org-kind it attaches to
 -- (committee_/chamber_/legislature_/party_). expects_jurisdiction marks an

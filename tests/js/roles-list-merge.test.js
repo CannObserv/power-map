@@ -10,7 +10,7 @@
  * org-detail roles table (`roles-table` / `roles-merge-*`, driven by the older
  * role-merge.js) so the two never double-bind the same DOM.
  *
- * Listener cleanup pattern same as orgs-merge.test.js — see docs/STYLE.md §33.
+ * Listener cleanup pattern same as orgs-merge.test.js — see docs/TESTING.md § Vitest test conventions
  */
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

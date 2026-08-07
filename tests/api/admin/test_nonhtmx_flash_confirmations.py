@@ -1,4 +1,4 @@
-"""Integration tests: §32 non-HTMX fallbacks carry a ?flash= confirmation (#351).
+"""Integration tests: admin non-HTMX fallbacks carry a ?flash= confirmation (#351).
 
 #349 gave non-HTMX mutations a 303 fallback, but the redirect dropped the
 confirmation the HTMX HX-Trigger flash provides. #351 appends a ?flash= key via
