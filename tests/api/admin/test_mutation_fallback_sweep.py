@@ -1,9 +1,8 @@
 """Source-level sweep: every admin mutation route carries a non-HTMX fallback (#349).
 
 The admin-conventions rule (docs/ADMIN.md): mutation handlers branch on
-``is_htmx(request)``, returning an
-``HX-Location`` 204 / ``HX-Redirect`` 200 for HTMX clients and a
-``RedirectResponse`` fallback for the rest.
+``is_htmx(request)``, returning an ``HX-Location`` 204 / ``HX-Redirect`` 200
+for HTMX clients and a ``RedirectResponse`` fallback for the rest.
 This guard parses every ``src/api/admin/*.py`` module and flags any
 POST/PUT/DELETE/PATCH-decorated handler whose body carries none of the fallback
 markers, so a new mutation route without the branch fails CI instead of
