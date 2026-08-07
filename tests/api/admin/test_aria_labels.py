@@ -15,19 +15,19 @@ Checks:
    accessible name (SC 1.3.1 / 4.1.2). A ``placeholder`` is NOT a label. Valid
    mechanisms: ``aria-label`` / ``aria-labelledby`` on the control, an ``id``
    targeted by a ``<label for>``, or being wrapped in a ``<label>``. See
-   ``docs/STYLE.md §12 → Form labels``.
+   ``docs/ACCESSIBILITY.md § Form labels``.
 
 3. ``test_optional_placeholder_cue_has_describedby`` — a control that marks
    "(optional)" in its ``placeholder`` must also expose it via
    ``aria-describedby`` (placeholders are unreliable for assistive tech). See
-   ``docs/STYLE.md §12 → Optional-field cue``.
+   ``docs/ACCESSIBILITY.md § Optional-field cue``.
 
 4. ``test_no_title_attribute`` — the HTML ``title`` attribute is banned: its
    tooltip is invisible to keyboard and touch users and is announced
    inconsistently by screen readers, so it must never be the sole carrier of
    information (badge state, table-cell expansions, button purpose). Expose the
    text visibly or via a ``.visually-hidden`` span / ``aria-label``. See
-   ``docs/STYLE.md §12 → `title` attributes``.
+   ``docs/ACCESSIBILITY.md § `title` attributes``.
 """
 
 import re
@@ -189,7 +189,7 @@ def _optional_cue_missing_describedby(text: str) -> list[str]:
 
     placeholder text is unreliable for assistive tech, so the optionality cue
     must also be exposed via aria-describedby -> a .visually-hidden hint.
-    See docs/STYLE.md §12 → Optional-field cue.
+    See docs/ACCESSIBILITY.md § Optional-field cue.
     """
     missing: list[str] = []
     for m in _CONTROL_RE.finditer(text):
@@ -217,7 +217,7 @@ def test_optional_placeholder_cue_has_describedby():
                 lines.append(f"    {' '.join(tag.split())[:140]!r}")
         raise AssertionError(
             "placeholder '(optional)' cue without aria-describedby "
-            "(see docs/STYLE.md §12 → Optional-field cue):\n" + "\n".join(lines)
+            "(see docs/ACCESSIBILITY.md § Optional-field cue):\n" + "\n".join(lines)
         )
 
 
@@ -238,7 +238,7 @@ def test_no_title_attribute():
     ``title`` tooltips are inaccessible to keyboard and touch users and are
     announced inconsistently by screen readers, so they must never be the sole
     carrier of information. Surface the text visibly, in a ``.visually-hidden``
-    span, or via ``aria-label`` instead. See ``docs/STYLE.md §12 → `title`
+    span, or via ``aria-label`` instead. See ``docs/ACCESSIBILITY.md § `title`
     attributes``. ``data-*`` attributes are unaffected.
     """
     failures: dict[str, list[str]] = {}
@@ -255,6 +255,6 @@ def test_no_title_attribute():
             for hit in hits:
                 lines.append(f"    {hit[:140]!r}")
         raise AssertionError(
-            "`title` attribute is banned (see docs/STYLE.md §12 → `title` attributes):\n"
+            "`title` attribute is banned (see docs/ACCESSIBILITY.md § `title` attributes):\n"
             + "\n".join(lines)
         )
