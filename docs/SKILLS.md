@@ -62,6 +62,7 @@ To add a new external skill repo: follow the `managing-skills` skill.
 | `using-git-worktrees` | `gregoryfoster-skills` | create worktree, new worktree, destroy worktree, wt |
 | `managing-skills` | `gregoryfoster-skills` | add skill repo, add external skills, manage skills |
 | `orchestrating-issue-backlog` | `gregoryfoster-skills` | orchestrate backlog, prioritize issues, plan issue execution, clear backlog |
+| `curating-context` | `gregoryfoster-skills` | curate context, context budget, hone AGENTS.md, trim AGENTS.md, prune context |
 
 ¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
 
