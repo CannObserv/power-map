@@ -353,3 +353,60 @@ def test_no_token_still_uses_the_env_var(monkeypatch, capsys):
         main()
     assert excinfo.value.code == 3
     assert "EGRESS_EXPECTED_IPS" in capsys.readouterr().out
+
+
+# --- CR1 findings 2 and 4: explicit flag wins; timeout is threaded -----------
+
+
+def test_an_explicit_expected_flag_beats_the_api(monkeypatch):
+    """CR1 finding 2: --expected silently lost to the API, so the flag lied.
+
+    An operator passing an allowlist explicitly is debugging; honour it.
+    """
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--expected", "1.2.3.4"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    monkeypatch.setattr(
+        "scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: ["69.67.149.183"]
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 3  # drift against the explicit set, not the API
+
+
+def test_the_env_var_still_loses_to_the_api(monkeypatch, capsys):
+    """Only an explicitly-passed flag wins — the env var stays a fallback."""
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setenv("EGRESS_EXPECTED_IPS", "1.2.3.4")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    monkeypatch.setattr(
+        "scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: ["69.67.149.183"]
+    )
+    main()  # no SystemExit — the API says it is fine
+    assert "DO API" in capsys.readouterr().out
+
+
+def test_timeout_is_threaded_into_the_do_api_call(monkeypatch):
+    """CR1 finding 4: --timeout covered only the egress lookup."""
+    seen = {}
+
+    def recording(token, cluster, *, timeout=None, **kw):
+        seen["timeout"] = timeout
+        return ["69.67.149.183"]
+
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--timeout", "3"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", recording)
+    main()
+    assert seen["timeout"] == 3
+
+
+def test_an_explicit_but_empty_expected_is_unknown_not_drift(monkeypatch, capsys):
+    """`--expected ""` asks to compare against nothing; that is not a verdict."""
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--expected", ""])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    main()  # no SystemExit
+    assert "could not determine the allowlist" in capsys.readouterr().out.lower()

@@ -119,7 +119,7 @@ def surface(ok: bool, summary: str, *, alert: Alert, runner=None) -> None:
                 # The next run finds nothing open and tries again.
                 logger.warning("gh issue create failed (rc=%d) — no alert raised", rc)
         elif existing:
-            runner(
+            rc, _ = runner(
                 [
                     "issue",
                     "comment",
@@ -129,6 +129,10 @@ def surface(ok: bool, summary: str, *, alert: Alert, runner=None) -> None:
                     "Auto-closing.",
                 ]
             )
+            if rc != 0:
+                # Closing is what clears the alert, so press on regardless —
+                # but say the note is missing rather than implying it landed.
+                logger.warning("gh issue comment failed (rc=%d) — closing anyway", rc)
             rc, _ = runner(["issue", "close", existing])
             if rc == 0:
                 logger.info("closed recovered issue #%s", existing)

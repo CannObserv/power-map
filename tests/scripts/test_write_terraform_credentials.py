@@ -142,3 +142,23 @@ def test_written_paths_are_reported_without_their_contents(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "dop_v1_secrettoken" not in captured.out + captured.err
     assert "spaces+secret" not in captured.out + captured.err
+
+
+# --- CR1 finding 6: escape values into HCL string literals -------------------
+
+
+def test_render_tfvars_escapes_a_quote_in_the_token():
+    """A raw f-string would end the literal early and emit invalid HCL."""
+    out = render_tfvars('tok"en', ["1.2.3.4"])
+    assert 'do_token = "tok\\"en"' in out
+
+
+def test_render_backend_escapes_quotes_and_backslashes():
+    out = render_backend('ke"y', "sec\\ret")
+    assert 'access_key = "ke\\"y"' in out
+    assert 'secret_key = "sec\\\\ret"' in out
+
+
+def test_render_tfvars_escapes_allowlist_entries():
+    out = render_tfvars("t", ['1.2.3.4"]; evil = "'])
+    assert '1.2.3.4\\"]; evil = \\"' in out

@@ -337,3 +337,36 @@ def test_main_gh_failure_does_not_mask_the_probe_result(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING), pytest.raises(SystemExit) as excinfo:
         main()
     assert excinfo.value.code == 3
+
+
+# --- CR1 finding 1: attempts must be a real count ---------------------------
+
+
+@pytest.mark.parametrize("attempts", ["0", "-1"])
+def test_main_rejects_a_non_positive_attempt_count(monkeypatch, attempts):
+    """Zero attempts probed nothing, then crashed on results[-1] (CR1 finding 1).
+
+    An env typo in /etc/power-map/.env must not turn the outage guard into a
+    unit that traps every two minutes without ever making a request.
+    """
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--attempts", attempts])
+    monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 2  # argparse usage error, not a traceback
+
+
+def test_main_rejects_a_non_positive_attempt_count_from_the_environment(monkeypatch):
+    monkeypatch.setenv("READY_PROBE_ATTEMPTS", "0")
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh"])
+    monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 2
+
+
+def test_main_accepts_a_single_attempt(monkeypatch):
+    """1 is the floor, not an error — flap resistance is opt-out-able."""
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--attempts", "1"])
+    monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
+    main()  # no SystemExit

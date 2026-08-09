@@ -142,3 +142,24 @@ def test_empty_and_null_both_mean_no_open_issue(existing):
     runner = _label_present((0, existing))
     surface(False, "something broke", alert=ALERT, runner=runner)
     assert runner.ran("issue", "create")
+
+
+# --- CR1 finding 5: the comment's return code is checked too -----------------
+
+
+def test_reports_a_failed_recovery_comment(caplog):
+    """Same class as the create-path defect #414 fixed — do not skip the rc."""
+    runner = _label_present((0, "412"), (1, ""), (0, ""))  # comment FAILS, close ok
+    with caplog.at_level(logging.INFO):
+        surface(True, "", alert=ALERT, runner=runner)
+    messages = [r.getMessage().lower() for r in caplog.records]
+    assert any("comment failed" in m for m in messages)
+
+
+def test_a_failed_comment_still_closes_the_issue(caplog):
+    """The close is what matters; a missing comment must not strand the alert."""
+    runner = _label_present((0, "412"), (1, ""), (0, ""))
+    with caplog.at_level(logging.INFO):
+        surface(True, "", alert=ALERT, runner=runner)
+    assert runner.ran("issue", "close", "412")
+    assert any("closed recovered" in r.getMessage().lower() for r in caplog.records)

@@ -33,6 +33,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -72,9 +73,12 @@ def render_tfvars(token: str, allowed_ips: list[str]) -> str:
         raise ValueError(
             "allowed_external_ips would be empty — the cluster would become unreachable"
         )
-    entries = ", ".join(f'"{ip}"' for ip in allowed_ips)
+    # json.dumps yields a correctly-escaped HCL string literal. A raw f-string
+    # let a quote in the value end the literal early and append arbitrary HCL
+    # (CR1 finding 6).
+    entries = ", ".join(json.dumps(ip) for ip in allowed_ips)
     return (
-        f'do_token = "{token}"\n\n'
+        f"do_token = {json.dumps(token)}\n\n"
         "# Mirrors DO -> Databases -> Settings -> Trusted Sources, read from the API\n"
         f"# by scripts/write_terraform_credentials.py (#409).\n"
         f"allowed_external_ips = [{entries}]\n"
@@ -83,7 +87,7 @@ def render_tfvars(token: str, allowed_ips: list[str]) -> str:
 
 def render_backend(access_key: str, secret_key: str) -> str:
     """Render ``backend.hcl`` — the DO Spaces credentials for the S3 backend."""
-    return f'access_key = "{access_key}"\nsecret_key = "{secret_key}"\n'
+    return f"access_key = {json.dumps(access_key)}\nsecret_key = {json.dumps(secret_key)}\n"
 
 
 def _write_private(path: Path, content: str) -> Path:
