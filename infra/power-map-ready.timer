@@ -1,0 +1,17 @@
+[Unit]
+Description=power-map readiness probe guard, every 2 minutes (issue #347)
+
+[Timer]
+# Every 2 minutes. The number to beat is the 2026-08-09 outage's ~30-minute
+# gap between first failure and a human noticing.
+OnCalendar=*:0/2
+# systemd's default accuracy is 1 minute, which would smear a 2-minute cadence
+# badly. Detection latency is the whole point here, so pin it tight.
+AccuracySec=5s
+# No RandomizedDelaySec and no Persistent: this is a liveness poll, not a batch
+# job. Spreading it would blunt detection, and replaying missed runs after a
+# reboot would alert about a window that has already passed.
+Persistent=false
+
+[Install]
+WantedBy=timers.target
