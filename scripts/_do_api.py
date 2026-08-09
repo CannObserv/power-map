@@ -16,6 +16,8 @@ from urllib.request import urlopen
 API_ROOT = "https://api.digitalocean.com/v2"
 DEFAULT_CLUSTER = "co-pm-db-1"
 DEFAULT_TIMEOUT = 30.0
+# Large enough that a single page covers any realistic account.
+PAGE_SIZE = 200
 
 
 def _request(url: str, token: str) -> urllib.request.Request:
@@ -37,8 +39,14 @@ def fetch_allowed_ips(
     so they must not reach ``allowed_external_ips`` or an egress comparison.
     """
     opener = opener or urlopen
-    clusters = _get(f"{API_ROOT}/databases", token, opener=opener, timeout=timeout)
-    match = next((c for c in clusters.get("databases", []) if c.get("name") == cluster_name), None)
+    # DO pages at 20 by default, so a cluster past page 1 used to look absent
+    # (CR1 finding 3). Ask for a large page, then follow the cursor anyway.
+    url = f"{API_ROOT}/databases?per_page={PAGE_SIZE}"
+    match = None
+    while url and match is None:
+        page = _get(url, token, opener=opener, timeout=timeout)
+        match = next((c for c in page.get("databases", []) if c.get("name") == cluster_name), None)
+        url = page.get("links", {}).get("pages", {}).get("next")
     if match is None:
         raise LookupError(f"no DigitalOcean database cluster named {cluster_name!r}")
     firewall = _get(

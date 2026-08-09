@@ -78,3 +78,43 @@ def test_fetch_allowed_ips_raises_on_unknown_cluster():
 
 def test_requests_carry_the_bearer_token():
     assert _request("https://x", "tok123").get_header("Authorization") == "Bearer tok123"
+
+
+# --- CR1 finding 3: /v2/databases is paginated ------------------------------
+
+
+PAGE_1 = {
+    "databases": [{"id": "cid-a", "name": "other-1"}],
+    "links": {"pages": {"next": "https://api.digitalocean.com/v2/databases?page=2&per_page=200"}},
+}
+PAGE_2 = {"databases": [{"id": "cid-2", "name": "co-pm-db-1"}], "links": {"pages": {}}}
+
+
+def test_follows_pagination_to_find_a_later_cluster():
+    """DO pages at 20 by default; a cluster past page 1 used to raise LookupError."""
+    opener = _api(PAGE_1, PAGE_2, FIREWALL)
+    assert fetch_allowed_ips("token", "co-pm-db-1", opener=opener) == [
+        "69.67.149.183",
+        "67.213.124.9",
+    ]
+    assert "page=2" in opener.calls[1]
+
+
+def test_requests_a_large_page_size():
+    """Fewer round trips, and most accounts then need only one."""
+    opener = _api(CLUSTERS, FIREWALL)
+    fetch_allowed_ips("token", "co-pm-db-1", opener=opener)
+    assert "per_page=" in opener.calls[0]
+
+
+def test_stops_paging_once_the_cluster_is_found():
+    """No reason to walk the rest of the account."""
+    opener = _api(PAGE_2, FIREWALL)
+    fetch_allowed_ips("token", "co-pm-db-1", opener=opener)
+    assert len(opener.calls) == 2  # cluster page + firewall, no further paging
+
+
+def test_unknown_cluster_reports_after_exhausting_pages():
+    opener = _api(PAGE_1, PAGE_2, FIREWALL)
+    with pytest.raises(LookupError):
+        fetch_allowed_ips("token", "absent", opener=opener)

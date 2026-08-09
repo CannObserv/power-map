@@ -98,7 +98,14 @@ UNRESTRICTED = "unrestricted"
 UNKNOWN = ""
 
 
-def resolve_allowlist(token: str, cluster: str, expected_raw: str) -> tuple[set[str] | None, str]:
+def resolve_allowlist(
+    token: str,
+    cluster: str,
+    expected_raw: str,
+    *,
+    explicit: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> tuple[set[str] | None, str]:
     """Return (allowlist, source label), preferring the live Trusted Sources.
 
     The DO API is authoritative and needs nothing kept in sync by hand, so it
@@ -108,10 +115,20 @@ def resolve_allowlist(token: str, cluster: str, expected_raw: str) -> tuple[set[
 
     ``EGRESS_EXPECTED_IPS`` remains the fallback for a host with no token, or
     for an API that is temporarily unreachable.
+
+    An **explicitly passed** ``--expected`` overrides all of that: the operator
+    is debugging, and a flag that silently loses to the API lies about what it
+    compared (CR1 finding 2). The env var is not explicit and still loses.
     """
+    if explicit:
+        # An explicit but empty set asks to compare against nothing — report it
+        # as undetermined rather than declaring drift against an empty list.
+        return (parse_expected(expected_raw) or None), (
+            "--expected" if expected_raw.strip() else UNKNOWN
+        )
     if token:
         try:
-            live = fetch_allowed_ips(token, cluster)
+            live = fetch_allowed_ips(token, cluster, timeout=timeout)
         except Exception:
             logger.warning("DO API allowlist lookup failed — falling back", exc_info=True)
         else:
@@ -133,8 +150,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Detect egress-IP drift (#410)")
     parser.add_argument(
         "--expected",
-        default=os.environ.get("EGRESS_EXPECTED_IPS", ""),
-        help="comma-separated IPs the database allowlist knows (env EGRESS_EXPECTED_IPS)",
+        default=None,
+        help="comma-separated IPs to compare against; overrides the DO API "
+        "(env EGRESS_EXPECTED_IPS supplies a fallback, which does not)",
     )
     parser.add_argument(
         "--timeout",
@@ -168,7 +186,11 @@ def main() -> None:
         return
 
     allowed, source = resolve_allowlist(
-        os.environ.get("DO_API_TOKEN", ""), args.cluster, args.expected
+        os.environ.get("DO_API_TOKEN", ""),
+        args.cluster,
+        args.expected if args.expected is not None else os.environ.get("EGRESS_EXPECTED_IPS", ""),
+        explicit=args.expected is not None,
+        timeout=args.timeout,
     )
     if source == UNRESTRICTED:
         logger.info(

@@ -207,6 +207,11 @@ def main() -> None:
         "--no-gh", action="store_true", help="skip GitHub surfacing (env READY_CHECK_NO_GH)"
     )
     args = parser.parse_args()
+    if args.attempts < 1:
+        # Zero probed nothing and then crashed on results[-1] (CR1 finding 1).
+        # An env typo must not turn the outage guard into a trap that never
+        # makes a request.
+        parser.error(f"--attempts must be at least 1 (got {args.attempts})")
     no_gh = args.no_gh or bool(os.environ.get("READY_CHECK_NO_GH"))
 
     if os.environ.get("READY_CHECK_FORCE_FAIL"):
