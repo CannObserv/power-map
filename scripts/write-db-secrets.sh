@@ -16,6 +16,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="$SCRIPT_DIR/../infra/terraform"
 ENV_FILE="/etc/power-map/.env"
 
+# ── 0. Preflight: terraform must be able to reach state ───────────────────────
+# On 2026-08-09 both gitignored credential files turned out to be absent from
+# the VM, and this script's first act — `terraform output -json` — failed with a
+# backend error that named none of that. Fail here instead, pointing at the
+# rebuild (#409). Custody: /etc/power-map/.env holds DO_API_TOKEN,
+# DO_SPACES_KEY and DO_SPACES_VALUE.
+missing=()
+[ -f "$TF_DIR/terraform.tfvars" ] || missing+=("terraform.tfvars")
+[ -f "$TF_DIR/backend.hcl" ]      || missing+=("backend.hcl")
+[ -d "$TF_DIR/.terraform" ]       || missing+=(".terraform/ (not initialised)")
+if [ ${#missing[@]} -gt 0 ]; then
+    echo "ERROR: terraform is not usable — missing: ${missing[*]}" >&2
+    echo "  Rebuild the credentials, then initialise:" >&2
+    echo "    uv run python -m scripts.write_terraform_credentials" >&2
+    echo "    terraform -chdir=infra/terraform init -backend-config=backend.hcl" >&2
+    echo "  See docs/COMMANDS.md § Provisioning." >&2
+    exit 2
+fi
+
 # ── 1. Read Terraform outputs ─────────────────────────────────────────────────
 echo "==> Reading Terraform outputs"
 TF_JSON=$(terraform -chdir="$TF_DIR" output -json)
