@@ -304,6 +304,46 @@ def test_surface_creates_the_label_idempotently():
     assert runner.ran("label", "create", LABEL)
 
 
+def test_surface_does_not_claim_to_have_opened_when_create_fails(caplog):
+    """A failed create must read as failed.
+
+    Found in production during the #347 install self-test: the journal said
+    "opened ready-regression issue" on a run whose return code was never
+    inspected. A log line that reports an unchecked outcome is worse than
+    silence — it is the one an operator trusts while no alert exists.
+    """
+    runner = _Runner((0, LABEL), (0, ""), (1, ""))  # label list, issue list, create FAILS
+    with caplog.at_level(logging.INFO):
+        surface(False, "not ready: pool_timeout", runner=runner)
+    messages = [r.getMessage().lower() for r in caplog.records]
+    assert any("failed" in m for m in messages)
+    assert not any("opened" in m for m in messages)
+
+
+def test_surface_reports_a_successful_open(caplog):
+    runner = _Runner((0, LABEL), (0, ""), (0, ""))
+    with caplog.at_level(logging.INFO):
+        surface(False, "not ready: pool_timeout", runner=runner)
+    assert any("opened" in r.getMessage().lower() for r in caplog.records)
+
+
+def test_surface_does_not_claim_to_have_closed_when_close_fails(caplog):
+    """Same rule on the recovery side — a stale alert must not read as cleared."""
+    runner = _Runner((0, LABEL), (0, "412"), (0, ""), (1, ""))  # ... comment ok, close FAILS
+    with caplog.at_level(logging.INFO):
+        surface(True, "", runner=runner)
+    messages = [r.getMessage().lower() for r in caplog.records]
+    assert any("failed" in m for m in messages)
+    assert not any("closed recovered" in m for m in messages)
+
+
+def test_surface_reports_a_successful_close(caplog):
+    runner = _Runner((0, LABEL), (0, "412"), (0, ""), (0, ""))
+    with caplog.at_level(logging.INFO):
+        surface(True, "", runner=runner)
+    assert any("closed recovered" in r.getMessage().lower() for r in caplog.records)
+
+
 # --- main ------------------------------------------------------------------
 
 

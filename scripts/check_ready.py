@@ -221,8 +221,15 @@ def surface(ok: bool, summary: str, *, runner=None) -> None:
                 "(deliberately not published — this is a public repo). "
                 "Automated by `power-map-ready.timer` (#347)."
             )
-            runner(["issue", "create", "--title", ISSUE_TITLE, "--label", LABEL, "--body", body])
-            logger.warning("opened %s issue", LABEL)
+            rc, _ = runner(
+                ["issue", "create", "--title", ISSUE_TITLE, "--label", LABEL, "--body", body]
+            )
+            if rc == 0:
+                logger.warning("opened %s issue", LABEL)
+            else:
+                # Say what happened, not what was attempted: the next run will
+                # find no open issue and try again.
+                logger.warning("gh issue create failed (rc=%d) — no alert raised", rc)
         elif existing:
             runner(
                 [
@@ -233,8 +240,11 @@ def surface(ok: bool, summary: str, *, runner=None) -> None:
                     f"✅ **Recovered** — `/ready` green as of {timestamp}. Auto-closing.",
                 ]
             )
-            runner(["issue", "close", existing])
-            logger.info("closed recovered readiness issue #%s", existing)
+            rc, _ = runner(["issue", "close", existing])
+            if rc == 0:
+                logger.info("closed recovered readiness issue #%s", existing)
+            else:
+                logger.warning("gh issue close failed (rc=%d) — issue #%s left open", rc, existing)
     except Exception:
         # A broken gh must not turn a real outage into a clean exit.
         logger.warning("GitHub surfacing failed — probe result stands", exc_info=True)
