@@ -18,6 +18,9 @@ DEFAULT_CLUSTER = "co-pm-db-1"
 DEFAULT_TIMEOUT = 30.0
 # Large enough that a single page covers any realistic account.
 PAGE_SIZE = 200
+# A cursor that never terminates would otherwise spin until systemd killed the
+# unit, once every timer interval (CR2 finding 11).
+MAX_PAGES = 20
 
 
 def _request(url: str, token: str) -> urllib.request.Request:
@@ -43,10 +46,16 @@ def fetch_allowed_ips(
     # (CR1 finding 3). Ask for a large page, then follow the cursor anyway.
     url = f"{API_ROOT}/databases?per_page={PAGE_SIZE}"
     match = None
-    while url and match is None:
+    for _ in range(MAX_PAGES):
+        if url is None or match is not None:
+            break
         page = _get(url, token, opener=opener, timeout=timeout)
         match = next((c for c in page.get("databases", []) if c.get("name") == cluster_name), None)
         url = page.get("links", {}).get("pages", {}).get("next")
+        if url is not None and not url.startswith(API_ROOT):
+            # Every request carries the bearer token; a cursor taken from the
+            # response body must not steer it off DigitalOcean (CR2 finding 12).
+            raise ValueError(f"refusing to follow a pagination cursor off-host: {url}")
     if match is None:
         raise LookupError(f"no DigitalOcean database cluster named {cluster_name!r}")
     firewall = _get(

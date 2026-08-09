@@ -370,3 +370,42 @@ def test_main_accepts_a_single_attempt(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
     main()  # no SystemExit
+
+
+# --- CR2 finding 9: validate every numeric input, not just attempts ---------
+
+
+@pytest.mark.parametrize(
+    "flag,value",
+    [("--retry-delay", "-1"), ("--timeout", "0"), ("--timeout", "-5")],
+)
+def test_main_rejects_nonsensical_timings(monkeypatch, flag, value):
+    """A negative delay reached time.sleep and raised ValueError (CR2 finding 9).
+
+    Same hazard as --attempts 0: these all come from /etc/power-map/.env, so a
+    typo must produce a usage error, not a traceback every two minutes.
+    """
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", flag, value])
+    monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "env,value", [("READY_PROBE_RETRY_DELAY", "-1"), ("READY_PROBE_TIMEOUT", "0")]
+)
+def test_main_rejects_nonsensical_timings_from_the_environment(monkeypatch, env, value):
+    monkeypatch.setenv(env, value)
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh"])
+    monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 2
+
+
+def test_zero_retry_delay_is_allowed(monkeypatch):
+    """0 means 'retry immediately' — legitimate, and the tests rely on it."""
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--retry-delay", "0"])
+    monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
+    main()  # no SystemExit

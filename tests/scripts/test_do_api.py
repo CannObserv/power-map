@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from scripts._do_api import _request, fetch_allowed_ips
+from scripts._do_api import API_ROOT, MAX_PAGES, _request, fetch_allowed_ips
 
 # --- fetch_allowed_ips -----------------------------------------------------
 
@@ -118,3 +118,49 @@ def test_unknown_cluster_reports_after_exhausting_pages():
     opener = _api(PAGE_1, PAGE_2, FIREWALL)
     with pytest.raises(LookupError):
         fetch_allowed_ips("token", "absent", opener=opener)
+
+
+# --- CR2 findings 11 and 12: bound the walk, keep it on DO ------------------
+
+
+def _endless_pages():
+    """A cursor that never terminates — the hang CR2 finding 11 guards against."""
+    calls = []
+
+    def opener(request, timeout=None):
+        calls.append(getattr(request, "full_url", request))
+        return _Response(
+            {
+                "databases": [{"id": "x", "name": "not-the-one"}],
+                "links": {"pages": {"next": f"{API_ROOT}/databases?page={len(calls) + 1}"}},
+            }
+        )
+
+    opener.calls = calls
+    return opener
+
+
+def test_paging_is_bounded():
+    """Unbounded, this spun until systemd killed the unit — every 5 minutes."""
+    opener = _endless_pages()
+    with pytest.raises(LookupError):
+        fetch_allowed_ips("token", "co-pm-db-1", opener=opener)
+    assert len(opener.calls) <= MAX_PAGES
+
+
+def test_refuses_to_follow_a_cursor_off_digitalocean():
+    """The bearer token rides on every request; it must not leave the host."""
+    off_host = {
+        "databases": [{"id": "x", "name": "other"}],
+        "links": {"pages": {"next": "https://evil.example/v2/databases?page=2"}},
+    }
+    opener = _api(off_host, FIREWALL)
+    with pytest.raises(ValueError) as excinfo:
+        fetch_allowed_ips("token", "co-pm-db-1", opener=opener)
+    assert "evil.example" in str(excinfo.value)
+    assert len(opener.calls) == 1  # never fetched
+
+
+def test_a_normal_next_cursor_is_still_followed():
+    opener = _api(PAGE_1, PAGE_2, FIREWALL)
+    assert fetch_allowed_ips("token", "co-pm-db-1", opener=opener)

@@ -121,11 +121,11 @@ def resolve_allowlist(
     compared (CR1 finding 2). The env var is not explicit and still loses.
     """
     if explicit:
-        # An explicit but empty set asks to compare against nothing — report it
-        # as undetermined rather than declaring drift against an empty list.
-        return (parse_expected(expected_raw) or None), (
-            "--expected" if expected_raw.strip() else UNKNOWN
-        )
+        parsed = parse_expected(expected_raw)
+        if not parsed:
+            # Asking to compare against nothing is not a verdict.
+            return None, UNKNOWN
+        return parsed, "--expected"
     if token:
         try:
             live = fetch_allowed_ips(token, cluster, timeout=timeout)
@@ -200,11 +200,15 @@ def main() -> None:
         )
         return
     if allowed is None:
-        logger.warning(
-            "could not determine the allowlist — no DO_API_TOKEN and no EGRESS_EXPECTED_IPS; "
-            "egress IP is %s",
-            current,
+        # Reached from several states (an empty --expected, no token and no env
+        # var, an API failure with no fallback), so name a cause only when it is
+        # actually the cause — misattributing it sends triage sideways.
+        hint = (
+            ""
+            if os.environ.get("DO_API_TOKEN")
+            else " — set DO_API_TOKEN or EGRESS_EXPECTED_IPS in /etc/power-map/.env"
         )
+        logger.warning("could not determine the allowlist; egress IP is %s%s", current, hint)
         return
 
     if current in allowed:
