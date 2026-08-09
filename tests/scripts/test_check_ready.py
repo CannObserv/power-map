@@ -26,13 +26,12 @@ import pytest
 
 from scripts.check_ready import (
     DEFAULT_URL,
-    LABEL,
+    READY_ALERT,
     ProbeResult,
     check,
     main,
     probe,
     summarize,
-    surface,
 )
 
 # --- fakes -----------------------------------------------------------------
@@ -244,106 +243,6 @@ def test_summary_reports_attempt_count():
     assert "2" in summarize(results)
 
 
-# --- surface: GitHub, deduplicated and quiet -------------------------------
-
-
-def _no_open_issue():
-    """gh label list, then an empty issue list."""
-    return _Runner((0, LABEL), (0, ""))
-
-
-def test_surface_opens_an_issue_when_none_is_open():
-    runner = _no_open_issue()
-    surface(False, "not ready: pool_timeout", runner=runner)
-    assert runner.ran("issue", "create")
-
-
-def test_surface_is_silent_when_an_issue_is_already_open():
-    """At a 2-minute cadence, a comment per failing run is ~30/hour of noise."""
-    runner = _Runner((0, LABEL), (0, "412"))
-    surface(False, "not ready: pool_timeout", runner=runner)
-    assert not runner.ran("issue", "create")
-    assert not runner.ran("issue", "comment")
-
-
-def test_surface_closes_the_issue_on_recovery():
-    """The pool reconnects by itself; the alert must not outlive the outage."""
-    runner = _Runner((0, LABEL), (0, "412"))
-    surface(True, "", runner=runner)
-    assert runner.ran("issue", "comment", "412")
-    assert runner.ran("issue", "close", "412")
-
-
-def test_surface_recovery_is_a_no_op_when_nothing_is_open():
-    runner = _no_open_issue()
-    surface(True, "", runner=runner)
-    assert not runner.ran("issue", "close")
-    assert not runner.ran("issue", "comment")
-
-
-def test_surface_skips_when_the_issue_list_call_fails():
-    """A transient gh failure must not open a duplicate (a11y #369 CR2 finding 5)."""
-    runner = _Runner((0, LABEL), (1, ""))
-    surface(False, "not ready: pool_timeout", runner=runner)
-    assert not runner.ran("issue", "create")
-
-
-def test_surface_never_publishes_the_probe_body():
-    """Public repo: summary and journal pointer only, never raw response detail."""
-    runner = _no_open_issue()
-    surface(False, "not ready: pool_timeout", runner=runner)
-    create = next(c for c in runner.calls if "create" in c)
-    body = create[create.index("--body") + 1]
-    assert "journalctl -u power-map-ready" in body
-    assert "pool_timeout" in body
-
-
-def test_surface_creates_the_label_idempotently():
-    runner = _Runner((0, ""), (0, ""))  # label list empty -> create it
-    surface(False, "not ready", runner=runner)
-    assert runner.ran("label", "create", LABEL)
-
-
-def test_surface_does_not_claim_to_have_opened_when_create_fails(caplog):
-    """A failed create must read as failed.
-
-    Found in production during the #347 install self-test: the journal said
-    "opened ready-regression issue" on a run whose return code was never
-    inspected. A log line that reports an unchecked outcome is worse than
-    silence — it is the one an operator trusts while no alert exists.
-    """
-    runner = _Runner((0, LABEL), (0, ""), (1, ""))  # label list, issue list, create FAILS
-    with caplog.at_level(logging.INFO):
-        surface(False, "not ready: pool_timeout", runner=runner)
-    messages = [r.getMessage().lower() for r in caplog.records]
-    assert any("failed" in m for m in messages)
-    assert not any("opened" in m for m in messages)
-
-
-def test_surface_reports_a_successful_open(caplog):
-    runner = _Runner((0, LABEL), (0, ""), (0, ""))
-    with caplog.at_level(logging.INFO):
-        surface(False, "not ready: pool_timeout", runner=runner)
-    assert any("opened" in r.getMessage().lower() for r in caplog.records)
-
-
-def test_surface_does_not_claim_to_have_closed_when_close_fails(caplog):
-    """Same rule on the recovery side — a stale alert must not read as cleared."""
-    runner = _Runner((0, LABEL), (0, "412"), (0, ""), (1, ""))  # ... comment ok, close FAILS
-    with caplog.at_level(logging.INFO):
-        surface(True, "", runner=runner)
-    messages = [r.getMessage().lower() for r in caplog.records]
-    assert any("failed" in m for m in messages)
-    assert not any("closed recovered" in m for m in messages)
-
-
-def test_surface_reports_a_successful_close(caplog):
-    runner = _Runner((0, LABEL), (0, "412"), (0, ""), (0, ""))
-    with caplog.at_level(logging.INFO):
-        surface(True, "", runner=runner)
-    assert any("closed recovered" in r.getMessage().lower() for r in caplog.records)
-
-
 # --- main ------------------------------------------------------------------
 
 
@@ -377,7 +276,7 @@ def test_main_no_gh_hatch_suppresses_surfacing(monkeypatch):
     monkeypatch.setenv("READY_CHECK_NO_GH", "1")
     monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _down_opener())
-    monkeypatch.setattr("scripts.check_ready._gh", lambda args: called.append(args) or (0, ""))
+    monkeypatch.setattr("scripts._alerting.gh", lambda args: called.append(args) or (0, ""))
     with pytest.raises(SystemExit):
         main()
     assert called == []
@@ -418,10 +317,10 @@ def test_main_default_timeout_exceeds_ready_worst_case(monkeypatch):
 
 def test_main_surfaces_recovery_when_ready(monkeypatch):
     """Green runs still call gh — that is what closes a stale alert."""
-    runner = _Runner((0, LABEL), (0, ""))
+    runner = _Runner((0, READY_ALERT.label), (0, ""))
     monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
-    monkeypatch.setattr("scripts.check_ready._gh", runner)
+    monkeypatch.setattr("scripts._alerting.gh", runner)
     main()
     assert runner.calls
 
@@ -434,7 +333,7 @@ def test_main_gh_failure_does_not_mask_the_probe_result(monkeypatch, caplog):
 
     monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _down_opener())
-    monkeypatch.setattr("scripts.check_ready._gh", boom)
+    monkeypatch.setattr("scripts._alerting.gh", boom)
     with caplog.at_level(logging.WARNING), pytest.raises(SystemExit) as excinfo:
         main()
     assert excinfo.value.code == 3

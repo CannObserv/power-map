@@ -39,14 +39,13 @@ Usage:
 import argparse
 import json
 import os
-import subprocess
 import sys
 import time
 import urllib.error
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from urllib.request import urlopen
 
+from scripts._alerting import Alert, surface
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -58,8 +57,13 @@ DEFAULT_TIMEOUT = 10.0
 DEFAULT_ATTEMPTS = 2
 DEFAULT_RETRY_DELAY = 10.0
 
-LABEL = "ready-regression"
-ISSUE_TITLE = "Readiness probe failing (automated)"
+READY_ALERT = Alert(
+    label="ready-regression",
+    title="Readiness probe failing (automated)",
+    subject_recovered="`/ready` is green again",
+    unit="power-map-ready",
+    label_description="Automated /ready probe failure (power-map-ready.timer, #347)",
+)
 
 
 @dataclass(frozen=True)
@@ -153,103 +157,6 @@ def summarize(results: list[ProbeResult]) -> str:
     return f"/ready not ready after {len(results)} attempt(s) — {where}, reason `{last.reason}`"
 
 
-def _gh(args: list[str]) -> tuple[int, str]:
-    """Run ``gh`` with ``args``; return (returncode, stdout)."""
-    completed = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
-    return completed.returncode, completed.stdout
-
-
-def _ensure_label(runner) -> None:
-    """Create the label if absent. Best-effort — never blocks surfacing."""
-    rc, out = runner(["label", "list", "--limit", "200", "--json", "name", "-q", ".[].name"])
-    if rc == 0 and LABEL in out.split():
-        return
-    runner(
-        [
-            "label",
-            "create",
-            LABEL,
-            "--color",
-            "B60205",
-            "--description",
-            "Automated /ready probe failure (power-map-ready.timer, #347)",
-        ]
-    )
-
-
-def surface(ok: bool, summary: str, *, runner=None) -> None:
-    """Open the alert issue on failure, close it on recovery.
-
-    Deliberately quiet when an issue is already open: this runs every two
-    minutes, so a comment per failing run would bury the signal it exists to
-    raise. Best-effort throughout — surfacing must never change the exit code.
-    """
-    runner = runner or _gh
-    try:
-        _ensure_label(runner)
-        rc, out = runner(
-            [
-                "issue",
-                "list",
-                "--label",
-                LABEL,
-                "--state",
-                "open",
-                "--json",
-                "number",
-                "-q",
-                ".[0].number",
-            ]
-        )
-        if rc != 0:
-            # Distinguishing "none open" from "gh failed" matters: acting on a
-            # failed list risks a duplicate issue (a11y #369 CR2 finding 5).
-            logger.warning("gh issue list failed (rc=%d) — skipping surfacing this run", rc)
-            return
-        existing = out.strip()
-        if existing in ("", "null"):
-            existing = None
-
-        timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        if not ok:
-            if existing:
-                logger.info("readiness alert already open as #%s — staying quiet", existing)
-                return
-            body = (
-                f"**Readiness probe FAILING** — {timestamp}.\n\n{summary}\n\n"
-                "Full detail is on the VM: `journalctl -u power-map-ready` "
-                "(deliberately not published — this is a public repo). "
-                "Automated by `power-map-ready.timer` (#347)."
-            )
-            rc, _ = runner(
-                ["issue", "create", "--title", ISSUE_TITLE, "--label", LABEL, "--body", body]
-            )
-            if rc == 0:
-                logger.warning("opened %s issue", LABEL)
-            else:
-                # Say what happened, not what was attempted: the next run will
-                # find no open issue and try again.
-                logger.warning("gh issue create failed (rc=%d) — no alert raised", rc)
-        elif existing:
-            runner(
-                [
-                    "issue",
-                    "comment",
-                    existing,
-                    "--body",
-                    f"✅ **Recovered** — `/ready` green as of {timestamp}. Auto-closing.",
-                ]
-            )
-            rc, _ = runner(["issue", "close", existing])
-            if rc == 0:
-                logger.info("closed recovered readiness issue #%s", existing)
-            else:
-                logger.warning("gh issue close failed (rc=%d) — issue #%s left open", rc, existing)
-    except Exception:
-        # A broken gh must not turn a real outage into a clean exit.
-        logger.warning("GitHub surfacing failed — probe result stands", exc_info=True)
-
-
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.environ[name])
@@ -324,7 +231,7 @@ def main() -> None:
         logger.warning("readiness FAILED — %s (%s)", summarize(results), args.url)
 
     if not no_gh:
-        surface(ok, summarize(results))
+        surface(ok, summarize(results), alert=READY_ALERT)
     if not ok:
         sys.exit(3)
 

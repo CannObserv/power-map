@@ -1,0 +1,16 @@
+[Unit]
+Description=power-map egress-IP drift guard, every 5 minutes (issue #410)
+
+[Timer]
+# Every 5 minutes. Faster than this buys little: the readiness guard (#347)
+# already catches the *effect* within two minutes. This one exists to name the
+# *cause* and hand over the new address, and it calls third-party echo
+# services — no reason to hammer them.
+OnCalendar=*:0/5
+AccuracySec=30s
+# Spread off the exact boundary so the two guards do not always run together.
+RandomizedDelaySec=20
+Persistent=false
+
+[Install]
+WantedBy=timers.target
