@@ -1,0 +1,27 @@
+[Unit]
+Description=power-map egress-IP drift guard (issue #410)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv) and gh (/bin/gh); see infra/power-map.service.
+#
+# Compares this host's public egress IP against EGRESS_EXPECTED_IPS (set in
+# /etc/power-map/.env, beside the DB credentials). The DO cluster gates on
+# source IP, so a rotation takes every DB-backed route down — 2026-08-09,
+# 67.213.124.9 -> 69.67.149.183, ~35 minutes.
+#
+# EGRESS_EXPECTED_IPS must be kept in step with terraform's
+# allowed_external_ips. #409 tracks restoring terraform's credentials, after
+# which a plan-based drift check can read the allowlist directly.
+#
+# Exits 3 on drift, so the unit shows in `systemctl --failed`, and opens a
+# single `egress-ip-drift` GitHub issue carrying the new address — which is
+# the whole of the fix. Losing every lookup service is NOT drift: it logs a
+# WARNING and exits 0 rather than alerting about someone else's outage.
+ExecStart=uv run python -m scripts.check_egress_ip
+TimeoutStartSec=120
