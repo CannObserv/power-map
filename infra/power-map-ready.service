@@ -1,0 +1,28 @@
+[Unit]
+Description=power-map readiness probe guard (issue #347)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv) and gh (/bin/gh); see infra/power-map.service.
+# GH_TOKEN comes from the repo .env above — without it the GitHub surfacing is
+# skipped (logged), and the journal WARNING plus `systemctl --failed` still stand.
+#
+# Polls GET /ready on the production worker. A failing run exits 3, so the unit
+# shows in `systemctl --failed` (the ambient signal the SessionStart hook reads)
+# and opens a single `ready-regression` GitHub issue carrying the reason slug —
+# never the response body (public repo, #369 CR). Recovery closes it.
+#
+# Deliberately probes localhost, not the public proxy: the failure class this
+# exists for (2026-08-09 — pool_timeout for 35 min, detected by a human) lives
+# in the app->DB direction, which a local probe sees. An external monitor would
+# add proxy-layer coverage as a separate, additive job.
+#
+# Two probes 10s apart per run means a lone blip stays quiet; worst case is
+# ~30s of probing plus a few gh calls.
+ExecStart=uv run python -m scripts.check_ready
+TimeoutStartSec=120

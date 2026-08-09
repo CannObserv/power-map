@@ -114,7 +114,7 @@ exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 | Service debugging | `sudo journalctl -u power-map -f` |
 | Quick prod health check | `curl -fsS localhost:8000/health && curl -fsS localhost:8000/ready` — unauthenticated probes (#343); `/ready` 503 reason: `no_pool`/`pool_timeout`/`db_error` |
 
-Scheduled timers (outbox prune · API anomaly · schema parity · ancillary orphans · assignment-relationship windows · weekly a11y) all surface failure through `systemctl --failed` — see `docs/COMMANDS.md` § Scheduled timers.
+Scheduled timers (outbox prune · API anomaly · schema parity · ancillary orphans · assignment-relationship windows · weekly a11y · 2-min readiness guard) all surface failure through `systemctl --failed` — see `docs/COMMANDS.md` § Scheduled timers.
 
 **Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates the write behind `--execute` and calls `echo_target()` (`scripts/_dsn.py`) before connecting. `add_dsn_args`/`resolve_dsn` give every script `--database-url` and `--test`; `tests/scripts/test_dsn_sweep.py` enforces gate, echo, and resolver by AST with no allowlist. `apply-schema.sh` writes to production on the bare invocation and refuses in a linked worktree (#398) — use `--test` from a worktree. Full rules → `docs/COMMANDS.md` § Operational script safety.
 
