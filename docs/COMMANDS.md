@@ -62,13 +62,17 @@ One-time setup for the DO managed PostgreSQL cluster (`co-pm-db-1`, sfo3). State
 ### Prerequisites
 
 - `terraform` ≥1.9 installed (see <https://developer.hashicorp.com/terraform/install>)
-- `infra/terraform/terraform.tfvars` — DO personal access token + IP allowlist (gitignored; see § Environment Variables above)
-- `infra/terraform/backend.hcl` — DO Spaces access key + secret (gitignored)
+- `infra/terraform/terraform.tfvars` and `infra/terraform/backend.hcl` — both gitignored, both **rebuilt from `/etc/power-map/.env`** by `uv run python -m scripts.write_terraform_credentials` (#409). Never hand-write them.
 - `jq`, `psql`, `python3` on PATH (used by `write-db-secrets.sh`)
 
 ### First-time provisioning
 
 ```bash
+# 0. Rebuild the two gitignored credential files from /etc/power-map/.env (#409).
+#    Reads the live Trusted Sources from the DO API, so allowed_external_ips
+#    matches reality rather than a guess. Writes 0600; logs paths, never values.
+uv run python -m scripts.write_terraform_credentials
+
 # 1. Initialise Terraform with the Spaces backend (run once per checkout)
 terraform -chdir=infra/terraform init -backend-config=backend.hcl
 
@@ -102,12 +106,31 @@ terraform -chdir=infra/terraform apply
 bash scripts/write-db-secrets.sh   # if credentials changed
 ```
 
-### Credential files (gitignored)
+### Credential custody (#409)
 
-| File | Contents |
-|---|---|
-| `infra/terraform/terraform.tfvars` | `do_token`, `allowed_external_ips` |
-| `infra/terraform/backend.hcl` | `access_key`, `secret_key` (DO Spaces) |
+The two terraform files are **derived**, never authored. Their source of truth is
+`/etc/power-map/.env` (root-owned, `0640`, group `exedev`), beside the database
+credentials:
+
+| Secret in `/etc/power-map/.env` | Lands in | As |
+|---|---|---|
+| `DO_API_TOKEN` | `infra/terraform/terraform.tfvars` | `do_token` |
+| *(read from the DO API)* | `infra/terraform/terraform.tfvars` | `allowed_external_ips` |
+| `DO_SPACES_KEY` | `infra/terraform/backend.hcl` | `access_key` |
+| `DO_SPACES_VALUE` | `infra/terraform/backend.hcl` | `secret_key` |
+
+Rebuild both at any time — idempotent, `0600`, secret values never logged:
+
+```bash
+uv run python -m scripts.write_terraform_credentials              # live allowlist from the DO API
+uv run python -m scripts.write_terraform_credentials --allowed-ips 1.2.3.4,5.6.7.8   # explicit
+```
+
+`scripts/write-db-secrets.sh` preflights all three artefacts and exits 2 with this
+pointer rather than failing inside `terraform output`. **Remote state lives in the
+`co-pm-spaces-1` Spaces bucket and is not at risk from losing these files** — they
+are only the keys to reach it. Losing them in 2026-08 cost console-only allowlist
+edits (which then drift) and a blocked credential rotation, not data.
 
 ---
 
