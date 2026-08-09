@@ -16,6 +16,7 @@ a test below:
    open an alert about our network.
 """
 
+import json
 import logging
 import sys
 
@@ -234,3 +235,121 @@ def test_main_logs_at_warning_on_drift(monkeypatch, caplog):
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     with caplog.at_level(logging.WARNING), pytest.raises(SystemExit):
         main()
+
+
+# --- allowlist source: the DO API is authoritative (#409 unblocked this) -----
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_do_token(monkeypatch):
+    """The VM's real token must not leak into tests that exercise the fallback."""
+    monkeypatch.delenv("DO_API_TOKEN", raising=False)
+
+
+def _do_api(ips, *, fail=False):
+    """Fake DO API opener: cluster list, then a firewall payload."""
+    calls = []
+
+    def opener(request, timeout=None):
+        calls.append(getattr(request, "full_url", request))
+        if fail:
+            raise OSError("DO API unreachable")
+        payload = (
+            {"databases": [{"id": "cid-1", "name": "co-pm-db-1"}]}
+            if len(calls) == 1
+            else {"rules": [{"type": "ip_addr", "value": ip} for ip in ips]}
+        )
+        return _Response(json.dumps(payload).encode())
+
+    opener.calls = calls
+    return opener
+
+
+def test_allowlist_comes_from_the_do_api_when_a_token_is_present(monkeypatch, capsys):
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    monkeypatch.setattr(
+        "scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: ["69.67.149.183"]
+    )
+    main()  # no SystemExit — it is in the live allowlist
+    assert "DO API" in capsys.readouterr().out
+
+
+def test_do_api_allowlist_drives_the_drift_verdict(monkeypatch):
+    """The env var is not consulted at all when the API answers."""
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setenv("EGRESS_EXPECTED_IPS", "69.67.149.183")  # would say "fine"
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: ["1.2.3.4"])
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 3
+
+
+def test_api_catches_a_rule_being_removed(monkeypatch):
+    """The failure the env var cannot see: our IP deleted from Trusted Sources."""
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    monkeypatch.setattr(
+        "scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: ["67.213.124.9"]
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 3
+
+
+def test_api_failure_falls_back_to_the_env_var(monkeypatch, capsys):
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setenv("EGRESS_EXPECTED_IPS", "69.67.149.183")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+
+    def boom(*a, **k):
+        raise OSError("DO API unreachable")
+
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", boom)
+    main()  # no SystemExit — fell back and matched
+    assert "EGRESS_EXPECTED_IPS" in capsys.readouterr().out
+
+
+def test_api_failure_without_a_fallback_is_not_drift(monkeypatch, capsys):
+    """Someone else's outage must not alert about our network."""
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.delenv("EGRESS_EXPECTED_IPS", raising=False)
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+
+    def boom(*a, **k):
+        raise OSError("DO API unreachable")
+
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", boom)
+    main()  # no SystemExit
+    assert "could not determine the allowlist" in capsys.readouterr().out.lower()
+
+
+def test_empty_trusted_sources_means_unrestricted_not_drift(monkeypatch, capsys):
+    """DO treats an empty Trusted Sources list as no IP restriction at all.
+
+    Reporting drift there would be exactly backwards — nothing is being blocked.
+    """
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.delenv("EGRESS_EXPECTED_IPS", raising=False)
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: [])
+    main()  # no SystemExit
+    assert "no ip restrictions" in capsys.readouterr().out.lower()
+
+
+def test_no_token_still_uses_the_env_var(monkeypatch, capsys):
+    """Fallback path stays intact for any host without a DO token."""
+    monkeypatch.setenv("EGRESS_EXPECTED_IPS", "67.213.124.9")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 3
+    assert "EGRESS_EXPECTED_IPS" in capsys.readouterr().out

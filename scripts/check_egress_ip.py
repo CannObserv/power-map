@@ -12,11 +12,14 @@ the effect half: it notices the database went away, within two minutes. This
 one names *why*, and hands over the exact address to paste into Trusted
 Sources — which is the whole of the fix.
 
-The expected set lives in ``EGRESS_EXPECTED_IPS`` (``/etc/power-map/.env``,
-beside the DB credentials) and must be kept in step with terraform's
-``allowed_external_ips``. That duplication is deliberate for now: #409 tracks
-restoring terraform's credentials, after which a ``terraform plan`` drift check
-can read the allowlist directly and this env var can go away.
+The allowlist comes from the **DigitalOcean API** — the live Trusted Sources of
+the cluster — whenever ``DO_API_TOKEN`` is present (#409 restored it). That is
+authoritative, needs nothing kept in sync by hand, and catches a failure the
+old hand-maintained copy could not see: our address being *removed* from the
+list while our egress IP never changed.
+
+``EGRESS_EXPECTED_IPS`` remains the fallback, for a host with no token or an
+API that is briefly unreachable.
 
 Two judgements worth keeping:
 
@@ -45,6 +48,7 @@ import sys
 from urllib.request import urlopen
 
 from scripts._alerting import Alert, surface
+from scripts._do_api import DEFAULT_CLUSTER, fetch_allowed_ips
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -89,6 +93,40 @@ def parse_expected(raw: str) -> set[str]:
     return {part.strip() for part in raw.replace(",", " ").split() if part.strip()}
 
 
+# Sentinels for the second element of resolve_allowlist's return.
+UNRESTRICTED = "unrestricted"
+UNKNOWN = ""
+
+
+def resolve_allowlist(token: str, cluster: str, expected_raw: str) -> tuple[set[str] | None, str]:
+    """Return (allowlist, source label), preferring the live Trusted Sources.
+
+    The DO API is authoritative and needs nothing kept in sync by hand, so it
+    wins whenever a token is present. It also catches a failure the env var
+    cannot see: our address being *removed* from the list while our egress IP
+    never changed.
+
+    ``EGRESS_EXPECTED_IPS`` remains the fallback for a host with no token, or
+    for an API that is temporarily unreachable.
+    """
+    if token:
+        try:
+            live = fetch_allowed_ips(token, cluster)
+        except Exception:
+            logger.warning("DO API allowlist lookup failed — falling back", exc_info=True)
+        else:
+            if not live:
+                # DO treats an empty Trusted Sources list as "no IP restriction".
+                # Nothing is being blocked, so nothing can have drifted.
+                return None, UNRESTRICTED
+            return set(live), "the DO API"
+
+    expected = parse_expected(expected_raw)
+    if expected:
+        return expected, "EGRESS_EXPECTED_IPS"
+    return None, UNKNOWN
+
+
 def main() -> None:
     """CLI entry point — exits 3 when the egress IP is not in the expected set."""
     configure_logging()
@@ -103,6 +141,9 @@ def main() -> None:
         type=float,
         default=DEFAULT_TIMEOUT,
         help=f"per-service timeout in seconds (default {DEFAULT_TIMEOUT})",
+    )
+    parser.add_argument(
+        "--cluster", default=DEFAULT_CLUSTER, help=f"DO cluster name (default {DEFAULT_CLUSTER})"
     )
     parser.add_argument(
         "--no-gh", action="store_true", help="skip GitHub surfacing (env EGRESS_CHECK_NO_GH)"
@@ -126,31 +167,43 @@ def main() -> None:
         logger.warning("could not determine the egress IP — every lookup service failed")
         return
 
-    expected = parse_expected(args.expected)
-    if not expected:
+    allowed, source = resolve_allowlist(
+        os.environ.get("DO_API_TOKEN", ""), args.cluster, args.expected
+    )
+    if source == UNRESTRICTED:
         logger.info(
-            "egress IP is %s — no expected set configured; "
-            "set EGRESS_EXPECTED_IPS in /etc/power-map/.env to enable drift detection",
+            "cluster %s has no IP restrictions configured — egress IP %s cannot be blocked",
+            args.cluster,
+            current,
+        )
+        return
+    if allowed is None:
+        logger.warning(
+            "could not determine the allowlist — no DO_API_TOKEN and no EGRESS_EXPECTED_IPS; "
+            "egress IP is %s",
             current,
         )
         return
 
-    if current in expected:
-        logger.info("egress IP %s is in the expected set", current)
+    if current in allowed:
+        logger.info("egress IP %s is in the allowlist (source: %s)", current, source)
         if not no_gh:
             surface(True, "", alert=EGRESS_ALERT)
         return
 
     summary = (
-        f"Egress IP is now `{current}`, which is not in the expected set "
-        f"(`{'`, `'.join(sorted(expected))}`).\n\n"
+        f"Egress IP is `{current}`, which is not in the allowlist "
+        f"(`{'`, `'.join(sorted(allowed))}`, source: {source}).\n\n"
         "The database cluster gates on source IP, so this takes every DB-backed route "
         "down as soon as connections are re-established. Fix: add `" + current + "` to "
         "DO → Databases → `co-pm-db-1` → Settings → Trusted Sources, then update "
         "`EGRESS_EXPECTED_IPS` and terraform's `allowed_external_ips` to match."
     )
     logger.warning(
-        "egress IP DRIFT — now %s, expected one of %s", current, ", ".join(sorted(expected))
+        "egress IP DRIFT — %s is not in the allowlist (%s; source: %s)",
+        current,
+        ", ".join(sorted(allowed)),
+        source,
     )
     if not no_gh:
         surface(False, summary, alert=EGRESS_ALERT)

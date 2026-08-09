@@ -33,22 +33,16 @@ Usage:
 """
 
 import argparse
-import json
 import os
 import sys
-import urllib.request
 from pathlib import Path
-from urllib.request import urlopen
 
+from scripts._do_api import DEFAULT_CLUSTER, fetch_allowed_ips
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
 DEFAULT_ENV_FILE = Path("/etc/power-map/.env")
-DEFAULT_CLUSTER = "co-pm-db-1"
-API_ROOT = "https://api.digitalocean.com/v2"
-DEFAULT_TIMEOUT = 30.0
-
 REQUIRED_KEYS = ("DO_API_TOKEN", "DO_SPACES_KEY", "DO_SPACES_VALUE")
 
 
@@ -69,35 +63,6 @@ def parse_env(text: str) -> dict[str, str]:
             value = value[1:-1]
         parsed[key.strip()] = value
     return parsed
-
-
-def _request(url: str, token: str) -> urllib.request.Request:
-    """Build an authenticated DO API request."""
-    return urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-
-
-def _get(url: str, token: str, *, opener, timeout: float) -> dict:
-    with opener(_request(url, token), timeout=timeout) as response:
-        return json.loads(response.read())
-
-
-def fetch_allowed_ips(
-    token: str, cluster_name: str, *, opener=None, timeout: float = DEFAULT_TIMEOUT
-) -> list[str]:
-    """Return the cluster's Trusted Sources, ``ip_addr`` rules only.
-
-    A firewall may also carry droplet/k8s/tag rules; those are not addresses
-    and must not end up in ``allowed_external_ips``.
-    """
-    opener = opener or urlopen
-    clusters = _get(f"{API_ROOT}/databases", token, opener=opener, timeout=timeout)
-    match = next((c for c in clusters.get("databases", []) if c.get("name") == cluster_name), None)
-    if match is None:
-        raise LookupError(f"no DigitalOcean database cluster named {cluster_name!r}")
-    firewall = _get(
-        f"{API_ROOT}/databases/{match['id']}/firewall", token, opener=opener, timeout=timeout
-    )
-    return [r["value"] for r in firewall.get("rules", []) if r.get("type") == "ip_addr"]
 
 
 def render_tfvars(token: str, allowed_ips: list[str]) -> str:

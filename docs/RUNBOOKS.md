@@ -714,10 +714,14 @@ curl -fsS localhost:8000/ready       # {"status":"ok"}
 
 Then close the loop so it does not silently recur:
 
-1. Update `EGRESS_EXPECTED_IPS` in `/etc/power-map/.env` (the `power-map-egress-ip`
-   guard compares against it — a stale value alerts every 5 minutes).
-2. Update terraform's `allowed_external_ips`, or the next `terraform apply`
-   reverts the console edit. Blocked on #409 until the credentials are restored.
+1. Nothing to update for the guard — since #409 `power-map-egress-ip` reads the
+   live Trusted Sources from the DO API, so the console edit *is* what it checks.
+   (`EGRESS_EXPECTED_IPS` is only the no-token fallback.)
+2. Re-sync terraform so the next `apply` does not revert the console edit:
+   ```bash
+   uv run python -m scripts.write_terraform_credentials   # re-reads the live allowlist
+   terraform -chdir=infra/terraform plan                  # expect: No changes
+   ```
 
 ### Other reasons on `/ready`
 
