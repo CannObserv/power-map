@@ -162,3 +162,33 @@ def test_render_backend_escapes_quotes_and_backslashes():
 def test_render_tfvars_escapes_allowlist_entries():
     out = render_tfvars("t", ['1.2.3.4"]; evil = "'])
     assert '1.2.3.4\\"]; evil = \\"' in out
+
+
+# --- CR2 finding 10: HCL interpolates, so json.dumps is not enough ----------
+
+
+def test_render_tfvars_escapes_hcl_interpolation():
+    """Verified against terraform: `x = "a${b}"` in a tfvars errors with
+    'Variables not allowed', while `a$${b}` yields the literal. json.dumps
+    escapes quotes but leaves ${ alone (CR2 finding 10).
+    """
+    out = render_tfvars("tok${var.evil}", ["1.2.3.4"])
+    assert "$${var.evil}" in out
+    assert '"tok${var.evil}"' not in out
+
+
+def test_render_tfvars_escapes_hcl_directives():
+    """%{ opens a template directive and needs %%{ just as ${ needs $${."""
+    out = render_tfvars("tok%{if true}", ["1.2.3.4"])
+    assert "%%{if true}" in out
+
+
+def test_render_backend_escapes_hcl_interpolation():
+    out = render_backend("key${x}", "secret%{y}")
+    assert "$${x}" in out
+    assert "%%{y}" in out
+
+
+def test_allowlist_entries_escape_interpolation_too():
+    out = render_tfvars("t", ["1.2.3.4${x}"])
+    assert "$${x}" in out

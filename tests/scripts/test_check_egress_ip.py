@@ -410,3 +410,23 @@ def test_an_explicit_but_empty_expected_is_unknown_not_drift(monkeypatch, capsys
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     main()  # no SystemExit
     assert "could not determine the allowlist" in capsys.readouterr().out.lower()
+
+
+def test_an_explicit_expected_of_only_separators_is_undetermined(monkeypatch, capsys):
+    """CR2 finding 13: the label and the emptiness check must not disagree."""
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--expected", ","])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    main()  # no SystemExit
+    assert "could not determine the allowlist" in capsys.readouterr().out.lower()
+
+
+def test_undetermined_message_does_not_misattribute_the_cause(monkeypatch, capsys):
+    """With a token present, blaming a missing token sends triage the wrong way."""
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--expected", ","])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    main()
+    out = capsys.readouterr().out
+    assert "could not determine the allowlist" in out.lower()
+    assert "no DO_API_TOKEN" not in out

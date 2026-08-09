@@ -207,11 +207,16 @@ def main() -> None:
         "--no-gh", action="store_true", help="skip GitHub surfacing (env READY_CHECK_NO_GH)"
     )
     args = parser.parse_args()
+    # These all come from /etc/power-map/.env, so a typo must produce a usage
+    # error rather than a traceback every two minutes: zero attempts probed
+    # nothing and crashed on results[-1] (CR1 finding 1), and a negative delay
+    # reached time.sleep (CR2 finding 9).
     if args.attempts < 1:
-        # Zero probed nothing and then crashed on results[-1] (CR1 finding 1).
-        # An env typo must not turn the outage guard into a trap that never
-        # makes a request.
         parser.error(f"--attempts must be at least 1 (got {args.attempts})")
+    if args.retry_delay < 0:
+        parser.error(f"--retry-delay must not be negative (got {args.retry_delay})")
+    if args.timeout <= 0:
+        parser.error(f"--timeout must be greater than 0 (got {args.timeout})")
     no_gh = args.no_gh or bool(os.environ.get("READY_CHECK_NO_GH"))
 
     if os.environ.get("READY_CHECK_FORCE_FAIL"):
