@@ -430,3 +430,14 @@ def test_undetermined_message_does_not_misattribute_the_cause(monkeypatch, capsy
     out = capsys.readouterr().out
     assert "could not determine the allowlist" in out.lower()
     assert "no DO_API_TOKEN" not in out
+
+
+def test_resolve_allowlist_defaults_to_the_do_api_timeout():
+    """CR3 finding 17: two same-named constants held different values."""
+    import inspect
+
+    from scripts import _do_api
+    from scripts.check_egress_ip import resolve_allowlist
+
+    default = inspect.signature(resolve_allowlist).parameters["timeout"].default
+    assert default == _do_api.DEFAULT_TIMEOUT
