@@ -164,3 +164,43 @@ def test_refuses_to_follow_a_cursor_off_digitalocean():
 def test_a_normal_next_cursor_is_still_followed():
     opener = _api(PAGE_1, PAGE_2, FIREWALL)
     assert fetch_allowed_ips("token", "co-pm-db-1", opener=opener)
+
+
+# --- CR3 findings 15 and 16 -------------------------------------------------
+
+
+def test_hitting_the_page_cap_is_not_reported_as_a_missing_cluster():
+    """CR3 finding 15: the cap said "no such cluster", asserting absence.
+
+    A mistyped --cluster and a 20-page account are different problems and must
+    not produce the same confident error.
+    """
+    opener = _endless_pages()
+    with pytest.raises(LookupError) as excinfo:
+        fetch_allowed_ips("token", "co-pm-db-1", opener=opener)
+    message = str(excinfo.value)
+    assert str(MAX_PAGES) in message
+    assert "no DigitalOcean database cluster named" not in message
+
+
+def test_a_genuinely_absent_cluster_still_says_so():
+    """The other half of 15 — the honest 'not found' must survive."""
+    opener = _api(PAGE_1, PAGE_2, FIREWALL)
+    with pytest.raises(LookupError) as excinfo:
+        fetch_allowed_ips("token", "absent", opener=opener)
+    assert "no DigitalOcean database cluster named" in str(excinfo.value)
+
+
+def test_refuses_a_lookalike_host():
+    """CR3 finding 16: prefix matching is safe only while API_ROOT keeps /v2.
+
+    Compare the parsed hostname so an edit to API_ROOT cannot weaken this.
+    """
+    lookalike = {
+        "databases": [{"id": "x", "name": "other"}],
+        "links": {"pages": {"next": "https://api.digitalocean.com.evil.example/v2/databases"}},
+    }
+    opener = _api(lookalike, FIREWALL)
+    with pytest.raises(ValueError) as excinfo:
+        fetch_allowed_ips("token", "co-pm-db-1", opener=opener)
+    assert "evil.example" in str(excinfo.value)

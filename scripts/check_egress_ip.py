@@ -49,6 +49,7 @@ from urllib.request import urlopen
 
 from scripts._alerting import Alert, surface
 from scripts._do_api import DEFAULT_CLUSTER, fetch_allowed_ips
+from scripts._do_api import DEFAULT_TIMEOUT as DO_API_TIMEOUT
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -104,7 +105,7 @@ def resolve_allowlist(
     expected_raw: str,
     *,
     explicit: bool = False,
-    timeout: float = DEFAULT_TIMEOUT,
+    timeout: float = DO_API_TIMEOUT,
 ) -> tuple[set[str] | None, str]:
     """Return (allowlist, source label), preferring the live Trusted Sources.
 

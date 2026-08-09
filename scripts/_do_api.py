@@ -11,9 +11,11 @@ databases and VPCs read, no account/projects/spaces access.
 
 import json
 import urllib.request
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
-API_ROOT = "https://api.digitalocean.com/v2"
+API_HOST = "api.digitalocean.com"
+API_ROOT = f"https://{API_HOST}/v2"
 DEFAULT_CLUSTER = "co-pm-db-1"
 DEFAULT_TIMEOUT = 30.0
 # Large enough that a single page covers any realistic account.
@@ -52,11 +54,22 @@ def fetch_allowed_ips(
         page = _get(url, token, opener=opener, timeout=timeout)
         match = next((c for c in page.get("databases", []) if c.get("name") == cluster_name), None)
         url = page.get("links", {}).get("pages", {}).get("next")
-        if url is not None and not url.startswith(API_ROOT):
-            # Every request carries the bearer token; a cursor taken from the
+        if url is not None and urlparse(url).hostname != API_HOST:
+            # Every request carries the bearer token, so a cursor taken from the
             # response body must not steer it off DigitalOcean (CR2 finding 12).
+            # Compare the parsed hostname rather than a string prefix: prefix
+            # matching is only safe while API_ROOT keeps its /v2 segment, and
+            # nothing would flag an edit that dropped it (CR3 finding 16).
             raise ValueError(f"refusing to follow a pagination cursor off-host: {url}")
     if match is None:
+        if url is not None:
+            # Exiting with a cursor still in hand means the cap stopped the walk.
+            # Saying "no such cluster" here would assert absence we never
+            # established (CR3 finding 15).
+            raise LookupError(
+                f"stopped after {MAX_PAGES} pages without finding {cluster_name!r}; "
+                "more pages remain"
+            )
         raise LookupError(f"no DigitalOcean database cluster named {cluster_name!r}")
     firewall = _get(
         f"{API_ROOT}/databases/{match['id']}/firewall", token, opener=opener, timeout=timeout
