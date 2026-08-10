@@ -29,6 +29,20 @@ def _danger_zone_templates() -> list[Path]:
     return sorted(p for p in TEMPLATES.rglob("*.html") if _DANGER_ZONE_HEADING in p.read_text())
 
 
+def _danger_zone_region(source: str) -> str:
+    """The Danger Zone markup: heading → the ``{% endblock %}`` that closes it.
+
+    Slicing heading-to-EOF was exact while every detail page happened to end at
+    the Danger Zone, but it would have false-positived on the first template to
+    append a block after it (a modal portal, a ``{% block scripts %}``) holding
+    a legitimate ``<form>`` (CR #423, item 3). Bounding on the Jinja block end
+    keeps the check on markup this rule actually governs, without trying to
+    balance HTML tags with a regex.
+    """
+    after_heading = source.split(_DANGER_ZONE_HEADING, 1)[1]
+    return after_heading.split("{% endblock %}", 1)[0]
+
+
 def test_danger_zone_templates_are_discovered():
     """Guard the guard: a rename must not silently empty the sweep."""
     found = _danger_zone_templates()
@@ -44,8 +58,12 @@ def test_danger_zone_controls_carry_no_form_fallback():
     """
     offenders = []
     for path in _danger_zone_templates():
-        danger_zone = path.read_text().split(_DANGER_ZONE_HEADING, 1)[1]
-        if "<form" in danger_zone:
+        region = _danger_zone_region(path.read_text())
+        assert 'class="danger-zone"' in region, (
+            f"{path.relative_to(TEMPLATES)}: Danger Zone heading found but the sliced region "
+            "holds no .danger-zone markup — the slice bounds have drifted"
+        )
+        if "<form" in region:
             offenders.append(str(path.relative_to(TEMPLATES)))
     assert not offenders, (
         "Danger Zone sections must use bare HTMX buttons, not <form> (#287): "

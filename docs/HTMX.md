@@ -217,16 +217,22 @@ Use `.danger-zone` component for destructive actions on detail views:
 ```html
 <div class="danger-zone">
   <div>
-    <div class="danger-zone__label">Delete this organization</div>
-    <div class="danger-zone__desc">Must be archived first.</div>
+    <p class="danger-zone__label">Delete permanently</p>
+    <p class="danger-zone__desc">This organization is archived. Permanently deleting it cannot be undone.</p>
   </div>
-  <button class="btn btn--danger btn--sm">Delete</button>
+  <button type="button" class="btn btn--danger"
+          hx-delete="/admin/orgs/{{ org.id }}/" hx-swap="none"
+          hx-confirm="Permanently delete this organization? This cannot be undone.">
+    Delete permanently
+  </button>
 </div>
 ```
 
+The control is a bare button, never a `<form>` — the admin requires JS by policy (#287); see `docs/ADMIN.md § JavaScript is required` and `§ Danger Zone interaction model` for the response shapes (`HX-Location` for archive/unarchive, `HX-Redirect` for delete). `tests/api/admin/test_js_required_policy.py` enforces the shape.
+
 ### Flash confirmation
 
-Always show success or error flash after HTMX mutation. Use `flash.oob()` in the partial response.
+Always confirm an HTMX mutation with a flash. Set `HX-Trigger` via `flash_trigger(level, body)` from `src.api.admin.deps`; `flash.js` injects it into `#flash-region`. **`flash.oob()` is retired** — see the note in `src/templates/admin/macros/flash.html`. Non-HTMX fallback redirects carry `?flash=<key>` instead (`with_flash`, #351). Levels follow the #353 taxonomy in `docs/ADMIN.md § Flash notifications`.
 
 ### Dedup merge
 

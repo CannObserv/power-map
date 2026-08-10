@@ -13,16 +13,22 @@ VALIDITY_ORDER_ERROR = "Valid from must be on or before valid until."
 class ConfirmPersist:
     """Signal from ``_maybe_confirm`` to persist directly on a non-HTMX submit (#280).
 
-    A JS-disabled client cannot render the confirm modal, so a ``mode="confirm"``
+    A non-HTMX client gets no confirm modal rendered, so a ``mode="confirm"``
     submit has no follow-up ``mode="save"`` round trip. Rather than redirect away
     and silently drop the address, ``_maybe_confirm`` returns this marker carrying
     the normalizer's DB-ready values so the route inserts/updates the row and
     redirects as a genuine success.
 
+    This serves non-HTMX *clients* — the tests, ``curl``, any server-to-server
+    caller — not JS-disabled browsers: the address form is itself only reachable
+    via ``hx-get .../addresses/new-row/``, so a browser without JS never gets
+    here at all. The admin requires JS by policy (#287, see
+    ``docs/ADMIN.md § JavaScript is required``).
+
     **Auto-accept decision (#280, CR item 1):** the values carried here are the
     normalizer's *standardized* output — i.e. the non-HTMX path implicitly takes
     the modal's "Accept standardized" branch on the curator's behalf, because a
-    JS-disabled client can't be shown the accept-standardized-vs-keep-as-entered
+    non-HTMX client can't be shown the accept-standardized-vs-keep-as-entered
     choice the modal offers. This is a deliberate trade: silent data *loss* (the
     old bug) is worse than silently applying standardization, and an interactive
     (HTMX) client still gets the choice. If curator intent must instead be
