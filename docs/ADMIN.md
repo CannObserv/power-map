@@ -17,6 +17,7 @@ One-line-per-rule index of this section — read it first, then the subsection
 a rule names. Where an entry ends `Full rules → …`, the target is a
 subsection of this same section.
 
+- **JavaScript is required to edit (#287)** — the admin is an HTMX application, not a progressively-enhanced one. Browsing degrades (hx-boost over real links); editing does not. The 303 fallbacks serve non-HTMX **clients**, not JS-disabled browsers. Full rules → `§ JavaScript is required`
 - Auth: `user: AdminUser = Depends(get_admin_user)` on every route — raises `HTTPException(307)` redirect when exe.dev headers absent
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete requires archived (409 otherwise); archive/unarchive both return 409 if already in that state
 - HTMX partials: `is_htmx(request)` from `src.api.admin.deps` (checks `HX-Request and not HX-Boosted`); always include `RedirectResponse` fallback, wrapped with `with_flash(url, key)` (`saved`/`removed`/`invalid`/`exists`) so non-HTMX mutations confirm on the target page (#351); CI-enforced by `test_mutation_fallback_sweep.py`
@@ -24,6 +25,32 @@ subsection of this same section.
 - Dup counts: `await invalidate_dup_count_cache(db)` (from `org_dups` or `people_dups`) after any merge or dismiss; `db` must be the route's connection
 - List status filters (#306): each `*_queries.py` declares `STATUS_PREDICATES` + `VALID_STATUSES` (incl. first-class `all`); unknown status → `active`, never no-filter. A search must never silently hide other-status matches — `query_*_rows` returns `hidden_matches` (grouped `count(*) FILTER` pass via `list_status.count_with_hidden_matches`) rendered as the "N more matches — Show all" affordance (`admin/_hidden_matches.html`; plain link, not hx-get). Full rules → `§ Admin Server Conventions
 - Citations indicator (#341): row-level active-citation counts come from the **row-fetch SQL** via `citation_count_lateral` (`_citations_shared.py`) — never a side template dict (side dicts go stale on single-row HTMX re-renders). Non-drawer rows render the `citation_indicator` macro; #319 Cite-drawer rows (names/events) hold the count in a `cite-count-<id>` span the citations factory OOB-refreshes on create/delete. Full rules → `§ Admin Server Conventions
+
+### JavaScript is required
+
+**Policy (#287, audited 2026-08-10): the admin requires JavaScript. The public API is the no-JS / programmatic surface.**
+
+The audit measured the admin surface rather than arguing it:
+
+| Surface | Count | Reachable without JS |
+|---|---|---|
+| `hx-get` reveals (add-row, inline edit, merge modal) | 180 | no — the form never enters the DOM |
+| `hx-post` / `hx-delete` controls | 147 | no |
+| `<form hx-post>` carrying an `action=` | 0 of 24 | no |
+| `<form method="POST" action=…>` | 9 (1 = logout) | yes |
+| Typeahead comboboxes | 12 | no |
+
+**Reading already degrades** — `hx-boost="true"` on `.admin-layout` sits over real `<a href>` links, so every list and detail page renders in a JS-disabled browser. **Writing does not, and cannot cheaply.** The blocker is the `hx-get` reveal, not the mutation buttons: every inline add/edit form is fetched as a partial on demand, so converting all 147 mutation controls to `<form>`s would buy archive/unarchive/delete and still leave a no-JS operator unable to add a name, event, contact, address, link, identifier, child org, affiliation, role, relationship, or citation. Typeaheads have no no-JS equivalent (their endpoints return `<ul>` swap fragments; a `<select>`-of-everything doesn't scale to the people/orgs tables), and merge holds selection state entirely client-side.
+
+Consequences to hold to:
+
+- **Don't add `<form method="post" action="…" hx-post="…">` as a progressive-enhancement pattern.** Half-measures cost real markup on every control and still leave the admin unusable without JS. Danger Zone controls are uniformly bare `hx-post` / `hx-delete` buttons across all five entity types — ratcheted by `tests/api/admin/test_js_required_policy.py`.
+- **Keep every 303 fallback, and keep the sweep.** Their job is a defined contract for non-HTMX clients (the public API, tests, `curl`) and the substrate that makes the #280 / #349 / #351 correctness guarantees expressible — *not* graceful degradation for browsers.
+- **`base.html` ships a `<noscript>` banner** so a JS-disabled operator is told the admin needs JS instead of clicking inert controls.
+- **This is not an accessibility decision.** Screen readers run JavaScript; the a11y programme (#300 / #369, three tiers plus the weekly sweep) is unaffected. See `docs/ACCESSIBILITY.md`.
+- **#280 is not a counterexample.** Its non-HTMX address-persist path (`_addresses_shared.py`) hardens a contract for non-HTMX *clients*; the address form it protects is itself only reachable via `hx-get .../addresses/new-row/`, so a JS-disabled browser never reaches that code path.
+
+The top-level create/edit forms (people, orgs, roles, jurisdictions, role-assignments) remain real `<form method="POST" action=…>` elements and 303 unconditionally. That is not a no-JS commitment — it's how boosted native form posts already work; leave them alone.
 
 ### Auth
 
@@ -40,11 +67,11 @@ Every route handler: `user: AdminUser = Depends(get_admin_user)` — `get_admin_
 - Archive: returns 409 if already archived — enforced across all entity types (orgs, people, roles, role-assignments)
 - Flash on detail pages: `org_detail`, `person_detail`, `ra_detail` accept `?flash=` param via `resolve_query_flash`; add entity-specific flash keys to the module-level `_FLASH_MESSAGES` dict. `resolve_query_flash` also falls back to `SHARED_FLASH_MESSAGES` (`saved`/`removed`/`invalid`/`exists`) — the generic ancillary-fallback keys (#351) — so a target route need not re-declare them; a route-local key of the same name still wins
 
-**Danger Zone interaction model (#281).** All three Danger Zone actions on entity-detail pages (orgs, people, jurisdictions) share one HTMX model. Archive / unarchive / delete are `hx-post` / `hx-delete` buttons (no `<form method="POST">`), and each route branches on `is_htmx(request)`:
+**Danger Zone interaction model (#281, extended #287).** All three Danger Zone actions on entity-detail pages share one HTMX model across **all five** entity types (orgs, people, jurisdictions, roles, role-assignments — the last two were `<form method="POST">` holdouts until #287). Archive / unarchive / delete are `hx-post` / `hx-delete` buttons (no `<form method="POST">`), and each route branches on `is_htmx(request)`:
 
 - HTMX, **archive/unarchive** (target = detail page) → `Response(status_code=204, headers={"HX-Location": target})`. `HX-Location` is a client-side `htmx.ajax('GET', target)` that swaps the response `innerHTML` into `<body>` — **not** a full navigation. It is safe here only because detail GET routes (`org_detail`/`person_detail`/`ra_detail`/…) render the **full page unconditionally** (no `is_htmx` branch), so the body-swap lands the whole layout.
 - HTMX, **delete** (target = list page) → `Response(status_code=200, headers={"HX-Redirect": target})` — a real `window.location` navigation (#376). **Do not use `HX-Location` here:** its follow-up ajax GET carries `HX-Request`, so the list route's `is_htmx(request)` returns the `_region.html` **partial** (table only) and HTMX swaps that fragment into `<body>` — you lose header/nav/chrome. `HX-Redirect` issues a plain browser GET (no HX headers) → the list renders full `list.html`. Same pattern as `roles.py::role_delete`. The `?flash=deleted` query rides along on the navigation.
-- non-HTMX → `RedirectResponse(target, status_code=303)` — same target. **Note:** the controls are bare `hx-post`/`hx-delete` buttons (no `<form>`), so they require JS; this 303 branch serves direct/non-HTMX POST clients (API, tests), **not** JS-disabled browsers, where the buttons are inert. Whether no-JS browser support is an attainable admin-wide goal is tracked in #287.
+- non-HTMX → `RedirectResponse(target, status_code=303)` — same target. **Note:** the controls are bare `hx-post`/`hx-delete` buttons (no `<form>`), so they require JS; this 303 branch serves direct/non-HTMX POST clients (API, tests), **not** JS-disabled browsers, where the buttons are inert. That is the settled, admin-wide policy — see `§ JavaScript is required` (#287).
 
 `target` for archive/unarchive is the detail page (`/admin/{entities}/{id}/?flash=archived|unarchived`); for delete it is the list page (`?flash=deleted`). The **detail vs list target** distinction is exactly why archive/unarchive can use `HX-Location` but delete must use `HX-Redirect` (list routes render partials under `is_htmx`; detail routes render full). All four entity deletes (orgs, people, jurisdictions, role-assignments) plus roles follow the `HX-Redirect` rule. 409-on-already-in-state guards fire before the branch, so they hold for both request kinds. The org "Restore from archive" control in `orgs/partials/_active_toggle.html` follows the same `hx-post` model.
 
@@ -66,7 +93,7 @@ Deliberate exception: the public API `/search` endpoints (orgs, people) filter a
 
 `is_htmx(request)` from `src.api.admin.deps` — checks `HX-Request and not HX-Boosted`. Boost sends both headers; omitting the `not HX-Boosted` guard causes boosted sidebar nav to receive bare fragments instead of full page layouts.
 
-Always include a `RedirectResponse` fallback on mutation routes for graceful degradation without JS.
+Always include a `RedirectResponse` fallback on mutation routes. It exists for non-HTMX **clients** — the public API, tests, `curl` — and as the substrate the #280 / #349 / #351 correctness rules are written against. It is **not** graceful degradation for JS-disabled browsers: the controls that call these routes are bare HTMX buttons and are inert without JS (see `§ JavaScript is required`, #287).
 
 **Non-HTMX fallback is CI-enforced (#349).** Every admin mutation route (POST/PUT/DELETE/PATCH) must carry the branch — delete handlers included, even when the HTMX response is just an empty body or OOB fragment: non-HTMX → `RedirectResponse(<owning detail/list url>, status_code=303)` after the mutation. The archive-style variant (`Response(204, HX-Location)` for HTMX + `RedirectResponse` fallback) also satisfies it. `tests/api/admin/test_mutation_fallback_sweep.py` AST-sweeps `src/api/admin/*.py` and fails on any mutation handler whose body lacks `is_htmx` / `RedirectResponse` / `HX-Location`; vetted exceptions go in its `ALLOWED` set with a reason. #349 retrofitted 12 delete-family handlers (the four ancillary factories + addresses, relationships, affiliations, org children, API keys). Shared-factory redirects use the factory's `detail_url` param — citations via its `_dest` helper, which prefers `redirect_resolver` for indirect citable types (`person_name` → owning person).
 

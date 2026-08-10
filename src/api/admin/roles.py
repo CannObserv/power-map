@@ -2,7 +2,7 @@
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import (
@@ -330,6 +330,7 @@ async def role_detail(
 @router.post("/{role_id}/archive/")
 async def role_archive(
     role_id: str,
+    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -340,7 +341,10 @@ async def role_archive(
     if role["archived_at"]:
         raise HTTPException(status_code=409, detail="Role is already archived")
     await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
-    return RedirectResponse(f"/admin/roles/{role_id}/?flash=archived", status_code=303)
+    target = f"/admin/roles/{role_id}/?flash=archived"
+    if is_htmx(request):
+        return Response(status_code=204, headers={"HX-Location": target})
+    return RedirectResponse(target, status_code=303)
 
 
 @router.delete("/{role_id}/")

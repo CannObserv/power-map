@@ -53,7 +53,7 @@ HTMX dispatches a `showFlash` DOM event when it processes the `HX-Trigger` respo
 </form>
 ```
 
-Always provide a non-HTMX `RedirectResponse` fallback in the route handler for graceful degradation (direct form POST without JS).
+Always provide a non-HTMX `RedirectResponse` fallback in the route handler — for direct non-HTMX POST **clients** (the public API, tests, `curl`), and because the #349 sweep enforces it. It is **not** graceful degradation: a `<form hx-post>` with no `action=` submits nothing without JS, and the admin requires JS by policy (#287 — see `docs/ADMIN.md § JavaScript is required`). Don't add `method="post" action="…"` to make it "work without JS" — that is the half-measure #287 explicitly rejected.
 
 ### Loading states
 

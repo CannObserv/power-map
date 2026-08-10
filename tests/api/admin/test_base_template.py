@@ -57,6 +57,15 @@ async def test_header_brand_icon_present(client):
     assert "cannabis_observer-icon-square.svg" in response.text
 
 
+async def test_noscript_banner_renders_on_every_page(client):
+    """The JS-required notice reaches the browser, not just the template source (#287)."""
+    response = await client.get("/admin/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "<noscript>" in response.text
+    assert "JavaScript is required to edit." in response.text
+    assert "noscript-banner" in response.text
+
+
 async def test_footer_credits_cannabis_observer(client):
     """Footer must contain the 'A project of … Cannabis Observer' credit text."""
     response = await client.get("/admin/", headers=AUTH_HEADERS)

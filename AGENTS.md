@@ -56,6 +56,7 @@ infra/          — systemd units (API + prune timer) + terraform
 Full conventions → `docs/ADMIN.md`
 Accessibility rules and their test tiers → `docs/ACCESSIBILITY.md`
 
+- **JS required (#287)**: the admin is an HTMX app, not progressively enhanced. Never add `method="post" action=…` to an `hx-post` control to "support no-JS" — 180 `hx-get` reveals mean the forms don't exist without JS anyway. The 303 fallbacks serve non-HTMX *clients*, not browsers. Guard: `test_js_required_policy.py`
 - Auth: `user: AdminUser = Depends(get_admin_user)` on every route
 - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete requires archived (409 otherwise)
 - Every mutation route: HTMX partial via `is_htmx(request)` **plus** a `with_flash(url, key)` `RedirectResponse` fallback — CI-enforced by `test_mutation_fallback_sweep.py`

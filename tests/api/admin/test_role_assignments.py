@@ -220,6 +220,30 @@ async def test_unarchive_ra(client, db, ra_id):
     assert row["archived_at"] is None
 
 
+async def test_archive_and_unarchive_ra_htmx_return_hx_location(client, db, ra_id):
+    """HTMX archive/unarchive return 204 + HX-Location to detail with flash (#287).
+
+    The Danger Zone controls are bare ``hx-post`` buttons, so both handlers must
+    carry the ``is_htmx`` branch — a bare 303 would be followed by htmx into a
+    ``hx-swap="none"`` and leave the page stale.
+    """
+    hx = {**AUTH_HEADERS, "HX-Request": "true"}
+    archived = await client.post(f"/admin/role-assignments/{ra_id}/archive/", headers=hx)
+    assert archived.status_code == 204
+    assert archived.headers["HX-Location"] == f"/admin/role-assignments/{ra_id}/?flash=archived"
+    assert (
+        await db.fetchval("SELECT archived_at FROM role_assignments WHERE id = $1", ra_id)
+        is not None
+    )
+
+    restored = await client.post(f"/admin/role-assignments/{ra_id}/unarchive/", headers=hx)
+    assert restored.status_code == 204
+    assert restored.headers["HX-Location"] == f"/admin/role-assignments/{ra_id}/?flash=unarchived"
+    assert (
+        await db.fetchval("SELECT archived_at FROM role_assignments WHERE id = $1", ra_id) is None
+    )
+
+
 async def test_unarchive_ra_not_found_returns_404(client):
     """Unarchiving a non-existent RA returns 404."""
     response = await client.post(
