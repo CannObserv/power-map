@@ -204,9 +204,10 @@
     <p class="danger-zone__label">Archive assignment</p>
     <p class="danger-zone__desc">Hides this assignment from active views but preserves all data.</p>
   </div>
-  <form method="POST" action="/admin/role-assignments/{{ ra.id }}/archive/">
-    <button type="submit" class="btn btn--danger">Archive assignment</button>
-  </form>
+  <button type="button" class="btn btn--danger"
+          hx-post="/admin/role-assignments/{{ ra.id }}/archive/" hx-swap="none">
+    Archive assignment
+  </button>
 </div>
 {% else %}
 <div class="danger-zone">
@@ -214,9 +215,10 @@
     <p class="danger-zone__label">Unarchive assignment</p>
     <p class="danger-zone__desc">Restores this assignment to active views.</p>
   </div>
-  <form method="POST" action="/admin/role-assignments/{{ ra.id }}/unarchive/">
-    <button type="submit" class="btn btn--secondary">Unarchive</button>
-  </form>
+  <button type="button" class="btn btn--secondary"
+          hx-post="/admin/role-assignments/{{ ra.id }}/unarchive/" hx-swap="none">
+    Unarchive
+  </button>
 </div>
 <div class="danger-zone">
   <div>

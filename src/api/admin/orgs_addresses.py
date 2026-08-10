@@ -132,7 +132,7 @@ async def _maybe_confirm(
         "valid_until": valid_until,
     }
     if not is_htmx(request):
-        # No modal to render for a JS-disabled client; persist the normalized
+        # No modal to render for a non-HTMX client; persist the normalized
         # values directly (mirroring the modal "Accept" path) instead of
         # redirecting away and silently dropping the address (#280).
         return ConfirmPersist(

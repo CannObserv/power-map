@@ -581,6 +581,7 @@ async def ra_inline_notes_post(
 @router.post("/{ra_id}/archive/")
 async def ra_archive(
     ra_id: str,
+    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -592,7 +593,10 @@ async def ra_archive(
         ra_id,
     )
     if updated:
-        return RedirectResponse(f"/admin/role-assignments/{ra_id}/?flash=archived", status_code=303)
+        target = f"/admin/role-assignments/{ra_id}/?flash=archived"
+        if is_htmx(request):
+            return Response(status_code=204, headers={"HX-Location": target})
+        return RedirectResponse(target, status_code=303)
     exists = await db.fetchval("SELECT 1 FROM role_assignments WHERE id = $1", ra_id)
     if not exists:
         raise HTTPException(status_code=404, detail="Role assignment not found")
@@ -602,6 +606,7 @@ async def ra_archive(
 @router.post("/{ra_id}/unarchive/")
 async def ra_unarchive(
     ra_id: str,
+    request: Request,
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -612,7 +617,10 @@ async def ra_unarchive(
     if not ra["archived_at"]:
         raise HTTPException(status_code=409, detail="Role assignment is not archived")
     await db.execute("UPDATE role_assignments SET archived_at = NULL WHERE id = $1", ra_id)
-    return RedirectResponse(f"/admin/role-assignments/{ra_id}/?flash=unarchived", status_code=303)
+    target = f"/admin/role-assignments/{ra_id}/?flash=unarchived"
+    if is_htmx(request):
+        return Response(status_code=204, headers={"HX-Location": target})
+    return RedirectResponse(target, status_code=303)
 
 
 @router.delete("/{ra_id}/")

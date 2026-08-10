@@ -59,6 +59,18 @@
 </head>
 <body>
   <a class="skip-link" href="#main-content">Skip to main content</a>
+  {# The admin requires JavaScript (#287): every inline add/edit form is fetched
+     into the DOM by htmx on demand, so a JS-disabled browser can browse but
+     cannot edit. Say so rather than leaving the operator clicking inert
+     controls. Reading is unaffected — hx-boost degrades to plain links. #}
+  <noscript>
+    <div class="noscript-banner">
+      <strong>JavaScript is required to edit.</strong>
+      This admin builds its forms with htmx, so creating and editing records needs
+      JavaScript enabled. Browsing still works without it. For programmatic access,
+      use the public API at <code>/api/v1/</code>.
+    </div>
+  </noscript>
   <div class="admin-layout" hx-boost="true">
     <header class="admin-topbar">
       <button class="admin-topbar__menu-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="admin-sidebar">&#9776;</button>

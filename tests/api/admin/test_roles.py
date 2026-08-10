@@ -436,6 +436,22 @@ async def test_archive_role_redirects_with_flash_query(client, role_id):
     assert response.headers["location"] == f"/admin/roles/{role_id}/?flash=archived"
 
 
+async def test_archive_role_htmx_returns_hx_location(client, db, role_id):
+    """HTMX archive returns 204 + HX-Location to detail with flash (#287).
+
+    The Danger Zone control is a bare ``hx-post`` button, so the handler must
+    carry the ``is_htmx`` branch — a bare 303 would be followed by htmx into a
+    ``hx-swap="none"`` and leave the page stale.
+    """
+    response = await client.post(
+        f"/admin/roles/{role_id}/archive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert response.headers["HX-Location"] == f"/admin/roles/{role_id}/?flash=archived"
+    assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", role_id) is not None
+
+
 async def test_archived_flash_renders_on_role_detail(client, role_id):
     """Role detail with ?flash=archived renders the success flash."""
     response = await client.get(f"/admin/roles/{role_id}/?flash=archived", headers=AUTH_HEADERS)
