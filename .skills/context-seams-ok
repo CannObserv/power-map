@@ -20,12 +20,12 @@ docs/API_ENTITIES.md :: ### Endpoints
 docs/ACCESSIBILITY.md :: ## Presence indicators (notes) (#318)
 docs/ACCESSIBILITY.md :: ## Role & assignment attachment panels (#326)
 docs/ADMIN.md :: ### List status filters & search discoverability (#306)
-docs/ADMIN.md :: ### Lingering-state warnings (#307)
-docs/ADMIN.md :: ### Person-name metadata controls (Phase 2a–2d, #123)
-docs/ADMIN.md :: ### Roles — structural fields (#264)
-docs/ADMIN.md :: ### Jurisdictions — admin surface (#275)
-docs/ADMIN.md :: ### Person voice-embeddings section (#284)
-docs/ADMIN.md :: ### Citations indicator on entity rows (#341)
+docs/ADMIN_PANELS.md :: ### Lingering-state warnings (#307)
+docs/ADMIN_NAMES.md :: ### Person-name metadata controls (Phase 2a–2d, #123)
+docs/ADMIN_PANELS.md :: ### Roles — structural fields (#264)
+docs/ADMIN_PANELS.md :: ### Jurisdictions — admin surface (#275)
+docs/ADMIN_PANELS.md :: ### Person voice-embeddings section (#284)
+docs/ADMIN_PANELS.md :: ### Citations indicator on entity rows (#341)
 docs/COMMANDS.md :: ### Guards (#398)
 docs/COMMANDS.md :: ## Operational script targets (#399)
 docs/CONVENTIONS.md :: ## API request log (#260)
@@ -71,3 +71,10 @@ docs/SKILLS.md :: ### Auto-refresh hook (#386)
 docs/STYLE.md :: ### Three-state toggle (#25)
 docs/TESTING.md :: ## Browser Testing (axe-core a11y sweep, #300)
 docs/TESTING.md :: ### Weekly a11y sweep timer (production, #369)
+
+# The #424 CR curation split ADMIN.md into ADMIN.md + ADMIN_PANELS.md +
+# ADMIN_NAMES.md. The pointer list naming the moved sections is navigation to
+# where they went, and the issue-numbered topic headings are the repo-wide
+# heading convention (not 'demoted from' provenance markers).
+docs/ADMIN.md :: - `docs/ADMIN_PANELS.md` — lingering-state warnings (#307), roles structural fields (#264),
+docs/COMMANDS.md :: ## Credential custody (#409)

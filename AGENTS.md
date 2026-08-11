@@ -188,7 +188,9 @@ Each line says what a task would need the doc for — load the one that matches,
 
 **Admin dashboard**
 
-- [docs/ADMIN.md](docs/ADMIN.md) — server side: auth, archive model, HTMX partial responses, flash, per-panel rules
+- [docs/ADMIN.md](docs/ADMIN.md) — server side: auth, archive model, HTMX partial responses, flash, list status filters
+- [docs/ADMIN_PANELS.md](docs/ADMIN_PANELS.md) — per-panel rules: lingering-state warnings, roles structural fields, jurisdictions, voice embeddings, citations indicator
+- [docs/ADMIN_NAMES.md](docs/ADMIN_NAMES.md) — the person-name editor: metadata gates, locale/script typeahead, linked readings, structured parts
 - [docs/HTMX.md](docs/HTMX.md) — interaction patterns: swaps, redirects, flash, pagination, inline edit, guarded deletes, live header sync
 - [docs/UI.md](docs/UI.md) — components and table/list conventions: buttons, badges, modals, page headers, empty states, the row-key contract
 - [docs/FORMS.md](docs/FORMS.md) — the three hand-built composite controls: typeahead, address confirm, paired dates
