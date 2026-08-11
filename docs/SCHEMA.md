@@ -67,60 +67,6 @@ subsection of this same section.
 
 ---
 
-## Org name effective dates (#239)
-
-
-`organization_names` carries `effective_start` / `effective_end` (nullable `DATE`, `CHECK (start <= end)` = `chk_org_name_effective_date_order`) — the name's real-world validity timeline. PM is the system of record for "which name was in effect when"; consumers filter the dated name list rather than calling an as-of endpoint.
-
-- **Identity model:** a rename is **one durable Org**, never a fork. An external identifier (e.g. `org_wa_legislature_committee_id`) anchors exactly one Org for its whole life — "one WSL Id = one committee" is a deliberate invariant. Resolves CannObserv/usa-wa#40.
-- **Orthogonal axes:** effective dates are independent of `is_canonical` (the display pointer) and `name_type` (the kind of name). NULL `effective_start` = unknown lower bound (−∞); NULL `effective_end` = still in effect (+∞).
-- **Ingestion is append-only:** `write_names` stores dates only on a newly inserted row; dates sent for an already-present name are a no-op. Rename transitions (close the old interval, promote the new canonical) are **curated in admin**, never feed-driven.
-- **Broadcast:** any name-row INSERT/UPDATE/DELETE fires `trg_touch_org_on_name_change` → bumps `organizations.updated_at` → emits an `entity_changes` `'updated'` row, so change-feed subscribers re-fetch and pick up the new dates.
-
----
-
-## Address validity windows (#181)
-
-
-`entity_addresses` carries `valid_from` / `valid_until` (nullable `DATE`, `CHECK (from <= until)` = `chk_ea_validity`) — the link's real-world validity window. NULL = open-ended on that side. Overlapping windows are legitimate (mailing + physical simultaneously, two offices of the same type) — do **not** add an overlap-exclusion constraint.
-
-- **Identity model:** the window is part of the link's identity. `entity_addresses_entity_addr_uniq` is `UNIQUE NULLS NOT DISTINCT (entity_type, entity_id, address_type, address_id, valid_from, valid_until)` — the same entity at the same address across two windows is history, not a duplicate. Any dedup logic (merge anti-joins, schema-migration dedup DELETEs) must compare windows with `IS NOT DISTINCT FROM`.
-- **No `is_current` flag:** a generated column is impossible (`CURRENT_DATE` is not immutable); call sites filter with `valid_until IS NULL OR valid_until >= CURRENT_DATE`, matching the jurisdictions pattern. Admin detail queries sort current-first, then `valid_from DESC NULLS LAST`.
-- **Ingestion:** `write_addresses` dedups on the normalized form plus the window, mirroring the unique key (#256). Dateless claims (both bounds NULL) stay window-agnostic and dedup against any existing row; dated claims (`ObservationAddress.valid_from` / `.valid_until`, ISO `YYYY-MM-DD`, `from <= until`) dedup on the exact window via `IS NOT DISTINCT FROM` and record a fresh link for a new window, reusing the existing `addresses` row rather than minting a per-window duplicate. Supply dates only when an upstream source carries them; validity dates are otherwise curated in admin.
-- **Historical-window semantics — admin end-dating is authoritative over feeds (#256 decision, from #181 CR finding 4):** a dateless claim keeps matching *any* existing row, including an expired historical row (`valid_until < CURRENT_DATE`). So once an admin end-dates an entity's address, a later dateless re-observation records **nothing** — it does not resurrect a current, open-ended row. Rationale: curation is deliberate and human; silently reopening a closed window on the next ingest run would be whack-a-mole. A dateless re-observation of an expired address therefore leaves no trace (observations aren't logged as per-sighting events) — intentional. A source that genuinely needs to assert a *current* window supplies explicit `valid_from`/`valid_until` (the dated-claim escape hatch, #256 item 1); dated claims dedup with strict `IS NOT DISTINCT FROM` window equality, while dateless claims deliberately ignore the window.
-- **Broadcast:** any `entity_addresses` INSERT/UPDATE/DELETE fires `trg_touch_entity_on_address_change` → bumps the parent entity's `updated_at` → emits an `entity_changes` `'updated'` row (all five entity types), so change-feed subscribers re-fetch and pick up the new window.
-
----
-
-## Jurisdiction graph broadcast (#275)
-
-
-`jurisdiction_relationships` and `organization_jurisdiction_affiliations` are curated from the admin (Phase 3); both propagate to the change feed so a jurisdiction subscriber sees graph edits (the public API exposes them: `GET /api/v1/jurisdictions/{id}/relationships` and the org read model's `jurisdiction_affiliations`).
-
-- **Relationship edges:** any `jurisdiction_relationships` INSERT/UPDATE/DELETE fires `trg_touch_jurisdiction_on_relationship_change` → `touch_parent_jurisdiction()` bumps **both** endpoints' (`from_id` and `to_id`) `updated_at` → emits an `entity_changes` `'updated'` row per endpoint.
-- **Org affiliations:** any `organization_jurisdiction_affiliations` INSERT/UPDATE/DELETE fires **two** touch triggers — `trg_touch_org_on_affiliation_change` (org) and `trg_touch_jurisdiction_on_affiliation_change` (jurisdiction) — so a subscriber on either side re-fetches.
-
----
-
-## Auto-promote invariant
-
-
-Every **delete** route on `organization_names` must call `_maybe_promote_sole_name(org_id, db)` inside its transaction (from `src.api.admin.orgs_names`) — promotes the sole remaining non-canonical name to canonical, keeping `v_org_display_names.display_name` non-NULL. Edit routes do not need this — the canonical edit guard prevents completing when it would leave zero canonical names.
-
-Equivalent for acronyms: `_maybe_promote_sole_acronym(org_id, db)` (from `src.api.admin.orgs_acronyms`) — call inside the transaction of every **delete** route on `organization_acronyms`.
-
----
-
-## Last-identity guard
-
-
-`name_delete` blocks when the org has exactly one name and no canonical acronym; `acronym_delete` blocks symmetrically.
-
-- HTMX: return HTTP 200 with `flash_trigger("error", ...)` and empty body
-- Non-HTMX: raise `HTTPException(409)`
-
----
-
 ## Links schema
 
 
@@ -130,50 +76,10 @@ Equivalent for acronyms: `_maybe_promote_sole_acronym(org_id, db)` (from `src.ap
 
 ---
 
-## Unique Indexes (PostgreSQL 15+)
+## Moved out
 
-
-- Role uniqueness is **split by whether the role has a jurisdiction** (#261):
-  - `uq_role_structural` — `roles(organization_id, role_type_id, jurisdiction_id, qualifier) NULLS NOT DISTINCT WHERE jurisdiction_id IS NOT NULL AND archived_at IS NULL` — the identity of a role with a jurisdiction is chamber + role type + district + position; `NULLS NOT DISTINCT` makes a NULL `qualifier` unique per district (one senator).
-  - `uq_role_org_title` — `roles(organization_id, lower(title)) WHERE jurisdiction_id IS NULL AND archived_at IS NULL` — a role without a jurisdiction keeps title-based identity.
-  - A role with a jurisdiction must name its role type: `chk_role_jurisdiction_needs_role_type` (`jurisdiction_id IS NULL OR role_type_id IS NOT NULL`).
-- `uq_role_assignment_person_role_start` — `role_assignments(person_id, role_id, start_date) NULLS NOT DISTINCT WHERE archived_at IS NULL`
-- All created inside `DO … EXCEPTION WHEN unique_violation` blocks so `apply_schema` is safe on DBs with existing duplicates (logs WARNING instead of raising)
-- Schema tests for `uq_role_org_title` are guarded by a `require_uq_role_org_title` fixture that skips when the index is absent
-- `deduplicate_roles.py` collapses in two passes matching the split: roles without a jurisdiction by `(organization_id, lower(title))`, roles with a jurisdiction by `(organization_id, role_type_id, jurisdiction_id, qualifier)` — it never merges distinct roles that share a title
-- **Titles of roles with a jurisdiction are PM-curated (#267):** `title` is not part of such a role's identity (matching keys on the tuple), so the observation may omit it — on create `resolve_role` synthesizes the canonical title from the tuple via `src.core.role_title` (the single formatter, shared with `scripts/generate_wa_roles.py`) and **prefers it over any supplied title**, so upstream observers can't drift PM's curated form. A supplied title is used only as a fallback when it can't be synthesized; a titleless role that can't be synthesized (unknown `role_type` / non-`usa-wa-ld` district) is rejected `role_title_unavailable`.
-- **`role_types` catalog is publicly observable (#268):** `GET /api/v1/role-types` returns the classifier vocabulary (`id, slug, display_name, expects_jurisdiction, requires_qualifier`) so producers discover the `role_type` slugs instead of hardcoding them. `expects_jurisdiction` is an **advisory** hint that the office is normally attached with a jurisdiction — `resolve_role` does not enforce it. An unknown `role_type` slug is already rejected (`role_type_not_found`), so the endpoint's role is to prevent a *valid-but-wrong* slug (which would mint a duplicate role).
-- **`requires_qualifier` is enforced (#273):** a per-position office (e.g. `state_representative` — House seats are Position 1/2) sets `requires_qualifier=TRUE`; `resolve_role` **rejects** a jurisdictional observation of it with a missing/blank `qualifier` (`qualifier_required`) rather than minting a positionless seat (the #267 spurious-mint). `state_senator` is `FALSE` (one per district — `NULLS NOT DISTINCT` keeps the NULL-qualifier senator unique). Unlike `expects_jurisdiction`, this is a hard guard, not a hint. **Defense in depth:** a DB trigger (`trg_role_requires_qualifier` → `enforce_role_requires_qualifier()`) enforces the same rule at the data layer, so admin/direct-`INSERT` paths that bypass `resolve_role` also can't mint one (raises `check_violation`). Can't be a `CHECK` — it references `role_types`.
-
-**Bootstrap sequence for a dirty DB:** (1) run `scripts/deduplicate_roles.py --execute` to collapse duplicates, (2) re-run `apply_schema` (or restart the service) to create the indexes, (3) verify with `\d roles` / `\d role_assignments` in psql.
-
-**Inline constraint additions need a companion DO block (#307 CR round 2).** `CREATE TABLE IF NOT EXISTS` no-ops on an existing table, so a `CHECK`/`CONSTRAINT` added inline to the CREATE reaches only fresh DBs — prod silently lacked `entity_events_event_year_check` and `chk_at_requires_year` for exactly this reason. Any inline constraint change must ship with an idempotent `DO $$ … $$` migration that ADDs the constraint when absent (guard on `pg_constraint` by `conrelid`/`conname`) and replaces it when the clause is stale, wrapped in `EXCEPTION WHEN check_violation` → `RAISE WARNING` so `apply_schema` survives dirty data. Verify against prod (`pg_get_constraintdef`), not just the test DB — the test DB's table may be young enough to have gotten the inline form. Reference: the `entity_events` reconciliation block in `schema.sql`; regression harness: `tests/core/test_schema_constraint_migrations.py` (drop constraint → `apply_schema` → assert restored).
-
-**ADD-when-absent, not just replace-if-stale (#312).** A replace-if-stale guard (`IF EXISTS (constraint AND check_clause NOT LIKE '…') THEN DROP+re-add`, the #168 idiom) no-ops when the constraint is *entirely absent* — so it never heals a table that predates the constraint. A #312 prod-vs-test sweep caught five more in that state (`field_confidence_entity_type_check`, `import_provenance_entity_type_check`, and the three `import_batches_*_count_check`s): the entity_type pair had only the #168 replace-if-stale guard, the count checks had no reconciliation at all. Their #312 blocks ADD the current full shape when absent (guard on `pg_constraint` presence). Note the contrast: #176's unconditional `DROP CONSTRAINT IF EXISTS + ADD` heals absent *and* stale in one statement (that's why `contact_methods`/`entity_addresses` never drifted), but it hard-aborts `apply_schema` on a violating row — prefer the `EXCEPTION WHEN check_violation → RAISE WARNING` DO-block form on any constraint that could meet dirty data at deploy time.
-
-**The drift class covers *modifiers*, not just presence (#315).** The same `IF NOT EXISTS` no-op masks an inline modifier added after the table shipped — an FK's `ON DELETE` action, a CHECK clause body — even when the constraint itself is present. Prod's `entity_events_event_place_address_id_fkey` sat at plain NO ACTION (`confdeltype='a'`) while the code's inline `REFERENCES addresses(id) ON DELETE SET NULL` never applied, so hard-deleting an address referenced by an event *errored* in prod but nulled the ref on fresh DBs. Reconciliation for this variant keys on the wrong *action*, not absence — `SELECT conname WHERE contype='f' AND confdeltype <> 'n'` then DROP+re-add with the intended action (idempotent: a correct FK is untouched). Because the constraint is present, an absence-only guard (and any presence-only diff) no-ops here — the drift is only visible by comparing the **full `pg_get_constraintdef`**. Reference: the `entity_events_event_place_address_id_fkey` block in `schema.sql`; harness: `tests/core/test_schema_constraint_migrations.py::test_apply_schema_repairs_fk_on_delete_action` (reproduces the wrong-action shape, not mere absence).
-
-**Continuous guard: prod-vs-reference parity audit (#315).** A companion DO block only heals prod on deploy *if someone wrote it* — the drift above was caught twice by manual CR sweeps, after it had already sat in prod. `scripts/audit_schema_constraint_parity.py` (daily `power-map-schema-parity.timer`, exit 3 on drift) snapshots every constraint's full `pg_get_constraintdef` on a reference DB (`PARITY_REFERENCE_URL`, default `TEST_DATABASE_URL`) and on prod, and fails when prod is missing or disagrees on any reference constraint — catching drift from *any* source (manual DDL, partial migration, a deploy whose `apply_schema` no-op'd a new inline constraint), FK actions included. Logic + the reference-fidelity caveat: `src/core/schema_parity.py`. Note why a fresh-DB-only unit guard can't replace it: most inline constraints (measured: 73) have **no** reconciliation block — they shipped correctly with their `CREATE TABLE` and never needed one — so "apply_schema must restore every dropped constraint" would flag all 73; the fresh DB structurally cannot tell "inline-only but fine" from "inline-only and drifted in prod." Only a comparison against real prod state can. The drop-reapply harness covers the *reconciled* subset; the parity audit covers everything else.
-
-**The parity audit also covers functions & triggers (#331).** The same silent-drift window applies to the `CREATE OR REPLACE` function/trigger surface — the change-feed `touch_parent_*` functions + `trg_touch_entity_*` triggers that emit `entity_changes` (#327). They self-heal on the next `apply_schema` (every `systemctl restart power-map`), but a partial apply or hand-applied hotfix can leave a stale body running undetected. So the audit snapshots functions (`pg_get_functiondef`, keyed on signature so overloads stay distinct; **extension-owned** and non-plain aggregate/window/procedure functions excluded via a `pg_depend deptype='e'` anti-join — `pg_trgm`/`vector`/`unaccent` install hundreds into `public` that aren't ours to guard) and triggers (`pg_get_triggerdef`, `NOT tgisinternal`, same extension anti-join) alongside constraints, with the per-kind report namespaced `constraint.*`/`function.*`/`trigger.*`. **PG-version caveat:** `pg_get_functiondef`/`pg_get_triggerdef` formatting can legitimately differ across PG majors, so those two kinds are **skipped on a reference-vs-target major mismatch** (loud WARNING) rather than misreported as body drift — keep `PARITY_REFERENCE_URL` on prod's major. Constraints are version-stable and always diff.
-
-### Role-type vocabulary — governance (#266)
-
-`role_types` is a **flat, global aggregation key** — its stated purpose is to let "all X across orgs/jurisdictions" aggregate without matching free-text titles. It is *not* a label for every distinct office. New slugs are gated by four rules so the catalog doesn't proliferate into a WA-flavored, domain-ambiguous grab-bag:
-
-1. **Aggregation test — a slug exists only if you would query "all of them" across orgs/jurisdictions.** If the answer is no, it stays a free-text `roles.title` and gets no type. A one-off, non-recurring position doesn't earn a type until it recurs; a coarse *category* whose members you'd query together (`chamber_officer` covers a chamber's institutional officers — Secretary of the Senate, a future Chief Clerk) does earn one even at one row today, because the category — not the single title — is the aggregation. This is the primary guardrail against proliferation.
-2. **Domain-prefix convention.** Every non-jurisdictional slug is prefixed by the org-kind it attaches to: `committee_`, `chamber_`, `legislature_`, `party_` (corporate/advocacy `org_*` is reserved for #303). The prefix disambiguates a bare noun that means different things per domain (a `member` on a committee vs a party) and yields coarse rollups for free (`WHERE slug LIKE 'legislature_%'`) — so you rarely need a separate coarse type. The two jurisdictional seat types (`state_representative`, `state_senator`) predate this convention and are **grandfathered unprefixed** — renaming a public-API-visible slug (`GET /api/v1/role-types`) is breaking and buys nothing.
-3. **Concept in the type, jurisdiction label in the renderer.** Types stay jurisdiction-neutral; WA-specific titles live in `src/core/role_title.py`. Don't mint `wa_speaker` — the type is the concept, the label is rendered (or, for coarse types, carried by the free-text title).
-4. **Coarse where a long tail exists.** When distinct titles share a domain but few would ever be aggregated individually (the committee-staff tail: `Counsel`, `Research Analyst`, `Fiscal Coordinator`, …), use one coarse type (`legislature_staff`) + the specific free-text title, not a slug per title. Coarse types set `expects_jurisdiction=FALSE`; the specific office is not structurally recoverable (accepted tradeoff — e.g. `chamber_leader` aggregates "all chamber leaders" but not "all Speakers cross-state").
-
-**Reserved, not seeded.** Obvious near-term peers of a seeded concept (`chamber_majority_leader`, `chamber_minority_leader`, `chamber_president_pro_tempore`, `chamber_speaker_pro_tempore`) are documented here but **seeded only on first observation** — don't front-load the vocabulary ahead of data (rule 1).
-
-**Current catalog (post-#266):** `state_representative`, `state_senator` (jurisdictional seats, grandfathered); `chamber_leader`, `chamber_officer` (coarse); `committee_chair`, `committee_vice_chair`, `committee_ranking_member`, `committee_assistant_ranking_member`, `committee_member`; `legislature_staff` (coarse); `party_member` (coarse). The pre-#266 coarse `member` was split into `committee_member` + `party_member` and dropped.
-
-### Entity search — last-token prefix FTS (#316)
-
-Every `search_tsv @@ …` predicate (orgs, people, roles, role-assignments — both the public `search` endpoints and the admin list `*_queries.py` filters) goes through **`pm_prefix_tsquery(cfg, q)`**, never bare `plainto_tsquery`. It is the single source of truth for query-side FTS: it reuses `plainto_tsquery` for normalization (unaccent, punctuation split, stopwords) and appends `:*` to the last lexeme so the trailing token matches as a **prefix** — `"Ollie Gar"` matches `"Ollie Garrett"`, and single-token queries prefix too (`"Ja"` → `"Jane …"`). Prefix-only, not infix. It is `IMMUTABLE STRICT` (NULL in → NULL out, so nullable-`q` call sites like orgs-by-jurisdiction keep working) and injection-safe (plainto strips all tsquery operators before the `::text` round-trip). Known limitation: a partial *hyphenated* final token doesn't prefix-match (the `<->`-linked compound is required exact) — see `docs/PUBLIC_API.md`. When adding a new searchable entity, use `pm_prefix_tsquery` for the `@@` predicate; do not re-inline `plainto_tsquery`. Jurisdictions are the deliberate exception (ILIKE on name/slug, no `search_tsv`).
-
-### `pg_trgm` extension
-
-Enabled via `CREATE EXTENSION IF NOT EXISTS pg_trgm` in `apply_schema`. Required for org duplicate detection (`similarity()` function). Re-run `apply_schema` (or restart) to install on existing databases. Gracefully degrades to `org_dup_count = 0` if not installed.
+- `docs/SCHEMA_INDEXES.md` — the unique indexes that encode identity, role-type
+  vocabulary governance (#266), entity-search FTS (#316), `pg_trgm`
+- `docs/SCHEMA_VALIDITY.md` — org name effective dates (#239), address validity
+  windows (#181), jurisdiction graph broadcast (#275)
+- `docs/NAMES.md` — the org auto-promote invariant and last-identity guard
