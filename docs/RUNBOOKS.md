@@ -415,7 +415,7 @@ three** scopes (breakdown namespaced `role.*` / `role_assignment.*` /
 `citation.*`). The one-time recovery script stays role_assignment-only (its
 heuristics are assignment-specific; role/citation orphans should not occur now that
 the write paths are fixed, so any that appear go to manual triage). See
-`docs/OBSERVATIONS.md` §"Merge dedup — role_assignment ancillary re-homing" and
+`docs/ANCILLARY.md` §"Merge dedup — role_assignment ancillary re-homing" and
 §"Citations — write semantics".
 
 ```bash
