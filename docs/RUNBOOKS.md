@@ -112,7 +112,8 @@ Safe to re-run; upserts are idempotent.
 
 Creates the 147 canonical legislative roles (49 Senate + 98 House Position 1/2) against
 the already-seeded `legislative_district` jurisdictions. Prerequisites: `apply_schema`
-(role_types seeded), the jurisdictions seed above (LD jurisdictions present), and the WA
+(role_types seeded), § Seed jurisdictions from a pre-seed JSON file (LD jurisdictions
+present), and the WA
 chamber orgs carrying the `org_wa_legislature_chamber` identifier (`usa_wa_house` /
 `usa_wa_senate`). The role seed file is a local, gitignored artifact under
 `data/cannabis_observer/` — regenerate it from the jurisdictions seed if absent.

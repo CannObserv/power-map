@@ -9,15 +9,17 @@ live surface, so it costs nothing on a normal session. Live procedures — recur
 imports, idempotent seeds, scheduled audits, incident triage — stay in
 `docs/RUNBOOKS.md`.
 
-Verified complete against production on 2026-08-11 before archiving:
+Verified before archiving. The first three rows are data checks run against
+production on 2026-08-11; the last row is weaker evidence — one-off migrations whose
+issues are closed and which carry no pending state, without a data check that would
+distinguish "ran" from "nothing left to do":
 
 | Runbook | Evidence |
 |---|---|
 | Person canonical-name backfill (#308) | 0 active people without a canonical name |
 | Assignment-relationship backfill (#301) | 3 active RA→RA edges present |
 | Org end-event backfill (#313) | 191 active org end events present |
-| Notes → citations migration (#319) | citations table populated (2 rows) |
-| Deduplication, #265, #266, #314 | one-off migrations; issues closed, no pending state |
+| Deduplication, #265, #266, #314, notes → citations (#319) | one-off migrations; issues closed, no pending state |
 
 ---
 
