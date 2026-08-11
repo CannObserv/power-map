@@ -77,15 +77,24 @@ Every route handler: `user: AdminUser = Depends(get_admin_user)` — `get_admin_
 
 **All five entities carry all three actions (#424).** People, jurisdictions, roles and role-assignments have explicit archive / unarchive / delete controls; orgs restore via the `_active_toggle.html` partial. Roles were the holdout — archive was a one-way door whose only exit was an irreversible delete — until #424 added `role_unarchive` on the people/jurisdictions shape.
 
-**Restoring can be legitimately blocked — roles and role-assignments only (#424).** Their identity indexes are **partial on `archived_at IS NULL`**, so archiving a row frees its slot and a new row may reoccupy it before the restore:
+**Restoring can be legitimately blocked (#424).** A **unique index partial on `archived_at IS NULL`** encodes identity among *active* rows only, so archiving a row frees its slot and a new row may reoccupy it before the restore. Four tables carry one:
 
-| Entity | Index | Slot |
-|---|---|---|
-| Roles | `uq_role_org_title` | (org, `lower(title)`) where the role has no jurisdiction |
-| Roles | `uq_role_structural` | (org, role_type, jurisdiction, qualifier) where it has one |
-| Role-assignments | `uq_role_assignment_person_role_start` | (person, role, start_date) |
+| Table | Index | Slot | Unarchive path |
+|---|---|---|---|
+| `roles` | `uq_role_org_title` | (org, `lower(title)`) — role with no jurisdiction | `role_unarchive` — **handled** |
+| `roles` | `uq_role_structural` | (org, role_type, jurisdiction, qualifier) — role with one | `role_unarchive` — **handled** |
+| `role_assignments` | `uq_role_assignment_person_role_start` | (person, role, start_date) | `ra_unarchive` — **handled** |
+| `role_assignment_relationships` | `uq_assignment_relationship_identity` | (from, to, rel_type) | none today |
+| `citations` | `uq_citation_identity` | (entity_type, entity_id, field_name, url) | none today |
 
-People, orgs and jurisdictions carry no such index, which is why their unarchive handlers are a bare `UPDATE`. On roles and role-assignments the `UPDATE` runs inside `async with db.transaction():` — a plain `execute` that raises leaves the connection's transaction aborted and the response path unusable — and `asyncpg.UniqueViolationError` is caught and surfaced as a **flash**, not a 409: the admin registers no `HTTPException` handler and no client-side `htmx:responseError` hook, so a 4xx from an `hx-post` is silently inert and the curator sees a dead button. HTMX → `Response(204, headers=flash_trigger("warning", …))` (warning = reject, per `§ Flash notifications → Level taxonomy`); non-HTMX → 303 to the detail page with the shared `exists` key. The 409 stays for the "not archived" precondition, which is a race, not a curator-actionable state.
+**The rule is conditional, not a fixed list of two entities:** any unarchive path onto a table in this list needs the treatment below. Relationships and citations are safe today only because nothing sets their `archived_at` back to NULL — add such a path and it inherits the hazard. `people`, `organizations`, `jurisdictions` and `entity_events` carry no `archived_at`-partial unique index, which is why their unarchive handlers are a bare `UPDATE` (verify before assuming a new table joins them: `grep -B3 'archived_at IS NULL' src/core/schema.sql | grep 'CREATE UNIQUE INDEX'`).
+
+The treatment, on `role_unarchive` and `ra_unarchive`:
+
+- The `UPDATE` runs inside `async with db.transaction():` — a savepoint. A plain `execute` that raises leaves the connection's transaction aborted and the response path unusable (same idiom and reason as `ra_create`, #288).
+- `asyncpg.UniqueViolationError` is caught and surfaced as a **flash**, not a 409: the admin registers no `HTTPException` handler and no client-side `htmx:responseError` hook, so a 4xx from an `hx-post` is silently inert and the curator sees a dead button. HTMX → `Response(204, headers=flash_trigger("warning", …))` (warning = reject, per `§ Flash notifications → Level taxonomy`); non-HTMX → 303 to the detail page with the shared `exists` key.
+- **The message names the remedy the colliding index actually allows.** Roles branch on `jurisdiction_id`: a seat role's title is synthesized from role type + jurisdiction + qualifier, so "rename it" is not on offer there — only "archive the role holding the seat". Same split as `role_create`'s create-time `UniqueViolation` branch. The conflicting title is DB-derived → `markupsafe.escape()`.
+- The 409 stays for the "not archived" precondition, which is a race, not a curator-actionable state.
 
 ### List status filters & search discoverability (#306)
 

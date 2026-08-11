@@ -4,6 +4,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 
 from src.api.admin.deps import (
     AdminUser,
@@ -34,11 +35,22 @@ _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
 
 # Both role identity indexes (uq_role_org_title, uq_role_structural) are partial
 # on ``archived_at IS NULL``, so archiving frees a role's slot for a new role and
-# restoring it can collide (#424).
-_UNARCHIVE_CONFLICT = (
-    "Another active role already occupies this title or seat for the organization — "
-    "rename or archive it first."
+# restoring it can collide (#424). Which index bit determines the remedy, so the
+# two cases get distinct messages — same split as role_create's create-time
+# UniqueViolation branch: a seat role's title is synthesized from role type +
+# jurisdiction + qualifier, so "rename it" is not on offer there.
+_UNARCHIVE_CONFLICT_SEAT = (
+    "Another active role already holds this seat (role type, jurisdiction and qualifier) "
+    "for the organization — archive it first."
 )
+
+
+def _unarchive_conflict_title(title: str) -> str:
+    """Title-collision message. ``title`` is DB-derived — escaped for the flash body."""
+    return (
+        f"Another active role in this organization is already titled “{escape(title)}” — "
+        "rename or archive it first."
+    )
 
 
 @router.get("/")
@@ -372,7 +384,9 @@ async def role_unarchive(
     precondition race — surface it as a flash, since the admin has no handler
     turning a 4xx into anything visible on an ``hx-post``.
     """
-    role = await db.fetchrow("SELECT id, archived_at FROM roles WHERE id = $1", role_id)
+    role = await db.fetchrow(
+        "SELECT id, title, jurisdiction_id, archived_at FROM roles WHERE id = $1", role_id
+    )
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     if not role["archived_at"]:
@@ -384,8 +398,15 @@ async def role_unarchive(
         async with db.transaction():
             await db.execute("UPDATE roles SET archived_at = NULL WHERE id = $1", role_id)
     except asyncpg.UniqueViolationError:
+        # A role with a jurisdiction is governed by uq_role_structural, one
+        # without by uq_role_org_title — the row's own shape says which fired.
+        conflict = (
+            _UNARCHIVE_CONFLICT_SEAT
+            if role["jurisdiction_id"]
+            else _unarchive_conflict_title(role["title"])
+        )
         if is_htmx(request):
-            return Response(status_code=204, headers=flash_trigger("warning", _UNARCHIVE_CONFLICT))
+            return Response(status_code=204, headers=flash_trigger("warning", conflict))
         return RedirectResponse(with_flash(f"/admin/roles/{role_id}/", "exists"), status_code=303)
     target = f"/admin/roles/{role_id}/?flash=unarchived"
     if is_htmx(request):

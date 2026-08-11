@@ -575,8 +575,35 @@ async def test_unarchive_role_title_collision_htmx_flashes_warning(client, db, r
     assert "HX-Location" not in response.headers
     trigger = json.loads(response.headers["HX-Trigger"])
     assert trigger["showFlash"]["level"] == "warning"
-    assert "already" in trigger["showFlash"]["body"]
+    # The title-collision remedy, not the seat one: this role has no jurisdiction,
+    # so renaming it is a real way out (mirrors role_create's two messages).
+    assert "titled" in trigger["showFlash"]["body"]
+    assert "rename" in trigger["showFlash"]["body"]
     assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", role_id) is not None
+
+
+async def test_unarchive_role_title_collision_escapes_the_title(client, db, org_id):
+    """The conflicting title is DB-derived, so it is escaped into the flash body."""
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title, archived_at)"
+        " VALUES ($1, $2, '<b>Chair</b>', NOW())",
+        rid,
+        org_id,
+    )
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, '<b>Chair</b>')",
+        generate_id(),
+        org_id,
+    )
+    response = await client.post(
+        f"/admin/roles/{rid}/unarchive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    body = json.loads(response.headers["HX-Trigger"])["showFlash"]["body"]
+    assert "&lt;b&gt;Chair&lt;/b&gt;" in body
+    assert "<b>" not in body
 
 
 async def test_unarchive_role_title_collision_non_htmx_redirects_with_flash(
@@ -622,7 +649,24 @@ async def test_unarchive_role_structural_collision_flashes_warning(client, db, s
     assert response.status_code == 204
     trigger = json.loads(response.headers["HX-Trigger"])
     assert trigger["showFlash"]["level"] == "warning"
+    # A seat role's title is synthesized from role type + jurisdiction + qualifier,
+    # so "rename it" is not an available remedy — the message must not offer it.
+    assert "seat" in trigger["showFlash"]["body"]
+    assert "rename" not in trigger["showFlash"]["body"]
     assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", rid) is not None
+
+
+async def test_exists_flash_renders_on_role_detail(client, role_id):
+    """The collision redirect's ``exists`` key resolves on the role detail page.
+
+    The non-HTMX collision 303 is only worth anything if its target surfaces the
+    shared key — otherwise the curator lands on an unchanged page with no reason
+    given (#351 ``SHARED_FLASH_MESSAGES`` fallback).
+    """
+    response = await client.get(f"/admin/roles/{role_id}/?flash=exists", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "That already exists." in response.text
+    assert "flash--warning" in response.text
 
 
 async def test_hard_delete_requires_archive(client, role_id):

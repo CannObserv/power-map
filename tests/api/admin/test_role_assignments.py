@@ -323,6 +323,16 @@ async def test_unarchive_ra_identity_collision_non_htmx_redirects_with_flash(
     )
 
 
+async def test_exists_flash_renders_on_ra_detail(client, ra_id):
+    """The collision redirect's ``exists`` key resolves on the assignment detail page."""
+    response = await client.get(
+        f"/admin/role-assignments/{ra_id}/?flash=exists", headers=AUTH_HEADERS
+    )
+    assert response.status_code == 200
+    assert "That already exists." in response.text
+    assert "flash--warning" in response.text
+
+
 async def test_unarchived_flash_renders_on_detail(client, ra_id):
     """Detail page with ?flash=unarchived renders the unarchived success flash."""
     response = await client.get(
