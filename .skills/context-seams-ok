@@ -93,3 +93,20 @@ docs/COMMANDS.md :: ## Credential custody (#409)
 # where the check still has to work. The count is carried on the ledger row
 # instead, and the heuristic is filed upstream: a one-word section title should
 # require a doc reference alongside it, not match the word alone.
+
+# #428 increment 3 — SCHEMA.md split. Judged line by line.
+# The three docs/SCHEMA.md hits are its own "Moved out" pointer list: navigation
+# to where each section went, which is what a reader needs.
+docs/SCHEMA.md :: - `docs/SCHEMA_VALIDITY.md` — org name effective dates (#239), address validity
+docs/SCHEMA.md :: windows (#181), jurisdiction graph broadcast (#275)
+docs/SCHEMA.md :: - `docs/NAMES.md` — the org auto-promote invariant and last-identity guard
+# False match: this points at HTMX.md's OWN § Last-Identity Guard (line 314),
+# a different section from the SCHEMA.md one that moved to NAMES.md.
+docs/HTMX.md :: same pattern as § Last-Identity Guard: HTMX Response for Blocked Deletes
+# Issue-numbered topic headings — the repo-wide convention, not provenance markers.
+docs/SCHEMA_INDEXES.md :: ### Role-type vocabulary — governance (#266)
+docs/SCHEMA_INDEXES.md :: ### Entity search — last-token prefix FTS (#316)
+docs/SCHEMA_VALIDITY.md :: ## Org name effective dates (#239)
+docs/SCHEMA_VALIDITY.md :: ## Address validity windows (#181)
+docs/SCHEMA_VALIDITY.md :: ## Jurisdiction graph broadcast (#275)
+
