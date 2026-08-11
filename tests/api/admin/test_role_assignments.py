@@ -1,5 +1,7 @@
 """Integration tests for admin role assignments views."""
 
+import json
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -263,6 +265,62 @@ async def test_unarchive_ra_not_archived_returns_409(client, db, ra_id):
     )
     assert response.status_code == 409
     assert response.json()["detail"] == "Role assignment is not archived"
+
+
+async def test_unarchive_ra_identity_collision_htmx_flashes_warning(client, db, ra_id, person_id):
+    """An identity slot taken while archived rejects with a flash, not a 500 (#424).
+
+    ``uq_role_assignment_person_role_start`` is partial on ``archived_at IS
+    NULL``, so archiving an assignment frees its (person, role, start_date)
+    slot for a new one. Restoring the old one then violates the index.
+    """
+    role_of = await db.fetchval("SELECT role_id FROM role_assignments WHERE id = $1", ra_id)
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        role_of,
+    )
+    response = await client.post(
+        f"/admin/role-assignments/{ra_id}/unarchive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert "HX-Location" not in response.headers
+    trigger = json.loads(response.headers["HX-Trigger"])
+    assert trigger["showFlash"]["level"] == "warning"
+    assert (
+        await db.fetchval("SELECT archived_at FROM role_assignments WHERE id = $1", ra_id)
+        is not None
+    )
+
+
+async def test_unarchive_ra_identity_collision_non_htmx_redirects_with_flash(
+    client, db, ra_id, person_id
+):
+    """Non-HTMX collision redirects to detail with the shared ``exists`` flash key."""
+    role_of = await db.fetchval("SELECT role_id FROM role_assignments WHERE id = $1", ra_id)
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        person_id,
+        role_of,
+    )
+    response = await client.post(
+        f"/admin/role-assignments/{ra_id}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/role-assignments/{ra_id}/?flash=exists"
+    assert (
+        await db.fetchval("SELECT archived_at FROM role_assignments WHERE id = $1", ra_id)
+        is not None
+    )
 
 
 async def test_unarchived_flash_renders_on_detail(client, ra_id):

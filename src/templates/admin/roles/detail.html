@@ -180,11 +180,21 @@
 {% else %}
 <div class="danger-zone">
   <div>
+    <p class="danger-zone__label">Unarchive role</p>
+    <p class="danger-zone__desc">Restores this role to active views.</p>
+  </div>
+  <button type="button" class="btn btn--secondary"
+          hx-post="/admin/roles/{{ role.id }}/unarchive/" hx-swap="none">
+    Unarchive
+  </button>
+</div>
+<div class="danger-zone">
+  <div>
     <p class="danger-zone__label">Delete permanently</p>
     <p class="danger-zone__desc">This role is archived. Permanently deleting cannot be undone.</p>
   </div>
-  <button class="btn btn--danger"
-          hx-delete="/admin/roles/{{ role.id }}/"
+  <button type="button" class="btn btn--danger"
+          hx-delete="/admin/roles/{{ role.id }}/" hx-swap="none"
           hx-confirm="Permanently delete this role? This cannot be undone.">
     Delete permanently
   </button>

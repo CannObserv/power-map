@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 from src.api.admin.deps import (
     AdminUser,
     escape_like,
+    flash_trigger,
     get_admin_user,
     get_db,
     is_htmx,
@@ -28,7 +29,16 @@ router = APIRouter(prefix="/roles", tags=["admin-roles"])
 
 _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "archived": ("success", "Role archived."),
+    "unarchived": ("success", "Role unarchived."),
 }
+
+# Both role identity indexes (uq_role_org_title, uq_role_structural) are partial
+# on ``archived_at IS NULL``, so archiving frees a role's slot for a new role and
+# restoring it can collide (#424).
+_UNARCHIVE_CONFLICT = (
+    "Another active role already occupies this title or seat for the organization — "
+    "rename or archive it first."
+)
 
 
 @router.get("/")
@@ -342,6 +352,42 @@ async def role_archive(
         raise HTTPException(status_code=409, detail="Role is already archived")
     await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
     target = f"/admin/roles/{role_id}/?flash=archived"
+    if is_htmx(request):
+        return Response(status_code=204, headers={"HX-Location": target})
+    return RedirectResponse(target, status_code=303)
+
+
+@router.post("/{role_id}/unarchive/")
+async def role_unarchive(
+    role_id: str,
+    request: Request,
+    user: AdminUser = Depends(get_admin_user),
+    db=Depends(get_db),
+):
+    """Restore an archived role (#424). Returns 409 if not archived.
+
+    The restore can be legitimately blocked: a role's (org, title) or structural
+    seat slot is only reserved while the row is active, so a new role may have
+    taken it in the meantime. That collision is a curator-actionable state, not a
+    precondition race — surface it as a flash, since the admin has no handler
+    turning a 4xx into anything visible on an ``hx-post``.
+    """
+    role = await db.fetchrow("SELECT id, archived_at FROM roles WHERE id = $1", role_id)
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+    if not role["archived_at"]:
+        raise HTTPException(status_code=409, detail="Role is not archived")
+    try:
+        # Savepoint so the violation aborts only this write, not the ambient
+        # transaction — same idiom as ra_create (#288); the response path still
+        # needs the connection.
+        async with db.transaction():
+            await db.execute("UPDATE roles SET archived_at = NULL WHERE id = $1", role_id)
+    except asyncpg.UniqueViolationError:
+        if is_htmx(request):
+            return Response(status_code=204, headers=flash_trigger("warning", _UNARCHIVE_CONFLICT))
+        return RedirectResponse(with_flash(f"/admin/roles/{role_id}/", "exists"), status_code=303)
+    target = f"/admin/roles/{role_id}/?flash=unarchived"
     if is_htmx(request):
         return Response(status_code=204, headers={"HX-Location": target})
     return RedirectResponse(target, status_code=303)

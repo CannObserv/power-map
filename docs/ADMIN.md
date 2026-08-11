@@ -44,7 +44,7 @@ The audit measured the admin surface rather than arguing it:
 
 Consequences to hold to:
 
-- **Don't add `<form method="post" action="…" hx-post="…">` as a progressive-enhancement pattern.** Half-measures cost real markup on every control and still leave the admin unusable without JS. Every Danger Zone control an entity *has* is a bare `hx-post` / `hx-delete` button, across all five entity types — ratcheted by `tests/api/admin/test_js_required_policy.py`. (Which actions each entity has differs: roles have no unarchive — see `§ Archive model`.)
+- **Don't add `<form method="post" action="…" hx-post="…">` as a progressive-enhancement pattern.** Half-measures cost real markup on every control and still leave the admin unusable without JS. Every Danger Zone control an entity *has* is a bare `hx-post` / `hx-delete` button, across all five entity types — ratcheted by `tests/api/admin/test_js_required_policy.py`. (All five now carry archive / unarchive / delete; roles closed the last gap in #424 — see `§ Archive model`.)
 - **Keep every 303 fallback, and keep the sweep.** Their job is a defined contract for non-HTMX clients (the public API, tests, `curl`) and the substrate that makes the #280 / #349 / #351 correctness guarantees expressible — *not* graceful degradation for browsers.
 - **`base.html` ships a `<noscript>` banner** so a JS-disabled operator is told the admin needs JS instead of clicking inert controls.
 - **This is not an accessibility decision.** Screen readers run JavaScript; the a11y programme (#300 / #369, three tiers plus the weekly sweep) is unaffected. See `docs/ACCESSIBILITY.md`.
@@ -75,7 +75,17 @@ Every route handler: `user: AdminUser = Depends(get_admin_user)` — `get_admin_
 
 `target` for archive/unarchive is the detail page (`/admin/{entities}/{id}/?flash=archived|unarchived`); for delete it is the list page (`?flash=deleted`). The **detail vs list target** distinction is exactly why archive/unarchive can use `HX-Location` but delete must use `HX-Redirect` (list routes render partials under `is_htmx`; detail routes render full). All four entity deletes (orgs, people, jurisdictions, role-assignments) plus roles follow the `HX-Redirect` rule. 409-on-already-in-state guards fire before the branch, so they hold for both request kinds. The org "Restore from archive" control in `orgs/partials/_active_toggle.html` follows the same `hx-post` model.
 
-**Not every entity has all three actions.** Roles carry **archive + delete only — there is no `role_unarchive` route or control**, so an archived role's sole exit is hard delete. That asymmetry is pre-existing and out of scope for #287; tracked separately (see #424). People, jurisdictions and role-assignments have explicit unarchive controls; orgs restore via the `_active_toggle.html` partial.
+**All five entities carry all three actions (#424).** People, jurisdictions, roles and role-assignments have explicit archive / unarchive / delete controls; orgs restore via the `_active_toggle.html` partial. Roles were the holdout — archive was a one-way door whose only exit was an irreversible delete — until #424 added `role_unarchive` on the people/jurisdictions shape.
+
+**Restoring can be legitimately blocked — roles and role-assignments only (#424).** Their identity indexes are **partial on `archived_at IS NULL`**, so archiving a row frees its slot and a new row may reoccupy it before the restore:
+
+| Entity | Index | Slot |
+|---|---|---|
+| Roles | `uq_role_org_title` | (org, `lower(title)`) where the role has no jurisdiction |
+| Roles | `uq_role_structural` | (org, role_type, jurisdiction, qualifier) where it has one |
+| Role-assignments | `uq_role_assignment_person_role_start` | (person, role, start_date) |
+
+People, orgs and jurisdictions carry no such index, which is why their unarchive handlers are a bare `UPDATE`. On roles and role-assignments the `UPDATE` runs inside `async with db.transaction():` — a plain `execute` that raises leaves the connection's transaction aborted and the response path unusable — and `asyncpg.UniqueViolationError` is caught and surfaced as a **flash**, not a 409: the admin registers no `HTTPException` handler and no client-side `htmx:responseError` hook, so a 4xx from an `hx-post` is silently inert and the curator sees a dead button. HTMX → `Response(204, headers=flash_trigger("warning", …))` (warning = reject, per `§ Flash notifications → Level taxonomy`); non-HTMX → 303 to the detail page with the shared `exists` key. The 409 stays for the "not archived" precondition, which is a race, not a curator-actionable state.
 
 ### List status filters & search discoverability (#306)
 
