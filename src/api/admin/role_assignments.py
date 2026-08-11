@@ -37,6 +37,12 @@ _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "deleted": ("success", "Assignment deleted."),
 }
 
+# uq_role_assignment_person_role_start is partial on ``archived_at IS NULL``, so
+# an archived assignment's identity slot can be reoccupied before it is restored.
+_UNARCHIVE_CONFLICT = (
+    "Another active assignment already covers this person, role and start date — archive it first."
+)
+
 
 def _parse_date(value: str) -> datetime.date | None:
     """Parse an ISO date string to datetime.date, or return None if empty.
@@ -610,13 +616,28 @@ async def ra_unarchive(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Restore an archived role assignment. Returns 409 if not archived."""
+    """Restore an archived role assignment. Returns 409 if not archived.
+
+    ``uq_role_assignment_person_role_start`` is partial on ``archived_at IS
+    NULL``, so archiving frees the (person, role, start_date) slot and a new
+    assignment may have taken it. Same treatment as ``role_unarchive`` (#424):
+    a flash, not an inert 4xx.
+    """
     ra = await db.fetchrow("SELECT id, archived_at FROM role_assignments WHERE id = $1", ra_id)
     if not ra:
         raise HTTPException(status_code=404, detail="Role assignment not found")
     if not ra["archived_at"]:
         raise HTTPException(status_code=409, detail="Role assignment is not archived")
-    await db.execute("UPDATE role_assignments SET archived_at = NULL WHERE id = $1", ra_id)
+    try:
+        # Savepoint, not bare execute — see role_unarchive.
+        async with db.transaction():
+            await db.execute("UPDATE role_assignments SET archived_at = NULL WHERE id = $1", ra_id)
+    except asyncpg.UniqueViolationError:
+        if is_htmx(request):
+            return Response(status_code=204, headers=flash_trigger("warning", _UNARCHIVE_CONFLICT))
+        return RedirectResponse(
+            with_flash(f"/admin/role-assignments/{ra_id}/", "exists"), status_code=303
+        )
     target = f"/admin/role-assignments/{ra_id}/?flash=unarchived"
     if is_htmx(request):
         return Response(status_code=204, headers={"HX-Location": target})

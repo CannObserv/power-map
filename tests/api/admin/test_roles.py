@@ -4,6 +4,8 @@ Requires DATABASE_URL. Run with:
     DATABASE_URL=<dsn> uv run pytest tests/api/admin/test_roles.py -m integration -v
 """
 
+import json
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -480,6 +482,203 @@ async def test_archive_already_archived_role_returns_409(client, db, role_id):
     )
     assert response.status_code == 409
     assert response.json()["detail"] == "Role is already archived"
+
+
+async def test_unarchive_role_redirects_with_flash_query(client, db, role_id):
+    """Non-HTMX unarchive redirects to detail with ?flash=unarchived (#424)."""
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    response = await client.post(
+        f"/admin/roles/{role_id}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/roles/{role_id}/?flash=unarchived"
+    assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", role_id) is None
+
+
+async def test_unarchive_role_htmx_returns_hx_location(client, db, role_id):
+    """HTMX unarchive returns 204 + HX-Location to detail with flash (#424)."""
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    response = await client.post(
+        f"/admin/roles/{role_id}/unarchive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert response.headers["HX-Location"] == f"/admin/roles/{role_id}/?flash=unarchived"
+    assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", role_id) is None
+
+
+async def test_unarchive_active_role_returns_409(client, role_id):
+    """Unarchiving a role that is not archived is rejected with 409."""
+    response = await client.post(
+        f"/admin/roles/{role_id}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Role is not archived"
+
+
+async def test_unarchive_unknown_role_returns_404(client):
+    """Unarchiving an unknown role id is a 404, not a 409."""
+    response = await client.post(
+        f"/admin/roles/{generate_id()}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Role not found"
+
+
+async def test_unarchived_flash_renders_on_role_detail(client, role_id):
+    """Role detail with ?flash=unarchived renders the success flash."""
+    response = await client.get(f"/admin/roles/{role_id}/?flash=unarchived", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "Role unarchived." in response.text
+    assert "flash--success" in response.text
+    assert "HX-Replace-Url" in response.headers
+    assert "flash" not in response.headers["HX-Replace-Url"]
+
+
+async def test_archived_role_detail_offers_unarchive_control(client, db, role_id):
+    """The archived branch of the Danger Zone carries the unarchive control (#424).
+
+    A bare ``hx-post`` button per the JS-required policy (#287) — the archive
+    was otherwise a one-way door whose only exit is an irreversible delete.
+    """
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    response = await client.get(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert f'hx-post="/admin/roles/{role_id}/unarchive/"' in response.text
+
+
+async def test_unarchive_role_title_collision_htmx_flashes_warning(client, db, role_id, org_id):
+    """A title slot taken while archived rejects with a flash, not a 500 (#424).
+
+    ``uq_role_org_title`` is partial on ``archived_at IS NULL``, so archiving a
+    role frees its (org, title) slot for a new role. Restoring the old one then
+    violates the index — which must surface as an actionable warning, since a
+    4xx from an ``hx-post`` is silently inert (no admin error handler).
+    """
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Test Role')",
+        generate_id(),
+        org_id,
+    )
+    response = await client.post(
+        f"/admin/roles/{role_id}/unarchive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    assert "HX-Location" not in response.headers
+    trigger = json.loads(response.headers["HX-Trigger"])
+    assert trigger["showFlash"]["level"] == "warning"
+    # The title-collision remedy, not the seat one: this role has no jurisdiction,
+    # so renaming it is a real way out (mirrors role_create's two messages).
+    assert "titled" in trigger["showFlash"]["body"]
+    assert "rename" in trigger["showFlash"]["body"]
+    assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", role_id) is not None
+
+
+async def test_unarchive_role_title_collision_escapes_the_title(client, db, org_id):
+    """The conflicting title is DB-derived, so it is escaped into the flash body."""
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title, archived_at)"
+        " VALUES ($1, $2, '<b>Chair</b>', NOW())",
+        rid,
+        org_id,
+    )
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, '<b>Chair</b>')",
+        generate_id(),
+        org_id,
+    )
+    response = await client.post(
+        f"/admin/roles/{rid}/unarchive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    body = json.loads(response.headers["HX-Trigger"])["showFlash"]["body"]
+    assert "&lt;b&gt;Chair&lt;/b&gt;" in body
+    assert "<b>" not in body
+
+
+async def test_unarchive_role_title_collision_non_htmx_redirects_with_flash(
+    client, db, role_id, org_id
+):
+    """Non-HTMX collision redirects to detail with the shared ``exists`` flash key."""
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Test Role')",
+        generate_id(),
+        org_id,
+    )
+    response = await client.post(
+        f"/admin/roles/{role_id}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 303)
+    assert response.headers["location"] == f"/admin/roles/{role_id}/?flash=exists"
+    assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", role_id) is not None
+
+
+async def test_unarchive_role_structural_collision_flashes_warning(client, db, structural_role):
+    """The structural seat index collides the same way and must not 500 (#424)."""
+    rid = structural_role["role_id"]
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", rid)
+    org_id_of = await db.fetchval("SELECT organization_id FROM roles WHERE id = $1", rid)
+    await db.execute(
+        "INSERT INTO roles"
+        " (id, organization_id, title, role_type_id, jurisdiction_id, qualifier)"
+        " VALUES ($1,$2,$3,$4,$5,$6)",
+        generate_id(),
+        org_id_of,
+        "WA Rep Seat One Replacement",
+        structural_role["rt_id"],
+        structural_role["jur_id"],
+        "Position 1",
+    )
+    response = await client.post(
+        f"/admin/roles/{rid}/unarchive/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+    assert response.status_code == 204
+    trigger = json.loads(response.headers["HX-Trigger"])
+    assert trigger["showFlash"]["level"] == "warning"
+    # A seat role's title is synthesized from role type + jurisdiction + qualifier,
+    # so "rename it" is not an available remedy — the message must not offer it.
+    assert "seat" in trigger["showFlash"]["body"]
+    assert "rename" not in trigger["showFlash"]["body"]
+    assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", rid) is not None
+
+    # Same conflict over the non-HTMX door: the reject is index-agnostic, so the
+    # structural case lands on the same shared `exists` key as the title case.
+    # The failed restore left the row archived, so the state still holds.
+    fallback = await client.post(
+        f"/admin/roles/{rid}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert fallback.status_code in (302, 303)
+    assert fallback.headers["location"] == f"/admin/roles/{rid}/?flash=exists"
+    assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", rid) is not None
+
+
+async def test_exists_flash_renders_on_role_detail(client, role_id):
+    """The collision redirect's ``exists`` key resolves on the role detail page.
+
+    The non-HTMX collision 303 is only worth anything if its target surfaces the
+    shared key — otherwise the curator lands on an unchanged page with no reason
+    given (#351 ``SHARED_FLASH_MESSAGES`` fallback).
+    """
+    response = await client.get(f"/admin/roles/{role_id}/?flash=exists", headers=AUTH_HEADERS)
+    assert response.status_code == 200
+    assert "That already exists." in response.text
+    assert "flash--warning" in response.text
 
 
 async def test_hard_delete_requires_archive(client, role_id):
