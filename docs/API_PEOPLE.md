@@ -1,8 +1,8 @@
 # power-map Public API — People
 
 Per-resource endpoint behaviour for **People**: filters, response shapes, and the
-implicit rules this collection follows. Auth, pagination, conditional requests and
-the change feed are in `docs/PUBLIC_API.md`; write semantics in
+implicit rules this collection follows. Auth, pagination and conditional requests are in
+`docs/PUBLIC_API.md`, the change feed in `docs/CHANGE_FEED.md`; write semantics in
 `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
 
 ---

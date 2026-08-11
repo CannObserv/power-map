@@ -2,9 +2,9 @@
 
 **Schema and endpoint inventory:** `/docs` (Swagger UI, both dev and prod) is the authoritative reference for request parameters, response shapes, and per-endpoint descriptions. This document covers the meta-level contracts, auth model, and implicit behaviors that the OpenAPI spec does not capture.
 
-Meta-level contracts: auth, scopes, rate limits, pagination, conditional requests,
-subscriptions, the change feed, and shared observation-write behaviour. Per-resource
-endpoint detail lives in `docs/API_ENTITIES.md`.
+Meta-level contracts: auth, scopes, rate limits, pagination, conditional requests and
+shared observation-write behaviour. The change feed and subscriptions are in
+`docs/CHANGE_FEED.md`; per-resource endpoint detail in `docs/API_ENTITIES.md`.
 
 ---
 
