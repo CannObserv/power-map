@@ -75,34 +75,6 @@ Entity events are producer-writable two ways: **embedded** in the org/person obs
 
 ---
 
-## Merge dedup — role_assignment ancillary re-homing (#324)
-
-
-`links` / `contact_methods` / `field_confidence` / `identifiers` / `import_provenance` attach to a `role_assignment` via `(entity_type='role_assignment', entity_id=<id>)` with **no FK** (identifiers scope through `entity_identifier_types`, no `entity_type` column). A merge that hard-deletes a duplicate assignment must **re-home its ancillary onto the surviving assignment first**, else those rows dangle off a dead id — invisible to every UI and the change feed, and never pruned (the same migrate-before-delete hazard #265's archiver was built for, reached via the merge path).
-
-All three conflict-delete sites — `people_merge.py`, `orgs_roles.py::role_merge`, `orgs_merge.py` role-pair merge — fetch the `(loser_assignment, winner_assignment)` pairs and call `rehome_conflicting_assignment_ancillary` (from `src.core.ancillary_migrate`) **before** the DELETE (and `people_merge` derives its DELETE set from those same pairs, so re-homed and deleted rows are provably identical). `uq_role_assignment_person_role_start` guarantees a 1:1 loser→survivor target. Each row is re-pointed, or deleted when the survivor already carries an identical one (identity: `links (url, link_type_id)`, `contact_methods (contact_type, value)`, `field_confidence (field_name, value_hash)`, `identifiers (entity_identifier_type_id, value)`). `import_provenance` is **append-only** (no unique key, `key_fields=None`) — every row re-points wholesale, never dedups. A survivor whose ancillary actually changed gets an `entity_changes` 'updated' signal: for `links` / `contact_methods` / `identifiers` the re-point self-emits via that table's touch trigger (#327, one signal per moved row); for the trigger-less `field_confidence` / `import_provenance` a manual emit is added, gated on a move of one of those (`TRIGGERLESS_ANCILLARY_TABLES`). See "Ancillary `entity_changes` emit" below. The org-merge path is the subtle one: it re-creates each loser assignment on the winner role under a **new id** before deleting (carrying over `source_key_id` provenance), so the re-home target is that new id (or the existing winner row for a dropped dup).
-
-**Guard:** `count_orphaned_role_assignment_ancillary` (anti-join, no matching `role_assignments` row) backs both a unit test and the daily `power-map-ancillary-orphans.timer` (`scripts/audit_ancillary_orphans.py`, exit 3 on any orphan). **Existing-orphan cleanup:** `scripts/cleanup_role_assignment_ancillary_orphans.py` — merges leave no assignment tombstone, so recovery is heuristic per dead id (PDC filer→person→current seat; `first.last@` email→unique person→current seat; redundant-link purge; everything else reported for manual triage). Dry-run by default; `--execute` is supervised.
-
-**Role-level ancillary (#326).** A role *definition* carries the same hazard for its own `links` / `contact_methods` (`entity_type='role'`, no FK — `role` is excluded from `identifiers`/`field_confidence`/`import_provenance`), made routine by the admin contacts/links editors. `src.core.ancillary_migrate` mirrors the assignment machinery via a shared `_migrate_specs`: `rehome_role_ancillary` (merge: re-point + dedup onto the surviving role — the survivor 'role' 'updated' signal comes from the `links`/`contact_methods` touch triggers, #327, so no manual emit) is called by all three role-deleting paths (`roles.py` hard-delete uses `delete_role_ancillary` instead — a hard delete removes the rows; `orgs_roles.py::role_merge` and both `orgs_merge.py` role-pair deletes re-home). The same daily `audit_ancillary_orphans.py` guard counts role orphans too (`count_orphaned_role_ancillary`), namespaced `role.*` in the breakdown. No dedicated cleanup script — the write paths are all covered, so a role orphan is an anomaly for manual triage.
-
----
-
-## Ancillary `entity_changes` emit — DB touch triggers (#327)
-
-
-**The signal that a polymorphic ancillary row changed the parent belongs in a DB touch-cascade trigger, not in application code** — so *every* write path (admin CRUD, public observation, merge re-homing, a direct INSERT from a script) notifies change-feed subscribers uniformly. A change made in the admin dashboard must reach subscribers exactly like one made via the public API. The line is by ancillary kind:
-
-- **User-facing state → trigger (single source, no manual emit anywhere):** `entity_addresses` (`trg_touch_entity_on_address_change`), `contact_methods` (`trg_touch_entity_on_contact_change`, #327), `links` (`trg_touch_entity_on_link_change`, #327), `identifiers` (`trg_touch_entity_on_identifier_change`), `person_names` / `org_acronyms` / affiliations / jurisdiction relationships. Each is polymorphic and dispatches on `entity_type` to bump the parent's `updated_at`, which fires the parent's `fn_record_entity_change`. The contact/link triggers cover all five entity types; the identifier trigger covers `organization`/`person`/`jurisdiction`/`role_assignment` (the last added in #327). Triggers emit **per row** — a bulk op that touches N rows emits N signals (idempotent for subscribers; matches how `entity_addresses` always behaved).
-- **Ingestion telemetry → deliberately trigger-less:** `field_confidence` and `import_provenance` are written per-observation by `src/core/ingestion/pipeline.py`, so a trigger would emit an 'updated' on every audit/confidence row. They stay trigger-less; the only path that must signal their movement is a merge/cleanup re-home, which emits manually gated on `TRIGGERLESS_ANCILLARY_TABLES` (see the #324 section).
-
-**Consequences to preserve:**
-
-- **Never** emit `entity_changes` for `contact_methods`/`links`/`identifiers` from application code — the trigger already fires; a manual emit **double-signals**. This is why #327 *removed* the old manual emits in `observation.py` (`write_contact_methods`/`write_links`; the contact `display_label` null-fill passes `record_change=False`, mirroring `entity_addresses`), narrowed the merge `rehome_*` emits to the trigger-less tables, and dropped `rehome_role_ancillary`'s manual emit entirely (both its tables are triggered). The admin shared factories (`_contacts_shared`/`_links_shared`/`_identifiers_shared`) do raw INSERT/UPDATE/DELETE and rely on the trigger — no app-layer emit.
-- History note: `contact_methods`/`links` shipped **without** a trigger and every write path emitted manually (public + merge) while admin CRUD emitted nothing (#324/#326 accommodated the absence rather than choosing it). #327 added the triggers to converge them onto the `entity_addresses` model and deleted the now-redundant manual emits.
-
----
-
 ## Citations — write semantics (#319)
 
 
@@ -130,3 +102,12 @@ A **role-assignment relationship** is a directional, temporal edge between two `
 - **Transports:** native `POST /api/v1/assignment-relationships/observations` (partial-success) + read `GET /api/v1/assignments/{pm_assignment_id}/relationships` (both directions); scopes `assignment_relationships:read`/`:write`. No embedded transport (the edge references assignments, not a parent entity). Admin panel on the role-assignment detail (`src/api/admin/role_assignments_relationships.py`).
 - **Merge re-homing:** the edge is FK-backed so it can't *orphan*, but a merge's hard-delete of a losing assignment would silently **CASCADE-delete** its active edges. `rehome_assignment_relationships` re-points them onto the survivor (deleting self-edges + winner collisions) **before** the DELETE — wired into `people_merge`, `orgs_roles::role_merge`, and both `orgs_merge` role-pair sites. Re-point/delete self-emit via the edge's touch + change triggers (no manual signal). No orphan-audit scope (FK makes orphans impossible).
 - **Backfill:** `scripts/backfill_assignment_relationships.py` resolves the 3 concrete #266-descoped rows (heuristic, supervised; misses reported, never guessed).
+
+---
+
+## Ancillary rows
+
+Merge re-homing (#324/#326) and the DB touch triggers that emit a parent
+`entity_changes` signal for ancillary edits (#327) live in `docs/ANCILLARY.md` —
+both are properties of the polymorphic ancillary tables rather than of any one
+observation kind.
