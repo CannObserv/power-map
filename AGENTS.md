@@ -86,7 +86,7 @@ Full conventions → `docs/SCHEMA.md`
 - Integration tests: require `TEST_DATABASE_URL`; never run against the production DB
 - Integration test fixtures acquire from the session-scoped `db_pool`; endpoint tests use the lifespan-less rollback client (#288)
 - Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block, placed **before** any `set_updated_at()` trigger on that table (#307/#312/#315/#392); daily `power-map-schema-parity.timer` is the continuous guard
-- Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge re-homing (#324/#327), entity search (#316), role-type vocabulary (#266) — each has exact rules in `docs/SCHEMA.md` and `docs/OBSERVATIONS.md`. Read them before changing any of them.
+- Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge re-homing (#324/#327), entity search (#316), role-type vocabulary (#266) — each has exact rules in the `docs/SCHEMA*.md` family and `docs/OBSERVATIONS.md`. Read them before changing any of them.
 
 ## Infrastructure
 
@@ -176,9 +176,9 @@ Each line says what a task would need the doc for — load the one that matches,
 
 **Domain & data**
 
-- [docs/SCHEMA.md](docs/SCHEMA.md) — tables, display-name views, temporal validity windows, and the unique indexes that encode entity identity
+- [docs/SCHEMA.md](docs/SCHEMA.md) — tables, column conventions, display-name views, links schema; routes to [SCHEMA_INDEXES](docs/SCHEMA_INDEXES.md) (identity indexes, role-type vocabulary, search) and [SCHEMA_VALIDITY](docs/SCHEMA_VALIDITY.md) (validity windows, feed triggers)
 - [docs/OBSERVATIONS.md](docs/OBSERVATIONS.md) — observation write semantics: identity vs payload, refine-in-place, `op="retract"`, the `source_key_id` gate, merge re-homing
-- [docs/NAMES.md](docs/NAMES.md) — person and org names: the canonical/display pointer, visibility rules, structured parts, readings, locale/script tables
+- [docs/NAMES.md](docs/NAMES.md) — person and org names: the canonical/display pointer, visibility rules, structured parts, readings, locale/script tables, org display-identity invariants
 
 **Public API**
 

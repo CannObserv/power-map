@@ -185,3 +185,25 @@ pg_trgm GIN indexes are present on both columns of both tables (Postgres' planne
 ON UPDATE CASCADE is set on both FKs, so a registry-driven `code` rename propagates to existing person_names rows. ON DELETE NO ACTION (default) blocks lookup-row deletion when referenced — the registry doesn't shrink, so this is correct.
 
 A symmetric FK on `bcp47_locales.script → iso15924_scripts(code)` (same `ON UPDATE CASCADE`) keeps locale rows consistent with the script registry. Phase 2b code may join `bcp47_locales.script → iso15924_scripts.code` to enrich locales with their script's `name`/`numeric_code` without defensive existence checks.
+
+---
+
+The two invariants below keep an org from losing its display identity when name or
+acronym rows are deleted. They are enforced in admin route handlers, not by the DB.
+
+## Auto-promote invariant
+
+
+Every **delete** route on `organization_names` must call `_maybe_promote_sole_name(org_id, db)` inside its transaction (from `src.api.admin.orgs_names`) — promotes the sole remaining non-canonical name to canonical, keeping `v_org_display_names.display_name` non-NULL. Edit routes do not need this — the canonical edit guard prevents completing when it would leave zero canonical names.
+
+Equivalent for acronyms: `_maybe_promote_sole_acronym(org_id, db)` (from `src.api.admin.orgs_acronyms`) — call inside the transaction of every **delete** route on `organization_acronyms`.
+
+---
+
+## Last-identity guard
+
+
+`name_delete` blocks when the org has exactly one name and no canonical acronym; `acronym_delete` blocks symmetrically.
+
+- HTMX: return HTTP 200 with `flash_trigger("error", ...)` and empty body
+- Non-HTMX: raise `HTTPException(409)`

@@ -194,7 +194,7 @@ uv run "${env_args[@]}" python -m scripts.archive_legacy_legislator_roles --exec
 Two one-off migrations, **run in this order**, that move legacy free-text roles onto
 the #266 role-type vocabulary. Both are idempotent, dry-run by default, and commit in
 a single transaction under `--execute`. Governance rules for the vocabulary itself →
-`docs/SCHEMA.md` §"Role-type vocabulary — governance".
+`docs/SCHEMA_INDEXES.md` §"Role-type vocabulary — governance".
 
 `scripts/migrate_member_role_type.py` splits the retired coarse `member` classifier
 into `committee_member` / `party_member` by **structural org identifier**
@@ -598,7 +598,7 @@ Function/trigger defs are PG-version-formatted, so on a **PG major mismatch**
 between reference and target those two kinds are skipped (loud WARNING) rather
 than misreported as drift; constraints are version-stable and always diff. Keep
 the reference on prod's major (point `PARITY_REFERENCE_URL` at a same-major DB).
-See `docs/SCHEMA.md` §"Unique Indexes" for why a fresh-DB-only unit guard
+See `docs/SCHEMA_INDEXES.md` §"Unique Indexes" for why a fresh-DB-only unit guard
 can't replace it.
 
 Manual run:
