@@ -53,26 +53,6 @@ pipeline. Applying schema DDL was implicit before #402; it is now opt-in, and
 
 ---
 
-## Deduplication (one-time fix)
-
-
-```bash
-# Build --env-file flags (see § Environment)
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ] && env_args+=(--env-file .env)
-
-# Dry run — report what would be removed (no DB changes)
-uv run "${env_args[@]}" python -m scripts.deduplicate_roles
-
-# Execute — apply deduplication and commit changes
-uv run "${env_args[@]}" python -m scripts.deduplicate_roles --execute
-```
-
-Run before re-applying schema on a dirty DB (see § Deploy for the schema apply).
-
----
-
 ## Seed BCP 47 / ISO 15924 lookup tables (after schema apply, idempotent)
 
 
@@ -132,7 +112,8 @@ Safe to re-run; upserts are idempotent.
 
 Creates the 147 canonical legislative roles (49 Senate + 98 House Position 1/2) against
 the already-seeded `legislative_district` jurisdictions. Prerequisites: `apply_schema`
-(role_types seeded), the jurisdictions seed above (LD jurisdictions present), and the WA
+(role_types seeded), § Seed jurisdictions from a pre-seed JSON file (LD jurisdictions
+present), and the WA
 chamber orgs carrying the `org_wa_legislature_chamber` identifier (`usa_wa_house` /
 `usa_wa_senate`). The role seed file is a local, gitignored artifact under
 `data/cannabis_observer/` — regenerate it from the jurisdictions seed if absent.
@@ -159,106 +140,6 @@ Idempotent: roles match on identity (org + role_type + jurisdiction + qualifier)
 attach rather than duplicate. Seeder, not updater — it does not revise existing roles'
 titles/attributes. Merging existing (idiosyncratic) legislator Roles onto these roles is
 separate (#265).
-
----
-
-## Archive legacy legislator roles (idempotent, #265)
-
-
-Validates each active legacy (`role_type_id IS NULL`) legislator assignment on the WA
-House / Senate / Legislature orgs against the enriched seat-assignments, migrates its
-ancillary data (links + contacts + field_confidence → the matched typed assignment;
-`role_wa_pdc` URLs → person-level `person_wa_pdc_filer` identifier + `wa_pdc` link),
-then archives the assignment; a legacy role is archived once it has no active
-assignments left. Coverage-gated: staff/leadership titles are excluded (→ #266) and
-unmatched rows are kept for a later re-run (e.g. after upstream backfills more history).
-
-```bash
-# Build --env-file flags (see § Environment)
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ] && env_args+=(--env-file .env)
-
-# Dry run — read-only; per-row statuses + full ancillary accounting
-uv run "${env_args[@]}" python -m scripts.archive_legacy_legislator_roles
-
-# Execute — migrate ancillary data + archive, in one transaction
-uv run "${env_args[@]}" python -m scripts.archive_legacy_legislator_roles --execute
-```
-
----
-
-## Role-type vocabulary migration + classification (issue #266)
-
-
-Two one-off migrations, **run in this order**, that move legacy free-text roles onto
-the #266 role-type vocabulary. Both are idempotent, dry-run by default, and commit in
-a single transaction under `--execute`. Governance rules for the vocabulary itself →
-`docs/SCHEMA_INDEXES.md` §"Role-type vocabulary — governance".
-
-`scripts/migrate_member_role_type.py` splits the retired coarse `member` classifier
-into `committee_member` / `party_member` by **structural org identifier**
-(`org_wa_legislature_committee_id` vs `org_wa_party`) — never display names. An org
-with neither is reported `skipped` and left untouched. Once no rows reference
-`member`, `apply_schema` drops it from the catalog; the script then no-ops.
-
-`scripts/classify_legislative_roles.py` types WA committee / chamber / legislative-staff
-roles in four phases: curate title collisions (two spellings of one office are **merged**,
-assignments re-pointed not deleted; collision-free variants renamed), classify committee
-officeholders (`committee_*`) and committee staff (`legislature_staff`), classify the
-legislative staff offices, then apply the enumerated chamber backlog (retitle, re-home,
-principal→notes). Titles are preserved wherever normalizing would erase a real
-distinction (`Acting Chair` keeps its title *and* takes `committee_chair`). Backlog rules
-are org-scoped to the WA chambers — an unscoped title match would sweep in unrelated orgs.
-Federal legislative roles and caucus/floor-leadership vocab are deliberately out of scope.
-
-```bash
-# Build --env-file flags (see § Environment)
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ] && env_args+=(--env-file .env)
-
-# Dry runs — read-only; every planned mutation is listed per row
-uv run "${env_args[@]}" python -m scripts.migrate_member_role_type
-uv run "${env_args[@]}" python -m scripts.classify_legislative_roles
-
-# Execute, in order, then re-apply schema to drop the emptied `member` type
-uv run "${env_args[@]}" python -m scripts.migrate_member_role_type --execute
-uv run "${env_args[@]}" python -m scripts.classify_legislative_roles --execute
-bash scripts/apply-schema.sh
-```
-
-**Dates are never invented (#307):** the classifier moves a tenure embedded in a title
-(e.g. `Speaker of the House (2021-23)`) into role notes and logs a WARNING — a human sets
-the assignment's dates and currency afterward.
-
----
-
-## Speaker Designate / Speaker split (issue #314)
-
-
-`scripts/split_speaker_designate.py` resolves the human date call the classifier deferred
-above for Laurie Jinkins. It splits the single dateless `Speaker of the House` tenure into
-two distinct `chamber_leader` roles on WA House — mirroring the COG `Acting Chair` / `Chair`
-pattern (the coarse type aggregates, the free-text title distinguishes):
-
-- **Speaker Designate** (new role) — assignment 2019-07-31 → 2020-01-12, `is_current=FALSE`.
-- **Speaker of the House** (existing role/assignment) — start 2020-01-13, open end, still
-  `is_current=TRUE`; the stale `2021-23` breadcrumb on the role is cleared.
-
-Dates come from the WA House Democrats caucus record, cited in each assignment's `notes`
-(not invented, #307). A fail-loud identity guard aborts if the hardcoded prod IDs no longer
-resolve to *(Jinkins, Speaker role, WA House)*. Idempotent, dry-run by default, single
-transaction under `--execute`.
-
-```bash
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ] && env_args+=(--env-file .env)
-
-uv run "${env_args[@]}" python -m scripts.split_speaker_designate            # dry run
-uv run "${env_args[@]}" python -m scripts.split_speaker_designate --execute  # commit
-```
 
 ---
 
@@ -293,28 +174,6 @@ env_args=()
 
 uv run "${env_args[@]}" python -m scripts.sweep_role_data_quality            # dry run
 uv run "${env_args[@]}" python -m scripts.sweep_role_data_quality --execute  # commit
-```
-
----
-
-## Notes → citations migration (issue #319)
-
-
-`scripts/migrate_notes_to_citations.py` extracts bare `http(s)` URLs from
-`role_assignments.notes` (the pre-#319 ad-hoc provenance store, e.g. the #314
-Jinkins housedemocrats.wa.gov links) into structured **whole-assignment**
-`citations` rows, via the idempotent natural-key observe path (re-running never
-duplicates). The original note text is **kept**. Deliberately narrow: only bare
-URLs migrate; prose provenance is left for human curation via the admin editor.
-
-```bash
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ] && env_args+=(--env-file .env)
-
-uv run "${env_args[@]}" python -m scripts.migrate_notes_to_citations                       # dry run
-uv run "${env_args[@]}" python -m scripts.migrate_notes_to_citations --execute             # commit
-uv run "${env_args[@]}" python -m scripts.migrate_notes_to_citations --assignment-id <id>  # one assignment
 ```
 
 ---
@@ -358,45 +217,6 @@ systemctl list-timers power-map-prune.timer   # next/last run
 sudo systemctl start power-map-prune.service   # run once, now
 sudo journalctl -u power-map-prune -f          # logs (rows pruned per run)
 ```
-
----
-
-## Person canonical-name backfill (issue #308)
-
-
-`scripts/backfill_person_canonical_names.py` promotes one eligible public name
-for every person that has names but no canonical one — those people render
-blank, since `v_person_display_names` only surfaces canonical rows. One-off
-repair for drift produced before #308b gave `write_names` first-wins
-auto-promotion on the person branch.
-
-Each repairable person gets the one name PM would display, chosen by the
-priority ladder shared with the observation-path heal via
-`name_type_priority_sql()` (see `NO_AUTO_CANONICAL_NAME_TYPES` for what is
-never eligible). People carrying several eligible names are resolved, not
-deferred — the heal pass would promote the same row on their next observation
-anyway. `multi_name` reports how many were decided that way.
-
-There is no `blocked` bucket any more (#308 Option A): `uq_person_canonical_name`
-is keyed on `(person_id)` alone and `chk_person_canonical_is_public` guarantees a
-canonical row is public, so a non-public row can no longer occupy a person's
-display slot. A person whose only names are ineligible (deadname/mrz-only, or
-nothing public) is simply not a candidate and stays deliberately blank until a
-human adds a displayable name.
-
-```bash
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ] && env_args+=(--env-file .env)
-
-uv run "${env_args[@]}" python -m scripts.backfill_person_canonical_names
-uv run "${env_args[@]}" python -m scripts.backfill_person_canonical_names --execute
-```
-
-Idempotent — a second run finds nothing. Each promotion touches `person_names` →
-`trg_touch_person_on_name_change` → an `entity_changes` `'updated'` row, so
-subscribers re-fetch and pick up the newly-visible name. Run **after**
-`bash scripts/apply-schema.sh`, so the #308a view change is live first.
 
 ---
 
@@ -455,52 +275,6 @@ Idempotent. Report mode **exits 3 when any drift is found** (0 when clean), so t
 daily `power-map-assignment-rel-windows.timer` shows as failed in `systemctl --failed`
 and can drive `OnFailure=` — same convention as the ancillary-orphans / schema-parity
 audits (#363). `--execute` reconciles the drift and always exits 0.
-
----
-
-## Assignment-relationship backfill (issue #301)
-
-
-`scripts/backfill_assignment_relationships.py` mints the 3 staffer→principal
-edges descoped from #266: each staff role's active assignment `--staff_of-->`
-the principal's overlapping seat assignment. Heuristic + supervised — any
-staffer/principal/seat that doesn't resolve to exactly one is reported, never
-guessed. `notes` on the staff role/assignment are left untouched for operator
-cleanup.
-
-```bash
-uv run "${env_args[@]}" python -m scripts.backfill_assignment_relationships            # dry-run
-uv run "${env_args[@]}" python -m scripts.backfill_assignment_relationships --execute  # mint
-```
-
----
-
-## Org end-event backfill (issue #313)
-
-
-`scripts/backfill_313_org_end_events.py` resolves the nine `missing_end_event`
-orgs the #307 audit surfaced, using human-researched end dates (see issue #313).
-For five defunct orgs it records a `dissolved` event and closes **all** their
-open assignments at `ended_on` — including the `unknown_end_on_ended` rows the
-audit's `--execute` deliberately leaves open (a human-authorized close, not an
-invented end). `start_after_ended` rows are still left open (closing would
-invert the window) and logged as a WARNING. Kalytera (renamed to Claritas) is
-reactivated rather than dissolved; the name swap is done by hand in admin.
-
-Org ids and dates are baked into the module (`END_EVENTS`, `KALYTERA_ID`); an
-id that doesn't resolve is skipped with a WARNING, never an orphan event.
-
-```bash
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ] && env_args+=(--env-file .env)
-
-uv run "${env_args[@]}" python -m scripts.backfill_313_org_end_events            # report
-uv run "${env_args[@]}" python -m scripts.backfill_313_org_end_events --execute  # apply
-```
-
-Idempotent — skips orgs that already carry a lifespan event; re-closing an
-already-closed assignment is a no-op. Re-run the #307 audit afterward to confirm.
 
 ---
 
@@ -642,7 +416,7 @@ three** scopes (breakdown namespaced `role.*` / `role_assignment.*` /
 `citation.*`). The one-time recovery script stays role_assignment-only (its
 heuristics are assignment-specific; role/citation orphans should not occur now that
 the write paths are fixed, so any that appear go to manual triage). See
-`docs/OBSERVATIONS.md` §"Merge dedup — role_assignment ancillary re-homing" and
+`docs/ANCILLARY.md` §"Merge dedup — role_assignment ancillary re-homing" and
 §"Citations — write semantics".
 
 ```bash
@@ -749,3 +523,11 @@ sudo systemctl enable --now power-map-ready.timer power-map-egress-ip.timer
 READY_CHECK_FORCE_FAIL=1 uv run python -m scripts.check_ready
 uv run python -m scripts.check_ready
 ```
+
+---
+
+## Completed runbooks
+
+One-off migrations and backfills already run against production are archived in
+`docs/archive/RUNBOOKS_COMPLETED.md` — kept verbatim for provenance, excluded from
+the live context surface. Nothing there is pending.

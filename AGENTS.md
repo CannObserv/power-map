@@ -177,20 +177,18 @@ Each line says what a task would need the doc for — load the one that matches,
 **Domain & data**
 
 - [docs/SCHEMA.md](docs/SCHEMA.md) — tables, column conventions, display-name views, links schema; routes to [SCHEMA_INDEXES](docs/SCHEMA_INDEXES.md) (identity indexes, role-type vocabulary, search) and [SCHEMA_VALIDITY](docs/SCHEMA_VALIDITY.md) (validity windows, feed triggers)
-- [docs/OBSERVATIONS.md](docs/OBSERVATIONS.md) — observation write semantics: identity vs payload, refine-in-place, `op="retract"`, the `source_key_id` gate, merge re-homing
+- [docs/OBSERVATIONS.md](docs/OBSERVATIONS.md) — observation writes: identity vs payload, refine-in-place, `op="retract"`, the `source_key_id` gate; routes to [ANCILLARY](docs/ANCILLARY.md)
 - [docs/NAMES.md](docs/NAMES.md) — person and org names: the canonical/display pointer, visibility rules, structured parts, readings, locale/script tables, org display-identity invariants
 
 **Public API**
 
-- [docs/PUBLIC_API.md](docs/PUBLIC_API.md) — auth, scopes, rate limits, pagination, conditional requests, subscriptions, the change feed
+- [docs/PUBLIC_API.md](docs/PUBLIC_API.md) — auth, scopes, rate limits, pagination, conditional requests; routes to [CHANGE_FEED](docs/CHANGE_FEED.md)
 - [docs/API_ENTITIES.md](docs/API_ENTITIES.md) — one-table index routing to the six per-resource endpoint docs (filters, response shapes, collection quirks); load the resource you need, not the set
 - [docs/CONVENTIONS.md](docs/CONVENTIONS.md) — request/response contracts every route follows, the API request log, ingestion, operational-script dry-run rules
 
 **Admin dashboard**
 
-- [docs/ADMIN.md](docs/ADMIN.md) — server side: auth, archive model, HTMX partial responses, flash, list status filters
-- [docs/ADMIN_PANELS.md](docs/ADMIN_PANELS.md) — per-panel rules: lingering-state warnings, roles structural fields, jurisdictions, voice embeddings, citations indicator
-- [docs/ADMIN_NAMES.md](docs/ADMIN_NAMES.md) — the person-name editor: metadata gates, locale/script typeahead, linked readings, structured parts
+- [docs/ADMIN.md](docs/ADMIN.md) — server side: auth, archive model, HTMX partial responses, flash, list status filters; routes to [ADMIN_PANELS](docs/ADMIN_PANELS.md) (per-panel rules) and [ADMIN_NAMES](docs/ADMIN_NAMES.md) (the person-name editor)
 - [docs/HTMX.md](docs/HTMX.md) — interaction patterns: swaps, redirects, flash, pagination, inline edit, guarded deletes, live header sync
 - [docs/UI.md](docs/UI.md) — components and table/list conventions: buttons, badges, modals, page headers, empty states, the row-key contract
 - [docs/FORMS.md](docs/FORMS.md) — the three hand-built composite controls: typeahead, address confirm, paired dates

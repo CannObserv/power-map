@@ -110,3 +110,12 @@ docs/SCHEMA_VALIDITY.md :: ## Org name effective dates (#239)
 docs/SCHEMA_VALIDITY.md :: ## Address validity windows (#181)
 docs/SCHEMA_VALIDITY.md :: ## Jurisdiction graph broadcast (#275)
 
+# #428 increment 6 — OBSERVATIONS.md split. Judged.
+# SCHEMA.md:23 is an at-a-glance entry whose own "Full rules →" pointer was
+# repointed at docs/ANCILLARY.md in the same commit; the title match is the
+# summary line, not a stale destination.
+docs/SCHEMA.md :: - Ancillary `entity_changes` emit — DB touch triggers (#327): the parent 'updated' signal
+# Issue-numbered topic headings — repo-wide convention.
+docs/ANCILLARY.md :: ## Merge dedup — role_assignment ancillary re-homing (#324)
+docs/ANCILLARY.md :: ## Ancillary `entity_changes` emit — DB touch triggers (#327)
+

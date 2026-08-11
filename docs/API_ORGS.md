@@ -1,8 +1,8 @@
 # power-map Public API — Organizations
 
 Per-resource endpoint behaviour for **Organizations**: filters, response shapes, and the
-implicit rules this collection follows. Auth, pagination, conditional requests and
-the change feed are in `docs/PUBLIC_API.md`; write semantics in
+implicit rules this collection follows. Auth, pagination and conditional requests are in
+`docs/PUBLIC_API.md`, the change feed in `docs/CHANGE_FEED.md`; write semantics in
 `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
 
 ---
@@ -15,7 +15,7 @@ the change feed are in `docs/PUBLIC_API.md`; write semantics in
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/orgs/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `jurisdiction` (slug or ULID — filters to orgs with a `governing` affiliation for that jurisdiction), `include_archived`, `limit`, `offset`. |
-| `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, identifiers, jurisdiction affiliations, `active`, `created_at`, and `updated_at`. ETag caching — see caching section above. |
+| `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, identifiers, jurisdiction affiliations, `active`, `created_at`, and `updated_at`. ETag caching — see `docs/PUBLIC_API.md` § Caching — detail endpoints. |
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. ETag caching — see the events response-shape section. |
 | `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
 
@@ -59,7 +59,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 | `addresses` | optional | List of `{raw_input, address_type, valid_from?, valid_until?}` — `address_type` must be `mailing`, `physical`, or `other` (default `other`). `valid_from`/`valid_until` (`YYYY-MM-DD`, optional; `valid_from` ≤ `valid_until`, 422 otherwise) bound the address validity window; NULL/omitted = open-ended on that side. A **dateless** claim dedups against any existing window (never resurrects an admin-ended address); a **dated** claim dedups on the exact window and records a fresh row for a new one (#256). |
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
 | `jurisdiction_affiliations` | optional | List of `{jurisdiction_id, affiliation_type_slug}` — typed org-to-jurisdiction associations. `affiliation_type_slug` must match a value in `organization_jurisdiction_affiliation_types` (seeded values: `governing`, `registered`). Idempotent (duplicate rows silently ignored). Invalid `jurisdiction_id` or unknown `affiliation_type_slug` → `rejected`. |
-| `events` | optional | List of event claims — same shape as for `POST /people/observations`. See entity events section below. |
+| `events` | optional | List of event claims — same shape as for `POST /people/observations`. See `docs/API_EVENTS.md` § Observation `events` surface. |
 | `active` | optional | Boolean. Sets the orgs-only `active` axis (operationally live vs. dissolved/defunct). **Omitted or `null` ⇒ the flag is left unchanged**; an explicit bool asserts it. Setting `active` on an **archived** org is rejected (`reason: active_on_archived_org`) — archiving is an admin lifecycle gate, so an archived row is not a valid observation target. A redundant assertion (value already matches) is a true no-op and emits no change-feed event. |
 
 **Disposition semantics:**
