@@ -655,6 +655,18 @@ async def test_unarchive_role_structural_collision_flashes_warning(client, db, s
     assert "rename" not in trigger["showFlash"]["body"]
     assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", rid) is not None
 
+    # Same conflict over the non-HTMX door: the reject is index-agnostic, so the
+    # structural case lands on the same shared `exists` key as the title case.
+    # The failed restore left the row archived, so the state still holds.
+    fallback = await client.post(
+        f"/admin/roles/{rid}/unarchive/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert fallback.status_code in (302, 303)
+    assert fallback.headers["location"] == f"/admin/roles/{rid}/?flash=exists"
+    assert await db.fetchval("SELECT archived_at FROM roles WHERE id = $1", rid) is not None
+
 
 async def test_exists_flash_renders_on_role_detail(client, role_id):
     """The collision redirect's ``exists`` key resolves on the role detail page.

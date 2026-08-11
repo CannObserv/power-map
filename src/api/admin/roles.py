@@ -39,6 +39,7 @@ _FLASH_MESSAGES: dict[str, tuple[str, str]] = {
 # two cases get distinct messages — same split as role_create's create-time
 # UniqueViolation branch: a seat role's title is synthesized from role type +
 # jurisdiction + qualifier, so "rename it" is not on offer there.
+_SEAT_CONFLICT_INDEX = "uq_role_structural"
 _UNARCHIVE_CONFLICT_SEAT = (
     "Another active role already holds this seat (role type, jurisdiction and qualifier) "
     "for the organization — archive it first."
@@ -397,14 +398,20 @@ async def role_unarchive(
         # needs the connection.
         async with db.transaction():
             await db.execute("UPDATE roles SET archived_at = NULL WHERE id = $1", role_id)
-    except asyncpg.UniqueViolationError:
-        # A role with a jurisdiction is governed by uq_role_structural, one
-        # without by uq_role_org_title — the row's own shape says which fired.
-        conflict = (
-            _UNARCHIVE_CONFLICT_SEAT
-            if role["jurisdiction_id"]
-            else _unarchive_conflict_title(role["title"])
+    except asyncpg.UniqueViolationError as exc:
+        # Ask the exception which index fired rather than re-deriving it: today
+        # the two predicates partition exactly on jurisdiction_id, so the row's
+        # own shape would answer correctly — but a third partial index on roles
+        # would silently inherit whichever message that check happened to pick,
+        # and a confidently wrong remedy is the failure this split exists to
+        # avoid. constraint_name is the authority; the shape check is fallback
+        # for a driver that doesn't populate it.
+        seat = (
+            exc.constraint_name == _SEAT_CONFLICT_INDEX
+            if exc.constraint_name
+            else bool(role["jurisdiction_id"])
         )
+        conflict = _UNARCHIVE_CONFLICT_SEAT if seat else _unarchive_conflict_title(role["title"])
         if is_htmx(request):
             return Response(status_code=204, headers=flash_trigger("warning", conflict))
         return RedirectResponse(with_flash(f"/admin/roles/{role_id}/", "exists"), status_code=303)
