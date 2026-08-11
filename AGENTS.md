@@ -183,7 +183,7 @@ Each line says what a task would need the doc for — load the one that matches,
 **Public API**
 
 - [docs/PUBLIC_API.md](docs/PUBLIC_API.md) — auth, scopes, rate limits, pagination, conditional requests, subscriptions, the change feed
-- [docs/API_ENTITIES.md](docs/API_ENTITIES.md) — per-resource endpoint behaviour: filters, response shapes, collection quirks
+- [docs/API_ENTITIES.md](docs/API_ENTITIES.md) — one-table index routing to the six per-resource endpoint docs (filters, response shapes, collection quirks); load the resource you need, not the set
 - [docs/CONVENTIONS.md](docs/CONVENTIONS.md) — request/response contracts every route follows, the API request log, ingestion, operational-script dry-run rules
 
 **Admin dashboard**

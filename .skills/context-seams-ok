@@ -12,7 +12,7 @@ docs/SKILLS.md :: SocratiCode provides semantic search and dependency graph tool
 # different parents ('## People' > '### Endpoints', '## Organizations' >
 # '### Endpoints'). Byte-identical by design and pre-dating the #407 split, so
 # one pattern unavoidably covers several hits and check-seams WARNs about it.
-docs/API_ENTITIES.md :: ### Endpoints
+docs/API_PEOPLE.md :: ### Endpoints
 
 # provenance-heading — this repo tags a section with the issue that introduced
 # the rule, and prose across the tree cites sections by that exact title. The
@@ -78,3 +78,18 @@ docs/TESTING.md :: ### Weekly a11y sweep timer (production, #369)
 # heading convention (not 'demoted from' provenance markers).
 docs/ADMIN.md :: - `docs/ADMIN_PANELS.md` — lingering-state warnings (#307), roles structural fields (#264),
 docs/COMMANDS.md :: ## Credential custody (#409)
+
+# moved-title, #428 increment 2 — JUDGED AS A CLASS, DELIBERATELY NOT ACKED.
+# API_ENTITIES.md was split per resource, so the moved section titles are the
+# bare words People / Organizations / Roles / Assignments / Jurisdictions /
+# Entity Events. check-seams then flags every line in the surface containing
+# one of those words — 205 hits, e.g. an admin breadcrumb (<a>Organizations</a>)
+# and a scope-table row. Verified none is real: `grep -rn "API_ENTITIES.md §"`
+# returns nothing, and the only two inbound references (the AGENTS.md index and
+# PUBLIC_API.md:7) name the file, never a section.
+# NOT acked on purpose. An ack entry must be a contiguous substring of
+# "<class> <path> <line>", so the only entry that would match here is the
+# blanket "moved-title" — which would also silence increments 3-6 of #428,
+# where the check still has to work. The count is carried on the ledger row
+# instead, and the heuristic is filed upstream: a one-word section title should
+# require a doc reference alongside it, not match the word alone.
