@@ -3,8 +3,10 @@
 #
 # Runs both accessibility tiers against the dedicated test DB and surfaces the
 # result for operator review:
-#   - lxml rendered-DOM tier      (tests/api/admin/test_a11y_render.py  -m integration, #246)
-#   - Playwright/axe browser tier (tests/api/admin/test_a11y_browser.py -m browser,    #300)
+#   - lxml rendered-DOM tier      (tests/api/admin/test_a11y_render.py -m integration, #246)
+#   - Playwright browser tier     (tests/api/admin/ -m browser, #300) — the whole admin
+#     dir, marker-gated, so sibling browser files are picked up automatically:
+#     full-page axe sweep (#300), axe-after-interaction (#367), flow smoke (#368)
 #
 # Output: everything goes to stdout/stderr, which systemd captures to the journal
 # (`journalctl -u power-map-a11y`). The full failing detail (axe violations,
@@ -140,7 +142,7 @@ run_tier "lxml render tier" tests/api/admin/test_a11y_render.py -m integration -
 lxml_rc=$?
 
 log "running browser axe tier"
-run_tier "browser axe tier" tests/api/admin/test_a11y_browser.py -m browser --no-header -q -p no:cacheprovider
+run_tier "browser axe tier" tests/api/admin/ -m browser --no-header -q -p no:cacheprovider
 browser_rc=$?
 
 overall=0

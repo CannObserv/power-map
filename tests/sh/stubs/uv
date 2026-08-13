@@ -4,10 +4,13 @@
 # run-a11y-sweep.sh invokes uv in exactly three shapes; each maps to an env knob:
 #   `uv run --group browser … python -`  (Chromium guard, heredoc on stdin)
 #     → exit ${STUB_UV_GUARD_RC:-0}
-#   `uv run … pytest tests/api/admin/test_a11y_render.py …`   (lxml tier)
+#   `uv run … pytest … -m integration …`  (lxml tier)
 #     → print ${STUB_UV_LXML_OUTPUT:-} and exit ${STUB_UV_LXML_RC:-0}
-#   `uv run … pytest tests/api/admin/test_a11y_browser.py …`  (browser tier)
+#   `uv run … pytest … -m browser …`      (browser tier)
 #     → print ${STUB_UV_BROWSER_OUTPUT:-} and exit ${STUB_UV_BROWSER_RC:-0}
+#
+# Tiers are matched on their pytest marker, not their path: the browser tier
+# sweeps a directory (#367/#368 siblings), so a path match would be brittle.
 #
 # Every invocation is appended to $STUB_UV_CALL_LOG for "was uv called" asserts.
 set -u
@@ -28,11 +31,11 @@ case "$args" in
         [ "$rc" -eq 0 ] && echo "chromium OK"
         exit "$rc"
         ;;
-    *test_a11y_render.py*)
+    *-m\ integration*)
         [ -n "${STUB_UV_LXML_OUTPUT:-}" ] && printf '%s\n' "$STUB_UV_LXML_OUTPUT"
         exit "${STUB_UV_LXML_RC:-0}"
         ;;
-    *test_a11y_browser.py*)
+    *-m\ browser*)
         [ -n "${STUB_UV_BROWSER_OUTPUT:-}" ] && printf '%s\n' "$STUB_UV_BROWSER_OUTPUT"
         exit "${STUB_UV_BROWSER_RC:-0}"
         ;;

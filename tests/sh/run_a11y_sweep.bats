@@ -56,8 +56,16 @@ setup() {
     export STUB_UV_LXML_RC=1
     run_sweep
     [ "$status" -eq 1 ]
-    [ "$(call_count "$STUB_UV_CALL_LOG" test_a11y_render.py)" -eq 1 ]
-    [ "$(call_count "$STUB_UV_CALL_LOG" test_a11y_browser.py)" -eq 1 ]
+    [ "$(call_count "$STUB_UV_CALL_LOG" '-m integration')" -eq 1 ]
+    [ "$(call_count "$STUB_UV_CALL_LOG" '-m browser')" -eq 1 ]
+}
+
+@test "browser tier sweeps the whole admin dir, so sibling files are picked up" {
+    # Marker-gated directory sweep, not a hardcoded file: #367/#368 added
+    # sibling browser-test files that a single-file invocation never ran.
+    run_sweep
+    [ "$status" -eq 0 ]
+    [ "$(call_count "$STUB_UV_CALL_LOG" 'tests/api/admin/ -m browser')" -eq 1 ]
 }
 
 # --- gh_surface open/update/close dedup -------------------------------------

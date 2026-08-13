@@ -42,9 +42,9 @@ the lxml tier never drift.
 uv sync --group browser
 uv run --group browser playwright install chromium
 
-# Run the sweep (needs TEST_DATABASE_URL; env flags per § Environment)
+# Run the whole tier (needs TEST_DATABASE_URL; env flags per § Environment)
 uv run --group browser --env-file /etc/power-map/.env --env-file .env \
-    pytest tests/api/admin/test_a11y_browser.py -m browser
+    pytest tests/api/admin/ -m browser
 ```
 
 Notes:
@@ -58,8 +58,17 @@ Notes:
   alongside the integration suite against the same DB.
 - axe-core is SHA-pinned under `tests/vendor/` (see that README); the run
   verifies the hash at import.
-- v1 scope is full pages only. axe-after-interaction (open edit rows, modals)
-  and real-browser flow smoke are planned follow-ups (#367, #368).
+- **Three files, one marker** — the tier is marker-gated over the whole admin test
+  dir, so a new browser file is swept automatically (the weekly timer runs the same
+  invocation):
+  - `test_a11y_browser.py` (#300) — axe over every full-page admin GET route.
+  - `test_a11y_browser_interactions.py` (#367) — axe over post-interaction DOM the
+    server never renders: inline edit rows, merge mode, portal and stacked modals,
+    the archived-entity delete confirm.
+  - `test_browser_smoke.py` (#368) — not a11y: real-browser flow smoke (typeahead
+    select, merge confirm) behind the fast happy-dom Vitest tier. It **mutates**
+    data, so it seeds its own disposable rows and never touches the shared session
+    seed — keep that rule when adding flows.
 
 ### Weekly a11y sweep timer (production, #369)
 
