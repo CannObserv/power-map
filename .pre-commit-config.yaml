@@ -43,6 +43,22 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: bats
+        name: bats (shell tests)
+        language: system
+        entry: npm run test:sh
+        pass_filenames: false
+        always_run: true
+
+      - id: shellcheck
+        name: shellcheck
+        language: system
+        entry: uv run shellcheck
+        files: ^(scripts/.*\.sh|\.claude/hooks/.*\.sh)$
+        # These two hooks are symlinks into vendored skills (skills-vendor
+        # policy: never edit; targets absent until the submodule is initialised).
+        exclude: ^\.claude/hooks/(context-budget-guard|skills-submodule-update)\.sh$
+
       - id: check-version-sync
         name: version sync (pyproject.toml == package.json)
         language: system

@@ -301,7 +301,7 @@ uv run pre-commit run --all-files
 uv run pre-commit run pytest --all-files
 ```
 
-Hook ids: `ruff`, `pytest`, `eslint`, `prettier`, `vitest`
+Hook ids: `ruff`, `pytest`, `eslint`, `prettier`, `vitest`, `bats`, `shellcheck`
 
 ---
 

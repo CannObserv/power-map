@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# PATH-shim stub for `gh` (bats suite, #373). No network, no real GitHub.
+#
+# Knobs (env):
+#   GH_STUB_LABELS      newline-separated label names `gh label list` reports
+#                       (default "a11y-regression" so the create branch is skipped)
+#   GH_STUB_OPEN_ISSUE  what `gh issue list … -q '.[0].number'` prints:
+#                       empty (no open issue), "null" (gh's literal for none),
+#                       or an issue number
+#   GH_STUB_LIST_RC     exit code for `gh issue list` (default 0) — simulates
+#                       a transient gh failure (#369 CR2 finding 5)
+#
+# Records:
+#   $GH_STUB_CALL_LOG   one line per invocation: "gh <args>"
+#   $GH_STUB_BODY_LOG   every --body value passed to issue create/comment,
+#                       verbatim — the public-repo hygiene asserts grep this
+set -u
+
+if [ -n "${GH_STUB_CALL_LOG:-}" ]; then
+    echo "gh $*" >> "$GH_STUB_CALL_LOG"
+fi
+
+capture_bodies() {
+    while [ $# -gt 0 ]; do
+        if [ "$1" = "--body" ] && [ $# -ge 2 ]; then
+            printf '%s\n' "$2" >> "${GH_STUB_BODY_LOG:-/dev/null}"
+            shift
+        fi
+        shift
+    done
+}
+
+case "${1:-}" in
+    label)
+        case "${2:-}" in
+            list)
+                [ -n "${GH_STUB_LABELS:-}" ] && printf '%s\n' "$GH_STUB_LABELS"
+                exit 0
+                ;;
+            create)
+                exit 0
+                ;;
+        esac
+        ;;
+    issue)
+        case "${2:-}" in
+            list)
+                rc="${GH_STUB_LIST_RC:-0}"
+                [ "$rc" -ne 0 ] && exit "$rc"
+                [ -n "${GH_STUB_OPEN_ISSUE:-}" ] && printf '%s\n' "$GH_STUB_OPEN_ISSUE"
+                exit 0
+                ;;
+            create | comment | close)
+                capture_bodies "$@"
+                exit 0
+                ;;
+        esac
+        ;;
+esac
+
+echo "gh stub: unexpected invocation: $*" >&2
+exit 97

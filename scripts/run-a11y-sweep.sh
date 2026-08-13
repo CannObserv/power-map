@@ -30,7 +30,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 
 LABEL="a11y-regression"
 
@@ -77,6 +77,7 @@ gh_surface() {
 
     if [ "$status" = "fail" ]; then
         # Summary + journal pointer ONLY — no raw internals (public repo, #369 CR).
+        # shellcheck disable=SC2016  # backticks are literal GitHub markdown, not expansions
         body="$(printf '**Weekly a11y sweep FAILED** — %s (host `%s`).\n\n%s\n\nFull output is on the VM: `journalctl -u power-map-a11y` (deliberately not published — this is a public repo). Automated by `power-map-a11y.timer` (#369).' \
             "$ts" "$host" "${summary:-a11y sweep failed}")"
         if [ -n "$existing" ]; then

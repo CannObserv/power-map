@@ -33,15 +33,34 @@ _EMBED_DIM = 256
 # Every admin GET route, enumerated programmatically (no hand-picked views). A
 # new route is swept automatically; if its params can't be filled the sweep
 # fails loudly rather than silently skipping.
-ADMIN_GET_PATHS = sorted(
-    {
-        route.path
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        and route.path.startswith("/admin")
-        and "GET" in route.methods
-    }
-)
+_APP_GET_PATHS = {
+    route.path
+    for route in app.routes
+    if isinstance(route, APIRoute) and route.path.startswith("/admin") and "GET" in route.methods
+}
+
+# Archived-branch sweep cases (#426). Every entity detail template branches on
+# archived_at — the archived half carries the Unarchive control and the Danger
+# Zone "Delete permanently" control — so each detail route is swept twice: once
+# with the active seed (the real route path, right) and once with an archived
+# sibling (the pseudo-path, left). The pseudo-paths are extra parametrize
+# cases, not app routes: they hit the same handler, but their distinct
+# ``archived_*`` params make param_values fill the archived seeds.
+ARCHIVED_DETAIL_PATHS = {
+    "/admin/jurisdictions/{archived_jurisdiction_id}/": "/admin/jurisdictions/{jurisdiction_id}/",
+    "/admin/orgs/{archived_org_id}/": "/admin/orgs/{org_id}/",
+    "/admin/people/{archived_person_id}/": "/admin/people/{person_id}/",
+    "/admin/role-assignments/{archived_ra_id}/": "/admin/role-assignments/{ra_id}/",
+    "/admin/roles/{archived_role_id}/": "/admin/roles/{role_id}/",
+}
+_unrouted = set(ARCHIVED_DETAIL_PATHS.values()) - _APP_GET_PATHS
+if _unrouted:
+    raise RuntimeError(
+        f"ARCHIVED_DETAIL_PATHS targets routes that no longer exist: {sorted(_unrouted)} —"
+        " update the archived sweep cases to match the renamed detail route(s)"
+    )
+
+ADMIN_GET_PATHS = sorted(_APP_GET_PATHS | set(ARCHIVED_DETAIL_PATHS))
 
 # Routes whose handlers require query params to render a 200. Everything not
 # listed here must render with path params alone.
@@ -135,8 +154,9 @@ async def seed_subresources(
 
 
 async def seed_admin_fixtures(db) -> dict:
-    """One entity per type plus one row per sub-resource — enough to fill every
-    path param in ADMIN_GET_PATHS.
+    """One active entity per type, one archived sibling per archivable type
+    (#426), plus one row per sub-resource — enough to fill every path param in
+    ADMIN_GET_PATHS.
 
     Callable against any connection: the lxml tier passes a rolled-back
     connection, the browser tier a disposable-database one."""
@@ -302,6 +322,55 @@ async def seed_admin_fixtures(db) -> dict:
     )
     s["jur_sub"] = jur_sub
 
+    # Archived sibling per entity type (#426): every detail template branches on
+    # archived_at, so ARCHIVED_DETAIL_PATHS re-sweeps each detail page with one
+    # of these to render the Unarchive + "Delete permanently" branch. The
+    # archived role/assignment reuse the active org/person/role parents — the
+    # identity indexes on roles/role_assignments are partial on
+    # `archived_at IS NULL` (#424), so they can't collide with the active rows.
+    s["archived_org_id"] = generate_id()
+    await db.execute(
+        "INSERT INTO organizations (id, archived_at) VALUES ($1, now())", s["archived_org_id"]
+    )
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+        " VALUES ($1, $2, 'A11y Archived Org', TRUE)",
+        generate_id(),
+        s["archived_org_id"],
+    )
+    s["archived_person_id"] = generate_id()
+    await db.execute(
+        "INSERT INTO people (id, archived_at) VALUES ($1, now())", s["archived_person_id"]
+    )
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, is_canonical)"
+        " VALUES ($1, $2, 'A11y Archived Person', TRUE)",
+        generate_id(),
+        s["archived_person_id"],
+    )
+    s["archived_role_id"] = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title, archived_at)"
+        " VALUES ($1, $2, 'Archived Director', now())",
+        s["archived_role_id"],
+        s["org_id"],
+    )
+    s["archived_ra_id"] = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, archived_at)"
+        " VALUES ($1, $2, $3, now())",
+        s["archived_ra_id"],
+        s["person_id"],
+        s["role_id"],
+    )
+    s["archived_jurisdiction_id"] = generate_id()
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+        " VALUES ($1, 'a11y-archived', 'A11y Archived State', $2, now())",
+        s["archived_jurisdiction_id"],
+        jur_type,
+    )
+
     # Citations (#319): one active citation per citable entity type, so the
     # /{entity}/{entity_id}/citations/{citation_id}/{read,edit}-row routes fill.
     # person_name + entity_event are the two indirect citable types.
@@ -396,6 +465,13 @@ def param_values(path: str, s: dict) -> dict:
         "embedding_id": s["embedding_id"],
         "org_id": s["org_id"],
         "person_id": s["person_id"],
+        # Archived siblings (#426), filled only by the ARCHIVED_DETAIL_PATHS
+        # pseudo-paths — distinct param names keep the active sweeps untouched.
+        "archived_org_id": s["archived_org_id"],
+        "archived_person_id": s["archived_person_id"],
+        "archived_role_id": s["archived_role_id"],
+        "archived_ra_id": s["archived_ra_id"],
+        "archived_jurisdiction_id": s["archived_jurisdiction_id"],
     }
     if path.startswith("/admin/orgs/"):
         values |= s["org_sub"]

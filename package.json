@@ -1,6 +1,6 @@
 {
   "name": "power-map",
-  "version": "0.30.1",
+  "version": "0.31.0",
   "description": "Web service for mapping political and corporate power",
   "private": true,
   "type": "module",
@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test:js": "vitest run",
+    "test:sh": "bats tests/sh",
     "test:js:watch": "vitest",
     "lint:js": "eslint src/static/admin tests/js",
     "lint:js:fix": "eslint src/static/admin tests/js --fix",
@@ -17,6 +18,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "bats": "^1.13.0",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-vitest": "^0.5.4",
