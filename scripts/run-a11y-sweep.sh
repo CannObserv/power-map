@@ -30,8 +30,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck disable=SC2164  # REPO_ROOT is this script's own parent; #373 keeps behavior as-is
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 
 LABEL="a11y-regression"
 
