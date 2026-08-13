@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# PATH-shim stub for `systemctl` (bats suite, #373). Never touches systemd.
+#
+# Knobs (env):
+#   SYSTEMCTL_STUB_CAT_RC   exit code for `systemctl cat <unit>`
+#                           (non-zero = unit not installed; default 0)
+#   SYSTEMCTL_STUB_STATE    what `is-failed` prints (default "active");
+#                           real is-failed exits 0 only when state is "failed"
+#   SYSTEMCTL_STUB_SHOW_TS  what `show -p ExecMainStartTimestamp --value`
+#                           prints (empty = unit has never run)
+set -u
+
+case "${1:-}" in
+    cat)
+        exit "${SYSTEMCTL_STUB_CAT_RC:-0}"
+        ;;
+    is-failed)
+        state="${SYSTEMCTL_STUB_STATE:-active}"
+        printf '%s\n' "$state"
+        [ "$state" = "failed" ] && exit 0
+        exit 1
+        ;;
+    show)
+        [ -n "${SYSTEMCTL_STUB_SHOW_TS:-}" ] && printf '%s\n' "$SYSTEMCTL_STUB_SHOW_TS"
+        exit 0
+        ;;
+esac
+
+echo "systemctl stub: unexpected invocation: $*" >&2
+exit 97

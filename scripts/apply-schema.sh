@@ -54,7 +54,7 @@ EOF
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --test)    TARGET_VAR=TEST_DATABASE_URL; TARGET_LABEL=test; IS_PROD=0 ;;
+        --test)    TARGET_VAR="TEST_DATABASE_URL"; TARGET_LABEL="test"; IS_PROD=0 ;;
         --yes|-y)  ASSUME_YES=1 ;;
         --dry-run) DRY_RUN=1 ;;
         -h|--help) usage; exit 0 ;;
