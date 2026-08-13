@@ -1,7 +1,11 @@
 # power-map — Accessibility (WCAG 2.1 AA)
 
 Accessibility conventions for the admin dashboard: markup rules the templates must
-follow, and the three test tiers that enforce them. Commands for the browser tier
+follow, and the four test tiers that enforce them: static template lint
+(`test_aria_labels.py`), the rendered-DOM lxml sweep (`test_a11y_render.py`), the
+full-page axe sweep (`test_a11y_browser.py`, #300) and axe-after-interaction
+(`test_a11y_browser_interactions.py`, #367 — modals, inline edit rows, merge mode
+and other states no server-rendered page reaches). Commands for the browser tiers
 live in `docs/TESTING.md` § Browser Testing.
 
 ---
@@ -209,8 +213,10 @@ Hint `id` convention: `{field_name}-hint`.
 
 ## Modal focus management
 
-All modals must trap focus and restore it on close. The delete modal in
-`partials/delete_modal.html` is the canonical example:
+All modals must trap focus and restore it on close. Open modal states are axe-swept
+by the interaction tier (#367), including stacked modals and the archived-entity
+delete confirm. The delete modal in `partials/delete_modal.html` is the canonical
+example:
 
 - Capture `document.activeElement` (the trigger) before moving focus
 - On open: focus first interactive element inside the modal

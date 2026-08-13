@@ -134,7 +134,10 @@ async def test_typeahead_select_fills_hidden_id(live_server, seeded_ids, page):
 
 
 @pytest.mark.xfail(
-    strict=False,
+    # strict: when #435 is fixed this XPASSes and fails the run, forcing the flip
+    # to a plain test. A Chromium crash (#436) yields XFAIL, not XPASS, so strict
+    # adds no flake exposure.
+    strict=True,
     reason="#368 real-browser divergence: typeahead-combobox.js is a deferred <head> "
     "script, but roles/form.html mounts it from a plain inline <body> script, which "
     "the browser runs during parse — before any deferred script executes. On a hard "
