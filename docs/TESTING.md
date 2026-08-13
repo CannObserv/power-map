@@ -1,7 +1,7 @@
 # power-map — Testing
 
 How to run each tier: the Python suite and its integration marker, the Vitest JS suite
-and its conventions, and the marker-gated browser a11y sweep. Fixture and client
+and its conventions, the marker-gated browser a11y sweep, and the bats shell suite. Fixture and client
 recipes live in `docs/SCHEMA.md`; the a11y rules themselves in `docs/ACCESSIBILITY.md`.
 
 ---
@@ -100,6 +100,23 @@ sudo systemctl enable --now power-map-a11y.timer
 systemctl list-timers power-map-a11y.timer     # next/last run
 sudo systemctl start power-map-a11y.service    # run once, now (~60s)
 sudo journalctl -u power-map-a11y -f           # live run + surfacing log
+```
+
+---
+
+## Shell testing (bats, #373)
+
+
+The two #369 bash entrypoints (`scripts/run-a11y-sweep.sh`,
+`.claude/hooks/a11y-status-reminder.sh`) are covered by bats-core suites in
+`tests/sh/`. Fully hermetic: `uv`, `gh`, and `systemctl` are PATH shims from
+`tests/sh/stubs/`, driven by `STUB_*` env knobs — no network, GitHub, systemd,
+or DB. Runs in pre-commit (fast), alongside a `shellcheck` hook over
+`scripts/*.sh` + `.claude/hooks/*.sh` (vendored-skill symlink hooks excluded).
+
+```bash
+npm run test:sh          # bats (bats-core via npm devDependency)
+uv run shellcheck scripts/*.sh   # shellcheck-py, dev dependency group
 ```
 
 ---
