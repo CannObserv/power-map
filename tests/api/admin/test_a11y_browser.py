@@ -22,6 +22,10 @@ the out-of-process server sees it), sweep, reset again on teardown. Safe because
 the tier is marker-gated (``-m browser``) and runs in isolation — never
 alongside the integration suite. A dbname guard refuses anything but the test DB.
 
+The session fixtures this tier runs on — ``browser_db``, ``seeded_ids``,
+``live_server``, ``browser``, ``page`` — live in ``conftest.py`` (#426), shared
+with the sibling browser-test files (#367/#368).
+
 Run (never in pre-commit; one-time browser install required)::
 
     uv sync --group browser && uv run --group browser playwright install chromium
@@ -29,36 +33,23 @@ Run (never in pre-commit; one-time browser install required)::
         tests/api/admin/test_a11y_browser.py -m browser
 """
 
-import asyncio
 import hashlib
-import os
-import socket
-import subprocess
-import sys
-import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit
 
-import asyncpg
-import httpx
 import pytest
-import pytest_asyncio
 
-from src.core.db import apply_schema
 from tests.api.admin.a11y import is_full_document
 from tests.api.admin.admin_routes import (
     ADMIN_GET_PATHS,
-    AUTH_HEADERS,
     EXTRA_HEADERS,
     QUERY_PARAMS,
     param_values,
-    seed_admin_fixtures,
 )
-from tests.db_utils import reset_data_tables
 
 # Skip the whole module cleanly when the browser extra isn't installed (default
-# `uv run` syncs only the `dev` group, so Playwright is absent there).
-playwright_async = pytest.importorskip(
+# `uv run` syncs only the `dev` group, so Playwright is absent there). The
+# `browser` fixture (conftest.py) re-guards for any sibling module that forgets.
+pytest.importorskip(
     "playwright.async_api",
     reason="install the browser group: uv sync --group browser && playwright install chromium",
 )
@@ -112,142 +103,6 @@ async () => {
   }));
 }
 """
-
-
-def _free_port() -> int:
-    """Grab an ephemeral port. Small TOCTOU window between close and uvicorn
-    bind, acceptable for a single-VM serial test run."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def browser_db():
-    """Prepare the dedicated test DB for the out-of-process sweep and reset it on
-    teardown. Yields the DSN the live server will use.
-
-    Guard: refuses any dbname that isn't the test database — ``co_pm_db_production``
-    lives on the same server, and this fixture TRUNCATEs."""
-    dsn = os.environ.get("TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("TEST_DATABASE_URL not set — see docs/COMMANDS.md")
-    dbname = urlsplit(dsn).path.lstrip("/")
-    if "test" not in dbname or "prod" in dbname:
-        pytest.fail(
-            f"refusing to run the browser tier against non-test database {dbname!r} —"
-            " it truncates data tables; point TEST_DATABASE_URL at the test DB"
-        )
-    conn = await asyncpg.connect(dsn)
-    try:
-        await apply_schema(conn)  # absorb any schema.sql change on this branch
-        await reset_data_tables(conn)
-    finally:
-        await conn.close()
-    try:
-        yield dsn
-    finally:
-        conn = await asyncpg.connect(dsn)
-        try:
-            await reset_data_tables(conn)
-        finally:
-            await conn.close()
-
-
-@pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def seeded_ids(browser_db):
-    """Seed one entity per type (committed, so the server process sees it) and
-    return the id map for path-param fill."""
-    conn = await asyncpg.connect(browser_db)
-    try:
-        return await seed_admin_fixtures(conn)
-    finally:
-        await conn.close()
-
-
-@pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def live_server(browser_db, seeded_ids):
-    """Launch uvicorn on an ephemeral port against the seeded test DB, wait for
-    the #343 /health probe, and tear it down. Returns the base URL."""
-    port = _free_port()
-    env = os.environ.copy()
-    env["DATABASE_URL"] = browser_db
-    env["DB_POOL_MIN_SIZE"] = "1"
-    env["DB_POOL_MAX_SIZE"] = "4"
-    # Capture the child's output to a temp file (not a PIPE we'd never drain — at
-    # --log-level warning volume is tiny, but a file can't deadlock) so a startup
-    # failure surfaces the actual traceback, not a bare exit code (CR #4).
-    # Closed (and, being a NamedTemporaryFile, deleted) in the finally below.
-    log_file = tempfile.NamedTemporaryFile(mode="w+", suffix=".uvicorn.log", prefix="a11y-browser-")
-
-    def _log_tail() -> str:
-        log_file.flush()
-        log_file.seek(0)
-        return "".join(log_file.readlines()[-40:]).rstrip()
-
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "src.api.main:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--log-level",
-            "warning",
-        ],
-        env=env,
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-    )
-    base_url = f"http://127.0.0.1:{port}"
-    try:
-        async with httpx.AsyncClient() as c:
-            for _ in range(120):  # up to ~30s
-                if proc.poll() is not None:
-                    raise RuntimeError(
-                        f"uvicorn exited early with code {proc.returncode}:\n{_log_tail()}"
-                    )
-                try:
-                    r = await c.get(f"{base_url}/health", timeout=1.0)
-                    if r.status_code == 200:
-                        break
-                except httpx.HTTPError:
-                    pass
-                await asyncio.sleep(0.25)
-            else:
-                raise RuntimeError(f"uvicorn did not become ready within 30s:\n{_log_tail()}")
-        yield base_url
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=5)
-        log_file.close()
-
-
-@pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def browser():
-    async with playwright_async.async_playwright() as p:
-        b = await p.chromium.launch()
-        try:
-            yield b
-        finally:
-            await b.close()
-
-
-@pytest_asyncio.fixture(loop_scope="session")
-async def page(browser):
-    context = await browser.new_context(extra_http_headers=AUTH_HEADERS)
-    pg = await context.new_page()
-    try:
-        yield pg
-    finally:
-        await context.close()
 
 
 def _format_violations(url: str, violations: list[dict]) -> str:
