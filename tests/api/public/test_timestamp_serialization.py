@@ -213,10 +213,13 @@ def _str_aliases(trees: dict[str, ast.Module]) -> frozenset[str]:
     `TimestampStr = Annotated[str, Field(json_schema_extra=…)]` exists so a
     serializer can publish `format: date-time`; a *field* annotated with it is a
     pre-serialized timestamp under another name, which the bare-name test could
-    not see (CR #440/10). Iterated so an alias of an alias resolves. An
-    annotation mentioning `datetime` is not string-ish, and `dict[str, X]`-shaped
-    aliases would be swept in — none exist, and a false positive here fails
-    loudly rather than passing silently.
+    not see (CR #440/10). Iterated so an alias of an alias resolves, and read
+    from all three binding forms 3.12 accepts (CR #440/18) — `X = …`,
+    `X: TypeAlias = …`, and PEP 695 `type X = …` — since the modern spellings
+    are the ones a new contributor reaches for. An annotation mentioning
+    `datetime` is not string-ish, and `dict[str, X]`-shaped aliases would be
+    swept in — none exist, and a false positive here fails loudly rather than
+    passing silently.
     """
     aliases = {"str"}
     grew = True
@@ -224,23 +227,29 @@ def _str_aliases(trees: dict[str, ast.Module]) -> frozenset[str]:
         grew = False
         for tree in trees.values():
             for node in tree.body:
-                if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                    target, value = node.targets[0], node.value
+                elif isinstance(node, ast.AnnAssign) and node.value:
+                    target, value = node.target, node.value
+                elif isinstance(node, ast.TypeAlias):
+                    target, value = node.name, node.value
+                else:
                     continue
-                target = node.targets[0]
                 if not isinstance(target, ast.Name) or target.id in aliases:
                     continue
-                names = _annotation_names(node.value)
+                names = _annotation_names(value)
                 if names & aliases and "datetime" not in names:
                     aliases.add(target.id)
                     grew = True
     return frozenset(aliases)
 
 
-def _is_str(annotation: str, aliases: frozenset[str] = frozenset({"str"})) -> bool:
+def _is_str(annotation: str, aliases: frozenset[str]) -> bool:
     """True for a `str`-typed field. Written as "mentions a string type, not
     `datetime`" rather than as a subset test (CR #440/3) so `Annotated[str,
     Field(...)]` — the repo's own idiom, cf. `EmbeddingVector` — is caught
-    rather than skipped. Pass `_str_aliases(...)` to see through named aliases."""
+    rather than skipped. `aliases` is required (CR #440/17): defaulting it to
+    `{"str"}` would make the blind spot #440/10 closed the quiet default."""
     names = _annotation_names(ast.parse(annotation, mode="eval").body)
     return bool(names & aliases) and "datetime" not in names
 
@@ -351,34 +360,6 @@ def test_every_response_datetime_field_has_an_fmt_ts_serializer():
     )
 
 
-def test_sweep_reaches_the_whole_response_surface():
-    """Guards against the sweep going vacuous.
-
-    A resolver broken by a refactor (a renamed decorator kwarg, a model moved
-    out of `schemas.py`) reports zero offenders and reads exactly like a pass.
-    Floors rather than exact counts — new response models land often, and a pin
-    that has to be bumped by every unrelated PR gets bumped without being read.
-    """
-    trees = _public_trees()
-    models = _model_classes(trees)
-    reachable = _reachable_models(models, _response_model_names(trees))
-    checked = [
-        (name, field)
-        for name in reachable
-        for field, annotation in _fields(models, name).items()
-        if _is_datetime(annotation)
-    ]
-    assert len(_response_model_names(trees)) >= 30, "response_model= declarations not being found"
-    assert len(reachable) >= 60, f"only {len(reachable)} models reachable from response_model="
-    assert len(checked) >= 50, f"only {len(checked)} datetime fields swept"
-
-    # Check 3 skips a model whose component it cannot find and a field absent
-    # from `properties` — both silently. If FastAPI's component naming shifts,
-    # it would compare nothing and pass (CR #440/11).
-    _, verified = _timestamp_property_defects()
-    assert verified >= 50, f"check 3 only compared {verified} properties against OpenAPI"
-
-
 # ---------------------------------------------------------------------------
 # Check 3 — what the serializers publish in OpenAPI (CR #440/4, #440/7)
 # ---------------------------------------------------------------------------
@@ -456,6 +437,44 @@ def test_published_timestamp_schema_matches_the_field():
     assert not defects, f"published timestamp schema disagrees with the model: {defects}"
 
 
+# ---------------------------------------------------------------------------
+# Vacuity guard — floors what all three checks actually inspected
+# ---------------------------------------------------------------------------
+
+
+def test_sweep_reaches_the_whole_response_surface():
+    """Guards against the sweep going vacuous.
+
+    A resolver broken by a refactor (a renamed decorator kwarg, a model moved
+    out of `schemas.py`) reports zero offenders and reads exactly like a pass.
+    Floors rather than exact counts — new response models land often, and a pin
+    that has to be bumped by every unrelated PR gets bumped without being read.
+    """
+    trees = _public_trees()
+    models = _model_classes(trees)
+    reachable = _reachable_models(models, _response_model_names(trees))
+    checked = [
+        (name, field)
+        for name in reachable
+        for field, annotation in _fields(models, name).items()
+        if _is_datetime(annotation)
+    ]
+    assert len(_response_model_names(trees)) >= 30, "response_model= declarations not being found"
+    assert len(reachable) >= 60, f"only {len(reachable)} models reachable from response_model="
+    assert len(checked) >= 50, f"only {len(checked)} datetime fields swept"
+
+    # Check 3 skips a model whose component it cannot find and a field absent
+    # from `properties` — both silently. If FastAPI's component naming shifts,
+    # it would compare nothing and pass (CR #440/11).
+    _, verified = _timestamp_property_defects()
+    assert verified >= 50, f"check 3 only compared {verified} properties against OpenAPI"
+
+
+# ---------------------------------------------------------------------------
+# Meta — each guard fails on the shape it exists to catch
+# ---------------------------------------------------------------------------
+
+
 def test_isoformat_sweep_detects_a_planted_breach():
     breach = ast.parse(
         'def handler(row):\n    return {"created_at": row["created_at"].isoformat()}\n'
@@ -523,11 +542,12 @@ def test_reachability_excludes_request_models():
 
 
 def test_str_timestamp_check_ignores_date_fields():
-    assert _is_str("str | None")
-    assert _is_str("str")
+    bare = frozenset({"str"})
+    assert _is_str("str | None", bare)
+    assert _is_str("str", bare)
     # CR #440/3 — the repo's own `Annotated[...]` idiom must not slip past.
-    assert _is_str("Annotated[str, Field(min_length=1)]")
-    assert not _is_str("datetime | None")
+    assert _is_str("Annotated[str, Field(min_length=1)]", bare)
+    assert not _is_str("datetime | None", bare)
 
 
 def test_str_aliases_resolve_to_the_string_check():
@@ -545,13 +565,18 @@ def test_str_aliases_resolve_to_the_string_check():
     assert _is_str("TimestampStr | None", aliases)
     assert not _is_str("TimestampStr", frozenset({"str"}))  # unresolved: the old blind spot
 
-    # An alias of an alias resolves too.
+    # An alias of an alias resolves too, in every binding form 3.12 accepts
+    # (CR #440/18) — a plain assignment, an annotated one, and PEP 695 `type`.
     chained = {
         "m.py": ast.parse(
-            "A = Annotated[str, Field()]\nB = A | None\nC = Annotated[list[float], V]\n"
+            "A = Annotated[str, Field()]\n"
+            "B = A | None\n"
+            "C = Annotated[list[float], V]\n"
+            "D: TypeAlias = Annotated[str, Field()]\n"
+            "type E = A | None\n"
         )
     }
-    assert _str_aliases(chained) >= {"A", "B"}
+    assert _str_aliases(chained) >= {"A", "B", "D", "E"}
     assert "C" not in _str_aliases(chained)
     assert _is_datetime("datetime | None")
     assert _is_datetime("Annotated[datetime, Field()]")

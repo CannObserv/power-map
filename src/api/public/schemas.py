@@ -45,8 +45,15 @@ EmbeddingVector = Annotated[list[float], AfterValidator(_validate_embedding_valu
 
 
 def fmt_ts(v: datetime | None) -> str | None:
-    """Serialize a UTC datetime to ISO 8601 with Z suffix."""
-    return v.isoformat().replace("+00:00", "Z") if v else None
+    """Serialize a UTC datetime to ISO 8601 with Z suffix.
+
+    `timespec="microseconds"` keeps the fraction fixed-width (#440): bare
+    `.isoformat()` drops it entirely at whole seconds, so a client-supplied
+    second-precision value — `recorded_at`, `accessed_at` — came back as
+    `…T12:00:00Z` and broke consumers parsing `%S.%fZ`. The published contract
+    (`docs/PUBLIC_API.md`, AGENTS.md) is six digits, always.
+    """
+    return v.isoformat(timespec="microseconds").replace("+00:00", "Z") if v else None
 
 
 # What every timestamp serializer returns. The serializer's *return* annotation

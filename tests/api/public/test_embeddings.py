@@ -1946,7 +1946,9 @@ async def test_patch_updates_activity_ms(client, write_key, patchable_embedding)
 
 async def test_patch_updates_recorded_at(client, write_key, patchable_embedding):
     pid, eid = patchable_embedding
-    # Use non-zero microseconds so isoformat() preserves the fractional part
+    # Non-zero microseconds were once required here: bare isoformat() dropped the
+    # fraction at whole seconds, so a second-precision value did not round-trip.
+    # #440 fixed the width at six digits, and this now holds either way.
     new_ts = "2026-06-15T10:00:00.123456Z"
     r = await client.patch(
         f"/api/v1/people/{pid}/embeddings/{eid}",
