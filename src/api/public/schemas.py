@@ -143,7 +143,7 @@ class OrgDetail(OrgSearchResult):
 
     @field_serializer("created_at", "updated_at")
     def _serialize_ts(self, v: datetime) -> str:
-        return v.isoformat().replace("+00:00", "Z")
+        return fmt_ts(v)
 
 
 class PersonSearchResult(BaseModel):
@@ -195,7 +195,7 @@ class PersonDetail(PersonSearchResult):
 
     @field_serializer("created_at", "updated_at")
     def _serialize_ts(self, v: datetime) -> str:
-        return v.isoformat().replace("+00:00", "Z")
+        return fmt_ts(v)
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +213,7 @@ class EmbeddingSource(BaseModel):
 
     @field_serializer("recorded_at")
     def _serialize_recorded_at(self, v: datetime) -> str:
-        return v.isoformat().replace("+00:00", "Z")
+        return fmt_ts(v)
 
 
 class EmbeddingWriteRequest(BaseModel):
