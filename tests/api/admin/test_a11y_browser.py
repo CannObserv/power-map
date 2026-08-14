@@ -26,7 +26,8 @@ The session fixtures this tier runs on — ``browser_db``, ``seeded_ids``,
 ``live_server``, ``browser``, ``page`` — live in ``conftest.py`` (#426), shared
 with the sibling browser-test files (#367/#368). The axe-core plumbing —
 SHA-pinned asset, run snippet, violation formatter, ``axe_check`` — lives in
-``axe.py`` (#438), shared with the interaction tier.
+``axe.py`` (#438), shared with the interaction tier, along with the
+crash-resilient ``goto_with_retry`` every navigation here goes through (#436).
 
 Run (never in pre-commit; one-time browser install required)::
 
@@ -44,7 +45,7 @@ from tests.api.admin.admin_routes import (
     QUERY_PARAMS,
     param_values,
 )
-from tests.api.admin.axe import axe_check
+from tests.api.admin.axe import axe_check, goto_with_retry
 
 # Skip the whole module cleanly when the browser extra isn't installed (default
 # `uv run` syncs only the `dev` group, so Playwright is absent there). The
@@ -105,7 +106,8 @@ async def test_admin_full_page_axe_clean(path, live_server, seeded_ids, page):
         pytest.skip(f"{path} is HTMX-only (needs HX-Request) — not a standalone browser page")
 
     url = live_server + path.format_map(param_values(path, seeded_ids)) + QUERY_PARAMS.get(path, "")
-    resp = await page.goto(url, wait_until="domcontentloaded")
+    # Renderer crashes (#436) are retried on a fresh page — hence the rebind.
+    page, resp = await goto_with_retry(page, url)
     assert resp is not None, f"no response for {url}"
 
     # Every non-HTMX-only route must render a real page. A silent redirect or
