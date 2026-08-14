@@ -133,23 +133,16 @@ async def test_typeahead_select_fills_hidden_id(live_server, seeded_ids, page):
     assert focused == "jurisdiction-search"
 
 
-@pytest.mark.xfail(
-    # strict: when #435 is fixed this XPASSes and fails the run, forcing the flip
-    # to a plain test. A Chromium crash (#436) yields XFAIL, not XPASS, so strict
-    # adds no flake exposure.
-    strict=True,
-    reason="#368 real-browser divergence: typeahead-combobox.js is a deferred <head> "
-    "script, but roles/form.html mounts it from a plain inline <body> script, which "
-    "the browser runs during parse — before any deferred script executes. On a hard "
-    "load window.initTypeaheadCombobox is undefined, the typeof guard skips silently, "
-    "and the combobox is never wired (results swap in but the dropdown never opens). "
-    "Boosted navs work because htmx runs swapped-in scripts after the factory loaded. "
-    "happy-dom suites eval the factory before the mount script, so they cannot see "
-    "the ordering. Product fix is out of scope for this test-infra issue.",
-)
 async def test_typeahead_wires_on_hard_load(live_server, seeded_ids, page):
-    """Hard (non-boosted) load of the New Role form should also wire the
-    combobox — currently it does not (see xfail reason)."""
+    """Hard (non-boosted) load of the New Role form wires the combobox too (#435).
+
+    The inline mount in ``roles/form.html`` runs during parse, before any
+    deferred ``<head>`` script — so it calls the mount **queue stub**
+    (``typeahead-queue.js``, the one non-deferred admin script) rather than the
+    real factory. ``typeahead-combobox.js`` replaces the stub and drains the
+    queue when it loads, which is what makes this path converge with the
+    boosted nav covered by ``test_typeahead_select_fills_hidden_id``.
+    """
     await page.goto(f"{live_server}/admin/roles/new/", wait_until="domcontentloaded")
     await page.select_option("#role_type_id", index=1)
     inp = page.locator("#jurisdiction-search")

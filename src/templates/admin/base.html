@@ -15,6 +15,28 @@
     })();
   </script>
   <link rel="stylesheet" href="/static/admin/admin.css?v={{ asset_version }}">
+  <script>
+    /* Typeahead mount queue (#435) — MUST stay inline and non-deferred.
+       Form templates mount the combobox from an inline <script> in <body>,
+       which the browser runs during parse: before ANY deferred <head> script.
+       On a hard page load the real factory therefore does not exist yet and a
+       direct call is lost (the old `typeof` guards skipped silently, so the
+       combobox never wired). This stub records those calls; the deferred
+       typeahead-combobox.js replaces it and drains the queue when it loads —
+       after parse, so every element the queued configs name is present.
+       Boosted navigations swap markup in long after the factory is real, so
+       they call it directly and never queue. Contract: docs/FORMS.md. */
+    (function () {
+      var queue = (window.__pmTypeaheadQueue = []);
+      window.initTypeaheadCombobox = function queuedInitTypeaheadCombobox(config) {
+        var entry = { config: config, handle: null };
+        queue.push(entry);
+        /* Deferred handle: callers that keep the return value get a clear()
+           that reaches the real handle once the queue has been drained. */
+        return { clear: function () { if (entry.handle) entry.handle.clear(); } };
+      };
+    })();
+  </script>
   <script src="/static/admin/vendor/htmx-2.0.8.min.js" defer></script>
   <script src="/static/admin/dark-mode.js?v={{ asset_version }}" defer></script>
   <script src="/static/admin/admin-modal.js?v={{ asset_version }}" defer></script>
