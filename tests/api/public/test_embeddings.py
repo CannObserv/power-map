@@ -1946,7 +1946,9 @@ async def test_patch_updates_activity_ms(client, write_key, patchable_embedding)
 
 async def test_patch_updates_recorded_at(client, write_key, patchable_embedding):
     pid, eid = patchable_embedding
-    # Use non-zero microseconds so isoformat() preserves the fractional part
+    # Non-zero microseconds were once required here: bare isoformat() dropped the
+    # fraction at whole seconds, so a second-precision value did not round-trip.
+    # #440 fixed the width at six digits, and this now holds either way.
     new_ts = "2026-06-15T10:00:00.123456Z"
     r = await client.patch(
         f"/api/v1/people/{pid}/embeddings/{eid}",
@@ -1956,6 +1958,27 @@ async def test_patch_updates_recorded_at(client, write_key, patchable_embedding)
     )
     assert r.status_code == 200
     assert r.json()["recorded_at"] == new_ts
+
+
+async def test_patch_whole_second_recorded_at_round_trips_with_six_digits(
+    client, write_key, patchable_embedding
+):
+    """A second-precision value comes back padded, not truncated (CR #440/24).
+
+    This is the case that regressed: bare `isoformat()` omitted the fraction
+    entirely at whole seconds, so the response contradicted the documented
+    `YYYY-MM-DDTHH:MM:SS.ffffffZ` on exactly the input a producer is most likely
+    to send. Unit-tested on `fmt_ts`; asserted here through a real endpoint.
+    """
+    pid, eid = patchable_embedding
+    r = await client.patch(
+        f"/api/v1/people/{pid}/embeddings/{eid}",
+        params={"model_id": _MODEL_ID},
+        json={"recorded_at": "2026-06-15T10:00:00Z"},
+        headers={"X-API-Key": write_key},
+    )
+    assert r.status_code == 200
+    assert r.json()["recorded_at"] == "2026-06-15T10:00:00.000000Z"
 
 
 async def test_patch_multi_field(client, write_key, patchable_embedding):

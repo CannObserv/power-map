@@ -49,7 +49,22 @@ def testfmt_ts_preserves_microseconds():
 def testfmt_ts_formats_date_components_correctly():
     dt = datetime(2025, 3, 7, 9, 5, 3, tzinfo=UTC)
     result = fmt_ts(dt)
-    assert result == "2025-03-07T09:05:03Z"
+    assert result == "2025-03-07T09:05:03.000000Z"
+
+
+def testfmt_ts_fraction_is_fixed_width():
+    """`YYYY-MM-DDTHH:MM:SS.ffffffZ` means six digits, always (CR #440/16).
+
+    Bare `.isoformat()` omits the fraction entirely at whole seconds, so a
+    client-supplied second-precision timestamp — `recorded_at` on an embedding,
+    `accessed_at` on a citation — round-tripped as `…T12:00:00Z` and broke any
+    consumer parsing with a fixed `%S.%fZ`. The width is the contract both
+    `docs/PUBLIC_API.md` and AGENTS.md publish.
+    """
+    whole = datetime(2026, 8, 14, 12, 0, 0, tzinfo=UTC)
+    assert fmt_ts(whole) == "2026-08-14T12:00:00.000000Z"
+    assert fmt_ts(whole.replace(microsecond=123000)) == "2026-08-14T12:00:00.123000Z"
+    assert fmt_ts(whole.replace(microsecond=123456)) == "2026-08-14T12:00:00.123456Z"
 
 
 def testfmt_ts_naive_datetime_returns_no_z_suffix():

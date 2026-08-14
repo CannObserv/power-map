@@ -5,7 +5,6 @@ from datetime import datetime
 import asyncpg
 
 from src.api.public.etag import collection_etag
-from src.api.public.schemas import fmt_ts
 
 _EVENTS_VERSION_SQL = """
     SELECT count(*) AS n, max(updated_at) AS last
@@ -52,7 +51,7 @@ def row_to_event(r: asyncpg.Record) -> dict:
             "hour": r["event_hour"],
             "minute": r["event_minute"],
             "second": r["event_second"],
-            "at": fmt_ts(r["event_at"]) if r["event_at"] else None,
+            "at": r["event_at"],
         },
         "event_place_text": r["event_place_text"],
         "event_place_address": (
