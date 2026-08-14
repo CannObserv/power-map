@@ -57,7 +57,12 @@ Notes:
   `CREATE DATABASE` per session isn't possible). Run it **alone** — never
   alongside the integration suite against the same DB.
 - axe-core is SHA-pinned under `tests/vendor/` (see that README); the run
-  verifies the hash at import.
+  verifies the hash at import. The pin lives in **one** place — the shared
+  `tests/api/admin/axe.py` (#438), which also holds the in-page `axe.run`
+  snippet, the violation formatter and the inject-once `axe_check(page, context)`
+  helper both a11y files call. Keep browser plumbing out of `a11y.py`: that one
+  is lxml-based and the fast non-browser tier imports it. `axe.py` must not
+  import Playwright at module scope (conftest's lazy-import discipline).
 - **Three files, one marker** — the tier is marker-gated over the whole admin test
   dir, so a new browser file is swept automatically (the weekly timer runs the same
   invocation):

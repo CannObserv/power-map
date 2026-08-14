@@ -24,7 +24,9 @@ alongside the integration suite. A dbname guard refuses anything but the test DB
 
 The session fixtures this tier runs on — ``browser_db``, ``seeded_ids``,
 ``live_server``, ``browser``, ``page`` — live in ``conftest.py`` (#426), shared
-with the sibling browser-test files (#367/#368).
+with the sibling browser-test files (#367/#368). The axe-core plumbing —
+SHA-pinned asset, run snippet, violation formatter, ``axe_check`` — lives in
+``axe.py`` (#438), shared with the interaction tier.
 
 Run (never in pre-commit; one-time browser install required)::
 
@@ -32,9 +34,6 @@ Run (never in pre-commit; one-time browser install required)::
     uv run --env-file /etc/power-map/.env --env-file .env pytest \\
         tests/api/admin/test_a11y_browser.py -m browser
 """
-
-import hashlib
-from pathlib import Path
 
 import pytest
 
@@ -45,6 +44,7 @@ from tests.api.admin.admin_routes import (
     QUERY_PARAMS,
     param_values,
 )
+from tests.api.admin.axe import axe_check
 
 # Skip the whole module cleanly when the browser extra isn't installed (default
 # `uv run` syncs only the `dev` group, so Playwright is absent there). The
@@ -77,43 +77,6 @@ _HTMX_ONLY_PATHS = frozenset(EXTRA_HEADERS)
 _MIN_FULL_PAGES_SWEPT = 20
 _axe_pages_swept = 0
 _cases_run = 0
-
-# SHA-pinned vendored axe-core (see tests/vendor/README.md). Verified at import
-# so a corrupted or silently-swapped copy fails loudly, not with garbage results.
-_AXE_PATH = Path(__file__).parents[2] / "vendor" / "axe-core-4.10.2.min.js"
-_AXE_SHA256 = "b511cd9dec01c76f4b2ad1723b66b6db37d4c2eb4ed199076e1829d9ee7b75e3"
-_AXE_SOURCE = _AXE_PATH.read_text(encoding="utf-8")
-if hashlib.sha256(_AXE_SOURCE.encode("utf-8")).hexdigest() != _AXE_SHA256:
-    raise RuntimeError(
-        f"{_AXE_PATH.name} SHA-256 mismatch — vendored axe-core is corrupt or was swapped;"
-        " re-download the pinned version (see tests/vendor/README.md)"
-    )
-
-# In-page axe run. Restrict to violations; return only the fields the failure
-# message needs (rule id, impact, help URL, and a css selector per node).
-_AXE_RUN_JS = """
-async () => {
-  const r = await axe.run(document, { resultTypes: ['violations'] });
-  return r.violations.map(v => ({
-    id: v.id,
-    impact: v.impact,
-    help: v.help,
-    helpUrl: v.helpUrl,
-    nodes: v.nodes.map(n => n.target.join(' ')),
-  }));
-}
-"""
-
-
-def _format_violations(url: str, violations: list[dict]) -> str:
-    lines = [f"{url}: {len(violations)} axe-core violation(s):"]
-    for v in violations:
-        lines.append(f"  [{v['impact']}] {v['id']} — {v['help']} ({v['helpUrl']})")
-        for target in v["nodes"][:5]:
-            lines.append(f"      at: {target}")
-        if len(v["nodes"]) > 5:
-            lines.append(f"      … +{len(v['nodes']) - 5} more node(s)")
-    return "\n".join(lines)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -156,7 +119,5 @@ async def test_admin_full_page_axe_clean(path, live_server, seeded_ids, page):
     if not is_full_document(await resp.text()):
         pytest.skip(f"{path} renders an HTMX fragment — out of full-page axe scope")
 
-    await page.add_script_tag(content=_AXE_SOURCE)
-    violations = await page.evaluate(_AXE_RUN_JS)
     _axe_pages_swept += 1
-    assert not violations, _format_violations(url, violations)
+    await axe_check(page, url)
