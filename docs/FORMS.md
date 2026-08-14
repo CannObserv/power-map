@@ -75,7 +75,24 @@ window.initTypeaheadCombobox({
 });
 ```
 
-The factory is defined in `src/static/admin/typeahead-combobox.js` and loaded with `defer` in `<head>`, so it is available when any inline `<script>` in `<body>` runs. If a form partial also needs extra logic (e.g. disabling a date field when a checkbox is checked), put it in a separate IIFE after the factory call — do not mix it into the combobox wiring.
+The factory is defined in `src/static/admin/typeahead-combobox.js` and loaded with `defer` in `<head>`. If a form partial also needs extra logic (e.g. disabling a date field when a checkbox is checked), put it in a separate IIFE after the factory call — do not mix it into the combobox wiring.
+
+#### Mounting contract (#435)
+
+A call site never has to know whether the deferred factory has loaded yet — but that is because of a queue, **not** because `defer` happens to be early enough:
+
+| Path | Ordering |
+|---|---|
+| **Hard page load** | The inline `<script>` in `<body>` executes during parse — *before* any deferred `<head>` script. `window.initTypeaheadCombobox` at that moment is the **queue stub** (inline, non-deferred, in `base.html`), which records the config and returns a deferred handle. `typeahead-combobox.js` then loads, replaces the stub with the real factory, and drains the queue from the bottom of the file — after parse, so every element the queued configs name exists. |
+| **Boosted nav / HTMX swap** | htmx executes the swapped-in inline script long after the factory is real, so the call goes straight through and never queues. |
+
+Both paths therefore wire exactly once: the queue is emptied on drain and the stub is gone, so nothing can be mounted twice.
+
+Rules that follow from this:
+
+- The queue stub in `base.html` **must stay inline and non-deferred**, above the `typeahead-combobox.js` tag. Moving it into a deferred (or externally fetched) script reintroduces the race — a hard load then silently leaves the combobox unwired: results still swap in, but the dropdown never opens and option ids stay unprefixed. That regression is pinned at three tiers: `test_typeahead_wires_on_hard_load` in `tests/api/admin/test_browser_smoke.py` (a hard `page.goto`, not a boosted click), `tests/js/typeahead-mount-queue.test.js`, which evals the stub extracted from `base.html`, and `test_typeahead_mount_queue_stub_precedes_the_deferred_factory` in `tests/api/admin/test_base_template.py`, which parses the rendered page and fails if the stub gains `defer`/`src` or falls below the factory.
+- Do **not** add a `typeof window.initTypeaheadCombobox === 'function'` guard around a mount. It was never protective — on the path where the factory is missing the guard is exactly what swallowed the mount. The stub guarantees the global is callable. (The surviving guards in existing templates are harmless leftovers.)
+- Anything else that must be callable from an inline `<body>` script on a hard load needs the same treatment; a deferred `<head>` script alone is not available there.
 
 ### JavaScript contract
 

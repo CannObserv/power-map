@@ -1,8 +1,12 @@
 /**
  * typeahead-combobox.js — factory for HTMX-backed typeahead combobox inputs.
  *
- * Usage (inline <script> in an HTMX partial, runs after the factory is loaded):
+ * Usage (inline <script> in a form template or HTMX partial):
  *   window.initTypeaheadCombobox({ inputId, listboxId, hiddenId, clearButtonId, onSelect, onClear });
+ *
+ * The call site never has to care whether this deferred file has loaded yet:
+ * on a hard page load the inline mount runs during parse and hits the queue
+ * stub in base.html, which this file replaces and drains at the bottom (#435).
  * onSelect (optional): callback(selectedId) invoked when an item is selected.
  * clearButtonId (optional): id of a "×" button that clears the selection. The
  *   factory shows it only while a selection exists (hidden id non-empty).
@@ -190,3 +194,21 @@ window.initTypeaheadCombobox = function initTypeaheadCombobox({
     },
   };
 };
+
+/**
+ * Drain the mounts queued by the inline stub in base.html (#435).
+ *
+ * This file is deferred, so an inline <body> mount on a hard page load ran
+ * before it and called the stub instead.  The assignment above has already
+ * replaced the stub, so every mount after this point calls the real factory
+ * directly and nothing can be wired twice: the queue is emptied here and each
+ * entry is mounted exactly once.  Boosted navigations never queue at all.
+ */
+(function drainQueuedTypeaheadMounts() {
+  var queue = window.__pmTypeaheadQueue;
+  window.__pmTypeaheadQueue = null;
+  if (!queue) return;
+  queue.forEach(function (entry) {
+    entry.handle = window.initTypeaheadCombobox(entry.config);
+  });
+})();

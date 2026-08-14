@@ -14,9 +14,12 @@ fast Vitest inner loop (`tests/js/`), never a re-implementation of it:
    merge-mode exit on ``showFlash``, and that the winner's detail page reflects
    the merge.
 
-A third case, ``test_typeahead_wires_on_hard_load``, is an ``xfail`` capturing
-a real divergence this tier exposed (deferred-script vs inline-mount ordering
-on hard page loads) — see its reason string.
+A third case, ``test_typeahead_wires_on_hard_load``, covers the hard-load entry
+path. This tier found that divergence (deferred-script vs inline-mount ordering)
+as an xfail; #435 fixed it with the mount queue, so it is now a plain test.
+
+Every navigation goes through ``goto_with_retry`` (#436) — a bounded retry on
+Chromium renderer crashes, which this VM produces on ~1% of navigations.
 
 Runs on the shared browser-tier session fixtures in ``conftest.py`` (#300/#426):
 ``live_server`` + ``page`` + ``seeded_ids``. The merge flow MUTATES data, so it
@@ -35,6 +38,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.api.admin.browser import goto_with_retry
 
 # Skip cleanly when the browser extra isn't installed (default `uv run` syncs
 # only the dev group). The `browser` fixture in conftest.py re-guards.
@@ -91,10 +95,10 @@ async def test_typeahead_select_fills_hidden_id(live_server, seeded_ids, page):
     Reaches the New Role form via a **boosted navigation** from the roles list
     — the admin shell's normal mode (`hx-boost`), where htmx executes the
     form's inline factory-mount script after the deferred factory has loaded.
-    A direct hard load of the same page never wires the combobox at all — see
-    ``test_typeahead_wires_on_hard_load`` (xfail, product bug).
+    The hard-load path converges via the #435 mount queue — covered separately
+    by ``test_typeahead_wires_on_hard_load``.
     """
-    await page.goto(f"{live_server}/admin/roles/", wait_until="domcontentloaded")
+    page, _ = await goto_with_retry(page, f"{live_server}/admin/roles/")
     await page.click('a[href="/admin/roles/new/"]')  # boosted nav (hx-boost shell)
     await page.wait_for_selector("#role_type_id")
 
@@ -133,24 +137,17 @@ async def test_typeahead_select_fills_hidden_id(live_server, seeded_ids, page):
     assert focused == "jurisdiction-search"
 
 
-@pytest.mark.xfail(
-    # strict: when #435 is fixed this XPASSes and fails the run, forcing the flip
-    # to a plain test. A Chromium crash (#436) yields XFAIL, not XPASS, so strict
-    # adds no flake exposure.
-    strict=True,
-    reason="#368 real-browser divergence: typeahead-combobox.js is a deferred <head> "
-    "script, but roles/form.html mounts it from a plain inline <body> script, which "
-    "the browser runs during parse — before any deferred script executes. On a hard "
-    "load window.initTypeaheadCombobox is undefined, the typeof guard skips silently, "
-    "and the combobox is never wired (results swap in but the dropdown never opens). "
-    "Boosted navs work because htmx runs swapped-in scripts after the factory loaded. "
-    "happy-dom suites eval the factory before the mount script, so they cannot see "
-    "the ordering. Product fix is out of scope for this test-infra issue.",
-)
 async def test_typeahead_wires_on_hard_load(live_server, seeded_ids, page):
-    """Hard (non-boosted) load of the New Role form should also wire the
-    combobox — currently it does not (see xfail reason)."""
-    await page.goto(f"{live_server}/admin/roles/new/", wait_until="domcontentloaded")
+    """Hard (non-boosted) load of the New Role form wires the combobox too (#435).
+
+    The inline mount in ``roles/form.html`` runs during parse, before any
+    deferred ``<head>`` script — so it calls the mount **queue stub**
+    (the inline, non-deferred block in ``base.html``) rather than the real
+    factory. ``typeahead-combobox.js`` replaces the stub and drains the
+    queue when it loads, which is what makes this path converge with the
+    boosted nav covered by ``test_typeahead_select_fills_hidden_id``.
+    """
+    page, _ = await goto_with_retry(page, f"{live_server}/admin/roles/new/")
     await page.select_option("#role_type_id", index=1)
     inp = page.locator("#jurisdiction-search")
     await inp.click()
@@ -174,7 +171,7 @@ async def test_people_list_merge_flow(live_server, merge_pair, page):
     and merge-mode exit on the `showFlash` flash trigger.
     """
     winner, loser = merge_pair["winner_id"], merge_pair["loser_id"]
-    await page.goto(f"{live_server}/admin/people/?q={_MERGE_QUERY}", wait_until="domcontentloaded")
+    page, _ = await goto_with_retry(page, f"{live_server}/admin/people/?q={_MERGE_QUERY}")
     await page.wait_for_selector(f'tr[data-person-id="{winner}"]')
     await page.wait_for_selector(f'tr[data-person-id="{loser}"]')
 
@@ -217,5 +214,5 @@ async def test_people_list_merge_flow(live_server, merge_pair, page):
 
     # The merged entity's page reflects the merge: the loser's canonical name
     # survives as an alias on the winner (default keep_name_ids all-checked).
-    await page.goto(f"{live_server}/admin/people/{winner}/", wait_until="domcontentloaded")
+    page, _ = await goto_with_retry(page, f"{live_server}/admin/people/{winner}/")
     assert _LOSER_NAME in await page.locator("#names-table").inner_text()

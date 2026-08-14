@@ -1,5 +1,6 @@
 """Tests for admin base template: header branding and footer."""
 
+import lxml.html
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -110,6 +111,36 @@ async def test_dark_mode_toggle_button_present(client):
     response = await client.get("/admin/", headers=AUTH_HEADERS)
     assert "theme-toggle" in response.text
     assert 'aria-label="Color theme"' in response.text
+
+
+async def test_typeahead_mount_queue_stub_precedes_the_deferred_factory(client):
+    """The #435 mount-queue stub must stay inline, non-deferred, and ahead of
+    typeahead-combobox.js.
+
+    That ordering IS the fix: templates mount the combobox from inline <body>
+    scripts, which run during parse — before any deferred script. If this stub
+    gains a `defer`/`src`, or slips below the factory, hard loads silently stop
+    wiring comboboxes again (the browser tier catches it too, but only there).
+    """
+    response = await client.get("/admin/roles/new/", headers=AUTH_HEADERS)
+    # Parsed, not string-searched: the stub's own comment contains both the
+    # factory filename and a literal "<script>", which fools index arithmetic.
+    scripts = lxml.html.fromstring(response.text).xpath("//script")
+    stub_i = next(
+        (i for i, s in enumerate(scripts) if "__pmTypeaheadQueue" in (s.text_content() or "")),
+        None,
+    )
+    factory_i = next(
+        (i for i, s in enumerate(scripts) if "typeahead-combobox.js" in (s.get("src") or "")),
+        None,
+    )
+    assert stub_i is not None, "typeahead mount-queue stub missing from base.html (#435)"
+    assert factory_i is not None, "typeahead-combobox.js script tag missing from base.html"
+    assert stub_i < factory_i, "mount-queue stub must precede the deferred factory (#435)"
+    stub = scripts[stub_i]
+    assert stub.get("defer") is None, "mount-queue stub must not be deferred (#435)"
+    assert stub.get("async") is None, "mount-queue stub must not be async (#435)"
+    assert stub.get("src") is None, "mount-queue stub must stay inline (#435)"
 
 
 async def test_dark_mode_js_loaded_with_defer(client):
