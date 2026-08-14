@@ -13,12 +13,18 @@ Two ratchets, in order of load-bearing-ness:
    serializer already emits `Z` for a zero-offset aware datetime. A `str`-typed
    `…_at` response field is the same breach declared one layer up.
 2. **Every response-model `datetime` field carries a `@field_serializer` calling
-   `fmt_ts`.** Redundant with pydantic's default *today*; it is the declared
-   insurance against a pydantic default change or a non-UTC-aware datetime
-   reaching a model. Request models are exempt — they are parsed, not
-   serialized — and are excluded by *resolution* (reachability from a
-   `response_model=` declaration) rather than by a name heuristic, which would
+   `fmt_ts`.** Redundant with pydantic's default *today*; what it buys is one
+   formatter to change when that default moves, and one place to harden if the
+   `Z` rule ever needs teeth. It is **not** insurance against a naive or
+   non-UTC datetime (CR #440/1): `fmt_ts` only rewrites `+00:00`, so a naive
+   value serializes bare and a `+05:00` value keeps its offset — byte-identical
+   to pydantic's default in both cases. Request models are exempt — they are
+   parsed, not serialized — and are excluded by *resolution* (reachability from
+   a `response_model=` declaration) rather than by a name heuristic, which would
    misclassify `CitationObservationItem`.
+3. **The published schema matches the field** — the serializer's *return*
+   annotation is what OpenAPI shows, so it carries the nullability and the
+   `format: date-time` marker (CR #440/4, #440/7).
 
 Both are ratchets, not proofs: indirection through a helper (a module constant,
 an f-string, a `str()` call) slips past either, the same caveat
@@ -26,7 +32,10 @@ an f-string, a `str()` call) slips past either, the same caveat
 """
 
 import ast
+from functools import cache
 from pathlib import Path
+
+from src.api.main import app
 
 PUBLIC_DIR = Path(__file__).resolve().parents[3] / "src" / "api" / "public"
 
@@ -35,8 +44,14 @@ PUBLIC_DIR = Path(__file__).resolve().parents[3] / "src" / "api" / "public"
 FORMATTER = "fmt_ts"
 
 
+@cache
 def _public_trees() -> dict[str, ast.Module]:
-    """`{filename: parsed module}` for every module in `src/api/public`."""
+    """`{filename: parsed module}` for every module in `src/api/public`.
+
+    Cached — every check in this module walks the same 20 files, and the trees
+    are read-only (`_isoformat_calls` keys node identity off a live tree, which
+    a shared cache keeps alive rather than invalidating).
+    """
     return {
         p.name: ast.parse(p.read_text(), filename=str(p)) for p in sorted(PUBLIC_DIR.glob("*.py"))
     }
@@ -51,17 +66,24 @@ def _model_classes(trees: dict[str, ast.Module]) -> dict[str, ast.ClassDef]:
     """`{class name: ClassDef}` for every pydantic model in the public package.
 
     A class qualifies if it derives from `BaseModel` or from a model already
-    seen. Iterating in file order is enough for a fixpoint here — Python
-    requires a base class to be defined before the subclass that names it.
+    seen. Iterated to a fixpoint rather than in one pass (CR #440/2): within a
+    module Python guarantees a base is defined before its subclass, but across
+    modules the walk order is alphabetical, so a subclass in `assignments.py`
+    whose base lives in `schemas.py` would be dropped — and a dropped model is
+    swept by nothing, which reads exactly like a pass.
     """
     models: dict[str, ast.ClassDef] = {}
-    for tree in trees.values():
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ClassDef):
-                continue
-            bases = {ast.unparse(b) for b in node.bases}
-            if "BaseModel" in bases or bases & models.keys():
-                models[node.name] = node
+    grew = True
+    while grew:
+        grew = False
+        for tree in trees.values():
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef) or node.name in models:
+                    continue
+                bases = {ast.unparse(b) for b in node.bases}
+                if "BaseModel" in bases or bases & models.keys():
+                    models[node.name] = node
+                    grew = True
     return models
 
 
@@ -164,8 +186,10 @@ def _fmt_ts_serialized(models: dict[str, ast.ClassDef], name: str) -> set[str]:
             )
             if not calls_formatter:
                 continue
-            # `@field_serializer("*")` covers every field on the model.
-            covered |= _fields(models, cls).keys() if "*" in targets else targets
+            # `@field_serializer("*")` covers every field on the model — the
+            # concrete one, not the class the decorator sits on (CR #440/5): a
+            # wildcard on a base serializes the subclass's own fields too.
+            covered |= _fields(models, name).keys() if "*" in targets else targets
     return covered
 
 
@@ -175,11 +199,20 @@ def _is_datetime(annotation: str) -> bool:
     return "datetime" in _annotation_names(ast.parse(annotation, mode="eval").body)
 
 
-def _is_str(annotation: str) -> bool:
-    return (
-        _annotation_names(ast.parse(annotation, mode="eval").body) <= {"str"}
-        and "str" in annotation
+def _is_optional(annotation: str) -> bool:
+    """True for a field that can hold `None` — `X | None`, `Optional[X]`."""
+    node = ast.parse(annotation, mode="eval").body
+    return any(isinstance(n, ast.Constant) and n.value is None for n in ast.walk(node)) or (
+        "Optional" in _annotation_names(node)
     )
+
+
+def _is_str(annotation: str) -> bool:
+    """True for a `str`-typed field. Written as "mentions `str`, not `datetime`"
+    rather than as a subset test (CR #440/3) so `Annotated[str, Field(...)]` —
+    the repo's own idiom, cf. `EmbeddingVector` — is caught rather than skipped."""
+    names = _annotation_names(ast.parse(annotation, mode="eval").body)
+    return "str" in names and "datetime" not in names
 
 
 # ---------------------------------------------------------------------------
@@ -276,9 +309,10 @@ def test_every_response_datetime_field_has_an_fmt_ts_serializer():
     """The explicitness ratchet (#440).
 
     Decorated and undecorated fields serialize identically under pydantic 2.12,
-    which is exactly why a missing decorator rots unnoticed: it is insurance
-    against a default change or a non-UTC-aware datetime, and insurance is only
-    worth anything when it is in place before the event.
+    which is exactly why a missing decorator rots unnoticed. What the decorator
+    buys is a single formatter — one place to change when pydantic's default
+    moves, one place to harden if `Z` needs enforcing rather than assuming — and
+    that is only worth anything if every field is already routed through it.
     """
     uncovered = _uncovered_datetime_fields()
     assert not uncovered, (
@@ -309,8 +343,72 @@ def test_sweep_reaches_the_whole_response_surface():
 
 
 # ---------------------------------------------------------------------------
-# Meta — each guard fails on the shape it exists to catch
+# Check 3 — what the serializers publish in OpenAPI (CR #440/4, #440/7)
 # ---------------------------------------------------------------------------
+
+
+def _component(model: str, schemas: dict) -> dict | None:
+    """The serialization-side component schema for `model`, if the app has one.
+
+    FastAPI splits a model into `-Input`/`-Output` components only when the two
+    schemas differ; every model here declares the same fields either way, so the
+    bare name is the usual key and `-Output` is the fallback, not the rule.
+    """
+    return schemas.get(f"{model}-Output") or schemas.get(model)
+
+
+def _branches(prop: dict) -> list[dict]:
+    """The alternatives of a property schema — `anyOf` members, or the schema itself."""
+    return prop.get("anyOf", [prop])
+
+
+def _timestamp_property_defects() -> list[str]:
+    """Every response timestamp whose published schema disagrees with its field.
+
+    Two ways to disagree, both invisible from the Python side:
+
+    * **Nullability** — the serializer's return annotation, not the field's, is
+      what pydantic publishes. `-> str | None` on a required field advertises a
+      null that can never occur; 21 fields shipped that way before CR #440/4.
+    * **Missing `format: date-time`** — declaring `-> str` erases the marker the
+      `datetime` field would have carried, so a generated client types the field
+      as a bare string (CR #440/7). `Annotated[str, Field(json_schema_extra=…)]`
+      puts it back.
+    """
+    schemas = app.openapi()["components"]["schemas"]
+    trees = _public_trees()
+    models = _model_classes(trees)
+    defects = []
+    for name in sorted(_reachable_models(models, _response_model_names(trees))):
+        component = _component(name, schemas)
+        if component is None:  # nested model inlined by FastAPI, nothing to check
+            continue
+        for field, annotation in sorted(_fields(models, name).items()):
+            prop = component.get("properties", {}).get(field)
+            if prop is None or not _is_datetime(annotation):
+                continue
+            optional = _is_optional(annotation)
+            published_null = any(b.get("type") == "null" for b in _branches(prop))
+            if published_null != optional:
+                defects.append(
+                    f"{name}.{field}: field is {'optional' if optional else 'required'} "
+                    f"but OpenAPI says {'nullable' if published_null else 'non-nullable'}"
+                )
+            strings = [b for b in _branches(prop) if b.get("type") == "string"]
+            if not strings or any(b.get("format") != "date-time" for b in strings):
+                defects.append(f"{name}.{field}: string branch missing format: date-time")
+    return defects
+
+
+def test_published_timestamp_schema_matches_the_field():
+    """The wire schema is the serializer's return annotation, not the field (#440).
+
+    Nothing about this is visible while reading `schemas.py` — the field says
+    `datetime`, the client sees whatever the serializer promised. Checking it
+    against the live `app.openapi()` is the only way the two stay in step.
+    """
+    defects = _timestamp_property_defects()
+    assert not defects, f"published timestamp schema disagrees with the model: {defects}"
 
 
 def test_isoformat_sweep_detects_a_planted_breach():
@@ -382,6 +480,47 @@ def test_reachability_excludes_request_models():
 def test_str_timestamp_check_ignores_date_fields():
     assert _is_str("str | None")
     assert _is_str("str")
+    # CR #440/3 — the repo's own `Annotated[...]` idiom must not slip past.
+    assert _is_str("Annotated[str, Field(min_length=1)]")
     assert not _is_str("datetime | None")
     assert _is_datetime("datetime | None")
+    assert _is_datetime("Annotated[datetime, Field()]")
     assert not _is_datetime("date | None")
+
+
+def test_optionality_reads_through_the_annotation_forms():
+    assert _is_optional("datetime | None")
+    assert _is_optional("Optional[datetime]")
+    assert not _is_optional("datetime")
+    assert not _is_optional("list[OrgName]")
+
+
+def test_model_collection_reaches_a_fixpoint_across_modules():
+    """CR #440/2 — a subclass whose base sorts later must not be dropped.
+
+    Alphabetical walk order puts `assignments.py` ahead of `schemas.py`, so the
+    single-pass form silently lost `Sub` — and a lost model is swept by nothing.
+    """
+    trees = {
+        "assignments.py": ast.parse("class Sub(Base):\n    created_at: datetime\n"),
+        "schemas.py": ast.parse("class Base(BaseModel):\n    id: str\n"),
+    }
+    assert set(_model_classes(trees)) == {"Base", "Sub"}
+
+
+def test_wildcard_serializer_covers_the_concrete_models_fields():
+    """CR #440/5 — a `"*"` serializer on a base also covers subclass fields."""
+    models = _model_classes(
+        {
+            "m.py": ast.parse(
+                "class Base(BaseModel):\n"
+                "    created_at: datetime\n"
+                '    @field_serializer("*")\n'
+                "    def _s(self, v):\n"
+                "        return fmt_ts(v)\n"
+                "class Sub(Base):\n"
+                "    updated_at: datetime\n"
+            )
+        }
+    )
+    assert _fmt_ts_serialized(models, "Sub") == {"created_at", "updated_at"}

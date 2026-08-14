@@ -49,6 +49,17 @@ def fmt_ts(v: datetime | None) -> str | None:
     return v.isoformat().replace("+00:00", "Z") if v else None
 
 
+# What every timestamp serializer returns. The serializer's *return* annotation
+# — not the `datetime` field's — is what pydantic publishes, so it carries two
+# things the field would otherwise have supplied: the `format: date-time` marker
+# a bare `-> str` erases, leaving generated clients with an untyped string
+# (#440/7), and the nullability, which must match the field's own (#440/4) —
+# `TimestampStr | None` on a required field advertises a null that can never
+# occur. A serializer covering both required and optional fields is therefore
+# split in two, one decorator per shape.
+TimestampStr = Annotated[str, Field(json_schema_extra={"format": "date-time"})]
+
+
 class OrgSearchResult(BaseModel):
     """Single item in a search response."""
 
@@ -60,7 +71,7 @@ class OrgSearchResult(BaseModel):
     archived_at: datetime | None = None
 
     @field_serializer("archived_at")
-    def _serialize_archived_at(self, v: datetime | None) -> str | None:
+    def _serialize_archived_at(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
@@ -142,7 +153,7 @@ class OrgDetail(OrgSearchResult):
     jurisdiction_affiliations: list[OrgJurisdictionAffiliation] = Field(default_factory=list)
 
     @field_serializer("created_at", "updated_at")
-    def _serialize_ts(self, v: datetime) -> str:
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
         return fmt_ts(v)
 
 
@@ -154,7 +165,7 @@ class PersonSearchResult(BaseModel):
     archived_at: datetime | None = None
 
     @field_serializer("archived_at")
-    def _serialize_archived_at(self, v: datetime | None) -> str | None:
+    def _serialize_archived_at(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
@@ -194,7 +205,7 @@ class PersonDetail(PersonSearchResult):
     voice_embeddings_count: int = 0
 
     @field_serializer("created_at", "updated_at")
-    def _serialize_ts(self, v: datetime) -> str:
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
         return fmt_ts(v)
 
 
@@ -210,10 +221,6 @@ class EmbeddingSource(BaseModel):
     job_id: str
     segment: int
     recorded_at: datetime
-
-    @field_serializer("recorded_at")
-    def _serialize_recorded_at(self, v: datetime) -> str:
-        return fmt_ts(v)
 
 
 class EmbeddingWriteRequest(BaseModel):
@@ -234,7 +241,7 @@ class EmbeddingWriteResponse(BaseModel):
     created_at: datetime
 
     @field_serializer("created_at")
-    def _serialize_created_at(self, v: datetime) -> str | None:
+    def _serialize_created_at(self, v: datetime) -> TimestampStr:
         return fmt_ts(v)
 
 
@@ -272,7 +279,7 @@ class EmbeddingPatchResponse(BaseModel):
     created_at: datetime
 
     @field_serializer("recorded_at", "created_at")
-    def _serialize_ts(self, v: datetime) -> str | None:
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
         return fmt_ts(v)
 
 
@@ -283,7 +290,7 @@ class EmbeddingArchiveResponse(BaseModel):
     archived_at: datetime | None
 
     @field_serializer("archived_at")
-    def _serialize_archived_at(self, v: datetime | None) -> str | None:
+    def _serialize_archived_at(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
@@ -305,8 +312,12 @@ class EmbeddingListItem(BaseModel):
     archived_at: datetime | None
     created_at: datetime
 
-    @field_serializer("recorded_at", "created_at", "archived_at")
-    def _serialize_ts(self, v: datetime | None) -> str | None:
+    @field_serializer("recorded_at", "created_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+    @field_serializer("archived_at")
+    def _serialize_optional_ts(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
@@ -336,7 +347,7 @@ class IdentifyMatch(BaseModel):
     recorded_at: datetime
 
     @field_serializer("recorded_at")
-    def _serialize_recorded_at(self, v: datetime) -> str | None:
+    def _serialize_recorded_at(self, v: datetime) -> TimestampStr:
         return fmt_ts(v)
 
 
@@ -718,8 +729,12 @@ class CitationRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_serializer("accessed_at", "archived_at", "created_at", "updated_at")
-    def _serialize_ts(self, v: datetime | None) -> str | None:
+    @field_serializer("created_at", "updated_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+    @field_serializer("accessed_at", "archived_at")
+    def _serialize_optional_ts(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
@@ -1003,8 +1018,12 @@ class EntityEvent(BaseModel):
     verified_at: datetime | None = None
     created_at: datetime
 
-    @field_serializer("verified_at", "created_at")
-    def _serialize_ts(self, v: datetime | None) -> str | None:
+    @field_serializer("created_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+    @field_serializer("verified_at")
+    def _serialize_optional_ts(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
@@ -1026,7 +1045,7 @@ class ChangeItem(BaseModel):
     merged_into: str | None = None
 
     @field_serializer("changed_at")
-    def _serialize_ts(self, v: datetime) -> str:
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
         return fmt_ts(v)
 
 
@@ -1071,7 +1090,7 @@ class SubscriptionItem(BaseModel):
     created_at: datetime
 
     @field_serializer("created_at")
-    def _serialize_ts(self, v: datetime) -> str:
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
         return fmt_ts(v)
 
 
@@ -1184,8 +1203,12 @@ class JurisdictionListItem(BaseModel):
     updated_at: datetime
     archived_at: datetime | None = None
 
-    @field_serializer("recorded_at", "superseded_at", "created_at", "updated_at", "archived_at")
-    def _serialize_ts(self, v: datetime | None) -> str | None:
+    @field_serializer("recorded_at", "created_at", "updated_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+    @field_serializer("superseded_at", "archived_at")
+    def _serialize_optional_ts(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
@@ -1216,8 +1239,12 @@ class JurisdictionRelationship(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_serializer("recorded_at", "superseded_at", "created_at", "updated_at")
-    def _serialize_ts(self, v: datetime | None) -> str | None:
+    @field_serializer("recorded_at", "created_at", "updated_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+    @field_serializer("superseded_at")
+    def _serialize_optional_ts(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
@@ -1258,8 +1285,12 @@ class RoleListItem(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_serializer("archived_at", "created_at", "updated_at")
-    def _serialize_ts(self, v: datetime | None) -> str | None:
+    @field_serializer("created_at", "updated_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+    @field_serializer("archived_at")
+    def _serialize_optional_ts(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
@@ -1406,8 +1437,12 @@ class AssignmentListItem(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_serializer("archived_at", "created_at", "updated_at")
-    def _serialize_ts(self, v: datetime | None) -> str | None:
+    @field_serializer("created_at", "updated_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+    @field_serializer("archived_at")
+    def _serialize_optional_ts(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
@@ -1585,8 +1620,12 @@ class RelationshipRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_serializer("archived_at", "created_at", "updated_at")
-    def _serialize_ts(self, v: datetime | None) -> str | None:
+    @field_serializer("created_at", "updated_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+    @field_serializer("archived_at")
+    def _serialize_optional_ts(self, v: datetime | None) -> TimestampStr | None:
         return fmt_ts(v)
 
 
