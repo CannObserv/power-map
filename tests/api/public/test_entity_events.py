@@ -131,6 +131,35 @@ async def test_list_person_events_returns_event_with_all_fields(
     assert item["event_place_address"] is None
 
 
+async def test_list_person_events_resolved_instant_is_a_z_timestamp(
+    client, api_key, person_fixture, db
+):
+    """`date.at` follows the timestamp convention like every other field (#440).
+
+    It used to be a `str` the handler built with `fmt_ts` — right format, wrong
+    mechanism, and invisible to the sweep because it is named `at`. Now it is a
+    `datetime` with a serializer, so a whole-second instant is padded to six
+    digits rather than losing its fraction.
+    """
+    birth_id = await _birth_type_id(db)
+    event_id = generate_id()
+    await db.execute(
+        """
+        INSERT INTO entity_events
+            (id, entity_type, entity_id, event_type_id, event_year, event_month, event_day,
+             event_hour, event_minute, event_second, event_at, visibility)
+        VALUES ($1, 'person', $2, $3, 1985, 6, 15, 12, 30, 0,
+                '1985-06-15T12:30:00Z'::timestamptz, 'public')
+        """,
+        event_id,
+        person_fixture,
+        birth_id,
+    )
+    r = await client.get(f"/api/v1/people/{person_fixture}/events", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    assert r.json()["data"][0]["date"]["at"] == "1985-06-15T12:30:00.000000Z"
+
+
 async def test_list_person_events_excludes_hidden_events(client, api_key, person_fixture, db):
     """Events with visibility != 'public' are excluded."""
     birth_id = await _birth_type_id(db)

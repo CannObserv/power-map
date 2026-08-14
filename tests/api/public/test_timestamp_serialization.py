@@ -305,8 +305,51 @@ def test_no_module_formats_a_timestamp_outside_fmt_ts():
     assert not offenders, f"timestamp formatted outside fmt_ts: {offenders} — call fmt_ts() instead"
 
 
+def _formatter_calls(tree: ast.Module) -> list[int]:
+    """Line numbers where a module *calls* `fmt_ts` rather than declaring it."""
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == FORMATTER
+    ]
+
+
+def test_no_handler_calls_the_formatter():
+    """`fmt_ts` belongs to serializers, so only `schemas.py` may call it (CR #440/21).
+
+    Banning `.isoformat()` alone was not enough: `row_to_event` built
+    `PartialDate.at` by calling `fmt_ts` in the handler, and no check saw it —
+    the field is `str`-typed (so checks 2 and 3 skip it) and named `at`, not
+    `…_at` (so the suffix test skipped it too). A handler calling the formatter
+    *is* the pre-serialization the rule forbids, whatever the field is called;
+    this catches it without depending on a name.
+    """
+    offenders = [
+        f"{name}:{line}"
+        for name, tree in _public_trees().items()
+        if name != "schemas.py"
+        for line in _formatter_calls(tree)
+    ]
+    assert not offenders, (
+        f"fmt_ts called outside schemas.py: {offenders} — return the datetime and let a "
+        "@field_serializer format it"
+    )
+
+
+# Field names that read as a timestamp. A backstop, not the guard (CR #440/22):
+# the `fmt_ts`-call check above is name-independent, and `PartialDate.at` is the
+# standing proof that a suffix list alone misses things.
+_TIMESTAMP_FIELD_NAMES = ("_at", "_time", "_timestamp")
+
+
+def _looks_like_a_timestamp(field: str) -> bool:
+    return field in {"at", "timestamp"} or field.endswith(_TIMESTAMP_FIELD_NAMES)
+
+
 def test_no_response_field_declares_a_str_timestamp():
-    """A `str`-typed `…_at` field is a pre-serialized timestamp declared up front.
+    """A `str`-typed timestamp field is a pre-serialized value declared up front.
 
     Nothing then validates the format, and the value was necessarily built by
     hand in a handler — the shape check 1 catches from the other end.
@@ -318,7 +361,7 @@ def test_no_response_field_declares_a_str_timestamp():
         f"{name}.{field}: {annotation}"
         for name in sorted(_reachable_models(models, _response_model_names(trees)))
         for field, annotation in _fields(models, name).items()
-        if field.endswith("_at") and _is_str(annotation, aliases)
+        if _looks_like_a_timestamp(field) and _is_str(annotation, aliases)
     ]
     assert not offenders, (
         f"str-typed timestamp on a response model: {offenders} — use datetime + fmt_ts"

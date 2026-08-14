@@ -997,7 +997,15 @@ class PartialDate(BaseModel):
     hour: int | None = None
     minute: int | None = None
     second: int | None = None
-    at: str | None = None  # ISO 8601 with Z suffix when event_at is populated
+    # The fully-resolved instant, when the parts add up to one (#440: a
+    # `datetime` + serializer, not a handler-built string — same bytes on the
+    # wire, and OpenAPI now types it `string`/`date-time` like every other
+    # timestamp).
+    at: datetime | None = None
+
+    @field_serializer("at")
+    def _serialize_at(self, v: datetime | None) -> TimestampStr | None:
+        return fmt_ts(v)
 
 
 class EventPlaceAddress(BaseModel):
