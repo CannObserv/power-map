@@ -6,12 +6,18 @@
 and only surfaces when a consumer diffs two payloads. (Sibling repo `observo`
 drifted exactly that way — see its #450 — from the byte-identical convention.)
 
-Two ratchets, in order of load-bearing-ness:
+Four ratchets, in order of load-bearing-ness:
 
 1. **No pre-serialization.** `.isoformat()` outside `fmt_ts` — the only route by
    which a `+00:00` can actually reach the wire, since pydantic's own JSON
-   serializer already emits `Z` for a zero-offset aware datetime. A `str`-typed
-   `…_at` response field is the same breach declared one layer up.
+   serializer already emits `Z` for a zero-offset aware datetime — and no call
+   to `fmt_ts` outside `schemas.py`, because formatting in a handler is the same
+   breach with the right format (CR #440/21: `PartialDate.at` did exactly that
+   and every other check looked straight past it).
+1b. **No `str`-typed timestamp field** on a response model — the same breach
+   declared one layer up. Name-based (`at`, `…_at`, `…_time`, `timestamp`), so
+   a backstop rather than the guard; check 1 is the one that does not care what
+   the field is called.
 2. **Every response-model `datetime` field carries a `@field_serializer` calling
    `fmt_ts`.** Redundant with pydantic's default *today*; what it buys is one
    formatter to change when that default moves, and one place to harden if the
@@ -26,9 +32,15 @@ Two ratchets, in order of load-bearing-ness:
    annotation is what OpenAPI shows, so it carries the nullability and the
    `format: date-time` marker (CR #440/4, #440/7).
 
-Both are ratchets, not proofs: indirection through a helper (a module constant,
-an f-string, a `str()` call) slips past either, the same caveat
+All are ratchets, not proofs: indirection through a helper (a module constant,
+an f-string, a `str()` call) slips past, the same caveat
 `test_conditional_get.py` documents for its sweeps.
+
+**Scope: `src/api/public/*.py`** — where response models and their handlers
+live. `src/api/admin` formats `date` values into form inputs and is deliberately
+out of scope; `src/core` builds no response timestamps today, so a formatter
+helper added there would be invisible to check 1 (CR #440/28) — put it in
+`schemas.py` beside `fmt_ts`.
 """
 
 import ast
@@ -306,13 +318,20 @@ def test_no_module_formats_a_timestamp_outside_fmt_ts():
 
 
 def _formatter_calls(tree: ast.Module) -> list[int]:
-    """Line numbers where a module *calls* `fmt_ts` rather than declaring it."""
+    """Line numbers where a module *calls* `fmt_ts` rather than declaring it.
+
+    Both spellings (CR #440/26): the bare `fmt_ts(...)` the repo's explicit-import
+    style produces, and the module-qualified `schemas.fmt_ts(...)` that a single
+    changed import would introduce.
+    """
     return [
         node.lineno
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == FORMATTER
+        and (
+            (isinstance(node.func, ast.Name) and node.func.id == FORMATTER)
+            or (isinstance(node.func, ast.Attribute) and node.func.attr == FORMATTER)
+        )
     ]
 
 
@@ -533,6 +552,40 @@ def test_isoformat_sweep_detects_a_planted_breach():
         "    return born, parsed\n"
     )
     assert _isoformat_calls(exempt) == []
+
+
+def test_formatter_call_sweep_detects_a_planted_breach():
+    """CR #440/27 — the guard that caught `PartialDate.at` must still bite.
+
+    Both spellings count (CR #440/26): the bare name the repo's explicit-import
+    style produces, and the module-qualified form one `from … import schemas`
+    away. Defining `fmt_ts`, or importing it without calling it, is not a call.
+    """
+    bare = ast.parse('def h(r):\n    return {"at": fmt_ts(r["x"])}\n')
+    assert _formatter_calls(bare) == [2]
+
+    qualified = ast.parse(
+        'from src.api.public import schemas\ndef h(r):\n    return {"at": schemas.fmt_ts(r["x"])}\n'
+    )
+    assert _formatter_calls(qualified) == [3]
+
+    innocent = ast.parse(
+        "from src.api.public.schemas import fmt_ts\n"
+        "def fmt_ts(v):\n"
+        "    return None\n"
+        "X = 1  # fmt_ts in a comment\n"
+    )
+    assert _formatter_calls(innocent) == []
+
+
+def test_timestamp_field_names_cover_the_shapes_that_shipped():
+    """The backstop's name set — `at` is the one that got through (CR #440/22)."""
+    assert _looks_like_a_timestamp("at")
+    assert _looks_like_a_timestamp("created_at")
+    assert _looks_like_a_timestamp("timestamp")
+    assert _looks_like_a_timestamp("event_time")
+    assert not _looks_like_a_timestamp("name")
+    assert not _looks_like_a_timestamp("data")
 
 
 def test_serializer_sweep_detects_a_planted_breach():
