@@ -1,6 +1,6 @@
 {
   "name": "power-map",
-  "version": "0.34.0",
+  "version": "0.34.1",
   "description": "Web service for mapping political and corporate power",
   "private": true,
   "type": "module",

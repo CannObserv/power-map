@@ -70,7 +70,7 @@ Full conventions → `docs/CONVENTIONS.md`
 - Auth deps (all from `src.api.public.deps`): `require_api_key` (read), `require_key` (read + `key_id`), `require_scope("scope:id")` (write); 403 missing/insufficient, 401 invalid
 - All routes: Pydantic `response_model` + `operation_id`; no `dict[str, Any]` returns
 - Lists: `{"data": [...], "meta": {...}}`, fetch `limit+1` for `has_more`; every paginated `ORDER BY` **must end with a unique column** (#297)
-- Timestamps: `datetime` + `@field_serializer` calling `fmt_ts()`; never pre-serialize as `str` in handlers. Guard: `test_timestamp_serialization.py` (#440) — no `.isoformat()` outside `fmt_ts`, serializer required on every response-model `datetime`
+- Timestamps: `datetime` + `@field_serializer` → `TimestampStr` via `fmt_ts()`; never a hand-built `str` (#440)
 - Conditional GET (#292/#392) lives entirely in `src/api/public/etag.py` — a route calls `conditional_response(...)` and **never** reads `if-none-match` itself
 - Observation semantics — assignments (#311/#391), events (#321/#322), citations (#319): identity vs payload, refine-in-place, `op="retract"`, `source_key_id` same-or-NULL gate. Each is enforced by a sweep test; read `docs/CONVENTIONS.md` before changing one
 

@@ -154,6 +154,15 @@ A comma inside a quoted tag is part of the tag, not a separator.
 
 ---
 
+## Timestamps
+
+
+Every timestamp in a response body is ISO 8601 UTC with a `Z` suffix and microsecond precision — `2026-08-14T12:00:00.123456Z`, never `+00:00` and never a local offset. The spec types them `string` / `format: date-time`, and a field that is nullable in the spec is the only one that can arrive as `null`. Calendar dates (`established_on`, `effective_start`, and the like) are plain `YYYY-MM-DD` with no time part. `Last-Modified` is the one exception to the format, being an HTTP-date by RFC 9110 (see **Caching**).
+
+Uniformity is enforced in CI, not by convention (#440), so it is safe to parse on: a service reading `Z` from one endpoint will read it from all of them.
+
+---
+
 ## Versioning
 
 

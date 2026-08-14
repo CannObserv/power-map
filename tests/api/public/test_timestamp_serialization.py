@@ -207,12 +207,42 @@ def _is_optional(annotation: str) -> bool:
     )
 
 
-def _is_str(annotation: str) -> bool:
-    """True for a `str`-typed field. Written as "mentions `str`, not `datetime`"
-    rather than as a subset test (CR #440/3) so `Annotated[str, Field(...)]` —
-    the repo's own idiom, cf. `EmbeddingVector` — is caught rather than skipped."""
+def _str_aliases(trees: dict[str, ast.Module]) -> frozenset[str]:
+    """Module-level names bound to a `str`-ish type, plus `str` itself.
+
+    `TimestampStr = Annotated[str, Field(json_schema_extra=…)]` exists so a
+    serializer can publish `format: date-time`; a *field* annotated with it is a
+    pre-serialized timestamp under another name, which the bare-name test could
+    not see (CR #440/10). Iterated so an alias of an alias resolves. An
+    annotation mentioning `datetime` is not string-ish, and `dict[str, X]`-shaped
+    aliases would be swept in — none exist, and a false positive here fails
+    loudly rather than passing silently.
+    """
+    aliases = {"str"}
+    grew = True
+    while grew:
+        grew = False
+        for tree in trees.values():
+            for node in tree.body:
+                if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                    continue
+                target = node.targets[0]
+                if not isinstance(target, ast.Name) or target.id in aliases:
+                    continue
+                names = _annotation_names(node.value)
+                if names & aliases and "datetime" not in names:
+                    aliases.add(target.id)
+                    grew = True
+    return frozenset(aliases)
+
+
+def _is_str(annotation: str, aliases: frozenset[str] = frozenset({"str"})) -> bool:
+    """True for a `str`-typed field. Written as "mentions a string type, not
+    `datetime`" rather than as a subset test (CR #440/3) so `Annotated[str,
+    Field(...)]` — the repo's own idiom, cf. `EmbeddingVector` — is caught
+    rather than skipped. Pass `_str_aliases(...)` to see through named aliases."""
     names = _annotation_names(ast.parse(annotation, mode="eval").body)
-    return "str" in names and "datetime" not in names
+    return bool(names & aliases) and "datetime" not in names
 
 
 # ---------------------------------------------------------------------------
@@ -274,11 +304,12 @@ def test_no_response_field_declares_a_str_timestamp():
     """
     trees = _public_trees()
     models = _model_classes(trees)
+    aliases = _str_aliases(trees)
     offenders = [
         f"{name}.{field}: {annotation}"
         for name in sorted(_reachable_models(models, _response_model_names(trees)))
         for field, annotation in _fields(models, name).items()
-        if field.endswith("_at") and _is_str(annotation)
+        if field.endswith("_at") and _is_str(annotation, aliases)
     ]
     assert not offenders, (
         f"str-typed timestamp on a response model: {offenders} — use datetime + fmt_ts"
@@ -341,6 +372,12 @@ def test_sweep_reaches_the_whole_response_surface():
     assert len(reachable) >= 60, f"only {len(reachable)} models reachable from response_model="
     assert len(checked) >= 50, f"only {len(checked)} datetime fields swept"
 
+    # Check 3 skips a model whose component it cannot find and a field absent
+    # from `properties` — both silently. If FastAPI's component naming shifts,
+    # it would compare nothing and pass (CR #440/11).
+    _, verified = _timestamp_property_defects()
+    assert verified >= 50, f"check 3 only compared {verified} properties against OpenAPI"
+
 
 # ---------------------------------------------------------------------------
 # Check 3 — what the serializers publish in OpenAPI (CR #440/4, #440/7)
@@ -362,10 +399,16 @@ def _branches(prop: dict) -> list[dict]:
     return prop.get("anyOf", [prop])
 
 
-def _timestamp_property_defects() -> list[str]:
-    """Every response timestamp whose published schema disagrees with its field.
+def _timestamp_property_defects() -> tuple[list[str], int]:
+    """`(defects, properties compared)` for every response timestamp in OpenAPI.
 
-    Two ways to disagree, both invisible from the Python side:
+    The count is returned, not just the defects (CR #440/11): both skips below
+    are silent, so a component-naming change under a FastAPI bump would compare
+    nothing and read as a pass. `test_sweep_reaches_the_whole_response_surface`
+    floors it.
+
+    Two ways for the published schema to disagree with the model, both invisible
+    from the Python side:
 
     * **Nullability** — the serializer's return annotation, not the field's, is
       what pydantic publishes. `-> str | None` on a required field advertises a
@@ -378,7 +421,8 @@ def _timestamp_property_defects() -> list[str]:
     schemas = app.openapi()["components"]["schemas"]
     trees = _public_trees()
     models = _model_classes(trees)
-    defects = []
+    defects: list[str] = []
+    compared = 0
     for name in sorted(_reachable_models(models, _response_model_names(trees))):
         component = _component(name, schemas)
         if component is None:  # nested model inlined by FastAPI, nothing to check
@@ -387,6 +431,7 @@ def _timestamp_property_defects() -> list[str]:
             prop = component.get("properties", {}).get(field)
             if prop is None or not _is_datetime(annotation):
                 continue
+            compared += 1
             optional = _is_optional(annotation)
             published_null = any(b.get("type") == "null" for b in _branches(prop))
             if published_null != optional:
@@ -397,7 +442,7 @@ def _timestamp_property_defects() -> list[str]:
             strings = [b for b in _branches(prop) if b.get("type") == "string"]
             if not strings or any(b.get("format") != "date-time" for b in strings):
                 defects.append(f"{name}.{field}: string branch missing format: date-time")
-    return defects
+    return defects, compared
 
 
 def test_published_timestamp_schema_matches_the_field():
@@ -407,7 +452,7 @@ def test_published_timestamp_schema_matches_the_field():
     `datetime`, the client sees whatever the serializer promised. Checking it
     against the live `app.openapi()` is the only way the two stay in step.
     """
-    defects = _timestamp_property_defects()
+    defects, _ = _timestamp_property_defects()
     assert not defects, f"published timestamp schema disagrees with the model: {defects}"
 
 
@@ -483,6 +528,31 @@ def test_str_timestamp_check_ignores_date_fields():
     # CR #440/3 — the repo's own `Annotated[...]` idiom must not slip past.
     assert _is_str("Annotated[str, Field(min_length=1)]")
     assert not _is_str("datetime | None")
+
+
+def test_str_aliases_resolve_to_the_string_check():
+    """CR #440/10 — an alias is a `str` field wearing another name.
+
+    `TimestampStr` exists so serializers can publish `format: date-time`; a
+    *field* annotated with it is exactly the pre-serialized timestamp check 1b
+    rejects, and the bare-name test could not see it.
+    """
+    aliases = _str_aliases(_public_trees())
+    assert "TimestampStr" in aliases
+    # A non-string alias in the same file must not be swept in with it.
+    assert "EmbeddingVector" not in aliases
+    assert _is_str("TimestampStr", aliases)
+    assert _is_str("TimestampStr | None", aliases)
+    assert not _is_str("TimestampStr", frozenset({"str"}))  # unresolved: the old blind spot
+
+    # An alias of an alias resolves too.
+    chained = {
+        "m.py": ast.parse(
+            "A = Annotated[str, Field()]\nB = A | None\nC = Annotated[list[float], V]\n"
+        )
+    }
+    assert _str_aliases(chained) >= {"A", "B"}
+    assert "C" not in _str_aliases(chained)
     assert _is_datetime("datetime | None")
     assert _is_datetime("Annotated[datetime, Field()]")
     assert not _is_datetime("date | None")
