@@ -38,7 +38,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
-from tests.api.admin.axe import goto_with_retry
+from tests.api.admin.browser import goto_with_retry
 
 # Skip cleanly when the browser extra isn't installed (default `uv run` syncs
 # only the dev group). The `browser` fixture in conftest.py re-guards.

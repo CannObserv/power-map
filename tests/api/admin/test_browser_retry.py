@@ -12,8 +12,8 @@ fast and loudly, and every retry is announced.
 
 import pytest
 
-from tests.api.admin import axe as axe_mod
-from tests.api.admin.axe import (
+from tests.api.admin import browser as browser_mod
+from tests.api.admin.browser import (
     RendererCrashRetry,
     goto_with_retry,
     is_renderer_crash,
@@ -118,7 +118,7 @@ async def test_clean_navigation_returns_same_page_and_response():
 
 
 async def test_crash_retries_once_on_a_fresh_page(monkeypatch):
-    monkeypatch.setattr("tests.api.admin.axe.RENDERER_CRASH_RETRIES", 0, raising=True)
+    monkeypatch.setattr("tests.api.admin.browser.RENDERER_CRASH_RETRIES", 0, raising=True)
     context, page = _fake(
         _PlaywrightishError("Page.goto: net::ERR_ABORTED at http://x/admin/"), "ok"
     )
@@ -130,7 +130,7 @@ async def test_crash_retries_once_on_a_fresh_page(monkeypatch):
     assert got_page is not page, "retry must run on a fresh page — a crashed one is unusable"
     assert got_page is context.new_pages[0]
     assert page.closed, "the crashed page should be closed before retrying"
-    assert axe_mod.RENDERER_CRASH_RETRIES == 1, "retries must be counted, not silently absorbed"
+    assert browser_mod.RENDERER_CRASH_RETRIES == 1, "retries must be counted, not silently absorbed"
 
 
 async def test_close_failure_on_a_crashed_page_does_not_break_the_retry():

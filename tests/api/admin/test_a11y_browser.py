@@ -45,7 +45,8 @@ from tests.api.admin.admin_routes import (
     QUERY_PARAMS,
     param_values,
 )
-from tests.api.admin.axe import axe_check, goto_with_retry
+from tests.api.admin.axe import axe_check
+from tests.api.admin.browser import goto_with_retry
 
 # Skip the whole module cleanly when the browser extra isn't installed (default
 # `uv run` syncs only the `dev` group, so Playwright is absent there). The

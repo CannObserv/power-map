@@ -61,19 +61,30 @@ Notes:
   `tests/api/admin/axe.py` (#438), which also holds the in-page `axe.run`
   snippet, the violation formatter and the inject-once `axe_check(page, context)`
   helper both a11y files call. Keep browser plumbing out of `a11y.py`: that one
-  is lxml-based and the fast non-browser tier imports it. `axe.py` must not
-  import Playwright at module scope (conftest's lazy-import discipline).
+  is lxml-based and the fast non-browser tier imports it. Neither `axe.py` nor
+  its sibling `browser.py` may import Playwright at module scope (conftest's
+  lazy-import discipline). Navigation lives in `browser.py`, not `axe.py`, so a
+  non-a11y browser test can navigate without pulling in the axe SHA check.
 - **Renderer-crash retry (#436):** Chromium CHECK-crashes on ~0.5–1% of
   navigations under this VM's kernel (6.12.90), which used to fail a random route
-  per sweep. Both a11y files navigate through `goto_with_retry(page, url)`
-  (`axe.py`), which retries **once**, on a **fresh page** (a crashed page is
-  unusable), and **only** for `net::ERR_ABORTED` / `Page crashed` /
-  `Target crashed`. Timeouts, HTTP errors, connection failures and axe violations
-  still fail on the first attempt. Every retry emits a `RendererCrashRetry`
-  warning (pytest's warnings summary → the weekly timer's journal) and bumps
-  `axe.RENDERER_CRASH_RETRIES`, so a crash storm stays visible. The predicate and
-  the loop are unit-tested browser-free in `test_browser_retry.py` — add any new
-  crash signature there first. `test_browser_smoke.py` still navigates directly.
+  per sweep. **All three** browser files navigate through
+  `goto_with_retry(page, url)` from `tests/api/admin/browser.py`, which retries
+  **once**, on a **fresh page** (a crashed page is unusable), and **only** for
+  `net::ERR_ABORTED` / `Page crashed` / `Target crashed`. Timeouts, HTTP errors,
+  connection failures and axe violations still fail on the first attempt. Every
+  retry emits a `RendererCrashRetry` warning (pytest's warnings summary → the
+  weekly timer's journal) and bumps `browser.RENDERER_CRASH_RETRIES`, so a crash
+  storm stays visible. The predicate and the loop are unit-tested browser-free in
+  `test_browser_retry.py` — add any new crash signature there first.
+  - **Boundary:** only the navigation is retried. A crash *mid-test* — during the
+    interaction tier's click sequences, or part-way through the merge flow — still
+    fails the run. The sweep is navigation-dominated, so this covers the common
+    case; it is not blanket immunity. A crash surfacing outside a `goto` is a
+    genuine red run, so triage it rather than assuming #436 regressed.
+  - `net::ERR_ABORTED` is the loosest signature: Chromium also raises it for a
+    legitimately aborted navigation (e.g. a route that starts serving a download).
+    That costs one wasted attempt, never a masked failure — a *persistent*
+    `ERR_ABORTED` is a real bug in the route.
 - **Three files, one marker** — the tier is marker-gated over the whole admin test
   dir, so a new browser file is swept automatically (the weekly timer runs the same
   invocation):

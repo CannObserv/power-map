@@ -37,7 +37,8 @@ constraints as the full-page sweep; run it alone against the dedicated test DB
 
 import pytest
 
-from tests.api.admin.axe import axe_check, goto_with_retry
+from tests.api.admin.axe import axe_check
+from tests.api.admin.browser import goto_with_retry
 
 # Same gate as the full-page sweep: only `-m browser` runs may need Playwright.
 pytest.importorskip(
