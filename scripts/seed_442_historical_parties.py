@@ -261,7 +261,7 @@ async def _vocabulary_id(conn: asyncpg.Connection, table: VocabularyTable, slug:
     into SQL (asyncpg cannot parameterise an identifier), so the type is what keeps
     a future caller from passing something attacker-shaped.
     """
-    row_id = await conn.fetchval(f"SELECT id FROM {table} WHERE slug = $1", slug)  # noqa: S608
+    row_id = await conn.fetchval(f"SELECT id FROM {table} WHERE slug = $1", slug)
     if row_id is None:
         raise RuntimeError(f"{table}.{slug} not found — run scripts/apply-schema.sh first")
     return row_id

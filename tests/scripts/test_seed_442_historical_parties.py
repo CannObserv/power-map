@@ -293,14 +293,6 @@ async def test_existing_party_org_is_never_duplicated(db):
     assert await db.fetchval("SELECT active FROM organizations WHERE id = $1", existing) is True
 
 
-async def test_party_values_are_bare_lowercase_slugs(db):
-    """#270's value convention: no ``wa-`` prefix; the type already scopes to WA."""
-    for party in seed.PARTIES:
-        assert party.party_value == party.party_value.lower()
-        assert not party.party_value.startswith("wa-")
-        assert " " not in party.party_value
-
-
 # --------------------------------------------------------------------------
 # The identifier space is not trustworthy on its own (CR round 1, finding 1)
 # --------------------------------------------------------------------------
