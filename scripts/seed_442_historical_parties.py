@@ -43,6 +43,14 @@ classify a role as ``party_member``. An Org already carrying the value is
 
 Idempotent: re-running reports every row as ``exists`` and writes nothing.
 
+A party whose ``org_wa_party`` value resolves to **no live Org despite identifier
+rows existing** (the Org was hard deleted — ``org_delete`` leaves identifiers
+behind, and nothing reaps them) or to **more than one** live Org is reported
+``blocked`` at WARNING and skipped, with a summary line naming every blocked
+party. The remaining parties still seed. Silence is the one outcome that is never
+acceptable here: the whole reason #442 exists is that 167 attested records were
+being dropped without an error.
+
 Usage:
     uv run python -m scripts.seed_442_historical_parties            # dry run
     uv run python -m scripts.seed_442_historical_parties --execute  # commit
@@ -50,6 +58,7 @@ Usage:
 
 import argparse
 import asyncio
+import datetime
 from dataclasses import dataclass, field
 from typing import Literal, TypedDict
 
@@ -82,7 +91,18 @@ BRAZIER_CITATION = {
     "url": "https://leg.wa.gov/media/taqpwinb/history-of-the-legislature-1854-1963.pdf",
 }
 
-SeedStatus = Literal["created", "planned", "exists"]
+CITATIONS = (ROSTER_CITATION, BRAZIER_CITATION)
+
+# When these sources were read for #442. Recorded on every citation because the
+# roster is revised roughly every 12-24 months: without it there is no way to
+# tell a current citation from one that predates a revision. Fixed rather than
+# ``now()`` so a re-run does not restate a claim nobody re-checked.
+SOURCES_ACCESSED_AT = datetime.datetime(2026, 8, 14, tzinfo=datetime.UTC)
+
+# "blocked" is a party the seed refuses to guess at: its org_wa_party value
+# resolves to no live Org (a dangling identifier) or to more than one. Reported
+# and counted, never silently skipped.
+SeedStatus = Literal["created", "planned", "exists", "blocked"]
 
 
 class SeedAction(TypedDict):
@@ -206,17 +226,42 @@ PARTIES: tuple[HistoricalParty, ...] = (
 )
 
 
+# The JOIN onto organizations is load-bearing, not decorative. ``identifiers``
+# has no FK to ``organizations`` (it is polymorphic — the entity type lives on
+# ``entity_identifier_types``), ``idx_identifiers_lookup`` is a plain index rather
+# than a unique one, and ``org_delete`` deletes an Org's names and acronyms but
+# leaves its identifiers behind. ``audit_ancillary_orphans`` sweeps only the
+# ``role`` / ``role_assignment`` scopes, so nothing reaps a dangling org
+# identifier. Selecting ``i.entity_id`` alone would therefore report a
+# hard-deleted party as "already present" and skip it in silence.
 _FIND_BY_PARTY_VALUE_SQL = """
-SELECT i.entity_id
+SELECT o.id
+FROM identifiers i
+JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+JOIN organizations o ON o.id = i.entity_id
+WHERE t.slug = $1 AND i.value = $2
+"""
+
+# Same reason: without the unique index, two Orgs can carry one party value, and
+# a bare fetchval would pick an arbitrary one with no ORDER BY.
+_COUNT_IDENTIFIER_ROWS_SQL = """
+SELECT count(*)
 FROM identifiers i
 JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
 WHERE t.slug = $1 AND i.value = $2
 """
 
+VocabularyTable = Literal["entity_identifier_types", "link_types", "entity_event_types"]
 
-async def _vocabulary_id(conn: asyncpg.Connection, table: str, slug: str) -> str:
-    """Resolve a seeded vocabulary row, failing loudly rather than writing an orphan."""
-    row_id = await conn.fetchval(f"SELECT id FROM {table} WHERE slug = $1", slug)
+
+async def _vocabulary_id(conn: asyncpg.Connection, table: VocabularyTable, slug: str) -> str:
+    """Resolve a seeded vocabulary row, failing loudly rather than writing an orphan.
+
+    ``table`` is a ``Literal`` rather than a free string: the name is interpolated
+    into SQL (asyncpg cannot parameterise an identifier), so the type is what keeps
+    a future caller from passing something attacker-shaped.
+    """
+    row_id = await conn.fetchval(f"SELECT id FROM {table} WHERE slug = $1", slug)  # noqa: S608
     if row_id is None:
         raise RuntimeError(f"{table}.{slug} not found — run scripts/apply-schema.sh first")
     return row_id
@@ -278,29 +323,64 @@ async def _create_party(
             party.founded_month,
         )
 
+    # No ON CONFLICT on either loop below: org_id was generated moments ago, so
+    # no conflict is reachable, and a bare DO NOTHING would additionally swallow
+    # a genuine primary-key collision. Idempotency lives in the caller's
+    # existence check, not here.
     for url in party.links:
         await conn.execute(
             """INSERT INTO links (id, entity_type, entity_id, url, link_type_id)
-               VALUES ($1, 'organization', $2, $3, $4)
-               ON CONFLICT DO NOTHING""",
+               VALUES ($1, 'organization', $2, $3, $4)""",
             generate_id(),
             org_id,
             url,
             link_type_id,
         )
 
-    for citation in (ROSTER_CITATION, BRAZIER_CITATION):
+    for citation in CITATIONS:
         await conn.execute(
-            """INSERT INTO citations (id, entity_type, entity_id, url, title)
-               VALUES ($1, 'organization', $2, $3, $4)
-               ON CONFLICT DO NOTHING""",
+            """INSERT INTO citations (id, entity_type, entity_id, url, title, accessed_at)
+               VALUES ($1, 'organization', $2, $3, $4, $5)""",
             generate_id(),
             org_id,
             citation["url"],
             citation["title"],
+            SOURCES_ACCESSED_AT,
         )
 
     return org_id
+
+
+async def _resolve_existing(
+    conn: asyncpg.Connection, party: HistoricalParty
+) -> tuple[str | None, str | None]:
+    """Resolve a party's live Org, or say why it cannot be resolved.
+
+    Returns ``(org_id, block_reason)`` with exactly one side populated. A party
+    is blocked when its ``org_wa_party`` value resolves to no live Org while
+    identifier rows exist for it (``dangling_identifier`` — the Org was hard
+    deleted and its identifier outlived it), or to more than one live Org
+    (``ambiguous_identifier``). Both are conditions the seed refuses to guess at:
+    creating a second Org alongside a dangling row, or adopting an arbitrary one
+    of two, would each be a quiet wrong answer.
+    """
+    live = [
+        r["id"]
+        for r in await conn.fetch(
+            _FIND_BY_PARTY_VALUE_SQL, PARTY_IDENTIFIER_SLUG, party.party_value
+        )
+    ]
+    if len(live) > 1:
+        return None, f"ambiguous_identifier ({len(live)} live Orgs: {', '.join(sorted(live))})"
+    if live:
+        return live[0], None
+
+    orphaned = await conn.fetchval(
+        _COUNT_IDENTIFIER_ROWS_SQL, PARTY_IDENTIFIER_SLUG, party.party_value
+    )
+    if orphaned:
+        return None, f"dangling_identifier ({orphaned} row(s) point at no live Org)"
+    return None, None
 
 
 async def seed_parties(conn: asyncpg.Connection, execute: bool) -> list[SeedAction]:
@@ -309,6 +389,11 @@ async def seed_parties(conn: asyncpg.Connection, execute: bool) -> list[SeedActi
     An Org already carrying the party's ``org_wa_party`` value is adopted and
     left **completely untouched** — the seed never edits a row it did not create,
     so a curated Org cannot be clobbered by a re-run.
+
+    A party whose identifier space cannot be resolved is reported ``blocked`` and
+    skipped; the remaining parties still seed, so one bad row does not hold up the
+    other four. Blocked is sticky by design — a re-run reports it again rather
+    than quietly creating a duplicate.
     """
     identifier_type_id = await _vocabulary_id(
         conn, "entity_identifier_types", PARTY_IDENTIFIER_SLUG
@@ -318,9 +403,26 @@ async def seed_parties(conn: asyncpg.Connection, execute: bool) -> list[SeedActi
 
     actions: list[SeedAction] = []
     for party in PARTIES:
-        existing = await conn.fetchval(
-            _FIND_BY_PARTY_VALUE_SQL, PARTY_IDENTIFIER_SLUG, party.party_value
-        )
+        existing, block_reason = await _resolve_existing(conn, party)
+
+        if block_reason is not None:
+            logger.warning(
+                "Skipping %r: %s=%r is %s. Resolve the identifier rows, then re-run.",
+                party.name,
+                PARTY_IDENTIFIER_SLUG,
+                party.party_value,
+                block_reason,
+            )
+            actions.append(
+                {
+                    "party_value": party.party_value,
+                    "name": party.name,
+                    "org_id": None,
+                    "status": "blocked",
+                }
+            )
+            continue
+
         if existing is not None:
             logger.info(
                 "Org %s already carries %s=%r (%r) — leaving untouched",
@@ -395,6 +497,18 @@ async def main(dsn: str, execute: bool) -> None:
     created = sum(1 for a in actions if a["status"] == "created")
     planned = sum(1 for a in actions if a["status"] == "planned")
     exists = sum(1 for a in actions if a["status"] == "exists")
+    blocked = [a for a in actions if a["status"] == "blocked"]
+
+    # Surfaced after the per-party lines and at WARNING, so a blocked party is
+    # not something an operator has to scroll back through the log to notice.
+    if blocked:
+        logger.warning(
+            "%d of %d part(ies) BLOCKED and not seeded: %s. See the warnings above "
+            "for each one's identifier state.",
+            len(blocked),
+            len(PARTIES),
+            ", ".join(a["party_value"] for a in blocked),
+        )
 
     if execute:
         logger.info("Seeded %d party Org(s); %d already present", created, exists)

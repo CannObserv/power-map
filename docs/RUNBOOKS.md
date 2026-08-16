@@ -194,6 +194,13 @@ Idempotent, and a **seeder, not an updater**: an Org already carrying the party'
 `org_wa_party` value is adopted and left completely untouched, so a curated row cannot be
 clobbered by a re-run.
 
+**`blocked`** = the party's `org_wa_party` value resolves to no live Org despite identifier
+rows existing, or to more than one. `identifiers` has no FK to `organizations` and
+`org_delete` leaves them behind, so a hard-deleted party Org strands a live-looking row
+nothing reaps (`audit_ancillary_orphans` covers only `role` / `role_assignment`). The seed
+logs the reason at WARNING, names every blocked party in a summary line, and seeds the
+rest. Clear the stray `identifiers` rows, then re-run.
+
 ---
 
 ## Role data-quality sweep (idempotent, #304)
