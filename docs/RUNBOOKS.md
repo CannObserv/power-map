@@ -143,6 +143,66 @@ separate (#265).
 
 ---
 
+## Seed defunct WA historical party Orgs (idempotent, #442)
+
+
+`scripts/seed_442_historical_parties.py` — mints the party Organizations that
+CannObserv/usa-wa#219's pre-1991 roster backfill needs (its phase #227). Prerequisite:
+`apply_schema`, so the `org_wa_party` identifier type, the `wikipedia` link type and the
+`founded` event type are seeded.
+
+**Five of seven.** `Prog.` (Progressive) and `Cit.` (Citizen) are held pending
+CannObserv/usa-wa#233 — `Prog.` may be two Orgs (the label spans the 1912 Bull Moose and
+the 1924 La Follette parties, and an Org can be merged later but never split), and `Cit.`
+looks like a county ballot line rather than a state party.
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+# Dry run — reports would-create / already-present, no DB writes
+uv run "${env_args[@]}" python -m scripts.seed_442_historical_parties
+
+# Test DB first (always, from a worktree)
+uv run "${env_args[@]}" python -m scripts.seed_442_historical_parties --test --execute
+
+# Execute against production
+uv run "${env_args[@]}" python -m scripts.seed_442_historical_parties --execute
+```
+
+Each Org gets a canonical name, the source file's own token as canonical acronym (so the
+admin renders `Name (P.P.)`), an `org_wa_party` identifier, `notes`, a Wikipedia link, and
+citations to the roster and to Brazier's legislative history.
+
+Three #442 rulings the script encodes — change none of them without re-reading the issue:
+
+- **`active = false`, never archived.** The axes are orthogonal (#240) and an archived Org
+  *rejects* later `active` observations (`active_on_archived_org`), so archiving at birth
+  would mint Orgs the producer cannot observe.
+- **No `dissolved` / `merged_with` event.** With a year, either populates
+  `v_org_lifespan.ended_on`, which gates `role_assignment` writes — a dissolution year taken
+  from a party's last legislative appearance would reject the very backfill these Orgs
+  exist to enable. A **year-less** `merged_with` is the escape hatch if lineage ever needs
+  recording: `requires_year` is false and the view filters `event_year IS NOT NULL`.
+- **`founded` only where the anchor is WA-scoped** — Silver Republican (1896), Farmer-Labor
+  (1920), Socialist (1901-09). People's Party and Populist have only *national* founding
+  dates, and asserting one on an Org named "Washington State …" overstates its scope.
+
+Idempotent, and a **seeder, not an updater**: an Org already carrying the party's
+`org_wa_party` value is adopted and left completely untouched, so a curated row cannot be
+clobbered by a re-run.
+
+**`blocked`** = the party's `org_wa_party` value resolves to no live Org despite identifier
+rows existing, or to more than one. `identifiers` has no FK to `organizations` and
+`org_delete` leaves them behind, so a hard-deleted party Org strands a live-looking row
+nothing reaps (`audit_ancillary_orphans` covers only `role` / `role_assignment`). The seed
+logs the reason at WARNING, names every blocked party in a summary line, and seeds the
+rest. Clear the stray `identifiers` rows, then re-run.
+
+---
+
 ## Role data-quality sweep (idempotent, #304)
 
 
