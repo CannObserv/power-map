@@ -299,3 +299,112 @@ async def test_party_values_are_bare_lowercase_slugs(db):
         assert party.party_value == party.party_value.lower()
         assert not party.party_value.startswith("wa-")
         assert " " not in party.party_value
+
+
+# --------------------------------------------------------------------------
+# The identifier space is not trustworthy on its own (CR round 1, finding 1)
+# --------------------------------------------------------------------------
+#
+# ``identifiers`` has no FK to ``organizations`` and ``idx_identifiers_lookup``
+# is a plain, non-unique index. ``org_delete`` removes an Org's names and
+# acronyms but leaves its identifiers behind, and the ancillary-orphans audit
+# sweeps only ``role`` / ``role_assignment`` scopes — so a hard-deleted party Org
+# leaves a live-looking ``org_wa_party`` row pointing at nothing. Treating that as
+# "already present" would silently skip the party, which is the exact failure
+# class #442 exists to eliminate.
+
+
+async def _party_identifier(db, value, entity_id):
+    type_id = await db.fetchval(
+        "SELECT id FROM entity_identifier_types WHERE slug = 'org_wa_party'"
+    )
+    await db.execute(
+        """INSERT INTO identifiers (id, entity_identifier_type_id, entity_id, value)
+           VALUES ($1, $2, $3, $4)""",
+        generate_id(),
+        type_id,
+        entity_id,
+        value,
+    )
+
+
+async def _live_org_count_for(db, value):
+    return await db.fetchval(
+        """SELECT count(*)
+           FROM identifiers i
+           JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+           JOIN organizations o ON o.id = i.entity_id
+           WHERE t.slug = 'org_wa_party' AND i.value = $1""",
+        value,
+    )
+
+
+async def test_dangling_identifier_is_blocked_not_silently_skipped(db):
+    """An identifier pointing at a deleted Org must not read as "already present"."""
+    await _party_identifier(db, "populist", generate_id())  # no organizations row
+
+    actions = await seed.seed_parties(db, execute=True)
+
+    populist = next(a for a in actions if a["party_value"] == "populist")
+    assert populist["status"] == "blocked", (
+        "a dangling org_wa_party row was treated as an existing Org — the party "
+        "would be silently skipped (#442 CR1)"
+    )
+    assert populist["org_id"] is None
+    assert await _live_org_count_for(db, "populist") == 0
+
+    # One blocked party must not stop the other four.
+    assert sum(1 for a in actions if a["status"] == "created") == 4
+
+
+async def test_ambiguous_identifier_rows_are_blocked(db):
+    """Two Orgs sharing a party value: pick neither, report it."""
+    for _ in range(2):
+        org_id = generate_id()
+        await db.execute("INSERT INTO organizations (id, active) VALUES ($1, TRUE)", org_id)
+        await _party_identifier(db, "socialist", org_id)
+
+    actions = await seed.seed_parties(db, execute=True)
+
+    socialist = next(a for a in actions if a["party_value"] == "socialist")
+    assert socialist["status"] == "blocked", (
+        "an ambiguous org_wa_party value resolved to an arbitrary Org (#442 CR1)"
+    )
+    assert socialist["org_id"] is None
+
+
+async def test_blocked_party_is_not_created_on_a_later_run(db):
+    """Blocking is not a transient state the next run papers over."""
+    await _party_identifier(db, "peoples", generate_id())
+
+    await seed.seed_parties(db, execute=True)
+    actions = await seed.seed_parties(db, execute=True)
+
+    peoples = next(a for a in actions if a["party_value"] == "peoples")
+    assert peoples["status"] == "blocked"
+    assert await _live_org_count_for(db, "peoples") == 0
+
+
+# --------------------------------------------------------------------------
+# Citation provenance (CR round 1, finding 2)
+# --------------------------------------------------------------------------
+
+
+async def test_citations_record_when_the_source_was_read(db):
+    """The roster is revised every 12-24 months, so "when we read it" is the
+    field that makes a stale citation detectable."""
+    await seed.seed_parties(db, execute=True)
+
+    for party in seed.PARTIES:
+        org_id = await _org_id_for(db, party.party_value)
+        rows = await db.fetch(
+            """SELECT title, accessed_at FROM citations
+               WHERE entity_type = 'organization' AND entity_id = $1""",
+            org_id,
+        )
+        assert rows, f"{party.party_value} has no citations"
+        for row in rows:
+            assert row["accessed_at"] is not None, (
+                f"citation {row['title']!r} records no accessed_at"
+            )
+            assert row["accessed_at"].tzinfo is not None, "accessed_at must be tz-aware UTC"
