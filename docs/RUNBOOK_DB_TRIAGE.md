@@ -2,7 +2,7 @@
 
 Incident-time reading for a `pool_timeout` on `/ready` and the other readiness
 failure reasons. Recurring data operations are in `docs/RUNBOOKS.md`, the
-scheduled audits in `docs/AUDITS.md`, and the planned-cutover checklist in
+recurring audits in `docs/AUDITS.md`, and the planned-cutover checklist in
 `docs/RUNBOOK_DB_MIGRATION.md`.
 
 ---

@@ -21,7 +21,7 @@ incident triage for an unreachable database is in `docs/RUNBOOK_DB_TRIAGE.md`.
 
 `scripts/audit_org_lifecycle_assignments.py` checks every non-archived
 assignment against its org's lifespan (`v_org_lifespan.ended_on`, derived from
-`dissolved`/`merged_with` entity events — see `docs/CONVENTIONS.md`
+`dissolved`/`merged_with` entity events — see `docs/OBSERVATIONS.md`
 § "Org lifespan bounds on assignments"). Categories:
 
 - `current_on_ended` — auto-fixable; `--execute` closes at `ended_on`
@@ -213,7 +213,7 @@ three** scopes (breakdown namespaced `role.*` / `role_assignment.*` /
 heuristics are assignment-specific; role/citation orphans should not occur now that
 the write paths are fixed, so any that appear go to manual triage). See
 `docs/ANCILLARY.md` §"Merge dedup — role_assignment ancillary re-homing" and
-§"Citations — write semantics".
+`docs/OBSERVATIONS.md` §"Citations — write semantics".
 
 ```bash
 # Build --env-file flags (see § Environment)

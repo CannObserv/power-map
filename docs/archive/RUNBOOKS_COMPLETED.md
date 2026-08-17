@@ -9,10 +9,12 @@ live surface, so it costs nothing on a normal session. Live procedures — recur
 imports, idempotent seeds, scheduled audits, incident triage — stay in
 `docs/RUNBOOKS.md`.
 
-Verified before archiving. The first three rows are data checks run against
-production on 2026-08-11; the last row is weaker evidence — one-off migrations whose
-issues are closed and which carry no pending state, without a data check that would
-distinguish "ran" from "nothing left to do":
+Verified before archiving. Every row except one is a data check run against
+production — the first three on 2026-08-11, the party-Orgs row on 2026-08-17. The
+Deduplication / #265 / #266 / #314 / #319 row is the weaker evidence: one-off
+migrations whose issues are closed and which carry no pending state, without a data
+check that would distinguish "ran" from "nothing left to do". Classified by row, not
+by position, so appending here cannot silently re-label an existing claim (#428 CR3).
 
 | Runbook | Evidence |
 |---|---|

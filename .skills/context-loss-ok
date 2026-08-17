@@ -15,6 +15,16 @@ docs/RUNBOOKS.md :: retarget :: needs `--execute`; the resolver and target-echo 
 #     file was paid twice per session. Replaced by a pointer naming that hook.
 AGENTS.md :: duplicate :: SocratiCode tools are deferred — schemas aren't loaded at session start. Call `ToolSearch` with this prefetch query
 
+# --- #444 CR findings 2 & 3: two prose `§` cross-references that were already wrong on
+#     main and rode the move into docs/AUDITS.md. Neither is a markdown link, so
+#     links.dead and check-seams are both blind to them. Refuted by command:
+#       grep -c 'Org lifespan bounds on assignments' docs/CONVENTIONS.md -> 0
+#       grep -c 'Citations — write semantics'        docs/ANCILLARY.md   -> 0
+#     Both sections live in docs/OBSERVATIONS.md (lines 10 and 78), which is also where
+#     docs/SCHEMA.md and docs/ADMIN_PANELS.md correctly point.
+docs/RUNBOOKS.md :: disproven :: `dissolved`/`merged_with` entity events — see `docs/CONVENTIONS.md`
+docs/RUNBOOKS.md :: disproven :: §"Citations — write semantics".
+
 # --- #444: two AGENTS.md pointers whose target moved in this same change.
 AGENTS.md :: retarget :: full triage in `docs/RUNBOOKS.md` § Database unreachable (#410)
 AGENTS.md :: retarget :: one-off and scheduled data operations: importer, seeds, backfills, vocabulary migrations, audits
