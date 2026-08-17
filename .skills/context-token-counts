@@ -1,0 +1,38 @@
+# <bytes> <tokens> <path> — per-file token calibration (#145)
+# Written by measure-context.sh --exact; regenerate rather than hand-edit.
+# The offline estimators prefer a file's own last exact measurement to the
+# repo-wide figure in .skills/context-token-ratio, falling back to it for a
+# file never counted exactly or since drifted far from the size recorded here.
+13907 5835 AGENTS.md
+14446 5631 docs/ACCESSIBILITY.md
+24709 9518 docs/ADMIN.md
+16814 6375 docs/ADMIN_NAMES.md
+13547 5135 docs/ADMIN_PANELS.md
+7254 2748 docs/ANCILLARY.md
+10693 4055 docs/API_ASSIGNMENTS.md
+1102 489 docs/API_ENTITIES.md
+5268 2002 docs/API_EVENTS.md
+6518 2607 docs/API_JURISDICTIONS.md
+9748 3645 docs/API_ORGS.md
+10433 3959 docs/API_PEOPLE.md
+10143 3861 docs/API_ROLES.md
+10656 4416 docs/AUDITS.md
+14678 5544 docs/CHANGE_FEED.md
+22196 9216 docs/COMMANDS.md
+23692 9158 docs/CONVENTIONS.md
+18736 7093 docs/FORMS.md
+23832 9303 docs/HTMX.md
+14490 5778 docs/MERGE.md
+21151 7754 docs/NAMES.md
+26836 9898 docs/OBSERVATIONS.md
+20772 7903 docs/PUBLIC_API.md
+9919 4104 docs/RUNBOOKS.md
+5375 2220 docs/RUNBOOK_DB_MIGRATION.md
+3753 1530 docs/RUNBOOK_DB_TRIAGE.md
+25198 9941 docs/SCHEMA.md
+14486 5639 docs/SCHEMA_INDEXES.md
+5482 2121 docs/SCHEMA_VALIDITY.md
+6174 2445 docs/SKILLS.md
+16537 7280 docs/STYLE.md
+10735 4294 docs/TESTING.md
+21997 8589 docs/UI.md

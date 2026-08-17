@@ -16,7 +16,7 @@ Python ≥3.12, uv, pytest, ruff; Node ≥22, npm, vitest + ESLint + Prettier (J
 
 ## Code Exploration Policy
 
-SocratiCode tools are deferred — schemas aren't loaded at session start. Call `ToolSearch` with this prefetch query before using any `codebase_*` tool: `select:mcp__plugin_socraticode_socraticode__codebase_search,mcp__plugin_socraticode_socraticode__codebase_symbol,mcp__plugin_socraticode_socraticode__codebase_symbols,mcp__plugin_socraticode_socraticode__codebase_flow,mcp__plugin_socraticode_socraticode__codebase_impact,mcp__plugin_socraticode_socraticode__codebase_graph_query,mcp__plugin_socraticode_socraticode__codebase_graph_circular,mcp__plugin_socraticode_socraticode__codebase_graph_stats,mcp__plugin_socraticode_socraticode__codebase_graph_visualize,mcp__plugin_socraticode_socraticode__codebase_status,mcp__plugin_socraticode_socraticode__codebase_context,mcp__plugin_socraticode_socraticode__codebase_context_search`
+SocratiCode tools are deferred — schemas aren't loaded at session start. Call `ToolSearch` with the `select:…` prefetch query before using any `codebase_*` tool. The query is not repeated here: `.claude/hooks/socraticode-reminder.sh` prints it verbatim at every SessionStart, so copy it from there (or from the session's opening reminder).
 
 **Negative rule.** Broad semantic questions (feature location, architecture, what-uses-what) → SocratiCode. `grep`/`ripgrep` → exact string matches only. Explore subagent → path-pattern file walks only, not semantic search.
 
@@ -114,7 +114,7 @@ exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 | Worktree dev testing | kill+restart dev server on 8001 with `--reload --log-config src/core/log_config.json` from worktree dir (see README / `docs/COMMANDS.md` for the full command) |
 | Service debugging | `sudo journalctl -u power-map -f` |
 | Quick prod health check | `curl -fsS localhost:8000/health && curl -fsS localhost:8000/ready` — unauthenticated probes (#343); `/ready` 503 reason: `no_pool`/`pool_timeout`/`db_error` |
-| DB unreachable / `pool_timeout` | Egress IP likely rotated out of DO Trusted Sources — full triage in `docs/RUNBOOKS.md` § Database unreachable (#410) |
+| DB unreachable / `pool_timeout` | Egress IP likely rotated out of DO Trusted Sources — full triage in `docs/RUNBOOK_DB_TRIAGE.md` (#410) |
 
 Scheduled timers (outbox prune · API anomaly · schema parity · ancillary orphans · assignment-relationship windows · weekly a11y · 2-min readiness guard · 5-min egress-IP drift) all surface failure through `systemctl --failed` — see `docs/COMMANDS.md` § Scheduled timers.
 
@@ -200,6 +200,8 @@ Each line says what a task would need the doc for — load the one that matches,
 
 - [docs/COMMANDS.md](docs/COMMANDS.md) — everyday commands: setup, env files, provisioning, deploy, the dev loop, linting, scheduled timers
 - [docs/TESTING.md](docs/TESTING.md) — how to run each test tier, the integration marker, Vitest conventions, the browser a11y sweep
-- [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — one-off and scheduled data operations: importer, seeds, backfills, vocabulary migrations, audits
+- [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — data operations: importer, seeds, role sweep, TTL prune
+- [docs/AUDITS.md](docs/AUDITS.md) — the six scheduled integrity audits and their timers
+- [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP triage
 - [docs/RUNBOOK_DB_MIGRATION.md](docs/RUNBOOK_DB_MIGRATION.md) — DB cutover checklist, maintenance window, rollback
 - [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, SocratiCode MCP tools
