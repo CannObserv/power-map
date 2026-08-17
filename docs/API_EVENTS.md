@@ -16,11 +16,11 @@ implicit rules this collection follows. Auth, pagination and conditional request
 |--------|------|------|-------------|
 | `GET` | `/api/v1/people/{id}/events` | API key | Paginated lifecycle events for a person. |
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. |
-| `GET` | `/api/v1/entity-event-types` | API key | Unpaginated list of all event type vocabulary entries. ETag caching (content hash) — see [Conditional requests](#conditional-requests). |
+| `GET` | `/api/v1/entity-event-types` | API key | Unpaginated list of all event type vocabulary entries. ETag caching (content hash) — see [Conditional requests](PUBLIC_API.md#conditional-requests). |
 
 ### Response shape — `GET /people/{id}/events` and `GET /orgs/{id}/events`
 
-Both events endpoints support conditional requests (#292): every 200 response carries `ETag`, `Cache-Control: no-cache`, `Vary: X-API-Key`, and (when the entity has at least one visible event) `Last-Modified`. Pass the ETag back as `If-None-Match` to receive `304 Not Modified` when the collection is unchanged — including the empty-collection case. The ETag covers the entity's whole visible-events set plus the `limit`/`offset` pair, so it changes when an event is added, edited, archived, or hidden. The accepted `If-None-Match` forms (tag lists, `W/` weak tags, `*`) are the API-wide set — see [Conditional requests](#conditional-requests).
+Both events endpoints support conditional requests (#292): every 200 response carries `ETag`, `Cache-Control: no-cache`, `Vary: X-API-Key`, and (when the entity has at least one visible event) `Last-Modified`. Pass the ETag back as `If-None-Match` to receive `304 Not Modified` when the collection is unchanged — including the empty-collection case. The ETag covers the entity's whole visible-events set plus the `limit`/`offset` pair, so it changes when an event is added, edited, archived, or hidden. The accepted `If-None-Match` forms (tag lists, `W/` weak tags, `*`) are the API-wide set — see [Conditional requests](PUBLIC_API.md#conditional-requests).
 
 Standard paginated envelope, newest first — ordered by event date (year, month, day) descending, then `created_at` descending, then an `id` tiebreaker for a stable total order, so offset pagination is complete even when events share a date. Each item:
 

@@ -1,0 +1,30 @@
+# Warranted losses — lines this repo's curation runs had to REWRITE, not move.
+# Form: PATH :: WARRANT :: CONTENT  (warrants: retarget rename duplicate disproven default)
+# One entry per judged line. Read the replacement before adding one.
+
+# --- #444: RUNBOOKS.md split (audits -> docs/AUDITS.md, triage -> docs/RUNBOOK_DB_TRIAGE.md,
+#     #442 seed -> docs/archive/RUNBOOKS_COMPLETED.md). The doc's own preamble advertised
+#     "backfills, vocabulary migrations, and the recurring audits" — all three of which this
+#     same change moved out — so the sentence was rewritten to name the new destinations.
+docs/RUNBOOKS.md :: retarget :: One-off and scheduled data operations: the importer, seeds, backfills, vocabulary
+docs/RUNBOOKS.md :: retarget :: migrations, and the recurring audits. Every writer here is dry-run by default and
+docs/RUNBOOKS.md :: retarget :: needs `--execute`; the resolver and target-echo rules are in `docs/CONVENTIONS.md`.
+
+# --- #444: AGENTS.md — the SocratiCode prefetch query (377 tokens) is printed verbatim at
+#     every SessionStart by .claude/hooks/socraticode-reminder.sh, so the copy in the policy
+#     file was paid twice per session. Replaced by a pointer naming that hook.
+AGENTS.md :: duplicate :: SocratiCode tools are deferred — schemas aren't loaded at session start. Call `ToolSearch` with this prefetch query
+
+# --- #444 CR findings 2 & 3: two prose `§` cross-references that were already wrong on
+#     main and rode the move into docs/AUDITS.md. Neither is a markdown link, so
+#     links.dead and check-seams are both blind to them. Refuted by command:
+#       grep -c 'Org lifespan bounds on assignments' docs/CONVENTIONS.md -> 0
+#       grep -c 'Citations — write semantics'        docs/ANCILLARY.md   -> 0
+#     Both sections live in docs/OBSERVATIONS.md (lines 10 and 78), which is also where
+#     docs/SCHEMA.md and docs/ADMIN_PANELS.md correctly point.
+docs/RUNBOOKS.md :: disproven :: `dissolved`/`merged_with` entity events — see `docs/CONVENTIONS.md`
+docs/RUNBOOKS.md :: disproven :: §"Citations — write semantics".
+
+# --- #444: two AGENTS.md pointers whose target moved in this same change.
+AGENTS.md :: retarget :: full triage in `docs/RUNBOOKS.md` § Database unreachable (#410)
+AGENTS.md :: retarget :: one-off and scheduled data operations: importer, seeds, backfills, vocabulary migrations, audits
