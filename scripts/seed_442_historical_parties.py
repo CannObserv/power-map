@@ -11,10 +11,14 @@ absent, pending CannObserv/usa-wa#233:
 * ``Prog.`` — the label spans two nationally distinct parties (Roosevelt's
   1912 Bull Moose and La Follette's 1924 revival), so it may be *two* Orgs. A
   Power Map Org can be merged later but never split, so minting one now is the
-  unrecoverable direction.
+  unrecoverable direction. The whole post-1915 footprint is a single 1927 House
+  record, and Brazier has the 1924 revival electing nobody in Washington — so
+  that one row likely does not mean what the token implies.
 * ``Cit.`` — the 1907 Jefferson County members elected on the Citizen's Party
   ticket identified as a Republican and a Democrat once seated, which reframes it
-  as a county ballot line rather than a state party.
+  as a county ballot line rather than a state party. Those 1907 members do not
+  appear in the roster parse at all; its whole footprint there is one 1899 House
+  member. The open question is whether this warrants an Org, not how to name it.
 
 Three #442 rulings are load-bearing here, and each has a test:
 
@@ -214,10 +218,12 @@ PARTIES: tuple[HistoricalParty, ...] = (
             "Socialist Party of America, chartered September 1901. Declined through the "
             "1920s, losing most members to the Farmer-Labor Party around 1920 and "
             "failing to name a ticket in 1920 and 1922; no dissolved event, as no "
-            "dissolution date is sourced. Note the roster places its single 1913 member "
-            "in the Senate while Brazier places the lone 1913 Socialist in the House "
-            "(the Senate's third-party member that session was an Independent) — "
-            "tracked in CannObserv/usa-wa#233."
+            "dissolution date is sourced. Its single 1913 member sat in the House "
+            "(William H. Kingery, 'the lone Socialist member' per the Seattle Times); "
+            "the 1913 Senate's third-party member was an Independent. An earlier "
+            "reading placing this member in the Senate came from a parser bug in the "
+            "roster ingest, found by cross-checking Brazier and fixed in "
+            "CannObserv/usa-wa#238."
         ),
         founded_year=1901,
         founded_month=9,
