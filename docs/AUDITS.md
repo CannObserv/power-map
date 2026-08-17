@@ -1,10 +1,15 @@
 # power-map — Recurring Data Audits
 
-The six scheduled integrity audits: what each one checks, the categories it
-reports, and how to run or install its timer. Each is read-only in report mode;
-the ones that can repair take `--execute`, and the resolver and target-echo rules
-are in `docs/CONVENTIONS.md`. Report mode exits 3 on findings so a drifted run
-surfaces in `systemctl --failed` (#363).
+The six recurring integrity audits: what each one checks, the categories it
+reports, and how to run it. Each is read-only in report mode; the ones that can
+repair take `--execute`, and the resolver and target-echo rules are in
+`docs/CONVENTIONS.md`.
+
+Four run on a systemd timer — assignment-relationship windows (#301), per-key API
+anomaly (#294), schema parity (#315/#331) and ancillary orphans (#324/#326/#319).
+Those four exit 3 on findings, so a run surfaces in `systemctl --failed` (#363),
+and each carries its own install block below. The org-lifecycle (#307) and
+duplicate-assignment (#311) audits are on-demand: no timer, no exit-3.
 
 The importer, the idempotent seeds and the TTL prune are in `docs/RUNBOOKS.md`;
 incident triage for an unreachable database is in `docs/RUNBOOK_DB_TRIAGE.md`.

@@ -3,7 +3,7 @@
 # The offline estimators prefer a file's own last exact measurement to the
 # repo-wide figure in .skills/context-token-ratio, falling back to it for a
 # file never counted exactly or since drifted far from the size recorded here.
-13907 5835 AGENTS.md
+13917 5839 AGENTS.md
 14446 5631 docs/ACCESSIBILITY.md
 24709 9518 docs/ADMIN.md
 16814 6375 docs/ADMIN_NAMES.md
@@ -16,7 +16,7 @@
 9748 3645 docs/API_ORGS.md
 10433 3959 docs/API_PEOPLE.md
 10143 3861 docs/API_ROLES.md
-10656 4416 docs/AUDITS.md
+10942 4530 docs/AUDITS.md
 14678 5544 docs/CHANGE_FEED.md
 22196 9216 docs/COMMANDS.md
 23692 9158 docs/CONVENTIONS.md

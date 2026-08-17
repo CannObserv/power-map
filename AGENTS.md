@@ -201,7 +201,7 @@ Each line says what a task would need the doc for — load the one that matches,
 - [docs/COMMANDS.md](docs/COMMANDS.md) — everyday commands: setup, env files, provisioning, deploy, the dev loop, linting, scheduled timers
 - [docs/TESTING.md](docs/TESTING.md) — how to run each test tier, the integration marker, Vitest conventions, the browser a11y sweep
 - [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — data operations: importer, seeds, role sweep, TTL prune
-- [docs/AUDITS.md](docs/AUDITS.md) — the six scheduled integrity audits and their timers
+- [docs/AUDITS.md](docs/AUDITS.md) — the six recurring integrity audits; four carry systemd timers
 - [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP triage
 - [docs/RUNBOOK_DB_MIGRATION.md](docs/RUNBOOK_DB_MIGRATION.md) — DB cutover checklist, maintenance window, rollback
 - [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, SocratiCode MCP tools
