@@ -29,7 +29,7 @@ from src.core.db import generate_id
 pytestmark = [pytest.mark.integration]
 
 # The two parties whose only founding evidence is national, so they get no event.
-NATIONAL_ONLY = {"peoples", "populist"}
+NATIONAL_ONLY = {"peoples", "populist", "progressive"}
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -75,10 +75,10 @@ async def test_dry_run_writes_nothing(db):
 # --------------------------------------------------------------------------
 
 
-async def test_execute_creates_five_inactive_orgs(db):
+async def test_execute_creates_six_inactive_orgs(db):
     actions = await seed.seed_parties(db, execute=True)
 
-    assert len(actions) == 5
+    assert len(actions) == 6
     assert {a["status"] for a in actions} == {"created"}
 
     for party in seed.PARTIES:
@@ -346,7 +346,7 @@ async def test_dangling_identifier_is_blocked_not_silently_skipped(db):
     assert await _live_org_count_for(db, "populist") == 0
 
     # One blocked party must not stop the other four.
-    assert sum(1 for a in actions if a["status"] == "created") == 4
+    assert sum(1 for a in actions if a["status"] == "created") == 5
 
 
 async def test_ambiguous_identifier_rows_are_blocked(db):

@@ -151,10 +151,14 @@ CannObserv/usa-wa#219's pre-1991 roster backfill needs (its phase #227). Prerequ
 `apply_schema`, so the `org_wa_party` identifier type, the `wikipedia` link type and the
 `founded` event type are seeded.
 
-**Five of seven.** `Prog.` (Progressive) and `Cit.` (Citizen) are held pending
-CannObserv/usa-wa#233 — `Prog.` may be two Orgs (the label spans the 1912 Bull Moose and
-the 1924 La Follette parties, and an Org can be merged later but never split), and `Cit.`
-looks like a county ballot line rather than a state party.
+**Six Orgs for seven tokens** (resolved by CannObserv/usa-wa#233):
+
+- `Cit.` gets **no Org** — not a formally organised state party, just hyper-local
+  "Citizens Party" / "Citizen Nonpartisan" ballot labels. Same rule as `Independent`: a
+  label is not an organisation.
+- `Prog.` is **one Org scoped to 1913–1917** (the Bull Moose formation). The roster's lone
+  1927 House record under that token is Knute Hill, who is not a member of it — producers
+  must not fold that record into this Org.
 
 ```bash
 # Build --env-file flags (see § Environment)

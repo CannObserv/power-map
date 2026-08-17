@@ -5,20 +5,20 @@ for an era naming parties that do not exist as Organizations today. #442 settled
 the naming and lifecycle convention on the org-model owner; this script mints the
 rows that convention describes.
 
-**Five of seven.** ``Prog.`` (Progressive) and ``Cit.`` (Citizen) are deliberately
-absent, pending CannObserv/usa-wa#233:
+**Six Orgs for seven tokens.** ``Cit.`` is deliberately never minted, and
+``Prog.`` is minted narrower than its token:
 
-* ``Prog.`` — the label spans two nationally distinct parties (Roosevelt's
-  1912 Bull Moose and La Follette's 1924 revival), so it may be *two* Orgs. A
-  Power Map Org can be merged later but never split, so minting one now is the
-  unrecoverable direction. The whole post-1915 footprint is a single 1927 House
-  record, and Brazier has the 1924 revival electing nobody in Washington — so
-  that one row likely does not mean what the token implies.
-* ``Cit.`` — the 1907 Jefferson County members elected on the Citizen's Party
-  ticket identified as a Republican and a Democrat once seated, which reframes it
-  as a county ballot line rather than a state party. Those 1907 members do not
-  appear in the roster parse at all; its whole footprint there is one 1899 House
-  member. The open question is whether this warrants an Org, not how to name it.
+* ``Cit.`` — **no Org.** It was not a formally organised state party: municipal
+  archives show "Citizens Party" / "Citizen Nonpartisan" as hyper-local ballot
+  labels, and the two 1907 Jefferson County members elected on a Citizen's ticket
+  identified as a Republican and a Democrat once seated. That is the rule already
+  applied to ``Independent`` — a ballot label is not an organisation. Its one
+  1899 House member keeps the fact on the assignment, not as membership in an Org
+  that did not exist. ``test_citizen_is_never_minted`` asserts the absence.
+* ``Prog.`` — **one Org, scoped to 1913-1917.** The Bull Moose formation is real
+  and large (38 legislators in 1913). The roster's single 1927 House record under
+  the same token is Knute Hill, who is not a member of it — see that Org's notes.
+  Producers must not fold the 1927 record into this Org.
 
 Three #442 rulings are load-bearing here, and each has a test:
 
@@ -169,6 +169,28 @@ PARTIES: tuple[HistoricalParty, ...] = (
             "(see People's Party notes)."
         ),
         links=(_WIKI_PEOPLES,),
+    ),
+    HistoricalParty(
+        party_value="progressive",
+        name="Washington State Progressive Party",
+        acronym="Prog.",
+        notes=(
+            "Defunct. Party label as recorded in Members of the Legislature 1889-2025 "
+            "(rev. 2025-06-05), source token 'Prog.'. Minted per power-map#442. This Org "
+            "is the Roosevelt/Bull Moose formation only, and its membership runs "
+            "1913-1917: 38 legislators in 1913 (30 House, 8 Senate), 10 in 1915, a lone "
+            "senator in 1917, and none by 1919 (Brazier). The 1924 La Follette revival "
+            "elected nobody in Washington. SCOPE WARNING: the roster's one 1927 House "
+            "record under this token is Knute Hill (58th LD, Benton County, seated "
+            "1927-01-10) and is NOT a member of this organisation — he was elected a "
+            "decade after it dissolved, had run Farmer-Labor for Congress in 1920 and "
+            "1924, and entered Congress as a Democrat in 1933. His 'Progressive' ballot "
+            "label is a personal affiliation recorded on the assignment, not membership "
+            "here; see power-map#442 and CannObserv/usa-wa#227. No founded event: only "
+            "the national August 1912 convention date is available, and asserting a "
+            "national founding on a Washington State Org would overstate its scope."
+        ),
+        links=("https://en.wikipedia.org/wiki/Progressive_Party_(United_States,_1912)",),
     ),
     HistoricalParty(
         party_value="silver-republican",
