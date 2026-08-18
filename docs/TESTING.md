@@ -10,7 +10,13 @@ recipes live in `docs/SCHEMA.md`; the a11y rules themselves in `docs/ACCESSIBILI
 
 
 ```bash
-# Run all tests (excludes integration)
+# Run all tests (excludes integration). The opt-in groups are named on purpose:
+# `uv run` installs what it is asked for, so this re-arms the browser/seed tiers
+# that a bare `uv sync` elsewhere may have pruned (#450).
+uv run --group browser --group seed pytest
+
+# Bare form — fine for a quick loop, but any tier whose group is absent is
+# skipped at import; the run says so in a red summary line.
 uv run pytest
 
 # Run with coverage
@@ -39,7 +45,7 @@ the lxml tier never drift.
 
 ```bash
 # One-time setup (installs Playwright + a ~120MB Chromium; not in the dev group)
-uv sync --group browser
+uv sync --group browser --group seed
 uv run --group browser playwright install chromium
 
 # Run the whole tier (needs TEST_DATABASE_URL; env flags per § Environment)
@@ -48,6 +54,16 @@ uv run --group browser --env-file /etc/power-map/.env --env-file .env \
 ```
 
 Notes:
+- **The tier cannot vanish quietly** (#450). `uv sync` is *exact*: it prunes every
+  group it isn't asked for, so a bare `uv sync` anywhere — including
+  `power-map.service`'s `ExecStartPre` — removes Playwright, and the modules'
+  `pytest.importorskip` turns ~200 tests into "3 skipped" against a green suite.
+  Two guards in `tests/conftest.py` (helpers in `tests/optional_groups.py`):
+  asking for the tier with Playwright absent **exits 2** instead of collecting 0,
+  and any run missing an optional group gets a red `NOT RUN` summary line. A new
+  entry in `[dependency-groups]` must register an import probe in
+  `OPTIONAL_GROUPS` — `tests/test_optional_groups.py` ratchets it against
+  `pyproject.toml`.
 - **Automated weekly** by `power-map-a11y.timer` (#369, below) — it runs this tier
   plus the lxml render tier and surfaces failures. Run it manually too as a
   pre-release gate (before tagging a version / restarting prod).
