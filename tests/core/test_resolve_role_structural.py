@@ -539,3 +539,49 @@ async def test_at_large_role_holds_concurrent_assignments(db):
 
     n = await db.fetchval("SELECT count(*) FROM role_assignments WHERE role_id=$1", rid)
     assert n == 2
+
+
+async def test_at_large_seat_with_qualifier_rejected(db):
+    """A positionless office must also REFUSE a qualifier (#302, mirror of #273).
+
+    `requires_qualifier=False` only permits NULL — it does not forbid a value.
+    Without the symmetric guard a stray `qualifier` mints a second, contradictory
+    role for the district ("… (At-Large), LD-N, Position 1"), which is the same
+    silent-spurious-seat failure #267/#273 exist to prevent.
+    """
+    org, jur = await _org(db), await _wa_ld(db, 17)
+    rid, disp, reason = await resolve_role(
+        db,
+        org,
+        None,
+        role_type="state_representative_at_large",
+        jurisdiction_id=jur,
+        qualifier="Position 1",
+    )
+    assert disp is Disposition.REJECTED
+    assert rid == ""
+    assert reason is not None and "qualifier_forbidden" in reason
+    # Nothing minted.
+    assert await db.fetchval("SELECT count(*) FROM roles WHERE organization_id=$1", org) == 0
+
+
+async def test_at_large_seat_blank_qualifier_treated_as_absent(db):
+    """An empty/whitespace qualifier is absence, not a forbidden value.
+
+    The API normalizes "" to None, but a direct caller might not — a blank must
+    resolve to the ordinary positionless seat rather than a `qualifier_forbidden`
+    reject, mirroring how `requires_qualifier` treats blanks as missing.
+    """
+    org = await _org(db)
+    for i, blank in enumerate(("", "   ")):
+        jur = await _wa_ld(db, 18 + i)
+        rid, disp, reason = await resolve_role(
+            db,
+            org,
+            None,
+            role_type="state_representative_at_large",
+            jurisdiction_id=jur,
+            qualifier=blank,
+        )
+        assert disp is Disposition.NEW, f"qualifier={blank!r} reason={reason}"
+        assert await db.fetchval("SELECT qualifier FROM roles WHERE id=$1", rid) is None

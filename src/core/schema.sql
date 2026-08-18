@@ -171,6 +171,15 @@ CREATE TABLE IF NOT EXISTS role_types (
     -- observation of this office with a NULL qualifier — kills the #267
     -- positionless-seat mint. Unlike expects_jurisdiction, this IS enforced.
     requires_qualifier BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Enforced (#302): the symmetric guard. requires_qualifier=FALSE only
+    -- *permits* a NULL qualifier; it does not forbid a value. A positionless
+    -- office (an at-large seat, whose seats were fungible and undesignated) must
+    -- also REJECT a qualifier, or a stray one mints a second, self-contradictory
+    -- role for the district — the same spurious-seat failure #267/#273 close from
+    -- the other direction. Mutually exclusive with requires_qualifier.
+    forbids_qualifier BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT chk_role_type_qualifier_policy
+        CHECK (NOT (requires_qualifier AND forbids_qualifier)),
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -1937,14 +1946,37 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+-- Add forbids_qualifier + its exclusivity CHECK on existing DBs (#302). Fresh
+-- DBs already have both from the CREATE TABLE above.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='role_types'
+          AND column_name='forbids_qualifier'
+    ) THEN
+        ALTER TABLE role_types ADD COLUMN forbids_qualifier BOOLEAN NOT NULL DEFAULT FALSE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name='role_types' AND constraint_name='chk_role_type_qualifier_policy'
+    ) THEN
+        ALTER TABLE role_types ADD CONSTRAINT chk_role_type_qualifier_policy
+            CHECK (NOT (requires_qualifier AND forbids_qualifier));
+    END IF;
+END $$;
+
 -- Role-type classifier seed (#261, #266). Governance rubric — the aggregation
 -- test, the domain-prefix convention, concept-vs-label, and coarse-vs-specific —
 -- lives in docs/SCHEMA.md §"Role-type vocabulary — governance". In short:
 -- a slug earns a row only if you'd query "all of them" across orgs; every
 -- non-jurisdictional slug is prefixed by the org-kind it attaches to
 -- (committee_/chamber_/legislature_/party_). expects_jurisdiction marks an
--- office normally attached with a jurisdiction (#268/#271) — only the two seat
--- rows are; the upsert backfills it on existing rows. requires_qualifier (#273)
+-- office normally attached with a jurisdiction (#268/#271) — only the
+-- jurisdictional seat rows are; the upsert backfills it on existing rows.
+-- requires_qualifier (#273)
 -- is TRUE only for per-position districted offices: a WA House seat is positioned
 -- (Position 1/2), a state senator is one-per-district (NULL qualifier is valid),
 -- and state_representative_at_large (#302 — the pre-1965 WA House, before Ch. 52
@@ -1957,28 +1989,32 @@ END $$;
 -- #266 vocab (all non-jurisdictional, expects_jurisdiction/requires_qualifier
 -- FALSE): coarse chamber_leader/chamber_officer/legislature_staff/party_member
 -- (specific office carried by the free-text title) + the committee positions.
--- The two seat types predate the prefix convention and are grandfathered
--- unprefixed (renaming a public-API slug is breaking). Reserved-but-not-seeded
+-- The prefix convention reaches non-jurisdictional slugs only, so the
+-- jurisdictional seat types stay unprefixed by scope; state_representative and
+-- state_senator are additionally grandfathered against renaming (renaming a
+-- public-API slug is breaking). Reserved-but-not-seeded
 -- peers (chamber_majority_leader, ...) are seeded only on first observation.
 -- The pre-#266 coarse `member` was split into committee_member + party_member.
-INSERT INTO role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier) VALUES
-    ('01KX0000000000000000000001', 'state_representative',                'State Representative',                TRUE,  TRUE),
-    ('01KX0000000000000000000002', 'state_senator',                      'State Senator',                      TRUE,  FALSE),
-    ('01KX000000000000000000000D', 'state_representative_at_large',      'State Representative (At-Large)',    TRUE,  FALSE),
-    ('01KX0000000000000000000004', 'chamber_leader',                     'Chamber Leader',                     FALSE, FALSE),
-    ('01KX0000000000000000000005', 'chamber_officer',                    'Chamber Officer',                    FALSE, FALSE),
-    ('01KX0000000000000000000006', 'committee_chair',                    'Committee Chair',                    FALSE, FALSE),
-    ('01KX0000000000000000000007', 'committee_vice_chair',               'Committee Vice Chair',               FALSE, FALSE),
-    ('01KX0000000000000000000008', 'committee_ranking_member',           'Committee Ranking Member',           FALSE, FALSE),
-    ('01KX0000000000000000000009', 'committee_assistant_ranking_member', 'Committee Assistant Ranking Member', FALSE, FALSE),
-    ('01KX000000000000000000000A', 'committee_member',                   'Committee Member',                   FALSE, FALSE),
-    ('01KX000000000000000000000B', 'legislature_staff',                  'Legislative Staff',                  FALSE, FALSE),
-    ('01KX000000000000000000000C', 'party_member',                       'Party Member',                       FALSE, FALSE)
+INSERT INTO role_types
+    (id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier) VALUES
+    ('01KX0000000000000000000001', 'state_representative',                'State Representative',                TRUE,  TRUE,  FALSE),
+    ('01KX0000000000000000000002', 'state_senator',                      'State Senator',                      TRUE,  FALSE, FALSE),
+    ('01KX000000000000000000000D', 'state_representative_at_large',      'State Representative (At-Large)',    TRUE,  FALSE, TRUE),
+    ('01KX0000000000000000000004', 'chamber_leader',                     'Chamber Leader',                     FALSE, FALSE, FALSE),
+    ('01KX0000000000000000000005', 'chamber_officer',                    'Chamber Officer',                    FALSE, FALSE, FALSE),
+    ('01KX0000000000000000000006', 'committee_chair',                    'Committee Chair',                    FALSE, FALSE, FALSE),
+    ('01KX0000000000000000000007', 'committee_vice_chair',               'Committee Vice Chair',               FALSE, FALSE, FALSE),
+    ('01KX0000000000000000000008', 'committee_ranking_member',           'Committee Ranking Member',           FALSE, FALSE, FALSE),
+    ('01KX0000000000000000000009', 'committee_assistant_ranking_member', 'Committee Assistant Ranking Member', FALSE, FALSE, FALSE),
+    ('01KX000000000000000000000A', 'committee_member',                   'Committee Member',                   FALSE, FALSE, FALSE),
+    ('01KX000000000000000000000B', 'legislature_staff',                  'Legislative Staff',                  FALSE, FALSE, FALSE),
+    ('01KX000000000000000000000C', 'party_member',                       'Party Member',                       FALSE, FALSE, FALSE)
 ON CONFLICT (id) DO UPDATE SET
     slug                 = EXCLUDED.slug,
     display_name         = EXCLUDED.display_name,
     expects_jurisdiction = EXCLUDED.expects_jurisdiction,
-    requires_qualifier   = EXCLUDED.requires_qualifier;
+    requires_qualifier   = EXCLUDED.requires_qualifier,
+    forbids_qualifier    = EXCLUDED.forbids_qualifier;
 
 -- Retire the coarse `member` classifier (#266). It conflated committee and party
 -- membership, so "all members" mixed the two; scripts/migrate_member_role_type.py
@@ -2026,6 +2062,37 @@ $$;
 CREATE OR REPLACE TRIGGER trg_role_requires_qualifier
     BEFORE INSERT OR UPDATE OF role_type_id, jurisdiction_id, qualifier ON roles
     FOR EACH ROW EXECUTE FUNCTION enforce_role_requires_qualifier();
+
+-- forbids_qualifier backstop (#302): the mirror of the above. A positionless
+-- office (at-large seats — fungible, never individually designated) must reject a
+-- qualifier, not merely tolerate its absence; otherwise a stray value mints a
+-- second role per district whose synthesized title contradicts itself
+-- ("… (At-Large), LD-N, Position 1"). Same reasoning as #273 for why this is a
+-- trigger and not a CHECK: it references role_types.
+CREATE OR REPLACE FUNCTION enforce_role_forbids_qualifier()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    -- Blank/whitespace is absence, not a value — matches resolve_role, so a
+    -- direct caller's "" behaves the same as an omitted qualifier.
+    IF NEW.qualifier IS NOT NULL
+       AND btrim(NEW.qualifier) <> ''
+       AND NEW.role_type_id IS NOT NULL
+       AND EXISTS (
+           SELECT 1 FROM role_types
+           WHERE id = NEW.role_type_id AND forbids_qualifier
+       ) THEN
+        RAISE EXCEPTION
+            'role_type % is positionless and forbids a qualifier', NEW.role_type_id
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_role_forbids_qualifier
+    BEFORE INSERT OR UPDATE OF role_type_id, jurisdiction_id, qualifier ON roles
+    FOR EACH ROW EXECUTE FUNCTION enforce_role_forbids_qualifier();
 
 -- =============================================================================
 -- Entity Event Types Seed Data (#170)

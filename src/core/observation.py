@@ -1041,14 +1041,17 @@ async def resolve_role(
 
     role_type_id: str | None = None
     requires_qualifier = False
+    forbids_qualifier = False
     if role_type is not None:
         rt = await conn.fetchrow(
-            "SELECT id, requires_qualifier FROM role_types WHERE slug=$1", role_type
+            "SELECT id, requires_qualifier, forbids_qualifier FROM role_types WHERE slug=$1",
+            role_type,
         )
         if rt is None:
             return "", Disposition.REJECTED, f"role_type_not_found: {role_type!r}"
         role_type_id = rt["id"]
         requires_qualifier = rt["requires_qualifier"]
+        forbids_qualifier = rt["forbids_qualifier"]
 
     if jurisdiction_id is not None:
         jur = await conn.fetchrow(
@@ -1068,6 +1071,19 @@ async def resolve_role(
         # blank-qualifier seat.
         if requires_qualifier and not (qualifier or "").strip():
             return "", Disposition.REJECTED, f"qualifier_required: role_type={role_type!r}"
+        # The mirror (#302): a positionless office must REFUSE a qualifier, not
+        # merely tolerate its absence. requires_qualifier=False only permits NULL;
+        # without this a stray qualifier mints a second, self-contradictory role
+        # for the district. Blank is absence, so it falls through to the normal
+        # positionless create rather than rejecting.
+        if forbids_qualifier and (qualifier or "").strip():
+            return "", Disposition.REJECTED, f"qualifier_forbidden: role_type={role_type!r}"
+        # Blank is absence everywhere downstream — match key, stored value, title
+        # synthesis. Normalize once here so a direct caller's "" can't persist as
+        # a distinct blank-qualifier seat (the case the reject above guards for
+        # requires_qualifier offices, and which no flag guards for the rest).
+        if not (qualifier or "").strip():
+            qualifier = None
 
     # A qualifier only disambiguates roles with a jurisdiction; drop it for roles
     # without one so it never persists without a jurisdiction. The
