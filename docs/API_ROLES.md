@@ -40,23 +40,35 @@ Response item fields: `id`, `organization_id`, `title`, `notes`, `established_on
 
 The machine-readable catalog of role-type classifiers (#268), so producers of structured roles discover the `role_type` match-key vocabulary instead of hardcoding it. Unpaginated `{"data": [...]}` (small, stable set); no query parameters.
 
-Item fields: `id`, `slug`, `display_name`, `expects_jurisdiction`, `requires_qualifier`.
+Item fields: `id`, `slug`, `display_name`, `expects_jurisdiction`, `requires_qualifier`, `forbids_qualifier`.
 
 - `slug` — the stable value sent as `RoleObservationRequest.role_type` and returned as `RoleDetail.role_type_slug`.
 - `expects_jurisdiction` — advisory hint that this office is normally attached with a `jurisdiction_id` (structural-tuple match). It is a producer hint, **not** enforced: `resolve_role` will let a jurisdiction-expecting type be used in title mode. Sending an **unknown** `role_type` is already rejected (`role_type_not_found`), so an unrecognized slug can never mint a role — this endpoint is what keeps a producer from sending a *valid-but-wrong* slug.
-- `requires_qualifier` — **enforced** (unlike `expects_jurisdiction`): the office is per-position, so a jurisdictional observation that omits `qualifier` is rejected (`qualifier_required`, #273) instead of minting a positionless seat. True for `state_representative` (per-position House seats), false for `state_senator` (one per district — NULL qualifier is valid).
+- `requires_qualifier` — **enforced** (unlike `expects_jurisdiction`): the office is per-position, so a jurisdictional observation that omits `qualifier` is rejected (`qualifier_required`, #273) instead of minting a positionless seat. True for `state_representative` (per-position House seats).
+- `forbids_qualifier` — **enforced**, the mirror of the above (#302): the office is *positionless*, so a jurisdictional observation that **supplies** a `qualifier` is rejected (`qualifier_forbidden`) instead of minting a second, self-contradictory seat. True for `state_representative_at_large` (the pre-1965 WA House, whose seats were fungible and never designated).
 
-`member` (#269) is the coarse, jurisdiction-less membership classifier (`expects_jurisdiction: false`) — "person is a member of this body/committee" beneath any precise seat. It is a classifier only: a role tagged `member` still matches by `(organization_id, lower(title))` (send a `title` like `"Member"`), and the type is stored on the role so memberships aggregate without relying on the free-text title.
+Read the two flags as a pair — they are mutually exclusive, and the combination is what tells a producer how to treat `qualifier`:
+
+| `requires_qualifier` | `forbids_qualifier` | Meaning | Example |
+|---|---|---|---|
+| `true` | `false` | Qualifier **required** | `state_representative` (Position 1/2) |
+| `false` | `true` | Qualifier **rejected** — office is positionless | `state_representative_at_large` |
+| `false` | `false` | Qualifier optional; one seat per district | `state_senator` |
+
+An empty or whitespace-only `qualifier` counts as **absent** on both paths — it never satisfies `requires_qualifier`, never trips `forbids_qualifier`, and is stored as NULL.
 
 ```jsonc
 {
   "data": [
-    { "id": "01KX…03", "slug": "member",               "display_name": "Member",              "expects_jurisdiction": false, "requires_qualifier": false },
-    { "id": "01KX…01", "slug": "state_representative", "display_name": "State Representative", "expects_jurisdiction": true,  "requires_qualifier": true  },
-    { "id": "01KX…02", "slug": "state_senator",        "display_name": "State Senator",        "expects_jurisdiction": true,  "requires_qualifier": false }
+    { "id": "01KX…01", "slug": "state_representative",          "display_name": "State Representative",           "expects_jurisdiction": true,  "requires_qualifier": true,  "forbids_qualifier": false },
+    { "id": "01KX…0D", "slug": "state_representative_at_large", "display_name": "State Representative (At-Large)", "expects_jurisdiction": true,  "requires_qualifier": false, "forbids_qualifier": true  },
+    { "id": "01KX…02", "slug": "state_senator",                 "display_name": "State Senator",                  "expects_jurisdiction": true,  "requires_qualifier": false, "forbids_qualifier": false },
+    { "id": "01KX…0A", "slug": "committee_member",              "display_name": "Committee Member",               "expects_jurisdiction": false, "requires_qualifier": false, "forbids_qualifier": false }
   ]
 }
 ```
+
+The coarse `member` classifier (#269) was **retired** by #266 — it conflated committee with party membership, so "all members" mixed the two. It is split into `committee_member` and `party_member`, both jurisdiction-less classifiers: a role tagged with either still matches by `(organization_id, lower(title))` (send a `title` like `"Member"`), and the type is stored on the role so memberships aggregate without relying on the free-text title.
 
 ### Detail — `GET /api/v1/roles/{id}`
 
@@ -87,7 +99,7 @@ Two mutually exclusive resolution modes:
 | `title` | plain role only | Role title. Case-insensitive match against existing roles without a jurisdiction in the same org. **Required for a plain role**; **optional when `jurisdiction_id` is present** — PM synthesizes the canonical title and prefers it, so a supplied title is ignored except as a fallback when it can't be synthesized. Omit it for a role with a jurisdiction. |
 | `role_type` | with jurisdiction | `role_types` slug (e.g. `state_representative`, `state_senator`). Required when `jurisdiction_id` is supplied; unknown slug → `rejected`. |
 | `jurisdiction_id` | with jurisdiction | PM jurisdiction ULID. When present, matching/uniqueness switches to structural identity. A superseded/redistricted (historical) district is valid — only a soft-deleted (archived) district is rejected — so roles can be created against the district that was in effect. |
-| `qualifier` | with jurisdiction; required for per-position offices | Position label disambiguating roles in one district (e.g. `"Position 1"`). Requires `jurisdiction_id` (422 otherwise). NULL/omitted for single-position offices; **required** when the `role_type` has `requires_qualifier` (e.g. `state_representative`) — omitting it → `qualifier_required` reject (#273). |
+| `qualifier` | with jurisdiction; required for per-position offices, rejected for positionless ones | Position label disambiguating roles in one district (e.g. `"Position 1"`). Requires `jurisdiction_id` (422 otherwise). NULL/omitted for single-position offices; **required** when the `role_type` has `requires_qualifier` (e.g. `state_representative`) — omitting it → `qualifier_required` reject (#273); **rejected** when the `role_type` has `forbids_qualifier` (e.g. `state_representative_at_large`) — supplying it → `qualifier_forbidden` reject (#302). Blank/whitespace counts as omitted on both paths. |
 | `notes` | optional | Free text. Only written on NEW. |
 | `established_on` | optional | ISO 8601 date. Only written on NEW. |
 | `abolished_on` | optional | ISO 8601 date. Only written on NEW. Must be >= `established_on` if both supplied. |
@@ -101,6 +113,6 @@ Two mutually exclusive resolution modes:
 |-------------|-----------|
 | `new` | No active matching role found (plain: `(org_id, lower(title))`; with jurisdiction: `(org_id, role_type, jurisdiction_id, qualifier)`); role created (standard mode only) |
 | `auto-attached` | Active matching role already exists (standard) or known ULID supplied (PM-native); attribute writes still applied |
-| `rejected` | Organization unknown or archived; unknown/archived ULID (PM-native); unknown `role_type` slug; a role with a jurisdiction missing `role_type`; a jurisdictional observation of a `requires_qualifier` office missing `qualifier` (`qualifier_required` — #273); unknown or archived `jurisdiction_id`; a titleless role with a jurisdiction whose title can't be synthesized (`role_title_unavailable` — unknown role_type / non-`usa-wa-ld` district); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
+| `rejected` | Organization unknown or archived; unknown/archived ULID (PM-native); unknown `role_type` slug; a role with a jurisdiction missing `role_type`; a jurisdictional observation of a `requires_qualifier` office missing `qualifier` (`qualifier_required` — #273); a jurisdictional observation of a `forbids_qualifier` office supplying one (`qualifier_forbidden` — #302); unknown or archived `jurisdiction_id`; a titleless role with a jurisdiction whose title can't be synthesized (`role_title_unavailable` — unknown role_type / non-`usa-wa-ld` district); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **Note:** `notes`, `established_on`, and `abolished_on` are only written on NEW disposition. They are intentionally not updated on AUTO_ATTACHED to preserve first-submitter authority over these core role fields.

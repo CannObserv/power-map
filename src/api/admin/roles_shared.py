@@ -62,6 +62,25 @@ def positionless_seat_error(requires_qualifier: bool, qualifier: str | None) -> 
     return None
 
 
+_POSITIONED_AT_LARGE_ERROR = (
+    "This office is at-large — its seats were never individually designated, so "
+    "leave the qualifier blank."
+)
+
+
+def positioned_at_large_error(forbids_qualifier: bool, qualifier: str | None) -> str | None:
+    """Admin-facing error when a positionless office is given a qualifier, else None (#302).
+
+    The mirror of :func:`positionless_seat_error`: mirrors the ``resolve_role``
+    ``qualifier_forbidden`` guard + the ``trg_role_forbids_qualifier`` DB trigger
+    so the create and edit routes show one clear message instead of a raw
+    ``CheckViolation`` 500. An empty/whitespace qualifier counts as absent.
+    """
+    if forbids_qualifier and (qualifier or "").strip():
+        return _POSITIONED_AT_LARGE_ERROR
+    return None
+
+
 async def _get_role(role_id: str, db):
     """Fetch role with org display name + structural fields, or raise 404."""
     row = await db.fetchrow(

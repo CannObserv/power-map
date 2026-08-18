@@ -4,6 +4,7 @@ import datetime as dt
 
 from src.api.admin.roles_shared import (
     _check_assignment_within_bounds,
+    positioned_at_large_error,
     positionless_seat_error,
 )
 
@@ -86,3 +87,24 @@ def test_positionless_seat_error_ignores_non_requiring_office():
     """An office that doesn't require a qualifier is never flagged."""
     assert positionless_seat_error(False, None) is None
     assert positionless_seat_error(False, "Position 1") is None
+
+
+# --- positioned_at_large_error (#302) ---
+
+
+def test_positioned_at_large_error_flags_supplied_qualifier():
+    """A positionless office given a qualifier is an error — the mirror of #273."""
+    assert positioned_at_large_error(True, "Position 1") is not None
+
+
+def test_positioned_at_large_error_ok_when_qualifier_absent():
+    """Absent, empty and whitespace all count as absent — same rule as #273."""
+    assert positioned_at_large_error(True, None) is None
+    assert positioned_at_large_error(True, "") is None
+    assert positioned_at_large_error(True, "   ") is None
+
+
+def test_positioned_at_large_error_ignores_non_forbidding_office():
+    """A positioned or single-seat office is unaffected by the guard."""
+    assert positioned_at_large_error(False, "Position 1") is None
+    assert positioned_at_large_error(False, None) is None

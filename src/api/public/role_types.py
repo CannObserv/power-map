@@ -31,8 +31,8 @@ async def list_role_types(
 ) -> Any:
     """Return all role types (the structural-match vocabulary)."""
     rows = await db.fetch(
-        "SELECT id, slug, display_name, expects_jurisdiction, requires_qualifier"
-        " FROM role_types ORDER BY slug"
+        "SELECT id, slug, display_name, expects_jurisdiction, requires_qualifier,"
+        " forbids_qualifier FROM role_types ORDER BY slug"
     )
     # Content-hash validator (#392): this catalog has no ``updated_at`` to
     # watermark, and it is edited in place — a count + max(created_at) tag

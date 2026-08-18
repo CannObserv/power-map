@@ -12,6 +12,7 @@ from src.api.admin.roles_shared import (
     _get_role,
     _parse_date,
     fetch_role_types,
+    positioned_at_large_error,
     positionless_seat_error,
 )
 from src.core.role_title import synthesize_role_title
@@ -370,17 +371,19 @@ async def role_inline_structural_post(
     new_title = role["title"]
     if jur is not None:
         rt_row = await db.fetchrow(
-            "SELECT slug, requires_qualifier FROM role_types WHERE id=$1", rt
+            "SELECT slug, requires_qualifier, forbids_qualifier FROM role_types WHERE id=$1", rt
         )
         rt_slug = rt_row["slug"] if rt_row else None
         jur_slug = await db.fetchval("SELECT slug FROM jurisdictions WHERE id=$1", jur)
         synthesized = synthesize_role_title(rt_slug, jur_slug, qual) if rt_slug else None
         if synthesized is not None:
             new_title = synthesized
-        # Mirror the requires_qualifier guard + DB trigger (#273).
+        # Mirror the requires_qualifier/forbids_qualifier guards + DB triggers
+        # (#273/#302). The `or` is safe because the two flags are mutually
+        # exclusive — chk_role_type_qualifier_policy forbids both being TRUE.
         seat_error = positionless_seat_error(
             rt_row["requires_qualifier"] if rt_row else False, qual
-        )
+        ) or positioned_at_large_error(rt_row["forbids_qualifier"] if rt_row else False, qual)
         if seat_error:
             return await _form(seat_error)
 

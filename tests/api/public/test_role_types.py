@@ -58,9 +58,36 @@ async def test_role_types_response_has_data_list(client, api_key):
 async def test_role_types_items_have_required_fields(client, api_key):
     response = await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
     item = response.json()["data"][0]
-    assert set(item) == {"id", "slug", "display_name", "expects_jurisdiction", "requires_qualifier"}
+    assert set(item) == {
+        "id",
+        "slug",
+        "display_name",
+        "expects_jurisdiction",
+        "requires_qualifier",
+        "forbids_qualifier",
+    }
     assert isinstance(item["expects_jurisdiction"], bool)
     assert isinstance(item["requires_qualifier"], bool)
+    assert isinstance(item["forbids_qualifier"], bool)
+
+
+@pytest.mark.integration
+async def test_role_types_at_large_office_is_positionless(client, api_key):
+    """The #302 at-large seat is discoverable and flagged positionless.
+
+    A producer reads this catalog to learn the vocabulary — the pair
+    (requires_qualifier=False, forbids_qualifier=True) is what tells it the
+    office takes no position at all, as distinct from state_senator's
+    (False, False) "one per district, qualifier optional".
+    """
+    response = await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    by_slug = {r["slug"]: r for r in response.json()["data"]}
+    at_large = by_slug["state_representative_at_large"]
+    assert at_large["display_name"] == "State Representative (At-Large)"
+    assert at_large["expects_jurisdiction"] is True
+    assert at_large["requires_qualifier"] is False
+    assert at_large["forbids_qualifier"] is True
+    assert by_slug["state_senator"]["forbids_qualifier"] is False
 
 
 @pytest.mark.integration

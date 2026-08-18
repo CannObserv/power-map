@@ -486,6 +486,10 @@ class RoleType(BaseModel):
     ``resolve_role``. ``requires_qualifier`` (#273) IS enforced: a jurisdictional
     observation of such an office without a ``qualifier`` is rejected
     (``qualifier_required``) rather than minting a positionless seat.
+    ``forbids_qualifier`` (#302) is the mirror, also enforced: the office is
+    positionless (at-large seats), so supplying a ``qualifier`` is rejected
+    (``qualifier_forbidden``). The two are mutually exclusive; both FALSE means
+    the qualifier is optional (one seat per district, e.g. a state senator).
     """
 
     id: str
@@ -493,6 +497,7 @@ class RoleType(BaseModel):
     display_name: str
     expects_jurisdiction: bool
     requires_qualifier: bool
+    forbids_qualifier: bool
 
 
 class RoleTypesResponse(BaseModel):

@@ -1105,3 +1105,100 @@ async def test_create_wa_structural_role_ignores_supplied_title(
         "Position 5",
     )
     assert title == "Washington State Representative, LD-999, Position 5"
+
+
+# --- forbids_qualifier admin mirror (#302) ---
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def rt_at_large_id(db):
+    """role_types.id for the seeded positionless at-large office."""
+    return await db.fetchval("SELECT id FROM role_types WHERE slug='state_representative_at_large'")
+
+
+async def test_create_at_large_role_with_qualifier_rejected(
+    client, db, org_id, rt_at_large_id, wa_ld_jurisdiction
+):
+    """A positionless office given a qualifier gets a clear message, not a 500.
+
+    trg_role_forbids_qualifier would raise CheckViolationError, which the handler
+    does not catch — without the admin-layer mirror this is a raw 500 (#302).
+    """
+    r = await client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "",
+            "role_type_id": rt_at_large_id,
+            "jurisdiction_id": wa_ld_jurisdiction,
+            "qualifier": "Position 1",
+            "notes": "",
+        },
+    )
+    assert r.status_code == 200
+    assert "at-large" in r.text.lower()
+    n = await db.fetchval(
+        "SELECT count(*) FROM roles WHERE jurisdiction_id=$1 AND role_type_id=$2",
+        wa_ld_jurisdiction,
+        rt_at_large_id,
+    )
+    assert n == 0
+
+
+async def test_create_at_large_role_without_qualifier_ok(
+    client, db, org_id, rt_at_large_id, wa_ld_jurisdiction
+):
+    """The same office with no qualifier is created normally, title synthesized."""
+    r = await client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "organization_id": org_id,
+            "title": "",
+            "role_type_id": rt_at_large_id,
+            "jurisdiction_id": wa_ld_jurisdiction,
+            "qualifier": "",
+            "notes": "",
+        },
+    )
+    assert r.status_code in (200, 303)
+    row = await db.fetchrow(
+        "SELECT title, qualifier FROM roles WHERE jurisdiction_id=$1 AND role_type_id=$2",
+        wa_ld_jurisdiction,
+        rt_at_large_id,
+    )
+    assert row is not None
+    assert row["qualifier"] is None
+    assert "(At-Large)" in row["title"]
+
+
+async def test_structural_inline_at_large_with_qualifier_rejected(
+    client, db, org_id, rt_at_large_id, wa_ld_jurisdiction
+):
+    """The inline structural editor mirrors the guard too (edit path, not just create)."""
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title, role_type_id, jurisdiction_id)"
+        " VALUES ($1,$2,$3,$4,$5)",
+        rid,
+        org_id,
+        "Washington State Representative (At-Large), LD-999",
+        rt_at_large_id,
+        wa_ld_jurisdiction,
+    )
+    r = await client.post(
+        f"/admin/roles/{rid}/inline/structural/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={
+            "role_type_id": rt_at_large_id,
+            "jurisdiction_id": wa_ld_jurisdiction,
+            "qualifier": "Position 2",
+        },
+    )
+    assert r.status_code == 200
+    assert "at-large" in r.text.lower()
+    assert await db.fetchval("SELECT qualifier FROM roles WHERE id=$1", rid) is None
