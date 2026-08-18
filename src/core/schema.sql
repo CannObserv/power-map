@@ -1961,7 +1961,8 @@ END $$;
 DO $$ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.table_constraints
-        WHERE table_name='role_types' AND constraint_name='chk_role_type_qualifier_policy'
+        WHERE table_schema='public' AND table_name='role_types'
+          AND constraint_name='chk_role_type_qualifier_policy'
     ) THEN
         ALTER TABLE role_types ADD CONSTRAINT chk_role_type_qualifier_policy
             CHECK (NOT (requires_qualifier AND forbids_qualifier));
@@ -1976,9 +1977,9 @@ END $$;
 -- (committee_/chamber_/legislature_/party_). expects_jurisdiction marks an
 -- office normally attached with a jurisdiction (#268/#271) — only the
 -- jurisdictional seat rows are; the upsert backfills it on existing rows.
--- requires_qualifier (#273)
--- is TRUE only for per-position districted offices: a WA House seat is positioned
--- (Position 1/2), a state senator is one-per-district (NULL qualifier is valid),
+-- requires_qualifier (#273) is TRUE only for per-position districted offices:
+-- a WA House seat is positioned (Position 1/2), a state senator is
+-- one-per-district (NULL qualifier is valid),
 -- and state_representative_at_large (#302 — the pre-1965 WA House, before Ch. 52
 -- Laws of 1965 introduced Position 1/2) is deliberately positionless: its seats
 -- were fungible, so the qualifier stays NULL and multiplicity is expressed as N

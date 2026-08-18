@@ -19,7 +19,11 @@ from src.api.admin.deps import (
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
-from src.api.admin.roles_shared import fetch_role_types, positionless_seat_error
+from src.api.admin.roles_shared import (
+    fetch_role_types,
+    positioned_at_large_error,
+    positionless_seat_error,
+)
 from src.core.ancillary_migrate import delete_role_ancillary
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
@@ -194,7 +198,8 @@ async def role_create(
         # editor). Keep/require a manual title only when synthesis is unavailable
         # (non-WA jurisdictions).
         rt_row = await db.fetchrow(
-            "SELECT slug, requires_qualifier FROM role_types WHERE id=$1", role_type_id_c
+            "SELECT slug, requires_qualifier, forbids_qualifier FROM role_types WHERE id=$1",
+            role_type_id_c,
         )
         rt_slug = rt_row["slug"] if rt_row else None
         jur_slug = await db.fetchval(
@@ -205,10 +210,14 @@ async def role_create(
             title_c = synthesized
         elif not title_c:
             return await _reload("Could not auto-generate a title for this role — enter one.")
-        # Mirror the requires_qualifier guard + DB trigger (#273), after the title
-        # check so a missing title still reports first.
+        # Mirror the requires_qualifier/forbids_qualifier guards + DB triggers
+        # (#273/#302), after the title check so a missing title still reports
+        # first. The `or` is safe because the two flags are mutually exclusive —
+        # chk_role_type_qualifier_policy forbids both being TRUE.
         seat_error = positionless_seat_error(
             rt_row["requires_qualifier"] if rt_row else False, qualifier_c
+        ) or positioned_at_large_error(
+            rt_row["forbids_qualifier"] if rt_row else False, qualifier_c
         )
         if seat_error:
             return await _reload(seat_error)

@@ -65,12 +65,14 @@ async def test_at_large_role_type_seeded_positionless(db):
     pre-1965 observation as `role_type_not_found`.
     """
     row = await db.fetchrow(
-        "SELECT expects_jurisdiction, requires_qualifier FROM role_types"
+        "SELECT expects_jurisdiction, requires_qualifier, forbids_qualifier FROM role_types"
         " WHERE slug='state_representative_at_large'"
     )
     assert row is not None, "state_representative_at_large not seeded"
     assert row["expects_jurisdiction"] is True
+    # Positionless is the pair, not just the absence of a requirement: FALSE/TRUE.
     assert row["requires_qualifier"] is False
+    assert row["forbids_qualifier"] is True
 
 
 # --- new structural columns exist ---
