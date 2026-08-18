@@ -49,7 +49,7 @@ uv sync --group browser --group seed
 uv run --group browser playwright install chromium
 
 # Run the whole tier (needs TEST_DATABASE_URL; env flags per § Environment)
-uv run --group browser --env-file /etc/power-map/.env --env-file .env \
+uv run --group browser --group seed --env-file /etc/power-map/.env --env-file .env \
     pytest tests/api/admin/ -m browser
 ```
 

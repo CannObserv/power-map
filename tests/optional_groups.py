@@ -15,12 +15,20 @@ Two guards close that gap:
   says so in the terminal summary, so a pass never overstates its coverage.
 
 Both are wired in `tests/conftest.py`. Keep them dependency-free: this module
-is imported at `pytest_configure` time, before any optional package exists.
+is imported at `pytest_configure` time, before any optional package exists —
+and it is imported by conftest, so nothing here may raise at import. That is
+why pytest's own (private) expression parser is optional below: if a pytest
+upgrade moves it, this degrades to a substring read of `-m` rather than taking
+down every test run with an ImportError.
 """
 
 import importlib.util
+from collections.abc import Callable
 
-from _pytest.mark.expression import Expression
+try:
+    from _pytest.mark.expression import Expression
+except ImportError:  # pragma: no cover — pytest moved its expression parser
+    Expression = None
 
 # group name → modules that prove it is installed. A group with no probe could
 # vanish unnoticed, so `test_optional_groups.py` ratchets this against
@@ -41,6 +49,17 @@ def _has_module(name: str) -> bool:
         return False
 
 
+def _markexpr_mentions_browser(markexpr: str) -> bool:
+    """Substring fallback for `browser_tier_requested`, used only if `Expression` is gone.
+
+    Deliberately conservative: it recognises the shapes this repo actually uses
+    (`browser`, the default `not integration and not browser`) and reads
+    anything it cannot judge as "not requested", so the guard can never abort a
+    run it does not understand.
+    """
+    return "browser" in markexpr and "not browser" not in markexpr
+
+
 def browser_tier_requested(markexpr: str) -> bool:
     """True when `markexpr` would select a test carrying only the browser marker.
 
@@ -51,23 +70,29 @@ def browser_tier_requested(markexpr: str) -> bool:
     """
     if not markexpr.strip():
         return False
+    if Expression is None:
+        return _markexpr_mentions_browser(markexpr)
     try:
         return bool(Expression.compile(markexpr).evaluate(lambda name: name == "browser"))
     except Exception:
         return False
 
 
-def browser_guard_reason(markexpr: str, has_module=None) -> str | None:
+def browser_guard_reason(
+    markexpr: str, has_module: Callable[[str], bool] | None = None
+) -> str | None:
     """Abort reason when the browser tier is requested but uninstallable, else None.
 
     Without this, `-m browser` against a pruned environment collects nothing,
-    skips the three modules and exits 0 — a vacuous pass. `run-a11y-sweep.sh`
+    skips the browser modules and exits 0 — a vacuous pass. `run-a11y-sweep.sh`
     already holds this line for Chromium; this holds it for the wheel.
     """
     has_module = has_module or _has_module
     if not browser_tier_requested(markexpr):
         return None
-    missing = [name for name in OPTIONAL_GROUPS["browser"] if not has_module(name)]
+    # .get, not [...]: a group renamed in pyproject must surface as the ratchet
+    # test's failure, not as a KeyError raised before collection even starts.
+    missing = [name for name in OPTIONAL_GROUPS.get("browser", []) if not has_module(name)]
     if not missing:
         return None
     return (
@@ -78,7 +103,9 @@ def browser_guard_reason(markexpr: str, has_module=None) -> str | None:
     )
 
 
-def missing_optional_groups(has_module=None) -> dict[str, list[str]]:
+def missing_optional_groups(
+    has_module: Callable[[str], bool] | None = None,
+) -> dict[str, list[str]]:
     """Map each absent optional group to the probe modules that are missing."""
     has_module = has_module or _has_module
     missing = {}

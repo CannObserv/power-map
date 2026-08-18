@@ -60,11 +60,22 @@ if ! git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1; then
     exit 2
 fi
 
+# Read the raw paths first and refuse an empty answer rather than resolving it:
+# `cd ""` *succeeds* in bash, so an empty --git-dir would resolve to $TARGET,
+# mismatch the common dir and read as a linked worktree — in the main checkout
+# that would sync production's venv. apply-schema.sh guards the same shape.
+raw_git_dir="$(cd "$TARGET" && git rev-parse --git-dir)"
+raw_common_dir="$(cd "$TARGET" && git rev-parse --git-common-dir)"
+if [ -z "$raw_git_dir" ] || [ -z "$raw_common_dir" ]; then
+    echo "ERROR: git did not report its layout for $TARGET — refusing to guess" >&2
+    exit 2
+fi
+
 # Both resolved from inside $TARGET: git reports these relative to the
 # checkout, so resolving them from the caller's cwd would land elsewhere (or,
 # for the main checkout's bare ".git", not resolve at all).
-git_dir="$(cd "$TARGET" && cd "$(git rev-parse --git-dir)" && pwd -P)"
-common_dir="$(cd "$TARGET" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+git_dir="$(cd "$TARGET" && cd "$raw_git_dir" && pwd -P)"
+common_dir="$(cd "$TARGET" && cd "$raw_common_dir" && pwd -P)"
 
 if [ "$git_dir" = "$common_dir" ]; then
     cat >&2 <<EOF
@@ -79,7 +90,17 @@ EOF
     exit 2
 fi
 
-MAIN_ROOT="$(cd "$common_dir/.." && pwd -P)"
+# The guard passes from any subdirectory of the worktree, but everything below
+# is root-relative: a shared .venv symlink lives at the root, and `uv sync`
+# resolves the project root itself — so from a subdir the symlink would go
+# unseen and the sync would install straight through it into the main
+# checkout's venv, which is the whole thing this script exists to prevent.
+TARGET="$(cd "$TARGET" && git rev-parse --show-toplevel)"
+
+# The main worktree is the first entry of `git worktree list --porcelain`, by
+# definition — deriving it from the common dir would assume a <main>/.git
+# layout that --separate-git-dir does not have.
+MAIN_ROOT="$(cd "$TARGET" && git worktree list --porcelain | awk 'NR==1 {print $2; exit}')"
 
 # ── The venv ─────────────────────────────────────────────────────────────────
 if [ -L "$TARGET/.venv" ]; then
@@ -89,13 +110,22 @@ fi
 
 echo "syncing $TARGET/.venv (dev + browser + seed)" >&2
 if ! (cd "$TARGET" && uv sync --group browser --group seed); then
-    echo "ERROR: uv sync failed in $TARGET — the worktree has no usable venv" >&2
+    echo "ERROR: uv sync failed in $TARGET — the shared symlink (if any) was" >&2
+    echo "       already removed, so the worktree has no venv; re-run after fixing" >&2
     exit 1
 fi
 
 # ── The .env symlink ─────────────────────────────────────────────────────────
 # .env is gitignored, so a worktree inherits none. TEST_DATABASE_URL comes from
 # /etc/power-map/.env; the repo .env still carries the GH_* tokens.
+# A dangling symlink is `-L` true and `-e` false: leaving it in place would
+# break every `uv run --env-file .env` in this worktree, which is the state
+# this step exists to resolve — so replace it rather than report it present.
+if [ -L "$TARGET/.env" ] && [ ! -e "$TARGET/.env" ]; then
+    echo "removing dangling .env symlink -> $(readlink "$TARGET/.env")" >&2
+    rm "$TARGET/.env"
+fi
+
 if [ -e "$TARGET/.env" ] || [ -L "$TARGET/.env" ]; then
     echo ".env already present — left alone" >&2
 elif [ -f "$MAIN_ROOT/.env" ]; then

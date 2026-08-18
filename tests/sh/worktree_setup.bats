@@ -26,6 +26,26 @@ setup() {
     [ "$status" -eq 2 ]
 }
 
+@test "refuses when git reports an empty layout (never guesses linked)" {
+    # `cd ""` succeeds in bash, so an empty --git-dir would resolve to $TARGET,
+    # mismatch the common dir and read as a linked worktree — in the main
+    # checkout that would sync production's venv. Same shape apply-schema.sh
+    # guards (#398).
+    local shim="$BATS_TEST_TMPDIR/shim"
+    mkdir -p "$shim"
+    cat > "$shim/git" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+    [ "\$a" = "--git-dir" ] && exit 0     # exit 0, print nothing
+done
+exec $(command -v git) "\$@"
+EOF
+    chmod +x "$shim/git"
+    PATH="$shim:$PATH" run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"layout"* ]]
+}
+
 # --- the shared-venv fix ----------------------------------------------------
 
 @test "replaces the shared .venv symlink with a real per-worktree venv" {
@@ -36,6 +56,21 @@ setup() {
     [ -f "$FAKE_WORKTREE/.venv/bin/activate" ]
     [ "$(call_count "$STUB_UV_CALL_LOG" 'sync')" -ge 1 ]
     [[ "$output" == *"shared .venv"* ]]
+}
+
+@test "run from a subdirectory targets the worktree root, not the subdirectory" {
+    # The guard passes from any subdir, so without canonicalising, a shared
+    # .venv symlink at the root goes unseen and `uv sync` installs straight
+    # through it into the main checkout's (production's) venv.
+    ln -s "$FAKE_MAIN/.venv" "$FAKE_WORKTREE/.venv"
+    echo "GH_TOKEN=x" > "$FAKE_MAIN/.env"
+    mkdir -p "$FAKE_WORKTREE/scripts"
+    cd "$FAKE_WORKTREE/scripts"
+    run bash "$(repo_root)/scripts/worktree-setup.sh"
+    [ "$status" -eq 0 ]
+    [ ! -L "$FAKE_WORKTREE/.venv" ]
+    [ -L "$FAKE_WORKTREE/.env" ]
+    [ ! -e "$FAKE_WORKTREE/scripts/.env" ]
 }
 
 @test "creates a venv when the worktree has none" {
@@ -55,6 +90,9 @@ setup() {
     run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
     [ "$status" -eq 1 ]
     [[ "$output" == *"uv sync"* ]]
+    # The shared symlink is already gone by then — say so, or the operator
+    # cannot tell whether the old environment survived.
+    [[ "$output" == *"re-run"* ]]
 }
 
 # --- the .env symlink -------------------------------------------------------
@@ -65,6 +103,23 @@ setup() {
     [ "$status" -eq 0 ]
     [ -L "$FAKE_WORKTREE/.env" ]
     [ "$(cat "$FAKE_WORKTREE/.env")" = "GH_TOKEN=x" ]
+}
+
+@test "replaces a dangling .env symlink" {
+    ln -s "$FAKE_MAIN/.env.moved-away" "$FAKE_WORKTREE/.env"   # target absent
+    echo "GH_TOKEN=x" > "$FAKE_MAIN/.env"
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ -L "$FAKE_WORKTREE/.env" ]
+    [ "$(cat "$FAKE_WORKTREE/.env")" = "GH_TOKEN=x" ]
+}
+
+@test "a dangling .env symlink with nothing to link to is removed, not left broken" {
+    ln -s "$FAKE_MAIN/.env" "$FAKE_WORKTREE/.env"   # main has no .env at all
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ ! -L "$FAKE_WORKTREE/.env" ]
+    [[ "$output" == *"WARN"* ]]
 }
 
 @test "leaves an existing .env alone" {

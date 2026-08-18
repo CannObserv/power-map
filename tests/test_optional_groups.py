@@ -55,6 +55,27 @@ def test_browser_tier_requested(markexpr, expected):
     assert og.browser_tier_requested(markexpr) is expected
 
 
+@pytest.mark.parametrize(
+    "markexpr,expected",
+    [
+        ("", False),
+        ("not integration and not browser", False),
+        ("browser", True),
+        ("not browser", False),
+        ("integration", False),
+    ],
+)
+def test_fallback_reader_handles_the_shapes_this_repo_uses(markexpr, expected):
+    """The fallback runs only if pytest moves its expression parser."""
+    assert og._markexpr_mentions_browser(markexpr) is expected
+
+
+def test_browser_tier_requested_uses_the_fallback_when_the_parser_is_gone(monkeypatch):
+    monkeypatch.setattr(og, "Expression", None)
+    assert og.browser_tier_requested("browser") is True
+    assert og.browser_tier_requested("not integration and not browser") is False
+
+
 def test_unparseable_marker_expression_does_not_request_the_tier():
     """A malformed -m is pytest's error to report, not ours to abort on."""
     assert og.browser_tier_requested("browser and and") is False
@@ -79,6 +100,12 @@ def test_guard_is_silent_when_the_tier_was_not_requested():
         og.browser_guard_reason("not integration and not browser", has_module=lambda name: False)
         is None
     )
+
+
+def test_guard_survives_a_renamed_browser_group(monkeypatch):
+    """The ratchet test cannot report a rename if collection never starts."""
+    monkeypatch.setattr(og, "OPTIONAL_GROUPS", {"web": ["playwright"]})
+    assert og.browser_guard_reason("browser", has_module=lambda name: False) is None
 
 
 # --- the terminal-summary banner --------------------------------------------
