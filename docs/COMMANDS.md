@@ -232,6 +232,24 @@ covers the diagnostics too — the target echo must degrade rather than abort.
 Dev server runs on port 8001 with `--reload`. Always run from a git worktree — never the main checkout.
 Accessible via exe.dev proxy at `https://power-map.exe.xyz:8001/`.
 
+### Worktree setup (run once, right after `worktree-create.sh`)
+
+```bash
+bash scripts/worktree-setup.sh <worktree-path>   # default: current directory
+```
+
+Gives the worktree **its own** `.venv` (`uv sync --group browser --group seed`) and symlinks
+the gitignored `.env` from the main checkout. Refuses (exit 2) against the main checkout.
+
+`worktree-create.sh` (vendored skill) links a new worktree's `.venv` at the main checkout's —
+and the main checkout is production's working directory. Nine `power-map*` units run `uv run`
+there, `power-map-ready` every two minutes; `uv run` reinstalls the project, so a shared venv
+gets its version metadata restamped to main's mid-suite, and `power-map.service`'s
+`ExecStartPre=uv sync` prunes the opt-in groups outright (#450). With a warm uv cache the
+per-worktree sync takes under a second and hardlinks into `~/.cache/uv`, so the link never
+paid for the shared mutable state. It also means a worktree's dependency changes can no
+longer mutate the environment the live uvicorn workers import from.
+
 ```bash
 # Build --env-file flags (see § Environment)
 env_args=()

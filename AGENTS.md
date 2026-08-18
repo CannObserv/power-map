@@ -99,10 +99,11 @@ Single VM; port split:
 
 **All development work must be done in a git worktree** — never edit the main checkout directly. `brainstorming` is the entry point that triggers worktree setup via `using-git-worktrees`. After teardown, run `git worktree prune`.
 
-**Worktree `.env` setup (required after creation):** The `.env` file is gitignored and not copied into worktrees automatically. `TEST_DATABASE_URL` now lives in `/etc/power-map/.env` (written by `scripts/write-db-secrets.sh`), but the repo `.env` is still needed for `GH_TOKEN`. After `worktree-create.sh`, always symlink it:
+**Worktree setup (required after creation, #450):** run
 ```bash
-ln -s "$(git rev-parse --show-toplevel)/.env" <worktree-path>/.env
+bash scripts/worktree-setup.sh <worktree-path>
 ```
+It replaces the `.venv` symlink `worktree-create.sh` leaves behind with a real per-worktree environment (`uv sync --group browser --group seed`) and symlinks the gitignored `.env` (still needed for `GH_TOKEN`; `TEST_DATABASE_URL` comes from `/etc/power-map/.env`). **Never share a venv with the main checkout** — that is production's working directory, where nine systemd units run `uv run` (`power-map-ready` every 2 min, restamping the project version mid-suite) and `power-map.service`'s `ExecStartPre=uv sync` prunes the opt-in groups, silently deleting the browser tier. Refuses (exit 2) against the main checkout.
 
 exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 

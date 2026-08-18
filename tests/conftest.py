@@ -18,6 +18,7 @@ import pytest_asyncio
 
 from src.core.db import apply_schema
 from src.core.normalizers import address as addr_mod
+from tests import optional_groups
 from tests.db_utils import reset_data_tables
 
 INTEGRATION_SKIP_REASON = (
@@ -35,6 +36,22 @@ def pytest_configure(config):
     # The test db_pool fixture passes explicit min/max and ignores these.
     os.environ.setdefault("DB_POOL_MIN_SIZE", "1")
     os.environ.setdefault("DB_POOL_MAX_SIZE", "2")
+    # #450: asking for the browser tier against an environment `uv sync` has
+    # pruned collects nothing and exits 0. Abort instead of passing vacuously.
+    reason = optional_groups.browser_guard_reason(getattr(config.option, "markexpr", "") or "")
+    if reason:
+        pytest.exit(reason, returncode=2)
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Name any optional group this run could not cover (#450).
+
+    A pruned environment makes whole tiers `importorskip` away; without this
+    line a green summary silently overstates what was verified.
+    """
+    missing = optional_groups.missing_optional_groups()
+    if missing:
+        terminalreporter.write_sep("!", optional_groups.missing_groups_banner(missing), red=True)
 
 
 def pytest_collection_modifyitems(config, items):

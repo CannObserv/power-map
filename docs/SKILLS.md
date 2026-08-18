@@ -59,10 +59,20 @@ To add a new external skill repo: follow the `managing-skills` skill.
 | `writing-skills` | `obra-superpowers` | write skill, new skill, author skill |
 | `subagent-driven-development` | `obra-superpowers` | subagent dev, dispatch agents |
 | `dispatching-parallel-agents` | `obra-superpowers` | parallel agents |
-| `using-git-worktrees` | `gregoryfoster-skills` | create worktree, new worktree, destroy worktree, wt |
+| `using-git-worktrees` | `gregoryfoster-skills` | create worktree, new worktree, destroy worktree, wt ² |
 | `managing-skills` | `gregoryfoster-skills` | add skill repo, add external skills, manage skills |
 | `orchestrating-issue-backlog` | `gregoryfoster-skills` | orchestrate backlog, prioritize issues, plan issue execution, clear backlog |
 | `curating-context` | `gregoryfoster-skills` | curate context, context budget, hone AGENTS.md, trim AGENTS.md, prune context |
+
+² **Project override — `using-git-worktrees` (#450):** its `worktree-create.sh` links a new
+worktree's `.venv` at the main checkout's. Here the main checkout is production's working
+directory, so that shared venv is rewritten by the service's own tooling — `uv run` (nine
+systemd units, one every 2 min) restamps the project version, `uv sync` (ExecStartPre)
+prunes the opt-in groups. `scripts/worktree-setup.sh` undoes the link straight after
+creation; it is not redundant with the skill, it deliberately reverses one of its steps.
+Opt-out requested upstream in [gregoryfoster/skills#201](https://github.com/gregoryfoster/skills/issues/201) —
+per the vendored-skill policy, never edit `skills-vendor/`. Details → `docs/COMMANDS.md`
+§ Development.
 
 ¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
 
