@@ -457,3 +457,85 @@ async def test_positionless_house_seat_empty_qualifier_rejected(db):
         assert disp is Disposition.REJECTED, f"qualifier={blank!r}"
         assert rid == ""
         assert reason is not None and "qualifier_required" in reason
+
+
+# --- at-large / block-voting multi-member seats (#302) ---
+
+
+async def test_at_large_seat_accepted_without_qualifier(db):
+    """A pre-1965 at-large seat resolves with no qualifier and a synthesized title.
+
+    The at-large era had no Position designation; `requires_qualifier=False` on
+    the at-large type is what lets the positionless tuple through, while
+    `state_representative` keeps rejecting it (#273).
+    """
+    org, jur = await _org(db), await _wa_ld(db, 13)
+    rid, disp, reason = await resolve_role(
+        db, org, None, role_type="state_representative_at_large", jurisdiction_id=jur
+    )
+    assert disp is Disposition.NEW, reason
+    title = await db.fetchval("SELECT title FROM roles WHERE id=$1", rid)
+    assert title == "Washington State Representative (At-Large), LD-13"
+    assert await db.fetchval("SELECT qualifier FROM roles WHERE id=$1", rid) is None
+
+
+async def test_at_large_seat_auto_attaches(db):
+    """One at-large role per district — a second observation attaches, never mints."""
+    org, jur = await _org(db), await _wa_ld(db, 14)
+    kw = dict(role_type="state_representative_at_large", jurisdiction_id=jur)
+    id1, disp1, _ = await resolve_role(db, org, None, **kw)
+    id2, disp2, _ = await resolve_role(db, org, None, **kw)
+    assert disp1 is Disposition.NEW
+    assert disp2 is Disposition.AUTO_ATTACHED
+    assert id1 == id2
+
+
+async def test_at_large_and_positioned_seats_are_distinct_roles(db):
+    """Same district row, different eras — the role_type keeps them apart (#302).
+
+    usa-wa reuses the current `usa-wa-ld-N` rows for pre-1965 tenures, so this
+    is the ordinary case, not an edge case.
+    """
+    org, jur = await _org(db), await _wa_ld(db, 15)
+    at_large, d1, _ = await resolve_role(
+        db, org, None, role_type="state_representative_at_large", jurisdiction_id=jur
+    )
+    positioned, d2, _ = await resolve_role(
+        db,
+        org,
+        None,
+        role_type="state_representative",
+        jurisdiction_id=jur,
+        qualifier="Position 1",
+    )
+    assert d1 is Disposition.NEW
+    assert d2 is Disposition.NEW
+    assert at_large != positioned
+
+
+async def test_at_large_role_holds_concurrent_assignments(db):
+    """N fungible seats = N concurrent assignments on ONE role, not N rows (#302).
+
+    Fungible means un-individuated: the seat is not the identity, the membership
+    is. Nothing in the schema forbids two people occupying one role over the same
+    window — `uq_role_assignment_person_role_start` keys on person as well.
+    """
+    org, jur = await _org(db), await _wa_ld(db, 16)
+    rid, disp, _ = await resolve_role(
+        db, org, None, role_type="state_representative_at_large", jurisdiction_id=jur
+    )
+    assert disp is Disposition.NEW
+
+    for _ in range(2):
+        pid = generate_id()
+        await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        await db.execute(
+            "INSERT INTO role_assignments (id, person_id, role_id, start_date, end_date)"
+            " VALUES ($1,$2,$3,'1901-01-14','1903-01-12')",
+            generate_id(),
+            pid,
+            rid,
+        )
+
+    n = await db.fetchval("SELECT count(*) FROM role_assignments WHERE role_id=$1", rid)
+    assert n == 2

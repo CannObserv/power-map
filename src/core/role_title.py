@@ -20,9 +20,14 @@ _LD_SLUG_RE = re.compile(r"^usa-wa-ld-(\d+)$")
 # role_type slug -> title base. Reproduces the #263 seed titles exactly:
 #   "Washington State Senator, LD-{n}"
 #   "Washington State Representative, LD-{n}, Position {p}"
+#   "Washington State Representative (At-Large), LD-{n}"   (#302, pre-1965)
 _WA_ROLE_TITLE_BASE = {
     "state_senator": "Washington State Senator",
     "state_representative": "Washington State Representative",
+    # The at-large era carried no Position designation, so the qualifier is NULL
+    # and the base itself has to say "at-large" — otherwise the rendered title is
+    # indistinguishable from a positioned seat whose position went missing.
+    "state_representative_at_large": "Washington State Representative (At-Large)",
 }
 
 

@@ -57,6 +57,22 @@ async def test_role_types_seeded(db):
     assert {"state_representative", "state_senator"} <= slugs
 
 
+async def test_at_large_role_type_seeded_positionless(db):
+    """The at-large seat type exists and does NOT require a qualifier (#302).
+
+    Seeded ahead of the data because `role_types` has no remote write path —
+    resolve_role rejects an unknown slug, so an unseeded type would bounce every
+    pre-1965 observation as `role_type_not_found`.
+    """
+    row = await db.fetchrow(
+        "SELECT expects_jurisdiction, requires_qualifier FROM role_types"
+        " WHERE slug='state_representative_at_large'"
+    )
+    assert row is not None, "state_representative_at_large not seeded"
+    assert row["expects_jurisdiction"] is True
+    assert row["requires_qualifier"] is False
+
+
 # --- new structural columns exist ---
 
 
@@ -199,6 +215,69 @@ async def test_two_structural_roles_same_title_distinct_qualifier_ok(db):
         jur,
     )
     assert n == 2
+
+
+async def test_at_large_seat_coexists_with_positioned_seats_same_district(db):
+    """At-large and positioned seats share one district row without colliding (#302).
+
+    usa-wa reuses the *current* `usa-wa-ld-N` jurisdiction rows for pre-1965
+    tenures, so all three roles hang off the same district. They stay distinct
+    because `uq_role_structural` keys on role_type as well — the at-large row's
+    NULL qualifier only has to be unique within its own type.
+    """
+    org = await _make_org(db)
+    jur = await _make_jurisdiction(db)
+    positioned = await _role_type_id(db, "state_representative")
+    at_large = await _role_type_id(db, "state_representative_at_large")
+
+    for rt, title, q in (
+        (positioned, "State Representative", "Position 1"),
+        (positioned, "State Representative", "Position 2"),
+        (at_large, "State Representative (At-Large)", None),
+    ):
+        await db.execute(
+            "INSERT INTO roles "
+            "(id, organization_id, title, role_type_id, jurisdiction_id, qualifier) "
+            "VALUES ($1,$2,$3,$4,$5,$6)",
+            generate_id(),
+            org,
+            title,
+            rt,
+            jur,
+            q,
+        )
+
+    n = await db.fetchval(
+        "SELECT count(*) FROM roles WHERE organization_id=$1 AND jurisdiction_id=$2",
+        org,
+        jur,
+    )
+    assert n == 3
+
+
+async def test_at_large_seat_null_qualifier_unique_per_district(db):
+    """One at-large role per district — multiplicity is assignments, not rows (#302)."""
+    org = await _make_org(db)
+    jur = await _make_jurisdiction(db)
+    rt = await _role_type_id(db, "state_representative_at_large")
+    args = ("State Representative (At-Large)", rt, jur, None)
+    await db.execute(
+        "INSERT INTO roles "
+        "(id, organization_id, title, role_type_id, jurisdiction_id, qualifier) "
+        "VALUES ($1,$2,$3,$4,$5,$6)",
+        generate_id(),
+        org,
+        *args,
+    )
+    with pytest.raises(asyncpg.UniqueViolationError):
+        await db.execute(
+            "INSERT INTO roles "
+            "(id, organization_id, title, role_type_id, jurisdiction_id, qualifier) "
+            "VALUES ($1,$2,$3,$4,$5,$6)",
+            generate_id(),
+            org,
+            *args,
+        )
 
 
 async def test_duplicate_structural_role_rejected(db):

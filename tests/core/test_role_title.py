@@ -46,6 +46,27 @@ def test_representative_title_with_position():
     )
 
 
+def test_at_large_title_no_qualifier():
+    """A pre-1965 at-large seat renders without a position (#302).
+
+    The at-large era had no Position designation, so the qualifier is NULL and
+    the label itself has to carry "at-large" — otherwise the title is
+    indistinguishable from a positioned seat whose position went missing.
+    """
+    assert (
+        wa_legislative_role_title("state_representative_at_large", 5, None)
+        == "Washington State Representative (At-Large), LD-5"
+    )
+
+
+def test_synthesize_at_large_from_slug():
+    """usa-wa reuses the current district rows, so the modern slug form parses."""
+    assert (
+        synthesize_role_title("state_representative_at_large", "usa-wa-ld-11", None)
+        == "Washington State Representative (At-Large), LD-11"
+    )
+
+
 def test_empty_qualifier_adds_no_suffix():
     assert wa_legislative_role_title("state_senator", 3, "") == "Washington State Senator, LD-3"
 

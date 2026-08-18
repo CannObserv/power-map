@@ -1946,7 +1946,14 @@ END $$;
 -- office normally attached with a jurisdiction (#268/#271) — only the two seat
 -- rows are; the upsert backfills it on existing rows. requires_qualifier (#273)
 -- is TRUE only for per-position districted offices: a WA House seat is positioned
--- (Position 1/2), a state senator is one-per-district (NULL qualifier is valid).
+-- (Position 1/2), a state senator is one-per-district (NULL qualifier is valid),
+-- and state_representative_at_large (#302 — the pre-1965 WA House, before Ch. 52
+-- Laws of 1965 introduced Position 1/2) is deliberately positionless: its seats
+-- were fungible, so the qualifier stays NULL and multiplicity is expressed as N
+-- concurrent role_assignments on the one role. Seeded ahead of the data, unlike
+-- the reserved peers below, because role_types has NO remote write path —
+-- resolve_role rejects an unknown slug, so an unseeded type would bounce every
+-- pre-1965 observation as `role_type_not_found`.
 -- #266 vocab (all non-jurisdictional, expects_jurisdiction/requires_qualifier
 -- FALSE): coarse chamber_leader/chamber_officer/legislature_staff/party_member
 -- (specific office carried by the free-text title) + the committee positions.
@@ -1957,6 +1964,7 @@ END $$;
 INSERT INTO role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier) VALUES
     ('01KX0000000000000000000001', 'state_representative',                'State Representative',                TRUE,  TRUE),
     ('01KX0000000000000000000002', 'state_senator',                      'State Senator',                      TRUE,  FALSE),
+    ('01KX000000000000000000000D', 'state_representative_at_large',      'State Representative (At-Large)',    TRUE,  FALSE),
     ('01KX0000000000000000000004', 'chamber_leader',                     'Chamber Leader',                     FALSE, FALSE),
     ('01KX0000000000000000000005', 'chamber_officer',                    'Chamber Officer',                    FALSE, FALSE),
     ('01KX0000000000000000000006', 'committee_chair',                    'Committee Chair',                    FALSE, FALSE),
