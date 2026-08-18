@@ -20,6 +20,17 @@ setup() {
     [[ "$output" == *"main checkout"* ]]
 }
 
+@test "a bare-flagged main checkout still gets the refusal, not git's fatal" {
+    # `core.bare = true` on a repo that does have a work tree makes
+    # `rev-parse --show-toplevel` fail (exit 128) — so canonicalising before
+    # the guard must degrade, or the most common misuse loses its message.
+    # Not hypothetical: this repo's main checkout was left in that state.
+    git -C "$FAKE_MAIN" config core.bare true
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_MAIN"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"main checkout"* ]]
+}
+
 @test "refuses a path that is not a git worktree" {
     mkdir -p "$BATS_TEST_TMPDIR/loose"
     run bash "$(repo_root)/scripts/worktree-setup.sh" "$BATS_TEST_TMPDIR/loose"

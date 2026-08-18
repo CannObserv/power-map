@@ -60,6 +60,22 @@ if ! git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1; then
     exit 2
 fi
 
+# Canonicalise to the checkout root *before* anything reads $TARGET, so the
+# guard below and the work further down can never disagree about which
+# directory is being set up. Everything here is root-relative: the shared
+# .venv symlink lives at the root, and `uv sync` resolves the project root
+# itself — so from a subdirectory the symlink would go unseen and the sync
+# would install straight through it into the main checkout's venv, which is
+# the whole thing this script exists to prevent.
+#
+# It degrades rather than aborting because `--show-toplevel` fails outright on
+# a repo carrying `core.bare = true` despite having a work tree — a state this
+# project's main checkout was actually left in. That is the path the guard
+# below refuses anyway, and its message is far more useful than git's fatal,
+# so an unresolvable root is re-checked *after* the guard instead.
+TARGET_ROOT="$(cd "$TARGET" && git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$TARGET_ROOT" ] && TARGET="$TARGET_ROOT"
+
 # Read the raw paths first and refuse an empty answer rather than resolving it:
 # `cd ""` *succeeds* in bash, so an empty --git-dir would resolve to $TARGET,
 # mismatch the common dir and read as a linked worktree — in the main checkout
@@ -90,12 +106,12 @@ EOF
     exit 2
 fi
 
-# The guard passes from any subdirectory of the worktree, but everything below
-# is root-relative: a shared .venv symlink lives at the root, and `uv sync`
-# resolves the project root itself — so from a subdir the symlink would go
-# unseen and the sync would install straight through it into the main
-# checkout's venv, which is the whole thing this script exists to prevent.
-TARGET="$(cd "$TARGET" && git rev-parse --show-toplevel)"
+# A linked worktree always has a work tree, so an unresolvable root here is
+# unexplained — never guess, the cost of being wrong is production's venv.
+if [ -z "$TARGET_ROOT" ]; then
+    echo "ERROR: git did not report a checkout root for $TARGET — refusing to guess" >&2
+    exit 2
+fi
 
 # The main worktree is the first entry of `git worktree list --porcelain`, by
 # definition — deriving it from the common dir would assume a <main>/.git
