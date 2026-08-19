@@ -116,18 +116,6 @@
 </h2>
 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-5);margin-bottom:var(--space-7)">
 
-  {# Import History #}
-  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
-    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
-      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">Import History</h3>
-      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.imports }} records</span>
-    </div>
-    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
-      Audit log of CSV ingestion batches and their outcomes.
-    </p>
-    <a href="/admin/imports/" class="btn btn--sm btn--secondary">View →</a>
-  </div>
-
   {# API Activity (24h) #}
   <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
@@ -153,5 +141,16 @@
     <a href="/admin/activity/requests/" class="btn btn--sm btn--secondary">View →</a>
   </div>
 
+  {# Import History #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">Import History</h3>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">{{ counts.imports }} records</span>
+    </div>
+    <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
+      Audit log of CSV ingestion batches and their outcomes.
+    </p>
+    <a href="/admin/imports/" class="btn btn--sm btn--secondary">View →</a>
+  </div>
 </div>
 {% endblock %}
