@@ -118,6 +118,16 @@ async def test_dashboard_has_api_activity_panel(client):
     assert 'href="/admin/activity/requests/"' in resp.text
 
 
+async def test_dashboard_activity_cards_api_activity_first(client):
+    """Activity cards render API Activity before Import History. Both headings
+    appear only inside the card grid within the <main> region, so
+    first-occurrence position there reflects card order."""
+    resp = await client.get("/admin/", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    content = resp.text.split('id="main-content"')[1]
+    assert_render_order(content, [">API Activity<", ">Import History<"])
+
+
 async def test_dashboard_has_org_dup_badge_slot(client):
     """Org dup badge loaded async; dashboard must contain the HTMX slot, not inline count."""
     resp = await client.get("/admin/", headers=AUTH_HEADERS)
