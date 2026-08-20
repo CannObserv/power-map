@@ -63,6 +63,8 @@ To add a new external skill repo: follow the `managing-skills` skill.
 | `managing-skills` | `gregoryfoster-skills` | add skill repo, add external skills, manage skills |
 | `orchestrating-issue-backlog` | `gregoryfoster-skills` | orchestrate backlog, prioritize issues, plan issue execution, clear backlog |
 | `curating-context` | `gregoryfoster-skills` | curate context, context budget, hone AGENTS.md, trim AGENTS.md, prune context |
+| `init-socraticode` | `gregoryfoster-skills` | init socraticode, set up code search, index this project, socraticode setup ³ |
+| `init-project-fastapi` | `gregoryfoster-skills` | init project, bootstrap project, new fastapi project, set up foundation ³ |
 
 ² **Project override — `using-git-worktrees` (#450):** its `worktree-create.sh` links a new
 worktree's `.venv` at the main checkout's. Here the main checkout is production's working
@@ -75,6 +77,8 @@ per the vendored-skill policy, never edit `skills-vendor/`. Details → `docs/CO
 § Development.
 
 ¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
+
+³ **Initializers — power-map is long past bootstrap.** Neither is for setting this project up again. `init-socraticode` is linked for its **audit re-run** (`references/audit-rerun.md`): every phase is idempotent, so re-running it re-validates the policy block, manifest, hooks and graph yield, and is the only thing that catches a manifest the server silently rejected. `init-project-fastapi` is linked for its reference docs, which are the written form of several conventions this repo already follows. A re-run overwrites `docs/SOCRATICODE.md` wholesale — see the divergence blocks there before running one.
 
 ## SocratiCode MCP Tools
 
