@@ -14,27 +14,28 @@ TDD required. Red → Green → Refactor. No production code without a failing t
 
 Python ≥3.12, uv, pytest, ruff; Node ≥22, npm, vitest + ESLint + Prettier (JS only); bats + shellcheck (shell); pre-commit (git hooks)
 
+<!-- BEGIN socraticode-policy -->
 ## Code Exploration Policy
 
-SocratiCode tools are deferred — schemas aren't loaded at session start. Call `ToolSearch` with the `select:…` prefetch query before using any `codebase_*` tool. The query is not repeated here: `.claude/hooks/socraticode-reminder.sh` prints it verbatim at every SessionStart, so copy it from there (or from the session's opening reminder).
+SocratiCode is the preferred semantic-search tool here (local Qdrant store +
+on-disk graph; manifest `.socraticodecontextartifacts.json`). Its MCP tools are
+**deferred** — schemas load only after the `ToolSearch` prefetch that
+`.claude/hooks/socraticode-reminder.sh` prints each session.
 
-**Negative rule.** Broad semantic questions (feature location, architecture, what-uses-what) → SocratiCode. `grep`/`ripgrep` → exact string matches only. Explore subagent → path-pattern file walks only, not semantic search.
+**Negative rule.** Use SocratiCode MCP tools first for semantic questions
+("where is X", "how does Y work", "what depends on Z"). Reach for `grep`/`rg`
+only on exact strings (error messages, log lines, known symbols). Reserve the
+Explore subagent for path-pattern walks (`*.py` under `src/api/`), not semantic
+search.
 
 | Goal | Tool |
 |------|------|
-| Understand feature location | `codebase_search` (broad query) |
-| Find specific function/type | `codebase_search` (exact name) |
-| See imports and dependents | `codebase_graph_query` |
-| What breaks if I change X? | `codebase_impact` |
-| What does entry point do? | `codebase_flow` |
-| Who calls function X? | `codebase_symbol` |
-| List symbols in a file | `codebase_symbols` |
-| Spot circular dependencies | `codebase_graph_circular` |
-| Quantify coupling / structural issues | `codebase_graph_stats` |
-| Visualize structure | `codebase_graph_visualize` |
-| Verify index status | `codebase_status` |
-| Surface available knowledge artifacts | `codebase_context` |
-| Find schemas, endpoint contracts, infra configs | `codebase_context_search` |
+| Where is X defined / how does Y work / what touches Z | `codebase_search` |
+| Exact string or regex (errors, log lines, known symbols) | `grep` / `rg` |
+| Imports/dependents of a file · blast radius of a change | `codebase_graph_query` / `codebase_impact` |
+
+Full tool table, prefetch query, per-tool guidance: [`docs/SOCRATICODE.md`](docs/SOCRATICODE.md).
+<!-- END socraticode-policy -->
 
 ## Project Layout
 
@@ -205,4 +206,5 @@ Each line says what a task would need the doc for — load the one that matches,
 - [docs/AUDITS.md](docs/AUDITS.md) — the six recurring integrity audits; four carry systemd timers
 - [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP triage
 - [docs/RUNBOOK_DB_MIGRATION.md](docs/RUNBOOK_DB_MIGRATION.md) — DB cutover checklist, maintenance window, rollback
-- [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, hook form, SocratiCode MCP tools + index health (the daily `unresolved %` line is not a defect)
+- [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, hook command form, index health (the daily `unresolved %` line is not a defect)
+- [docs/SOCRATICODE.md](docs/SOCRATICODE.md) — the exploration policy's other half: full tool table, prefetch string, per-tool notes, graph health

@@ -78,7 +78,7 @@ per the vendored-skill policy, never edit `skills-vendor/`. Details → `docs/CO
 
 ## SocratiCode MCP Tools
 
-SocratiCode provides semantic search and dependency graph tools via MCP. Tool selection guide is in `AGENTS.md §Code Exploration Policy`. Infrastructure details:
+SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; the full tool table, prefetch string and per-tool notes live in [SOCRATICODE.md](SOCRATICODE.md). Infrastructure details:
 
 - **Index status:** `codebase_status` — check before relying on search results
 - **Initial setup / reindex:** use the `socraticode:codebase-management` skill
