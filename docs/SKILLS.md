@@ -33,7 +33,7 @@ Submodule freshness is maintained by the vendored `SessionStart` hook `.claude/h
 
 Replaced the legacy inline `UserPromptSubmit` one-liner, which committed submodule bumps on any branch and never refreshed the doctor. Do not re-add it — two mechanisms racing on the same submodule.
 
-The `command` string is the literal `bash .claude/hooks/skills-submodule-update.sh` (project-dir-relative, not `$CLAUDE_PROJECT_DIR`-prefixed like the other hooks): `managing-skills` keys its idempotence and uninstall jq on that exact string.
+The `command` string is `bash "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/skills-submodule-update.sh"`, the same anchored form as every other hook — see [Hook command form](#hook-command-form) below. An earlier note here claimed this one had to stay cwd-relative because `managing-skills` keyed its idempotence and uninstall jq on that exact string; it does not. Both the strip and the uninstall filter match on the *script path* substring precisely so an entry written in either form stays removable, and `install-refresh.sh --check` confirms it recognizes the anchored form.
 
 Force-refresh: `git submodule update --remote --merge -- skills-vendor/`
 
@@ -86,6 +86,36 @@ SocratiCode provides semantic search and dependency graph tools via MCP. Tool se
 - **Index lives at:** `~/.socraticode/` (process-local, not committed)
 - **After large refactors:** run `codebase_update` or trigger a full reindex via `socraticode:codebase-management` to keep the graph accurate
 - **Duplicate MCP config warning:** if both `mcp__plugin_socraticode_socraticode__*` and `mcp__socraticode__*` tool prefixes appear, the standalone MCP is duplicated — remove it: `claude mcp remove socraticode`
+
+### Health hook
+
+`.claude/hooks/socraticode-health.sh` — a `SessionStart` hook, symlinked into `skills-vendor/gregoryfoster-skills/skills/init-socraticode/scripts/`. Once per UTC day (`.git/socraticode-health.lock`), logs to `.git/socraticode-health.log`, exits `0` on every path.
+
+It **reports; it never repairs or re-indexes.** Silent when clean, so read a quiet session as healthy rather than as not-run — force a check with `SOCRATICODE_HEALTH_FORCE=1 bash .claude/hooks/socraticode-health.sh`.
+
+What it catches that three green lights do not:
+
+- a FAILED last operation or an INCOMPLETE index sitting unreported
+- a stopped Qdrant container or a missing embedding model
+- **graph yield and resolver health.** `READY` is a status, not a result: the graph can be READY with almost no edges, and `codebase_graph_query` then answers "no dependents" rather than failing. Yield is measured in edges/file against a `0.1` floor; unresolved call edges are warned above 50%.
+
+> **Open finding.** This repo currently reports **unresolved 65.7%** — edge yield is healthy (1.49 edges/file) but roughly two-thirds of call edges do not resolve to a target, so `codebase_graph_query` and `codebase_impact` are materially incomplete. Prefer `codebase_search` for semantic questions and corroborate impact analysis by hand until this is diagnosed.
+
+### Context artifacts
+
+`.socraticodecontextartifacts.json` points `codebase_context_search` at the project's non-code knowledge. Three entries: `src/core/schema.sql`, `AGENTS.md`, and `docs` — the last a **directory**, indexed recursively.
+
+Name directories, not files. The manifest previously listed four individual docs; the #407 split grew the tree to 32 and left 29 unreachable, which reads as "no results" rather than "not indexed". Globs do not work — the server `stat()`s the literal value. Guarded by `tests/test_context_artifacts.py`, which fails if any `docs/*.md` stops being reachable.
+
+## Hook command form
+
+Every entry in `.claude/settings.json` uses:
+
+```
+bash "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/<script>.sh"
+```
+
+The `:-.` fallback is load-bearing. A bare `$CLAUDE_PROJECT_DIR` becomes `bash "/.claude/hooks/…"` when the variable is unset and errors on every session start; a cwd-relative command runs the wrong file when the hook process starts anywhere but the repo root. Guarded by `tests/sh/claude_hooks.bats`, which also asserts every registered hook exists and every hook symlink resolves.
 
 ## Local Overrides
 

@@ -205,4 +205,4 @@ Each line says what a task would need the doc for — load the one that matches,
 - [docs/AUDITS.md](docs/AUDITS.md) — the six recurring integrity audits; four carry systemd timers
 - [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP triage
 - [docs/RUNBOOK_DB_MIGRATION.md](docs/RUNBOOK_DB_MIGRATION.md) — DB cutover checklist, maintenance window, rollback
-- [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, SocratiCode MCP tools
+- [docs/SKILLS.md](docs/SKILLS.md) — vendored skills, submodule refresh, hook form, SocratiCode tools + index health (graph 65.7% unresolved)
