@@ -6,29 +6,14 @@
       "description": "PostgreSQL DDL — all tables, indexes, triggers, constraints, views (v_org_display_names, v_person_display_names), and seed data. Source of truth for the data model."
     },
     {
-      "name": "style-guide",
-      "path": "./docs/STYLE.md",
-      "description": "Admin dashboard UI style guide — design tokens, color palette, typography, component specs (forms, tables, modals, flash, HTMX patterns), spacing, accessibility, and inline editing conventions."
-    },
-    {
-      "name": "commands",
-      "path": "./docs/COMMANDS.md",
-      "description": "Common development commands — setup, running servers (prod/dev), testing, linting, formatting, DB operations, and deployment."
-    },
-    {
       "name": "agent-guidelines",
       "path": "./AGENTS.md",
-      "description": "Agent guidelines — project overview, development methodology (TDD), environment/tooling, project layout, admin/public API conventions, DB conventions, and ingestion pipeline patterns."
+      "description": "Agent guidelines — project overview, development methodology (TDD), environment/tooling, project layout, admin/public API conventions, DB conventions, and the index of the reference-docs tree."
     },
     {
-      "name": "skills",
-      "path": "./docs/SKILLS.md",
-      "description": "Agent skills directory — available skills, their locations (skills/ and .claude/skills/), and the agentskills.io discovery spec."
-    },
-    {
-      "name": "design-plans",
-      "path": "./docs/plans",
-      "description": "Historical feature design docs and implementation plans — covers CSV import, admin dashboard, org/person/role management, merging, API keys, addresses, accessibility, and infrastructure upgrades."
+      "name": "reference-docs",
+      "path": "./docs",
+      "description": "The whole reference-doc tree, indexed recursively. Domain and data: schema tables and indexes, validity windows, observation semantics, person/org names. Public API: auth, scopes, pagination, conditional requests, the change feed, and per-resource endpoint contracts. Admin dashboard: auth and archive model, HTMX partial patterns, UI components, forms, merge flows, visual style, accessibility. Operating it: everyday commands, test tiers, runbooks, recurring integrity audits, DB triage and migration. Also holds docs/plans — historical feature design docs and implementation plans."
     }
   ]
 }

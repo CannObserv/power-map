@@ -33,7 +33,7 @@ Submodule freshness is maintained by the vendored `SessionStart` hook `.claude/h
 
 Replaced the legacy inline `UserPromptSubmit` one-liner, which committed submodule bumps on any branch and never refreshed the doctor. Do not re-add it — two mechanisms racing on the same submodule.
 
-The `command` string is the literal `bash .claude/hooks/skills-submodule-update.sh` (project-dir-relative, not `$CLAUDE_PROJECT_DIR`-prefixed like the other hooks): `managing-skills` keys its idempotence and uninstall jq on that exact string.
+The `command` string is `bash "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/skills-submodule-update.sh"`, the same anchored form as every other hook — see [Hook command form](#hook-command-form) below. An earlier note here claimed this one had to stay cwd-relative because `managing-skills` keyed its idempotence and uninstall jq on that exact string; it does not. Both the strip and the uninstall filter match on the *script path* substring precisely so an entry written in either form stays removable, and `install-refresh.sh --check` confirms it recognizes the anchored form.
 
 Force-refresh: `git submodule update --remote --merge -- skills-vendor/`
 
@@ -63,6 +63,8 @@ To add a new external skill repo: follow the `managing-skills` skill.
 | `managing-skills` | `gregoryfoster-skills` | add skill repo, add external skills, manage skills |
 | `orchestrating-issue-backlog` | `gregoryfoster-skills` | orchestrate backlog, prioritize issues, plan issue execution, clear backlog |
 | `curating-context` | `gregoryfoster-skills` | curate context, context budget, hone AGENTS.md, trim AGENTS.md, prune context |
+| `init-socraticode` | `gregoryfoster-skills` | init socraticode, set up code search, index this project, socraticode setup ³ |
+| `init-project-fastapi` | `gregoryfoster-skills` | init project, bootstrap project, new fastapi project, set up foundation ³ |
 
 ² **Project override — `using-git-worktrees` (#450):** its `worktree-create.sh` links a new
 worktree's `.venv` at the main checkout's. Here the main checkout is production's working
@@ -76,9 +78,11 @@ per the vendored-skill policy, never edit `skills-vendor/`. Details → `docs/CO
 
 ¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
 
+³ **Initializers — power-map is long past bootstrap.** Neither is for setting this project up again. `init-socraticode` is linked for its **audit re-run** (`references/audit-rerun.md`): every phase is idempotent, so re-running it re-validates the policy block, manifest, hooks and graph yield, and is the only thing that catches a manifest the server silently rejected. `init-project-fastapi` is linked for its reference docs, which are the written form of several conventions this repo already follows. A re-run overwrites `docs/SOCRATICODE.md` wholesale — see the divergence blocks there before running one.
+
 ## SocratiCode MCP Tools
 
-SocratiCode provides semantic search and dependency graph tools via MCP. Tool selection guide is in `AGENTS.md §Code Exploration Policy`. Infrastructure details:
+SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; the full tool table, prefetch string and per-tool notes live in [SOCRATICODE.md](SOCRATICODE.md). Infrastructure details:
 
 - **Index status:** `codebase_status` — check before relying on search results
 - **Initial setup / reindex:** use the `socraticode:codebase-management` skill
@@ -86,6 +90,48 @@ SocratiCode provides semantic search and dependency graph tools via MCP. Tool se
 - **Index lives at:** `~/.socraticode/` (process-local, not committed)
 - **After large refactors:** run `codebase_update` or trigger a full reindex via `socraticode:codebase-management` to keep the graph accurate
 - **Duplicate MCP config warning:** if both `mcp__plugin_socraticode_socraticode__*` and `mcp__socraticode__*` tool prefixes appear, the standalone MCP is duplicated — remove it: `claude mcp remove socraticode`
+
+### Health hook
+
+`.claude/hooks/socraticode-health.sh` — a `SessionStart` hook, symlinked into `skills-vendor/gregoryfoster-skills/skills/init-socraticode/scripts/`. Once per UTC day (`.git/socraticode-health.lock`), logs to `.git/socraticode-health.log`, exits `0` on every path.
+
+It **reports; it never repairs or re-indexes.** Silent when clean, so read a quiet session as healthy rather than as not-run — force a check with `SOCRATICODE_HEALTH_FORCE=1 bash .claude/hooks/socraticode-health.sh`.
+
+What it catches that three green lights do not:
+
+- a FAILED last operation or an INCOMPLETE index sitting unreported
+- a stopped Qdrant container or a missing embedding model
+- **graph yield.** `READY` is a status, not a result: the graph can be READY with almost no edges, and `codebase_graph_query` then answers "no dependents" rather than failing. Yield is measured in edges/file against a `0.1` floor — that ratio, not `unresolvedPct`, is the verdict.
+
+#### Reading the daily `unresolved N%` line
+
+The hook reports `graph unresolved 65.7% (> 50%) — corroborates a resolver problem` here **every day, and that is not a defect.** `unresolvedPct` counts *call* edges whose callee resolves to no first-party symbol, so any codebase leaning on frameworks and stdlib runs high by construction — `asyncpg`, `ULID`, `os`, FastAPI and pytest are not in this repo and no re-index lowers it. Judge on `verdict` and edges/file; power-map is `verdict: ok` at 1.49 edges/file against a 0.1 floor.
+
+Verified rather than assumed, by the differential test: `codebase_graph_query` on `src/core/db.py` returns exactly one outbound edge (`src/core/logging.py` — precisely its one first-party import) and 217 unique importers, matching an `rg` sweep over every import spelling at 217. No misses, no false positives. **The import graph is exact; treat `codebase_graph_query` and `codebase_impact` as trustworthy.**
+
+Do not write the reverse of this into the docs — a sibling repo distrusted a correct tool for weeks on that misreading, costing an `rg` round-trip per dependency question (gregoryfoster/skills#198). The distinguishing signal for the real defect (SocratiCode#107) is *near-zero edges/file*, not a high percentage. If you do suspect the graph, re-run the differential test above rather than reasoning from the number.
+
+### The policy block is curation-exempt
+
+`AGENTS.md`'s `## Code Exploration Policy` sits between `<!-- BEGIN socraticode-policy -->` / `<!-- END socraticode-policy -->` markers. `curating-context` refuses to edit a marked policy block, so **that section cannot be trimmed by the budget skill** — it is the one part of `AGENTS.md` the token budget can never reclaim.
+
+That is the deliberate trade for idempotence: a marked block is patched in place by an `init-socraticode` re-run instead of taking the whole-span replace branch that silently eats repo-authored prose (skills#115). To shrink it, move content into this file or `SOCRATICODE.md` and re-run the skill — do not hand-edit between the markers, and do not expect `curating-context` to do it for you. `AGENTS.md` runs close to its 6000-token ceiling, so budget pressure has to go elsewhere.
+
+### Context artifacts
+
+`.socraticodecontextartifacts.json` points `codebase_context_search` at the project's non-code knowledge. Three entries: `src/core/schema.sql`, `AGENTS.md`, and `docs` — the last a **directory**, indexed recursively.
+
+Name directories, not files. The manifest previously listed four individual docs; the #407 split grew the tree to 32 and left 29 unreachable, which reads as "no results" rather than "not indexed". Globs do not work — the server `stat()`s the literal value. Guarded by `tests/test_context_artifacts.py`, which fails if any `docs/*.md` stops being reachable.
+
+## Hook command form
+
+Every entry in `.claude/settings.json` uses:
+
+```
+bash "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/<script>.sh"
+```
+
+The `:-.` fallback is load-bearing. A bare `$CLAUDE_PROJECT_DIR` becomes `bash "/.claude/hooks/…"` when the variable is unset and errors on every session start; a cwd-relative command runs the wrong file when the hook process starts anywhere but the repo root. Guarded by `tests/sh/claude_hooks.bats`, which also asserts every registered hook exists and every hook symlink resolves.
 
 ## Local Overrides
 
