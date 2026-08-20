@@ -2,14 +2,18 @@
 
 That file is **generated**: `init-socraticode` overwrites it wholesale on every
 audit re-run, and it carries no marker pair of its own because it *is* the
-policy block's overflow. Two sections in it are local corrections that the
-upstream template does not yet make, so a re-run would silently revert both:
+policy block's overflow. Three sections in it are local corrections that the
+upstream template does not yet make, so a re-run would silently revert them:
 
 1. **`unresolvedPct`** (gregoryfoster/skills#198) — the template never explains
    it, so consumers read the daily hook finding as a defect. A sibling repo did
    exactly that and distrusted a correct tool for weeks.
 2. **The 12-tool prefetch** (gregoryfoster/skills#209) — the vendored hook loads
    9 and omits three graph tools this project's own table recommends.
+3. **Resolve-but-unindexed** (gregoryfoster/skills#214) — the template's
+   per-tool note says only that a non-resolving manifest path is skipped
+   silently; #454 hit the harder case where the path resolves, the operation
+   completes, and the artifact still is not indexed — with no health finding.
 
 These tests are **meant to be deleted.** When the upstream template carries each
 explanation itself, drop the corresponding block from `docs/SOCRATICODE.md` and
@@ -91,9 +95,34 @@ def test_prefetch_block_survives_regeneration(doc: str) -> None:
         )
 
 
-def test_both_blocks_name_their_retirement_condition(doc: str) -> None:
-    """Each block points at the issue that retires it, so neither becomes permanent."""
-    for label, issue in (("unresolvedPct", 198), ("12-tool prefetch", 209)):
+def test_unindexed_artifact_block_survives_regeneration(doc: str) -> None:
+    """The resolve-but-unindexed correction is present and still explains itself."""
+    block = _block(doc, "resolve-but-unindexed")
+    assert block, "resolve-but-unindexed divergence block is gone. " + RETIREMENT_HINT.format(
+        issue=214
+    )
+
+    lowered = block.lower()
+    for concept, needle in (
+        ("that a completed operation can still leave an artifact out", "completed"),
+        ("where to look — per-artifact status via codebase_context", "codebase_context"),
+        ("the declared-vs-indexed distinction", "declared"),
+        ("the concurrent-indexing operational note", "concurrent"),
+    ):
+        assert needle in lowered, (
+            f"the resolve-but-unindexed block no longer explains {concept} — "
+            "markers around gutted content still pass a presence check, so this "
+            "asserts the substance. " + RETIREMENT_HINT.format(issue=214)
+        )
+
+
+def test_all_blocks_name_their_retirement_condition(doc: str) -> None:
+    """Each block points at the issue that retires it, so none becomes permanent."""
+    for label, issue in (
+        ("unresolvedPct", 198),
+        ("12-tool prefetch", 209),
+        ("resolve-but-unindexed", 214),
+    ):
         block = _block(doc, label)
         assert f"skills/issues/{issue}" in block, (
             f"the {label} block no longer names gregoryfoster/skills#{issue} as "
