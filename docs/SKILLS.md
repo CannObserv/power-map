@@ -97,9 +97,15 @@ What it catches that three green lights do not:
 
 - a FAILED last operation or an INCOMPLETE index sitting unreported
 - a stopped Qdrant container or a missing embedding model
-- **graph yield and resolver health.** `READY` is a status, not a result: the graph can be READY with almost no edges, and `codebase_graph_query` then answers "no dependents" rather than failing. Yield is measured in edges/file against a `0.1` floor; unresolved call edges are warned above 50%.
+- **graph yield.** `READY` is a status, not a result: the graph can be READY with almost no edges, and `codebase_graph_query` then answers "no dependents" rather than failing. Yield is measured in edges/file against a `0.1` floor — that ratio, not `unresolvedPct`, is the verdict.
 
-> **Open finding.** This repo currently reports **unresolved 65.7%** — edge yield is healthy (1.49 edges/file) but roughly two-thirds of call edges do not resolve to a target, so `codebase_graph_query` and `codebase_impact` are materially incomplete. Prefer `codebase_search` for semantic questions and corroborate impact analysis by hand until this is diagnosed.
+#### Reading the daily `unresolved N%` line
+
+The hook reports `graph unresolved 65.7% (> 50%) — corroborates a resolver problem` here **every day, and that is not a defect.** `unresolvedPct` counts *call* edges whose callee resolves to no first-party symbol, so any codebase leaning on frameworks and stdlib runs high by construction — `asyncpg`, `ULID`, `os`, FastAPI and pytest are not in this repo and no re-index lowers it. Judge on `verdict` and edges/file; power-map is `verdict: ok` at 1.49 edges/file against a 0.1 floor.
+
+Verified rather than assumed, by the differential test: `codebase_graph_query` on `src/core/db.py` returns exactly one outbound edge (`src/core/logging.py` — precisely its one first-party import) and 217 unique importers, matching an `rg` sweep over every import spelling at 217. No misses, no false positives. **The import graph is exact; treat `codebase_graph_query` and `codebase_impact` as trustworthy.**
+
+Do not write the reverse of this into the docs — a sibling repo distrusted a correct tool for weeks on that misreading, costing an `rg` round-trip per dependency question (gregoryfoster/skills#198). The distinguishing signal for the real defect (SocratiCode#107) is *near-zero edges/file*, not a high percentage. If you do suspect the graph, re-run the differential test above rather than reasoning from the number.
 
 ### Context artifacts
 
