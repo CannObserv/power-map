@@ -107,6 +107,12 @@ Verified rather than assumed, by the differential test: `codebase_graph_query` o
 
 Do not write the reverse of this into the docs — a sibling repo distrusted a correct tool for weeks on that misreading, costing an `rg` round-trip per dependency question (gregoryfoster/skills#198). The distinguishing signal for the real defect (SocratiCode#107) is *near-zero edges/file*, not a high percentage. If you do suspect the graph, re-run the differential test above rather than reasoning from the number.
 
+### The policy block is curation-exempt
+
+`AGENTS.md`'s `## Code Exploration Policy` sits between `<!-- BEGIN socraticode-policy -->` / `<!-- END socraticode-policy -->` markers. `curating-context` refuses to edit a marked policy block, so **that section cannot be trimmed by the budget skill** — it is the one part of `AGENTS.md` the token budget can never reclaim.
+
+That is the deliberate trade for idempotence: a marked block is patched in place by an `init-socraticode` re-run instead of taking the whole-span replace branch that silently eats repo-authored prose (skills#115). To shrink it, move content into this file or `SOCRATICODE.md` and re-run the skill — do not hand-edit between the markers, and do not expect `curating-context` to do it for you. `AGENTS.md` runs close to its 6000-token ceiling, so budget pressure has to go elsewhere.
+
 ### Context artifacts
 
 `.socraticodecontextartifacts.json` points `codebase_context_search` at the project's non-code knowledge. Three entries: `src/core/schema.sql`, `AGENTS.md`, and `docs` — the last a **directory**, indexed recursively.

@@ -21,12 +21,16 @@ Content checks, not just marker presence: markers wrapped around nothing would
 otherwise pass, which is precisely what a wholesale overwrite leaves behind.
 """
 
+import re
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOC_PATH = REPO_ROOT / "docs" / "SOCRATICODE.md"
+HOOK_PATH = REPO_ROOT / ".claude" / "hooks" / "socraticode-reminder.sh"
+
+TOOL_RE = re.compile(r"mcp__plugin_socraticode_socraticode__(codebase_[a-z_]+)")
 
 RETIREMENT_HINT = (
     "If gregoryfoster/skills#{issue} has landed the explanation upstream, delete "
@@ -108,4 +112,31 @@ def test_prefetch_string_matches_the_documented_tool_count(doc: str) -> None:
         f"the prefetch string lists {count} tools but the divergence block claims "
         "12. Update both together, or the doc contradicts itself the way the "
         "upstream template does (gregoryfoster/skills#209)."
+    )
+
+
+def test_doc_prefetch_matches_the_hook_that_actually_runs(doc: str) -> None:
+    """The doc's `select:` string lists exactly what the reminder hook emits.
+
+    The divergence block's whole premise is that this repo's hook diverges from
+    the vendored 9-tool one. That makes the hook and the doc a pair: if #209
+    resolves and someone switches the hook to the symlink form without touching
+    the doc, every other test here still passes while the doc asserts a prefetch
+    nobody runs — reintroducing one level up the exact inconsistency the block
+    exists to record.
+    """
+    assert HOOK_PATH.is_file(), f"missing {HOOK_PATH.relative_to(REPO_ROOT)}"
+
+    hook_tools = set(TOOL_RE.findall(HOOK_PATH.read_text()))
+    select_line = next(line for line in doc.splitlines() if line.strip().startswith("`select:"))
+    doc_tools = set(TOOL_RE.findall(select_line))
+
+    assert hook_tools, "no codebase_* tools found in the reminder hook"
+    assert hook_tools == doc_tools, (
+        "the reminder hook and docs/SOCRATICODE.md disagree about the prefetch.\n"
+        f"  only in the hook: {sorted(hook_tools - doc_tools) or 'none'}\n"
+        f"  only in the doc:  {sorted(doc_tools - hook_tools) or 'none'}\n"
+        "If the hook was switched to the vendored symlink form, update the doc's "
+        "select: string and the 12-tool divergence block together — or retire "
+        "both if gregoryfoster/skills#209 landed the extended prefetch upstream."
     )

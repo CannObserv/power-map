@@ -94,10 +94,15 @@ def test_every_reference_doc_is_covered(artifacts: list[dict]) -> None:
     def is_covered(doc: Path) -> bool:
         return any(doc == candidate or candidate in doc.parents for candidate in covered_paths)
 
+    # Recursive: a doc added under a new subdirectory must be caught too, not
+    # only top-level ones. docs/plans/ is excluded — 111 historical design docs
+    # that would drown any real failure message, and they are covered by the
+    # same directory entry regardless.
     uncovered = sorted(
         doc.relative_to(REPO_ROOT).as_posix()
-        for doc in (REPO_ROOT / "docs").glob("*.md")
-        if not is_covered(doc.resolve())
+        for doc in (REPO_ROOT / "docs").rglob("*.md")
+        if "plans" not in doc.relative_to(REPO_ROOT / "docs").parts
+        and not is_covered(doc.resolve())
     )
     assert not uncovered, (
         "reference docs not reachable by codebase_context_search: "

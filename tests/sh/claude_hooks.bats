@@ -21,12 +21,28 @@ load helpers
 # The hook symlinks point into skills-vendor/, which is uninitialized in a fresh
 # worktree or a shallow CI clone — so they dangle for a reason that is not drift.
 # .skills/doctor.sh is the project's own self-heal for exactly that state and is
-# the documented Phase 1 preflight for every reviewing-*/shipping-* skill; run it
-# once per file so the symlink assertions below measure drift rather than
-# checkout state. Best-effort: a doctor that cannot heal (no network) leaves the
-# assertions to fail with their own, more specific message.
+# the documented Phase 1 preflight for every reviewing-*/shipping-* skill.
+#
+# Heal ONLY when something actually dangles. The doctor's mutating path runs
+# `git submodule update --init --recursive` — a network clone of two submodules
+# in a fresh worktree — and re-syncs `.skills/doctor.sh` from the vendored copy
+# when the two differ. Calling it unconditionally would make this suite
+# network-dependent on every run, contradicting the hermetic contract
+# helpers.bash states, and would dirty the tree mid-commit in the window after a
+# submodule bump. `bats` runs from pre-commit with always_run, so that cost
+# would land on every commit.
+#
+# Best-effort even then: a doctor that cannot heal (offline) leaves the
+# assertions below to fail with their own, more specific message.
 setup_file() {
-    bash "$(cd "$BATS_TEST_DIRNAME/../.." && pwd)/.skills/doctor.sh" >/dev/null 2>&1 || true
+    local root entry
+    root="$(repo_root)"
+    for entry in "$root"/.claude/hooks/*; do
+        if [ -L "$entry" ] && [ ! -e "$entry" ]; then
+            bash "$root/.skills/doctor.sh" >/dev/null 2>&1 || true
+            return 0
+        fi
+    done
 }
 
 setup() {
