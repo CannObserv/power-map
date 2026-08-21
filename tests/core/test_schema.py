@@ -475,12 +475,16 @@ async def test_person_wa_legislature_roster_identifier_type_seeded(db):
     (an internal type can only resolve existing PM ULIDs).
     """
     row = await db.fetchrow(
-        "SELECT entity_type, is_internal FROM entity_identifier_types"
-        " WHERE slug = 'person_wa_legislature_roster'"
+        "SELECT entity_type, is_internal, display_name, full_name"
+        " FROM entity_identifier_types WHERE slug = 'person_wa_legislature_roster'"
     )
     assert row is not None, "person_wa_legislature_roster not found — check seed data in schema.sql"
     assert row["entity_type"] == "person"
     assert row["is_internal"] is False
+    # Pinned: #456 specified one label, which splits across PM's two name columns
+    # the way every sibling does — short badge, jurisdiction-prefixed long form.
+    assert row["display_name"] == "WA Legislature Roster"
+    assert row["full_name"] == "Washington State Legislature Roster Identity"
 
 
 # ---------------------------------------------------------------------------

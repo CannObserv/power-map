@@ -37,7 +37,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `identifier_type` | always | Must be a registered person identifier type slug (e.g. `person_wa_pdc`; `observo_speaker` for Observo operator-labeled voice speakers, value = an opaque Observo ULID; `person_wa_legislature_roster` (#456) for pre-1991 legislators from the WA Legislature's archival 1889–2025 roster — below the `person_wa_legislature_member_id` floor — value = `<name fold>:<first session year>`, e.g. `aeolson:1923`) |
+| `identifier_type` | always | Must be a registered person identifier type slug — see **Person identifier types** below |
 | `identifier_value` | always | Value for the identifier |
 | `names` | optional | List of `{name, name_type, is_canonical?}` — `name_type` must be a valid name type (e.g. `legal`, `preferred`); `is_canonical` defaults to `false`. Exact-match dedup: re-submitting the same name is a no-op. Canonical is scoped per `(person, name_type)` slot — a person may have one canonical `legal` and a separate canonical `preferred`. Unlike org names, person names do **not** auto-promote — a name is canonical only if explicitly submitted with `is_canonical: true`. The hint is ignored if a canonical already exists for that name's slot (never displaces). At most one entry per request may carry `is_canonical: true` (422 otherwise). |
 | `personal_pronouns` | optional | Free-text pronouns string (e.g. `they/them`). Written only if the field is currently null; ignored if already set. |
@@ -47,6 +47,17 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 | `addresses` | optional | List of `{raw_input, address_type, valid_from?, valid_until?}` — `address_type` must be `mailing`, `physical`, or `other` (default `other`). `valid_from`/`valid_until` (`YYYY-MM-DD`, optional; `valid_from` ≤ `valid_until`, 422 otherwise) bound the address validity window; NULL/omitted = open-ended on that side. A **dateless** claim dedups against any existing window (never resurrects an admin-ended address); a **dated** claim dedups on the exact window and records a fresh row for a new one (#256). |
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
 | `events` | optional | List of `{event_type_id XOR event_type_slug, pm_event_id?, op?, event_year?, event_month?, event_day?, event_hour?, event_minute?, event_second?, event_place_text?, event_place_address_id?, linked_entity_type?, linked_entity_id?, notes?, visibility?}`. `pm_event_id` refines in place; `op="retract"` archives it (#322) — both work on this embedded path too. See `docs/API_EVENTS.md` § Observation `events` surface for `pm_event_id`/`op` semantics. |
+
+**Person identifier types:** live inventory = admin Settings; seeded in `src/core/schema.sql`.
+Value conventions worth knowing:
+
+| Slug | Value |
+|------|-------|
+| `person_wa_pdc` | PDC numeric person-stable `person_id` |
+| `person_wa_legislature_member_id` | WSL member id — sponsor wire, bottoms out at 1991 |
+| `person_wa_legislature_roster` | `<name fold>:<first session year>`, e.g. `aeolson:1923` — archival 1889–2025 roster, the cohort below the member-id floor (#456) |
+| `observo_speaker` | opaque Observo ULID |
+| `pm_person_id` | PM Person ULID — internal: resolves an existing Person, never creates |
 
 **Disposition semantics:**
 
