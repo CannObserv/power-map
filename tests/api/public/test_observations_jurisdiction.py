@@ -553,3 +553,33 @@ async def test_rejected_unknown_type_includes_reason(client, jur_write_key):
     assert body["disposition"] == "rejected"
     assert body["reason"] is not None
     assert "zzz_nonexistent_xyz" in body["reason"]
+
+
+# ---------------------------------------------------------------------------
+# #456 CR2 — a rejection rolls back the entity resolve_entity just created
+# ---------------------------------------------------------------------------
+
+
+async def test_entity_type_mismatch_creates_no_person(client, jur_write_key, db):
+    """A person identifier on /jurisdictions/observations must not mint a Person.
+
+    The mismatch is only detectable after ``resolve_entity`` has created the
+    entity, so the guard has to roll it back rather than just return — otherwise
+    a bare Person survives behind a "rejected" response that withholds entity_id.
+    """
+    raw, _ = jur_write_key
+    value = "jur_mismatch_" + os.urandom(6).hex()
+
+    r = await _post(client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": value})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "entity_type_mismatch: 'person'"
+
+    stray = await db.fetchval(
+        """SELECT count(*) FROM identifiers i
+           JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+           WHERE t.slug = 'person_wa_pdc' AND i.value = $1""",
+        value,
+    )
+    assert stray == 0, "entity_type_mismatch left a stray person behind"

@@ -59,20 +59,24 @@ async def submit_people_observation(
     db=Depends(get_db),
 ) -> ObservationResponse:
     """Submit a person identity observation; attach to existing person or create a new one."""
-    entity_id, entity_type, disposition, reason = await resolve_entity(
-        db, request.identifier_type, request.identifier_value
-    )
-
-    if disposition is Disposition.REJECTED:
-        return ObservationResponse(disposition="rejected", reason=reason)
-    if entity_type != "person":
-        return ObservationResponse(
-            disposition="rejected",
-            reason=f"entity_type_mismatch: {entity_type!r}",
-        )
-
     try:
+        # Resolution + all writes share one transaction so any rejection rolls the
+        # whole observation back — nothing half-written (#456 CR2, mirroring the
+        # assignments route). resolve_entity *creates* on an unseen identifier, so
+        # running it outside meant a payload rejection left a bare, nameless Person
+        # committed while the response withheld entity_id: unreachable by the caller
+        # and indistinguishable from a real record. Both guards raise rather than
+        # return, so the rollback covers the entity_type mismatch too — posting an
+        # org identifier here used to mint an Organization and then say "rejected".
         async with db.transaction():
+            entity_id, entity_type, disposition, reason = await resolve_entity(
+                db, request.identifier_type, request.identifier_value
+            )
+            if disposition is Disposition.REJECTED:
+                raise ObservationRejected(reason or "rejected")
+            if entity_type != "person":
+                raise ObservationRejected(f"entity_type_mismatch: {entity_type!r}")
+
             await write_names(db, entity_id, entity_type, auth.key_id, request.names)
             await write_links(db, entity_id, entity_type, request.links)
             await write_contact_methods(db, entity_id, entity_type, request.contact_methods)

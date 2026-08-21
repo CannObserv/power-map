@@ -59,20 +59,21 @@ async def submit_org_observation(
     db=Depends(get_db),
 ) -> ObservationResponse:
     """Submit an organization identity observation; attach to existing org or create a new one."""
-    entity_id, entity_type, disposition, reason = await resolve_entity(
-        db, request.identifier_type, request.identifier_value
-    )
-
-    if disposition is Disposition.REJECTED:
-        return ObservationResponse(disposition="rejected", reason=reason)
-    if entity_type != "organization":
-        return ObservationResponse(
-            disposition="rejected",
-            reason=f"entity_type_mismatch: {entity_type!r}",
-        )
-
     try:
+        # Resolution + all writes share one transaction so any rejection rolls
+        # the whole observation back — nothing half-written (#456 CR2). See the
+        # people route for the full rationale: resolve_entity creates on an
+        # unseen identifier, so running it outside left a bare Organization committed
+        # behind a "rejected" response that withheld entity_id.
         async with db.transaction():
+            entity_id, entity_type, disposition, reason = await resolve_entity(
+                db, request.identifier_type, request.identifier_value
+            )
+            if disposition is Disposition.REJECTED:
+                raise ObservationRejected(reason or "rejected")
+            if entity_type != "organization":
+                raise ObservationRejected(f"entity_type_mismatch: {entity_type!r}")
+
             # Fail fast on an archived target before doing any write work (#240).
             if request.active is not None:
                 await write_org_active(db, entity_id, request.active)

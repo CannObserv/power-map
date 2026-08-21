@@ -40,7 +40,7 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
 | `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label (e.g. `"Main Office"`, `"Committee Hotline"`) |
 | `addresses` | optional | List of `{raw_input, address_type, valid_from?, valid_until?}` — `address_type` must be `mailing`, `physical`, or `other` (default `other`). `valid_from`/`valid_until` (`YYYY-MM-DD`, optional; `valid_from` ≤ `valid_until`, 422 otherwise) bound the address validity window; NULL/omitted = open-ended on that side. A **dateless** claim dedups against any existing window (never resurrects an admin-ended address); a **dated** claim dedups on the exact window and records a fresh row for a new one (#256). |
-| `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
+| `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes. **Internal (`pm_*`) types are refused here** (`rejected`, `Internal identifier type … cannot be assigned via observations`) — they address the entity via `identifier_type`, they are not attachable. **One value per type per entity:** re-sending the same value is a no-op, a *different* value for a type the entity already carries rejects the whole observation (`reason: identifier_conflict: '<slug>'`). |
 
 **Disposition semantics:**
 
@@ -48,7 +48,7 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 |-------------|-----------|
 | `new` | Identifier not seen before; jurisdiction created |
 | `auto-attached` | Identifier already known; existing entity returned |
-| `rejected` | Unknown identifier type; identifier belongs to a non-jurisdiction entity; required NEW fields missing; invalid `jurisdiction_type_slug`; slug collision with a different entity. A human-readable `reason` string is always present on rejected responses. |
+| `rejected` | Unknown identifier type; identifier belongs to a non-jurisdiction entity; an internal type in `additional_identifiers`; a conflicting `additional_identifiers` value (`identifier_conflict: '<slug>'`); required NEW fields missing; invalid `jurisdiction_type_slug`; slug collision with a different entity. A human-readable `reason` string is always present on rejected responses. |
 
 ### Implicit behaviors
 
