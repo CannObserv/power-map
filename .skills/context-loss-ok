@@ -28,3 +28,23 @@ docs/RUNBOOKS.md :: disproven :: §"Citations — write semantics".
 # --- #444: two AGENTS.md pointers whose target moved in this same change.
 AGENTS.md :: retarget :: full triage in `docs/RUNBOOKS.md` § Database unreachable (#410)
 AGENTS.md :: retarget :: one-off and scheduled data operations: importer, seeds, backfills, vocabulary migrations, audits
+
+# --- #456: three AGENTS.md lines whose pointer target moved in this same change.
+#     docs/CONVENTIONS.md §"Operational scripts" moved to docs/RUNBOOKS.md, so the
+#     policy file's "Full rules →" line and both index blurbs had to be re-aimed.
+#     The rules themselves relocated verbatim — see docs/RUNBOOKS.md.
+AGENTS.md :: retarget :: Operational scripts are dry run by default (#402/#399)
+AGENTS.md :: retarget :: ingestion, operational-script dry-run rules
+AGENTS.md :: retarget :: data operations: importer, seeds, role sweep, TTL prune
+
+# --- #456: the assignment-observation heading was renamed by its move.
+#     It left docs/OBSERVATIONS.md as a top-level "## Assignment observations —
+#     update semantics & provenance (#311)" and arrived in docs/API_ASSIGNMENTS.md
+#     under the existing "## Assignments" parent, so it is now "### Write semantics
+#     & provenance (#311)". Body text moved verbatim; only the heading changed.
+docs/OBSERVATIONS.md :: rename :: Assignment observations — update semantics & provenance
+
+# --- #456: the CONVENTIONS.md glance-index pointer for assignment observations.
+#     Its target moved to docs/API_ASSIGNMENTS.md §"Write semantics & provenance"
+#     in this same change; the one-line summary above it is unchanged.
+docs/CONVENTIONS.md :: retarget :: Full rules → `docs/OBSERVATIONS.md` §"Assignment observations

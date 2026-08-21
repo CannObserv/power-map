@@ -79,8 +79,8 @@ audits (#363). `--execute` reconciles the drift and always exits 0.
 
 `scripts/audit_assignment_duplicates.py` finds overlapping active assignment
 pairs for the same `(person, role)` — the duplicates minted when a producer's
-start_date correction missed the match key pre-#311 (see `docs/CONVENTIONS.md`
-§ "Assignment observations — update semantics & provenance"). Categories:
+start_date correction missed the match key pre-#311 (see `docs/API_ASSIGNMENTS.md`
+§ "Write semantics & provenance"). Categories:
 
 - `deepened_start` — wider (earlier-start) row created later: the producer-
   correction signature; auto-merged by `--execute`

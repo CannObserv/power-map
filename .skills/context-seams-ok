@@ -36,15 +36,15 @@ docs/ADMIN_PANELS.md :: ### Citations indicator on entity rows (#341)
 docs/COMMANDS.md :: ### Guards (#398)
 docs/COMMANDS.md :: ## Operational script targets (#399)
 docs/CONVENTIONS.md :: ## API request log (#260)
-docs/CONVENTIONS.md :: ## Operational scripts — dry run by default & target echo (#402)
+docs/RUNBOOKS.md :: ## Operational scripts — dry run by default & target echo (#402)
 docs/FORMS.md :: ### Clearing a selection (#358)
 docs/HTMX.md :: ## Activity › API Requests screens (#260)
 docs/NAMES.md :: ### Canonical name = the display pointer (issue #308)
 docs/NAMES.md :: ### Canonical auto-promotion on observation (#308)
 docs/NAMES.md :: ### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
 docs/OBSERVATIONS.md :: ## Org lifespan bounds on assignments (#307)
-docs/OBSERVATIONS.md :: ## Assignment observations — update semantics & provenance (#311)
-docs/OBSERVATIONS.md :: ### Retraction — `op="retract"` (#391)
+docs/API_ASSIGNMENTS.md :: ### Write semantics & provenance (#311)
+docs/API_ASSIGNMENTS.md :: #### Retraction — `op="retract"` (#391)
 docs/OBSERVATIONS.md :: ## Org parent — authoritative reparent & provenance (#334)
 docs/OBSERVATIONS.md :: ## Event observations — refine-in-place, partial-success, `succeeded_by` & retract (#321/#322)
 docs/ANCILLARY.md :: ## Merge dedup — role_assignment ancillary re-homing (#324)
@@ -123,3 +123,9 @@ docs/ANCILLARY.md :: ## Ancillary `entity_changes` emit — DB touch triggers (#
 # RUNBOOKS split — surfaced because that split made the sweep report them.
 docs/FORMS.md :: ## Mounting contract (#435)
 docs/TESTING.md :: ## Shell testing (bats, #373)
+
+# #456 — the stub left behind by the assignment-observation move. Same
+# provenance-heading judgement as the section it points at: the issue numbers
+# are how a reader finds the history, and the anchor is new either way.
+docs/OBSERVATIONS.md :: ## Assignment observations (#311/#391)
+

@@ -222,6 +222,94 @@ sudo systemctl start power-map-prune.service   # run once, now
 sudo journalctl -u power-map-prune -f          # logs (rows pruned per run)
 ```
 
+## Operational scripts — dry run by default & target echo (#402)
+
+
+`DATABASE_URL` comes from `/etc/power-map/.env` and resolves to **production**
+from any directory — main checkout, worktree, anywhere on the VM. Nothing about
+a `scripts/…` invocation signals that. Two rules follow, and they are separate
+concerns: the gate stops an unintended write, the echo makes an intended one
+attributable afterwards.
+
+**Every script that writes gates the write behind `--execute`.** The bare
+invocation is read-only and reports what would change. #398 fixed
+`apply-schema.sh`, the one script that wrote unconditionally; #402 found two
+more (`import_cannabis_observer.py`, `seed_locales_scripts.py`) and closed
+them. The convention was believed universal before that and was enforced by
+nothing — #399's AST sweep is what makes it stop depending on memory.
+
+**Every script echoes its target before connecting**, via `add_dsn_args()` +
+`resolve_dsn()` from `scripts/_dsn.py`:
+
+```
+target: co_pm_db_production_user@co-pm-db-1-….ondigitalocean.com:25060/co_pm_db_production (production)
+```
+
+The label is derived by matching `(host, port, dbname)` — **not** the DSN
+string. Production is reached as two different users (`DATABASE_URL` as the app
+user, `MIGRATIONS_DATABASE_URL` as the migrations user); string equality would
+label a migrations DSN `unknown`. Anything unmatched is
+`unknown — assume production`, never `test`: the consequence of guessing wrong
+runs one way.
+
+The uniform flags (#399):
+
+| Flag | Effect |
+|---|---|
+| *(none)* | `DATABASE_URL` — production |
+| `--database-url DSN` | that DSN |
+| `--test` | `TEST_DATABASE_URL`; **hard-errors when unset** — never falls back to `DATABASE_URL`, which would be a production write dressed as a test write |
+
+**Resolve last.** The echo means "about to connect", so `resolve_dsn` goes
+*after* any input validation that can abort the run — otherwise the journal
+records a database the run never opened, which is the false attribution the
+echo exists to prevent. `check_api_anomalies` extends this to its
+`threshold <= 0` short-circuit: a disabled run resolves nothing.
+
+Passing `--test` and `--database-url` together is an error, not a precedence
+rule. A script whose target flags are domain-named (`audit_schema_constraint_parity`
+takes `--target-url` / `--reference-url`) uses `default_dsn()` for the default
+and calls `echo_target(..., role=…)` per connection, so each gets its own line.
+
+`redact_dsn()` drops the password *and* the query string, and returns `None`
+for anything that is not a parseable URL. **Callers never fall back to printing
+the raw string**: `urlparse` hands back a libpq keyword/value DSN
+(`host=… password=…`) with the credentials in `path`, so a "best effort" echo
+would put the password in the journal. An absent database name renders `?`.
+
+Two shapes of dry run, both legitimate:
+
+| Shape | Used by | Note |
+|---|---|---|
+| Read-only preview | `seed_locales_scripts.py`, the `audit_*` scripts | Classify against current state; write nothing |
+| Real work, rolled back | `import_cannabis_observer.py` | The summary printed is the summary `--execute` produces |
+
+The rolled-back shape has one trap: **side effects outside the transaction do
+not roll back.** The importer parses addresses locally on a dry run
+(`ImportConfig.local_addresses_only`) rather than spending the rate-limited
+external validator's quota on a run that changes nothing — standardization
+fires whenever `ADDRESS_VALIDATOR_API_KEY` is set, independent of
+`--validate-addresses`, so that flag is the only lever. The cost is that
+address fields in a preview may differ from a committed run; the dry-run notice
+says so.
+
+Schema DDL is never implicit. `scripts/apply-schema.sh` owns applying
+`schema.sql` and carries the #398 production guards; the importer's
+`--apply-schema` is opt-in and requires `--execute`, because DDL inside a run
+about to be rolled back would be a lie.
+
+All three rules are enforced by `tests/scripts/test_dsn_sweep.py`, an AST sweep
+over every `scripts/*.py`: it connects ⇒ goes through `_dsn.py`; nobody reads
+`DATABASE_URL` directly; write SQL ⇒ declares `--execute`. **It has no
+allowlist** — an exemption set is a place for a live script to hide. If a new
+script genuinely cannot comply, change the sweep with a reason in the diff.
+
+`apply-schema.sh` deliberately keeps its **own copy** of the redaction logic
+rather than importing `_dsn.py` — it runs as `ExecStartPre` on the systemd
+unit, where an import failure would mean a failed production restart. The two
+copies are pinned in agreement by
+`tests/scripts/test_dsn.py::test_redaction_matches_apply_schema_sh`.
+
 ---
 
 ## Completed runbooks

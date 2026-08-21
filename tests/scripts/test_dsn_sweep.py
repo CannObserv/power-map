@@ -178,7 +178,7 @@ def test_connecting_script_resolves_through_dsn_module(path):
         pytest.skip("does not open a connection")
     assert uses_dsn_module(tree), (
         f"{path.name} opens a connection without importing resolve_dsn/echo_target from "
-        "scripts/_dsn.py — its target would never be echoed. See docs/CONVENTIONS.md "
+        "scripts/_dsn.py — its target would never be echoed. See docs/RUNBOOKS.md "
         '§"Operational scripts — dry run by default & target echo".'
     )
 
