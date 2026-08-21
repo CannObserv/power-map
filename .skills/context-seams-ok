@@ -154,10 +154,8 @@ docs/API_ASSIGNMENTS.md :: **Retraction — `op="retract"` (#391).** Closing is 
 
 docs/ADMIN.md :: Deliberate exception: the public API `/search` endpoints (orgs, people) filter archived rows behind an explicit, documented `include_archived=false` query param — opt-in, not silent — and stay as they are (see `docs/CONVENTIONS.md`).
 docs/ADMIN_PANELS.md :: Count predicates live in `src.core` next to the domain logic (`count_open_assignments`, and the banner-gating `resolve_lifespan_banner`, in `src.core.org_lifecycle`), never inlined per-route — neither the "open" definition nor the "when to warn" gating may drift between surfaces. Domain rules → `docs/OBSERVATIONS.md` §"Org lifespan bounds on assignments".
-docs/ANCILLARY.md :: Observation write semantics per kind are in `docs/OBSERVATIONS.md`; the tables
 docs/API_ASSIGNMENTS.md :: **Retraction — `op="retract"` (#391).** Closing is not retracting: `end_date` + `is_current=false` asserts the tenure *ended*, but a produced **artifact** — a tenure that never happened — needs the assertion that it *never existed*, and simply ceasing to produce the row orphans the anchored PM assignment. `op="retract"` **archives** the assignment (`archived_at`, never hard-delete) → disposition `retracted`; the outbox emits so subscribers mirror `archived_at` and drop the anchor, and the #301 cascade archives dependent `staff_of` edges with the seat.
 docs/API_ASSIGNMENTS.md :: resources share are in `docs/OBSERVATIONS.md`.
-docs/API_ENTITIES.md :: are in `docs/PUBLIC_API.md`; write semantics in `docs/OBSERVATIONS.md`.
 docs/API_EVENTS.md :: `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
 docs/API_JURISDICTIONS.md :: `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
 docs/API_ORGS.md :: `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
@@ -165,7 +163,6 @@ docs/API_PEOPLE.md :: `docs/OBSERVATIONS.md`; the other resources are indexed in
 docs/API_ROLES.md :: `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
 docs/AUDITS.md :: `docs/OBSERVATIONS.md` §"Citations — write semantics".
 docs/AUDITS.md :: `dissolved`/`merged_with` entity events — see `docs/OBSERVATIONS.md`
-docs/CHANGE_FEED.md :: `docs/API_ENTITIES.md`; write semantics in `docs/OBSERVATIONS.md`.
 docs/CONVENTIONS.md :: - Timestamps: `datetime` + `@field_serializer` → `TimestampStr` via `fmt_ts()`; `Z`, six-digit fraction; **never format in a handler** — `fmt_ts` is serializer-only. Four sweeps in `tests/api/public/test_timestamp_serialization.py` (#440) cover the formatter ban, `str`-typed timestamp fields, serializer coverage, and the published OpenAPI shape. Full rules → `docs/CONVENTIONS.md` §"Public API"
 docs/CONVENTIONS.md :: - Conditional GET (#292/#392): all of it lives in `src/api/public/etag.py`. A route calls `conditional_response(request, response, etag, last_modified)` and returns its result when non-None; it **never reads the `if-none-match` header itself**. Two validator shapes only — `collection_etag` (watermark) where the table has `updated_at`, `catalog_validator` (content hash) where no single one covers the rows; the aggregate must share the body's `WHERE`, and the validator is computed **before** the body. New ones declare `responses=NOT_MODIFIED` + join `_CONDITIONAL_GETS`. Three sweeps in `tests/api/public/test_conditional_get.py` enforce all of this. Full rules → `docs/CONVENTIONS.md` §"Public API"
 docs/CONVENTIONS.md :: - Observation atomicity (#456): resolution + payload share one transaction on the four identity-observation endpoints, so `rejected` = nothing written, entity included; the resolve and entity-kind guards raise inside the transaction rather than returning. The event-native endpoint is partial-success and exempt. Full rules → `docs/CONVENTIONS.md` §"Public API"
@@ -199,3 +196,11 @@ docs/CONVENTIONS.md :: Database tables and invariants live in `docs/SCHEMA.md`, 
 docs/OBSERVATIONS.md :: its ancillary rows. Table definitions live in `docs/SCHEMA.md`.
 docs/SCHEMA.md :: - Endpoint-test client: prefer the lifespan-less rollback client (`AsyncClient` + `ASGITransport` + `get_db` override yielding a BEGIN/ROLLBACK `db_pool` connection) over per-test `with TestClient(app)` — no per-test `asyncpg.create_pool`, auto rollback, no manual teardown (#288). Pure-unit route tests (mocked `get_db`) use `TestClient(app)` without `with`. Full rationale + recipe → `docs/SCHEMA.md` § Core rules. Reference: `tests/api/admin/test_orgs.py`.
 docs/TESTING.md :: recipes live in `docs/SCHEMA.md`; the a11y rules themselves in `docs/ACCESSIBILITY.md`.
+
+# --- #456 CR4: the three write-semantics pointers, re-acked after being
+#     qualified. Each now names the assignments exception explicitly instead
+#     of claiming OBSERVATIONS.md holds every kind (findings 21/22/24).
+
+docs/ANCILLARY.md :: Observation write semantics per kind are in `docs/OBSERVATIONS.md` — assignments
+docs/API_ENTITIES.md :: are in `docs/PUBLIC_API.md`; write semantics in `docs/OBSERVATIONS.md`, except
+docs/CHANGE_FEED.md :: `docs/API_ENTITIES.md`; write semantics in `docs/OBSERVATIONS.md` and, for

@@ -6,8 +6,8 @@ a role or an entity. They are polymorphic (`entity_type` + `entity_id`, no FK), 
 is what makes both rules necessary: a merge must re-home them by hand, and only a DB
 trigger can turn an edit into the parent's `entity_changes` signal.
 
-Observation write semantics per kind are in `docs/OBSERVATIONS.md`; the tables
-themselves in `docs/SCHEMA.md`.
+Observation write semantics per kind are in `docs/OBSERVATIONS.md` — assignments
+in `docs/API_ASSIGNMENTS.md` — and the tables themselves in `docs/SCHEMA.md`.
 
 ---
 
