@@ -28,3 +28,44 @@ docs/RUNBOOKS.md :: disproven :: §"Citations — write semantics".
 # --- #444: two AGENTS.md pointers whose target moved in this same change.
 AGENTS.md :: retarget :: full triage in `docs/RUNBOOKS.md` § Database unreachable (#410)
 AGENTS.md :: retarget :: one-off and scheduled data operations: importer, seeds, backfills, vocabulary migrations, audits
+
+# --- #456: three AGENTS.md lines whose pointer target moved in this same change.
+#     docs/CONVENTIONS.md §"Operational scripts" moved to docs/RUNBOOKS.md, so the
+#     policy file's "Full rules →" line and both index blurbs had to be re-aimed.
+#     The rules themselves relocated verbatim — see docs/RUNBOOKS.md.
+AGENTS.md :: retarget :: Operational scripts are dry run by default (#402/#399)
+AGENTS.md :: retarget :: ingestion, operational-script dry-run rules
+AGENTS.md :: retarget :: data operations: importer, seeds, role sweep, TTL prune
+
+# --- #456: the assignment-observation heading was renamed by its move.
+#     It left docs/OBSERVATIONS.md as a top-level "## Assignment observations —
+#     update semantics & provenance (#311)" and arrived in docs/API_ASSIGNMENTS.md
+#     under the existing "## Assignments" parent, so it is now "### Write semantics
+#     & provenance (#311)". Body text moved verbatim; only the heading changed.
+docs/OBSERVATIONS.md :: rename :: Assignment observations — update semantics & provenance
+
+# --- #456: the CONVENTIONS.md glance-index pointer for assignment observations.
+#     Its target moved to docs/API_ASSIGNMENTS.md §"Write semantics & provenance"
+#     in this same change; the one-line summary above it is unchanged.
+docs/CONVENTIONS.md :: retarget :: Full rules → `docs/OBSERVATIONS.md` §"Assignment observations
+
+# --- #456 CR3: six pointers corrected after round 3 found them misdirecting.
+#     All six are the same warrant — this change moved what they named, and the
+#     round-2 pass repointed only the references that quoted a section TITLE.
+#     These quote a FILE, so grep missed them; each is re-aimed at the doc that
+#     now holds the content. Nothing was dropped: see docs/API_ASSIGNMENTS.md
+#     §"Write semantics & provenance" and docs/RUNBOOKS.md §"Operational scripts".
+AGENTS.md :: retarget :: Each is enforced by a sweep test; read `docs/CONVENTIONS.md` before changing one
+AGENTS.md :: retarget :: each has exact rules in the `docs/SCHEMA*.md` family and `docs/OBSERVATIONS.md`. Read them
+docs/CONVENTIONS.md :: retarget :: Public API request/response contracts, the API request log, ingestion patterns, and
+docs/CONVENTIONS.md :: retarget :: the dry-run discipline every operational script follows. Database tables and
+docs/CONVENTIONS.md :: retarget :: invariants live in `docs/SCHEMA.md`, write semantics in `docs/OBSERVATIONS.md`,
+docs/CONVENTIONS.md :: retarget :: person-name rules in `docs/NAMES.md`, endpoint behaviour in `docs/PUBLIC_API.md`.
+
+# --- #456 CR3 (finding 20): docs/SCHEMA.md pointed at a recipe that exists in no
+#     live doc. Refuted by command:
+#       grep -c "loop_scope\|db_pool" docs/CONVENTIONS.md docs/TESTING.md  ->  0, 0
+#     CONVENTIONS.md never carried it and TESTING.md has no fixture guidance either;
+#     the only live copies are in archival docs/plans/. The line now names the
+#     working reference it already cited plus tests/conftest.py.
+docs/SCHEMA.md :: disproven :: Full recipe + the `loop_scope="session"` gotcha → `docs/CONVENTIONS.md`

@@ -21,7 +21,7 @@ Two groups of function, with **different failure contracts**:
   call it from anywhere that must survive bad input.
 
 Rationale, the label's `(host, port, dbname)` keying, the two dry-run shapes,
-and why `apply-schema.sh` keeps its own copy → `docs/CONVENTIONS.md`
+and why `apply-schema.sh` keeps its own copy → `docs/RUNBOOKS.md`
 §"Operational scripts — dry run by default & target echo".
 """
 

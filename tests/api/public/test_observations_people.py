@@ -398,6 +398,126 @@ async def test_additional_identifier_attached(client, ppl_write_key, db):
     assert count == 1
 
 
+async def _secondary_person_type(db, slug: str) -> None:
+    """Register a throwaway secondary person identifier type, idempotently."""
+    existing = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug=$1", slug)
+    if not existing:
+        await db.execute(
+            "INSERT INTO entity_identifier_types"
+            " (id, entity_type, slug, display_name, full_name)"
+            " VALUES ($1, 'person', $2, 'Ppl Conflict', 'People Obs Conflict ID')",
+            generate_id(),
+            slug,
+        )
+
+
+async def test_additional_identifier_conflict_is_rejected(client, ppl_write_key, db):
+    """Same type, different value on the same person → rejected, not silently replaced."""
+    raw, _ = ppl_write_key
+    value = _unique_id()
+    slug = "person_ppl_obs_conflict"
+    await _secondary_person_type(db, slug)
+
+    first = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": value,
+            "additional_identifiers": [
+                {"identifier_type_slug": slug, "identifier_value": "first_" + value}
+            ],
+        },
+    )
+    assert first.status_code == 200
+    assert first.json()["disposition"] == "new"
+
+    second = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": value,
+            "additional_identifiers": [
+                {"identifier_type_slug": slug, "identifier_value": "second_" + value}
+            ],
+        },
+    )
+    assert second.status_code == 200
+    body = second.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == f"identifier_conflict: {slug!r}"
+
+
+async def test_rejected_observation_creates_no_person(client, ppl_write_key, db):
+    """A payload-stage rejection must roll back the person resolve_entity just created.
+
+    ``resolve_entity`` ran outside the route's transaction, so a conflict in
+    ``additional_identifiers`` rolled back the payload but left a bare, nameless
+    Person committed — and the rejected response withholds ``entity_id``, so the
+    caller could never find it again (#456 CR round 2).
+    """
+    raw, _ = ppl_write_key
+    value = _unique_id()
+    slug = "person_ppl_obs_conflict"
+    await _secondary_person_type(db, slug)
+
+    # One payload, two different values for the same additional identifier type:
+    # the second item conflicts with the first *within the same request*, so the
+    # observation rejects on a person that did not exist beforehand.
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": value,
+            "names": [{"name": "Rollback Probe", "name_type": "legal"}],
+            "additional_identifiers": [
+                {"identifier_type_slug": slug, "identifier_value": "a_" + value},
+                {"identifier_type_slug": slug, "identifier_value": "b_" + value},
+            ],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == f"identifier_conflict: {slug!r}"
+    assert body["entity_id"] is None
+
+    # Nothing may survive: not the person, not the identifier that addressed it.
+    orphan = await db.fetchval(
+        """SELECT count(*) FROM identifiers i
+           JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+           WHERE t.slug = 'person_wa_pdc' AND i.value = $1""",
+        value,
+    )
+    assert orphan == 0, "rejected observation left the resolve-stage person behind"
+
+
+async def test_entity_type_mismatch_creates_no_org(client, ppl_write_key, db):
+    """An org-typed identifier on the people endpoint must not mint an Organization.
+
+    The mismatch is caught after ``resolve_entity`` has already created the
+    entity, so the guard has to roll it back rather than just return.
+    """
+    raw, _ = ppl_write_key
+    value = _unique_id()
+
+    r = await _post(client, raw, {"identifier_type": "org_ubi", "identifier_value": value})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "entity_type_mismatch: 'organization'"
+
+    stray = await db.fetchval(
+        """SELECT count(*) FROM identifiers i
+           JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+           WHERE t.slug = 'org_ubi' AND i.value = $1""",
+        value,
+    )
+    assert stray == 0, "entity_type_mismatch left a stray organization behind"
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------

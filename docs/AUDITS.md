@@ -3,7 +3,7 @@
 The six recurring integrity audits: what each one checks, the categories it
 reports, and how to run it. Each is read-only in report mode; the ones that can
 repair take `--execute`, and the resolver and target-echo rules are in
-`docs/CONVENTIONS.md`.
+`docs/RUNBOOKS.md` §"Operational scripts — dry run by default & target echo".
 
 Four run on a systemd timer — assignment-relationship windows (#301), per-key API
 anomaly (#294), schema parity (#315/#331) and ancillary orphans (#324/#326/#319).
@@ -79,8 +79,8 @@ audits (#363). `--execute` reconciles the drift and always exits 0.
 
 `scripts/audit_assignment_duplicates.py` finds overlapping active assignment
 pairs for the same `(person, role)` — the duplicates minted when a producer's
-start_date correction missed the match key pre-#311 (see `docs/CONVENTIONS.md`
-§ "Assignment observations — update semantics & provenance"). Categories:
+start_date correction missed the match key pre-#311 (see `docs/API_ASSIGNMENTS.md`
+§ "Write semantics & provenance"). Categories:
 
 - `deepened_start` — wider (earlier-start) row created later: the producer-
   correction signature; auto-merged by `--execute`

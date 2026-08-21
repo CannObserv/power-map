@@ -185,7 +185,7 @@ async def _main() -> None:
         )
 
     # Resolved after validation so the echo means "about to connect". See
-    # docs/CONVENTIONS.md §"Operational scripts — dry run by default & target echo".
+    # docs/RUNBOOKS.md §"Operational scripts — dry run by default & target echo".
     dsn = resolve_dsn(args, parser)
     conn = await asyncpg.connect(dsn)
     try:

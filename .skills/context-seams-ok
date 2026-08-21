@@ -36,15 +36,15 @@ docs/ADMIN_PANELS.md :: ### Citations indicator on entity rows (#341)
 docs/COMMANDS.md :: ### Guards (#398)
 docs/COMMANDS.md :: ## Operational script targets (#399)
 docs/CONVENTIONS.md :: ## API request log (#260)
-docs/CONVENTIONS.md :: ## Operational scripts — dry run by default & target echo (#402)
+docs/RUNBOOKS.md :: ## Operational scripts — dry run by default & target echo (#402)
 docs/FORMS.md :: ### Clearing a selection (#358)
 docs/HTMX.md :: ## Activity › API Requests screens (#260)
 docs/NAMES.md :: ### Canonical name = the display pointer (issue #308)
 docs/NAMES.md :: ### Canonical auto-promotion on observation (#308)
 docs/NAMES.md :: ### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
 docs/OBSERVATIONS.md :: ## Org lifespan bounds on assignments (#307)
-docs/OBSERVATIONS.md :: ## Assignment observations — update semantics & provenance (#311)
-docs/OBSERVATIONS.md :: ### Retraction — `op="retract"` (#391)
+docs/API_ASSIGNMENTS.md :: ### Write semantics & provenance (#311)
+docs/API_ASSIGNMENTS.md :: #### Retraction — `op="retract"` (#391)
 docs/OBSERVATIONS.md :: ## Org parent — authoritative reparent & provenance (#334)
 docs/OBSERVATIONS.md :: ## Event observations — refine-in-place, partial-success, `succeeded_by` & retract (#321/#322)
 docs/ANCILLARY.md :: ## Merge dedup — role_assignment ancillary re-homing (#324)
@@ -123,3 +123,84 @@ docs/ANCILLARY.md :: ## Ancillary `entity_changes` emit — DB touch triggers (#
 # RUNBOOKS split — surfaced because that split made the sweep report them.
 docs/FORMS.md :: ## Mounting contract (#435)
 docs/TESTING.md :: ## Shell testing (bats, #373)
+
+# #456 — the stub left behind by the assignment-observation move. Same
+# provenance-heading judgement as the section it points at: the issue numbers
+# are how a reader finds the history, and the anchor is new either way.
+docs/OBSERVATIONS.md :: ## Assignment observations (#311/#391)
+
+
+# --- #456 CR3: judged legitimate, one entry per line (finding 19 — the round-2
+#     run counted these instead of judging them).
+
+# The Code Exploration Policy block is still in AGENTS.md; nothing about it moved
+# in this change, so every reference to it is correct navigation. These were acked
+# before #453 rewrote the surrounding lines, which expired the old entries.
+docs/SKILLS.md :: SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; this doc covers the vendoring, the hooks and the index health line.
+docs/SOCRATICODE.md :: Detail doc for the `## Code Exploration Policy` block in `AGENTS.md`. That
+
+# The retract summary in the endpoint section and the full '#### Retraction'
+# subsection are now in the SAME doc — a summary/detail pair, not a stale pointer.
+docs/API_ASSIGNMENTS.md :: **Retraction — `op="retract"` (#391).** Closing is not retracting: `end_date` + `is_current=false` asserts the tenure *ended*, but a produced **artifact** — a tenure that never happened — needs the assertion that it **never existed**. Always id-addressed (`pm_assignment_id`), `person_id`/`role_id` must match, same-or-NULL provenance; already-archived re-emit is a quiet `auto-attached` no-op. Both create doors skip an archived twin rather than resurrect it. Full rules → §"Write semantics & provenance".
+
+# --- #456 CR3 (finding 19): every remaining seam judged individually, not
+#     grepped. All name a doc that still holds what they point at:
+#       * 'write semantics in docs/OBSERVATIONS.md' — true for events, citations,
+#         org lifespan, org parent and RA->RA edges, which all stayed there.
+#       * '§ Public API' / '§ API request log' — both still in CONVENTIONS.md.
+#       * 'AGENTS.md § Code Exploration Policy' — untouched by this change.
+#       * the two API_ASSIGNMENTS.md hits — summary and detail now in ONE doc.
+#     docs/SCHEMA.md:31 is deliberately NOT here: it is a real dead pointer.
+
+docs/ADMIN.md :: Deliberate exception: the public API `/search` endpoints (orgs, people) filter archived rows behind an explicit, documented `include_archived=false` query param — opt-in, not silent — and stay as they are (see `docs/CONVENTIONS.md`).
+docs/ADMIN_PANELS.md :: Count predicates live in `src.core` next to the domain logic (`count_open_assignments`, and the banner-gating `resolve_lifespan_banner`, in `src.core.org_lifecycle`), never inlined per-route — neither the "open" definition nor the "when to warn" gating may drift between surfaces. Domain rules → `docs/OBSERVATIONS.md` §"Org lifespan bounds on assignments".
+docs/API_ASSIGNMENTS.md :: **Retraction — `op="retract"` (#391).** Closing is not retracting: `end_date` + `is_current=false` asserts the tenure *ended*, but a produced **artifact** — a tenure that never happened — needs the assertion that it *never existed*, and simply ceasing to produce the row orphans the anchored PM assignment. `op="retract"` **archives** the assignment (`archived_at`, never hard-delete) → disposition `retracted`; the outbox emits so subscribers mirror `archived_at` and drop the anchor, and the #301 cascade archives dependent `staff_of` edges with the seat.
+docs/API_ASSIGNMENTS.md :: resources share are in `docs/OBSERVATIONS.md`.
+docs/API_EVENTS.md :: `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
+docs/API_JURISDICTIONS.md :: `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
+docs/API_ORGS.md :: `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
+docs/API_PEOPLE.md :: `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
+docs/API_ROLES.md :: `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
+docs/AUDITS.md :: `docs/OBSERVATIONS.md` §"Citations — write semantics".
+docs/AUDITS.md :: `dissolved`/`merged_with` entity events — see `docs/OBSERVATIONS.md`
+docs/CONVENTIONS.md :: - Timestamps: `datetime` + `@field_serializer` → `TimestampStr` via `fmt_ts()`; `Z`, six-digit fraction; **never format in a handler** — `fmt_ts` is serializer-only. Four sweeps in `tests/api/public/test_timestamp_serialization.py` (#440) cover the formatter ban, `str`-typed timestamp fields, serializer coverage, and the published OpenAPI shape. Full rules → `docs/CONVENTIONS.md` §"Public API"
+docs/CONVENTIONS.md :: - Conditional GET (#292/#392): all of it lives in `src/api/public/etag.py`. A route calls `conditional_response(request, response, etag, last_modified)` and returns its result when non-None; it **never reads the `if-none-match` header itself**. Two validator shapes only — `collection_etag` (watermark) where the table has `updated_at`, `catalog_validator` (content hash) where no single one covers the rows; the aggregate must share the body's `WHERE`, and the validator is computed **before** the body. New ones declare `responses=NOT_MODIFIED` + join `_CONDITIONAL_GETS`. Three sweeps in `tests/api/public/test_conditional_get.py` enforce all of this. Full rules → `docs/CONVENTIONS.md` §"Public API"
+docs/CONVENTIONS.md :: - Observation atomicity (#456): resolution + payload share one transaction on the four identity-observation endpoints, so `rejected` = nothing written, entity included; the resolve and entity-kind guards raise inside the transaction rather than returning. The event-native endpoint is partial-success and exempt. Full rules → `docs/CONVENTIONS.md` §"Public API"
+docs/CONVENTIONS.md :: - Event observations (#321): `(event_type, linked_entity)` is identity, `date`/`notes`/`place`/`visibility` mutable — a `pm_event_id` observation **refines in place** (immutable identity → `identity_immutable`; narrow diff-before-write no-op; `source_key_id` same-or-NULL gate → `provenance_conflict`). Embedded (`events: [...]`) is all-or-nothing; the event-native `POST /orgs/{id}/events/observations` is **partial-success** (per-event savepoint → per-event disposition + reason slug; one transient `linked_entity_unresolved` gives ordering-tolerance). `succeeded_by` = renamed-continuity link on the predecessor. **Retract (#322):** `op="retract"` archives the `pm_event_id` event (`archived_at`, never hard-delete) — the only correction for a dateless linked event, so a re-link is create-new + retract-old; always id-addressed, `event_type` must match (`identity_immutable`), same-or-NULL provenance, already-archived re-emit is a `auto-attached` no-op (no clock bump), archiving fires the outbox so subscribers drop the anchor. Full rules → `docs/OBSERVATIONS.md` §"Event observations — refine-in-place, partial-success, `succeeded_by` & retract".
+docs/CONVENTIONS.md :: `docs/OBSERVATIONS.md`, person-name rules in `docs/NAMES.md`, endpoint behaviour in
+docs/HTMX.md :: `docs/CONVENTIONS.md` § "API request log" for the capture/data contract.
+docs/SCHEMA.md :: - Org lifespan bounds (#307): org end = `v_org_lifespan.ended_on` (derived from `dissolved`/`merged_with` entity events; latest date within event precision) — `active`/`archived_at` are **not** lifespans. Invariant: assignment window ⊆ org lifespan; `is_current=FALSE, end_date NULL` = *unknown end* (allowed, never invented; currency signal is `is_current`, not `end_date IS NULL`). Enforced app-layer only (`src.core.org_lifecycle.check_assignment_lifespan` on all admin assignment writes; observation path records freely, `scripts/audit_org_lifecycle_assignments.py` reconciles — `--execute` closes `current_on_ended` at `ended_on`). Full rules → `docs/OBSERVATIONS.md` §"Org lifespan bounds on assignments".
+docs/SCHEMA.md :: - Org parent — authoritative reparent (#334): `organizations.parent_id` on the observation path is the org analog of the #311 assignment split. **PM-native (`pm_org_id`)** = the authoritative reparent channel — `write_org_parent(..., authoritative=True)` *replaces* the stored parent (fix for anchored-org reparent being a silent no-op), guarded `parent_not_found` / `parent_cycle` (self + `trg_no_org_cycle`) / `source_key_mismatch`. **Natural/external-identifier** match = write-if-null (never reparents). Provenance: `organizations.source_key_id` claimed via `COALESCE` on first parent write (lazy — never stamped at `_create_entity`); reparent needs `source_key_id IS NULL OR = caller` (NULL curator/pre-#334 parent claimable-once; no curator-precedence lock). Idempotent same-parent re-assert is a quiet no-op before the gate (no clock bump). Full rules → `docs/OBSERVATIONS.md` §"Org parent — authoritative reparent & provenance".
+docs/SCHEMA.md :: - Citations — write semantics (#319): `citations` is a polymorphic no-FK ancillary (7 citable types: org/person/role/role_assignment/jurisdiction/person_name/entity_event) capturing human-checkable evidence (`url`/`title`/`excerpt`/`accessed_at`) for a fact — a fifth provenance axis beside `source_key_id`/`import_provenance`/`field_confidence`; supersedes the `role_assignments.notes` stopgap (#314/#318). Identity `(entity_type, entity_id, field_name, url)` `NULLS NOT DISTINCT` over active rows (one URL-less citation per (entity,field); `field_name` NULL = whole-entity, non-NULL validated against `CITABLE_FIELDS`); `title`/`excerpt`/`accessed_at` mutable. Observable/retractable like events (`src/core/citations.py`: natural-key refine-or-create, `pm_citation_id` refine, `op="retract"` archive + anti-resurrection, `source_key_id` same-or-NULL gate). Transports: embedded `citations:[]` on org/person observations (all-or-nothing) + native `POST /api/v1/citations/{entity_type}/{id}/observations` (partial-success), read `GET /api/v1/citations/{entity_type}/{id}`; scopes `citations:read`/`citations:write`. Merge re-homing via `migrate_citations`/`rehome_citations` (wired into the assignment/role re-home + person/org merge deletes); orphan audit `count_orphaned_citations` (`citation.*` scope). `.notes` migration: `scripts/migrate_notes_to_citations.py` (dry-run → `--execute`). Full rules → `docs/OBSERVATIONS.md` §"Citations — write semantics". Design: `docs/plans/2026-07-29-citations-pattern-design.md`.
+docs/SCHEMA.md :: - Role-assignment relationships — RA→RA edges (#301): `role_assignment_relationships` is a **directional, temporal, FK-backed** edge (both endpoints `REFERENCES role_assignments ON DELETE CASCADE`) modelling staffer→principal — `from`=staffer's assignment `--staff_of-->` `to`=principal's seat assignment (typed via `role_assignment_relationship_types`, seed `staff_of`). Identity `(from,to,rel_type)` over active rows; `valid_from`/`valid_until`/`notes` mutable. **Temporal invariant** (edge window ⊆ both endpoint windows; dies when either endpoint ends) is enforced **app-layer only on admin/direct writes** (`check_edge_within_assignments`), observation path **records freely** (#307 pattern) — no blanket DB invariant trigger. **Cascade** (`cascade_assignment_relationships` on `role_assignments`, WHEN-gated on start/end/archived_at) auto-clamps/archives dependent edges on endpoint shrink/archive: `valid_from` clamps a *defined* start only (never invents an unknown one, #307), `valid_until` clamps down / closes a NULL-ongoing edge at a defined endpoint end, invert→archive; every mutation self-emits. **Own change-feed `entity_type`** `role_assignment_relationship` **+ touches both endpoints** (CHECKs extended on `entity_changes`/`deleted_entities`/`api_key_entity_subscriptions`). Observation `src/core/assignment_relationships.py` (pm-native, natural-key refine-or-create + `pm_relationship_id` refine + `op="retract"`, `source_key_id` gate); native `POST /api/v1/assignment-relationships/observations` (partial-success) + read `GET /api/v1/assignments/{pm_assignment_id}/relationships`; scopes `assignment_relationships:read`/`:write`; admin panel `role_assignments_relationships.py`. **Merge:** `rehome_assignment_relationships` re-points active edges onto the survivor **before** the assignment hard-delete (else FK CASCADE silently drops them) — wired into `people_merge`/`orgs_roles::role_merge`/`orgs_merge` (both role-pair sites); no orphan-audit scope (FK ⇒ no orphans). Window drift reconciled by `scripts/audit_assignment_relationship_windows.py` (shares the cascade clamp rule). Backfill `scripts/backfill_assignment_relationships.py` (3 rows, supervised). Full rules → `docs/OBSERVATIONS.md` §"Role-assignment relationships". Design: `docs/plans/2026-08-01-assignment-relationships-design.md`.
+docs/SCHEMA.md :: `docs/OBSERVATIONS.md`; person-name storage and visibility in `docs/NAMES.md`.
+docs/SCHEMA_INDEXES.md :: `docs/SCHEMA.md`; write semantics in `docs/OBSERVATIONS.md`.
+docs/SKILLS.md :: `AGENTS.md`'s `## Code Exploration Policy` sits between `<!-- BEGIN socraticode-policy -->` / `<!-- END socraticode-policy -->` markers. `curating-context` refuses to edit a marked policy block, so **that section cannot be trimmed by the budget skill** — it is the one part of `AGENTS.md` the token budget can never reclaim.
+docs/SKILLS.md :: That is the deliberate trade for idempotence: a marked block is patched in place by an `init-socraticode` re-run instead of taking the whole-span replace branch that silently eats repo-authored prose (skills#115). To shrink it, move content into this file or `SOCRATICODE.md` and re-run the skill — do not hand-edit between the markers, and do not expect `curating-context` to do it for you. `AGENTS.md` runs close to its 6000-token ceiling, so budget pressure has to go elsewhere.
+docs/SKILLS.md :: `.socraticodecontextartifacts.json` points `codebase_context_search` at the project's non-code knowledge. Three entries: `src/core/schema.sql`, `AGENTS.md`, and `docs` — the last a **directory**, indexed recursively.
+docs/SKILLS.md :: SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; the full tool table, prefetch string and per-tool notes live in [SOCRATICODE.md](SOCRATICODE.md). Infrastructure details:
+docs/SOCRATICODE.md :: `AGENTS.md` block should be on its degraded variant. power-map is `verdict: ok`.
+docs/SOCRATICODE.md :: file wholesale. Repo-specific exploration notes belong in `AGENTS.md` under
+docs/SOCRATICODE.md :: `.socraticodecontextartifacts.json` — here `src/core/schema.sql`, `AGENTS.md`
+src/core/db.py :: matching the visibility rule documented in docs/CONVENTIONS.md.
+tests/api/public/test_collection_validators.py :: Two shapes, no third (`docs/CONVENTIONS.md` § Public API):
+
+# --- #456 CR3 (finding 20): SCHEMA.md's inbound references. Nothing left that
+#     doc in this change — only two false claims inside it were corrected — so
+#     every one of these still resolves. TESTING.md:5 in particular is now
+#     correct end-to-end: it points here for test recipes, and the dangling
+#     third hop on to CONVENTIONS.md is gone.
+
+docs/ANCILLARY.md :: themselves in `docs/SCHEMA.md`.
+docs/CONVENTIONS.md :: Database tables and invariants live in `docs/SCHEMA.md`, write semantics in
+docs/OBSERVATIONS.md :: its ancillary rows. Table definitions live in `docs/SCHEMA.md`.
+docs/SCHEMA.md :: - Endpoint-test client: prefer the lifespan-less rollback client (`AsyncClient` + `ASGITransport` + `get_db` override yielding a BEGIN/ROLLBACK `db_pool` connection) over per-test `with TestClient(app)` — no per-test `asyncpg.create_pool`, auto rollback, no manual teardown (#288). Pure-unit route tests (mocked `get_db`) use `TestClient(app)` without `with`. Full rationale + recipe → `docs/SCHEMA.md` § Core rules. Reference: `tests/api/admin/test_orgs.py`.
+docs/TESTING.md :: recipes live in `docs/SCHEMA.md`; the a11y rules themselves in `docs/ACCESSIBILITY.md`.
+
+# --- #456 CR4: the three write-semantics pointers, re-acked after being
+#     qualified. Each now names the assignments exception explicitly instead
+#     of claiming OBSERVATIONS.md holds every kind (findings 21/22/24).
+
+docs/ANCILLARY.md :: Observation write semantics per kind are in `docs/OBSERVATIONS.md` — assignments
+docs/API_ENTITIES.md :: are in `docs/PUBLIC_API.md`; write semantics in `docs/OBSERVATIONS.md`, except
+docs/CHANGE_FEED.md :: `docs/API_ENTITIES.md`; write semantics in `docs/OBSERVATIONS.md` and, for

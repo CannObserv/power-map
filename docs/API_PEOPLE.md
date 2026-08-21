@@ -37,7 +37,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `identifier_type` | always | Must be a registered person identifier type slug (e.g. `person_wa_pdc`; `observo_speaker` for Observo operator-labeled voice speakers, value = an opaque Observo ULID) |
+| `identifier_type` | always | Must be a registered person identifier type slug — see **Person identifier types** below |
 | `identifier_value` | always | Value for the identifier |
 | `names` | optional | List of `{name, name_type, is_canonical?}` — `name_type` must be a valid name type (e.g. `legal`, `preferred`); `is_canonical` defaults to `false`. Exact-match dedup: re-submitting the same name is a no-op. Canonical is scoped per `(person, name_type)` slot — a person may have one canonical `legal` and a separate canonical `preferred`. Unlike org names, person names do **not** auto-promote — a name is canonical only if explicitly submitted with `is_canonical: true`. The hint is ignored if a canonical already exists for that name's slot (never displaces). At most one entry per request may carry `is_canonical: true` (422 otherwise). |
 | `personal_pronouns` | optional | Free-text pronouns string (e.g. `they/them`). Written only if the field is currently null; ignored if already set. |
@@ -45,8 +45,21 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
 | `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label (e.g. `"Main Office"`, `"Committee Hotline"`) |
 | `addresses` | optional | List of `{raw_input, address_type, valid_from?, valid_until?}` — `address_type` must be `mailing`, `physical`, or `other` (default `other`). `valid_from`/`valid_until` (`YYYY-MM-DD`, optional; `valid_from` ≤ `valid_until`, 422 otherwise) bound the address validity window; NULL/omitted = open-ended on that side. A **dateless** claim dedups against any existing window (never resurrects an admin-ended address); a **dated** claim dedups on the exact window and records a fresh row for a new one (#256). |
-| `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes |
+| `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes. **Internal (`pm_*`) types are refused here** (`rejected`, `Internal identifier type … cannot be assigned via observations`) — they address the entity via `identifier_type`, they are not attachable. **One value per type per entity:** re-sending the same value is a no-op, a *different* value for a type the entity already carries rejects the whole observation (`reason: identifier_conflict: '<slug>'`). |
 | `events` | optional | List of `{event_type_id XOR event_type_slug, pm_event_id?, op?, event_year?, event_month?, event_day?, event_hour?, event_minute?, event_second?, event_place_text?, event_place_address_id?, linked_entity_type?, linked_entity_id?, notes?, visibility?}`. `pm_event_id` refines in place; `op="retract"` archives it (#322) — both work on this embedded path too. See `docs/API_EVENTS.md` § Observation `events` surface for `pm_event_id`/`op` semantics. |
+
+**Person identifier types:** the registered set is seeded in `src/core/schema.sql`. There is no
+public catalog endpoint for it yet (unlike `GET /role-types`, `/link-types`,
+`/entity-event-types`) — see [#459](https://github.com/CannObserv/power-map/issues/459); until it
+lands, this table is the discovery surface for producers. Value conventions worth knowing:
+
+| Slug | Value |
+|------|-------|
+| `person_wa_pdc` | PDC numeric person-stable `person_id` |
+| `person_wa_legislature_member_id` | WSL member id — sponsor wire, bottoms out at 1991 |
+| `person_wa_legislature_roster` | `<name fold>:<first session year>`, e.g. `aeolson:1923` — archival 1889–2025 roster, the cohort below the member-id floor (#456) |
+| `observo_speaker` | opaque Observo ULID |
+| `pm_person_id` | PM Person ULID — internal: resolves an existing Person, never creates |
 
 **Disposition semantics:**
 
@@ -54,6 +67,6 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 |-------------|-----------|
 | `new` | Identifier not seen before; person created |
 | `auto-attached` | Identifier already known; existing entity returned |
-| `rejected` | Unknown identifier type; identifier belongs to a non-person entity; DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
+| `rejected` | Unknown identifier type; identifier belongs to a non-person entity (`entity_type_mismatch: '<type>'`); an internal type in `additional_identifiers`; a conflicting `additional_identifiers` value (`identifier_conflict: '<slug>'`); DB constraint violation. A human-readable `reason` string is always present on rejected responses, and **nothing is written** — see Atomicity below. |
 
 **When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Scheduler"`, `"Committee Office"`, `"Main Switchboard"`. Omit it for generic personal numbers where the value alone is self-explanatory.

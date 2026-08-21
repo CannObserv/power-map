@@ -23,6 +23,7 @@ uv run pytest
 
 See [docs/COMMANDS.md](docs/COMMANDS.md) for everyday commands,
 [docs/TESTING.md](docs/TESTING.md) for the test tiers, and
-[docs/RUNBOOKS.md](docs/RUNBOOKS.md) for the importer and seeds, and
+[docs/RUNBOOKS.md](docs/RUNBOOKS.md) for the importer, the seeds and the
+dry-run discipline every operational script follows, and
 [docs/AUDITS.md](docs/AUDITS.md) for the recurring audits.
 [AGENTS.md](AGENTS.md) § Detail Docs indexes the whole reference tree.

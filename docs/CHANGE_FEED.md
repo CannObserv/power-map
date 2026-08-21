@@ -3,7 +3,8 @@
 The consumer surface for staying in sync: the polled change feed and the webhook
 subscriptions that ride on it. Auth, scopes, rate limits, pagination and conditional
 requests are in `docs/PUBLIC_API.md`; per-resource endpoints in
-`docs/API_ENTITIES.md`; write semantics in `docs/OBSERVATIONS.md`.
+`docs/API_ENTITIES.md`; write semantics in `docs/OBSERVATIONS.md` and, for
+assignments, `docs/API_ASSIGNMENTS.md`.
 
 ---
 

@@ -166,14 +166,26 @@ async def test_rejected_on_unknown_identifier_type(client, org_write_key):
     assert body["entity_id"] is None
 
 
-async def test_rejected_on_wrong_entity_type(client, org_write_key):
-    """person_wa_pdc is a person identifier → rejected on /orgs/observations."""
+async def test_rejected_on_wrong_entity_type(client, org_write_key, db):
+    """person_wa_pdc is a person identifier → rejected on /orgs/observations.
+
+    The mismatch is only detectable *after* ``resolve_entity`` has created the
+    entity, so the rejection must roll that creation back — asserting the
+    disposition alone would pass while a stray Person leaked (#456 CR2).
+    """
     raw, _ = org_write_key
-    r = await _post(
-        client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": _unique_id()}
-    )
+    value = _unique_id()
+    r = await _post(client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": value})
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
+
+    stray = await db.fetchval(
+        """SELECT count(*) FROM identifiers i
+           JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+           WHERE t.slug = 'person_wa_pdc' AND i.value = $1""",
+        value,
+    )
+    assert stray == 0, "entity_type_mismatch left a stray person behind"
 
 
 # ---------------------------------------------------------------------------
