@@ -1864,7 +1864,17 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     -- space-padded committee filer_id, e.g. 'LABORG 503', mirroring
     -- person_wa_pdc_filer). Backfilled from legacy campaign-explorer committee
     -- URLs by scripts/cleanup_org_wa_pdc_remnants.py.
-    ('01KXKZY20D3FT8VN9310XKJQX0', 'organization',    'org_wa_pdc_committee', 'WA PDC Committee', 'Washington State Public Disclosure Commission Campaign-Finance Committee Filer ID', FALSE)
+    ('01KXKZY20D3FT8VN9310XKJQX0', 'organization',    'org_wa_pdc_committee', 'WA PDC Committee', 'Washington State Public Disclosure Commission Campaign-Finance Committee Filer ID', FALSE),
+    -- WA Legislature archival roster identity (#456): person_wa_legislature_member_id
+    -- only reaches back to 1991, the floor of the WSL sponsor wire. The
+    -- Legislature's official 1889-2025 roster PDF (usa-wa#228) mints ~2,494
+    -- earlier legislators, which need an anchor of their own. Value convention:
+    -- '<name fold>:<first session year>' (e.g. 'aeolson:1923') -- the fold strips
+    -- position suffixes, parentheticals, nicknames and honorifics, and the pair is
+    -- deterministic: re-deriving it from the archived PDF plus the checked-in
+    -- adjudication tables reproduces the same key, so it is stable rather than
+    -- run-scoped. is_internal=FALSE so a roster observation can create a Person.
+    ('01M0JJV06B4658AKYH3MTSXFNF', 'person',          'person_wa_legislature_roster', 'WA Legislature Roster', 'Washington State Legislature Roster Identity', FALSE)
 ON CONFLICT (id) DO UPDATE SET
     entity_type  = EXCLUDED.entity_type,
     slug         = EXCLUDED.slug,

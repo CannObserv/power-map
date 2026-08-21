@@ -37,7 +37,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `identifier_type` | always | Must be a registered person identifier type slug (e.g. `person_wa_pdc`; `observo_speaker` for Observo operator-labeled voice speakers, value = an opaque Observo ULID) |
+| `identifier_type` | always | Must be a registered person identifier type slug (e.g. `person_wa_pdc`; `observo_speaker` for Observo operator-labeled voice speakers, value = an opaque Observo ULID; `person_wa_legislature_roster` (#456) for pre-1991 legislators from the WA Legislature's archival 1889–2025 roster — below the `person_wa_legislature_member_id` floor — value = `<name fold>:<first session year>`, e.g. `aeolson:1923`) |
 | `identifier_value` | always | Value for the identifier |
 | `names` | optional | List of `{name, name_type, is_canonical?}` — `name_type` must be a valid name type (e.g. `legal`, `preferred`); `is_canonical` defaults to `false`. Exact-match dedup: re-submitting the same name is a no-op. Canonical is scoped per `(person, name_type)` slot — a person may have one canonical `legal` and a separate canonical `preferred`. Unlike org names, person names do **not** auto-promote — a name is canonical only if explicitly submitted with `is_canonical: true`. The hint is ignored if a canonical already exists for that name's slot (never displaces). At most one entry per request may carry `is_canonical: true` (422 otherwise). |
 | `personal_pronouns` | optional | Free-text pronouns string (e.g. `they/them`). Written only if the field is currently null; ignored if already set. |

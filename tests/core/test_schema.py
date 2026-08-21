@@ -463,6 +463,26 @@ async def test_observo_speaker_identifier_type_seeded(db):
     assert row["is_internal"] is False
 
 
+async def test_person_wa_legislature_roster_identifier_type_seeded(db):
+    """The #456 person_wa_legislature_roster identifier type is seeded.
+
+    Anchors the 2,494 pre-1991 legislators from the WA Legislature's archival
+    1889–2025 roster PDF — below the floor of the WSL sponsor wire, so no
+    ``person_wa_legislature_member_id`` exists for any of them. Value shape is
+    ``<name fold>:<first session year>`` (e.g. ``aeolson:1923``).
+
+    Must be is_internal=FALSE so a roster observation can *create* a Person
+    (an internal type can only resolve existing PM ULIDs).
+    """
+    row = await db.fetchrow(
+        "SELECT entity_type, is_internal FROM entity_identifier_types"
+        " WHERE slug = 'person_wa_legislature_roster'"
+    )
+    assert row is not None, "person_wa_legislature_roster not found — check seed data in schema.sql"
+    assert row["entity_type"] == "person"
+    assert row["is_internal"] is False
+
+
 # ---------------------------------------------------------------------------
 # updated_at trigger
 # ---------------------------------------------------------------------------
