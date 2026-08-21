@@ -2,8 +2,10 @@
 
 Per-resource endpoint behaviour for **Assignments**: filters, response shapes, and the
 implicit rules this collection follows. Auth, pagination and conditional requests are in
-`docs/PUBLIC_API.md`, the change feed in `docs/CHANGE_FEED.md`; write semantics in
-`docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
+`docs/PUBLIC_API.md`, the change feed in `docs/CHANGE_FEED.md`; the other resources are
+indexed in `docs/API_ENTITIES.md`. Assignment write semantics live here, in
+§"Write semantics & provenance"; the cross-cutting observation rules the other
+resources share are in `docs/OBSERVATIONS.md`.
 
 ---
 
@@ -92,7 +94,6 @@ POST /api/v1/assignments/observations
 | `retracted` | `op="retract"` archived the `pm_assignment_id`-addressed assignment (#391). Assignments only — the other observation endpoints never return it. |
 | `rejected` | Person or role unknown/archived; unknown/archived ULID (PM-native); PM-native update conflicts (#311): `source_key_mismatch`, `is_current_end_date_conflict`, `start_after_end_date`, `start_date_conflict` (sibling collision); retract conflicts (#391): `invalid` (not id-addressed), `assignment_not_found`, `identity_immutable`, `source_key_mismatch`; DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
-**Changes feed:** `role_assignment` entities appear in `GET /api/v1/changes` with `entity_type: "role_assignment"`.
 
 ### Write semantics & provenance (#311)
 
@@ -116,3 +117,5 @@ Closing is not retracting. `end_date` + `is_current=false` asserts the tenure **
 - **Anti-resurrection — the load-bearing half.** `resolve_assignment` now attaches to an **archived twin** (`auto-attached`, that row's id, nothing `unapplied`) instead of minting a fresh active row. **Both** doors onto the identity are closed: `write_role_assignments` (the `role_assignments: [...]` embedded people-observation path) dedups on the *open* tenure, which an archived row no longer matches, so it carries its own archived-twin skip — otherwise a producer emitting the same tenure embedded would resurrect what it retracted through the assignment endpoint. On that attach **nothing is written at all**: bound deltas are withheld *and* ancillary is skipped (`resolve_assignment` returns `attached_archived=True`; the handler branches on it). Attaching links/contacts/addresses to a retracted row would put evidence on a soft-deleted entity and fire the #327 touch triggers, emitting an `entity_changes` row for something subscribers have already dropped. Everything withheld — bound names *and* ancillary names (`notes` stays exempt, as it is on the active path: create-only, never reported) — comes back in `unapplied`, so a producer that keeps sending a retracted tenure is told rather than silently no-op'd (the #311 honest-signaling rule applies here too). One deliberate divergence from the active path: a supplied value is reported **even when it equals what the archived row stores**. On an active row "equals stored" means the claim is already true in PM; on a retracted row PM asserts the tenure never existed, so the identical claim is contradicted, not satisfied — and the commonest payload (a producer re-emitting a currently-held tenure as `is_current: true`) is exactly the one that matches what the row stored when it was retracted. `uq_role_assignment_person_role_start` is partial on active rows so the DB *permits* the re-create — the app declines. Without this a producer that retracts by id but keeps the tuple in its sync set loops forever (retract → next cycle re-creates → orphan again), and admin suppression of any assignment would be defeated on the next sync. A retract is **authoritative**; un-retract is a deliberate admin unarchive only (`POST /admin/role-assignments/{id}/unarchive/`) — there is deliberately no `archived:false` producer verb, the same conclusion #322 CR round 2 reached for events. **Un-retract is not guaranteed to succeed (#424):** the same partiality that lets the DB permit a re-create means an admin or a producer may have put a live row on `(person, role, start_date)` since the retract, and the restore then hits `uq_role_assignment_person_role_start`. `ra_unarchive` refuses with a warning flash and leaves the row retracted rather than 500ing — see `docs/ADMIN.md § Archive model`.
 - **Cascades come free.** The archiving UPDATE fires `trg_entity_changes_role_assignments` → outbox row (subscribers already mirror `archived_at`, usa-wa #41/#42) and `trg_cascade_assignment_relationships` → dependent `staff_of` edges archive with the seat (#301). Ancillary stays attached to the soft-deleted row, so the daily ancillary-orphan audit is unaffected. No schema change — `role_assignments.archived_at` already shipped.
 - **New disposition** `retracted` on `Disposition` / `ObservationResponse.disposition`. Emitted only by this surface; the other single-object observation endpoints never return it.
+
+**Changes feed:** `role_assignment` entities appear in `GET /api/v1/changes` with `entity_type: "role_assignment"`.

@@ -3,7 +3,7 @@
 The six recurring integrity audits: what each one checks, the categories it
 reports, and how to run it. Each is read-only in report mode; the ones that can
 repair take `--execute`, and the resolver and target-echo rules are in
-`docs/CONVENTIONS.md`.
+`docs/RUNBOOKS.md` §"Operational scripts — dry run by default & target echo".
 
 Four run on a systemd timer — assignment-relationship windows (#301), per-key API
 anomaly (#294), schema parity (#315/#331) and ancillary orphans (#324/#326/#319).

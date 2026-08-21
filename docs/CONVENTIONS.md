@@ -1,9 +1,10 @@
 # power-map — API & Ingestion Conventions
 
-Public API request/response contracts, the API request log, ingestion patterns, and
-the dry-run discipline every operational script follows. Database tables and
-invariants live in `docs/SCHEMA.md`, write semantics in `docs/OBSERVATIONS.md`,
-person-name rules in `docs/NAMES.md`, endpoint behaviour in `docs/PUBLIC_API.md`.
+Public API request/response contracts, the API request log, and ingestion patterns.
+Database tables and invariants live in `docs/SCHEMA.md`, write semantics in
+`docs/OBSERVATIONS.md`, person-name rules in `docs/NAMES.md`, endpoint behaviour in
+`docs/PUBLIC_API.md`, and the dry-run discipline every operational script follows in
+`docs/RUNBOOKS.md`.
 
 ---
 

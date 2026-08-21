@@ -73,7 +73,7 @@ Full conventions → `docs/CONVENTIONS.md`
 - Lists: `{"data": [...], "meta": {...}}`, fetch `limit+1` for `has_more`; every paginated `ORDER BY` **must end with a unique column** (#297)
 - Timestamps: `datetime` + `@field_serializer` → `TimestampStr` via `fmt_ts()`, never hand-built (#440)
 - Conditional GET (#292/#392) lives entirely in `src/api/public/etag.py` — a route calls `conditional_response(...)` and **never** reads `if-none-match` itself
-- Observation semantics — assignments (#311/#391), events (#321/#322), citations (#319): identity vs payload, refine-in-place, `op="retract"`, `source_key_id` same-or-NULL gate. Each is enforced by a sweep test; read `docs/CONVENTIONS.md` before changing one
+- Observation semantics — assignments (#311/#391), events (#321/#322), citations (#319): identity vs payload, refine-in-place, `op="retract"`, `source_key_id` same-or-NULL gate. Each is enforced by a sweep test; read `docs/OBSERVATIONS.md` before changing one
 
 ## DB Key Rules
 
@@ -87,7 +87,7 @@ Full conventions → `docs/SCHEMA.md`
 - Integration tests: require `TEST_DATABASE_URL`; never run against the production DB
 - Integration test fixtures acquire from the session-scoped `db_pool`; endpoint tests use the lifespan-less rollback client (#288)
 - Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block, placed **before** any `set_updated_at()` trigger on that table (#307/#312/#315/#392); daily `power-map-schema-parity.timer` is the continuous guard
-- Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge re-homing (#324/#327), entity search (#316), role-type vocabulary (#266) — each has exact rules in the `docs/SCHEMA*.md` family and `docs/OBSERVATIONS.md`. Read them before changing any of them.
+- Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge re-homing (#324/#327), entity search (#316), role-type vocabulary (#266) — each has exact rules in the `docs/SCHEMA*.md`, `docs/OBSERVATIONS.md` and `docs/API_ASSIGNMENTS.md` family. Read them before changing any of them.
 
 ## Infrastructure
 

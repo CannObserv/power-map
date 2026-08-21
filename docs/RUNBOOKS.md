@@ -2,7 +2,8 @@
 
 Data operations: the importer, the idempotent seeds, the role data-quality sweep
 and the TTL prune. Every writer here is dry-run by default and needs `--execute`;
-the resolver and target-echo rules are in `docs/CONVENTIONS.md`.
+the resolver and target-echo rules that make that uniform are below, in
+§"Operational scripts — dry run by default & target echo".
 
 The recurring integrity audits live in `docs/AUDITS.md`, incident triage for an
 unreachable database in `docs/RUNBOOK_DB_TRIAGE.md`, and the planned-cutover
