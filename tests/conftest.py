@@ -18,7 +18,7 @@ import pytest_asyncio
 
 from src.core.db import apply_schema
 from src.core.normalizers import address as addr_mod
-from tests import optional_groups
+from tests import optional_groups, vendor_skills
 from tests.db_utils import reset_data_tables
 
 INTEGRATION_SKIP_REASON = (
@@ -44,14 +44,18 @@ def pytest_configure(config):
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Name any optional group this run could not cover (#450).
+    """Name anything this run could not cover (#450, #461 CR).
 
-    A pruned environment makes whole tiers `importorskip` away; without this
-    line a green summary silently overstates what was verified.
+    Two ways coverage silently shrinks: a pruned environment makes whole tiers
+    `importorskip` away, and an uninitialised `skills-vendor/` makes the
+    vendored-driver guards skip. Without these lines a green summary overstates
+    what was verified.
     """
     missing = optional_groups.missing_optional_groups()
     if missing:
         terminalreporter.write_sep("!", optional_groups.missing_groups_banner(missing), red=True)
+    if not vendor_skills.vendor_skills_present():
+        terminalreporter.write_sep("!", vendor_skills.absent_banner(), red=True)
 
 
 def pytest_collection_modifyitems(config, items):

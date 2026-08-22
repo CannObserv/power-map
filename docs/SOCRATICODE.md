@@ -10,10 +10,7 @@ file wholesale. Repo-specific exploration notes belong in `AGENTS.md` under
 Two sections below are **deliberate local divergences** from the template,
 delimited by `local-divergence` markers and guarded by
 `tests/test_socraticode_doc_divergence.py`. Each names the upstream issue that
-retires it. If a re-run wipes them, that test fails — which is the point. A
-third, on resolve-but-unindexed context artifacts, was retired in #461 once
-`gregoryfoster/skills#214` landed the check upstream; the bullet below is now
-the template's own.
+retires it. If a re-run wipes them, that test fails — which is the point.
 
 ## When to use each tool
 
@@ -74,23 +71,15 @@ form and delete this block. If it instead documents the omission, keep the
   low-yield they answer *empty* rather than erroring — see **Graph health**.
 - **`codebase_flow`** traces from an entry point; give it a real file path, not a
   symbol name.
-- **`codebase_context_search`** only sees paths listed in
-  `.socraticodecontextartifacts.json` — here `src/core/schema.sql`, `AGENTS.md`
-  and the whole `docs/` tree (a directory entry, indexed recursively) — and of
-  those, only the ones actually indexed. A path that does not resolve is skipped
-  silently, so a missing answer is often a manifest problem;
-  `tests/test_context_artifacts.py` guards that coverage. But the same silence
-  has a second cause a correct manifest cannot rule out: the path resolved, the
-  run *completed*, and the artifact still is not indexed — #454's field case left
-  the whole 2.5 MB `docs/` tree unreachable behind `2/3 indexed` and three green
-  health lights. Ask `codebase_context`, the only per-artifact index status there
-  is (`codebase_status` gives a count and never a name), then re-run
-  `codebase_context_index` — and not concurrently with an incremental update,
-  which the CPU-only embedding backend serializes badly. The once-per-day health
-  check reports this gap too, and names the artifact
-  (`gregoryfoster/skills#214`); `tests/test_socraticode_health_parity.py` pins
-  the vendored copy that carries it.
-
+- **`codebase_context_search`** only sees files listed in
+  `.socraticodecontextartifacts.json` — and of those, only the ones actually
+  indexed. A path that does not resolve is skipped silently, so a missing
+  answer is often a manifest problem. But the same silence has a second cause
+  a correct manifest cannot rule out: the path resolved, the run *completed*,
+  and the artifact still is not indexed. Ask `codebase_context`, which is the
+  only per-artifact index status there is — `codebase_status` gives a count
+  and never a name — then re-run `codebase_context_index`. The once-per-day
+  health check reports this gap too, and names the artifact.
 - **The file watcher is ephemeral.** It lives only while an MCP server process is
   running. After a long gap, or after a reboot, re-run `codebase_index` rather
   than trusting the index to be current.
