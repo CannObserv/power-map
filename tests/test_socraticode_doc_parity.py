@@ -28,8 +28,13 @@ backwards.** That is what this file is: each retired block leaves behind an
 ancestry assertion on the submodule commit that made it retirable, plus the
 doc-to-hook pair-check that survived the retirement unchanged. A rollback past
 any of them reds a test instead of silently restoring a gap nobody notices —
-`docs/SOCRATICODE.md` is regenerated wholesale, so silence is its default
-failure mode.
+`docs/SOCRATICODE.md` is regenerated, so silence is its default failure mode.
+
+#463 also adopted the template's `<!-- BEGIN socraticode-doc -->` /
+`<!-- END socraticode-doc -->` pair (skills#210), which turns a re-run from a
+whole-file overwrite into a bounded replace. That is what makes the assertions
+here two-sided: the span must match the pinned template, and everything
+repo-authored must sit below `END`, where a re-run does not reach.
 
 **Ancestry is the assertion; source strings are corroboration** — the same rule
 `test_socraticode_health_parity.py` states at length. The vendored files may not
@@ -37,6 +42,7 @@ be edited here, so an upstream refactor can reflow any of the strings below with
 no behavioural change; only `git merge-base --is-ancestor` is immune to that.
 """
 
+import difflib
 import re
 from pathlib import Path
 
@@ -59,6 +65,12 @@ TABLE_TOOL_RE = re.compile(r"`(codebase_[a-z_]+)`")
 # `#209 fix: prefetch every tool the doc's table recommends` — the commit that
 # made the hand-authored 12-tool copy unnecessary.
 PREFETCH_COMMIT = "96c1541"
+# `#210 fix: give the generated SOCRATICODE.md a repo-specific region` — the
+# marker pair that makes a re-run a bounded replace instead of a whole-file one.
+MARKER_COMMIT = "708afeb"
+BEGIN_MARKER = "<!-- BEGIN socraticode-doc -->"
+END_MARKER = "<!-- END socraticode-doc -->"
+
 # `#198 docs: explain unresolvedPct in the doc template's Graph health section`.
 UNRESOLVED_DOC_COMMIT = "1e76baf"
 # `#216 fix: word the unresolvedPct finding from the verdict` — the daily hook
@@ -119,6 +131,37 @@ def hook() -> str:
         )
     assert HOOK_PATH.is_file(), f"missing {HOOK_PATH.relative_to(REPO_ROOT)}"
     return HOOK_PATH.read_text()
+
+
+def _span(doc: str) -> str:
+    """Everything the template owns: `BEGIN` through `END`, inclusive.
+
+    Fails rather than raising `ValueError` when the markers are missing: an
+    unmarked file is the pre-#210 shape and a real finding, and it reaches
+    every caller here, so each one should say what it means instead of dying
+    on a bare substring lookup.
+    """
+    if BEGIN_MARKER not in doc or END_MARKER not in doc:
+        pytest.fail(
+            "docs/SOCRATICODE.md has no socraticode-doc marker pair, so an "
+            "init-socraticode re-run takes the whole-file branch and everything "
+            "below `## Repo-specific notes` goes with it (skills#210). Restore "
+            f"{BEGIN_MARKER} above the title and {END_MARKER} at the foot of "
+            "the generated half."
+        )
+    return doc[doc.index(BEGIN_MARKER) : doc.index(END_MARKER) + len(END_MARKER)]
+
+
+def _tool_table(text: str) -> str:
+    """The *When to use each tool* table, header row through blank line."""
+    start = text.index("| Goal | Tool |")
+    return text[start : text.index("\n\n", start) + 1]
+
+
+def _template_span() -> str:
+    """The pinned template's generated span, unwrapped from its fence."""
+    body = TEMPLATE_PATH.read_text()
+    return body.split("````markdown\n", 1)[1].split("\n````", 1)[0]
 
 
 def _table_tools(doc: str) -> set[str]:
@@ -295,4 +338,100 @@ def test_the_prefetch_covers_every_tool_the_doc_table_recommends(doc: str) -> No
         f"the doc's tool table recommends {sorted(missing)}, which the prefetch "
         "does not load — an agent following the table it was just handed gets "
         "InputValidationError. Add them to the select: string, or drop the rows."
+    )
+
+
+# ── The generated span, and what survives a re-run (skills#210) ──────────────
+
+
+@vendor_only
+def test_the_pin_carries_the_marker_pair_convention() -> None:
+    """The ratchet for the bounded-replace shape: the template emits the markers."""
+    _assert_pin_contains(
+        MARKER_COMMIT,
+        210,
+        "the template has no marker pair, so a re-run replaces docs/SOCRATICODE.md "
+        "wholesale and the repo-specific notes below the END marker go with it",
+    )
+
+
+def test_the_doc_is_marker_delimited(doc: str) -> None:
+    """One `BEGIN`, one `END`, in that order, each alone on its line.
+
+    Unmarked is the pre-#210 shape and the dangerous one: `init-socraticode`
+    then takes the whole-file branch, and everything repo-authored in the file
+    is gone with no diff to notice. Duplicated or reordered markers are worse
+    than absent — the replace lands on the wrong span.
+    """
+    assert doc.count(BEGIN_MARKER) == 1, f"expected exactly one {BEGIN_MARKER}"
+    assert doc.count(END_MARKER) == 1, f"expected exactly one {END_MARKER}"
+    assert doc.index(BEGIN_MARKER) < doc.index(END_MARKER), "END marker precedes BEGIN"
+    for marker in (BEGIN_MARKER, END_MARKER):
+        assert f"\n{marker}\n" in f"\n{doc}", (
+            f"{marker} shares its line with other text; the skill matches it "
+            "unbroken on a line of its own"
+        )
+
+
+def test_the_repo_authored_notes_are_below_the_end_marker(doc: str) -> None:
+    """Everything a re-run would eat lives where a re-run does not reach.
+
+    This is the property the marker pair buys, and it is worth asserting
+    directly rather than trusting placement: the notes are the third home this
+    content has had (`AGENTS.md`, then a guarded divergence block, now here),
+    and each move was made because the previous one lost it.
+    """
+    span = _span(doc)
+    below = doc.split(END_MARKER, 1)[1]
+
+    # As a heading on its own line: the template's header *names* the heading in
+    # prose, so a substring search finds it inside the span and reads as a pass.
+    assert "\n## Repo-specific notes\n" in below, (
+        "no `## Repo-specific notes` heading below the END marker. Either the "
+        "section is gone, or it sits inside the templated span — where the next "
+        "init-socraticode re-run overwrites it."
+    )
+    for token, what in (
+        ("#360", "the .socraticodeignore rationale"),
+        ("SKILLS.md", "the pointer to the repo-authored measurements"),
+        ("test_socraticode_doc_parity", "the reference to this guard"),
+    ):
+        assert token not in span, (
+            f"{what} ({token}) is inside the templated span. Move it below the "
+            f"{END_MARKER} line — a re-run replaces the span and would drop it."
+        )
+
+
+@vendor_only
+def test_the_span_is_the_pinned_template_apart_from_the_tool_table(doc: str) -> None:
+    """The generated half says what the pin says, to the line.
+
+    The tool table is excluded because the template's own adaptation checklist
+    asks for it: the rows must name the tools this server build exposes and
+    this project's tree. Nothing else in the span is this repo's to write —
+    that is what "generated" means, and it is the claim every retirement in
+    this file rests on.
+    """
+    template = _template_span()
+    expected = template.replace(_tool_table(template), _tool_table(doc))
+    if _span(doc) == expected:
+        return
+
+    diff = "\n".join(
+        difflib.unified_diff(
+            expected.splitlines(),
+            _span(doc).splitlines(),
+            "pinned template",
+            "docs/SOCRATICODE.md span",
+            lineterm="",
+            n=1,
+        )
+    )
+    pytest.fail(
+        "docs/SOCRATICODE.md has drifted from the template at the current pin.\n"
+        "Neither side is wrong by default: an upstream edit to the template "
+        "means the doc is stale and should be regenerated from it, while a "
+        "local edit inside the span means the content belongs below the "
+        f"{END_MARKER} line instead. Do not resolve it by editing "
+        f"skills-vendor/.\n\n{diff}"
     )
