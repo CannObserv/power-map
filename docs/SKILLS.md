@@ -78,7 +78,7 @@ per the vendored-skill policy, never edit `skills-vendor/`. Details → `docs/CO
 
 ¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
 
-³ **Initializers — power-map is long past bootstrap.** Neither is for setting this project up again. `init-socraticode` is linked for its **audit re-run** (`references/audit-rerun.md`): every phase is idempotent, so re-running it re-validates the policy block, manifest, hooks and graph yield, and is the only thing that catches a manifest the server silently rejected. `init-project-fastapi` is linked for its reference docs, which are the written form of several conventions this repo already follows. A re-run overwrites `docs/SOCRATICODE.md` wholesale — see the divergence blocks there before running one.
+³ **Initializers — power-map is long past bootstrap.** Neither is for setting this project up again. `init-socraticode` is linked for its **audit re-run** (`references/audit-rerun.md`): every phase is idempotent, so re-running it re-validates the policy block, manifest, hooks and graph yield, and is the only thing that catches a manifest the server silently rejected. `init-project-fastapi` is linked for its reference docs, which are the written form of several conventions this repo already follows. A re-run overwrites `docs/SOCRATICODE.md` wholesale, which since #463 is safe: that file carries no local corrections left to lose, and `tests/test_socraticode_doc_parity.py` reds if one reappears unguarded.
 
 ## SocratiCode MCP Tools
 
@@ -90,6 +90,12 @@ SocratiCode provides semantic search and dependency graph tools via MCP. The rul
 - **Index lives at:** `~/.socraticode/` (process-local, not committed)
 - **After large refactors:** run `codebase_update` or trigger a full reindex via `socraticode:codebase-management` to keep the graph accurate
 - **Duplicate MCP config warning:** if both `mcp__plugin_socraticode_socraticode__*` and `mcp__socraticode__*` tool prefixes appear, the standalone MCP is duplicated — remove it: `claude mcp remove socraticode`
+
+### Prefetch hook
+
+`.claude/hooks/socraticode-reminder.sh` — a `SessionStart` hook, symlinked into `skills-vendor/gregoryfoster-skills/skills/init-socraticode/scripts/`. It prints the `ToolSearch` prefetch that loads the deferred `codebase_*` schemas; the string itself is in [SOCRATICODE.md](SOCRATICODE.md) § Prefetch, for running by hand when the hook did not fire.
+
+It was a hand-authored copy until #463, because the vendored hook prefetched 9 tools and this repo's table recommends 12. skills#209 made it a superset, so the copy became a symlink and the upstream prefetch now arrives on the normal submodule refresh. `tests/test_socraticode_doc_parity.py` holds the doc and the hook to the same tool list, and reds if the pin rolls back past that fix.
 
 ### Health hook
 
@@ -140,7 +146,7 @@ Name directories, not files. The manifest previously listed four individual docs
 - **Recovery** is a plain retry of `codebase_context_index` — but **not concurrently with an incremental update.** The CPU-only embedding backend serializes badly: a 5-file incremental took 31 min beside a context embed, and 0.7s solo. The clean retry indexed everything.
 - **Who catches it now.** The daily health hook, since #461 (see § Health hook above). `tests/test_socraticode_health_parity.py` pins the vendored driver that carries the check, so a submodule rollback reds a test instead of silently reopening the gap.
 
-This section is where those pointers live **on purpose.** They were previously a `local-divergence` block in `docs/SOCRATICODE.md`, which is generated and overwritten wholesale — repo-specific content there survives only while a guard test protects it. `docs/SOCRATICODE.md` now carries the template's own wording and nothing local, so a re-run is a no-op in that file (#461 CR).
+This section is where those pointers live **on purpose.** They were previously a `local-divergence` block in `docs/SOCRATICODE.md`, which is generated and overwritten wholesale — repo-specific content there survives only while a guard test protects it. All three blocks are now retired (#461, #463): the template carries each explanation itself, so that file holds the template's wording plus the adaptation it asks for, and a re-run has no correction to re-apply. Every retirement left an ancestry ratchet behind in `tests/test_socraticode_doc_parity.py` or `tests/test_socraticode_health_parity.py`, so rolling the submodule back past any of them reds a test instead of quietly reopening the gap.
 
 ## Hook command form
 
@@ -151,6 +157,8 @@ bash "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/<script>.sh"
 ```
 
 The `:-.` fallback is load-bearing. A bare `$CLAUDE_PROJECT_DIR` becomes `bash "/.claude/hooks/…"` when the variable is unset and errors on every session start; a cwd-relative command runs the wrong file when the hook process starts anywhere but the repo root. Guarded by `tests/sh/claude_hooks.bats`, which also asserts every registered hook exists and every hook symlink resolves.
+
+Entries installed by `managing-skills/scripts/install-hook.sh` carry a trailing `# <marker>` comment (`socraticode-reminder.sh` has `# socraticode-prefetch` since #463). It is the installer's dedupe key, written into the *command string* so a re-run can recognize its own entry by reading `settings.json` alone — not decoration, and not something to tidy away. **Never hand-wire a vendored hook:** run the installer, which writes the symlink and the registration together and upgrades a legacy hand-typed copy in place.
 
 ## Local Overrides
 

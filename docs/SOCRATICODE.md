@@ -7,10 +7,14 @@ block carries the rule; this file carries the table.
 file wholesale. Repo-specific exploration notes belong in `AGENTS.md` under
 `## Code Exploration Notes (repo-specific)`.
 
-Two sections below are **deliberate local divergences** from the template,
-delimited by `local-divergence` markers and guarded by
-`tests/test_socraticode_doc_divergence.py`. Each names the upstream issue that
-retires it. If a re-run wipes them, that test fails — which is the point.
+No `local-divergence` blocks remain (#461, #463): every explanation this repo
+once had to add by hand is now in the template itself. What is left is the
+adaptation the template asks for — the tool-table rows for this server build,
+and the `.socraticodeignore` note under **Index scope** — so a re-run has no
+correction to re-apply. Repo-specific *measurements* — the graph's yield here,
+the artifact list, how to read the daily `unresolved N%` line — live in
+[`SKILLS.md`](SKILLS.md), which is repo-authored and never regenerated;
+`tests/test_socraticode_doc_parity.py` guards that split.
 
 ## When to use each tool
 
@@ -40,25 +44,6 @@ validation. The SessionStart hook (`.claude/hooks/socraticode-reminder.sh`)
 prints this each session; run it verbatim if it did not fire.
 
 `select:mcp__plugin_socraticode_socraticode__codebase_search,mcp__plugin_socraticode_socraticode__codebase_symbol,mcp__plugin_socraticode_socraticode__codebase_symbols,mcp__plugin_socraticode_socraticode__codebase_flow,mcp__plugin_socraticode_socraticode__codebase_impact,mcp__plugin_socraticode_socraticode__codebase_graph_query,mcp__plugin_socraticode_socraticode__codebase_graph_circular,mcp__plugin_socraticode_socraticode__codebase_graph_stats,mcp__plugin_socraticode_socraticode__codebase_graph_visualize,mcp__plugin_socraticode_socraticode__codebase_status,mcp__plugin_socraticode_socraticode__codebase_context,mcp__plugin_socraticode_socraticode__codebase_context_search`
-
-<!-- BEGIN local-divergence: 12-tool prefetch (gregoryfoster/skills#209) -->
-**Divergence — this prefetch loads 12 tools; the vendored hook loads 9.** The
-three extras are `codebase_graph_circular`, `codebase_graph_stats` and
-`codebase_graph_visualize`, all of which the tool table above recommends. The
-vendored `socraticode-reminder.sh` omits them, so an agent that follows the
-table it was just handed gets `InputValidationError` — the exact failure the
-prefetch exists to prevent.
-
-This repo therefore still runs a **hand-authored copy** of the reminder hook
-rather than the symlink form #186 prescribes, because switching today would
-remove three documented tools. `CannObserv/address-validator` hit the identical
-problem and documents the divergence the same way rather than forking the hook.
-
-**Retire when [gregoryfoster/skills#209](https://github.com/gregoryfoster/skills/issues/209)
-resolves.** If it lands the extended prefetch, switch the hook to the symlink
-form and delete this block. If it instead documents the omission, keep the
-12-tool string here and note the three tools need a targeted `ToolSearch` first.
-<!-- END local-divergence -->
 
 ## Per-tool notes
 
@@ -95,34 +80,34 @@ node skills/init-socraticode/scripts/mcp-driver.mjs health-check .
 ```
 
 `verdict: "low"` means dependency questions must go to `grep`, and the
-`AGENTS.md` block should be on its degraded variant. power-map is `verdict: ok`.
+`AGENTS.md` block should be on its degraded variant.
 
-<!-- BEGIN local-divergence: unresolvedPct (gregoryfoster/skills#198) -->
-**`unresolvedPct` is corroboration, not a verdict.** The daily health hook prints
-`graph unresolved 65.7% (> 50%) — corroborates a resolver problem` here. **That
-is not a defect and needs no action.**
+**`unresolvedPct` is corroboration, not a verdict.** The same check — and the
+daily `socraticode-health.sh` run — report the figure whenever it clears the
+threshold, on a healthy graph too, and word it from the verdict. Beside `low`
+or `unknown`, where a yield finding is already on the list for it to back:
+`graph unresolved N% (> 50%) — corroborates a resolver problem`. Beside `ok`,
+where there is nothing for it to corroborate: `graph unresolved N% (> 50%) —
+share of call edges with no first-party callee; verdict is ok, so this is a
+statistic, not a defect`. It is a *call*-graph statistic: the share of **call
+edges** whose callee resolves to no first-party symbol. A repo that leans on
+frameworks and the stdlib runs high by construction, because those callees are
+not in the repo — no re-index brings them in and none lowers the figure.
+Judge the graph on `verdict` and on **edges/file**, which is what the gate
+keys on. A high `unresolvedPct` beside `verdict: "ok"` is normal; the
+src-layout resolver defect it can be mistaken for
+(<https://github.com/giancarloerra/SocratiCode/issues/107>) shows up instead
+as near-zero edges/file.
 
-It counts *call* edges whose callee resolves to no first-party symbol, so a
-codebase leaning on frameworks and stdlib runs high by construction — `asyncpg`,
-`ULID`, `os`, FastAPI and pytest are not in this repo and no re-index lowers it.
-Judge on `verdict` and edges/file, which is what the gate keys on. The genuine
-resolver defect (SocratiCode#107) presents as **near-zero edges/file**, not as a
-high percentage.
-
-**If you suspect the import graph, test the import graph** rather than reasoning
-from the number: compare `codebase_graph_query` against an `rg` sweep over every
-import spelling and check whether the two sets match. Run here on
-`src/core/db.py` — one outbound edge, matching its single first-party import,
-and 217 inbound against `rg`'s 217, with zero relative-import spellings anywhere
-in the repo. No misses, no false positives.
-
-Do not write the pessimistic reading back into this file. A sibling repo did,
-and distrusted a correct tool for weeks, paying an `rg` round-trip on every
-dependency question.
-
-**Retire when [gregoryfoster/skills#198](https://github.com/gregoryfoster/skills/issues/198)
-resolves** and the template carries this explanation itself.
-<!-- END local-divergence -->
+**If you suspect the import graph, test the import graph.** Take a file you
+know has first-party importers, run `codebase_graph_query` on it, and compare
+the result against an `rg` sweep over every spelling that import could be
+written as. If the two sets match, the import graph is exact and
+`unresolvedPct` is telling you about call edges, not about imports. Prefer
+that differential to any figure written into this file, which is repo- and
+day-specific. Upstream is adding a server-stated import-resolution advisory
+(<https://github.com/giancarloerra/SocratiCode/issues/112>); once a release
+carries it, that becomes the signal to read — until then, measure.
 
 ## Index scope
 
