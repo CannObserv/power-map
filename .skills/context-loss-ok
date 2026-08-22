@@ -87,5 +87,10 @@ docs/SCHEMA.md :: retarget :: Endpoint-test client: prefer the lifespan-less rol
 docs/TESTING.md :: retarget :: How to run each tier: the Python suite and its integration marker
 docs/TESTING.md :: retarget :: and its conventions, the marker-gated browser a11y sweep, and the bats shell suite. Fixture and client
 docs/TESTING.md :: retarget :: recipes live in `docs/SCHEMA.md`; the a11y rules themselves in `docs/ACCESSIBILITY.md`.
-# A plain navigational pointer at the doc that keeps the schema-side rules — it
-# describes what SCHEMA.md still holds, not what left it.
+# --- #458 CR round 2 (directive 12: restore the env snippet, pay for it) ------
+# Both are claim-for-claim carried by docs/COMMANDS.md, which is why they could
+# be tightened to the rule + a pointer rather than moved:
+#   the timer roster  -> § Scheduled timers, a row per timer with cadence+script
+#   GH_TOKEN / TEST_DATABASE_URL ownership -> § Environment, the env-vars table
+AGENTS.md :: duplicate :: Scheduled timers (outbox prune · API anomaly · schema parity
+AGENTS.md :: duplicate :: It replaces the `.venv` symlink `worktree-create.sh` leaves behind

@@ -104,7 +104,7 @@ Single VM; port split:
 ```bash
 bash scripts/worktree-setup.sh <worktree-path>
 ```
-It replaces the `.venv` symlink `worktree-create.sh` leaves behind with a real per-worktree environment (`uv sync --group browser --group seed`) and symlinks the gitignored `.env` (still needed for `GH_TOKEN`; `TEST_DATABASE_URL` comes from `/etc/power-map/.env`). **Never share a venv with the main checkout** — that is production's working directory, where nine systemd units run `uv run` (`power-map-ready` every 2 min, restamping the project version mid-suite) and `power-map.service`'s `ExecStartPre=uv sync` prunes the opt-in groups, silently deleting the browser tier. Refuses (exit 2) against the main checkout.
+It replaces the `.venv` symlink `worktree-create.sh` leaves behind with a real per-worktree environment (`uv sync --group browser --group seed`) and symlinks the gitignored `.env`. **Never share a venv with the main checkout** — that is production's working directory, and its systemd units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it (`docs/COMMANDS.md` § Worktree setup). Refuses (exit 2) against the main checkout.
 
 exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 
@@ -118,7 +118,7 @@ exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 | Quick prod health check | `curl -fsS localhost:8000/health && curl -fsS localhost:8000/ready` — unauthenticated probes (#343); `/ready` 503 reason: `no_pool`/`pool_timeout`/`db_error` |
 | DB unreachable / `pool_timeout` | Egress IP likely rotated out of DO Trusted Sources — full triage in `docs/RUNBOOK_DB_TRIAGE.md` (#410) |
 
-Scheduled timers (outbox prune · API anomaly · schema parity · ancillary orphans · assignment-relationship windows · weekly a11y · 2-min readiness guard · 5-min egress-IP drift) all surface failure through `systemctl --failed` — see `docs/COMMANDS.md` § Scheduled timers.
+Eight scheduled timers all surface failure through `systemctl --failed` — roster, cadences and scripts in `docs/COMMANDS.md` § Scheduled timers.
 
 **Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates the write behind `--execute` and calls `echo_target()` (`scripts/_dsn.py`) before connecting. `add_dsn_args`/`resolve_dsn` give every script `--database-url` and `--test`; `tests/scripts/test_dsn_sweep.py` enforces gate, echo, and resolver by AST with no allowlist. `apply-schema.sh` writes to production on the bare invocation and refuses in a linked worktree (#398) — use `--test` from a worktree. Full rules → `docs/RUNBOOKS.md` § Operational scripts.
 
@@ -127,6 +127,12 @@ Full command reference: `docs/COMMANDS.md`
 ### Environment files
 
 Load both via uv's dotenv parser (gated on existence — uv errors hard on a missing `--env-file`):
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+uv run "${env_args[@]}" <cmd>
+```
 See `docs/COMMANDS.md` § Environment.
 
 ## Agent Skills & Tools

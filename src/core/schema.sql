@@ -530,7 +530,7 @@ CREATE TABLE IF NOT EXISTS role_assignment_relationship_types (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-DROP TABLE IF EXISTS _seed_role_assignment_relationship_types;
+DROP TABLE IF EXISTS pg_temp._seed_role_assignment_relationship_types;
 CREATE TEMP TABLE _seed_role_assignment_relationship_types (LIKE role_assignment_relationship_types INCLUDING ALL);
 
 INSERT INTO _seed_role_assignment_relationship_types (id, slug, display_name, description, is_symmetric) VALUES
@@ -1874,7 +1874,7 @@ END $$;
 -- Seed Data
 -- =============================================================================
 
-DROP TABLE IF EXISTS _seed_link_types;
+DROP TABLE IF EXISTS pg_temp._seed_link_types;
 CREATE TEMP TABLE _seed_link_types (LIKE link_types INCLUDING ALL);
 
 INSERT INTO _seed_link_types (id, slug, display_name, is_social) VALUES
@@ -1936,7 +1936,7 @@ DO $$ BEGIN
     END IF;
 END $$;
 
-DROP TABLE IF EXISTS _seed_entity_identifier_types;
+DROP TABLE IF EXISTS pg_temp._seed_entity_identifier_types;
 CREATE TEMP TABLE _seed_entity_identifier_types (LIKE entity_identifier_types INCLUDING ALL);
 
 INSERT INTO _seed_entity_identifier_types (id, entity_type, slug, display_name, full_name, is_internal) VALUES
@@ -2019,7 +2019,7 @@ DROP TABLE _seed_entity_identifier_types;
 -- Jurisdiction Seed Data (#168)
 -- =============================================================================
 
-DROP TABLE IF EXISTS _seed_jurisdiction_types;
+DROP TABLE IF EXISTS pg_temp._seed_jurisdiction_types;
 CREATE TEMP TABLE _seed_jurisdiction_types (LIKE jurisdiction_types INCLUDING ALL);
 
 INSERT INTO _seed_jurisdiction_types (id, slug, display_name) VALUES
@@ -2052,7 +2052,7 @@ ON CONFLICT (id) DO UPDATE SET
 
 DROP TABLE _seed_jurisdiction_types;
 
-DROP TABLE IF EXISTS _seed_jurisdiction_relationship_types;
+DROP TABLE IF EXISTS pg_temp._seed_jurisdiction_relationship_types;
 CREATE TEMP TABLE _seed_jurisdiction_relationship_types (LIKE jurisdiction_relationship_types INCLUDING ALL);
 
 INSERT INTO _seed_jurisdiction_relationship_types (id, slug, display_name, category, is_symmetric) VALUES
@@ -2161,7 +2161,7 @@ END $$;
 -- public-API slug is breaking). Reserved-but-not-seeded
 -- peers (chamber_majority_leader, ...) are seeded only on first observation.
 -- The pre-#266 coarse `member` was split into committee_member + party_member.
-DROP TABLE IF EXISTS _seed_role_types;
+DROP TABLE IF EXISTS pg_temp._seed_role_types;
 CREATE TEMP TABLE _seed_role_types (LIKE role_types INCLUDING ALL);
 
 INSERT INTO _seed_role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier) VALUES
@@ -2274,7 +2274,7 @@ CREATE OR REPLACE TRIGGER trg_role_forbids_qualifier
 -- Entity Event Types Seed Data (#170)
 -- =============================================================================
 
-DROP TABLE IF EXISTS _seed_entity_event_types;
+DROP TABLE IF EXISTS pg_temp._seed_entity_event_types;
 CREATE TEMP TABLE _seed_entity_event_types (LIKE entity_event_types INCLUDING ALL);
 
 INSERT INTO _seed_entity_event_types (id, slug, display_name, applies_to, requires_year, requires_linked_entity) VALUES
@@ -3142,7 +3142,7 @@ ON CONFLICT (id) DO NOTHING;
 -- Migration (#194): organization_jurisdiction_affiliation_types seed
 -- =============================================================================
 
-DROP TABLE IF EXISTS _seed_organization_jurisdiction_affiliation_types;
+DROP TABLE IF EXISTS pg_temp._seed_organization_jurisdiction_affiliation_types;
 CREATE TEMP TABLE _seed_organization_jurisdiction_affiliation_types (LIKE organization_jurisdiction_affiliation_types INCLUDING ALL);
 
 INSERT INTO _seed_organization_jurisdiction_affiliation_types (id, slug, display_name) VALUES

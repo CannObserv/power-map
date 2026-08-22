@@ -7,9 +7,10 @@ service — down with it. The exposure is created by *adding a row to an existin
 seed*, which is exactly the edit that looks too small to think about.
 
 So the rule is structural rather than per-table: a table pairing a ULID ``id``
-PK with a UNIQUE ``slug`` may not be seeded by a bare ``INSERT … VALUES``. Its
-rows go into a ``_seed_<table>`` staging table, ``reconcile_seeded_slugs()``
-clears the way, and the seed INSERT reads back from staging.
+PK with a UNIQUE natural key — however that key is spelled, and whatever it is
+named — may not be seeded by a bare ``INSERT … VALUES``. Its rows go into a
+``_seed_<table>`` staging table, ``reconcile_seeded_slugs()`` clears the way,
+and the seed INSERT reads back from staging.
 """
 
 import re
@@ -20,7 +21,9 @@ SCHEMA = Path("src/core/schema.sql").read_text()
 _CREATE_TABLE_RE = re.compile(r"CREATE TABLE IF NOT EXISTS (\w+) \((.*?)\n\);", re.DOTALL)
 
 
-_INLINE_UNIQUE_RE = re.compile(r"^\s*(\w+)\s+TEXT\b[^,\n]*\bUNIQUE\b", re.MULTILINE)
+_INLINE_UNIQUE_RE = re.compile(
+    r"^\s*(\w+)\s+(?:TEXT|VARCHAR\s*\(\d+\))\b[^,\n]*\bUNIQUE\b", re.MULTILINE
+)
 # Single-column and **total**: a partial unique (`… WHERE is_canonical`) is a
 # per-parent slot, not a natural key — counting one would demand reconciliation
 # of `organization_names` and `person_names`, which are not lookups at all.
@@ -61,7 +64,7 @@ def _tables_keyed_by_natural_key(sql: str = SCHEMA) -> dict[str, set[str]]:
     return {name: cols for name, cols in keyed.items() if cols}
 
 
-def test_slug_keyed_lookups_are_recognised():
+def test_natural_key_lookups_are_recognised():
     """The extractor still sees the tables the rule is about."""
     keyed = _tables_keyed_by_natural_key()
     assert {
@@ -77,7 +80,7 @@ def test_slug_keyed_lookups_are_recognised():
     assert "embedding_model_registry" not in keyed
 
 
-def test_no_slug_keyed_lookup_is_seeded_by_a_bare_values_insert():
+def test_no_natural_key_lookup_is_seeded_by_a_bare_values_insert():
     offenders = sorted(
         table
         for table in _tables_keyed_by_natural_key()
