@@ -35,6 +35,14 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- The re-id is one statement on purpose. FK checks on a plain (NO ACTION)
 -- reference fire at end of statement, so the child UPDATEs and the parent's new
 -- id land together — as separate statements either half violates the FK.
+--
+-- Staging copies the target INCLUDING ALL, so a malformed seed row (a repeated
+-- id, a value failing a CHECK) fails on the staging INSERT naming the real
+-- constraint, rather than surfacing downstream as ON CONFLICT arbitration
+-- ("cannot affect row a second time"). The DROP … IF EXISTS ahead of each
+-- CREATE keeps a re-run working in the one non-transactional apply path
+-- (`psql -f`, scripts/setup-db.sh), where a mid-file abort leaves the staging
+-- table alive in the session.
 CREATE OR REPLACE FUNCTION reconcile_seeded_slugs(p_target regclass, p_seed regclass)
 RETURNS integer
 LANGUAGE plpgsql
@@ -56,6 +64,9 @@ BEGIN
             INTO v_taken USING v_seed.id;
 
         IF v_taken THEN
+            -- Assumes the parked name is free. It is derived from a slug the
+            -- occupant does not hold and a ULID nothing else carries, so a
+            -- collision needs a row literally named after another row's id.
             EXECUTE format('UPDATE %s SET slug = $1 WHERE id = $2', p_target)
                 USING v_seed.slug || '_superseded_' || lower(v_holder), v_holder;
             RAISE WARNING
@@ -519,7 +530,8 @@ CREATE TABLE IF NOT EXISTS role_assignment_relationship_types (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TEMP TABLE _seed_role_assignment_relationship_types (LIKE role_assignment_relationship_types INCLUDING DEFAULTS);
+DROP TABLE IF EXISTS _seed_role_assignment_relationship_types;
+CREATE TEMP TABLE _seed_role_assignment_relationship_types (LIKE role_assignment_relationship_types INCLUDING ALL);
 
 INSERT INTO _seed_role_assignment_relationship_types (id, slug, display_name, description, is_symmetric) VALUES
     ('01KYZC3AJM0G638CTPS4QAEJF0', 'staff_of', 'Staff Of',
@@ -1862,7 +1874,8 @@ END $$;
 -- Seed Data
 -- =============================================================================
 
-CREATE TEMP TABLE _seed_link_types (LIKE link_types INCLUDING DEFAULTS);
+DROP TABLE IF EXISTS _seed_link_types;
+CREATE TEMP TABLE _seed_link_types (LIKE link_types INCLUDING ALL);
 
 INSERT INTO _seed_link_types (id, slug, display_name, is_social) VALUES
     ('01KKZ3WGJRPV2TDZV672NWFE8G', 'twitter',      'Twitter / X',                      TRUE),
@@ -1923,7 +1936,8 @@ DO $$ BEGIN
     END IF;
 END $$;
 
-CREATE TEMP TABLE _seed_entity_identifier_types (LIKE entity_identifier_types INCLUDING DEFAULTS);
+DROP TABLE IF EXISTS _seed_entity_identifier_types;
+CREATE TEMP TABLE _seed_entity_identifier_types (LIKE entity_identifier_types INCLUDING ALL);
 
 INSERT INTO _seed_entity_identifier_types (id, entity_type, slug, display_name, full_name, is_internal) VALUES
     ('01KKZ3WGJSZF0F96SMYC000AVP', 'organization',    'org_ubi',       'UBI',    'Washington Unified Business Identifier',                   FALSE),
@@ -2005,7 +2019,8 @@ DROP TABLE _seed_entity_identifier_types;
 -- Jurisdiction Seed Data (#168)
 -- =============================================================================
 
-CREATE TEMP TABLE _seed_jurisdiction_types (LIKE jurisdiction_types INCLUDING DEFAULTS);
+DROP TABLE IF EXISTS _seed_jurisdiction_types;
+CREATE TEMP TABLE _seed_jurisdiction_types (LIKE jurisdiction_types INCLUDING ALL);
 
 INSERT INTO _seed_jurisdiction_types (id, slug, display_name) VALUES
     ('01KT0HK3452TNDD2WM8E50ZTAS', 'country',                    'Country'),
@@ -2037,7 +2052,8 @@ ON CONFLICT (id) DO UPDATE SET
 
 DROP TABLE _seed_jurisdiction_types;
 
-CREATE TEMP TABLE _seed_jurisdiction_relationship_types (LIKE jurisdiction_relationship_types INCLUDING DEFAULTS);
+DROP TABLE IF EXISTS _seed_jurisdiction_relationship_types;
+CREATE TEMP TABLE _seed_jurisdiction_relationship_types (LIKE jurisdiction_relationship_types INCLUDING ALL);
 
 INSERT INTO _seed_jurisdiction_relationship_types (id, slug, display_name, category, is_symmetric) VALUES
     ('01KT0HK3452TNDD2WM8E50ZTB9', 'is_fully_contained_by', 'Is Fully Contained By', 'spatial', FALSE),
@@ -2145,7 +2161,8 @@ END $$;
 -- public-API slug is breaking). Reserved-but-not-seeded
 -- peers (chamber_majority_leader, ...) are seeded only on first observation.
 -- The pre-#266 coarse `member` was split into committee_member + party_member.
-CREATE TEMP TABLE _seed_role_types (LIKE role_types INCLUDING DEFAULTS);
+DROP TABLE IF EXISTS _seed_role_types;
+CREATE TEMP TABLE _seed_role_types (LIKE role_types INCLUDING ALL);
 
 INSERT INTO _seed_role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier) VALUES
     ('01KX0000000000000000000001', 'state_representative',                'State Representative',                TRUE,  TRUE,  FALSE),
@@ -2257,7 +2274,8 @@ CREATE OR REPLACE TRIGGER trg_role_forbids_qualifier
 -- Entity Event Types Seed Data (#170)
 -- =============================================================================
 
-CREATE TEMP TABLE _seed_entity_event_types (LIKE entity_event_types INCLUDING DEFAULTS);
+DROP TABLE IF EXISTS _seed_entity_event_types;
+CREATE TEMP TABLE _seed_entity_event_types (LIKE entity_event_types INCLUDING ALL);
 
 INSERT INTO _seed_entity_event_types (id, slug, display_name, applies_to, requires_year, requires_linked_entity) VALUES
     ('01KV0000000000000000000001', 'birth',           'Birth',        'person',       TRUE,  FALSE),
@@ -3124,7 +3142,8 @@ ON CONFLICT (id) DO NOTHING;
 -- Migration (#194): organization_jurisdiction_affiliation_types seed
 -- =============================================================================
 
-CREATE TEMP TABLE _seed_organization_jurisdiction_affiliation_types (LIKE organization_jurisdiction_affiliation_types INCLUDING DEFAULTS);
+DROP TABLE IF EXISTS _seed_organization_jurisdiction_affiliation_types;
+CREATE TEMP TABLE _seed_organization_jurisdiction_affiliation_types (LIKE organization_jurisdiction_affiliation_types INCLUDING ALL);
 
 INSERT INTO _seed_organization_jurisdiction_affiliation_types (id, slug, display_name) VALUES
     ('01KW0000000000000000000001', 'governing',  'is governed by'),

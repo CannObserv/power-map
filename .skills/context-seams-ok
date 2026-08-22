@@ -204,3 +204,22 @@ docs/TESTING.md :: recipes live in `docs/SCHEMA.md`; the a11y rules themselves i
 docs/ANCILLARY.md :: Observation write semantics per kind are in `docs/OBSERVATIONS.md` — assignments
 docs/API_ENTITIES.md :: are in `docs/PUBLIC_API.md`; write semantics in `docs/OBSERVATIONS.md`, except
 docs/CHANGE_FEED.md :: `docs/API_ENTITIES.md`; write semantics in `docs/OBSERVATIONS.md` and, for
+
+# provenance-heading — #458 CR round 1. Both carry an issue number in the
+# heading, this repo's established convention for a section whose rule is
+# legible only with its provenance (40+ acknowledged peers above). Neither is
+# used as a link anchor: the pointers that reach them cite the section by title
+# without the number, so `dead_anchors` stays empty.
+docs/SCHEMA_INDEXES.md :: ### Seeded lookups — slug reconciliation (#458)
+docs/TESTING.md :: ## Endpoint-test client (#288)
+docs/TESTING.md :: wrong one. `docs/SCHEMA.md` carries the schema-side rules these tests exercise.
+
+# #458 CR round 1 — cross-doc pointers left correct by the endpoint-test-client
+# demotion (SCHEMA.md § Core rules -> TESTING.md § Endpoint-test client). Each
+# describes what its target still holds; none points at content that moved.
+docs/TESTING.md :: the bats shell suite. Fixture recipes live in `docs/SCHEMA.md`; the a11y rules themselves
+docs/ACCESSIBILITY.md :: live in `docs/TESTING.md` § Browser Testing.
+docs/COMMANDS.md :: the scheduled timers. Test commands are in `docs/TESTING.md`; one-off seeds, backfills,
+docs/COMMANDS.md :: | Weekly a11y sweep | weekly `power-map-a11y.timer` (Sun 04:00 UTC) runs `scripts/run-a11y-sweep.sh` — both a1
+docs/SCHEMA.md :: - Endpoint-test client: prefer the lifespan-less rollback client (`AsyncClient` + `ASGITransport` + `get_db` o
+docs/SCHEMA.md :: - A11y test tiers: **static lint** (`test_aria_labels.py`, template source) → **rendered lxml sweep** (`test_a

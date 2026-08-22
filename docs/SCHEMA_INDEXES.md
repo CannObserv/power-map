@@ -1,7 +1,8 @@
 # power-map — Unique Indexes & Search
 
 The unique indexes that encode entity identity, the governed role-type vocabulary,
-and the full-text search configuration. Table and column conventions live in
+the seed-reconciliation rule for lookups with a UNIQUE natural key, and the
+full-text search configuration. Table and column conventions live in
 `docs/SCHEMA.md`; write semantics in `docs/OBSERVATIONS.md`.
 
 ---
@@ -69,7 +70,12 @@ DROP TABLE _seed_link_types;
   in the *same statement* — FK checks on a plain NO ACTION reference fire at end
   of statement, so both halves land before they are checked; as two statements
   either half violates the FK. Deleting the row instead would take the
-  identifier values hanging off it.
+  identifier values hanging off it. The row's **`id` changes**, which is the
+  point (it converges on the seeded ULID) but is also the one externally visible
+  effect: `GET /api/v1/link-types` and `/role-types` return that id, and admin
+  detail URLs embed it, so a consumer holding the old one must re-resolve by
+  slug. No stale-304 risk — both catalogs validate with `catalog_validator`,
+  which hashes the rows including `id`.
 - **seeded id taken** → the release is *renaming* a slug onto one an operator
   already holds. The re-id has nowhere to land, so the occupant keeps its id,
   its children and its payload, and only its slug moves aside to

@@ -86,8 +86,7 @@ Full conventions → `docs/SCHEMA.md`
 - Raw `person_names` access: AND-append `visibility='public'` or call `visible_names_filter()` from `src.core.db`. Lint enforces.
 - Integration tests: require `TEST_DATABASE_URL`; never run against the production DB
 - Integration test fixtures acquire from the session-scoped `db_pool`; endpoint tests use the lifespan-less rollback client (#288)
-- Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block, placed **before** any `set_updated_at()` trigger on that table (#307/#312/#315/#392); daily `power-map-schema-parity.timer` is the continuous guard
-- Seeded lookups keyed by a UNIQUE `slug` stage their rows in `_seed_<table>` and call `reconcile_seeded_slugs()` before the seed INSERT (#458) — a bare `INSERT … VALUES` aborts on an operator-created duplicate slug, and that abort is `ExecStartPre`, so the API does not start. Add a seed row to the staging INSERT only
+- Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block, placed **before** any `set_updated_at()` trigger on that table (#307/#312/#315/#392); daily `power-map-schema-parity.timer` is the continuous guard. Seeds of a UNIQUE-natural-key lookup stage rows in `_seed_<table>` + `reconcile_seeded_slugs()` first (#458) — a bare `INSERT … VALUES` aborts on a duplicate slug
 - Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge re-homing (#324/#327), entity search (#316), role-type vocabulary (#266) — each has exact rules in the `docs/SCHEMA*.md` family, `docs/OBSERVATIONS.md`, or `docs/API_ASSIGNMENTS.md`. Read them before changing any of them.
 
 ## Infrastructure
@@ -128,12 +127,6 @@ Full command reference: `docs/COMMANDS.md`
 ### Environment files
 
 Load both via uv's dotenv parser (gated on existence — uv errors hard on a missing `--env-file`):
-```bash
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ] && env_args+=(--env-file .env)
-uv run "${env_args[@]}" <cmd>
-```
 See `docs/COMMANDS.md` § Environment.
 
 ## Agent Skills & Tools
@@ -179,7 +172,7 @@ Each line says what a task would need the doc for — load the one that matches,
 
 **Domain & data**
 
-- [docs/SCHEMA.md](docs/SCHEMA.md) — tables, column conventions, display-name views, links schema; routes to [SCHEMA_INDEXES](docs/SCHEMA_INDEXES.md) (identity indexes, role-type vocabulary, search) and [SCHEMA_VALIDITY](docs/SCHEMA_VALIDITY.md) (validity windows, feed triggers)
+- [docs/SCHEMA.md](docs/SCHEMA.md) — tables, column conventions, display-name views, links schema; routes to [SCHEMA_INDEXES](docs/SCHEMA_INDEXES.md) (identity indexes, role-type vocabulary, seed reconciliation, search) and [SCHEMA_VALIDITY](docs/SCHEMA_VALIDITY.md) (validity windows, feed triggers)
 - [docs/OBSERVATIONS.md](docs/OBSERVATIONS.md) — observation writes: identity vs payload, refine-in-place, `op="retract"`, the `source_key_id` gate; routes to [ANCILLARY](docs/ANCILLARY.md)
 - [docs/NAMES.md](docs/NAMES.md) — person and org names: the canonical/display pointer, visibility rules, structured parts, readings, locale/script tables, org display-identity invariants
 
@@ -202,7 +195,7 @@ Each line says what a task would need the doc for — load the one that matches,
 **Operating it**
 
 - [docs/COMMANDS.md](docs/COMMANDS.md) — everyday commands: setup, env files, provisioning, deploy, the dev loop, linting, scheduled timers
-- [docs/TESTING.md](docs/TESTING.md) — how to run each test tier, the integration marker, Vitest conventions, the browser a11y sweep
+- [docs/TESTING.md](docs/TESTING.md) — how to run each test tier, the integration marker, the endpoint-test client, Vitest conventions, the browser a11y sweep
 - [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — data operations: importer, seeds, role sweep, TTL prune, operational-script dry-run rules
 - [docs/AUDITS.md](docs/AUDITS.md) — the six recurring integrity audits; four carry systemd timers
 - [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP triage

@@ -43,6 +43,18 @@ INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)
 VALUES ($1, $2, $3, '123-45-6789')
 """
 
+# The seeded row verbatim. These tests move a row out of a **session-scoped**
+# database on an autocommit connection, and `apply_schema` restoring it is the
+# assertion — not the teardown. When the apply is what failed, its own
+# transaction rolls back and the DELETE above does not; without this the rest of
+# the run (~3,200 tests) is missing a seeded lookup row, and nothing that then
+# fails points back here.
+_RESTORE_SEEDED = """
+INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name, is_internal)
+VALUES ($1, 'person', $2, 'SSN', 'United States Social Security Number', FALSE)
+ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug
+"""
+
 
 async def test_apply_schema_reids_operator_created_slug(db_pool):
     """The operator's row is re-idd onto the seeded ULID; its data survives."""
@@ -81,6 +93,7 @@ async def test_apply_schema_reids_operator_created_slug(db_pool):
         finally:
             await conn.execute("DELETE FROM identifiers WHERE id = $1", identifier_id)
             await conn.execute("DELETE FROM entity_identifier_types WHERE id = $1", operator_id)
+            await conn.execute(_RESTORE_SEEDED, SEEDED_ID, SEEDED_SLUG)
 
 
 async def test_apply_schema_parks_slug_when_seeded_id_is_taken(db_pool):
@@ -131,11 +144,7 @@ async def test_apply_schema_parks_slug_when_seeded_id_is_taken(db_pool):
             await conn.execute("DELETE FROM entity_identifier_types WHERE id = $1", operator_id)
             # apply_schema restores the seeded slug itself; this only matters
             # when the assertions above never got that far.
-            await conn.execute(
-                "UPDATE entity_identifier_types SET slug = $2 WHERE id = $1",
-                SEEDED_ID,
-                SEEDED_SLUG,
-            )
+            await conn.execute(_RESTORE_SEEDED, SEEDED_ID, SEEDED_SLUG)
 
 
 # Every seeded lookup that pairs a ULID PK with a UNIQUE slug, with the extra
@@ -171,7 +180,7 @@ async def test_reconcile_seeded_slugs_reids_every_seeded_lookup(db_pool, table, 
                 f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
                 *values,
             )
-            await conn.execute(f"CREATE TEMP TABLE _probe_seed (LIKE {table} INCLUDING DEFAULTS)")
+            await conn.execute(f"CREATE TEMP TABLE _probe_seed (LIKE {table} INCLUDING ALL)")
             values[0] = seeded_id
             await conn.execute(
                 f"INSERT INTO _probe_seed ({', '.join(columns)}) VALUES ({placeholders})",

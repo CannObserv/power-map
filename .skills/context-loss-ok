@@ -69,3 +69,23 @@ docs/CONVENTIONS.md :: retarget :: person-name rules in `docs/NAMES.md`, endpoin
 #     the only live copies are in archival docs/plans/. The line now names the
 #     working reference it already cited plus tests/conftest.py.
 docs/SCHEMA.md :: disproven :: Full recipe + the `loop_scope="session"` gotcha → `docs/CONVENTIONS.md`
+# --- #458 CR round 1 (curating-context) ---------------------------------------
+# The reconciliation bullet gained the seed-reconciliation clause; the base line
+# is present verbatim as its prefix, so nothing was dropped.
+AGENTS.md :: duplicate :: Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block
+# Both index entries describe a doc whose contents this same change altered:
+# SCHEMA_INDEXES.md gained the seed-reconciliation section, TESTING.md gained the
+# endpoint-test client block demoted out of SCHEMA.md.
+AGENTS.md :: retarget :: routes to [SCHEMA_INDEXES](docs/SCHEMA_INDEXES.md)
+AGENTS.md :: retarget :: how to run each test tier, the integration marker
+# The glance pointer for the endpoint-test client: this same change moved the
+# block it pointed at (SCHEMA.md § Core rules -> TESTING.md § Endpoint-test client).
+docs/SCHEMA.md :: retarget :: Endpoint-test client: prefer the lifespan-less rollback client
+# docs/TESTING.md's self-description: the endpoint-test client moved INTO this
+# doc in this same change, so "Fixture and client recipes live in docs/SCHEMA.md"
+# became false about the client half the moment the block landed.
+docs/TESTING.md :: retarget :: How to run each tier: the Python suite and its integration marker
+docs/TESTING.md :: retarget :: and its conventions, the marker-gated browser a11y sweep, and the bats shell suite. Fixture and client
+docs/TESTING.md :: retarget :: recipes live in `docs/SCHEMA.md`; the a11y rules themselves in `docs/ACCESSIBILITY.md`.
+# A plain navigational pointer at the doc that keeps the schema-side rules — it
+# describes what SCHEMA.md still holds, not what left it.

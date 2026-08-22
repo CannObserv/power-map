@@ -164,6 +164,17 @@ Read-only; catches drift from any source (manual DDL, partial migration, a
 hand-applied hotfix, a deploy whose `apply_schema` no-op'd a new inline
 constraint).
 
+**Expected drift while a schema branch is in flight.** The default reference is
+`co_pm_db_test`, and the documented worktree loop applies a *branch's* schema to
+it (`bash scripts/apply-schema.sh --test`). From that moment the reference is
+ahead of prod and the timer exits 3 — correctly, on objects that do not exist in
+production yet. It clears on deploy (`sudo systemctl restart power-map`, whose
+`ExecStartPre` applies the schema), so the rule is: **restart promptly after
+merging a schema change**, and read a parity failure naming only objects your
+branch adds as this window rather than as drift. #458 hit it (the new
+`reconcile_seeded_slugs` function). To confirm which it is, run the audit
+manually and check whether the reported objects are all new in the branch.
+
 Function/trigger defs are PG-version-formatted, so on a **PG major mismatch**
 between reference and target those two kinds are skipped (loud WARNING) rather
 than misreported as drift; constraints are version-stable and always diff. Keep
