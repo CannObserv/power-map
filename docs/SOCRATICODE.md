@@ -7,10 +7,13 @@ block carries the rule; this file carries the table.
 file wholesale. Repo-specific exploration notes belong in `AGENTS.md` under
 `## Code Exploration Notes (repo-specific)`.
 
-Three sections below are **deliberate local divergences** from the template,
+Two sections below are **deliberate local divergences** from the template,
 delimited by `local-divergence` markers and guarded by
 `tests/test_socraticode_doc_divergence.py`. Each names the upstream issue that
-retires it. If a re-run wipes them, that test fails — which is the point.
+retires it. If a re-run wipes them, that test fails — which is the point. A
+third, on resolve-but-unindexed context artifacts, was retired in #461 once
+`gregoryfoster/skills#214` landed the check upstream; the bullet below is now
+the template's own.
 
 ## When to use each tool
 
@@ -73,30 +76,20 @@ form and delete this block. If it instead documents the omission, keep the
   symbol name.
 - **`codebase_context_search`** only sees paths listed in
   `.socraticodecontextartifacts.json` — here `src/core/schema.sql`, `AGENTS.md`
-  and the whole `docs/` tree (a directory entry, indexed recursively). A path
-  that does not resolve is skipped silently, so a missing answer is often a
-  manifest problem. `tests/test_context_artifacts.py` guards the coverage.
-
-<!-- BEGIN local-divergence: resolve-but-unindexed (gregoryfoster/skills#214) -->
-**An entry can also resolve and still not be indexed.** #454's field case: one
-artifact hit `fetch failed` during `codebase_context_index` while an incremental
-update ran concurrently; the operation then read *completed*, `codebase_status`
-settled at `2/3 indexed`, and every health light stayed green — the daily hook
-flags a FAILED operation, not a completed one that left an artifact out. To a
-`codebase_context_search` caller this looks identical to the skipped-path case:
-no results. Before blaming the query or the manifest, check `codebase_context` —
-it reports per-artifact `✓ indexed` status. **Declared ≠ indexed:**
-`tests/test_context_artifacts.py` asserts only that the manifest *declares*
-coverage; it cannot see what the server indexed. Recovery is a plain retry:
-re-run `codebase_context_index`, and do not run it concurrently with an
-incremental update — the CPU-only embedding backend serializes badly (a 5-file
-incremental took 31 min beside a context embed; solo, 0.7s), and the clean
-retry indexed everything.
-
-**Retire when [gregoryfoster/skills#214](https://github.com/gregoryfoster/skills/issues/214)
-resolves** — it asks health-check to flag artifact-count parity (manifest vs
-indexed), which turns this silent state into a daily finding.
-<!-- END local-divergence -->
+  and the whole `docs/` tree (a directory entry, indexed recursively) — and of
+  those, only the ones actually indexed. A path that does not resolve is skipped
+  silently, so a missing answer is often a manifest problem;
+  `tests/test_context_artifacts.py` guards that coverage. But the same silence
+  has a second cause a correct manifest cannot rule out: the path resolved, the
+  run *completed*, and the artifact still is not indexed — #454's field case left
+  the whole 2.5 MB `docs/` tree unreachable behind `2/3 indexed` and three green
+  health lights. Ask `codebase_context`, the only per-artifact index status there
+  is (`codebase_status` gives a count and never a name), then re-run
+  `codebase_context_index` — and not concurrently with an incremental update,
+  which the CPU-only embedding backend serializes badly. The once-per-day health
+  check reports this gap too, and names the artifact
+  (`gregoryfoster/skills#214`); `tests/test_socraticode_health_parity.py` pins
+  the vendored copy that carries it.
 
 - **The file watcher is ephemeral.** It lives only while an MCP server process is
   running. After a long gap, or after a reboot, re-run `codebase_index` rather
