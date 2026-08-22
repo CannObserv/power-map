@@ -130,7 +130,17 @@ That is the deliberate trade for idempotence: a marked block is patched in place
 
 Name directories, not files. The manifest previously listed four individual docs; the #407 split grew the tree to 32 and left 29 unreachable, which reads as "no results" rather than "not indexed". Globs do not work — the server `stat()`s the literal value. Guarded by `tests/test_context_artifacts.py`, which fails if any `docs/*.md` stops being reachable.
 
-That guard asserts *declaration*, not *indexing* — it cannot see an entry the server accepted and never indexed. The daily health hook covers that half (above); `codebase_context` is the only per-artifact status there is.
+#### Declared ≠ indexed
+
+`test_context_artifacts.py` asserts *declaration*, not *indexing* — it cannot see an entry the server accepted and never indexed. That is a second, harder cause of the same silence: to a `codebase_context_search` caller, an artifact that resolved but was never indexed looks exactly like a path that did not resolve. No results, no error.
+
+#454 is the field case: one entry hit `fetch failed` while an incremental update ran concurrently, the operation then read *completed*, `codebase_status` settled at `2/3 indexed`, and every health light stayed green — with the whole 2.5 MB `docs/` tree unreachable.
+
+- **Where to look.** `codebase_context` reports per-artifact `✓ indexed` status and is the only place that status exists; `codebase_status` gives a count and never a name.
+- **Recovery** is a plain retry of `codebase_context_index` — but **not concurrently with an incremental update.** The CPU-only embedding backend serializes badly: a 5-file incremental took 31 min beside a context embed, and 0.7s solo. The clean retry indexed everything.
+- **Who catches it now.** The daily health hook, since #461 (see § Health hook above). `tests/test_socraticode_health_parity.py` pins the vendored driver that carries the check, so a submodule rollback reds a test instead of silently reopening the gap.
+
+This section is where those pointers live **on purpose.** They were previously a `local-divergence` block in `docs/SOCRATICODE.md`, which is generated and overwritten wholesale — repo-specific content there survives only while a guard test protects it. `docs/SOCRATICODE.md` now carries the template's own wording and nothing local, so a re-run is a no-op in that file (#461 CR).
 
 ## Hook command form
 
