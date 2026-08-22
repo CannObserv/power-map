@@ -1,8 +1,9 @@
 # power-map — Testing
 
-How to run each tier: the Python suite and its integration marker, the Vitest JS suite
-and its conventions, the marker-gated browser a11y sweep, and the bats shell suite. Fixture and client
-recipes live in `docs/SCHEMA.md`; the a11y rules themselves in `docs/ACCESSIBILITY.md`.
+How to run each tier: the Python suite and its integration marker, the endpoint-test
+client, the Vitest JS suite and its conventions, the marker-gated browser a11y sweep, and
+the bats shell suite. Fixture recipes live in `docs/SCHEMA.md`; the a11y rules themselves
+in `docs/ACCESSIBILITY.md`.
 
 ---
 
@@ -28,6 +29,23 @@ uv run pytest tests/path/to/test_file.py --no-cov
 # Run integration tests (hits live external services)
 uv run pytest -m integration
 ```
+
+---
+
+## Endpoint-test client (#288)
+
+
+Which client an endpoint test drives the app with, and when the rollback client is the
+wrong one. `docs/SCHEMA.md` carries the schema-side rules these tests exercise.
+
+- **Endpoint-test client — prefer the lifespan-less rollback client (#288).** A per-test `with TestClient(app)` enters the app lifespan, which calls `asyncpg.create_pool` (~170 ms TCP handshake + type introspection) *per test* — ~30% of integration wall-clock. Instead, drive the app with an `AsyncClient` over `ASGITransport` and override `get_db` to yield a single BEGIN/ROLLBACK-wrapped `db_pool` connection: no lifespan → no per-test pool, and app writes + fixture setup share one transaction that rolls back automatically (no manual `DELETE` teardown). Because the app and the connection run on the same session event loop, this only works with async `AsyncClient`, not sync `TestClient`. The shared `db` connection means read-back assertions see the app's uncommitted writes. Routes that open their own `async with db.transaction()` become savepoints under the outer test transaction — the outer rollback still discards them. Reference recipe: `tests/api/admin/test_orgs.py` / `tests/api/admin/test_orgs_detail_inline.py`.
+    - **Pure-unit route tests** (no real DB — `get_db` fully mocked) must construct `TestClient(app)` **without** `with`: no lifespan → no pool → no live-DB dependency. Restore overrides with targeted `app.dependency_overrides.pop(dep, None)`, never `.clear()`. Reference: `tests/api/admin/test_router_ordering.py`.
+    - **When rollback is *wrong* — the committing client (#288).** A single wrapping transaction can't serve two kinds of test; these use the lifespan-less **committing** fixtures (`committing_db` / `committing_client` in `tests/api/public/conftest.py`) — autocommit (no wrapping transaction), so still no per-test pool, but writes **commit**. You must restore explicit teardown (or rely on unique ULIDs + the session-start truncation) since nothing rolls back.
+        - **Timestamps / etags that must *advance*.** Postgres `now()` / `CURRENT_TIMESTAMP` is fixed at transaction start, so `updated_at` (set by triggers) is identical for every write inside one transaction — the rollback client freezes it. A test asserting an entity's etag *changes* after a mutation needs the two writes in *separate* transactions → committing client. Reference: the etag tests in `tests/api/public/test_orgs.py` (they shadow `db`/`client` with the committing variants at file scope).
+        - **A *separate* connection must see the row.** `RequestLogMiddleware` writes its `api_request_log` row on a background task via the module-global pool (`db.get_pool()`), never the request-scoped connection — so it can't see rows created in the rollback client's uncommitted transaction. Such tests need committed data + the real global pool. The public conftest's session-autouse fixture creates the global pool (mirroring the lifespan) precisely for this. Reference: `tests/api/public/test_request_log_middleware.py`.
+        - **Assertions must not lean on `created_at` row order.** Same frozen-`now()` root as above, seen from the read side: rows written in one test transaction share an identical `created_at`, so `ORDER BY created_at` returns them in a nondeterministic order and `rows[0]`/`rows[1]` positional asserts flip across runs (flaky in the full suite, passing in isolation — #317, the #297 class from the read side). A ULID `, id` tiebreak only recovers *insertion* order across DB round-trips; names minted back-to-back in one write loop share the same millisecond, so `, id` there is a random coin flip. Key assertions by a stable value (`{r["name"]: r["is_canonical"] for r in rows}`), never by row order. Reference: `tests/core/test_observation_writers.py`.
+    - **Pool headroom:** each rollback client holds one `db_pool` connection for the whole test (`DB_POOL_MAX_SIZE=2` in tests). Revisit per-worker sizing before any `pytest-xdist` parallelization (#288).
+    - **Read-only sweep variant — seed once per module.** When a suite only *reads* (e.g. renders every admin GET route and asserts on the HTML), scope the `db`/`client`/`seed` fixtures to `module` instead of function: one BEGIN/ROLLBACK connection and one seed serve all parametrized cases, so a 148-route sweep pays the seed cost once. Same rollback isolation as the per-test client — just amortized. Reference: `tests/api/admin/test_a11y_render.py` (the #246 rendered-DOM a11y sweep; checker in `tests/api/admin/a11y.py`). Note `follow_redirects=False` there is deliberate: asserting a direct `200` keeps a route that 3xx's from silently passing by following the redirect elsewhere.
 
 ---
 

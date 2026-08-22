@@ -1,7 +1,8 @@
 # power-map — Unique Indexes & Search
 
 The unique indexes that encode entity identity, the governed role-type vocabulary,
-and the full-text search configuration. Table and column conventions live in
+the seed-reconciliation rule for lookups with a UNIQUE natural key, and the
+full-text search configuration. Table and column conventions live in
 `docs/SCHEMA.md`; write semantics in `docs/OBSERVATIONS.md`.
 
 ---
@@ -32,6 +33,71 @@ and the full-text search configuration. Table and column conventions live in
 **Continuous guard: prod-vs-reference parity audit (#315).** A companion DO block only heals prod on deploy *if someone wrote it* — the drift above was caught twice by manual CR sweeps, after it had already sat in prod. `scripts/audit_schema_constraint_parity.py` (daily `power-map-schema-parity.timer`, exit 3 on drift) snapshots every constraint's full `pg_get_constraintdef` on a reference DB (`PARITY_REFERENCE_URL`, default `TEST_DATABASE_URL`) and on prod, and fails when prod is missing or disagrees on any reference constraint — catching drift from *any* source (manual DDL, partial migration, a deploy whose `apply_schema` no-op'd a new inline constraint), FK actions included. Logic + the reference-fidelity caveat: `src/core/schema_parity.py`. Note why a fresh-DB-only unit guard can't replace it: most inline constraints (measured: 73) have **no** reconciliation block — they shipped correctly with their `CREATE TABLE` and never needed one — so "apply_schema must restore every dropped constraint" would flag all 73; the fresh DB structurally cannot tell "inline-only but fine" from "inline-only and drifted in prod." Only a comparison against real prod state can. The drop-reapply harness covers the *reconciled* subset; the parity audit covers everything else.
 
 **The parity audit also covers functions & triggers (#331).** The same silent-drift window applies to the `CREATE OR REPLACE` function/trigger surface — the change-feed `touch_parent_*` functions + `trg_touch_entity_*` triggers that emit `entity_changes` (#327). They self-heal on the next `apply_schema` (every `systemctl restart power-map`), but a partial apply or hand-applied hotfix can leave a stale body running undetected. So the audit snapshots functions (`pg_get_functiondef`, keyed on signature so overloads stay distinct; **extension-owned** and non-plain aggregate/window/procedure functions excluded via a `pg_depend deptype='e'` anti-join — `pg_trgm`/`vector`/`unaccent` install hundreds into `public` that aren't ours to guard) and triggers (`pg_get_triggerdef`, `NOT tgisinternal`, same extension anti-join) alongside constraints, with the per-kind report namespaced `constraint.*`/`function.*`/`trigger.*`. **PG-version caveat:** `pg_get_functiondef`/`pg_get_triggerdef` formatting can legitimately differ across PG majors, so those two kinds are **skipped on a reference-vs-target major mismatch** (loud WARNING) rather than misreported as body drift — keep `PARITY_REFERENCE_URL` on prod's major. Constraints are version-stable and always diff.
+
+### Seeded lookups — slug reconciliation (#458)
+
+Every seeded lookup pairs a ULID `id` PK with a UNIQUE `slug`
+(`entity_identifier_types`, `link_types`, `entity_event_types`, `role_types`,
+`jurisdiction_types`, `jurisdiction_relationship_types`,
+`role_assignment_relationship_types`,
+`organization_jurisdiction_affiliation_types`). The seed blocks conflict on the
+PK, so a row an operator minted through admin Settings — same slug, *fresh*
+ULID — collides on the slug instead: `ON CONFLICT (id)` never fires and the
+INSERT raises `unique_violation`. The trigger is ordinary, not exotic: a
+consumer is blocked on a type existing, someone unblocks them through the UI,
+and the release that seeds it properly lands weeks later.
+
+The abort is not survivable. `apply-schema.sh` is `ExecStartPre=` on the API
+unit, so a failed apply means the **service does not start** — mid-deploy, on a
+release CI called green, from state that exists only in production.
+
+So each of those seeds runs in three statements, and adding a row to one means
+adding it to the staging INSERT only:
+
+```sql
+CREATE TEMP TABLE _seed_link_types (LIKE link_types INCLUDING DEFAULTS);
+INSERT INTO _seed_link_types (...) VALUES (...);         -- the seed rows, once
+SELECT reconcile_seeded_slugs('link_types', '_seed_link_types');
+INSERT INTO link_types (...) SELECT ... FROM _seed_link_types
+ON CONFLICT (id) DO UPDATE SET ...;
+DROP TABLE _seed_link_types;
+```
+
+`reconcile_seeded_slugs(p_target, p_seed)` clears the way per colliding slug:
+
+- **seeded id free** → re-id the operator's row onto it, re-pointing FK children
+  (discovered from `pg_constraint`, so a new child table is covered for free)
+  in the *same statement* — FK checks on a plain NO ACTION reference fire at end
+  of statement, so both halves land before they are checked; as two statements
+  either half violates the FK. Deleting the row instead would take the
+  identifier values hanging off it. The row's **`id` changes**, which is the
+  point (it converges on the seeded ULID) but is also the one externally visible
+  effect: `GET /api/v1/link-types` and `/role-types` return that id, and admin
+  detail URLs embed it, so a consumer holding the old one must re-resolve by
+  slug. No stale-304 risk — both catalogs validate with `catalog_validator`,
+  which hashes the rows including `id`.
+- **seeded id taken** → the release is *renaming* a slug onto one an operator
+  already holds. The re-id has nowhere to land, so the occupant keeps its id,
+  its children and its payload, and only its slug moves aside to
+  `<slug>_superseded_<id>` (WARNING). An operator merges the two afterwards; the
+  apply does not abort.
+
+`ON CONFLICT (slug)` is not the fix — it drops the seeded ULID as the stable
+anchor `schema.sql` and the tests reference, and it swaps the failure for the
+mirror one (a seeded slug rename then collides on the PK). Blocking reserved
+slugs in the admin form is not either: the collision is with slugs that are not
+reserved *yet*.
+
+Re-pointing a child row fires that table's touch trigger (#327), so a
+reconciliation emits `entity_changes` for the affected parents — expected, and
+confined to the deploy that reconciles. The `RAISE WARNING` for a parked slug
+goes to the Postgres log, which `apply-schema.sh` does not echo; the parked row
+is visible in admin Settings under its `_superseded_` slug.
+
+Guards: `tests/core/test_schema_seed_reconciliation.py` (live-PG, both
+outcomes, child data survival) and `test_schema_seed_reconciliation_sweep.py`
+(structural — a slug-keyed lookup may not be seeded by a bare
+`INSERT … VALUES`).
 
 ### Role-type vocabulary — governance (#266)
 

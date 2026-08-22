@@ -7,6 +7,106 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- =============================================================================
+-- Seed reconciliation (#458)
+-- =============================================================================
+-- Every seeded lookup below pairs a ULID `id` PK with a UNIQUE `slug`, and
+-- every seed block conflicts on the PK alone. The admin Settings screen mints
+-- identifier types and link types with an operator-supplied slug and a *fresh*
+-- ULID, so a release that later seeds that slug collides on the slug, not on
+-- the id: `ON CONFLICT (id)` never fires and the INSERT raises unique_violation.
+--
+-- That abort is not survivable. apply-schema.sh is ExecStartPre= on the API
+-- unit, so a failed apply means the service does not start — mid-deploy, on a
+-- release CI called green, triggered by state that exists only in production.
+--
+-- Called with the seed rows staged in a temp table, ahead of each seed INSERT.
+-- Two outcomes per colliding slug:
+--
+--   the seeded id is free    re-id the operator's row onto it, re-pointing FK
+--                            children first. Deleting the row instead would
+--                            take the identifier values hanging off it.
+--   the seeded id is taken   the release is *renaming* a slug onto one an
+--                            operator already holds. The re-id has nowhere to
+--                            land, so the occupant keeps its id, its children
+--                            and its payload and only its slug moves aside, to
+--                            `<slug>_superseded_<id>`. An operator merges the
+--                            two afterwards; the apply does not abort.
+--
+-- The re-id is one statement on purpose. FK checks on a plain (NO ACTION)
+-- reference fire at end of statement, so the child UPDATEs and the parent's new
+-- id land together — as separate statements either half violates the FK.
+--
+-- Staging copies the target INCLUDING ALL, so a malformed seed row (a repeated
+-- id, a value failing a CHECK) fails on the staging INSERT naming the real
+-- constraint, rather than surfacing downstream as ON CONFLICT arbitration
+-- ("cannot affect row a second time"). The DROP … IF EXISTS ahead of each
+-- CREATE keeps a re-run working in the one non-transactional apply path
+-- (`psql -f`, scripts/setup-db.sh), where a mid-file abort leaves the staging
+-- table alive in the session.
+CREATE OR REPLACE FUNCTION reconcile_seeded_slugs(p_target regclass, p_seed regclass)
+RETURNS integer
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_seed     record;
+    v_holder   text;
+    v_taken    boolean;
+    v_children text;
+    v_moved    integer := 0;
+BEGIN
+    FOR v_seed IN EXECUTE format('SELECT id, slug FROM %s ORDER BY id', p_seed)
+    LOOP
+        EXECUTE format('SELECT id FROM %s WHERE slug = $1', p_target)
+            INTO v_holder USING v_seed.slug;
+        CONTINUE WHEN v_holder IS NULL OR v_holder = v_seed.id;
+
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM %s WHERE id = $1)', p_target)
+            INTO v_taken USING v_seed.id;
+
+        IF v_taken THEN
+            -- Assumes the parked name is free. It is derived from a slug the
+            -- occupant does not hold and a ULID nothing else carries, so a
+            -- collision needs a row literally named after another row's id.
+            EXECUTE format('UPDATE %s SET slug = $1 WHERE id = $2', p_target)
+                USING v_seed.slug || '_superseded_' || lower(v_holder), v_holder;
+            RAISE WARNING
+                '% row % holds seeded slug % and the seeded id % is taken — slug parked aside',
+                p_target, v_holder, v_seed.slug, v_seed.id;
+        ELSE
+            SELECT string_agg(
+                       format('c%s AS (UPDATE %s SET %I = $2 WHERE %I = $1)',
+                              fk.ord, fk.child, fk.col, fk.col),
+                       ', ')
+              INTO v_children
+              FROM (
+                    SELECT row_number() OVER (ORDER BY c.oid) AS ord,
+                           c.conrelid::regclass                AS child,
+                           a.attname                           AS col
+                      FROM pg_constraint c
+                      JOIN pg_attribute a
+                        ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+                     WHERE c.contype = 'f'
+                       AND c.confrelid = p_target
+                       AND cardinality(c.confkey) = 1
+                       AND (SELECT attname FROM pg_attribute
+                             WHERE attrelid = c.confrelid AND attnum = c.confkey[1]) = 'id'
+                   ) fk;
+
+            EXECUTE CASE WHEN v_children IS NULL THEN '' ELSE 'WITH ' || v_children || ' ' END
+                    || format('UPDATE %s SET id = $2 WHERE id = $1', p_target)
+                USING v_holder, v_seed.id;
+            RAISE NOTICE '% row % re-idd onto seeded id % (slug %)',
+                p_target, v_holder, v_seed.id, v_seed.slug;
+        END IF;
+
+        v_moved := v_moved + 1;
+    END LOOP;
+
+    RETURN v_moved;
+END;
+$$;
+
+-- =============================================================================
 -- Lookup / Reference Tables
 -- =============================================================================
 
@@ -430,14 +530,25 @@ CREATE TABLE IF NOT EXISTS role_assignment_relationship_types (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO role_assignment_relationship_types (id, slug, display_name, description, is_symmetric) VALUES
+DROP TABLE IF EXISTS pg_temp._seed_role_assignment_relationship_types;
+CREATE TEMP TABLE _seed_role_assignment_relationship_types (LIKE role_assignment_relationship_types INCLUDING ALL);
+
+INSERT INTO _seed_role_assignment_relationship_types (id, slug, display_name, description, is_symmetric) VALUES
     ('01KYZC3AJM0G638CTPS4QAEJF0', 'staff_of', 'Staff Of',
-     'from = staffer''s assignment serves to = principal legislator''s seat assignment', FALSE)
+     'from = staffer''s assignment serves to = principal legislator''s seat assignment', FALSE);
+
+SELECT reconcile_seeded_slugs('role_assignment_relationship_types', '_seed_role_assignment_relationship_types');
+
+INSERT INTO role_assignment_relationship_types (id, slug, display_name, description, is_symmetric)
+SELECT id, slug, display_name, description, is_symmetric
+FROM _seed_role_assignment_relationship_types
 ON CONFLICT (id) DO UPDATE SET
     slug         = EXCLUDED.slug,
     display_name = EXCLUDED.display_name,
     description  = EXCLUDED.description,
     is_symmetric = EXCLUDED.is_symmetric;
+
+DROP TABLE _seed_role_assignment_relationship_types;
 
 -- Directional temporal edge. valid_from/valid_until is the edge's OWN window,
 -- independent of but bounded by both endpoint assignment windows. Enforced by the
@@ -1763,7 +1874,10 @@ END $$;
 -- Seed Data
 -- =============================================================================
 
-INSERT INTO link_types (id, slug, display_name, is_social) VALUES
+DROP TABLE IF EXISTS pg_temp._seed_link_types;
+CREATE TEMP TABLE _seed_link_types (LIKE link_types INCLUDING ALL);
+
+INSERT INTO _seed_link_types (id, slug, display_name, is_social) VALUES
     ('01KKZ3WGJRPV2TDZV672NWFE8G', 'twitter',      'Twitter / X',                      TRUE),
     ('01KKZ3WGJRPV2TDZV672NWFE8H', 'bluesky',      'Bluesky',                          TRUE),
     ('01KKZ3WGJSZF0F96SMYC000AVA', 'linkedin',     'LinkedIn',                         TRUE),
@@ -1778,11 +1892,19 @@ INSERT INTO link_types (id, slug, display_name, is_social) VALUES
     ('01KKZ3WGJSZF0F96SMYC000AVK', 'sec_form_d',   'SEC Form D',                       FALSE),
     ('01KKZ3WGJSZF0F96SMYC000AVM', 'wikipedia',    'Wikipedia',                        FALSE),
     ('01KKZ3WGJSZF0F96SMYC000AVN', 'other',        'Other',                            FALSE),
-    ('01KM0YSNEMMPY35FSS3CX49SFJ', 'google_drive', 'Google Drive',                     FALSE)
+    ('01KM0YSNEMMPY35FSS3CX49SFJ', 'google_drive', 'Google Drive',                     FALSE);
+
+SELECT reconcile_seeded_slugs('link_types', '_seed_link_types');
+
+INSERT INTO link_types (id, slug, display_name, is_social)
+SELECT id, slug, display_name, is_social
+FROM _seed_link_types
 ON CONFLICT (id) DO UPDATE SET
     slug         = EXCLUDED.slug,
     display_name = EXCLUDED.display_name,
     is_social    = EXCLUDED.is_social;
+
+DROP TABLE _seed_link_types;
 
 -- Extend entity_identifier_types.entity_type CHECK before seeding jurisdiction rows.
 -- Must run before the INSERT below on existing DBs; CREATE TABLE IF NOT EXISTS
@@ -1814,7 +1936,10 @@ DO $$ BEGIN
     END IF;
 END $$;
 
-INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name, is_internal) VALUES
+DROP TABLE IF EXISTS pg_temp._seed_entity_identifier_types;
+CREATE TEMP TABLE _seed_entity_identifier_types (LIKE entity_identifier_types INCLUDING ALL);
+
+INSERT INTO _seed_entity_identifier_types (id, entity_type, slug, display_name, full_name, is_internal) VALUES
     ('01KKZ3WGJSZF0F96SMYC000AVP', 'organization',    'org_ubi',       'UBI',    'Washington Unified Business Identifier',                   FALSE),
     ('01KKZ3WGJSZF0F96SMYC000AVQ', 'organization',    'org_wslcb',     'WSLCB',  'WA State Liquor and Cannabis Board License',               FALSE),
     ('01KKZ3WGJSZF0F96SMYC000AVR', 'organization',    'org_wa_pdc',    'WA PDC', 'Washington State Public Disclosure Commission',            FALSE),
@@ -1874,7 +1999,13 @@ INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_n
     -- deterministic: re-deriving it from the archived PDF plus the checked-in
     -- adjudication tables reproduces the same key, so it is stable rather than
     -- run-scoped. is_internal=FALSE so a roster observation can create a Person.
-    ('01M0JJV06B4658AKYH3MTSXFNF', 'person',          'person_wa_legislature_roster', 'WA Legislature Roster', 'Washington State Legislature Roster Identity', FALSE)
+    ('01M0JJV06B4658AKYH3MTSXFNF', 'person',          'person_wa_legislature_roster', 'WA Legislature Roster', 'Washington State Legislature Roster Identity', FALSE);
+
+SELECT reconcile_seeded_slugs('entity_identifier_types', '_seed_entity_identifier_types');
+
+INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name, is_internal)
+SELECT id, entity_type, slug, display_name, full_name, is_internal
+FROM _seed_entity_identifier_types
 ON CONFLICT (id) DO UPDATE SET
     entity_type  = EXCLUDED.entity_type,
     slug         = EXCLUDED.slug,
@@ -1882,11 +2013,16 @@ ON CONFLICT (id) DO UPDATE SET
     full_name    = EXCLUDED.full_name,
     is_internal  = EXCLUDED.is_internal;
 
+DROP TABLE _seed_entity_identifier_types;
+
 -- =============================================================================
 -- Jurisdiction Seed Data (#168)
 -- =============================================================================
 
-INSERT INTO jurisdiction_types (id, slug, display_name) VALUES
+DROP TABLE IF EXISTS pg_temp._seed_jurisdiction_types;
+CREATE TEMP TABLE _seed_jurisdiction_types (LIKE jurisdiction_types INCLUDING ALL);
+
+INSERT INTO _seed_jurisdiction_types (id, slug, display_name) VALUES
     ('01KT0HK3452TNDD2WM8E50ZTAS', 'country',                    'Country'),
     ('01KT0HK3452TNDD2WM8E50ZTAT', 'state',                      'State'),
     ('01KT0HK3452TNDD2WM8E50ZTAV', 'county',                     'County'),
@@ -1903,12 +2039,23 @@ INSERT INTO jurisdiction_types (id, slug, display_name) VALUES
     ('01KT0HK3452TNDD2WM8E50ZTB5', 'metropolitan',               'Metropolitan'),
     ('01KT0HK3452TNDD2WM8E50ZTB6', 'borough',                    'Borough'),
     ('01KT0HK3452TNDD2WM8E50ZTB7', 'township',                   'Township'),
-    ('01KT0HK3452TNDD2WM8E50ZTB8', 'village',                    'Village')
+    ('01KT0HK3452TNDD2WM8E50ZTB8', 'village',                    'Village');
+
+SELECT reconcile_seeded_slugs('jurisdiction_types', '_seed_jurisdiction_types');
+
+INSERT INTO jurisdiction_types (id, slug, display_name)
+SELECT id, slug, display_name
+FROM _seed_jurisdiction_types
 ON CONFLICT (id) DO UPDATE SET
     slug         = EXCLUDED.slug,
     display_name = EXCLUDED.display_name;
 
-INSERT INTO jurisdiction_relationship_types (id, slug, display_name, category, is_symmetric) VALUES
+DROP TABLE _seed_jurisdiction_types;
+
+DROP TABLE IF EXISTS pg_temp._seed_jurisdiction_relationship_types;
+CREATE TEMP TABLE _seed_jurisdiction_relationship_types (LIKE jurisdiction_relationship_types INCLUDING ALL);
+
+INSERT INTO _seed_jurisdiction_relationship_types (id, slug, display_name, category, is_symmetric) VALUES
     ('01KT0HK3452TNDD2WM8E50ZTB9', 'is_fully_contained_by', 'Is Fully Contained By', 'spatial', FALSE),
     ('01KT0HK3452TNDD2WM8E50ZTBA', 'borders',          'Borders',           'spatial',    TRUE),
     ('01KT0HK3452TNDD2WM8E50ZTBB', 'overlaps',         'Overlaps',          'spatial',    TRUE),
@@ -1919,12 +2066,20 @@ INSERT INTO jurisdiction_relationship_types (id, slug, display_name, category, i
     ('01KT0HK3452TNDD2WM8E50ZTBG', 'coextensive_with', 'Coextensive With',  'functional', TRUE),
     ('01KT0HK3452TNDD2WM8E50ZTBH', 'supersedes',       'Supersedes',        'lineage',    FALSE),
     ('01KT0HK3452TNDD2WM8E50ZTBJ', 'evolved_from',     'Evolved From',      'lineage',    FALSE),
-    ('01KT0HK3452TNDD2WM8E50ZTBK', 'merged_into',      'Merged Into',       'lineage',    FALSE)
+    ('01KT0HK3452TNDD2WM8E50ZTBK', 'merged_into',      'Merged Into',       'lineage',    FALSE);
+
+SELECT reconcile_seeded_slugs('jurisdiction_relationship_types', '_seed_jurisdiction_relationship_types');
+
+INSERT INTO jurisdiction_relationship_types (id, slug, display_name, category, is_symmetric)
+SELECT id, slug, display_name, category, is_symmetric
+FROM _seed_jurisdiction_relationship_types
 ON CONFLICT (id) DO UPDATE SET
     slug         = EXCLUDED.slug,
     display_name = EXCLUDED.display_name,
     category     = EXCLUDED.category,
     is_symmetric = EXCLUDED.is_symmetric;
+
+DROP TABLE _seed_jurisdiction_relationship_types;
 
 -- Rename is_seat → expects_jurisdiction on existing DBs (#271); add it on DBs
 -- predating both (#268). Fresh DBs already have expects_jurisdiction from the
@@ -2006,8 +2161,10 @@ END $$;
 -- public-API slug is breaking). Reserved-but-not-seeded
 -- peers (chamber_majority_leader, ...) are seeded only on first observation.
 -- The pre-#266 coarse `member` was split into committee_member + party_member.
-INSERT INTO role_types
-    (id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier) VALUES
+DROP TABLE IF EXISTS pg_temp._seed_role_types;
+CREATE TEMP TABLE _seed_role_types (LIKE role_types INCLUDING ALL);
+
+INSERT INTO _seed_role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier) VALUES
     ('01KX0000000000000000000001', 'state_representative',                'State Representative',                TRUE,  TRUE,  FALSE),
     ('01KX0000000000000000000002', 'state_senator',                      'State Senator',                      TRUE,  FALSE, FALSE),
     ('01KX000000000000000000000D', 'state_representative_at_large',      'State Representative (At-Large)',    TRUE,  FALSE, TRUE),
@@ -2019,13 +2176,21 @@ INSERT INTO role_types
     ('01KX0000000000000000000009', 'committee_assistant_ranking_member', 'Committee Assistant Ranking Member', FALSE, FALSE, FALSE),
     ('01KX000000000000000000000A', 'committee_member',                   'Committee Member',                   FALSE, FALSE, FALSE),
     ('01KX000000000000000000000B', 'legislature_staff',                  'Legislative Staff',                  FALSE, FALSE, FALSE),
-    ('01KX000000000000000000000C', 'party_member',                       'Party Member',                       FALSE, FALSE, FALSE)
+    ('01KX000000000000000000000C', 'party_member',                       'Party Member',                       FALSE, FALSE, FALSE);
+
+SELECT reconcile_seeded_slugs('role_types', '_seed_role_types');
+
+INSERT INTO role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier)
+SELECT id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier
+FROM _seed_role_types
 ON CONFLICT (id) DO UPDATE SET
     slug                 = EXCLUDED.slug,
     display_name         = EXCLUDED.display_name,
     expects_jurisdiction = EXCLUDED.expects_jurisdiction,
     requires_qualifier   = EXCLUDED.requires_qualifier,
     forbids_qualifier    = EXCLUDED.forbids_qualifier;
+
+DROP TABLE _seed_role_types;
 
 -- Retire the coarse `member` classifier (#266). It conflated committee and party
 -- membership, so "all members" mixed the two; scripts/migrate_member_role_type.py
@@ -2109,7 +2274,10 @@ CREATE OR REPLACE TRIGGER trg_role_forbids_qualifier
 -- Entity Event Types Seed Data (#170)
 -- =============================================================================
 
-INSERT INTO entity_event_types (id, slug, display_name, applies_to, requires_year, requires_linked_entity) VALUES
+DROP TABLE IF EXISTS pg_temp._seed_entity_event_types;
+CREATE TEMP TABLE _seed_entity_event_types (LIKE entity_event_types INCLUDING ALL);
+
+INSERT INTO _seed_entity_event_types (id, slug, display_name, applies_to, requires_year, requires_linked_entity) VALUES
     ('01KV0000000000000000000001', 'birth',           'Birth',        'person',       TRUE,  FALSE),
     ('01KV0000000000000000000002', 'death',           'Death',        'person',       TRUE,  FALSE),
     ('01KV0000000000000000000003', 'marriage',        'Marriage',     'person',       FALSE, TRUE),
@@ -2122,13 +2290,21 @@ INSERT INTO entity_event_types (id, slug, display_name, applies_to, requires_yea
     ('01KV000000000000000000000A', 'renamed',         'Renamed',      'organization', FALSE, FALSE),
     -- #321: renamed-continuity link — event lives on the PREDECESSOR, linked_entity → successor
     ('01KV000000000000000000000C', 'succeeded_by',    'Succeeded By', 'organization', FALSE, TRUE),
-    ('01KV000000000000000000000B', 'other',           'Other',        'both',         FALSE, FALSE)
+    ('01KV000000000000000000000B', 'other',           'Other',        'both',         FALSE, FALSE);
+
+SELECT reconcile_seeded_slugs('entity_event_types', '_seed_entity_event_types');
+
+INSERT INTO entity_event_types (id, slug, display_name, applies_to, requires_year, requires_linked_entity)
+SELECT id, slug, display_name, applies_to, requires_year, requires_linked_entity
+FROM _seed_entity_event_types
 ON CONFLICT (id) DO UPDATE SET
     slug                   = EXCLUDED.slug,
     display_name           = EXCLUDED.display_name,
     applies_to             = EXCLUDED.applies_to,
     requires_year          = EXCLUDED.requires_year,
     requires_linked_entity = EXCLUDED.requires_linked_entity;
+
+DROP TABLE _seed_entity_event_types;
 
 -- =============================================================================
 -- Duplicate Management
@@ -2966,12 +3142,23 @@ ON CONFLICT (id) DO NOTHING;
 -- Migration (#194): organization_jurisdiction_affiliation_types seed
 -- =============================================================================
 
-INSERT INTO organization_jurisdiction_affiliation_types (id, slug, display_name) VALUES
+DROP TABLE IF EXISTS pg_temp._seed_organization_jurisdiction_affiliation_types;
+CREATE TEMP TABLE _seed_organization_jurisdiction_affiliation_types (LIKE organization_jurisdiction_affiliation_types INCLUDING ALL);
+
+INSERT INTO _seed_organization_jurisdiction_affiliation_types (id, slug, display_name) VALUES
     ('01KW0000000000000000000001', 'governing',  'is governed by'),
-    ('01KW0000000000000000000002', 'registered', 'is registered in')
+    ('01KW0000000000000000000002', 'registered', 'is registered in');
+
+SELECT reconcile_seeded_slugs('organization_jurisdiction_affiliation_types', '_seed_organization_jurisdiction_affiliation_types');
+
+INSERT INTO organization_jurisdiction_affiliation_types (id, slug, display_name)
+SELECT id, slug, display_name
+FROM _seed_organization_jurisdiction_affiliation_types
 ON CONFLICT (id) DO UPDATE SET
     slug         = EXCLUDED.slug,
     display_name = EXCLUDED.display_name;
+
+DROP TABLE _seed_organization_jurisdiction_affiliation_types;
 
 -- =============================================================================
 -- Migration (#197): pyannote-community-1-embed dimensionality fix 192 → 256

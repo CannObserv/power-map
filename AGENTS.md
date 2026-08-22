@@ -86,7 +86,7 @@ Full conventions → `docs/SCHEMA.md`
 - Raw `person_names` access: AND-append `visibility='public'` or call `visible_names_filter()` from `src.core.db`. Lint enforces.
 - Integration tests: require `TEST_DATABASE_URL`; never run against the production DB
 - Integration test fixtures acquire from the session-scoped `db_pool`; endpoint tests use the lifespan-less rollback client (#288)
-- Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block, placed **before** any `set_updated_at()` trigger on that table (#307/#312/#315/#392); daily `power-map-schema-parity.timer` is the continuous guard
+- Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block, placed **before** any `set_updated_at()` trigger on that table (#307/#312/#315/#392); daily `power-map-schema-parity.timer` is the continuous guard. Seeds of a UNIQUE-natural-key lookup stage rows in `_seed_<table>` + `reconcile_seeded_slugs()` first (#458) — a bare `INSERT … VALUES` aborts on a duplicate slug
 - Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge re-homing (#324/#327), entity search (#316), role-type vocabulary (#266) — each has exact rules in the `docs/SCHEMA*.md` family, `docs/OBSERVATIONS.md`, or `docs/API_ASSIGNMENTS.md`. Read them before changing any of them.
 
 ## Infrastructure
@@ -104,7 +104,7 @@ Single VM; port split:
 ```bash
 bash scripts/worktree-setup.sh <worktree-path>
 ```
-It replaces the `.venv` symlink `worktree-create.sh` leaves behind with a real per-worktree environment (`uv sync --group browser --group seed`) and symlinks the gitignored `.env` (still needed for `GH_TOKEN`; `TEST_DATABASE_URL` comes from `/etc/power-map/.env`). **Never share a venv with the main checkout** — that is production's working directory, where nine systemd units run `uv run` (`power-map-ready` every 2 min, restamping the project version mid-suite) and `power-map.service`'s `ExecStartPre=uv sync` prunes the opt-in groups, silently deleting the browser tier. Refuses (exit 2) against the main checkout.
+It replaces the `.venv` symlink `worktree-create.sh` leaves behind with a real per-worktree environment (`uv sync --group browser --group seed`) and symlinks the gitignored `.env`. **Never share a venv with the main checkout** — that is production's working directory, and its systemd units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it (`docs/COMMANDS.md` § Worktree setup). Refuses (exit 2) against the main checkout.
 
 exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 
@@ -118,7 +118,7 @@ exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 | Quick prod health check | `curl -fsS localhost:8000/health && curl -fsS localhost:8000/ready` — unauthenticated probes (#343); `/ready` 503 reason: `no_pool`/`pool_timeout`/`db_error` |
 | DB unreachable / `pool_timeout` | Egress IP likely rotated out of DO Trusted Sources — full triage in `docs/RUNBOOK_DB_TRIAGE.md` (#410) |
 
-Scheduled timers (outbox prune · API anomaly · schema parity · ancillary orphans · assignment-relationship windows · weekly a11y · 2-min readiness guard · 5-min egress-IP drift) all surface failure through `systemctl --failed` — see `docs/COMMANDS.md` § Scheduled timers.
+Eight scheduled timers all surface failure through `systemctl --failed` — roster, cadences and scripts in `docs/COMMANDS.md` § Scheduled timers.
 
 **Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates the write behind `--execute` and calls `echo_target()` (`scripts/_dsn.py`) before connecting. `add_dsn_args`/`resolve_dsn` give every script `--database-url` and `--test`; `tests/scripts/test_dsn_sweep.py` enforces gate, echo, and resolver by AST with no allowlist. `apply-schema.sh` writes to production on the bare invocation and refuses in a linked worktree (#398) — use `--test` from a worktree. Full rules → `docs/RUNBOOKS.md` § Operational scripts.
 
@@ -178,7 +178,7 @@ Each line says what a task would need the doc for — load the one that matches,
 
 **Domain & data**
 
-- [docs/SCHEMA.md](docs/SCHEMA.md) — tables, column conventions, display-name views, links schema; routes to [SCHEMA_INDEXES](docs/SCHEMA_INDEXES.md) (identity indexes, role-type vocabulary, search) and [SCHEMA_VALIDITY](docs/SCHEMA_VALIDITY.md) (validity windows, feed triggers)
+- [docs/SCHEMA.md](docs/SCHEMA.md) — tables, column conventions, display-name views, links schema; routes to [SCHEMA_INDEXES](docs/SCHEMA_INDEXES.md) (identity indexes, role-type vocabulary, seed reconciliation, search) and [SCHEMA_VALIDITY](docs/SCHEMA_VALIDITY.md) (validity windows, feed triggers)
 - [docs/OBSERVATIONS.md](docs/OBSERVATIONS.md) — observation writes: identity vs payload, refine-in-place, `op="retract"`, the `source_key_id` gate; routes to [ANCILLARY](docs/ANCILLARY.md)
 - [docs/NAMES.md](docs/NAMES.md) — person and org names: the canonical/display pointer, visibility rules, structured parts, readings, locale/script tables, org display-identity invariants
 
@@ -201,7 +201,7 @@ Each line says what a task would need the doc for — load the one that matches,
 **Operating it**
 
 - [docs/COMMANDS.md](docs/COMMANDS.md) — everyday commands: setup, env files, provisioning, deploy, the dev loop, linting, scheduled timers
-- [docs/TESTING.md](docs/TESTING.md) — how to run each test tier, the integration marker, Vitest conventions, the browser a11y sweep
+- [docs/TESTING.md](docs/TESTING.md) — how to run each test tier, the integration marker, the endpoint-test client, Vitest conventions, the browser a11y sweep
 - [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — data operations: importer, seeds, role sweep, TTL prune, operational-script dry-run rules
 - [docs/AUDITS.md](docs/AUDITS.md) — the six recurring integrity audits; four carry systemd timers
 - [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP triage
