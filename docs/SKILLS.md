@@ -101,6 +101,13 @@ What it catches that three green lights do not:
 
 - a FAILED last operation or an INCOMPLETE index sitting unreported
 - a stopped Qdrant container or a missing embedding model
+- **declared ≠ indexed** (#461). A *completed* operation can still leave a context
+  artifact out — #454 sat at `2/3 indexed` with every light green and the whole
+  `docs/` tree unreachable. The check measures the manifest's declared count
+  against per-artifact status and names the shortfall
+  (`context artifacts 2/3 indexed — reference-docs: ○ not yet indexed`); recovery
+  is `codebase_context_index`. Pinned by `tests/test_socraticode_health_parity.py`,
+  which fails if the submodule rolls back past the fix
 - **graph yield.** `READY` is a status, not a result: the graph can be READY with almost no edges, and `codebase_graph_query` then answers "no dependents" rather than failing. Yield is measured in edges/file against a `0.1` floor — that ratio, not `unresolvedPct`, is the verdict.
 
 #### Reading the daily `unresolved N%` line
@@ -122,6 +129,8 @@ That is the deliberate trade for idempotence: a marked block is patched in place
 `.socraticodecontextartifacts.json` points `codebase_context_search` at the project's non-code knowledge. Three entries: `src/core/schema.sql`, `AGENTS.md`, and `docs` — the last a **directory**, indexed recursively.
 
 Name directories, not files. The manifest previously listed four individual docs; the #407 split grew the tree to 32 and left 29 unreachable, which reads as "no results" rather than "not indexed". Globs do not work — the server `stat()`s the literal value. Guarded by `tests/test_context_artifacts.py`, which fails if any `docs/*.md` stops being reachable.
+
+That guard asserts *declaration*, not *indexing* — it cannot see an entry the server accepted and never indexed. The daily health hook covers that half (above); `codebase_context` is the only per-artifact status there is.
 
 ## Hook command form
 
