@@ -33,8 +33,11 @@ any of them reds a test instead of silently restoring a gap nobody notices —
 #463 also adopted the template's `<!-- BEGIN socraticode-doc -->` /
 `<!-- END socraticode-doc -->` pair (skills#210), which turns a re-run from a
 whole-file overwrite into a bounded replace. That is what makes the assertions
-here two-sided: the span must match the pinned template, and everything
-repo-authored must sit below `END`, where a re-run does not reach.
+here two-sided: the two sections a retirement rests on must match the pinned
+template, and everything repo-authored must sit below `END`, where a re-run does
+not reach. Section-scoped rather than whole-span, because the submodule is
+bumped and committed unattended and a full-text diff would turn any upstream
+edit into a repo-wide commit block — see that test's docstring.
 
 **Ancestry is the assertion; source strings are corroboration** — the same rule
 `test_socraticode_health_parity.py` states at length. The vendored files may not
@@ -92,25 +95,40 @@ REFACTOR_HINT = (
 )
 
 
-def _rollback_hint(commit: str, issue: int, what: str) -> str:
-    """Message for an ancestry check that answered *no*."""
+# The fallback recovery for the three *retirement* ratchets: each replaced a
+# local-divergence block, so a rollback means putting that block back.
+RESTORE_THE_BLOCK = (
+    "restore the corresponding local-divergence block in docs/SOCRATICODE.md "
+    "and its guard here (see #463 for both texts)"
+)
+
+
+def _rollback_hint(commit: str, issue: int, what: str, recovery: str) -> str:
+    """Message for an ancestry check that answered *no*.
+
+    `recovery` is per-check on purpose. Three of the four pins replaced a
+    divergence block and are undone by restoring it; the marker pin never had
+    one, and telling its reader to hunt for a block that never existed is the
+    confidently-wrong signal these guards are written to avoid.
+    """
     return (
         f"The vendored gregoryfoster/skills pin does not contain {commit} "
         f"(skills#{issue}), so {what}. Bump skills-vendor/gregoryfoster-skills "
-        "forward, or restore the corresponding local-divergence block in "
-        "docs/SOCRATICODE.md and its guard here (see #463 for both texts)."
+        f"forward, or {recovery}."
     )
 
 
-def _assert_pin_contains(commit: str, issue: int, what: str) -> None:
-    """Ancestry gate shared by the three retirement ratchets."""
+def _assert_pin_contains(
+    commit: str, issue: int, what: str, recovery: str = RESTORE_THE_BLOCK
+) -> None:
+    """Ancestry gate shared by the four ratchets."""
     contains = vendor_skills.contains_commit(commit)
     if contains is None:
         pytest.skip(
             f"git cannot resolve {commit} in {VENDOR.name} (shallow clone or "
             "missing git) — ancestry unverifiable, so it is not reported either way"
         )
-    assert contains, _rollback_hint(commit, issue, what)
+    assert contains, _rollback_hint(commit, issue, what, recovery)
 
 
 @pytest.fixture(scope="module")
@@ -164,14 +182,24 @@ def _template_span() -> str:
     return body.split("````markdown\n", 1)[1].split("\n````", 1)[0]
 
 
+def _section(text: str, heading: str) -> str:
+    """One `## ` section of a markdown body, heading through the next `## `."""
+    start = text.index(f"\n{heading}\n")
+    rest = text.index("\n## ", start + 1)
+    return text[start:rest]
+
+
 def _table_tools(doc: str) -> set[str]:
     """Every `codebase_*` tool named in the doc's *When to use each tool* table.
 
-    Table rows only. The prose elsewhere names tools the prefetch deliberately
-    omits (`codebase_index`, `codebase_context_index`, `codebase_graph_status`),
-    which are run by hand or by the driver, never mid-exploration.
+    That table and no other. Scoping matters twice over: the prose around it
+    names tools the prefetch deliberately omits (`codebase_index`,
+    `codebase_context_index`, `codebase_graph_status`), which are run by hand or
+    by the driver rather than mid-exploration; and a table added below the END
+    marker is repo-authored, so holding its rows to the prefetch contract would
+    be inventing a rule nobody wrote.
     """
-    rows = [line for line in doc.splitlines() if line.startswith("|")]
+    rows = _tool_table(_span(doc)).splitlines()
     return {tool for row in rows for tool in TABLE_TOOL_RE.findall(row)}
 
 
@@ -248,6 +276,10 @@ def test_the_doc_still_explains_the_figure_it_stopped_correcting(doc: str) -> No
     The block was deleted because the template carries the explanation — so the
     generated file must actually carry it. A deletion that also dropped the
     template's paragraphs would leave the doc worse than the divergence did.
+
+    Not redundant with the section-parity check below, which is vendor-gated:
+    this is the floor that still runs with the submodule uninitialised, which is
+    the default state of a fresh worktree. Keep it unmarked for that reason.
     """
     lowered = doc.lower()
     for concept, needle in (
@@ -301,6 +333,7 @@ def test_the_reminder_hook_is_the_vendored_one() -> None:
     )
 
 
+@vendor_only
 def test_doc_prefetch_matches_the_hook_that_actually_runs(doc: str, hook: str) -> None:
     """The doc's `select:` string lists exactly what the reminder hook emits.
 
@@ -309,6 +342,12 @@ def test_doc_prefetch_matches_the_hook_that_actually_runs(doc: str, hook: str) -
     the doc could not leave the doc asserting a prefetch nobody runs. It is now
     also the cheapest rollback detector of the three: a submodule rolled back
     past skills#209 changes the hook's tool list under a doc that still lists 12.
+
+    Vendor-gated since #463 CR: the hook stopped being a regular file in this
+    repo and became a symlink into the submodule, which moves it into the set of
+    things a fresh worktree does not have. `scripts/worktree-setup.sh` leaves
+    submodules alone deliberately, so that absence is routine and must skip with
+    the banner rather than error on a dangling link.
     """
     hook_tools = set(TOOL_RE.findall(hook))
     doc_tools = _select_tools(doc)
@@ -324,20 +363,32 @@ def test_doc_prefetch_matches_the_hook_that_actually_runs(doc: str, hook: str) -
     )
 
 
-def test_the_prefetch_covers_every_tool_the_doc_table_recommends(doc: str) -> None:
-    """Nothing in the tool table is missing from the prefetch that loads it.
+def test_the_tool_table_and_the_prefetch_name_the_same_tools(doc: str) -> None:
+    """The table recommends exactly what the prefetch loads, in both directions.
 
-    The divergence existed because the table and the prefetch disagreed: an
-    agent handed the table called a tool whose schema was never loaded. The
-    property that failure violated outlives the block that documented it, so it
-    is asserted directly rather than through a tool count — a count passes when
-    twelve tools are listed and one of them is the wrong twelve.
+    Set equality, not a subset and not a count. Each direction fails differently
+    and both have happened:
+
+    - a tool in the **table but not the prefetch** is the original divergence —
+      an agent follows the table it was just handed and gets
+      `InputValidationError`;
+    - a tool in the **prefetch but not the table** is what a re-run produces,
+      because the table is the one adapted region inside the span and upstream's
+      is four rows shorter. The subset check this replaced was green on exactly
+      that, so the retirement would have quietly given back the three graph
+      tools the divergence block was written to keep.
+
+    A count would catch the second and not the first, and passes on any twelve.
     """
-    missing = _table_tools(doc) - _select_tools(doc)
-    assert not missing, (
-        f"the doc's tool table recommends {sorted(missing)}, which the prefetch "
-        "does not load — an agent following the table it was just handed gets "
-        "InputValidationError. Add them to the select: string, or drop the rows."
+    table, prefetch = _table_tools(doc), _select_tools(doc)
+    assert table == prefetch, (
+        "the doc's tool table and its prefetch disagree.\n"
+        f"  recommended but not prefetched: {sorted(table - prefetch) or 'none'} "
+        "— an agent following the table gets InputValidationError\n"
+        f"  prefetched but not recommended: {sorted(prefetch - table) or 'none'} "
+        "— usually an init-socraticode re-run reverting the adapted table to "
+        "upstream's shorter one; re-adapt the rows rather than trimming the "
+        "select: string"
     )
 
 
@@ -352,6 +403,11 @@ def test_the_pin_carries_the_marker_pair_convention() -> None:
         210,
         "the template has no marker pair, so a re-run replaces docs/SOCRATICODE.md "
         "wholesale and the repo-specific notes below the END marker go with it",
+        recovery=(
+            "keep the marker pair in docs/SOCRATICODE.md by hand and treat every "
+            "re-run as a whole-file overwrite — copy the `## Repo-specific notes` "
+            "section out first. This pin never had a divergence block to restore"
+        ),
     )
 
 
@@ -403,35 +459,52 @@ def test_the_repo_authored_notes_are_below_the_end_marker(doc: str) -> None:
 
 
 @vendor_only
-def test_the_span_is_the_pinned_template_apart_from_the_tool_table(doc: str) -> None:
-    """The generated half says what the pin says, to the line.
+def test_the_retired_sections_still_match_the_pinned_template(doc: str) -> None:
+    """The two sections the retirements rest on say what the pin says, to the line.
 
-    The tool table is excluded because the template's own adaptation checklist
-    asks for it: the rows must name the tools this server build exposes and
-    this project's tree. Nothing else in the span is this repo's to write —
-    that is what "generated" means, and it is the claim every retirement in
-    this file rests on.
+    Scoped to `## Prefetch` and `## Graph health` on purpose, and the scope is
+    the finding rather than the convenience. Byte equality over the whole span
+    would red on *any* upstream edit to the template — and
+    `.claude/hooks/skills-submodule-update.sh` bumps the submodule and commits
+    unattended, daily, on `main`, without `--no-verify`. So a reworded sentence
+    three sections away would fail the hook's own commit, and then block every
+    unrelated commit in the repo until someone regenerated the doc, retrying the
+    same failure every day.
+
+    These two sections are different: they are the ones whose upstream wording
+    *is* the retirement condition. #198 and #216 retired the unresolvedPct block
+    on the strength of § Graph health; #209 retired the prefetch block on the
+    strength of § Prefetch. If either drifts, the grounds for a deletion have
+    moved and someone must look. That keeps this file's own rule intact —
+    ancestry is the load-bearing assertion, source strings corroborate — instead
+    of quietly promoting a full-text diff above the four ancestry pins.
+
+    Drift in the rest of the span is a doc that has gone stale, which is real
+    but is not this guard's business; an audit re-run is the answer to it.
     """
     template = _template_span()
-    expected = template.replace(_tool_table(template), _tool_table(doc))
-    if _span(doc) == expected:
-        return
+    span = _span(doc)
 
-    diff = "\n".join(
-        difflib.unified_diff(
-            expected.splitlines(),
-            _span(doc).splitlines(),
-            "pinned template",
-            "docs/SOCRATICODE.md span",
-            lineterm="",
-            n=1,
+    for heading in ("## Prefetch", "## Graph health"):
+        expected, actual = _section(template, heading), _section(span, heading)
+        if expected == actual:
+            continue
+        diff = "\n".join(
+            difflib.unified_diff(
+                expected.splitlines(),
+                actual.splitlines(),
+                f"pinned template {heading}",
+                f"docs/SOCRATICODE.md {heading}",
+                lineterm="",
+                n=1,
+            )
         )
-    )
-    pytest.fail(
-        "docs/SOCRATICODE.md has drifted from the template at the current pin.\n"
-        "Neither side is wrong by default: an upstream edit to the template "
-        "means the doc is stale and should be regenerated from it, while a "
-        "local edit inside the span means the content belongs below the "
-        f"{END_MARKER} line instead. Do not resolve it by editing "
-        f"skills-vendor/.\n\n{diff}"
-    )
+        pytest.fail(
+            f"docs/SOCRATICODE.md § {heading.removeprefix('## ')} has drifted from "
+            "the template at the current pin, and a retirement rests on that "
+            "section's wording (#463).\n"
+            "Neither side is wrong by default: an upstream edit means the doc is "
+            "stale and should be regenerated from the template, while a local "
+            f"edit means the content belongs below the {END_MARKER} line "
+            f"instead. Do not resolve it by editing skills-vendor/.\n\n{diff}"
+        )

@@ -66,14 +66,24 @@ def contains_commit(rev: str, repo: Path = VENDOR_ROOT) -> bool | None:
     against a throwaway repo, the False branch especially — no fixture built
     from the real pin can hold still.
 
-    **The environment is scrubbed of `GIT_*`, and that is load-bearing.** git
-    hooks export `GIT_DIR` and `GIT_INDEX_FILE`, and `GIT_DIR` beats `-C`: under
-    pre-commit — where the unit tier runs on every commit — an unscrubbed probe
-    asks the *superproject* whether it contains a submodule commit, gets 128 for
-    an unknown revision, and answers `None`. Every ancestry ratchet would then
-    skip exactly where it runs most often, wearing the same skip message as a
-    routine uninitialised submodule.
+    Two ways the probe can end up answering about the **wrong repository**, both
+    closed here, because a confident answer about the wrong repo is worse than
+    no answer at all:
+
+    - **The environment is scrubbed of `GIT_*`.** git hooks export `GIT_DIR` and
+      `GIT_INDEX_FILE`, and `GIT_DIR` beats `-C`: under pre-commit — where the
+      unit tier runs on every commit — an unscrubbed probe asks the superproject
+      whether it contains a submodule commit, gets 128, and answers `None`.
+      Every ancestry ratchet would then skip exactly where it runs most often,
+      wearing the same skip message as a routine uninitialised submodule.
+    - **`repo` must hold a repository of its own.** `git submodule` leaves the
+      directory in place and empty until someone initialises it, and git's
+      discovery walks *up* out of an empty directory — so `-C` alone answers
+      about the parent checkout, returning `True` for commits only it contains.
+      A missing `.git` is that state, so it answers `None` before invoking git.
     """
+    if not (repo / ".git").exists():
+        return None
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     try:
         proc = subprocess.run(

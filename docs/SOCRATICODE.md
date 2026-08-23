@@ -116,10 +116,19 @@ index if left in, and vendored prose outranks first-party code in
 
 ## Repo-specific notes
 
-Everything **above** the `END` marker is the template and is replaced wholesale
-by an `init-socraticode` re-run (skills#210); everything below it survives. So
-this is where a repo-specific reading goes — not in `AGENTS.md`, which is loaded
-on every invocation and whose policy block `curating-context` refuses to trim.
+Everything **above** the `END` marker is replaced by an `init-socraticode`
+re-run (skills#210); everything below it survives. So this is where a
+repo-specific reading goes — not in `AGENTS.md`, which is loaded on every
+invocation and whose policy block `curating-context` refuses to trim.
+
+One region above the marker is **not** the template's and does not survive
+either: the *When to use each tool* table, which names the tools this server
+build exposes and this project's tree. The skill's own adaptation checklist asks
+for that, and upstream's table is four rows shorter — so **re-adapt it after any
+re-run**, or the doc silently stops recommending `codebase_graph_stats`,
+`codebase_graph_visualize`, `codebase_status` and `codebase_context`.
+`tests/test_socraticode_doc_parity.py` holds the table and the prefetch string
+to the same tool set, which is what catches the reversion.
 
 **No local divergences remain.** Three `local-divergence` blocks once sat inside
 the span above, each a correction the template had not yet made. All three are

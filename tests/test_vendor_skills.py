@@ -67,7 +67,12 @@ def _git(repo: Path, *args: str) -> str:
     the same precaution for the same reason.
     """
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    # HOME redirects the user config; GIT_CONFIG_SYSTEM the machine-wide one.
+    # Without the second, an /etc/gitconfig carrying `commit.gpgsign = true` or
+    # an `init.templateDir` breaks these tests in a way that reads as a defect
+    # in contains_commit rather than as the environment it actually is.
     env["HOME"] = str(repo)
+    env["GIT_CONFIG_SYSTEM"] = os.devnull
     proc = subprocess.run(
         ["git", "-C", str(repo), *args],
         capture_output=True,
@@ -110,8 +115,15 @@ def test_contains_commit_defaults_to_the_vendored_submodule() -> None:
     Both ancestry ratchets call it that way, so the default is their whole
     contract: pointed anywhere else, every one of them would answer about the
     wrong repository while still going green.
+
+    Asserts the happy path, like `test_present_is_true_when_the_submodule_is_initialised`
+    above: with the submodule uninitialised the probe correctly answers `None`,
+    and that is a missing prerequisite rather than a defect.
     """
-    assert vendor_skills.contains_commit("HEAD") is True
+    assert vendor_skills.contains_commit("HEAD") is True, (
+        "the probe cannot resolve HEAD in the vendored submodule — this test "
+        f"asserts the happy path, so run `{vendor_skills.INIT_HINT}` first"
+    )
 
 
 def test_contains_commit_is_true_for_an_ancestor(two_commit_repo: tuple[Path, str, str]) -> None:
@@ -144,6 +156,24 @@ def test_an_unresolvable_revision_is_unknown_not_a_rollback(
 def test_a_directory_that_is_not_a_repo_is_unknown(tmp_path: Path) -> None:
     """The same tri-state answer when the submodule is uninitialised, not shallow."""
     assert vendor_skills.contains_commit("HEAD", repo=tmp_path) is None
+
+
+def test_an_empty_dir_inside_a_repo_does_not_answer_about_that_repo(
+    two_commit_repo: tuple[Path, str, str],
+) -> None:
+    """The uninitialised-submodule shape, which `tmp_path` alone cannot reproduce.
+
+    `git submodule` leaves the directory in place and empty, and git's own
+    discovery then walks *up* out of it — so an unguarded probe answers about
+    the superproject. The wrong answer is not `None` but a confident `True` for
+    a commit that only the parent repo contains, which is the failure this whole
+    module is written against, one level in.
+    """
+    repo, first, _ = two_commit_repo
+    empty = repo / "vendored"
+    empty.mkdir()
+
+    assert vendor_skills.contains_commit(first, repo=empty) is None
 
 
 def test_an_inherited_git_dir_cannot_redirect_the_question(
