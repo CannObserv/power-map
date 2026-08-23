@@ -33,7 +33,6 @@ wrong signal costs. So the load-bearing check asks git whether the pin contains
 "upstream may have refactored" rather than "the pin rolled back".
 """
 
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -69,26 +68,6 @@ REFACTOR_HINT = (
 )
 
 
-def _contains_parity_commit() -> bool | None:
-    """Is `PARITY_COMMIT` an ancestor of the pinned HEAD? `None` if git cannot say.
-
-    Exit 0 is yes and exit 1 is no; anything else (128 for an unknown revision
-    in a shallow clone, a missing git, a non-repo) means the question was not
-    answered, which must not be reported as a rollback.
-    """
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(VENDOR), "merge-base", "--is-ancestor", PARITY_COMMIT, "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return {0: True, 1: False}.get(proc.returncode)
-
-
 @pytest.fixture(scope="module")
 def driver() -> str:
     """The vendored `mcp-driver.mjs` source."""
@@ -101,7 +80,7 @@ def test_the_pin_contains_the_parity_check() -> None:
     Immune to upstream reformatting in a way the source-string checks below are
     not, which is why this one owns `ROLLBACK_HINT`.
     """
-    contains = _contains_parity_commit()
+    contains = vendor_skills.contains_commit(PARITY_COMMIT)
     if contains is None:
         pytest.skip(
             f"git cannot resolve {PARITY_COMMIT} in {VENDOR.name} "

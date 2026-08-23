@@ -55,9 +55,13 @@ repos:
         language: system
         entry: uv run shellcheck
         files: ^(scripts/.*\.sh|\.claude/hooks/.*\.sh)$
-        # These two hooks are symlinks into vendored skills (skills-vendor
-        # policy: never edit; targets absent until the submodule is initialised).
-        exclude: ^\.claude/hooks/(context-budget-guard|skills-submodule-update)\.sh$
+        # These hooks are symlinks into vendored skills (skills-vendor policy:
+        # never edit; targets absent until the submodule is initialised).
+        # pre-commit passes regular files only, so a symlinked hook is already
+        # skipped — the list is the stated intent, not the mechanism.
+        # socraticode-reminder joined it in #463, when the 12-tool divergence
+        # retired and the hand-authored copy became a symlink like the others.
+        exclude: ^\.claude/hooks/(context-budget-guard|skills-submodule-update|socraticode-reminder)\.sh$
 
       - id: check-version-sync
         name: version sync (pyproject.toml == package.json)
