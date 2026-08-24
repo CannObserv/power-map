@@ -13,6 +13,13 @@ from pydantic import (
     model_validator,
 )
 
+# The `entity_identifier_types.entity_type` CHECK vocabulary. Aliased because
+# this module's own `EntityType` (below) is a *different*, wider set — the
+# entity kinds the wire addresses, which include `role` and
+# `role_assignment_relationship`. Imported rather than re-declared so the
+# published contract inherits the schema-parity guard in tests/core/test_types.py.
+from src.core.types import EntityType as IdentifierEntityType
+
 EntityType = Literal[
     "person",
     "organization",
@@ -529,6 +536,38 @@ class EntityEventTypesResponse(BaseModel):
     """
 
     data: list[EntityEventType]
+
+
+class EntityIdentifierType(BaseModel):
+    """An identifier type — the vocabulary a producer addresses entities by (#459).
+
+    ``is_internal`` is the field worth reading before writing an observation. An
+    internal type (the ``pm_*`` family) **addresses** an existing entity and can
+    never mint one — a miss is rejected ``pm_id_not_found`` — and it is refused
+    outright in ``additional_identifiers`` (an internal type is how you *reach*
+    an entity, not a scheme you attach to one). Every other type auto-attaches
+    on a known value and creates on an unknown one.
+    """
+
+    id: str
+    slug: str
+    entity_type: IdentifierEntityType
+    display_name: str
+    full_name: str
+    is_internal: bool
+
+
+class EntityIdentifierTypesResponse(BaseModel):
+    """Unpaginated list of all identifier types.
+
+    Intentionally omits ``meta`` pagination — entity_identifier_types is a small
+    lookup table returned in full. No limit/offset parameters are accepted, and
+    no ``entity_type`` filter: the catalog is tens of rows, every sibling
+    catalog is unfiltered, and a filter would have to be baked into the ETag
+    (``catalog_validator`` hashes only the rows it was handed).
+    """
+
+    data: list[EntityIdentifierType]
 
 
 class ObservationPersonNameParts(BaseModel):

@@ -47,7 +47,7 @@ Upserts an organization by identifier using the same match-or-create semantics a
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `identifier_type` | always | Must be a registered organization identifier type slug (e.g. `org_ubi`, `org_wa_legislature`, `org_wa_legislature_chamber`, `org_wa_pdc` — PDC lobbyist-firm filer_id, `org_wa_pdc_committee` — PDC campaign-finance committee filer_id) |
+| `identifier_type` | always | Must be a registered organization identifier type slug — see **Organization identifier types** below |
 | `identifier_value` | always | Value for the identifier |
 | `names` | optional | List of `{name, name_type, is_canonical?, effective_start?, effective_end?}` — `name_type` must be `legal`, `dba`, or `former` (default `legal`); `is_canonical` defaults to `false`. Exact-match dedup. Set `is_canonical: true` on at most one entry to designate it as the canonical name (422 otherwise); when no entry carries the hint the first name written for an org with no existing canonical is auto-promoted. The hint is ignored if a canonical already exists (never displaces). `effective_start`/`effective_end` (`YYYY-MM-DD`; `effective_start` must be ≤ `effective_end` if both supplied — 422 otherwise) are stored **only on a newly written name row**; dates sent for an already-present name are a no-op — name-timeline transitions are curated in Power-Map, not driven by the feed. |
 | `org_acronyms` | optional | List of `{acronym, is_canonical?}` — `is_canonical` defaults to `false`. Exact-match dedup. Set `is_canonical: true` on at most one entry to designate it as canonical (422 otherwise); when no entry carries the hint the first acronym written for an org with no existing canonical is auto-promoted. The hint is ignored if a canonical already exists (never displaces). |
@@ -61,6 +61,13 @@ Upserts an organization by identifier using the same match-or-create semantics a
 | `jurisdiction_affiliations` | optional | List of `{jurisdiction_id, affiliation_type_slug}` — typed org-to-jurisdiction associations. `affiliation_type_slug` must match a value in `organization_jurisdiction_affiliation_types` (seeded values: `governing`, `registered`). Idempotent (duplicate rows silently ignored). Invalid `jurisdiction_id` or unknown `affiliation_type_slug` → `rejected`. |
 | `events` | optional | List of event claims — same shape as for `POST /people/observations`. See `docs/API_EVENTS.md` § Observation `events` surface. |
 | `active` | optional | Boolean. Sets the orgs-only `active` axis (operationally live vs. dissolved/defunct). **Omitted or `null` ⇒ the flag is left unchanged**; an explicit bool asserts it. Setting `active` on an **archived** org is rejected (`reason: active_on_archived_org`) — archiving is an admin lifecycle gate, so an archived row is not a valid observation target. A redundant assertion (value already matches) is a true no-op and emits no change-feed event. |
+
+**Organization identifier types:** the registered set is a live catalog — query
+`GET /api/v1/entity-identifier-types` (filter `entity_type == "organization"`
+client-side) rather than hardcoding slugs, since admin curates the table. Value
+conventions per slug — which PDC filer_id `org_wa_pdc` versus `org_wa_pdc_committee`
+holds, and the rest — are in [OBSERVATIONS.md](OBSERVATIONS.md) §"Identifier types",
+the single home for them; the catalog carries no value-format column.
 
 **Disposition semantics:**
 

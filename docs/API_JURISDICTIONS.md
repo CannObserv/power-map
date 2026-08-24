@@ -29,7 +29,7 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `identifier_type` | always | Must be a registered jurisdiction identifier type slug (`jur_ocd`, `jur_fips`, `jur_iso3166_2`, `jur_slug`) |
+| `identifier_type` | always | Must be a registered jurisdiction identifier type slug — see **Jurisdiction identifier types** below |
 | `identifier_value` | always | Value for the identifier |
 | `jurisdiction_slug` | NEW only | Unique slug (e.g. `usa-wa`, `usa-wa-ld-21`). Required when creating a new jurisdiction; ignored on AUTO_ATTACHED. |
 | `jurisdiction_name` | NEW only | Human-readable name. Required for NEW; ignored on AUTO_ATTACHED. |
@@ -41,6 +41,12 @@ Upserts a jurisdiction by identifier using the same match-or-create semantics as
 | `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label (e.g. `"Main Office"`, `"Committee Hotline"`) |
 | `addresses` | optional | List of `{raw_input, address_type, valid_from?, valid_until?}` — `address_type` must be `mailing`, `physical`, or `other` (default `other`). `valid_from`/`valid_until` (`YYYY-MM-DD`, optional; `valid_from` ≤ `valid_until`, 422 otherwise) bound the address validity window; NULL/omitted = open-ended on that side. A **dateless** claim dedups against any existing window (never resurrects an admin-ended address); a **dated** claim dedups on the exact window and records a fresh row for a new one (#256). |
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes. **Internal (`pm_*`) types are refused here** (`rejected`, `Internal identifier type … cannot be assigned via observations`) — they address the entity via `identifier_type`, they are not attachable. **One value per type per entity:** re-sending the same value is a no-op, a *different* value for a type the entity already carries rejects the whole observation (`reason: identifier_conflict: '<slug>'`). |
+
+**Jurisdiction identifier types:** the registered set is a live catalog — query
+`GET /api/v1/entity-identifier-types` (filter `entity_type == "jurisdiction"`
+client-side) rather than hardcoding slugs, since admin curates the table. Value
+conventions per slug are in [OBSERVATIONS.md](OBSERVATIONS.md) §"Identifier types",
+the single home for them; the catalog carries no value-format column.
 
 **Disposition semantics:**
 

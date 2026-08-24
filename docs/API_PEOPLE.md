@@ -48,18 +48,12 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 | `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` — for attaching secondary identifier schemes. **Internal (`pm_*`) types are refused here** (`rejected`, `Internal identifier type … cannot be assigned via observations`) — they address the entity via `identifier_type`, they are not attachable. **One value per type per entity:** re-sending the same value is a no-op, a *different* value for a type the entity already carries rejects the whole observation (`reason: identifier_conflict: '<slug>'`). |
 | `events` | optional | List of `{event_type_id XOR event_type_slug, pm_event_id?, op?, event_year?, event_month?, event_day?, event_hour?, event_minute?, event_second?, event_place_text?, event_place_address_id?, linked_entity_type?, linked_entity_id?, notes?, visibility?}`. `pm_event_id` refines in place; `op="retract"` archives it (#322) — both work on this embedded path too. See `docs/API_EVENTS.md` § Observation `events` surface for `pm_event_id`/`op` semantics. |
 
-**Person identifier types:** the registered set is seeded in `src/core/schema.sql`. There is no
-public catalog endpoint for it yet (unlike `GET /role-types`, `/link-types`,
-`/entity-event-types`) — see [#459](https://github.com/CannObserv/power-map/issues/459); until it
-lands, this table is the discovery surface for producers. Value conventions worth knowing:
-
-| Slug | Value |
-|------|-------|
-| `person_wa_pdc` | PDC numeric person-stable `person_id` |
-| `person_wa_legislature_member_id` | WSL member id — sponsor wire, bottoms out at 1991 |
-| `person_wa_legislature_roster` | `<name fold>:<first session year>`, e.g. `aeolson:1923` — archival 1889–2025 roster, the cohort below the member-id floor (#456) |
-| `observo_speaker` | opaque Observo ULID |
-| `pm_person_id` | PM Person ULID — internal: resolves an existing Person, never creates |
+**Person identifier types:** the registered set is a live catalog — query
+`GET /api/v1/entity-identifier-types` (filter `entity_type == "person"` client-side)
+rather than hardcoding slugs, since admin curates the table. Value conventions per
+slug — `person_wa_legislature_roster`'s `<name fold>:<first session year>` and the
+rest — are in [OBSERVATIONS.md](OBSERVATIONS.md) §"Identifier types", the single home
+for them; the catalog carries no value-format column.
 
 **Disposition semantics:**
 

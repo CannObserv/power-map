@@ -1,9 +1,54 @@
 # power-map — Observation Write Semantics & Provenance
 
-How the public observation path writes: what counts as identity versus payload, when
-a re-emitted observation refines in place, how `op="retract"` works, the
+How the public observation path writes: the identifier-type vocabulary entities are
+addressed by, what counts as identity versus payload, when a re-emitted observation
+refines in place, how `op="retract"` works, the
 `source_key_id` provenance gate, and the merge re-homing every conflict-delete owes
 its ancillary rows. Table definitions live in `docs/SCHEMA.md`.
+
+---
+
+## Identifier types — the identity vocabulary (#459)
+
+Every observation addresses its entity by `identifier_type` + `identifier_value`. The
+registered set is a **live catalog, not a constant**: admin curates the table
+(`settings_identifier_types.py`), so query
+`GET /api/v1/entity-identifier-types` rather than hardcoding slugs — it returns
+`id, slug, entity_type, display_name, full_name, is_internal`. An *unknown* slug is rejected outright
+(`unknown_identifier_type`); a **valid-but-wrong** one is not — it silently mints a
+duplicate entity, and identity duplication propagates into every assignment, event and
+citation hung off the fork.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| `GET` | `/api/v1/entity-identifier-types` | API key | Unpaginated list of the whole vocabulary, `ORDER BY slug`. No `entity_type` filter — filter client-side. ETag caching (content hash) — see [Conditional requests](PUBLIC_API.md#conditional-requests). |
+
+`is_internal` splits the vocabulary in two:
+
+- **Internal (`pm_*`)** — addresses an existing entity by its PM ULID and can never
+  create one (`pm_id_not_found` on a miss). Refused in `additional_identifiers`: an
+  internal type is how you *reach* an entity, not a scheme you attach to one.
+- **External** — auto-attaches on a known value (`auto-attached`), creates on an
+  unknown one (`new`).
+
+**Value conventions.** The catalog has no value-format column, so these stay here — the
+ones worth knowing before minting:
+
+| Slug | Entity | Value |
+|---|---|---|
+| `person_wa_pdc` | person | PDC numeric person-stable `person_id` |
+| `person_wa_pdc_filer` | person | PDC per-filer registration key (#293) |
+| `person_wa_pdc_lobbyist_agent` | person | PDC lobbyist `agent_id`; one person may carry several (#295) |
+| `person_wa_legislature_member_id` | person | WSL member id — sponsor wire, bottoms out at 1991 |
+| `person_wa_legislature_roster` | person | `<name fold>:<first session year>`, e.g. `aeolson:1923` — the archival 1889–2025 roster below the member-id floor (#456) |
+| `observo_speaker` | person | opaque Observo ULID |
+| `org_ubi` | organization | WA Unified Business Identifier |
+| `org_wa_pdc` | organization | PDC **lobbyist-firm** filer_id, numeric |
+| `org_wa_pdc_committee` | organization | PDC **campaign-finance** committee filer_id, e.g. `LABORG 503` (#296) |
+| `org_wa_party` | organization | bare lowercase party slug — `democratic`, `republican` (#270) |
+| `org_wa_legislature_committee_id` | organization | WSL numeric `committee_id` (successor committees get their own id) |
+| `org_wa_legislature` | organization | the legislature-level anchor (#225) |
+| `org_wa_legislature_chamber` | organization | chamber key — `usa_wa_house` / `usa_wa_senate` (#225) |
 
 ---
 

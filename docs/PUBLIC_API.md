@@ -127,7 +127,7 @@ Send `If-None-Match: <etag>` to receive `304 Not Modified` when the record is un
 | `GET /assignments/{pm_assignment_id}/relationships` | watermark |
 | `GET /jurisdictions/{id}/relationships` | watermark |
 | `GET /jurisdictions/{id}/lineage` | content hash |
-| `GET /role-types`, `/link-types`, `/entity-event-types` | content hash |
+| `GET /role-types`, `/link-types`, `/entity-event-types`, `/entity-identifier-types` | content hash |
 
 **Watermark** = `count(*)` + `max(updated_at)` over the *visible* set, with every filter and the `limit`/`offset` window baked into the tag. Count catches a row entering or leaving the filtered set — a retract archives rather than deletes, so the row's own `updated_at` bump is invisible once the default (active-only) filter excludes it — and `max` catches an in-place edit. A tag from one filter/window never revalidates against another's.
 
@@ -184,7 +184,7 @@ All `POST /*/observations` endpoints return an `ObservationResponse` with the fo
 | `unapplied` | `list[string] \| null` | #311: fields supplied but not applied on a natural-key auto-attach (see the assignments section). Currently populated only by assignment observations; `null` elsewhere and on clean attaches |
 | `events` | `list[EventObservationResult] \| null` | #321: per-event dispositions when the payload carried `events`. `null` when none submitted. On this all-or-nothing embedded path a rejected event raises → whole observation `rejected`, so `events` is present only on full success. Each item: `{disposition, event_id?, reason?}` |
 
-**`reason` is a diagnostic aid, not a stable API contract.** Its format (e.g. `"unknown_identifier_type: 'org_wa_legislature_chamber'"`) may change across releases. Do not pattern-match on specific reason strings in production code; use it for logging and debugging only.
+**`reason` is a diagnostic aid, not a stable API contract.** Its format (e.g. `"unknown_identifier_type: 'org_wa_legislature_chamber'"`) may change across releases. Do not pattern-match on specific reason strings in production code; use it for logging and debugging only. To avoid `unknown_identifier_type` in the first place, discover the registered slugs from `GET /api/v1/entity-identifier-types` instead of hardcoding them (#459) — value conventions per slug are in [OBSERVATIONS.md](OBSERVATIONS.md).
 
 **Event `reason` slugs are a contract, though.** Unlike the top-level `reason`, per-event `EventObservationResult.reason` (#321) is a stable machine-readable slug: one transient — `linked_entity_unresolved` (self-heals once the linked entity anchors) — and the rest terminal: `identity_immutable`, `event_not_found`, `provenance_conflict`, `applies_to_mismatch`, `missing_required_field`, `unknown_event_type`, `invalid`.
 

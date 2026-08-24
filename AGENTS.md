@@ -179,7 +179,7 @@ Each line says what a task would need the doc for — load the one that matches,
 **Domain & data**
 
 - [docs/SCHEMA.md](docs/SCHEMA.md) — tables, column conventions, display-name views, links schema; routes to [SCHEMA_INDEXES](docs/SCHEMA_INDEXES.md) (identity indexes, role-type vocabulary, seed reconciliation, search) and [SCHEMA_VALIDITY](docs/SCHEMA_VALIDITY.md) (validity windows, feed triggers)
-- [docs/OBSERVATIONS.md](docs/OBSERVATIONS.md) — observation writes: identity vs payload, refine-in-place, `op="retract"`, the `source_key_id` gate; routes to [ANCILLARY](docs/ANCILLARY.md)
+- [docs/OBSERVATIONS.md](docs/OBSERVATIONS.md) — the identifier-type vocabulary and its value conventions; observation writes: identity vs payload, refine-in-place, `op="retract"`, the `source_key_id` gate; routes to [ANCILLARY](docs/ANCILLARY.md)
 - [docs/NAMES.md](docs/NAMES.md) — person and org names: the canonical/display pointer, visibility rules, structured parts, readings, locale/script tables, org display-identity invariants
 
 **Public API**

@@ -22,6 +22,8 @@ _CONDITIONAL_GETS = [
     "/api/v1/role-types",
     "/api/v1/link-types",
     "/api/v1/entity-event-types",
+    # #459 — the fourth observation vocabulary catalog
+    "/api/v1/entity-identifier-types",
     # #392 PR-C — needed jurisdiction_relationships.updated_at first
     "/api/v1/jurisdictions/{jurisdiction_id}/relationships",
     "/api/v1/jurisdictions/{jurisdiction_id}/lineage",
