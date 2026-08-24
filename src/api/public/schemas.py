@@ -13,6 +13,13 @@ from pydantic import (
     model_validator,
 )
 
+# The `entity_identifier_types.entity_type` CHECK vocabulary. Aliased because
+# this module's own `EntityType` (below) is a *different*, wider set — the
+# entity kinds the wire addresses, which include `role` and
+# `role_assignment_relationship`. Imported rather than re-declared so the
+# published contract inherits the schema-parity guard in tests/core/test_types.py.
+from src.core.types import EntityType as IdentifierEntityType
+
 EntityType = Literal[
     "person",
     "organization",
@@ -544,7 +551,7 @@ class EntityIdentifierType(BaseModel):
 
     id: str
     slug: str
-    entity_type: Literal["organization", "person", "role_assignment", "jurisdiction"]
+    entity_type: IdentifierEntityType
     display_name: str
     full_name: str
     is_internal: bool

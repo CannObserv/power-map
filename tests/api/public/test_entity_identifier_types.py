@@ -179,14 +179,22 @@ async def test_identifier_types_etag_changes_on_flag_flip(client, db, api_key):
 @pytest.mark.integration
 async def test_identifier_types_etag_changes_on_row_add(client, db, api_key):
     before = (await client.get(ENDPOINT, headers={"X-API-Key": api_key})).headers["etag"]
+    iid = generate_id()
+    # Per-run-unique slug + explicit cleanup, following test_role_types.py rather
+    # than test_link_types.py: `slug` is UNIQUE, so a row orphaned by a crash
+    # before the rollback would collide on the next run and red a green suite.
+    slug = f"zzz_cr_probe_{iid[-8:].lower()}"
     await db.execute(
         "INSERT INTO entity_identifier_types"
         " (id, entity_type, slug, display_name, full_name, is_internal)"
         " VALUES ($1,'person',$2,$3,$4,FALSE)",
-        generate_id(),
-        "zzz-conditional-get-probe",
+        iid,
+        slug,
         "Probe",
         "Conditional GET Probe",
     )
-    after = await client.get(ENDPOINT, headers={"X-API-Key": api_key, "If-None-Match": before})
-    assert after.status_code == 200
+    try:
+        after = await client.get(ENDPOINT, headers={"X-API-Key": api_key, "If-None-Match": before})
+        assert after.status_code == 200
+    finally:
+        await db.execute("DELETE FROM entity_identifier_types WHERE id=$1", iid)

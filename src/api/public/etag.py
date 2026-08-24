@@ -94,9 +94,11 @@ def catalog_validator(rows: Iterable[Any]) -> str:
     qualify, for different reasons:
 
     - A catalog whose table has no watermark at all (`role_types`, `link_types`,
-      `entity_event_types`). A ``count(*)`` + ``max(created_at)`` tag would be
-      *stable across an in-place rename*, and `link_types` is admin-editable —
-      a 304ing consumer would hold the stale ``display_name`` indefinitely.
+      `entity_event_types`, `entity_identifier_types`). A ``count(*)`` +
+      ``max(created_at)`` tag would be *stable across an in-place rename*, and
+      both `link_types` and `entity_identifier_types` are admin-editable — a
+      304ing consumer would hold the stale ``display_name`` indefinitely, or,
+      for an identifier type, a ``slug`` that no longer resolves.
     - A response spanning several tables, where each has a watermark but none
       covers the whole result: `GET /jurisdictions/{id}/lineage` walks
       jurisdictions *and* their lineage edges recursively, and any watermark

@@ -47,6 +47,8 @@ ones worth knowing before minting:
 | `org_wa_pdc_committee` | organization | PDC **campaign-finance** committee filer_id, e.g. `LABORG 503` (#296) |
 | `org_wa_party` | organization | bare lowercase party slug — `democratic`, `republican` (#270) |
 | `org_wa_legislature_committee_id` | organization | WSL numeric `committee_id` (successor committees get their own id) |
+| `org_wa_legislature` | organization | the legislature-level anchor (#225) |
+| `org_wa_legislature_chamber` | organization | chamber key — `usa_wa_house` / `usa_wa_senate` (#225) |
 
 ---
 
