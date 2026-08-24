@@ -17,3 +17,5 @@ Each resource has its own document — load the one you are working on, not the 
 | Assignments | [API_ASSIGNMENTS.md](API_ASSIGNMENTS.md) | list/detail, `POST /assignments/observations` |
 | Jurisdictions | [API_JURISDICTIONS.md](API_JURISDICTIONS.md) | endpoints, `POST /jurisdictions/observations`, implicit behaviors |
 | Entity Events | [API_EVENTS.md](API_EVENTS.md) | `GET /{entity}/{id}/events` response shape, the observation `events` surface |
+
+Cross-resource: `GET /api/v1/entity-identifier-types` is the identity vocabulary **every** observation addresses by (#459) — query it instead of hardcoding slugs; per-slug value conventions live in [OBSERVATIONS.md](OBSERVATIONS.md) §"Identifier types".
