@@ -33,6 +33,7 @@ from src.core.ancillary_migrate import (
     rehome_conflicting_assignment_ancillary,
 )
 from src.core.db import generate_id
+from src.core.merge_signals import record_merge_tombstones, rehome_subscriptions
 from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
 
 _LIST_TARGET = "people-list-region"
@@ -430,6 +431,8 @@ async def merge_person_into(
     # #301: re-point the loser assignments' active relationship edges onto the
     # winner before the hard-delete, else FK ON DELETE CASCADE silently drops them.
     await rehome_assignment_relationships(db, _conflict_pairs)
+    # #467: a subscription anchored to a dropped duplicate follows the survivor.
+    await rehome_subscriptions(db, "role_assignment", _conflict_pairs)
     # Delete exactly the rows we just re-homed — deriving the DELETE set from the
     # same `conflict_pairs` (rather than re-deriving via a COALESCE sentinel) keeps
     # the re-homed set and the deleted set provably identical, so no conflict row
@@ -438,6 +441,10 @@ async def merge_person_into(
         "DELETE FROM role_assignments WHERE id = ANY($1::text[])",
         [r["loser_ra"] for r in conflict_pairs],
     )
+    # #467: each dropped duplicate is announced with the survivor it folded into.
+    # The person tombstone below does not cover these — a producer polls
+    # /api/v1/changes filtered by its own subscriptions, which are per-assignment.
+    await record_merge_tombstones(db, "role_assignment", _conflict_pairs)
     await db.execute(
         "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",
         winner_id,
@@ -568,6 +575,8 @@ async def merge_person_into(
     await delete_event_citations_for_owner(db, "person", loser_id)
 
     await db.execute("DELETE FROM people WHERE id=$1", loser_id)
+    # #467: a key subscribed to the loser follows it to the winner.
+    await rehome_subscriptions(db, "person", [(loser_id, winner_id)])
     await db.execute(
         "INSERT INTO deleted_entities (entity_type, entity_id, merged_into)"
         " VALUES ('person', $1, $2) ON CONFLICT DO NOTHING",

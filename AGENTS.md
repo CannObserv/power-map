@@ -87,7 +87,7 @@ Full conventions → `docs/SCHEMA.md`
 - Integration tests: require `TEST_DATABASE_URL`; never run against the production DB
 - Integration test fixtures acquire from the session-scoped `db_pool`; endpoint tests use the lifespan-less rollback client (#288)
 - Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block, placed **before** any `set_updated_at()` trigger on that table (#307/#312/#315/#392); daily `power-map-schema-parity.timer` is the continuous guard. Seeds of a UNIQUE-natural-key lookup stage rows in `_seed_<table>` + `reconcile_seeded_slugs()` first (#458) — a bare `INSERT … VALUES` aborts on a duplicate slug
-- Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge re-homing (#324/#327), entity search (#316), role-type vocabulary (#266) — each has exact rules in the `docs/SCHEMA*.md` family, `docs/OBSERVATIONS.md`, or `docs/API_ASSIGNMENTS.md`. Read them before changing any of them.
+- Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge identity & signals (#324/#327/#467), entity search (#316), role-type vocabulary (#266) — each has exact rules in the `docs/SCHEMA*.md` family, `docs/OBSERVATIONS.md`, `docs/API_ASSIGNMENTS.md`, or `docs/MERGE.md`. Read them before changing any of them.
 
 ## Infrastructure
 
@@ -194,7 +194,7 @@ Each line says what a task would need the doc for — load the one that matches,
 - [docs/HTMX.md](docs/HTMX.md) — interaction patterns: swaps, redirects, flash, pagination, inline edit, guarded deletes, live header sync
 - [docs/UI.md](docs/UI.md) — components and table/list conventions: buttons, badges, modals, page headers, empty states, the row-key contract
 - [docs/FORMS.md](docs/FORMS.md) — the three hand-built composite controls: typeahead, address confirm, paired dates
-- [docs/MERGE.md](docs/MERGE.md) — duplicate detection and the merge-bar pattern across people, orgs and roles
+- [docs/MERGE.md](docs/MERGE.md) — the server-side merge data contract (id preservation, the one destructive case, tombstones, subscriptions) plus duplicate detection and the merge-bar pattern across people, orgs and roles
 - [docs/STYLE.md](docs/STYLE.md) — visual system: brand, colour, dark mode, CSS tokens, layout, breakpoints, i18n, performance
 - [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md) — WCAG 2.1 AA markup rules and the three a11y test tiers
 

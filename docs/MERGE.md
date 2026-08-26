@@ -17,6 +17,54 @@ the people, orgs and roles list and detail screens.
 
 ---
 
+## Data Contract — what a merge may and may not change (#467)
+
+The UI below decides *which* rows merge. This is what the server owes the data and
+its consumers once it does. All five paths share it: org merge
+([orgs_merge.py](../src/api/admin/orgs_merge.py) `_execute_merge`), person merge
+([people_merge.py](../src/api/admin/people_merge.py)), and role merge
+([orgs_roles.py](../src/api/admin/orgs_roles.py) `role_merge`).
+
+**Identity is preserved, not re-minted.** Migrating a role assignment onto the
+surviving role or person is an `UPDATE ... SET role_id` / `SET person_id`. The row
+keeps its ULID, its `source_key_id`, and every ancillary row hanging off its
+`entity_id`. Org merge used to migrate the loser role's assignments by inserting
+copies and deleting the originals; the data survived and every producer-held
+`pm_assignment_id` anchor broke silently. `_absorb_role` is the single primitive
+now, shared by both of `_execute_merge`'s conflict passes — they were near-identical
+blocks, which is how one came to drop `source_key_id` while the other preserved it.
+Guard: `test_merge_identity_sweep.py` fails any merge module containing an
+`INSERT INTO role_assignments`.
+
+**The one destructive case, and its bound.** A loser assignment sharing
+`(person_id, role_id, start_date)` with a winner row cannot be re-pointed —
+`uq_role_assignment_person_role_start` holds that tuple once. Only those rows are
+deleted. `dropped_assignments` counts them and the merge flash reports the count;
+the preview modal states it *before* the merge, alongside how many assignments will
+move with their ids intact. Archived assignments always re-point: the unique index
+is partial on active rows, so a retracted tenure is never the collision.
+
+**Every hard delete is announced.** The outbox triggers are `INSERT OR UPDATE` — a
+`DELETE` emits nothing. So each deleted role and role_assignment gets a
+`deleted_entities` row via
+[`record_merge_tombstones`](../src/core/merge_signals.py), with `merged_into` naming
+**that row's** survivor (the sibling assignment, the absorbing role) rather than the
+parent merge's winner. That makes the feed signal a rebind, not a bare drop. A
+parent org/person tombstone does not substitute: subscribers poll
+`/api/v1/changes` filtered by their own per-entity subscriptions, so a tombstone
+they do not hold tells them nothing. Guard:
+`test_merge_identity_sweep.py` fails any admin module that hard-deletes a role or
+role_assignment without tombstone machinery.
+
+**Subscriptions follow the entity.** `rehome_subscriptions` re-points every
+`api_key_entity_subscriptions` row off a deleted id onto its survivor, collapsing
+the pair when a key watched both sides (the PK is `(api_key_id, entity_id)`, so the
+loser row must be deleted before the update rather than merged into it). Without
+this a subscriber keeps an allowlist of ids resolving to nothing and stops seeing
+the survivor precisely because it was never subscribed to it.
+
+---
+
 ## Merge Bar Pattern
 
 
