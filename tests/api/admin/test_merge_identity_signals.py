@@ -296,12 +296,27 @@ async def test_person_merge_tombstones_dropped_duplicate_assignment(client, db):
 
 
 # ---------------------------------------------------------------------------
-# 3. Subscriptions follow the entity
+# 3. Subscriptions gain the survivor and keep the loser
+#
+# `mirror_subscriptions` ADDS; it must never move. The feed resolves subscriptions
+# when the consumer polls (`changes.py`: `s.entity_id = ec.entity_id`), so dropping
+# the loser's subscription would hide the loser's own tombstone from the only key
+# that needed it. `tests/api/public/test_changes.py` pins that end to end; these
+# pin the row-level state each merge path leaves behind.
 # ---------------------------------------------------------------------------
 
 
-async def test_org_merge_rehomes_org_subscription(client, db, api_key_id):
-    """A subscription on the loser org follows it to the winner."""
+async def _subscribed_ids(db, api_key_id):
+    return {
+        r["entity_id"]
+        for r in await db.fetch(
+            "SELECT entity_id FROM api_key_entity_subscriptions WHERE api_key_id=$1", api_key_id
+        )
+    }
+
+
+async def test_org_merge_mirrors_org_subscription_onto_winner(client, db, api_key_id):
+    """The winner is added; the loser anchor stays so its tombstone stays reachable."""
     win_org, lose_org = await _org(db, "Sub Win"), await _org(db, "Sub Lose")
     await _subscribe(db, api_key_id, "organization", lose_org)
 
@@ -311,25 +326,11 @@ async def test_org_merge_rehomes_org_subscription(client, db, api_key_id):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert (
-        await db.fetchval(
-            "SELECT count(*) FROM api_key_entity_subscriptions"
-            " WHERE api_key_id=$1 AND entity_id=$2 AND entity_type='organization'",
-            api_key_id,
-            win_org,
-        )
-        == 1
-    )
-    assert (
-        await db.fetchval(
-            "SELECT count(*) FROM api_key_entity_subscriptions WHERE entity_id=$1", lose_org
-        )
-        == 0
-    )
+    assert await _subscribed_ids(db, api_key_id) == {win_org, lose_org}
 
 
-async def test_org_merge_rehomes_subscription_of_dropped_assignment(client, db, api_key_id):
-    """A subscription anchored to a dropped duplicate follows to the survivor."""
+async def test_org_merge_mirrors_subscription_of_dropped_assignment(client, db, api_key_id):
+    """A subscription anchored to a dropped duplicate gains the survivor."""
     win_org, lose_org = await _org(db, "Sub RA Win"), await _org(db, "Sub RA Lose")
     win_role, lose_role = await _role(db, win_org), await _role(db, lose_org)
     person = await _person(db)
@@ -344,16 +345,11 @@ async def test_org_merge_rehomes_subscription_of_dropped_assignment(client, db, 
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert (
-        await db.fetchval(
-            "SELECT entity_id FROM api_key_entity_subscriptions WHERE api_key_id=$1", api_key_id
-        )
-        == survivor
-    )
+    assert await _subscribed_ids(db, api_key_id) == {survivor, dropped}
 
 
-async def test_merge_rehome_collapses_duplicate_subscription(client, db, api_key_id):
-    """Subscribed to both sides: the pair collapses to one row, no PK violation."""
+async def test_merge_mirror_is_a_noop_when_both_sides_already_subscribed(client, db, api_key_id):
+    """Subscribed to both: both rows survive, no PK violation from the re-insert."""
     win_org, lose_org = await _org(db, "Sub Both Win"), await _org(db, "Sub Both Lose")
     await _subscribe(db, api_key_id, "organization", win_org)
     await _subscribe(db, api_key_id, "organization", lose_org)
@@ -364,12 +360,40 @@ async def test_merge_rehome_collapses_duplicate_subscription(client, db, api_key
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert (
-        await db.fetchval(
-            "SELECT count(*) FROM api_key_entity_subscriptions WHERE api_key_id=$1", api_key_id
-        )
-        == 1
+    assert await _subscribed_ids(db, api_key_id) == {win_org, lose_org}
+
+
+async def test_person_merge_mirrors_subscription_onto_winner(client, db, api_key_id):
+    """Person merge owes the same signal (finding 6 — this path was untested)."""
+    winner, loser = await _person(db, "Ada L"), await _person(db, "Ada Lovelace")
+    await _subscribe(db, api_key_id, "person", loser)
+
+    response = await client.post(
+        f"/admin/people/{winner}/merge-with/{loser}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
     )
+    assert response.status_code == 303
+    assert await _subscribed_ids(db, api_key_id) == {winner, loser}
+
+
+async def test_role_merge_mirrors_role_and_assignment_subscriptions(client, db, api_key_id):
+    """Role merge owes the same signal, for both the role and a dropped duplicate."""
+    org = await _org(db, "Role Sub Org")
+    win_role, lose_role = await _role(db, org, "Chair"), await _role(db, org, "Chairman")
+    person = await _person(db)
+    survivor = await _assign(db, person, win_role, "2020-01-01")
+    dropped = await _assign(db, person, lose_role, "2020-01-01")
+    await _subscribe(db, api_key_id, "role", lose_role)
+    await _subscribe(db, api_key_id, "role_assignment", dropped)
+
+    response = await client.post(
+        f"/admin/orgs/{org}/roles/{win_role}/merge/{lose_role}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert await _subscribed_ids(db, api_key_id) == {win_role, lose_role, survivor, dropped}
 
 
 # ---------------------------------------------------------------------------
@@ -394,3 +418,37 @@ async def test_merge_preview_reports_assignment_blast_radius(client, db):
     assert response.status_code == 200
     assert "2 role assignments" in response.text
     assert "1 duplicate role assignment" in response.text
+
+
+# ---------------------------------------------------------------------------
+# 5. `merge_role_pairs` is form input — it may not name arbitrary roles
+# ---------------------------------------------------------------------------
+
+
+async def test_merge_role_pairs_outside_the_org_pair_are_ignored(client, db, api_key_id):
+    """A pair naming a role from neither org must not delete it or tombstone it.
+
+    `_absorb_role` hard-deletes the loser role it is handed and publishes a
+    `role/deleted merged_into=…` row for it. Since the pairs arrive as unvalidated
+    form input, an unfiltered list lets a manipulated submit both destroy an
+    unrelated role and inject a false rebind into subscribers' feeds.
+    """
+    win_org, lose_org = await _org(db, "Scoped Win"), await _org(db, "Scoped Lose")
+    win_role = await _role(db, win_org)
+    bystander_org = await _org(db, "Bystander Org")
+    bystander_role = await _role(db, bystander_org, "Treasurer")
+    keeper = await _assign(db, await _person(db), bystander_role, "2019-01-01")
+
+    response = await client.post(
+        f"/admin/orgs/{win_org}/merge-with/{lose_org}/",
+        data={"merge_role_pairs": f"{win_role}:{bystander_role}"},
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    assert await db.fetchval("SELECT id FROM roles WHERE id=$1", bystander_role) == bystander_role
+    assert await db.fetchval("SELECT role_id FROM role_assignments WHERE id=$1", keeper) == (
+        bystander_role
+    )
+    assert await _tombstone(db, "role", bystander_role) is None

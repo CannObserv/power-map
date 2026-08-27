@@ -30,8 +30,11 @@ from src.core.ancillary_migrate import (
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
-from src.core.merge_signals import record_merge_tombstones, rehome_subscriptions
+from src.core.logging import get_logger
+from src.core.merge_signals import mirror_subscriptions, record_merge_tombstones
 from src.core.org_lifecycle import count_open_assignments, get_org_ended_on
+
+logger = get_logger(__name__)
 
 _LIST_TARGET = "orgs-list-region"
 
@@ -194,11 +197,11 @@ async def _absorb_role(db, winner_role_id: str, loser_role_id: str) -> int:
     pairs = [(r["loser_ra"], r["winner_ra"]) for r in conflicts]
     # The colliding loser rows are about to be hard-deleted: their polymorphic
     # ancillary (#324 / #319 citations) and their active relationship edges (#301,
-    # FK ON DELETE CASCADE) must reach the survivor first, and any subscription
-    # anchored to them must follow (#467).
+    # FK ON DELETE CASCADE) must reach the survivor first, and anyone watching them
+    # must also start watching the survivor (#467).
     await rehome_conflicting_assignment_ancillary(db, pairs)
     await rehome_assignment_relationships(db, pairs)
-    await rehome_subscriptions(db, "role_assignment", pairs)
+    await mirror_subscriptions(db, pairs)
     await db.execute(
         "DELETE FROM role_assignments WHERE id = ANY($1::text[])",
         [loser_ra for loser_ra, _ in pairs],
@@ -213,7 +216,7 @@ async def _absorb_role(db, winner_role_id: str, loser_role_id: str) -> int:
     )
     # #326: the loser role's own contacts/links have no FK — re-home before the delete.
     await rehome_role_ancillary(db, loser_role_id, winner_role_id)
-    await rehome_subscriptions(db, "role", [(loser_role_id, winner_role_id)])
+    await mirror_subscriptions(db, [(loser_role_id, winner_role_id)])
     await db.execute("DELETE FROM roles WHERE id=$1", loser_role_id)
     await record_merge_tombstones(db, "role", [(loser_role_id, winner_role_id)])
     return len(pairs)
@@ -244,8 +247,36 @@ async def _execute_merge(
 
         # Merge conflicting role pairs BEFORE the bulk role UPDATE to avoid violating
         # uq_role_org_title (organization_id, lower(title)) WHERE archived_at IS NULL.
+        #
+        # The pairs are unvalidated form input and `_absorb_role` hard-deletes the
+        # loser role it is handed *and* publishes a `role/deleted merged_into=…` row
+        # for it, so an unfiltered list would let a manipulated submit destroy an
+        # unrelated role and inject a false rebind into subscribers' feeds. Scope
+        # each side to the org it must belong to; a dropped pair that is a genuine
+        # conflict is still caught by the safeguard pass below.
         if role_pairs_to_merge:
+            org_of_role = {
+                r["id"]: r["organization_id"]
+                for r in await db.fetch(
+                    "SELECT id, organization_id FROM roles WHERE id = ANY($1::text[])",
+                    [rid for pair in role_pairs_to_merge for rid in pair],
+                )
+            }
             for winner_role_id, loser_role_id in role_pairs_to_merge:
+                if (
+                    org_of_role.get(winner_role_id) != winner_id
+                    or org_of_role.get(loser_role_id) != loser_id
+                ):
+                    logger.warning(
+                        "merge_role_pair_out_of_scope",
+                        extra={
+                            "winner_org_id": winner_id,
+                            "loser_org_id": loser_id,
+                            "winner_role_id": winner_role_id,
+                            "loser_role_id": loser_role_id,
+                        },
+                    )
+                    continue
                 dropped_assignments += await _absorb_role(db, winner_role_id, loser_role_id)
 
         await db.execute(
@@ -480,9 +511,10 @@ async def _execute_merge(
         # org is deleted), so their citations would orphan — drop them (#319).
         await delete_event_citations_for_owner(db, "organization", loser_id)
 
-        # #467: a key subscribed to the loser follows it to the winner, rather than
-        # being left holding an id that resolves to nothing from here on.
-        await rehome_subscriptions(db, "organization", [(loser_id, winner_id)])
+        # #467: a key watching the loser also watches the winner from here on. The
+        # loser's own subscription stays — the feed joins subscriptions at read time,
+        # so removing it would hide the tombstone written just below.
+        await mirror_subscriptions(db, [(loser_id, winner_id)])
 
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
         await db.execute(

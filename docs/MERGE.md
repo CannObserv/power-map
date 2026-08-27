@@ -36,6 +36,15 @@ blocks, which is how one came to drop `source_key_id` while the other preserved 
 Guard: `test_merge_identity_sweep.py` fails any merge module containing an
 `INSERT INTO role_assignments`.
 
+**The submitted pairs are scoped before they are trusted.** `merge_role_pairs`
+arrives as form input, and `_absorb_role` hard-deletes the loser role it is handed
+*and* publishes a `role/deleted merged_into=…` row for it. `_execute_merge`
+therefore drops any pair whose winner role is not in the winner org or whose loser
+role is not in the loser org, logging `merge_role_pair_out_of_scope`; a dropped
+pair that is a genuine conflict is still resolved by the safeguard pass. The
+preview modal only ever renders in-scope pairs, so this bites on manipulation, not
+on normal use.
+
 **The one destructive case, and its bound.** A loser assignment sharing
 `(person_id, role_id, start_date)` with a winner row cannot be re-pointed —
 `uq_role_assignment_person_role_start` holds that tuple once. Only those rows are
@@ -56,12 +65,16 @@ they do not hold tells them nothing. Guard:
 `test_merge_identity_sweep.py` fails any admin module that hard-deletes a role or
 role_assignment without tombstone machinery.
 
-**Subscriptions follow the entity.** `rehome_subscriptions` re-points every
-`api_key_entity_subscriptions` row off a deleted id onto its survivor, collapsing
-the pair when a key watched both sides (the PK is `(api_key_id, entity_id)`, so the
-loser row must be deleted before the update rather than merged into it). Without
-this a subscriber keeps an allowlist of ids resolving to nothing and stops seeing
-the survivor precisely because it was never subscribed to it.
+**Subscriptions gain the survivor, and keep the loser.** `mirror_subscriptions`
+subscribes every watcher of a deleted id to the row that absorbed it, so a
+subscriber does not stop seeing the data merely because it moved. It **adds** and
+never moves: the feed resolves subscriptions when the consumer polls, not when the
+merge runs (`changes.py`: `JOIN ... ON s.entity_id = ec.entity_id`), so deleting
+the loser's subscription would erase the audience for the loser's own tombstone —
+the subscriber holding the retired anchor is the only party that needs it. A
+subscription on a retired id is a supported state: `_BATCH_RESOLVE_ENTITY_TYPE`
+resolves ids through `deleted_entities` for exactly that reason. The consumer
+retires the stale row once it has processed the rebind.
 
 ---
 

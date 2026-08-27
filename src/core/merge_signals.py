@@ -22,9 +22,14 @@ Two helpers close that:
   makes the signal a *rebind* ("this assignment is now that assignment") rather
   than a bare drop, which is what a producer needs to repair its anchor map
   without re-deriving it.
-- :func:`rehome_subscriptions` — an allowlist entry follows its entity. Without
-  it a subscriber's list decays into ids that resolve to nothing, and it stops
-  seeing the survivor precisely because it was never subscribed to the survivor.
+- :func:`mirror_subscriptions` — everyone watching the loser also watches the
+  winner from here on, so a subscriber does not stop seeing the data merely
+  because it moved. It **adds** rather than moves: the feed joins subscriptions at
+  *read* time (``changes.py``: ``s.entity_id = ec.entity_id``), so deleting the
+  loser's row would hide the tombstone written moments earlier from the one key
+  that needed it. Keeping a subscription on a retired id is a supported state —
+  ``_BATCH_RESOLVE_ENTITY_TYPE`` resolves ids through ``deleted_entities``
+  precisely so it is — and the consumer drops it once the rebind is processed.
 
 Both are idempotent and safe on an empty pair list, so a caller can hand over
 whatever its conflict query returned without a length check.
@@ -32,15 +37,22 @@ whatever its conflict query returned without a length check.
 
 import asyncpg
 
-#: Entity types both `deleted_entities` and `api_key_entity_subscriptions` accept.
-#: Narrower than either CHECK constraint on purpose — these are the only types a
-#: merge hard-deletes or re-identifies.
+#: Entity types a merge may tombstone. Deliberately narrower than the
+#: `deleted_entities` CHECK constraint, which also permits 'jurisdiction': no merge
+#: path folds one jurisdiction into another, so accepting it here would only widen
+#: what a typo can reach. `mirror_subscriptions` needs no such list — it copies the
+#: type from the row it mirrors.
 MERGEABLE_ENTITY_TYPES = frozenset(
     {"person", "organization", "role", "role_assignment", "role_assignment_relationship"}
 )
 
 
 def _validate(entity_type: str) -> None:
+    """Reject a mistyped entity type here rather than at the CHECK constraint.
+
+    The DB would catch it either way; failing in Python names the offending value
+    and the caller, which a 23514 from inside `executemany` does not.
+    """
     if entity_type not in MERGEABLE_ENTITY_TYPES:
         raise ValueError(f"not a mergeable entity type: {entity_type!r}")
 
@@ -65,35 +77,37 @@ async def record_merge_tombstones(
         return
     await db.executemany(
         "INSERT INTO deleted_entities (entity_type, entity_id, merged_into)"
-        f" VALUES ('{entity_type}', $1, $2) ON CONFLICT DO NOTHING",
-        pairs,
+        " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        [(entity_type, loser_id, winner_id) for loser_id, winner_id in pairs],
     )
 
 
-async def rehome_subscriptions(
-    db: asyncpg.Connection, entity_type: str, pairs: list[tuple[str, str]]
-) -> None:
-    """Move each key's subscription from ``loser`` onto ``winner``.
+async def mirror_subscriptions(db: asyncpg.Connection, pairs: list[tuple[str, str]]) -> None:
+    """Subscribe every watcher of ``loser`` to ``winner`` too, keeping the loser row.
 
-    ``api_key_entity_subscriptions`` is keyed ``(api_key_id, entity_id)`` — note
-    the PK excludes ``entity_type``, so a key already watching the winner must
-    have its loser row **deleted** before the UPDATE rather than merged into it;
-    otherwise the re-point collides. Dropping the loser row loses nothing: the
-    key is left subscribed to the winner, which is where the data now lives.
+    ``pairs`` is ``[(loser_id, winner_id), ...]``.
+
+    **Add, never move.** The change feed resolves subscriptions when the consumer
+    polls, not when the merge runs (``changes.py``: ``JOIN ... ON s.entity_id =
+    ec.entity_id``). Re-pointing the loser's subscription onto the winner would
+    therefore erase the audience for the loser's own tombstone — the subscriber
+    holding the retired anchor is the only party that needs it, and it would be the
+    one party guaranteed not to receive it. The loser row stays until the consumer
+    retires it; the ``deleted_entities`` TTL prunes the tombstone on the usual
+    90-day clock either way.
+
+    ``entity_type`` is copied from the loser's own subscription row rather than
+    passed in: the two ends of a merge are always the same type, and reading it
+    from the row makes a caller's mismatched argument impossible instead of
+    silently retyping a subscription.
     """
-    _validate(entity_type)
-    for loser_id, winner_id in pairs:
-        await db.execute(
-            """DELETE FROM api_key_entity_subscriptions l
-               WHERE l.entity_id = $1
-                 AND EXISTS (SELECT 1 FROM api_key_entity_subscriptions w
-                             WHERE w.api_key_id = l.api_key_id AND w.entity_id = $2)""",
-            loser_id,
-            winner_id,
-        )
-        await db.execute(
-            "UPDATE api_key_entity_subscriptions"
-            f" SET entity_id = $2, entity_type = '{entity_type}' WHERE entity_id = $1",
-            loser_id,
-            winner_id,
-        )
+    if not pairs:
+        return
+    await db.executemany(
+        """INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)
+           SELECT l.api_key_id, $2, l.entity_type
+           FROM api_key_entity_subscriptions l
+           WHERE l.entity_id = $1
+           ON CONFLICT DO NOTHING""",
+        pairs,
+    )
