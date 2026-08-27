@@ -35,11 +35,16 @@ heading down there, not in `AGENTS.md`.
 
 The `codebase_*` MCP tools are **deferred**: their schemas are not in the
 session until a `ToolSearch` prefetch loads them, and calling one before that
-fails validation. The SessionStart hook
-(`.claude/hooks/socraticode-reminder.sh`) prints this each session; run it
-verbatim if it did not fire.
+fails validation. The SessionStart hook prints the `select:` query each
+session. If it did not fire, run the hook by hand and use the line it prints:
 
-`select:mcp__plugin_socraticode_socraticode__codebase_search,mcp__plugin_socraticode_socraticode__codebase_symbol,mcp__plugin_socraticode_socraticode__codebase_symbols,mcp__plugin_socraticode_socraticode__codebase_flow,mcp__plugin_socraticode_socraticode__codebase_impact,mcp__plugin_socraticode_socraticode__codebase_graph_query,mcp__plugin_socraticode_socraticode__codebase_graph_circular,mcp__plugin_socraticode_socraticode__codebase_graph_stats,mcp__plugin_socraticode_socraticode__codebase_graph_visualize,mcp__plugin_socraticode_socraticode__codebase_status,mcp__plugin_socraticode_socraticode__codebase_context,mcp__plugin_socraticode_socraticode__codebase_context_search`
+```bash
+bash .claude/hooks/socraticode-reminder.sh
+```
+
+The query is deliberately not copied here: the hook is a vendored symlink, so
+upstream can change which tools it selects, and a copy in this file goes stale
+silently — the hook's output cannot drift from itself.
 
 ## Per-tool notes
 
