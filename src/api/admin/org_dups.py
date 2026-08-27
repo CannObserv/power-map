@@ -23,6 +23,13 @@ CANDIDATE_WHERE = """
           WHERE entity_type = 'organization'
             AND entity_a_id = a.id AND entity_b_id = b.id
       )
+      AND NOT EXISTS (
+          -- #469: orgs in one succession chain are the same institution across
+          -- source re-keys — never merge candidates. The view holds both
+          -- orderings, so one probe covers the pair.
+          SELECT 1 FROM v_org_succession_pairs sp
+          WHERE sp.org_a = a.id AND sp.org_b = b.id
+      )
 """
 
 _DUP_COUNT_TTL = timedelta(seconds=300)

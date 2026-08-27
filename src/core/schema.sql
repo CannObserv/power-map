@@ -2668,6 +2668,39 @@ WHERE ev.entity_type = 'organization'
   AND ev.event_year IS NOT NULL
 GROUP BY ev.entity_id;
 
+-- Succession chains (#469): the symmetric transitive closure of active
+-- succeeded_by edges — every ordered pair of orgs sharing one chain (a
+-- connected component of the undirected edge graph, so siblings that share a
+-- successor pair up too). Consumed by duplicate detection: chain members are
+-- one institution across source re-keys and must never present as merge
+-- candidates. Visibility is deliberately not filtered — the chain is curation
+-- state, not public event exposure.
+CREATE OR REPLACE VIEW v_org_succession_pairs AS
+WITH RECURSIVE edges AS (
+    SELECT ev.entity_id AS a, ev.linked_entity_id AS b
+    FROM entity_events ev
+    JOIN entity_event_types t ON t.id = ev.event_type_id
+    WHERE t.slug = 'succeeded_by'
+      AND ev.entity_type = 'organization'
+      AND ev.archived_at IS NULL
+      AND ev.linked_entity_id IS NOT NULL
+),
+undirected AS (
+    SELECT a, b FROM edges
+    UNION
+    SELECT b, a FROM edges
+),
+reach AS (
+    SELECT a AS org_a, b AS org_b FROM undirected
+    UNION
+    SELECT r.org_a, u.b
+    FROM reach r
+    JOIN undirected u ON u.a = r.org_b
+)
+SELECT org_a, org_b
+FROM reach
+WHERE org_a <> org_b;
+
 -- =============================================================================
 -- Ingestion Audit Tables
 -- =============================================================================
