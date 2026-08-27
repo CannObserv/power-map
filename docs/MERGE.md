@@ -17,6 +17,71 @@ the people, orgs and roles list and detail screens.
 
 ---
 
+## Data Contract — what a merge may and may not change (#467)
+
+The UI below decides *which* rows merge. This is what the server owes the data and
+its consumers once it does. All five paths share it: org merge
+([orgs_merge.py](../src/api/admin/orgs_merge.py) `_execute_merge`), person merge
+([people_merge.py](../src/api/admin/people_merge.py)), and role merge
+([orgs_roles.py](../src/api/admin/orgs_roles.py) `role_merge`).
+
+**Identity is preserved, not re-minted.** Migrating a role assignment onto the
+surviving role or person is an `UPDATE ... SET role_id` / `SET person_id`. The row
+keeps its ULID, its `source_key_id`, and every ancillary row hanging off its
+`entity_id`. Org merge used to migrate the loser role's assignments by inserting
+copies and deleting the originals; the data survived and every producer-held
+`pm_assignment_id` anchor broke silently. `_absorb_role` is the single primitive
+now, shared by both of `_execute_merge`'s conflict passes — they were near-identical
+blocks, which is how one came to drop `source_key_id` while the other preserved it.
+Guard: `test_merge_identity_sweep.py` fails any merge module containing an
+`INSERT INTO role_assignments`.
+
+**The submitted pairs are scoped before they are trusted.** `merge_role_pairs`
+arrives as form input, and `_absorb_role` hard-deletes the loser role it is handed
+*and* publishes a `role/deleted merged_into=…` row for it. `_execute_merge`
+therefore drops any pair whose winner role is not in the winner org or whose loser
+role is not in the loser org, logging `merge_role_pair_out_of_scope`; a dropped
+pair that is a genuine conflict is still resolved by the safeguard pass. The
+preview modal only ever renders in-scope pairs, so this bites on manipulation, not
+on normal use.
+
+**The one destructive case, and its bound.** A loser assignment sharing
+`(person_id, role_id, start_date)` with a winner row cannot be re-pointed —
+`uq_role_assignment_person_role_start` holds that tuple once. Only those rows are
+deleted. `dropped_assignments` counts them and the merge flash reports the count;
+the preview modal states it *before* the merge, alongside how many assignments will
+move with their ids intact. Archived assignments always re-point: the unique index
+is partial on active rows, so a retracted tenure is never the collision.
+
+**Every hard delete is announced.** The outbox triggers are `INSERT OR UPDATE` — a
+`DELETE` emits nothing. So each deleted role and role_assignment gets a
+`deleted_entities` row via
+[`record_merge_tombstones`](../src/core/merge_signals.py), with `merged_into` naming
+**that row's** survivor (the sibling assignment, the absorbing role) rather than the
+parent merge's winner. That makes the feed signal a rebind, not a bare drop. A
+parent org/person tombstone does not substitute: subscribers poll
+`/api/v1/changes` filtered by their own per-entity subscriptions, so a tombstone
+they do not hold tells them nothing. Guard:
+`test_merge_identity_sweep.py` fails any admin module that hard-deletes a role or
+role_assignment without tombstone machinery.
+
+**Subscriptions gain the survivor, and keep the loser.** `mirror_subscriptions`
+subscribes every watcher of a deleted id to the row that absorbed it, so a
+subscriber does not stop seeing the data merely because it moved. It **adds** and
+never moves: the feed resolves subscriptions when the consumer polls, not when the
+merge runs (`changes.py`: `JOIN ... ON s.entity_id = ec.entity_id`), so deleting
+the loser's subscription would erase the audience for the loser's own tombstone —
+the subscriber holding the retired anchor is the only party that needs it. A
+subscription on a retired id is a supported state: `_BATCH_RESOLVE_ENTITY_TYPE`
+resolves ids through `deleted_entities` for exactly that reason. Retiring the stale
+row is the consumer's to do (`DELETE /api/v1/subscriptions/{entity_id}`, or the bulk
+form) — nothing prunes subscriptions server-side, so the set grows by one row per
+merge. Note also that absorbing a collision emits **no** outbox row for the survivor
+when the dropped row carried no ancillary: nothing about the survivor changed, so
+`merged_into` is the signal to re-fetch it, not a promise of a follow-up event.
+
+---
+
 ## Merge Bar Pattern
 
 

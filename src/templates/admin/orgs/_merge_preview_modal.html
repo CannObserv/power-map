@@ -4,6 +4,7 @@
    transferred_names (list of {id, name, name_type}), dropped_name ({id, name}|None),
    transferred_acronyms (list of {id, acronym}), dropped_acronym ({id, acronym}|None),
    roles_count, contacts_count, links_count, addresses_count, identifiers_count,
+   assignments_count, dropped_assignments_count,
    conflicting_roles (list of {loser_role_id, winner_role_id, title}) #}
 <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="merge-preview-title">
   <div class="modal modal--wide">
@@ -87,7 +88,8 @@
     {% endif %}
 
     {% set reassigned_roles = roles_count|int - conflicting_roles|length %}
-    {% set total = reassigned_roles + contacts_count|int + links_count|int + addresses_count|int + identifiers_count|int %}
+    {% set moved_assignments = assignments_count|int - dropped_assignments_count|int %}
+    {% set total = reassigned_roles + contacts_count|int + links_count|int + addresses_count|int + identifiers_count|int + moved_assignments %}
     {% if total > 0 %}
     <h3 class="field-group-label" style="margin-bottom:var(--space-2)">Reassigned</h3>
     <ul style="margin:0 0 var(--space-4) var(--space-4);padding:0">
@@ -96,7 +98,19 @@
       {% if links_count %}<li>{{ links_count }} link{{ 's' if links_count != 1 }}</li>{% endif %}
       {% if addresses_count %}<li>{{ addresses_count }} address{{ 'es' if addresses_count != 1 }}</li>{% endif %}
       {% if identifiers_count %}<li>{{ identifiers_count }} identifier{{ 's' if identifiers_count != 1 }}</li>{% endif %}
+      {# #467: assignments move with their IDs intact, so they are a reassignment,
+         not a loss — the destructive subset is called out separately below. #}
+      {% if moved_assignments > 0 %}<li>{{ moved_assignments }} role assignment{{ 's' if moved_assignments != 1 }} (IDs preserved)</li>{% endif %}
     </ul>
+    {% endif %}
+
+    {% if dropped_assignments_count %}
+    <div class="alert alert--warning" role="alert" style="margin-bottom:var(--space-4)">
+      <strong>{{ dropped_assignments_count }} duplicate role assignment{{ 's' if dropped_assignments_count != 1 }} will be deleted.</strong>
+      Each is the same person, role and start date as a row the kept organization
+      already has, so the two cannot coexist. The kept row survives and the deleted
+      IDs are published to the change feed pointing at it.
+    </div>
     {% endif %}
 
     {% if conflicting_roles %}

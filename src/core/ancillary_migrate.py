@@ -256,9 +256,15 @@ async def rehome_conflicting_assignment_ancillary(
 # archived_at on retract). The re-point UPDATE self-emits the edge's own change row
 # (trg_entity_changes_* is INSERT/UPDATE) plus touches both endpoints; a dedup /
 # CASCADE hard-delete fires only the touch trigger (the change trigger is not a
-# DELETE trigger) — so a hard-deleted edge leaves no per-edge tombstone, exactly
-# how merged role_assignments are handled (the parent person/org tombstone covers
-# it). Either way, no manual signal here.
+# DELETE trigger) — so a hard-deleted edge leaves no per-edge tombstone. The
+# parenthetical that used to stand here — "exactly how merged role_assignments are
+# handled (the parent person/org tombstone covers it)" — was the assumption #467
+# disproved: a subscriber's feed is filtered by its OWN subscriptions, which are
+# per-assignment, so a parent tombstone it may not hold announces nothing. Merged
+# role_assignments now get their own tombstone via
+# :func:`src.core.merge_signals.record_merge_tombstones`. Edges keep the old
+# behaviour deliberately: an edge is reachable only through its endpoints, both of
+# which are announced, so it has no independent anchor to repair.
 # ---------------------------------------------------------------------------
 
 

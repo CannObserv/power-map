@@ -30,7 +30,11 @@ from src.core.ancillary_migrate import (
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
+from src.core.logging import get_logger
+from src.core.merge_signals import mirror_subscriptions, record_merge_tombstones
 from src.core.org_lifecycle import count_open_assignments, get_org_ended_on
+
+logger = get_logger(__name__)
 
 _LIST_TARGET = "orgs-list-region"
 
@@ -156,6 +160,68 @@ async def _fetch_duplicate_pairs(db) -> list:
         return []
 
 
+async def _absorb_role(db, winner_role_id: str, loser_role_id: str) -> int:
+    """Fold the loser role's assignments into the winner role, then drop the emptied role.
+
+    Returns the number of assignments dropped as true duplicates.
+
+    **Identity-preserving (#467).** Every assignment with no winner-side twin is
+    *re-pointed* — `UPDATE ... SET role_id` — so it keeps its ULID, its
+    `source_key_id`, and its ancillary. This function replaces an
+    INSERT-a-copy-then-DELETE-the-original pass that reminted every id and
+    silently broke every `pm_assignment_id` anchor a producer held.
+
+    Only a genuine `(person_id, role_id, start_date)` collision is resolved by
+    deleting the loser row — that tuple is exactly what
+    `uq_role_assignment_person_role_start` refuses, so it is the one case
+    re-pointing cannot serve. Each such delete is announced (#467) with
+    `merged_into` naming the survivor, so a subscriber can rebind rather than
+    merely notice an id stopped resolving.
+
+    Both of `_execute_merge`'s conflict passes route through here: the explicit
+    `merge_role_pairs` one and the safeguard for pairs the form did not submit.
+    They were near-duplicate blocks, which is how the safeguard copy came to drop
+    `source_key_id` while the other preserved it (#324 CR3).
+    """
+    conflicts = await db.fetch(
+        """SELECT l.id AS loser_ra, w.id AS winner_ra
+           FROM role_assignments l
+           JOIN role_assignments w
+             ON w.role_id = $2 AND w.archived_at IS NULL
+            AND w.person_id = l.person_id
+            AND w.start_date IS NOT DISTINCT FROM l.start_date
+           WHERE l.role_id = $1 AND l.archived_at IS NULL""",
+        loser_role_id,
+        winner_role_id,
+    )
+    pairs = [(r["loser_ra"], r["winner_ra"]) for r in conflicts]
+    # The colliding loser rows are about to be hard-deleted: their polymorphic
+    # ancillary (#324 / #319 citations) and their active relationship edges (#301,
+    # FK ON DELETE CASCADE) must reach the survivor first, and anyone watching them
+    # must also start watching the survivor (#467).
+    await rehome_conflicting_assignment_ancillary(db, pairs)
+    await rehome_assignment_relationships(db, pairs)
+    await mirror_subscriptions(db, pairs)
+    await db.execute(
+        "DELETE FROM role_assignments WHERE id = ANY($1::text[])",
+        [loser_ra for loser_ra, _ in pairs],
+    )
+    await record_merge_tombstones(db, "role_assignment", pairs)
+    # Everything left keeps its id. Archived rows re-point too: the unique index is
+    # partial on active rows, so a retracted tenure can never be the collision.
+    await db.execute(
+        "UPDATE role_assignments SET role_id=$1 WHERE role_id=$2",
+        winner_role_id,
+        loser_role_id,
+    )
+    # #326: the loser role's own contacts/links have no FK — re-home before the delete.
+    await rehome_role_ancillary(db, loser_role_id, winner_role_id)
+    await mirror_subscriptions(db, [(loser_role_id, winner_role_id)])
+    await db.execute("DELETE FROM roles WHERE id=$1", loser_role_id)
+    await record_merge_tombstones(db, "role", [(loser_role_id, winner_role_id)])
+    return len(pairs)
+
+
 async def _execute_merge(
     db,
     winner_id: str,
@@ -181,66 +247,42 @@ async def _execute_merge(
 
         # Merge conflicting role pairs BEFORE the bulk role UPDATE to avoid violating
         # uq_role_org_title (organization_id, lower(title)) WHERE archived_at IS NULL.
+        #
+        # The pairs are unvalidated form input and `_absorb_role` hard-deletes the
+        # loser role it is handed *and* publishes a `role/deleted merged_into=…` row
+        # for it, so an unfiltered list would let a manipulated submit destroy an
+        # unrelated role and inject a false rebind into subscribers' feeds. Accept a
+        # pair only if it is one the preview could have offered: both roles **active**
+        # (`conflicting_roles` filters `archived_at IS NULL`) and each in the org it
+        # must belong to. Archiving matters as much as the org does — the bulk
+        # `UPDATE roles SET organization_id` below re-parents archived roles onto the
+        # winner, so an archived role is data this merge preserves. A dropped pair
+        # that is a genuine conflict is still caught by the safeguard pass below.
         if role_pairs_to_merge:
+            org_of_role = {
+                r["id"]: r["organization_id"]
+                for r in await db.fetch(
+                    "SELECT id, organization_id FROM roles"
+                    " WHERE id = ANY($1::text[]) AND archived_at IS NULL",
+                    [rid for pair in role_pairs_to_merge for rid in pair],
+                )
+            }
             for winner_role_id, loser_role_id in role_pairs_to_merge:
-                active = await db.fetch(
-                    "SELECT id, person_id, start_date, end_date, is_current, notes, source_key_id"
-                    " FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
-                    loser_role_id,
-                )
-                # #324: every active loser assignment below is hard-deleted, so its
-                # polymorphic ancillary must be re-homed onto the surviving winner
-                # assignment first. The survivor is either an existing winner row
-                # (dropped dup) or the row we re-create on the winner role (new id).
-                anc_pairs: list[tuple[str, str]] = []
-                for a in active:
-                    existing = await db.fetchval(
-                        "SELECT id FROM role_assignments"
-                        " WHERE person_id=$1 AND role_id=$2 AND archived_at IS NULL"
-                        " AND start_date IS NOT DISTINCT FROM $3",
-                        a["person_id"],
-                        winner_role_id,
-                        a["start_date"],
+                if (
+                    org_of_role.get(winner_role_id) != winner_id
+                    or org_of_role.get(loser_role_id) != loser_id
+                ):
+                    logger.warning(
+                        "merge_role_pair_out_of_scope",
+                        extra={
+                            "winner_org_id": winner_id,
+                            "loser_org_id": loser_id,
+                            "winner_role_id": winner_role_id,
+                            "loser_role_id": loser_role_id,
+                        },
                     )
-                    if existing is None:
-                        target_id = generate_id()
-                        await db.execute(
-                            "INSERT INTO role_assignments"
-                            " (id, person_id, role_id, start_date, end_date, is_current, notes,"
-                            "  source_key_id)"
-                            " VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-                            target_id,
-                            a["person_id"],
-                            winner_role_id,
-                            a["start_date"],
-                            a["end_date"],
-                            a["is_current"],
-                            a["notes"],
-                            a["source_key_id"],  # #324 CR3: preserve assignment provenance
-                        )
-                    else:
-                        target_id = existing
-                        dropped_assignments += 1
-                    anc_pairs.append((a["id"], target_id))
-                await rehome_conflicting_assignment_ancillary(db, anc_pairs)
-                # #301: re-point active relationship edges onto the target assignment
-                # before deleting the loser-role assignments (FK CASCADE else drops them).
-                await rehome_assignment_relationships(db, anc_pairs)
-                # Transfer archived assignments to winner role (no dedup needed)
-                await db.execute(
-                    "UPDATE role_assignments SET role_id=$1"
-                    " WHERE role_id=$2 AND archived_at IS NOT NULL",
-                    winner_role_id,
-                    loser_role_id,
-                )
-                # Remove remaining active assignments from loser role (the dropped dupes)
-                await db.execute(
-                    "DELETE FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
-                    loser_role_id,
-                )
-                # #326: re-home the loser role's own contacts/links before deleting it.
-                await rehome_role_ancillary(db, loser_role_id, winner_role_id)
-                await db.execute("DELETE FROM roles WHERE id=$1", loser_role_id)
+                    continue
+                dropped_assignments += await _absorb_role(db, winner_role_id, loser_role_id)
 
         await db.execute(
             "UPDATE organizations SET parent_id=$1 WHERE parent_id=$2",
@@ -349,63 +391,9 @@ async def _execute_merge(
             winner_id,
         )
         for conflict in remaining_conflicts:
-            w_role = conflict["winner_role_id"]
-            l_role = conflict["loser_role_id"]
-            active = await db.fetch(
-                "SELECT id, person_id, start_date, end_date, is_current, notes"
-                " FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
-                l_role,
+            dropped_assignments += await _absorb_role(
+                db, conflict["winner_role_id"], conflict["loser_role_id"]
             )
-            # Each active loser assignment resolves to a target winner assignment —
-            # either the newly-inserted copy or the existing same-(person,role,start)
-            # row. Its ancillary (#324 links/contacts/identifiers/field_confidence +
-            # #319 citations) must re-home onto that target before the loser row is
-            # hard-deleted below, exactly like the role_pairs_to_merge block above.
-            anc_pairs: list[tuple[str, str]] = []
-            for a in active:
-                target_id = await db.fetchval(
-                    "SELECT id FROM role_assignments"
-                    " WHERE person_id=$1 AND role_id=$2 AND archived_at IS NULL"
-                    " AND start_date IS NOT DISTINCT FROM $3",
-                    a["person_id"],
-                    w_role,
-                    a["start_date"],
-                )
-                if target_id is None:
-                    target_id = generate_id()
-                    await db.execute(
-                        "INSERT INTO role_assignments"
-                        " (id, person_id, role_id, start_date, end_date, is_current, notes)"
-                        " VALUES ($1,$2,$3,$4,$5,$6,$7)",
-                        target_id,
-                        a["person_id"],
-                        w_role,
-                        a["start_date"],
-                        a["end_date"],
-                        a["is_current"],
-                        a["notes"],
-                    )
-                else:
-                    dropped_assignments += 1
-                anc_pairs.append((a["id"], target_id))
-            await db.execute(
-                "UPDATE role_assignments SET role_id=$1"
-                " WHERE role_id=$2 AND archived_at IS NOT NULL",
-                w_role,
-                l_role,
-            )
-            # Re-home the deleted-to-be loser assignments' ancillary before the DELETE.
-            await rehome_conflicting_assignment_ancillary(db, anc_pairs)
-            # #301: re-point active relationship edges onto the target assignment
-            # before deleting the loser-role assignments (FK CASCADE else drops them).
-            await rehome_assignment_relationships(db, anc_pairs)
-            await db.execute(
-                "DELETE FROM role_assignments WHERE role_id=$1 AND archived_at IS NULL",
-                l_role,
-            )
-            # #326: re-home the loser role's own contacts/links before deleting it.
-            await rehome_role_ancillary(db, l_role, w_role)
-            await db.execute("DELETE FROM roles WHERE id=$1", l_role)
 
         await db.execute(
             "UPDATE roles SET organization_id=$1 WHERE organization_id=$2",
@@ -527,6 +515,11 @@ async def _execute_merge(
         # The loser's entity_events aren't re-pointed by merge (they dangle when the
         # org is deleted), so their citations would orphan — drop them (#319).
         await delete_event_citations_for_owner(db, "organization", loser_id)
+
+        # #467: a key watching the loser also watches the winner from here on. The
+        # loser's own subscription stays — the feed joins subscriptions at read time,
+        # so removing it would hide the tombstone written just below.
+        await mirror_subscriptions(db, [(loser_id, winner_id)])
 
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
         await db.execute(
@@ -889,6 +882,33 @@ async def org_merge_preview(
         winner_id,
     )
 
+    # #467: state the blast radius on the assignments *before* the merge runs, not
+    # in the flash afterwards. Every loser assignment moves; the subset that
+    # collides with a winner row on (person, role, start_date) is the only part
+    # that is destructive, and it is the number an admin needs before clicking.
+    # Mirrors `_absorb_role`'s conflict query, scoped across every colliding pair.
+    assignments_count = await db.fetchval(
+        """SELECT count(*) FROM role_assignments ra
+           JOIN roles r ON r.id = ra.role_id
+           WHERE r.organization_id = $1 AND ra.archived_at IS NULL""",
+        loser_id,
+    )
+    dropped_assignments_count = await db.fetchval(
+        """SELECT count(*)
+           FROM roles r_l
+           JOIN roles r_w ON lower(r_w.title) = lower(r_l.title)
+                          AND r_w.organization_id = $2
+                          AND r_w.archived_at IS NULL
+           JOIN role_assignments l ON l.role_id = r_l.id AND l.archived_at IS NULL
+           JOIN role_assignments w
+             ON w.role_id = r_w.id AND w.archived_at IS NULL
+            AND w.person_id = l.person_id
+            AND w.start_date IS NOT DISTINCT FROM l.start_date
+           WHERE r_l.organization_id = $1 AND r_l.archived_at IS NULL""",
+        loser_id,
+        winner_id,
+    )
+
     return templates.TemplateResponse(
         request,
         "admin/orgs/_merge_preview_modal.html",
@@ -909,6 +929,8 @@ async def org_merge_preview(
             "addresses_count": addresses_count,
             "identifiers_count": identifiers_count,
             "conflicting_roles": conflicting_roles,
+            "assignments_count": assignments_count,
+            "dropped_assignments_count": dropped_assignments_count,
             "ctx": ctx,
         },
     )

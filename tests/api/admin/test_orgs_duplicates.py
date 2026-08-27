@@ -656,9 +656,14 @@ async def test_org_merge_role_pair_rehomes_loser_role_level_ancillary(client, db
     )
 
 
-async def test_org_merge_role_pair_rehomes_recreated_assignment_ancillary(client, db):
-    """#324: re-create branch — loser assignment deleted and re-inserted on the
-    winner role under a NEW id; ancillary must follow to the new id."""
+async def test_org_merge_role_pair_repoints_non_colliding_assignment_with_ancillary(client, db):
+    """#467: a loser assignment with no winner-side twin is re-pointed, not re-created.
+
+    This branch used to DELETE the row and INSERT a copy under a fresh ULID, which
+    #324 then had to chase with an ancillary re-home. Re-pointing keeps the id, so
+    the ancillary needs no migration at all — it still hangs off the same entity_id.
+    Pinning the id here is the guard against the regression #467 reported: a
+    producer's `pm_assignment_id` anchors must survive a merge."""
     id_a, id_b, role_a, role_b = await _role_pair_orgs(db)
     person_id = await _person(db)
     assign_b = generate_id()
@@ -689,14 +694,16 @@ async def test_org_merge_role_pair_rehomes_recreated_assignment_ancillary(client
         role_a,
         person_id,
     )
-    assert new_ra is not None and new_ra != assign_b
+    assert new_ra == assign_b, "assignment id was reminted — producer anchors break (#467)"
     assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", new_ra)
-    assert not await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", assign_b)
 
 
-async def test_org_merge_role_pair_recreated_assignment_preserves_source_key_id(client, db):
-    """#324 CR3: the re-created winner assignment must carry over the loser's
-    source_key_id provenance (#311), not null it."""
+async def test_org_merge_role_pair_migrated_assignment_preserves_source_key_id(client, db):
+    """#324 CR3 / #467: the migrated assignment keeps its `source_key_id` (#311).
+
+    Re-pointing makes this structural rather than a column the migration has to
+    remember to copy — which is how the safeguard path came to drop it while the
+    explicit-pairs path preserved it."""
     id_a, id_b, role_a, role_b = await _role_pair_orgs(db)
     person_id = await _person(db)
     uid, key_id = generate_id(), generate_id()

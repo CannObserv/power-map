@@ -517,3 +517,131 @@ async def test_changes_merge_delete_carries_merged_into(client, api_key, merge_c
     ]
     assert len(deleted) == 1
     assert deleted[0]["merged_into"] == merge_change_fixtures["winner_id"]
+
+
+# ---------------------------------------------------------------------------
+# #467 — a merge's rebind signal must survive the merge that produced it
+# ---------------------------------------------------------------------------
+
+ADMIN_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
+
+
+async def _merge_467_fixture(db, kid):
+    """Winner/loser org each with a 'Member' role; one colliding assignment pair.
+
+    Subscribes `kid` to the loser org and to the loser-side assignment — the two
+    anchors a real producer holds, and the only audience for their tombstones.
+    Returns the ids plus a `before_seq` cursor.
+    """
+    win_org, lose_org = generate_id(), generate_id()
+    win_role, lose_role = generate_id(), generate_id()
+    person = generate_id()
+    survivor, dropped = generate_id(), generate_id()
+
+    for oid in (win_org, lose_org):
+        await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    for rid, oid in ((win_role, win_org), (lose_role, lose_org)):
+        await db.execute(
+            "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Member')", rid, oid
+        )
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person)
+    for aid, rid in ((survivor, win_role), (dropped, lose_role)):
+        await db.execute(
+            "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+            " VALUES ($1,$2,$3,'2020-01-01')",
+            aid,
+            person,
+            rid,
+        )
+    for eid, etype in ((lose_org, "organization"), (dropped, "role_assignment")):
+        await db.execute(
+            "INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)"
+            " VALUES ($1,$2,$3)",
+            kid,
+            eid,
+            etype,
+        )
+
+    before_seq = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+    return {
+        "before_seq": before_seq,
+        "win_org": win_org,
+        "lose_org": lose_org,
+        "win_role": win_role,
+        "lose_role": lose_role,
+        "survivor": survivor,
+        "dropped": dropped,
+    }
+
+
+async def _feed(client, api_key, after):
+    r = await client.get(
+        "/api/v1/changes",
+        params={"after": after, "limit": 200},
+        headers={"X-API-Key": api_key["raw_key"]},
+    )
+    assert r.status_code == 200
+    return r.json()["data"]
+
+
+async def test_merge_tombstones_reach_the_subscriber_anchored_to_the_deleted_ids(
+    client, db, api_key
+):
+    """#467: the subscriber holding the retired anchor is the tombstone's only audience.
+
+    The feed joins subscriptions at *read* time (`s.entity_id = ec.entity_id`), so a
+    merge that moves a subscription off the deleted id hides the very row it just
+    wrote. Both anchors this key holds — the loser org and the dropped duplicate
+    assignment — must still resolve to their `deleted` + `merged_into` rows.
+    """
+    f = await _merge_467_fixture(db, api_key["key_id"])
+
+    r = await client.post(
+        f"/admin/orgs/{f['win_org']}/merge-with/{f['lose_org']}/",
+        data={"merge_role_pairs": f"{f['win_role']}:{f['lose_role']}"},
+        headers=ADMIN_HEADERS,
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    by_id = {
+        (i["entity_id"], i["change_kind"]): i for i in await _feed(client, api_key, f["before_seq"])
+    }
+
+    org_tomb = by_id.get((f["lose_org"], "deleted"))
+    assert org_tomb is not None, "loser org tombstone never reached its subscriber"
+    assert org_tomb["merged_into"] == f["win_org"]
+
+    ra_tomb = by_id.get((f["dropped"], "deleted"))
+    assert ra_tomb is not None, "dropped assignment tombstone never reached its subscriber"
+    assert ra_tomb["entity_type"] == "role_assignment"
+    assert ra_tomb["merged_into"] == f["survivor"]
+
+
+async def test_merge_mirrors_subscriptions_onto_the_survivors(client, db, api_key):
+    """#467: watching the loser means watching what absorbed it, from here on.
+
+    The loser anchor is kept (its tombstone still has to arrive); the survivor is
+    added alongside it, so the next change to the surviving row is delivered too.
+    """
+    f = await _merge_467_fixture(db, api_key["key_id"])
+
+    r = await client.post(
+        f"/admin/orgs/{f['win_org']}/merge-with/{f['lose_org']}/",
+        data={"merge_role_pairs": f"{f['win_role']}:{f['lose_role']}"},
+        headers=ADMIN_HEADERS,
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    subscribed = {
+        row["entity_id"]
+        for row in await db.fetch(
+            "SELECT entity_id FROM api_key_entity_subscriptions WHERE api_key_id=$1",
+            api_key["key_id"],
+        )
+    }
+    assert f["win_org"] in subscribed, "survivor org not mirrored onto the subscriber"
+    assert f["survivor"] in subscribed, "survivor assignment not mirrored onto the subscriber"
+    assert f["lose_org"] in subscribed, "loser anchor dropped — its tombstone is now unreachable"
+    assert f["dropped"] in subscribed, "loser anchor dropped — its tombstone is now unreachable"
