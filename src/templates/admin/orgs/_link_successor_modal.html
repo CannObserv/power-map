@@ -1,0 +1,78 @@
+{# admin/orgs/_link_successor_modal.html (#469)
+   Context: orgs (list of {id, name, latest_activity}), id_a, id_b,
+   default_pred (org id pre-selected as predecessor), already_chained (bool).
+   The dedup alternative to merge for a source-re-keyed institution: both rows
+   stay, continuity becomes a succeeded_by event on the predecessor. #}
+<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="link-successor-title">
+  <div class="modal">
+    <h2 id="link-successor-title">Link as successors</h2>
+
+    <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:0 0 var(--space-3)">
+      Both organizations stay. The predecessor gains a <em>Succeeded By</em> event
+      pointing at the successor, the pair leaves the duplicates list, and every
+      external identifier keeps its own record.
+    </p>
+
+    {% if already_chained %}
+    <p class="alert alert--notice" style="margin-bottom:var(--space-3)">
+      These organizations are already in the same succession chain — linking again
+      will be rejected.
+    </p>
+    {% endif %}
+
+    {# ctx="duplicates": swap the region back in. Elsewhere the region doesn't
+       exist and a dangling hx-target would abort the POST (htmx:targetError) —
+       hx-swap="none" still processes the flash trigger headers. #}
+    <form id="merge-form"
+          {% if ctx == 'duplicates' %}hx-target="#orgs-duplicates-region" hx-swap="outerHTML"{% else %}hx-swap="none"{% endif %}>
+      <fieldset style="border:0;padding:0;margin:0 0 var(--space-3)">
+        <legend class="field-group-label" style="margin-bottom:var(--space-1)">Which came first?</legend>
+        {% for o in orgs %}
+        <label style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-1) 0">
+          <input type="radio" name="predecessor_id" value="{{ o.id }}"
+                 {% if o.id == default_pred %}checked{% endif %}>
+          <span>
+            <strong>{{ o.name }}</strong> is the predecessor
+            {% if o.latest_activity %}
+            <br><small style="color:var(--color-text-muted)">latest assignment activity: {{ o.latest_activity.strftime('%Y-%m-%d') }}</small>
+            {% endif %}
+          </span>
+        </label>
+        {% endfor %}
+      </fieldset>
+
+      <div class="field" style="margin-bottom:var(--space-4)">
+        <label for="succession-date">Succession date <span style="color:var(--color-text-muted)">(optional)</span></label>
+        <input type="date" id="succession-date" name="succession_date">
+        <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-1) 0 0">
+          When known, this date ends the predecessor's lifespan — leave blank if the
+          handover date is uncertain.
+        </p>
+      </div>
+
+      <div class="modal__actions">
+        <button type="button" class="btn btn--ghost" onclick="window.__pmMergeClose()">Cancel</button>
+        <button type="submit" class="btn btn--primary">Link as successors</button>
+      </div>
+    </form>
+  </div>
+</div>
+{# Shared portal lifecycle (Escape/close, focus, close-on-success). #}
+{% include "admin/partials/_merge_modal_script.html" %}
+<script>
+(function () {
+  // Direction picker drives the POST URL: /{predecessor}/link-successor/{successor}/.
+  var form = document.getElementById('merge-form');
+  var ids = ['{{ id_a }}', '{{ id_b }}'];
+  function syncAction() {
+    var pred = form.querySelector('input[name="predecessor_id"]:checked').value;
+    var succ = ids[0] === pred ? ids[1] : ids[0];
+    form.setAttribute('hx-post', '/admin/orgs/' + pred + '/link-successor/' + succ + '/');
+    if (window.htmx) htmx.process(form);
+  }
+  form.addEventListener('change', function (e) {
+    if (e.target.name === 'predecessor_id') syncAction();
+  });
+  syncAction();
+}());
+</script>

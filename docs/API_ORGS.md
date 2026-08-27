@@ -33,11 +33,29 @@ Returns the base search-result fields plus:
 | `created_at` | ISO 8601 UTC timestamp |
 | `updated_at` | ISO 8601 UTC timestamp |
 
-Supports conditional requests. Every 200 response includes `ETag`, `Last-Modified`, `Cache-Control: no-cache`, and `Vary: X-API-Key` headers. Pass the ETag back as `If-None-Match` to receive 304 on cache hit. `updated_at` advances whenever any child table (names, acronyms, identifiers, affiliations) changes.
+Supports conditional requests. Every 200 response includes `ETag`, `Last-Modified`, `Cache-Control: no-cache`, and `Vary: X-API-Key` headers. Pass the ETag back as `If-None-Match` to receive 304 on cache hit. `updated_at` advances whenever any child table (names, acronyms, identifiers, affiliations) changes — and when an entity event **linking to** this org changes (#469), so the succession fields below never go stale under the ETag.
+
+### Succession annotation (#469)
+
+Search results **and** detail both carry three nullable fields:
+
+| Field | Description |
+|-------|-------------|
+| `lifespan` | `{start, end}`, each `YYYY-MM-DD` or `null`. `start` = earliest `founded` event, resolved to the **earliest** date within its precision (year-only → Jan 1); `end` = the #307 derived end (earliest dated `dissolved`/`merged_with`/`succeeded_by`, **latest** within precision). Neither bound ever claims more than the source supports. |
+| `succeeds` | ULID of the predecessor org (an active, public `succeeded_by` event points here), or `null`. |
+| `succeeded_by` | ULID of the successor org, or `null`. **`succeeded_by: null` = the chain head — "the current manifestation."** |
+
+An upstream re-key (WSL committee `3532` → `31651`) is **two org records linked
+by succession**, never a merge: each external identifier keeps a permanent 1:1
+org anchor, and continuity is the edge. Name search stays list-shaped (it always
+was — names collide across chambers and eras); disambiguate chain members by
+`lifespan` window, or take the chain head for "current". Identifier search
+remains the exact-resolution channel. Full chain traversal = follow the pointers
+or read `/orgs/{id}/events`.
 
 ### Renames and the name timeline
 
-A rename is modeled as **one durable organization**, never a fork. The organization's external identifier (e.g. `org_wa_legislature_committee_id`) stays anchored to the same record for the entity's entire life — **one WSL Id = one committee** is a stable invariant; consumers should treat the identifier as the durable anchor and the name as following it. On rename, the prior name is retained as a `former` name and a new canonical name is added; both carry `effective_start`/`effective_end`, so a consumer resolves "which name was in effect when" by filtering the `names` array by date — no separate as-of endpoint. Name-timeline transitions (closing the old interval, promoting the new canonical) are curated in Power-Map; the observation feed is append-only and never displaces a canonical name. Any name or date change advances the org's `updated_at` and emits an `updated` change-feed event, so subscribers re-fetch and pick up the new dates.
+A rename is modeled as **one durable organization**, never a fork. The organization's external identifier (e.g. `org_wa_legislature_committee_id`) stays anchored to the same record for the entity's entire life — **one WSL Id = one committee** is a stable invariant; consumers should treat the identifier as the durable anchor and the name as following it. The complement (#469): a source **re-key** is not a rename — a new identifier value gets its own org record, linked to the old one by a `succeeded_by` event, so the invariant holds from both directions. On rename, the prior name is retained as a `former` name and a new canonical name is added; both carry `effective_start`/`effective_end`, so a consumer resolves "which name was in effect when" by filtering the `names` array by date — no separate as-of endpoint. Name-timeline transitions (closing the old interval, promoting the new canonical) are curated in Power-Map; the observation feed is append-only and never displaces a canonical name. Any name or date change advances the org's `updated_at` and emits an `updated` change-feed event, so subscribers re-fetch and pick up the new dates.
 
 ### Observation write — `POST /orgs/observations`
 

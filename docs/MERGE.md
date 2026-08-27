@@ -10,10 +10,46 @@ the people, orgs and roles list and detail screens.
 
 1. **Banner** on org list when `count_org_duplicates(db) > 0` — `.alert--notice` with link to review screen
 2. **Review screen** at `/admin/orgs/duplicates/` — shows potential duplicate pairs
-3. **Actions:** merge or dismiss per pair — HTMX partial response + OOB flash
+3. **Actions:** merge, **link as successors** (orgs, #469), or dismiss per pair — HTMX partial response + OOB flash
 4. **Nav badge** updates via lazy `hx-get="/admin/orgs/duplicate-count-badge/"` with `hx-trigger="load"`
-5. **Cache:** `count_org_duplicates(db)` is TTL-cached (5 min, process-local). Call `_invalidate_dup_count_cache()` after merge or dismiss
+5. **Cache:** `count_org_duplicates(db)` is TTL-cached (5 min, process-local). Call `_invalidate_dup_count_cache()` after merge, link, or dismiss
 6. **Caveat:** cache is per-process — under multi-worker gunicorn, counts may lag up to 5 min per worker
+
+### Merge vs. succession — who owns the key (#469)
+
+An upstream re-key of a continuous org (WSL committee `3532` → `31651`) presents
+as an identically-named pair, but the two rows are two **source records**: a
+producer keys each external identifier value to its own org, and merging makes
+that mapping N:1 — breaking the `API_ORGS.md` one-key-one-org contract and every
+producer-held anchor (the #467 failure). The rubric is mechanical:
+
+- Both candidates carry **the same external identifier type with distinct
+  values** → two source records → **link as successors**. Merge stays possible
+  behind an explicit acknowledgement (the source itself may have double-keyed).
+- Same key twice, or a keyless hand-entered dupe → true duplicate → **merge**.
+
+Machinery, all in `orgs_succession.py` + `orgs_merge.py`:
+
+- **Guardrail:** `org_merge_preview` detects same-type/distinct-value external
+  (`NOT is_internal`) identifiers; the modal names the type + both values,
+  ships Execute disabled behind a `merge-identifier-conflict-cb` checkbox, and
+  offers "Link as successors instead".
+- **Link verb:** `GET .../link-successor-preview/...` modal (direction radio,
+  defaulting from assignment-activity recency; optional date) → `POST
+  /{pred}/link-successor/{succ}/` writes one `succeeded_by` event on the
+  predecessor. A dated link also ends the predecessor's lifespan (#307 view).
+  A pair already in one chain (either direction, transitively) is rejected with
+  a warning — no double edges, no cycles — and `uq_entity_events_succession_edge`
+  (partial unique index on active edges) backstops the concurrent race the
+  app-level check cannot see. The modal targets the duplicates region only when
+  opened with `ctx=duplicates`; elsewhere it uses `hx-swap="none"` (a dangling
+  `hx-target` would abort the POST with `htmx:targetError`).
+- **Chain exclusion:** the duplicate detector excludes any pair inside one
+  succession chain via `v_org_succession_pairs` (symmetric transitive closure
+  of active `succeeded_by` edges — shared-successor siblings count). Linked
+  chains never re-present as duplicates.
+- **Continuity banner:** org detail shows the org's chain neighbours
+  (`_succession_banner.html`), predecessor linking forward, successor back.
 
 ---
 

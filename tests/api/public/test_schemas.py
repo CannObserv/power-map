@@ -11,6 +11,7 @@ from src.api.public.schemas import (
     OrgDetail,
     OrgIdentifier,
     OrgJurisdictionAffiliation,
+    OrgLifespan,
     OrgName,
     OrgSearchResponse,
     OrgSearchResult,
@@ -84,19 +85,19 @@ def testfmt_ts_naive_datetime_returns_no_z_suffix():
 
 def test_org_search_result_archived_at_serialized_to_z():
     dt = datetime(2024, 1, 1, tzinfo=UTC)
-    result = OrgSearchResult(id="abc", archived_at=dt)
+    result = OrgSearchResult(id="abc", archived_at=dt, lifespan=OrgLifespan())
     dumped = result.model_dump(mode="json")
     assert dumped["archived_at"].endswith("Z")
 
 
 def test_org_search_result_archived_at_none_stays_none():
-    result = OrgSearchResult(id="abc")
+    result = OrgSearchResult(id="abc", lifespan=OrgLifespan())
     dumped = result.model_dump(mode="json")
     assert dumped["archived_at"] is None
 
 
 def test_org_search_result_optional_fields_default_none():
-    r = OrgSearchResult(id="x")
+    r = OrgSearchResult(lifespan=OrgLifespan(), id="x")
     assert r.name is None
     assert r.acronym is None
     assert r.slug is None
@@ -124,7 +125,7 @@ def test_org_search_meta_all_fields():
 
 def test_org_search_response_shape():
     response = OrgSearchResponse(
-        data=[OrgSearchResult(id="x", name="Foo")],
+        data=[OrgSearchResult(lifespan=OrgLifespan(), id="x", name="Foo")],
         meta=SearchMeta(limit=10, offset=0, count=1, has_more=False),
     )
     dumped = response.model_dump(mode="json")
@@ -152,20 +153,31 @@ _TS = datetime(2024, 1, 1, tzinfo=UTC)
 
 
 def test_org_detail_inherits_archived_at_serializer():
-    detail = OrgDetail(id="abc", active=True, archived_at=_TS, created_at=_TS, updated_at=_TS)
+    detail = OrgDetail(
+        lifespan=OrgLifespan(),
+        id="abc",
+        active=True,
+        archived_at=_TS,
+        created_at=_TS,
+        updated_at=_TS,
+    )
     dumped = detail.model_dump(mode="json")
     assert dumped["archived_at"].endswith("Z")
 
 
 def test_org_detail_timestamps_serialized_to_z():
-    detail = OrgDetail(id="abc", active=True, created_at=_TS, updated_at=_TS)
+    detail = OrgDetail(
+        lifespan=OrgLifespan(), id="abc", active=True, created_at=_TS, updated_at=_TS
+    )
     dumped = detail.model_dump(mode="json")
     assert dumped["created_at"].endswith("Z")
     assert dumped["updated_at"].endswith("Z")
 
 
 def test_org_detail_arrays_default_empty():
-    detail = OrgDetail(id="abc", active=True, created_at=_TS, updated_at=_TS)
+    detail = OrgDetail(
+        lifespan=OrgLifespan(), id="abc", active=True, created_at=_TS, updated_at=_TS
+    )
     assert detail.names == []
     assert detail.acronyms == []
     assert detail.identifiers == []
@@ -174,22 +186,23 @@ def test_org_detail_arrays_default_empty():
 def test_org_detail_active_is_required():
     """active (#240) is required — no silent default masks a handler omission."""
     with pytest.raises(ValidationError):
-        OrgDetail(id="abc", created_at=_TS, updated_at=_TS)
+        OrgDetail(lifespan=OrgLifespan(), id="abc", created_at=_TS, updated_at=_TS)
 
 
 def test_org_detail_active_round_trips():
-    true_dump = OrgDetail(id="abc", active=True, created_at=_TS, updated_at=_TS).model_dump(
-        mode="json"
-    )
-    false_dump = OrgDetail(id="abc", active=False, created_at=_TS, updated_at=_TS).model_dump(
-        mode="json"
-    )
+    true_dump = OrgDetail(
+        lifespan=OrgLifespan(), id="abc", active=True, created_at=_TS, updated_at=_TS
+    ).model_dump(mode="json")
+    false_dump = OrgDetail(
+        lifespan=OrgLifespan(), id="abc", active=False, created_at=_TS, updated_at=_TS
+    ).model_dump(mode="json")
     assert true_dump["active"] is True
     assert false_dump["active"] is False
 
 
 def test_org_detail_full_record_shape():
     detail = OrgDetail(
+        lifespan=OrgLifespan(),
         id="abc",
         name="Foo Corp",
         acronym="FC",
@@ -215,7 +228,9 @@ def test_org_detail_full_record_shape():
 
 
 def test_org_detail_jurisdiction_affiliations_default_empty():
-    detail = OrgDetail(id="abc", active=True, created_at=_TS, updated_at=_TS)
+    detail = OrgDetail(
+        lifespan=OrgLifespan(), id="abc", active=True, created_at=_TS, updated_at=_TS
+    )
     assert detail.jurisdiction_affiliations == []
 
 
@@ -223,6 +238,7 @@ def test_org_detail_jurisdiction_affiliations_shape():
     aff_type = OrgAffiliationType(id="t1", slug="governing", display_name="is governed by")
     aff = OrgJurisdictionAffiliation(jurisdiction_id="jid1", affiliation_type=aff_type)
     detail = OrgDetail(
+        lifespan=OrgLifespan(),
         id="abc",
         active=True,
         created_at=_TS,

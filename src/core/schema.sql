@@ -1624,6 +1624,25 @@ BEGIN
         UPDATE role_assignments SET updated_at = NOW() WHERE id = v_entity_id;
     END IF;
 
+    -- #469: an UPDATE that MOVES the identifier also changes the losing
+    -- parent's payload — touch it too, or its ETag stays valid for a stale
+    -- body and the feed says nothing (the succession restore moves 3532 off
+    -- the winner exactly this way).
+    IF TG_OP = 'UPDATE' AND OLD.entity_id IS DISTINCT FROM NEW.entity_id THEN
+        SELECT entity_type INTO v_entity_type
+        FROM entity_identifier_types
+        WHERE id = OLD.entity_identifier_type_id;
+        IF v_entity_type = 'organization' THEN
+            UPDATE organizations SET updated_at = NOW() WHERE id = OLD.entity_id;
+        ELSIF v_entity_type = 'person' THEN
+            UPDATE people SET updated_at = NOW() WHERE id = OLD.entity_id;
+        ELSIF v_entity_type = 'jurisdiction' THEN
+            UPDATE jurisdictions SET updated_at = NOW() WHERE id = OLD.entity_id;
+        ELSIF v_entity_type = 'role_assignment' THEN
+            UPDATE role_assignments SET updated_at = NOW() WHERE id = OLD.entity_id;
+        END IF;
+    END IF;
+
     RETURN NULL;
 END;
 $$;
@@ -2500,6 +2519,37 @@ CREATE INDEX IF NOT EXISTS idx_entity_events_entity_active
     ON entity_events(entity_type, entity_id)
     WHERE archived_at IS NULL;
 
+-- #469: reverse-succession lookups ("which org's event links HERE") — the
+-- `succeeds` annotation and the chain closure both probe by linked_entity_id.
+CREATE INDEX IF NOT EXISTS idx_entity_events_linked_entity
+    ON entity_events(linked_entity_id)
+    WHERE linked_entity_id IS NOT NULL AND archived_at IS NULL;
+
+-- #469 CR: at most one ACTIVE succeeded_by edge per (predecessor, successor) —
+-- closes the concurrent double-link race the app-level chain check cannot.
+-- The predicate pins the seeded succeeded_by type id (a fixed constant from
+-- the entity_event_types seed above; index predicates cannot join). Duplicates
+-- are archived first (keep the earliest row) so the index builds on a DB that
+-- already carries them; idempotent — a second run matches nothing.
+DO $$ BEGIN
+    UPDATE entity_events ev SET archived_at = NOW()
+    WHERE ev.event_type_id = '01KV000000000000000000000C'
+      AND ev.archived_at IS NULL
+      AND EXISTS (
+          SELECT 1 FROM entity_events dup
+          WHERE dup.event_type_id = ev.event_type_id
+            AND dup.entity_id = ev.entity_id
+            AND dup.linked_entity_id IS NOT DISTINCT FROM ev.linked_entity_id
+            AND dup.archived_at IS NULL
+            AND (dup.created_at, dup.id) < (ev.created_at, ev.id)
+      );
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_entity_events_succession_edge
+    ON entity_events (entity_id, linked_entity_id)
+    WHERE event_type_id = '01KV000000000000000000000C'
+      AND archived_at IS NULL;
+
 CREATE OR REPLACE TRIGGER trg_updated_at_entity_events
     BEFORE UPDATE ON entity_events
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -2522,6 +2572,26 @@ BEGIN
         UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
     ELSIF v_entity_type = 'organization' THEN
         UPDATE organizations SET updated_at = NOW() WHERE id = v_entity_id;
+    END IF;
+
+    -- #469: a linked ORGANIZATION's public payload derives from this event
+    -- (`succeeds` on the successor comes from the predecessor's succeeded_by
+    -- row), so touch it too — keeps its ETag and change-feed signal honest.
+    -- Both sides of an UPDATE re-link are touched; dedup vs. the owning entity
+    -- avoids a double bump when an event links an org to itself.
+    IF TG_OP IN ('UPDATE', 'DELETE')
+       AND OLD.linked_entity_type = 'organization'
+       AND OLD.linked_entity_id IS NOT NULL
+       AND OLD.linked_entity_id IS DISTINCT FROM v_entity_id THEN
+        UPDATE organizations SET updated_at = NOW() WHERE id = OLD.linked_entity_id;
+    END IF;
+    IF TG_OP IN ('INSERT', 'UPDATE')
+       AND NEW.linked_entity_type = 'organization'
+       AND NEW.linked_entity_id IS NOT NULL
+       AND NEW.linked_entity_id IS DISTINCT FROM v_entity_id
+       AND (TG_OP = 'INSERT'
+            OR NEW.linked_entity_id IS DISTINCT FROM OLD.linked_entity_id) THEN
+        UPDATE organizations SET updated_at = NOW() WHERE id = NEW.linked_entity_id;
     END IF;
 
     RETURN NULL;
@@ -2618,6 +2688,10 @@ END $$;
 -- at ended_on never claims an earlier end than the source supports.
 -- renamed/split_from imply continuity elsewhere, not an end; events without a
 -- year (merged_with does not require one) derive no bound.
+-- #469: a DATED succeeded_by also ends the predecessor — the row is one
+-- source-keyed manifestation and the successor row carries on; the event lives
+-- on the predecessor, so entity_id grouping needs no special case. An undated
+-- succeeded_by (the common producer emit) derives no bound, like merged_with.
 CREATE OR REPLACE VIEW v_org_lifespan AS
 SELECT ev.entity_id AS organization_id,
        min(
@@ -2633,10 +2707,43 @@ SELECT ev.entity_id AS organization_id,
 FROM entity_events ev
 JOIN entity_event_types t ON t.id = ev.event_type_id
 WHERE ev.entity_type = 'organization'
-  AND t.slug IN ('dissolved', 'merged_with')
+  AND t.slug IN ('dissolved', 'merged_with', 'succeeded_by')
   AND ev.archived_at IS NULL
   AND ev.event_year IS NOT NULL
 GROUP BY ev.entity_id;
+
+-- Succession chains (#469): the symmetric transitive closure of active
+-- succeeded_by edges — every ordered pair of orgs sharing one chain (a
+-- connected component of the undirected edge graph, so siblings that share a
+-- successor pair up too). Consumed by duplicate detection: chain members are
+-- one institution across source re-keys and must never present as merge
+-- candidates. Visibility is deliberately not filtered — the chain is curation
+-- state, not public event exposure.
+CREATE OR REPLACE VIEW v_org_succession_pairs AS
+WITH RECURSIVE edges AS (
+    SELECT ev.entity_id AS a, ev.linked_entity_id AS b
+    FROM entity_events ev
+    JOIN entity_event_types t ON t.id = ev.event_type_id
+    WHERE t.slug = 'succeeded_by'
+      AND ev.entity_type = 'organization'
+      AND ev.archived_at IS NULL
+      AND ev.linked_entity_id IS NOT NULL
+),
+undirected AS (
+    SELECT a, b FROM edges
+    UNION
+    SELECT b, a FROM edges
+),
+reach AS (
+    SELECT a AS org_a, b AS org_b FROM undirected
+    UNION
+    SELECT r.org_a, u.b
+    FROM reach r
+    JOIN undirected u ON u.a = r.org_b
+)
+SELECT org_a, org_b
+FROM reach
+WHERE org_a <> org_b;
 
 -- =============================================================================
 -- Ingestion Audit Tables

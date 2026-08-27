@@ -113,6 +113,42 @@
     </div>
     {% endif %}
 
+    {% if identifier_conflicts %}
+    {# #469 guardrail: distinct values of one external identifier type = two
+       source records. Merging makes that identifier→org mapping N:1 and breaks
+       every producer keying on it — succession is almost always the right verb. #}
+    <div class="alert alert--warning" role="alert" style="margin-bottom:var(--space-4)">
+      <strong>These look like two source records, not duplicates.</strong>
+      <ul style="margin:var(--space-2) 0 0 var(--space-4);padding:0;list-style:none">
+        {% for c in identifier_conflicts %}
+        <li style="margin-bottom:var(--space-1)">
+          <code>{{ c.slug }}</code>: kept org has <strong>{{ c.winner_value }}</strong>,
+          deleted org has <strong>{{ c.loser_value }}</strong>
+        </li>
+        {% endfor %}
+      </ul>
+      <p style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm)">
+        A data producer keys each of these identifier values to its own organization.
+        Merging folds them onto one record, breaking the one-key-one-org contract and
+        every anchor the producer holds. If this is the same institution re-keyed by
+        its source, link the records as successors instead — both stay, and the pair
+        leaves the duplicates list.
+      </p>
+      <div style="margin-top:var(--space-2)">
+        <button type="button" class="btn btn--primary btn--sm"
+                hx-get="/admin/orgs/{{ org_a_id }}/link-successor-preview/{{ org_b_id }}/"
+                hx-target="#merge-modal-portal"
+                hx-swap="innerHTML"
+                hx-push-url="false">Link as successors instead</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-3)">
+        <input type="checkbox" class="merge-identifier-conflict-cb">
+        <span>I understand this merge collapses distinct source identifiers onto one
+        organization — merge anyway</span>
+      </label>
+    </div>
+    {% endif %}
+
     {% if conflicting_roles %}
     <div class="alert alert--warning" role="alert" style="margin-bottom:var(--space-4)">
       <strong>Role title conflicts — assignments will be merged:</strong>
@@ -139,7 +175,8 @@
     <div class="modal__actions">
       <button type="button" class="btn btn--ghost"
               onclick="window.__pmMergeClose()">Cancel</button>
-      <button type="submit" class="btn btn--danger" id="merge-execute-btn">
+      <button type="submit" class="btn btn--danger" id="merge-execute-btn"
+              {% if identifier_conflicts %}disabled aria-disabled="true"{% endif %}>
         Execute merge
       </button>
     </div>
@@ -151,10 +188,12 @@
 {% include "admin/partials/_merge_modal_script.html" %}
 <script>
 (function () {
-  // Orgs-only: block Execute while any conflict role-pair checkbox is unchecked.
+  // Orgs-only: block Execute while any conflict role-pair checkbox is unchecked,
+  // or the #469 identifier-conflict acknowledgement (default unchecked) is.
   var portal = document.getElementById('merge-modal-portal');
   function syncExecute() {
-    var unchecked = portal.querySelectorAll('.merge-role-pair-cb:not(:checked)');
+    var unchecked = portal.querySelectorAll(
+      '.merge-role-pair-cb:not(:checked), .merge-identifier-conflict-cb:not(:checked)');
     var btn = document.getElementById('merge-execute-btn');
     if (btn) {
       btn.disabled = unchecked.length > 0;
@@ -162,7 +201,9 @@
     }
   }
   portal.addEventListener('change', function (e) {
-    if (e.target.classList.contains('merge-role-pair-cb')) syncExecute();
+    if (e.target.classList.contains('merge-role-pair-cb')
+        || e.target.classList.contains('merge-identifier-conflict-cb')) syncExecute();
   });
+  syncExecute();
 }());
 </script>

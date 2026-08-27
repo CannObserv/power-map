@@ -185,3 +185,29 @@ async def test_identifier_trigger_now_dispatches_role_assignment(db):
         type_id,
     )
     assert await _signals(db, "role_assignment", raid) == before + 1
+
+
+async def test_identifier_move_signals_both_orgs(db):
+    """#469 CR: an identifier UPDATE that changes entity_id signals the org that
+    LOST the identifier too — its payload changed, so its ETag and feed row must
+    move (the restore script moves 3532 off the winner exactly this way)."""
+    a, b = generate_id(), generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1), ($2)", a, b)
+    tid = await db.fetchval(
+        "SELECT id FROM entity_identifier_types"
+        " WHERE entity_type='organization' AND NOT is_internal LIMIT 1"
+    )
+    iid = generate_id()
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        iid,
+        a,
+        tid,
+        f"move-test-{iid}",
+    )
+    before_a = await _signals(db, "organization", a)
+    before_b = await _signals(db, "organization", b)
+    await db.execute("UPDATE identifiers SET entity_id=$1 WHERE id=$2", b, iid)
+    assert await _signals(db, "organization", b) > before_b  # gained it
+    assert await _signals(db, "organization", a) > before_a  # lost it

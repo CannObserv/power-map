@@ -190,6 +190,74 @@ async def submit_org_event_observations(
     )
 
 
+async def _annotate_succession(db: Any, orgs: list[dict[str, Any]]) -> None:
+    """Attach lifespan {start,end} + succeeds/succeeded_by to org payloads (#469).
+
+    One batched query per page. `start` resolves a founded event to the
+    EARLIEST date within its precision (year-only → Jan 1) — the mirror of
+    v_org_lifespan's latest-within-precision end, so neither bound ever claims
+    more than the source supports. The succession pointers expose event *data*,
+    so they respect visibility='public' (lifespan dates, like v_org_lifespan,
+    do not filter on it — they are derived state, not event exposure).
+    """
+    if not orgs:
+        return
+    rows = await db.fetch(
+        """
+        SELECT ids.id,
+               ls.ended_on   AS lifespan_end,
+               fs.started_on AS lifespan_start,
+               sb.linked_entity_id AS succeeded_by,
+               sc.entity_id  AS succeeds
+        FROM unnest($1::text[]) AS ids(id)
+        LEFT JOIN v_org_lifespan ls ON ls.organization_id = ids.id
+        LEFT JOIN LATERAL (
+            SELECT min(
+                CASE
+                    WHEN ev.event_day IS NOT NULL
+                        THEN make_date(ev.event_year, ev.event_month, ev.event_day)
+                    WHEN ev.event_month IS NOT NULL
+                        THEN make_date(ev.event_year, ev.event_month, 1)
+                    ELSE make_date(ev.event_year, 1, 1)
+                END) AS started_on
+            FROM entity_events ev
+            JOIN entity_event_types t ON t.id = ev.event_type_id
+            WHERE ev.entity_type = 'organization' AND ev.entity_id = ids.id
+              AND t.slug = 'founded'
+              AND ev.archived_at IS NULL AND ev.event_year IS NOT NULL
+        ) fs ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT ev.linked_entity_id
+            FROM entity_events ev
+            JOIN entity_event_types t ON t.id = ev.event_type_id
+            WHERE ev.entity_type = 'organization' AND ev.entity_id = ids.id
+              AND t.slug = 'succeeded_by'
+              AND ev.archived_at IS NULL AND ev.visibility = 'public'
+              AND ev.linked_entity_id IS NOT NULL
+            ORDER BY ev.created_at, ev.id
+            LIMIT 1
+        ) sb ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT ev.entity_id
+            FROM entity_events ev
+            JOIN entity_event_types t ON t.id = ev.event_type_id
+            WHERE ev.entity_type = 'organization' AND ev.linked_entity_id = ids.id
+              AND t.slug = 'succeeded_by'
+              AND ev.archived_at IS NULL AND ev.visibility = 'public'
+            ORDER BY ev.created_at, ev.id
+            LIMIT 1
+        ) sc ON TRUE
+        """,
+        [o["id"] for o in orgs],
+    )
+    by_id = {r["id"]: r for r in rows}
+    for o in orgs:
+        r = by_id[o["id"]]
+        o["lifespan"] = {"start": r["lifespan_start"], "end": r["lifespan_end"]}
+        o["succeeds"] = r["succeeds"]
+        o["succeeded_by"] = r["succeeded_by"]
+
+
 def _org_row_to_dict(r: Any) -> dict[str, Any]:
     """Map an org row to the common base fields shared by search and detail."""
     acronym = r["acronym"]
@@ -254,8 +322,10 @@ async def search_orgs(
             id_value,
             include_archived,
         )
+        data = [_org_row_to_dict(r) for r in rows]
+        await _annotate_succession(db, data)
         return {
-            "data": [_org_row_to_dict(r) for r in rows],
+            "data": data,
             "meta": {
                 "limit": limit,
                 "offset": offset,
@@ -305,8 +375,10 @@ async def search_orgs(
     has_more = len(rows) > limit
     page = rows[:limit]
 
+    data = [_org_row_to_dict(r) for r in page]
+    await _annotate_succession(db, data)
     return {
-        "data": [_org_row_to_dict(r) for r in page],
+        "data": data,
         "meta": {
             "limit": limit,
             "offset": offset,
@@ -364,8 +436,10 @@ async def _search_by_jurisdiction(
     )
     has_more = len(rows) > limit
     page = rows[:limit]
+    data = [_org_row_to_dict(r) for r in page]
+    await _annotate_succession(db, data)
     return {
-        "data": [_org_row_to_dict(r) for r in page],
+        "data": data,
         "meta": {
             "limit": limit,
             "offset": offset,
@@ -417,8 +491,11 @@ async def get_org(
 
     names, acronyms, identifiers, affiliations = await _fetch_detail_arrays(org_id, db)
 
+    base = _org_row_to_dict(row)
+    await _annotate_succession(db, [base])
+
     return {
-        **_org_row_to_dict(row),
+        **base,
         # active is detail-only (#240) — added here, not in _org_row_to_dict
         # (shared with search, whose queries do not select o.active).
         "active": row["active"],

@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+import asyncpg
 from fastapi import Depends
 
 from src.api.admin.deps import get_db
@@ -22,6 +23,13 @@ CANDIDATE_WHERE = """
           SELECT 1 FROM duplicate_dismissals
           WHERE entity_type = 'organization'
             AND entity_a_id = a.id AND entity_b_id = b.id
+      )
+      AND NOT EXISTS (
+          -- #469: orgs in one succession chain are the same institution across
+          -- source re-keys — never merge candidates. The view holds both
+          -- orderings, so one probe covers the pair.
+          SELECT 1 FROM v_org_succession_pairs sp
+          WHERE sp.org_a = a.id AND sp.org_b = b.id
       )
 """
 
@@ -72,3 +80,48 @@ async def get_org_dup_count(db=Depends(get_db)) -> int:
     except Exception:
         logger.warning("Failed to fetch org duplicate count", exc_info=True)
         return 0
+
+
+async def fetch_duplicate_pairs(db) -> list:
+    """Return near-duplicate org pairs; empty list if pg_trgm not installed."""
+    try:
+        return await db.fetch(
+            f"""WITH cands AS (
+                SELECT DISTINCT ON (a.id, b.id)
+                    a.id AS a_id,
+                    dn_a.name AS a_match_name,
+                    dn_a.is_canonical AS a_match_is_canonical,
+                    a.created_at AS a_created,
+                    b.id AS b_id,
+                    dn_b.name AS b_match_name,
+                    dn_b.is_canonical AS b_match_is_canonical,
+                    b.created_at AS b_created,
+                    similarity(dn_a.name, dn_b.name) AS score,
+                    (SELECT count(*) FROM roles
+                     WHERE organization_id = a.id AND archived_at IS NULL) AS a_roles,
+                    (SELECT count(*) FROM roles
+                     WHERE organization_id = b.id AND archived_at IS NULL) AS b_roles
+                {CANDIDATE_WHERE}
+                ORDER BY a.id, b.id, similarity(dn_a.name, dn_b.name) DESC
+            )
+            SELECT
+                cands.a_id,
+                COALESCE(vdn_a.display_name, cands.a_match_name) AS a_name,
+                cands.a_match_name,
+                cands.a_match_is_canonical,
+                cands.a_created,
+                cands.b_id,
+                COALESCE(vdn_b.display_name, cands.b_match_name) AS b_name,
+                cands.b_match_name,
+                cands.b_match_is_canonical,
+                cands.b_created,
+                cands.score,
+                cands.a_roles,
+                cands.b_roles
+            FROM cands
+            LEFT JOIN v_org_display_names vdn_a ON vdn_a.organization_id = cands.a_id
+            LEFT JOIN v_org_display_names vdn_b ON vdn_b.organization_id = cands.b_id
+            ORDER BY cands.score DESC"""
+        )
+    except asyncpg.exceptions.UndefinedFunctionError:
+        return []
