@@ -1,6 +1,5 @@
 """Admin views for org merge and duplicate review."""
 
-import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -18,7 +17,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.list_filters import parse_list_filters
 from src.api.admin.org_dups import (
-    CANDIDATE_WHERE,
+    fetch_duplicate_pairs,
     invalidate_dup_count_cache,
 )
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
@@ -113,51 +112,6 @@ async def _render_orgs_list_region(request: Request, db, user: AdminUser, flash_
         ctx,
         headers=flash_trigger("success", flash_body, extra={"refreshDupBadge": True}),
     )
-
-
-async def _fetch_duplicate_pairs(db) -> list:
-    """Return near-duplicate org pairs; empty list if pg_trgm not installed."""
-    try:
-        return await db.fetch(
-            f"""WITH cands AS (
-                SELECT DISTINCT ON (a.id, b.id)
-                    a.id AS a_id,
-                    dn_a.name AS a_match_name,
-                    dn_a.is_canonical AS a_match_is_canonical,
-                    a.created_at AS a_created,
-                    b.id AS b_id,
-                    dn_b.name AS b_match_name,
-                    dn_b.is_canonical AS b_match_is_canonical,
-                    b.created_at AS b_created,
-                    similarity(dn_a.name, dn_b.name) AS score,
-                    (SELECT count(*) FROM roles
-                     WHERE organization_id = a.id AND archived_at IS NULL) AS a_roles,
-                    (SELECT count(*) FROM roles
-                     WHERE organization_id = b.id AND archived_at IS NULL) AS b_roles
-                {CANDIDATE_WHERE}
-                ORDER BY a.id, b.id, similarity(dn_a.name, dn_b.name) DESC
-            )
-            SELECT
-                cands.a_id,
-                COALESCE(vdn_a.display_name, cands.a_match_name) AS a_name,
-                cands.a_match_name,
-                cands.a_match_is_canonical,
-                cands.a_created,
-                cands.b_id,
-                COALESCE(vdn_b.display_name, cands.b_match_name) AS b_name,
-                cands.b_match_name,
-                cands.b_match_is_canonical,
-                cands.b_created,
-                cands.score,
-                cands.a_roles,
-                cands.b_roles
-            FROM cands
-            LEFT JOIN v_org_display_names vdn_a ON vdn_a.organization_id = cands.a_id
-            LEFT JOIN v_org_display_names vdn_b ON vdn_b.organization_id = cands.b_id
-            ORDER BY cands.score DESC"""
-        )
-    except asyncpg.exceptions.UndefinedFunctionError:
-        return []
 
 
 async def _absorb_role(db, winner_role_id: str, loser_role_id: str) -> int:
@@ -540,7 +494,7 @@ async def orgs_duplicates(
     db=Depends(get_db),
 ):
     """List near-duplicate organization pairs for review."""
-    pairs = await _fetch_duplicate_pairs(db)
+    pairs = await fetch_duplicate_pairs(db)
     flash_msg, resp_headers = resolve_query_flash(request, {}, flash)
     ctx = {
         "user": user,
@@ -596,7 +550,7 @@ async def org_merge(
         if request.headers.get("HX-Target") == _LIST_TARGET:
             return await _render_orgs_list_region(request, db, user, body)
         # Duplicates-review-screen branch (existing).
-        pairs = await _fetch_duplicate_pairs(db)
+        pairs = await fetch_duplicate_pairs(db)
         ctx = {
             "user": user,
             "active_section": "orgs_duplicates",
@@ -692,7 +646,7 @@ async def org_dismiss_duplicate(
     )
     await invalidate_dup_count_cache(db)
     if is_htmx(request):
-        pairs = await _fetch_duplicate_pairs(db)
+        pairs = await fetch_duplicate_pairs(db)
         ctx = {
             "user": user,
             "active_section": "orgs_duplicates",

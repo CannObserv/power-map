@@ -6,10 +6,11 @@ members are the same institution across source re-keys, so they must never
 present as merge candidates: the detector excludes any pair inside one chain.
 """
 
+import asyncpg
 import pytest
 import pytest_asyncio
 
-from src.api.admin.orgs_merge import _fetch_duplicate_pairs
+from src.api.admin.org_dups import fetch_duplicate_pairs
 from src.core.db import generate_id
 
 pytestmark = [
@@ -60,7 +61,7 @@ async def _link_succession(db, pred, succ, archived=False):
 
 
 async def _candidate_pairs(db):
-    rows = await _fetch_duplicate_pairs(db)
+    rows = await fetch_duplicate_pairs(db)
     return {frozenset((r["a_id"], r["b_id"])) for r in rows}
 
 
@@ -120,3 +121,22 @@ async def test_chain_does_not_leak_to_outsiders(db):
     pairs = await _candidate_pairs(db)
     assert frozenset((a, outsider)) in pairs
     assert frozenset((b, outsider)) in pairs
+
+
+async def test_duplicate_active_succession_edge_is_refused_by_schema(db):
+    """#469 CR: uq_entity_events_succession_edge — at most one ACTIVE
+    succeeded_by edge per (predecessor, successor); closes the concurrent
+    double-link race the app-level chain check cannot."""
+    a = await _mk_org(db, NAME)
+    b = await _mk_org(db, NAME)
+    await _link_succession(db, a, b)
+    with pytest.raises(asyncpg.UniqueViolationError):
+        await _link_succession(db, a, b)
+
+
+async def test_archived_duplicate_edge_is_allowed(db):
+    """The index is partial on active rows — a retracted edge never blocks."""
+    a = await _mk_org(db, NAME)
+    b = await _mk_org(db, NAME)
+    await _link_succession(db, a, b, archived=True)
+    await _link_succession(db, a, b)  # no raise

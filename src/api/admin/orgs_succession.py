@@ -9,6 +9,7 @@ collapsing rows, so every external identifier keeps its 1:1 org anchor.
 
 import datetime
 
+import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -22,8 +23,7 @@ from src.api.admin.deps import (
     is_htmx,
     with_flash,
 )
-from src.api.admin.org_dups import invalidate_dup_count_cache
-from src.api.admin.orgs_merge import _fetch_duplicate_pairs
+from src.api.admin.org_dups import fetch_duplicate_pairs, invalidate_dup_count_cache
 from src.core.db import generate_id
 from src.core.logging import get_logger
 
@@ -85,10 +85,18 @@ async def link_successor_preview(
     id_a: str,
     id_b: str,
     request: Request,
+    ctx: str = "",
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Modal: choose predecessor → successor direction and an optional date."""
+    """Modal: choose predecessor → successor direction and an optional date.
+
+    ``ctx="duplicates"`` (opened from the dedup review screen) makes the form
+    target ``#orgs-duplicates-region``; anywhere else that element does not
+    exist and a dangling ``hx-target`` would make HTMX abort the POST with
+    ``htmx:targetError`` — so the form falls back to ``hx-swap="none"``
+    (flash headers still process; the shared script closes the modal).
+    """
     if id_a == id_b:
         raise HTTPException(status_code=400, detail="Cannot link an organization to itself")
     for oid in (id_a, id_b):
@@ -116,6 +124,7 @@ async def link_successor_preview(
             "id_b": id_b,
             "default_pred": default_pred,
             "already_chained": await _in_same_chain(db, id_a, id_b),
+            "ctx": ctx,
         },
     )
 
@@ -156,18 +165,28 @@ async def _apply_link(db, user, pred_id: str, succ_id: str, succession_date: str
         )
         return False, body, "exists"
 
-    await db.execute(
-        """INSERT INTO entity_events
-               (id, entity_type, entity_id, event_type_id,
-                event_year, event_month, event_day,
-                linked_entity_type, linked_entity_id)
-           SELECT $1, 'organization', $2, t.id, $4, $5, $6, 'organization', $3
-           FROM entity_event_types t WHERE t.slug = 'succeeded_by'""",
-        generate_id(),
-        pred_id,
-        succ_id,
-        *date_parts,
-    )
+    try:
+        await db.execute(
+            """INSERT INTO entity_events
+                   (id, entity_type, entity_id, event_type_id,
+                    event_year, event_month, event_day,
+                    linked_entity_type, linked_entity_id)
+               SELECT $1, 'organization', $2, t.id, $4, $5, $6, 'organization', $3
+               FROM entity_event_types t WHERE t.slug = 'succeeded_by'""",
+            generate_id(),
+            pred_id,
+            succ_id,
+            *date_parts,
+        )
+    except asyncpg.UniqueViolationError:
+        # uq_entity_events_succession_edge: a concurrent request won the race
+        # between our chain check and this insert — same outcome as the check.
+        body = (
+            f"<strong>{escape(names[pred_id])}</strong> and "
+            f"<strong>{escape(names[succ_id])}</strong> are already in the "
+            f"same succession chain."
+        )
+        return False, body, "exists"
     await invalidate_dup_count_cache(db)
     logger.info(
         "org_succession_linked",
@@ -203,7 +222,7 @@ async def link_successor(
     else:
         headers = flash_trigger("warning", body, extra={"refreshDupBadge": True})
     if request.headers.get("HX-Target") == "orgs-duplicates-region":
-        pairs = await _fetch_duplicate_pairs(db)
+        pairs = await fetch_duplicate_pairs(db)
         return templates.TemplateResponse(
             request,
             "admin/orgs/_duplicates_region.html",

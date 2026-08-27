@@ -39,7 +39,11 @@ Machinery, all in `orgs_succession.py` + `orgs_merge.py`:
   /{pred}/link-successor/{succ}/` writes one `succeeded_by` event on the
   predecessor. A dated link also ends the predecessor's lifespan (#307 view).
   A pair already in one chain (either direction, transitively) is rejected with
-  a warning — no double edges, no cycles.
+  a warning — no double edges, no cycles — and `uq_entity_events_succession_edge`
+  (partial unique index on active edges) backstops the concurrent race the
+  app-level check cannot see. The modal targets the duplicates region only when
+  opened with `ctx=duplicates`; elsewhere it uses `hx-swap="none"` (a dangling
+  `hx-target` would abort the POST with `htmx:targetError`).
 - **Chain exclusion:** the duplicate detector excludes any pair inside one
   succession chain via `v_org_succession_pairs` (symmetric transitive closure
   of active `succeeded_by` edges — shared-successor siblings count). Linked

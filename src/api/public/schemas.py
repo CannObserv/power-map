@@ -94,8 +94,10 @@ class OrgSearchResult(BaseModel):
     parent_id: str | None = None
     archived_at: datetime | None = None
     # #469 succession annotation: one row per source key, continuity as an edge.
-    # succeeded_by null = chain head ("the current manifestation").
-    lifespan: OrgLifespan = Field(default_factory=OrgLifespan)
+    # succeeded_by null = chain head ("the current manifestation"). lifespan is
+    # required (no default) per the #240 `active` precedent: every handler runs
+    # `_annotate_succession`, and a default would silently mask one that forgot.
+    lifespan: OrgLifespan
     succeeds: str | None = None
     succeeded_by: str | None = None
 

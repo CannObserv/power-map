@@ -212,3 +212,22 @@ async def test_execute_twice_is_idempotent(conn, merged_state):
         "SELECT id FROM organization_names WHERE organization_id=$1", st["pred_org"]
     )
     assert len(names) == 1
+
+
+async def test_current_rows_in_cohort_are_counted_and_warned(conn, merged_state):
+    """#469 CR: an is_current row moving onto the ended predecessor violates the
+    hard #307 invariant — the dry run must surface it, not the audit later."""
+    st = merged_state
+    person = generate_id()
+    await conn.execute("INSERT INTO people (id) VALUES ($1)", person)
+    await conn.execute(
+        "INSERT INTO role_assignments (id, role_id, person_id, start_date, is_current)"
+        " VALUES ($1, $2, $3, DATE '2017-01-09', TRUE)",
+        generate_id(),
+        st["winner_role"],
+        person,
+    )
+    summary = await run_restore(conn, st["plan"], execute=False)
+    assert summary["current_moved"] == 1
+    summary = await run_restore(conn, st["plan"], execute=True)
+    assert summary["current_moved"] == 1

@@ -224,3 +224,28 @@ async def test_duplicates_region_offers_link_as_successors(client, db):
     assert "link-successor-preview" in r.text
     assert "Link as successors" in r.text
     assert a in r.text and b in r.text
+
+
+# -- ctx-aware modal target (#469 CR round 1, finding 1) ---------------------
+
+
+async def test_preview_from_duplicates_ctx_targets_the_region(client, pair):
+    a, b = pair
+    r = await client.get(
+        f"/admin/orgs/{a}/link-successor-preview/{b}/?ctx=duplicates", headers=HTMX_HEADERS
+    )
+    assert r.status_code == 200
+    text = " ".join(r.text.split())
+    assert 'hx-target="#orgs-duplicates-region"' in text
+
+
+async def test_preview_without_ctx_swaps_none(client, pair):
+    """Opened from the merge-preview guardrail (org list/detail pages) the
+    duplicates region does not exist — a dangling hx-target would make HTMX
+    abort the POST with htmx:targetError. The form must use hx-swap="none"."""
+    a, b = pair
+    r = await client.get(f"/admin/orgs/{a}/link-successor-preview/{b}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    text = " ".join(r.text.split())
+    assert 'hx-target="#orgs-duplicates-region"' not in text
+    assert 'hx-swap="none"' in text

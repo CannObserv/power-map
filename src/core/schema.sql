@@ -1624,6 +1624,25 @@ BEGIN
         UPDATE role_assignments SET updated_at = NOW() WHERE id = v_entity_id;
     END IF;
 
+    -- #469: an UPDATE that MOVES the identifier also changes the losing
+    -- parent's payload — touch it too, or its ETag stays valid for a stale
+    -- body and the feed says nothing (the succession restore moves 3532 off
+    -- the winner exactly this way).
+    IF TG_OP = 'UPDATE' AND OLD.entity_id IS DISTINCT FROM NEW.entity_id THEN
+        SELECT entity_type INTO v_entity_type
+        FROM entity_identifier_types
+        WHERE id = OLD.entity_identifier_type_id;
+        IF v_entity_type = 'organization' THEN
+            UPDATE organizations SET updated_at = NOW() WHERE id = OLD.entity_id;
+        ELSIF v_entity_type = 'person' THEN
+            UPDATE people SET updated_at = NOW() WHERE id = OLD.entity_id;
+        ELSIF v_entity_type = 'jurisdiction' THEN
+            UPDATE jurisdictions SET updated_at = NOW() WHERE id = OLD.entity_id;
+        ELSIF v_entity_type = 'role_assignment' THEN
+            UPDATE role_assignments SET updated_at = NOW() WHERE id = OLD.entity_id;
+        END IF;
+    END IF;
+
     RETURN NULL;
 END;
 $$;
@@ -2505,6 +2524,31 @@ CREATE INDEX IF NOT EXISTS idx_entity_events_entity_active
 CREATE INDEX IF NOT EXISTS idx_entity_events_linked_entity
     ON entity_events(linked_entity_id)
     WHERE linked_entity_id IS NOT NULL AND archived_at IS NULL;
+
+-- #469 CR: at most one ACTIVE succeeded_by edge per (predecessor, successor) —
+-- closes the concurrent double-link race the app-level chain check cannot.
+-- The predicate pins the seeded succeeded_by type id (a fixed constant from
+-- the entity_event_types seed above; index predicates cannot join). Duplicates
+-- are archived first (keep the earliest row) so the index builds on a DB that
+-- already carries them; idempotent — a second run matches nothing.
+DO $$ BEGIN
+    UPDATE entity_events ev SET archived_at = NOW()
+    WHERE ev.event_type_id = '01KV000000000000000000000C'
+      AND ev.archived_at IS NULL
+      AND EXISTS (
+          SELECT 1 FROM entity_events dup
+          WHERE dup.event_type_id = ev.event_type_id
+            AND dup.entity_id = ev.entity_id
+            AND dup.linked_entity_id IS NOT DISTINCT FROM ev.linked_entity_id
+            AND dup.archived_at IS NULL
+            AND (dup.created_at, dup.id) < (ev.created_at, ev.id)
+      );
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_entity_events_succession_edge
+    ON entity_events (entity_id, linked_entity_id)
+    WHERE event_type_id = '01KV000000000000000000000C'
+      AND archived_at IS NULL;
 
 CREATE OR REPLACE TRIGGER trg_updated_at_entity_events
     BEFORE UPDATE ON entity_events

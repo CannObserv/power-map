@@ -20,7 +20,11 @@
     </p>
     {% endif %}
 
-    <form id="merge-form" hx-target="#orgs-duplicates-region" hx-swap="outerHTML">
+    {# ctx="duplicates": swap the region back in. Elsewhere the region doesn't
+       exist and a dangling hx-target would abort the POST (htmx:targetError) —
+       hx-swap="none" still processes the flash trigger headers. #}
+    <form id="merge-form"
+          {% if ctx == 'duplicates' %}hx-target="#orgs-duplicates-region" hx-swap="outerHTML"{% else %}hx-swap="none"{% endif %}>
       <fieldset style="border:0;padding:0;margin:0 0 var(--space-3)">
         <legend class="field-group-label" style="margin-bottom:var(--space-1)">Which came first?</legend>
         {% for o in orgs %}

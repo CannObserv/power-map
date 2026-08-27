@@ -230,6 +230,22 @@ async def _repoint_assignments(
             "the cutoff cannot classify them; left untouched, resolve by hand",
             null_start,
         )
+    # #469 CR: a current row landing on the ended predecessor violates the hard
+    # #307 invariant (org ended → no is_current assignment). Count before the
+    # move so both modes report it; prod pre-check showed 0, so a non-zero here
+    # means the data changed since — stop and look before trusting --execute.
+    current_moved = await conn.fetchval(
+        "SELECT count(*) FROM role_assignments WHERE role_id=$1 AND start_date < $2 AND is_current",
+        plan.winner_member_role_id,
+        plan.cutoff,
+    )
+    if current_moved:
+        logger.warning(
+            "%d is_current assignment(s) in the movable cohort — moving them "
+            "onto the ended predecessor breaks the #307 invariant; investigate "
+            "before relying on this restore",
+            current_moved,
+        )
     if execute:
         rows = await conn.fetch(
             """UPDATE role_assignments SET role_id=$1
@@ -253,7 +269,7 @@ async def _repoint_assignments(
         plan.cutoff,
         plan.predecessor_role_id,
     )
-    return moved
+    return moved, current_moved
 
 
 async def _record_succession(conn: asyncpg.Connection, plan: RestorePlan, *, execute: bool) -> bool:
@@ -307,7 +323,9 @@ async def run_restore(
     summary["role_resurrected"] = await _resurrect_role(conn, plan, execute=execute)
     summary["tombstones_cleared"] = await _clear_tombstones(conn, plan, execute=execute)
     summary["identifier_moved"] = await _move_identifier(conn, plan, execute=execute)
-    summary["moved_assignments"] = await _repoint_assignments(conn, plan, execute=execute)
+    summary["moved_assignments"], summary["current_moved"] = await _repoint_assignments(
+        conn, plan, execute=execute
+    )
     summary["succession_recorded"] = await _record_succession(conn, plan, execute=execute)
     logger.info("summary: %s", summary)
     if not execute:
