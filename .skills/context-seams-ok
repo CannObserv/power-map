@@ -176,10 +176,8 @@ docs/SCHEMA.md :: - Role-assignment relationships — RA→RA edges (#301): `rol
 docs/SCHEMA.md :: `docs/OBSERVATIONS.md`; person-name storage and visibility in `docs/NAMES.md`.
 docs/SCHEMA_INDEXES.md :: `docs/SCHEMA.md`; write semantics in `docs/OBSERVATIONS.md`.
 docs/SKILLS.md :: `AGENTS.md`'s `## Code Exploration Policy` sits between `<!-- BEGIN socraticode-policy -->` / `<!-- END socraticode-policy -->` markers. `curating-context` refuses to edit a marked policy block, so **that section cannot be trimmed by the budget skill** — it is the one part of `AGENTS.md` the token budget can never reclaim.
-docs/SKILLS.md :: That is the deliberate trade for idempotence: a marked block is patched in place by an `init-socraticode` re-run instead of taking the whole-span replace branch that silently eats repo-authored prose (skills#115). To shrink it, move content into this file or `SOCRATICODE.md` and re-run the skill — do not hand-edit between the markers, and do not expect `curating-context` to do it for you. `AGENTS.md` runs close to its 6000-token ceiling, so budget pressure has to go elsewhere.
 docs/SKILLS.md :: `.socraticodecontextartifacts.json` points `codebase_context_search` at the project's non-code knowledge. Three entries: `src/core/schema.sql`, `AGENTS.md`, and `docs` — the last a **directory**, indexed recursively.
 docs/SKILLS.md :: SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; the full tool table, prefetch string and per-tool notes live in [SOCRATICODE.md](SOCRATICODE.md). Infrastructure details:
-docs/SOCRATICODE.md :: `AGENTS.md` block should be on its degraded variant. power-map is `verdict: ok`.
 docs/SOCRATICODE.md :: file wholesale. Repo-specific exploration notes belong in `AGENTS.md` under
 docs/SOCRATICODE.md :: `.socraticodecontextartifacts.json` — here `src/core/schema.sql`, `AGENTS.md`
 src/core/db.py :: matching the visibility rule documented in docs/CONVENTIONS.md.
@@ -223,3 +221,40 @@ docs/COMMANDS.md :: the scheduled timers. Test commands are in `docs/TESTING.md`
 docs/COMMANDS.md :: | Weekly a11y sweep | weekly `power-map-a11y.timer` (Sun 04:00 UTC) runs `scripts/run-a11y-sweep.sh` — both a1
 docs/SCHEMA.md :: - Endpoint-test client: prefer the lifespan-less rollback client (`AsyncClient` + `ASGITransport` + `get_db` o
 docs/SCHEMA.md :: - A11y test tiers: **static lint** (`test_aria_labels.py`, template source) → **rendered lxml sweep** (`test_a
+
+# provenance-heading — #459/#467/#469 headings, judged during the first
+# scheduled measurement (#471). Same convention as the 55 peers above: the
+# issue number is part of the section's identity, not curation provenance.
+# None is used as a link anchor — prose reaches them by title without the
+# number (e.g. API_PEOPLE/API_ORGS/API_JURISDICTIONS cite
+# `OBSERVATIONS.md §"Identifier types"`), so `dead_anchors` stays empty.
+docs/API_ORGS.md :: ### Succession annotation (#469)
+docs/MERGE.md :: ### Merge vs. succession — who owns the key (#469)
+docs/MERGE.md :: ## Data Contract — what a merge may and may not change (#467)
+docs/OBSERVATIONS.md :: ## Identifier types — the identity vocabulary (#459)
+
+# back-reference — judged during the first scheduled measurement (#471). Each
+# Two of these SUPERSEDE expired entries pruned from the block above, and the
+# names `AGENTS.md` as a DESTINATION or describes a property of it, rather than
+# pointing at content that might have moved out of it. Verified at judging time:
+# the `socraticode-policy` marker pair is at AGENTS.md:17/38, so the
+# curation-exempt claim holds; `## Repo-specific notes` exists in SOCRATICODE.md.
+#
+# The SKILLS.md entry SUPERSEDES an expired one pruned from the block above, and
+# the expiry worked exactly as this file's header promises: #463 edited the source
+# line, so the old ack stopped matching and the seam re-raised for re-judging
+# instead of staying silently acknowledged under changed wording.
+docs/SKILLS.md :: That is the deliberate trade for idempotence: a marked block is patched in place by an `init-socraticode` re-run instead of taking the whole-span replace branch that silently eats repo-authored prose (skills#115). To shrink it, move content into this file, or into `SOCRATICODE.md` **below its `<!-- END socraticode-doc -->` marker**, and re-run the skill — above that marker is the template's, and a re-run replaces it. Do not hand-edit between either file's markers, and do not expect `curating-context` to do it for you. `AGENTS.md` runs close to its 6000-token ceiling, so budget pressure has to go elsewhere.
+docs/SOCRATICODE.md :: heading down there, not in `AGENTS.md`.
+docs/SOCRATICODE.md :: repo-specific reading goes — not in `AGENTS.md`, which is loaded on every
+
+# back-reference — template-owned (inside the socraticode-doc span, byte-identical
+# to the pinned template), so it cannot be fixed here: an edit is reverted by the
+# next init-socraticode re-run AND reds test_socraticode_doc_parity.py.
+#
+# The ack it supersedes read "... degraded variant. power-map is `verdict: ok`."
+# — a repo-specific answer that lived ABOVE the END marker, which #463 erased by
+# regenerating the span. That is the documented hazard, landing on the very file
+# that documents it. The reading still holds (health-check 2026-08-27: verdict
+# ok, 1.504 edges/file); restoring it BELOW the marker is tracked in #473.
+docs/SOCRATICODE.md :: `AGENTS.md` block should be on its degraded variant.
