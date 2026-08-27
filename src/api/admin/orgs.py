@@ -460,6 +460,34 @@ async def org_detail(
         org_id,
     )
     open_assignment_count, org_ended_on = await resolve_lifespan_banner(db, org)
+    # #469 continuity banner: this org's place in a succession chain. One hop
+    # each way (chains are walked link by link); admin shows the edge whatever
+    # its visibility, matching the rest of the dashboard.
+    succession_successor = await db.fetchrow(
+        """SELECT ev.linked_entity_id AS id, dn.display_name,
+                  ls.ended_on
+           FROM entity_events ev
+           JOIN entity_event_types t ON t.id = ev.event_type_id
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = ev.linked_entity_id
+           LEFT JOIN v_org_lifespan ls ON ls.organization_id = $1
+           WHERE t.slug = 'succeeded_by' AND ev.entity_type = 'organization'
+             AND ev.entity_id = $1 AND ev.archived_at IS NULL
+             AND ev.linked_entity_id IS NOT NULL
+           ORDER BY ev.created_at, ev.id LIMIT 1""",
+        org_id,
+    )
+    succession_predecessor = await db.fetchrow(
+        """SELECT ev.entity_id AS id, dn.display_name,
+                  ls.ended_on
+           FROM entity_events ev
+           JOIN entity_event_types t ON t.id = ev.event_type_id
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = ev.entity_id
+           LEFT JOIN v_org_lifespan ls ON ls.organization_id = ev.entity_id
+           WHERE t.slug = 'succeeded_by' AND ev.entity_type = 'organization'
+             AND ev.linked_entity_id = $1 AND ev.archived_at IS NULL
+           ORDER BY ev.created_at, ev.id LIMIT 1""",
+        org_id,
+    )
     parent = None
     if org["parent_id"]:
         parent = await db.fetchrow(
@@ -518,6 +546,8 @@ async def org_detail(
             "citable_fields": sorted(CITABLE_FIELDS["organization"]),
             "org_ended_on": org_ended_on,
             "open_assignment_count": open_assignment_count,
+            "succession_successor": succession_successor,
+            "succession_predecessor": succession_predecessor,
             "parent": parent,
             "jur_affiliations": jur_affiliations,
             "flash_msg": flash_msg,

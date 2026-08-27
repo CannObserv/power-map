@@ -1,0 +1,22 @@
+{# admin/orgs/partials/_succession_banner.html (#469)
+   Context: succession_predecessor / succession_successor —
+   each None or {id, display_name, ended_on}. The org's place in a succession
+   chain: the predecessor links forward, the successor links back. #}
+{% if succession_predecessor or succession_successor %}
+<div id="org-succession-banner" class="alert alert--notice" style="margin-bottom:var(--space-4)">
+  {% if succession_predecessor %}
+  <div>
+    Continues
+    <a href="/admin/orgs/{{ succession_predecessor.id }}/"><strong>{{ succession_predecessor.display_name or succession_predecessor.id }}</strong></a>{% if succession_predecessor.ended_on %}
+    <span style="color:var(--color-text-muted)">(…–{{ succession_predecessor.ended_on.strftime('%Y-%m-%d') }})</span>{% endif %}
+  </div>
+  {% endif %}
+  {% if succession_successor %}
+  <div>
+    Succeeded by
+    <a href="/admin/orgs/{{ succession_successor.id }}/"><strong>{{ succession_successor.display_name or succession_successor.id }}</strong></a>{% if succession_successor.ended_on %}
+    <span style="color:var(--color-text-muted)">(this record ends {{ succession_successor.ended_on.strftime('%Y-%m-%d') }})</span>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
