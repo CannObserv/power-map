@@ -203,13 +203,6 @@ def _table_tools(doc: str) -> set[str]:
     return {tool for row in rows for tool in TABLE_TOOL_RE.findall(row)}
 
 
-def _select_tools(doc: str) -> set[str]:
-    """The tools listed in the doc's single `select:` prefetch string."""
-    select_lines = [line for line in doc.splitlines() if line.strip().startswith("`select:")]
-    assert len(select_lines) == 1, f"expected exactly one select: string, got {len(select_lines)}"
-    return set(TOOL_RE.findall(select_lines[0]))
-
-
 def test_the_generated_doc_carries_no_local_divergences(doc: str) -> None:
     """Every `local-divergence` block is retired, so a re-run cannot revert one.
 
@@ -333,62 +326,55 @@ def test_the_reminder_hook_is_the_vendored_one() -> None:
     )
 
 
-@vendor_only
-def test_doc_prefetch_matches_the_hook_that_actually_runs(doc: str, hook: str) -> None:
-    """The doc's `select:` string lists exactly what the reminder hook emits.
+def test_the_doc_carries_no_copied_select_string(doc: str) -> None:
+    """The doc no longer copies the hook's `select:` query (#471 pin bump).
 
-    This pair-guard predates the retirement and survives it unchanged — it was
-    written for exactly this move, so that switching the hook without updating
-    the doc could not leave the doc asserting a prefetch nobody runs. It is now
-    also the cheapest rollback detector of the three: a submodule rolled back
-    past skills#209 changes the hook's tool list under a doc that still lists 12.
-
-    Vendor-gated since #463 CR: the hook stopped being a regular file in this
-    repo and became a symlink into the submodule, which moves it into the set of
-    things a fresh worktree does not have. `scripts/worktree-setup.sh` leaves
-    submodules alone deliberately, so that absence is routine and must skip with
-    the banner rather than error on a dangling link.
+    The template retired the copy deliberately: the hook is a vendored symlink,
+    so upstream can change which tools it selects, and a copy in this file goes
+    stale silently — the hook's output cannot drift from itself. A `select:`
+    string reappearing is a hand-edit or a rollback past that template change,
+    and either way it restores the exact drift channel the retirement closed.
     """
-    hook_tools = set(TOOL_RE.findall(hook))
-    doc_tools = _select_tools(doc)
-
-    assert hook_tools, "no codebase_* tools found in the reminder hook"
-    assert hook_tools == doc_tools, (
-        "the reminder hook and docs/SOCRATICODE.md disagree about the prefetch.\n"
-        f"  only in the hook: {sorted(hook_tools - doc_tools) or 'none'}\n"
-        f"  only in the doc:  {sorted(doc_tools - hook_tools) or 'none'}\n"
-        "The hook is a symlink into skills-vendor/, so a difference here is "
-        "either a submodule move that changed the prefetch (update the doc's "
-        "select: string to match) or a rollback past skills#209 (bump forward)."
+    select_lines = [line for line in doc.splitlines() if line.strip().startswith("`select:")]
+    assert not select_lines, (
+        "docs/SOCRATICODE.md carries a copied select: string again. The "
+        "template retired the copy (the hook's output cannot drift from "
+        "itself) — regenerate the Prefetch section from the pinned template "
+        "instead of restoring the query."
     )
 
 
-def test_the_tool_table_and_the_prefetch_name_the_same_tools(doc: str) -> None:
-    """The table recommends exactly what the prefetch loads, in both directions.
+@vendor_only
+def test_the_tool_table_and_the_hook_name_the_same_tools(doc: str, hook: str) -> None:
+    """The table recommends exactly what the hook prefetches, in both directions.
 
-    Set equality, not a subset and not a count. Each direction fails differently
-    and both have happened:
+    Successor to the doc-select-vs-hook and table-vs-doc-select pair: the doc's
+    copied `select:` string was retired with the #471 pin bump, so the table now
+    pairs against the hook directly. Set equality, not a subset and not a count.
+    Each direction fails differently and both have happened:
 
-    - a tool in the **table but not the prefetch** is the original divergence —
-      an agent follows the table it was just handed and gets
+    - a tool in the **table but not the hook** is the original divergence — an
+      agent follows the table it was just handed and gets
       `InputValidationError`;
-    - a tool in the **prefetch but not the table** is what a re-run produces,
-      because the table is the one adapted region inside the span and upstream's
-      is four rows shorter. The subset check this replaced was green on exactly
-      that, so the retirement would have quietly given back the three graph
-      tools the divergence block was written to keep.
+    - a tool in the **hook but not the table** is what an init-socraticode
+      re-run produces, because the table is the one adapted region inside the
+      span and upstream's is four rows shorter.
 
-    A count would catch the second and not the first, and passes on any twelve.
+    Vendor-gated: the hook is a symlink into the submodule, which a fresh
+    worktree does not have. `scripts/worktree-setup.sh` leaves submodules alone
+    deliberately, so that absence is routine and must skip with the banner
+    rather than error on a dangling link.
     """
-    table, prefetch = _table_tools(doc), _select_tools(doc)
-    assert table == prefetch, (
-        "the doc's tool table and its prefetch disagree.\n"
-        f"  recommended but not prefetched: {sorted(table - prefetch) or 'none'} "
+    table, hook_tools = _table_tools(doc), set(TOOL_RE.findall(hook))
+    assert hook_tools, "no codebase_* tools found in the reminder hook"
+    assert table == hook_tools, (
+        "the doc's tool table and the reminder hook's prefetch disagree.\n"
+        f"  recommended but not prefetched: {sorted(table - hook_tools) or 'none'} "
         "— an agent following the table gets InputValidationError\n"
-        f"  prefetched but not recommended: {sorted(prefetch - table) or 'none'} "
+        f"  prefetched but not recommended: {sorted(hook_tools - table) or 'none'} "
         "— usually an init-socraticode re-run reverting the adapted table to "
-        "upstream's shorter one; re-adapt the rows rather than trimming the "
-        "select: string"
+        "upstream's shorter one; re-adapt the rows. A hook-side change means "
+        "the submodule moved the prefetch — update the table to match."
     )
 
 
