@@ -73,8 +73,12 @@ merge runs (`changes.py`: `JOIN ... ON s.entity_id = ec.entity_id`), so deleting
 the loser's subscription would erase the audience for the loser's own tombstone —
 the subscriber holding the retired anchor is the only party that needs it. A
 subscription on a retired id is a supported state: `_BATCH_RESOLVE_ENTITY_TYPE`
-resolves ids through `deleted_entities` for exactly that reason. The consumer
-retires the stale row once it has processed the rebind.
+resolves ids through `deleted_entities` for exactly that reason. Retiring the stale
+row is the consumer's to do (`DELETE /api/v1/subscriptions/{entity_id}`, or the bulk
+form) — nothing prunes subscriptions server-side, so the set grows by one row per
+merge. Note also that absorbing a collision emits **no** outbox row for the survivor
+when the dropped row carried no ancillary: nothing about the survivor changed, so
+`merged_into` is the signal to re-fetch it, not a promise of a follow-up event.
 
 ---
 

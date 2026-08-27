@@ -452,3 +452,31 @@ async def test_merge_role_pairs_outside_the_org_pair_are_ignored(client, db, api
         bystander_role
     )
     assert await _tombstone(db, "role", bystander_role) is None
+
+
+async def test_merge_role_pairs_naming_an_archived_role_are_ignored(client, db):
+    """An archived loser role survives a merge — a crafted pair must not change that.
+
+    The bulk `UPDATE roles SET organization_id` re-parents archived roles onto the
+    winner, so an archived role is data the merge preserves. Scoping the submitted
+    pairs by org alone lets a crafted submit delete one anyway and publish a
+    `role/deleted merged_into=…` for a role that never conflicted with anything.
+    The preview only ever offers active conflicts (`r_l.archived_at IS NULL`).
+    """
+    win_org, lose_org = await _org(db, "Arch Scope Win"), await _org(db, "Arch Scope Lose")
+    win_role = await _role(db, win_org)
+    retired_role = await _role(db, lose_org, "Retired Seat")
+    await db.execute("UPDATE roles SET archived_at=NOW() WHERE id=$1", retired_role)
+
+    response = await client.post(
+        f"/admin/orgs/{win_org}/merge-with/{lose_org}/",
+        data={"merge_role_pairs": f"{win_role}:{retired_role}"},
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    row = await db.fetchrow("SELECT organization_id FROM roles WHERE id=$1", retired_role)
+    assert row is not None, "archived role destroyed by an out-of-scope pair"
+    assert row["organization_id"] == win_org, "archived role should re-parent, not vanish"
+    assert await _tombstone(db, "role", retired_role) is None

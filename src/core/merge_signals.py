@@ -37,14 +37,17 @@ whatever its conflict query returned without a length check.
 
 import asyncpg
 
-#: Entity types a merge may tombstone. Deliberately narrower than the
-#: `deleted_entities` CHECK constraint, which also permits 'jurisdiction': no merge
-#: path folds one jurisdiction into another, so accepting it here would only widen
-#: what a typo can reach. `mirror_subscriptions` needs no such list — it copies the
-#: type from the row it mirrors.
-MERGEABLE_ENTITY_TYPES = frozenset(
-    {"person", "organization", "role", "role_assignment", "role_assignment_relationship"}
-)
+#: Entity types a merge may **tombstone** — not the set it hard-deletes, which is
+#: wider. Deliberately narrower than the `deleted_entities` CHECK constraint on two
+#: counts: 'jurisdiction', because no merge folds one jurisdiction into another; and
+#: 'role_assignment_relationship', because an edge is announced through its
+#: endpoints rather than on its own. An edge is reachable only via the two
+#: assignments it joins, both of which get their own tombstone, so it has no
+#: independent anchor for a subscriber to repair — see the CASCADE note in
+#: :mod:`src.core.ancillary_migrate`. Anything not listed here would only widen what
+#: a typo can reach. `mirror_subscriptions` needs no such list — it copies the type
+#: from the row it mirrors.
+MERGEABLE_ENTITY_TYPES = frozenset({"person", "organization", "role", "role_assignment"})
 
 
 def _validate(entity_type: str) -> None:

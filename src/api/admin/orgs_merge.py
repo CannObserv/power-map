@@ -251,14 +251,19 @@ async def _execute_merge(
         # The pairs are unvalidated form input and `_absorb_role` hard-deletes the
         # loser role it is handed *and* publishes a `role/deleted merged_into=…` row
         # for it, so an unfiltered list would let a manipulated submit destroy an
-        # unrelated role and inject a false rebind into subscribers' feeds. Scope
-        # each side to the org it must belong to; a dropped pair that is a genuine
-        # conflict is still caught by the safeguard pass below.
+        # unrelated role and inject a false rebind into subscribers' feeds. Accept a
+        # pair only if it is one the preview could have offered: both roles **active**
+        # (`conflicting_roles` filters `archived_at IS NULL`) and each in the org it
+        # must belong to. Archiving matters as much as the org does — the bulk
+        # `UPDATE roles SET organization_id` below re-parents archived roles onto the
+        # winner, so an archived role is data this merge preserves. A dropped pair
+        # that is a genuine conflict is still caught by the safeguard pass below.
         if role_pairs_to_merge:
             org_of_role = {
                 r["id"]: r["organization_id"]
                 for r in await db.fetch(
-                    "SELECT id, organization_id FROM roles WHERE id = ANY($1::text[])",
+                    "SELECT id, organization_id FROM roles"
+                    " WHERE id = ANY($1::text[]) AND archived_at IS NULL",
                     [rid for pair in role_pairs_to_merge for rid in pair],
                 )
             }

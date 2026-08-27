@@ -135,6 +135,17 @@ def test_mergeable_types_are_a_subset_of_what_the_schema_accepts():
     }
 
 
+def test_edges_and_jurisdictions_are_excluded_deliberately():
+    """Both are permitted by the CHECK constraint and withheld here on purpose.
+
+    No merge folds one jurisdiction into another; and an edge is announced through
+    the two assignments it joins, each of which carries its own tombstone, so it has
+    no independent anchor a subscriber could repair.
+    """
+    assert "jurisdiction" not in MERGEABLE_ENTITY_TYPES
+    assert "role_assignment_relationship" not in MERGEABLE_ENTITY_TYPES
+
+
 # ---------------------------------------------------------------------------
 # mirror_subscriptions
 # ---------------------------------------------------------------------------
