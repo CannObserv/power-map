@@ -882,6 +882,26 @@ async def org_merge_preview(
         winner_id,
     )
 
+    # #469 guardrail: both orgs carrying DIFFERENT values of one external
+    # identifier type are two source records — a producer keys them 1:1, and a
+    # merge silently makes that mapping N:1. Surface the conflict, demote the
+    # merge behind an explicit acknowledgement, and offer link-as-successors.
+    identifier_conflicts = await db.fetch(
+        """SELECT eit.slug, eit.display_name,
+                  i_w.value AS winner_value, i_l.value AS loser_value
+           FROM identifiers i_w
+           JOIN identifiers i_l
+             ON i_l.entity_identifier_type_id = i_w.entity_identifier_type_id
+            AND i_l.value <> i_w.value
+           JOIN entity_identifier_types eit ON eit.id = i_w.entity_identifier_type_id
+           WHERE i_w.entity_id = $1 AND i_l.entity_id = $2
+             AND eit.entity_type = 'organization'
+             AND NOT eit.is_internal
+           ORDER BY eit.slug, i_w.value, i_l.value""",
+        winner_id,
+        loser_id,
+    )
+
     # #467: state the blast radius on the assignments *before* the merge runs, not
     # in the flash afterwards. Every loser assignment moves; the subset that
     # collides with a winner row on (person, role, start_date) is the only part
@@ -929,6 +949,7 @@ async def org_merge_preview(
             "addresses_count": addresses_count,
             "identifiers_count": identifiers_count,
             "conflicting_roles": conflicting_roles,
+            "identifier_conflicts": identifier_conflicts,
             "assignments_count": assignments_count,
             "dropped_assignments_count": dropped_assignments_count,
             "ctx": ctx,
