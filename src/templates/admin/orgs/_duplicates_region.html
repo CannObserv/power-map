@@ -39,6 +39,11 @@
                 hx-target="#merge-modal-portal"
                 hx-swap="innerHTML"
                 type="button">Keep B</button>
+        <button class="btn btn--secondary btn--sm"
+                hx-get="/admin/orgs/{{ p.a_id }}/link-successor-preview/{{ p.b_id }}/"
+                hx-target="#merge-modal-portal"
+                hx-swap="innerHTML"
+                type="button">Link as successors</button>
         <form hx-post="/admin/orgs/{{ p.a_id }}/dismiss-duplicate/{{ p.b_id }}/"
               hx-target="#orgs-duplicates-region" hx-swap="outerHTML"
               style="display:inline">

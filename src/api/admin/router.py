@@ -29,6 +29,7 @@ from src.api.admin import orgs_links as orgs_links_module
 from src.api.admin import orgs_merge as orgs_merge_module
 from src.api.admin import orgs_names as orgs_names_module
 from src.api.admin import orgs_roles as orgs_roles_module
+from src.api.admin import orgs_succession as orgs_succession_module
 from src.api.admin import people as people_module
 from src.api.admin import people_addresses as people_addresses_module
 from src.api.admin import people_assignments as people_assignments_module
@@ -80,6 +81,7 @@ admin_router.include_router(activity_module.router)
 # registration order, and the entity routers carry /{id}/ wildcards that would
 # otherwise swallow literal paths like /duplicates/.
 admin_router.include_router(orgs_merge_module.router)
+admin_router.include_router(orgs_succession_module.router)
 admin_router.include_router(orgs_module.router)
 admin_router.include_router(orgs_names_module.router)
 admin_router.include_router(orgs_acronyms_module.router)
