@@ -38,14 +38,18 @@ async def _insert_org(conn):
     return oid
 
 
-async def _insert_event(conn, org_id, slug, year=None, month=None, day=None, archived=False):
+async def _insert_event(
+    conn, org_id, slug, year=None, month=None, day=None, archived=False, linked_entity_id=None
+):
     eid = generate_id()
     await conn.execute(
         """INSERT INTO entity_events
                (id, entity_type, entity_id, event_type_id,
-                event_year, event_month, event_day, archived_at)
+                event_year, event_month, event_day, archived_at,
+                linked_entity_type, linked_entity_id)
            SELECT $1, 'organization', $2, t.id, $4, $5, $6,
-                  CASE WHEN $7 THEN NOW() END
+                  CASE WHEN $7 THEN NOW() END,
+                  CASE WHEN $8::text IS NOT NULL THEN 'organization' END, $8
            FROM entity_event_types t WHERE t.slug = $3""",
         eid,
         org_id,
@@ -54,6 +58,7 @@ async def _insert_event(conn, org_id, slug, year=None, month=None, day=None, arc
         month,
         day,
         archived,
+        linked_entity_id,
     )
     return eid
 
@@ -121,6 +126,30 @@ async def test_one_row_per_org(conn):
     await _insert_event(conn, oid, "merged_with", 2023, 1, 9)
     rows = await conn.fetch("SELECT * FROM v_org_lifespan WHERE organization_id = $1", oid)
     assert len(rows) == 1
+
+
+async def test_dated_succeeded_by_counts_as_end(conn):
+    """#469: a dated succession bounds the predecessor's lifespan."""
+    pred = await _insert_org(conn)
+    succ = await _insert_org(conn)
+    await _insert_event(conn, pred, "succeeded_by", 2020, linked_entity_id=succ)
+    assert await _ended_on(conn, pred) == datetime.date(2020, 12, 31)
+
+
+async def test_dateless_succeeded_by_derives_no_bound(conn):
+    """#469: succeeded_by requires no year; undated derives no bound (like merged_with)."""
+    pred = await _insert_org(conn)
+    succ = await _insert_org(conn)
+    await _insert_event(conn, pred, "succeeded_by", linked_entity_id=succ)
+    assert await _ended_on(conn, pred) is None
+
+
+async def test_succeeded_by_bounds_only_the_predecessor(conn):
+    """#469: the event lives on the predecessor; the successor gains no bound."""
+    pred = await _insert_org(conn)
+    succ = await _insert_org(conn)
+    await _insert_event(conn, pred, "succeeded_by", 2020, 12, 31, linked_entity_id=succ)
+    assert await _ended_on(conn, succ) is None
 
 
 async def test_year_zero_event_rejected(conn):

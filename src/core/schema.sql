@@ -2618,6 +2618,10 @@ END $$;
 -- at ended_on never claims an earlier end than the source supports.
 -- renamed/split_from imply continuity elsewhere, not an end; events without a
 -- year (merged_with does not require one) derive no bound.
+-- #469: a DATED succeeded_by also ends the predecessor — the row is one
+-- source-keyed manifestation and the successor row carries on; the event lives
+-- on the predecessor, so entity_id grouping needs no special case. An undated
+-- succeeded_by (the common producer emit) derives no bound, like merged_with.
 CREATE OR REPLACE VIEW v_org_lifespan AS
 SELECT ev.entity_id AS organization_id,
        min(
@@ -2633,7 +2637,7 @@ SELECT ev.entity_id AS organization_id,
 FROM entity_events ev
 JOIN entity_event_types t ON t.id = ev.event_type_id
 WHERE ev.entity_type = 'organization'
-  AND t.slug IN ('dissolved', 'merged_with')
+  AND t.slug IN ('dissolved', 'merged_with', 'succeeded_by')
   AND ev.archived_at IS NULL
   AND ev.event_year IS NOT NULL
 GROUP BY ev.entity_id;
