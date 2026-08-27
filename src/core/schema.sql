@@ -2500,6 +2500,12 @@ CREATE INDEX IF NOT EXISTS idx_entity_events_entity_active
     ON entity_events(entity_type, entity_id)
     WHERE archived_at IS NULL;
 
+-- #469: reverse-succession lookups ("which org's event links HERE") — the
+-- `succeeds` annotation and the chain closure both probe by linked_entity_id.
+CREATE INDEX IF NOT EXISTS idx_entity_events_linked_entity
+    ON entity_events(linked_entity_id)
+    WHERE linked_entity_id IS NOT NULL AND archived_at IS NULL;
+
 CREATE OR REPLACE TRIGGER trg_updated_at_entity_events
     BEFORE UPDATE ON entity_events
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -2522,6 +2528,26 @@ BEGIN
         UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
     ELSIF v_entity_type = 'organization' THEN
         UPDATE organizations SET updated_at = NOW() WHERE id = v_entity_id;
+    END IF;
+
+    -- #469: a linked ORGANIZATION's public payload derives from this event
+    -- (`succeeds` on the successor comes from the predecessor's succeeded_by
+    -- row), so touch it too — keeps its ETag and change-feed signal honest.
+    -- Both sides of an UPDATE re-link are touched; dedup vs. the owning entity
+    -- avoids a double bump when an event links an org to itself.
+    IF TG_OP IN ('UPDATE', 'DELETE')
+       AND OLD.linked_entity_type = 'organization'
+       AND OLD.linked_entity_id IS NOT NULL
+       AND OLD.linked_entity_id IS DISTINCT FROM v_entity_id THEN
+        UPDATE organizations SET updated_at = NOW() WHERE id = OLD.linked_entity_id;
+    END IF;
+    IF TG_OP IN ('INSERT', 'UPDATE')
+       AND NEW.linked_entity_type = 'organization'
+       AND NEW.linked_entity_id IS NOT NULL
+       AND NEW.linked_entity_id IS DISTINCT FROM v_entity_id
+       AND (TG_OP = 'INSERT'
+            OR NEW.linked_entity_id IS DISTINCT FROM OLD.linked_entity_id) THEN
+        UPDATE organizations SET updated_at = NOW() WHERE id = NEW.linked_entity_id;
     END IF;
 
     RETURN NULL;

@@ -74,6 +74,16 @@ def fmt_ts(v: datetime | None) -> str | None:
 TimestampStr = Annotated[str, Field(json_schema_extra={"format": "date-time"})]
 
 
+class OrgLifespan(BaseModel):
+    """Org validity window (#469): start from the earliest `founded` event
+    (earliest date within its precision), end from `v_org_lifespan` (latest
+    date within precision of the earliest dissolved/merged_with/dated
+    succeeded_by event). Either side null when no dated event bounds it."""
+
+    start: date | None = None
+    end: date | None = None
+
+
 class OrgSearchResult(BaseModel):
     """Single item in a search response."""
 
@@ -83,6 +93,11 @@ class OrgSearchResult(BaseModel):
     slug: str | None = None
     parent_id: str | None = None
     archived_at: datetime | None = None
+    # #469 succession annotation: one row per source key, continuity as an edge.
+    # succeeded_by null = chain head ("the current manifestation").
+    lifespan: OrgLifespan = Field(default_factory=OrgLifespan)
+    succeeds: str | None = None
+    succeeded_by: str | None = None
 
     @field_serializer("archived_at")
     def _serialize_archived_at(self, v: datetime | None) -> TimestampStr | None:

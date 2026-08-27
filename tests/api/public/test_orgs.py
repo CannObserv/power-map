@@ -1109,3 +1109,138 @@ async def test_search_pagination_stable_under_tied_rank_and_name(client, api_key
     finally:
         await db.execute("DELETE FROM organization_names WHERE id = ANY($1::text[])", name_ids)
         await db.execute("DELETE FROM organizations WHERE id = ANY($1::text[])", org_ids)
+
+
+# ---------------------------------------------------------------------------
+# Succession annotation (#469) — lifespan {start,end} + succeeds/succeeded_by
+# ---------------------------------------------------------------------------
+
+
+async def _insert_org_event(db, org_id, slug, year=None, month=None, day=None, linked_id=None):
+    eid = generate_id()
+    await db.execute(
+        """INSERT INTO entity_events
+               (id, entity_type, entity_id, event_type_id,
+                event_year, event_month, event_day, linked_entity_type, linked_entity_id)
+           SELECT $1, 'organization', $2, t.id, $4, $5, $6,
+                  CASE WHEN $7::text IS NOT NULL THEN 'organization' END, $7
+           FROM entity_event_types t WHERE t.slug = $3""",
+        eid,
+        org_id,
+        slug,
+        year,
+        month,
+        day,
+        linked_id,
+    )
+    return eid
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def succession_pair(db):
+    """Predecessor → successor orgs linked by a dated succeeded_by event."""
+    pred_id = generate_id()
+    succ_id = generate_id()
+    name_ids = [generate_id(), generate_id()]
+    await db.execute("INSERT INTO organizations (id) VALUES ($1), ($2)", pred_id, succ_id)
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
+        " VALUES ($1,$3,'Succession Chain Predecessor','legal',TRUE),"
+        "        ($2,$4,'Succession Chain Successor','legal',TRUE)",
+        name_ids[0],
+        name_ids[1],
+        pred_id,
+        succ_id,
+    )
+    event_ids = [
+        await _insert_org_event(db, pred_id, "founded", 2003, 5),
+        await _insert_org_event(db, succ_id, "founded", 2021),
+        await _insert_org_event(db, pred_id, "succeeded_by", 2020, linked_id=succ_id),
+    ]
+    yield {"pred_id": pred_id, "succ_id": succ_id}
+    await db.execute("DELETE FROM entity_events WHERE id = ANY($1::text[])", event_ids)
+    await db.execute("DELETE FROM organization_names WHERE id = ANY($1::text[])", name_ids)
+    await db.execute("DELETE FROM organizations WHERE id IN ($1,$2)", pred_id, succ_id)
+
+
+@pytest.mark.integration
+async def test_detail_predecessor_annotations(client, api_key, succession_pair):
+    r = await client.get(
+        f"/api/v1/orgs/{succession_pair['pred_id']}", headers={"X-API-Key": api_key}
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["succeeded_by"] == succession_pair["succ_id"]
+    assert data["succeeds"] is None
+    # start: earliest-within-precision (month-only 2003-05 → first of month);
+    # end: latest-within-precision from the dated succession (year-only 2020 → Dec 31).
+    assert data["lifespan"] == {"start": "2003-05-01", "end": "2020-12-31"}
+
+
+@pytest.mark.integration
+async def test_detail_successor_annotations(client, api_key, succession_pair):
+    r = await client.get(
+        f"/api/v1/orgs/{succession_pair['succ_id']}", headers={"X-API-Key": api_key}
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["succeeds"] == succession_pair["pred_id"]
+    assert data["succeeded_by"] is None
+    assert data["lifespan"] == {"start": "2021-01-01", "end": None}
+
+
+@pytest.mark.integration
+async def test_detail_no_events_annotations_null(client, api_key, org_fixture):
+    r = await client.get(f"/api/v1/orgs/{org_fixture['org_id']}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["lifespan"] == {"start": None, "end": None}
+    assert data["succeeds"] is None
+    assert data["succeeded_by"] is None
+
+
+@pytest.mark.integration
+async def test_search_rows_carry_succession_annotations(client, api_key, succession_pair):
+    r = await _search(client, api_key, "Succession Chain")
+    assert r.status_code == 200
+    by_id = {o["id"]: o for o in r.json()["data"]}
+    pred = by_id[succession_pair["pred_id"]]
+    succ = by_id[succession_pair["succ_id"]]
+    assert pred["succeeded_by"] == succession_pair["succ_id"]
+    assert pred["lifespan"]["end"] == "2020-12-31"
+    assert succ["succeeds"] == succession_pair["pred_id"]
+    assert succ["succeeded_by"] is None
+
+
+@pytest.mark.integration
+async def test_archived_succession_event_not_annotated(client, api_key, succession_pair, db):
+    eid = await _insert_org_event(
+        db, succession_pair["succ_id"], "succeeded_by", linked_id=succession_pair["pred_id"]
+    )
+    await db.execute("UPDATE entity_events SET archived_at = NOW() WHERE id = $1", eid)
+    try:
+        r = await client.get(
+            f"/api/v1/orgs/{succession_pair['succ_id']}", headers={"X-API-Key": api_key}
+        )
+        assert r.json()["succeeded_by"] is None
+    finally:
+        await db.execute("DELETE FROM entity_events WHERE id = $1", eid)
+
+
+@pytest.mark.integration
+async def test_succession_event_touches_linked_org_etag(client, api_key, db):
+    """#469: the successor's ETag must advance when the predecessor gains the
+    succession event — the successor's payload (`succeeds`) derives from it."""
+    pred_id, succ_id = generate_id(), generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1), ($2)", pred_id, succ_id)
+    eid = None
+    try:
+        r1 = await client.get(f"/api/v1/orgs/{succ_id}", headers={"X-API-Key": api_key})
+        eid = await _insert_org_event(db, pred_id, "succeeded_by", 2020, linked_id=succ_id)
+        r2 = await client.get(f"/api/v1/orgs/{succ_id}", headers={"X-API-Key": api_key})
+        assert r2.headers["etag"] != r1.headers["etag"]
+        assert r2.json()["succeeds"] == pred_id
+    finally:
+        if eid:
+            await db.execute("DELETE FROM entity_events WHERE id = $1", eid)
+        await db.execute("DELETE FROM organizations WHERE id IN ($1,$2)", pred_id, succ_id)
