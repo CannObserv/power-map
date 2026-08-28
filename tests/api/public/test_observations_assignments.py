@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+from datetime import date
 
 import pytest
 import pytest_asyncio
@@ -1550,3 +1551,135 @@ async def test_reobserve_after_retract_reports_matching_claim_unapplied(
     body = r.json()
     assert body["disposition"] == "auto-attached"
     assert body["unapplied"] == ["is_current"]
+
+
+# ---------------------------------------------------------------------------
+# #478 - provenance claimed by an identical id-addressed observation
+# ---------------------------------------------------------------------------
+
+
+async def test_pm_native_identical_claims_unowned_row_and_says_so(
+    client, write_key, pm_target_assignment, db
+):
+    """The #478 case end to end: agree with an unowned row, claim it, be told.
+
+    6,698 active assignments predate #311 and carry ``source_key_id IS NULL``.
+    Their spans are already correct, so before #478 the only way to claim one
+    was to falsify a date - and the response looked like an ordinary attach.
+    """
+    raw, kid = write_key
+    await db.execute(
+        "UPDATE role_assignments SET start_date=$2, is_current=TRUE, source_key_id=NULL"
+        " WHERE id=$1",
+        pm_target_assignment,
+        date(2013, 1, 14),
+    )
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": pm_target_assignment,
+            "start_date": "2013-01-14",
+        },
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["provenance_claimed"] is True
+    row = await db.fetchrow(
+        "SELECT start_date, source_key_id FROM role_assignments WHERE id=$1",
+        pm_target_assignment,
+    )
+    assert row["source_key_id"] == kid
+    assert row["start_date"] == date(2013, 1, 14)  # nothing else moved
+
+
+async def test_pm_native_identical_on_own_row_reports_no_claim(
+    client, write_key, pm_target_assignment, db
+):
+    """Second delivery: already ours, so the field goes quiet again (#478)."""
+    raw, kid = write_key
+    await db.execute(
+        "UPDATE role_assignments SET start_date=$2, is_current=TRUE, source_key_id=$3 WHERE id=$1",
+        pm_target_assignment,
+        date(2013, 1, 14),
+        kid,
+    )
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": pm_target_assignment,
+            "start_date": "2013-01-14",
+        },
+    )
+
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["provenance_claimed"] is None
+
+
+async def test_pm_native_identical_foreign_row_claims_nothing(
+    client, write_key, write_key2, pm_target_assignment, db
+):
+    """CR round 1 (#311) intact: a foreign key gains nothing by agreeing."""
+    raw, _ = write_key
+    _, other_kid = write_key2
+    await db.execute(
+        "UPDATE role_assignments SET start_date=$2, is_current=TRUE, source_key_id=$3 WHERE id=$1",
+        pm_target_assignment,
+        date(2013, 1, 14),
+        other_kid,
+    )
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": pm_target_assignment,
+            "start_date": "2013-01-14",
+        },
+    )
+
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["provenance_claimed"] is None
+    owner = await db.fetchval(
+        "SELECT source_key_id FROM role_assignments WHERE id=$1", pm_target_assignment
+    )
+    assert owner == other_kid
+
+
+async def test_pm_native_differing_foreign_row_still_rejects(
+    client, write_key, write_key2, pm_target_assignment, db
+):
+    """Disagreement with a foreign-owned row is still ``source_key_mismatch``."""
+    raw, _ = write_key
+    _, other_kid = write_key2
+    await db.execute(
+        "UPDATE role_assignments SET start_date=$2, is_current=TRUE, source_key_id=$3 WHERE id=$1",
+        pm_target_assignment,
+        date(2013, 1, 14),
+        other_kid,
+    )
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": pm_target_assignment,
+            "start_date": "2014-01-01",
+        },
+    )
+
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "source_key_mismatch"
+    assert body["provenance_claimed"] is None

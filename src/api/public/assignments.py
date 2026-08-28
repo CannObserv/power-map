@@ -206,10 +206,18 @@ async def submit_assignment_observation(
     separate them from a healthy attach to a live tenure, and ``unapplied`` never
     meant "archived"; inferring it from a field name there cost the downstream
     producer a month anchored to a retracted row (#474).
+
+    ``provenance_claimed: true`` (#478) says this observation stamped
+    ``source_key_id`` onto a row that had none. Asserting a span **identical** to
+    what an unowned row already stores now claims it — before, provenance was
+    only ever claimed as a side effect of a value change, so a correct row was
+    unclaimable without falsifying a date. An *owned* row (same-source or
+    foreign) is untouched by an identical assertion, as #311 CR round 1 requires.
     """
     is_pm_native = req.identifier_type == "pm_assignment_id"
     unapplied: list[str] = []
     attached_archived = False
+    provenance_claimed = False
     try:
         if req.op == "retract":
             if not is_pm_native:
@@ -241,7 +249,7 @@ async def submit_assignment_observation(
                 )
                 if disposition is Disposition.REJECTED:
                     raise ObservationRejected(reason)
-                await update_assignment_fields(
+                provenance_claimed = await update_assignment_fields(
                     db,
                     assignment_id,
                     start_date=req.start_date,
@@ -308,4 +316,8 @@ async def submit_assignment_observation(
         # #477: `unapplied` says *what* was withheld, never *why*. Only this says
         # the addressed row is retracted — the signal usa-wa lacked for a month.
         attached_archived=attached_archived or None,
+        # #478: this observation claimed a previously-unowned row. `auto-attached`
+        # is identical either way, so without this a producer backfilling
+        # provenance would need a read-back per row to know it worked.
+        provenance_claimed=provenance_claimed or None,
     )
