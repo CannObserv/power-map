@@ -2066,7 +2066,7 @@ async def update_assignment_fields(
     end_date_set: bool = False,
     is_current: bool | None = None,
     source_key_id: str | None = None,
-) -> None:
+) -> bool:
     """Authoritatively update an id-addressed tenure's bounds in place (#311).
 
     The pm-native (``pm_assignment_id``) observation path: the producer proves it
@@ -2083,8 +2083,21 @@ async def update_assignment_fields(
 
     Provenance (#311): rejected ``source_key_mismatch`` when the row's
     ``source_key_id`` is non-NULL and differs from the caller's; a NULL source
-    is claimed (COALESCE) on the first update. An identical redelivery is a
-    quiet no-op regardless of source (the no-op check precedes the gate).
+    is claimed (COALESCE) on the first update. An identical redelivery leaves
+    the *bounds* alone regardless of source (that check precedes the gate).
+
+    Returns **True when this call claimed provenance** — i.e. the row's
+    ``source_key_id`` was NULL and the caller supplied one. #478: an identical
+    redelivery against an **unowned** row now claims it with a provenance-only
+    UPDATE instead of returning empty-handed. Before that, ``source_key_id``
+    could only ever be stamped as a side effect of a value change, so a row
+    whose stored span was already exactly right was unclaimable without
+    falsifying a date — 6,698 of 11,086 active assignments predate #311 and are
+    in precisely that state. An **owned** row (same-source or foreign) still
+    takes no write at all from an identical assertion: CR round 1 of #311 ruled
+    that a foreign key must not be able to change anything by agreeing, and
+    claiming is a change. The provenance-only UPDATE fires the #327 touch
+    triggers like any other write, so the claim reaches ``entity_changes``.
 
     **Must be called inside the caller's transaction** so a rejection rolls the
     whole observation back. Raises ``ObservationRejected`` when the row is
@@ -2095,7 +2108,7 @@ async def update_assignment_fields(
     sibling tenure sharing (person, role, start_date) (``start_date_conflict``).
     """
     if start_date is None and not end_date_set and is_current is None:
-        return
+        return False
 
     row = await conn.fetchrow(
         "SELECT start_date, end_date, is_current, source_key_id FROM role_assignments"
@@ -2104,6 +2117,11 @@ async def update_assignment_fields(
     )
     if row is None:
         raise ObservationRejected("assignment_not_found")
+
+    # A NULL source is unowned: the first caller to assert this row's bounds
+    # claims it. Computed once — both the identical-assertion branch below and
+    # the ordinary UPDATE report the same fact.
+    claims_provenance = row["source_key_id"] is None and source_key_id is not None
 
     new_start = start_date if start_date is not None else row["start_date"]
     new_end = end_date if end_date_set else row["end_date"]
@@ -2120,7 +2138,33 @@ async def update_assignment_fields(
         # gate so an identical redelivery by a foreign key stays a quiet no-op
         # (CR round 1, #311); the row's stored state is valid, so the merged
         # values need no constraint checks either.
-        return
+        if not claims_provenance:
+            return False
+        # #478: the row is *unowned*, so agreeing with it is how a producer
+        # claims provenance on a pre-#311 minting. Provenance only — the bounds
+        # are already right, and rewriting them would risk
+        # `uq_role_assignment_person_role_start` for no gain. The re-checked
+        # `source_key_id IS NULL` makes the claim lose a concurrent race rather
+        # than overwrite a claim committed since the SELECT, and RETURNING makes
+        # the answer come from the write rather than the stale read — a producer
+        # told `provenance_claimed: true` must actually own the row. CR round 1
+        # is preserved: an *owned* row took the early return above, so a foreign
+        # key still cannot alter it by agreeing.
+        claimed_by = await conn.fetchval(
+            "UPDATE role_assignments SET source_key_id=$2"
+            " WHERE id=$1 AND archived_at IS NULL AND source_key_id IS NULL"
+            " RETURNING source_key_id",
+            assignment_id,
+            source_key_id,
+        )
+        if claimed_by != source_key_id:
+            return False  # lost the race, or the row was archived meanwhile
+        logger.info(
+            "Claimed provenance on role_assignment id=%s source_key_id=%s",
+            assignment_id,
+            source_key_id,
+        )
+        return True
 
     if row["source_key_id"] is not None and row["source_key_id"] != source_key_id:
         logger.warning(
@@ -2137,10 +2181,13 @@ async def update_assignment_fields(
         raise ObservationRejected("start_after_end_date")
 
     try:
-        await conn.execute(
+        # RETURNING for the same reason as the claim branch above: the reported
+        # claim must come from what the write settled on, not the stale read.
+        claimed_by = await conn.fetchval(
             "UPDATE role_assignments SET start_date=$2, end_date=$3, is_current=$4,"
             " source_key_id=COALESCE(source_key_id, $5)"
-            " WHERE id=$1 AND archived_at IS NULL",
+            " WHERE id=$1 AND archived_at IS NULL"
+            " RETURNING source_key_id",
             assignment_id,
             new_start,
             new_end,
@@ -2162,6 +2209,9 @@ async def update_assignment_fields(
         new_end,
         new_current,
     )
+    # The COALESCE above already claimed an unowned row; #478 only makes the
+    # caller able to say so.
+    return claims_provenance and claimed_by == source_key_id
 
 
 async def retract_assignment(

@@ -1003,6 +1003,13 @@ class ObservationResponse(BaseModel):
     # "PM asserts this tenure never happened — stop re-emitting it"; the
     # presence of a name in `unapplied` never carried that meaning (#311/#474).
     attached_archived: bool | None = None
+    # #478: True when this observation stamped `source_key_id` onto a row that
+    # had none — assignments only, on the `pm_assignment_id` path. Additive and
+    # optional on the same terms as `attached_archived`: None (absent) when
+    # nothing was claimed, never False. It is the only way to tell "already
+    # yours" from "now yours" without a read-back per row, which is what a
+    # producer backfilling provenance across thousands of pre-#311 rows needs.
+    provenance_claimed: bool | None = None
 
 
 class JurisdictionObservationRequest(BaseModel):

@@ -25,17 +25,33 @@ _THEIRS = "01KEYTHEIRS00000000000000000"
 
 
 class _StubConn:
-    """Minimal asyncpg-connection stand-in: one canned row, recorded executes."""
+    """Minimal asyncpg-connection stand-in: one canned row, recorded writes.
 
-    def __init__(self, row):
+    Both UPDATEs go through ``fetchval`` and end in ``RETURNING source_key_id``,
+    so the stub answers them the way ``COALESCE`` / the ``source_key_id IS NULL``
+    predicate would: the stored owner if there is one, else the supplied key.
+    ``lost_race=True`` models the row being claimed (or archived) between the
+    SELECT and the UPDATE — the predicate matches nothing and PostgreSQL returns
+    no row.
+    """
+
+    def __init__(self, row, *, lost_race: bool = False):
         self._row = row
+        self._lost_race = lost_race
         self.executed: list[tuple[str, tuple]] = []
 
     async def fetchrow(self, _sql, *_args):
         return self._row
 
-    async def execute(self, sql, *args):
+    async def fetchval(self, sql, *args):
         self.executed.append((sql, args))
+        assert sql.rstrip().endswith("RETURNING source_key_id")
+        if self._lost_race:
+            return None
+        stored = self._row["source_key_id"]
+        # The claim-only UPDATE binds the key as $2; the bounds UPDATE as $5.
+        supplied = args[1] if "SET source_key_id=$2" in sql else args[4]
+        return stored if stored is not None else supplied
 
 
 def _row(*, start=date(2013, 1, 14), end=None, is_current=True, source_key_id=None):
@@ -68,6 +84,23 @@ async def test_identical_assertion_claims_an_unowned_row():
     assert "source_key_id" in sql
     assert "start_date=" not in sql
     assert args == (_RA_ID, _MINE)
+
+
+async def test_identical_assertion_reports_nothing_when_the_claim_loses_a_race():
+    """`provenance_claimed: true` must mean the caller *owns* the row.
+
+    The UPDATE's `source_key_id IS NULL` predicate is re-evaluated after the row
+    lock, so a claim committed between the SELECT and the UPDATE wins and ours
+    matches nothing. Reporting the stale read here would tell a producer it owns
+    a row another key holds.
+    """
+    conn = _StubConn(_row(source_key_id=None), lost_race=True)
+
+    claimed = await update_assignment_fields(
+        conn, _RA_ID, start_date=date(2013, 1, 14), source_key_id=_MINE
+    )
+
+    assert claimed is False
 
 
 async def test_identical_assertion_on_own_row_is_a_quiet_noop():
@@ -134,6 +167,17 @@ async def test_differing_assertion_on_own_row_claims_nothing():
 
     assert claimed is False
     assert len(conn.executed) == 1
+
+
+async def test_differing_assertion_reports_nothing_when_the_claim_loses_a_race():
+    """Same guarantee on the bounds UPDATE: COALESCE keeps the winner's key."""
+    conn = _StubConn(_row(source_key_id=None), lost_race=True)
+
+    claimed = await update_assignment_fields(
+        conn, _RA_ID, start_date=date(2014, 1, 1), source_key_id=_MINE
+    )
+
+    assert claimed is False
 
 
 async def test_differing_assertion_by_a_foreign_key_still_rejects():
