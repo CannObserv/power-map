@@ -82,16 +82,38 @@ pairs for the same `(person, role)` — the duplicates minted when a producer's
 start_date correction missed the match key pre-#311 (see `docs/API_ASSIGNMENTS.md`
 § "Write semantics & provenance"). Categories:
 
-- `deepened_start` — wider (earlier-start) row created later: the producer-
-  correction signature; auto-merged by `--execute`
-- `subsumed` — wider row provably covers the narrower; auto-merged
-- `overlapping_review` — coverage unprovable (e.g. unknown end), report-only
+**Coverage is the merge gate (#476).** Both auto-merge categories require the
+same proof — the orphan's end is dated *and* the survivor covers it (dated end
+≥ the orphan's, or the survivor open with `is_current`). Creation order only
+picks which auto-merge category a covering pair lands in:
+
+- `deepened_start` — covering, wider (earlier-start) row created later: the
+  producer-correction signature; auto-merged by `--execute`
+- `subsumed` — covering, wider row created first; auto-merged
+- `overlapping_review` — coverage unprovable (unknown end on the survivor, an
+  open-ended orphan, or a survivor ending *before* its orphan), report-only
+
+**Rule: this audit never invents a span, in either direction.** The merge keeps
+the survivor's window as stored and reconciles no dates, so merging an unproven
+pair discards the orphan's tenure outright — which is what `deepened_start` did
+before #476 (#474: 21 archivals onto a survivor that ended first, 11 of the
+orphans still open). Widening the survivor to the union was investigated and
+**rejected**: 21 of those 22 survivors carry a producer-authored update, dated
+after the audit ran, whose `end_date` is exactly what PM stores — real
+departures, resignations and a death in office. Coverage the audit cannot prove
+is a human decision; `overlapping_review` is where it belongs.
 
 Merge = links/contact methods/addresses/identifiers move to the survivor
 (would-be duplicates stay on the orphan), notes concatenate, orphan is
-**archived** with a provenance note (never deleted). The archive UPDATE hits
-the `entity_changes` outbox so subscribed producers drop stale anchors.
-Undated tenures and disjoint terms (returning legislators) are never flagged.
+**archived** (never deleted) with a provenance note that names the survivor and
+records the span the merge dropped — `Archived as duplicate of {id} (#311
+audit). Span was {start}..{end}.` (`end` reads `open` when undated). The archive
+UPDATE hits the `entity_changes` outbox so subscribed producers drop stale
+anchors. Undated tenures and disjoint terms (returning legislators) are never
+flagged.
+
+The 21 pre-#476 archivals stay as they are — they match the producer's own
+newest assertions; no data repair is in scope.
 
 ```bash
 env_args=()
