@@ -774,6 +774,9 @@ class CitationObservationResult(BaseModel):
     disposition: str  # 'new' | 'auto-attached' | 'updated' | 'retracted' | 'rejected'
     citation_id: str | None = None  # None only when disposition == 'rejected'
     reason: str | None = None  # rejection reason slug; None on non-rejected
+    # #477: True when the `auto-attached` landed on a *retracted* citation —
+    # either the anti-resurrection dedup or a re-emitted retract. None otherwise.
+    attached_archived: bool | None = None
 
 
 class CitationObservationsResponse(BaseModel):
@@ -957,6 +960,9 @@ class EventObservationResult(BaseModel):
     disposition: str  # 'new' | 'auto-attached' | 'updated' | 'retracted' | 'rejected'
     event_id: str | None = None  # None only when disposition == 'rejected'
     reason: str | None = None  # rejection reason slug; None on non-rejected
+    # #477: True when the `auto-attached` landed on an *archived* event — either
+    # the anti-resurrection content dedup or a re-emitted retract. None otherwise.
+    attached_archived: bool | None = None
 
 
 class OrgEventObservationsRequest(BaseModel):
@@ -990,6 +996,13 @@ class ObservationResponse(BaseModel):
     # #319: per-citation dispositions when the payload carried citations[]. None
     # when none submitted; present only on full success (all-or-nothing embedded).
     citations: list["CitationObservationResult"] | None = None
+    # #477: True when an `auto-attached` disposition addressed a *retracted* row
+    # rather than a live one — the #391 anti-resurrection attach, or a re-emitted
+    # `op="retract"`. Additive and optional: None (absent) on every other
+    # outcome, so a healthy observation stays quiet. Producers must treat True as
+    # "PM asserts this tenure never happened — stop re-emitting it"; the
+    # presence of a name in `unapplied` never carried that meaning (#311/#474).
+    attached_archived: bool | None = None
 
 
 class JurisdictionObservationRequest(BaseModel):
@@ -1674,6 +1687,9 @@ class RelationshipObservationResult(BaseModel):
     disposition: str  # 'new' | 'auto-attached' | 'updated' | 'retracted' | 'rejected'
     relationship_id: str | None = None  # None only when disposition == 'rejected'
     reason: str | None = None  # rejection reason slug; None on non-rejected
+    # #477: True when the `auto-attached` landed on an *archived* edge — either
+    # the anti-resurrection dedup or a re-emitted retract. None otherwise.
+    attached_archived: bool | None = None
 
 
 class RelationshipObservationsResponse(BaseModel):

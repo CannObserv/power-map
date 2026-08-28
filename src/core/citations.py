@@ -109,6 +109,9 @@ class CitationResult:
     disposition: CitationDisposition
     citation_id: str | None = None
     reason: str | None = None  # CitationRejectReason slug on REJECTED, else None
+    # #477: the AUTO_ATTACHED match was an *archived* row — the anti-resurrection
+    # dedup, or a retract re-emitted against an already-archived citation.
+    attached_archived: bool = False
 
 
 @dataclass
@@ -227,7 +230,10 @@ async def _create_or_refine_natural(
         claim.url,
     )
     if archived_id is not None:
-        return CitationResult(CitationDisposition.AUTO_ATTACHED, archived_id)
+        # #477: labelled, so a producer can tell this from a dedup onto a live row.
+        return CitationResult(
+            CitationDisposition.AUTO_ATTACHED, archived_id, attached_archived=True
+        )
 
     # Genuine create — the row must satisfy chk_citation_url_or_title. Enforced
     # here (the true create branch, #319 CR) so a refine never trips it.
@@ -342,7 +348,9 @@ async def _retract_citation(
         raise _CitationRejected(CitationRejectReason.CITATION_NOT_FOUND)
 
     if existing["archived_at"] is not None:
-        return CitationResult(CitationDisposition.AUTO_ATTACHED, existing["id"])
+        return CitationResult(
+            CitationDisposition.AUTO_ATTACHED, existing["id"], attached_archived=True
+        )
 
     if claim.field_name is not None and claim.field_name != existing["field_name"]:
         raise _CitationRejected(CitationRejectReason.IDENTITY_IMMUTABLE)

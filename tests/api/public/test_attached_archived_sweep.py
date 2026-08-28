@@ -62,7 +62,11 @@ def test_wire_model_exposes_attached_archived(model):
     field = model.model_fields.get("attached_archived")
     assert field is not None, f"{model.__name__} does not expose attached_archived (#477)"
     assert field.default is None, f"{model.__name__}.attached_archived must default to None"
-    assert model().model_dump().get("attached_archived", "missing") is None
+    # And it serialises as null rather than vanishing, so a producer can probe for
+    # the key instead of inferring support from its absence.
+    dumped = model(disposition="new").model_dump()
+    assert "attached_archived" in dumped
+    assert dumped["attached_archived"] is None
 
 
 @pytest.mark.parametrize(

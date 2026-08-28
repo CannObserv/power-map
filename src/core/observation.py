@@ -315,6 +315,10 @@ class EventResult:
     disposition: EventDisposition
     event_id: str | None = None
     reason: str | None = None  # EventRejectReason slug on REJECTED, else None
+    # #477: the AUTO_ATTACHED match was an *archived* row — the anti-resurrection
+    # content dedup, or a retract re-emitted against an already-archived event.
+    # Surfaced on the wire so `auto-attached` stops meaning two different things.
+    attached_archived: bool = False
 
 
 # The mutable field set on an id-addressed (pm_event_id) update. Identity —
@@ -1689,7 +1693,7 @@ async def _retract_event(conn, event_type_id: str, key_id: str | None, ev) -> Ev
     # before the provenance gate so a foreign redelivery stays quiet, exactly as
     # the refine no-op does.
     if existing["archived_at"] is not None:
-        return EventResult(EventDisposition.AUTO_ATTACHED, existing["id"])
+        return EventResult(EventDisposition.AUTO_ATTACHED, existing["id"], attached_archived=True)
 
     # Identity is immutable — a retract that names a different event_type, or a
     # supplied linked_entity that doesn't match, is addressing the wrong event
@@ -1747,7 +1751,7 @@ async def _create_event(
     # archived row rather than resurrecting it. Mirrors the address dateless-
     # reobservation anti-resurrection rule (#322 CR round 2; write_addresses).
     existing = await conn.fetchrow(
-        """SELECT id FROM entity_events
+        """SELECT id, archived_at FROM entity_events
            WHERE entity_id = $1 AND entity_type = $2 AND event_type_id = $3
              AND event_year IS NOT DISTINCT FROM $4
              AND event_month IS NOT DISTINCT FROM $5
@@ -1768,7 +1772,14 @@ async def _create_event(
         ev.linked_entity_id,
     )
     if existing:
-        return EventResult(EventDisposition.AUTO_ATTACHED, existing["id"])
+        # #477: the dedup is deliberately not archived-filtered, so the match may
+        # be a retracted row. Label which one it was — a producer re-emitting
+        # content PM has voided otherwise reads an ordinary `auto-attached`.
+        return EventResult(
+            EventDisposition.AUTO_ATTACHED,
+            existing["id"],
+            attached_archived=existing["archived_at"] is not None,
+        )
 
     new_id = generate_id()
     await conn.execute(
