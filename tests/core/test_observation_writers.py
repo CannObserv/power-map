@@ -1631,10 +1631,6 @@ async def test_update_assignment_fields_identical_claims_unowned_row(
         role_id,
         date(2013, 1, 14),
     )
-    before = await db.fetchrow(
-        "SELECT updated_at FROM role_assignments WHERE id=$1",
-        ra_id,
-    )
     changes_before = await db.fetchval(
         "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
         ra_id,
@@ -1646,8 +1642,7 @@ async def test_update_assignment_fields_identical_claims_unowned_row(
 
     assert claimed is True
     row = await db.fetchrow(
-        "SELECT start_date, end_date, is_current, source_key_id, updated_at"
-        " FROM role_assignments WHERE id=$1",
+        "SELECT start_date, end_date, is_current, source_key_id FROM role_assignments WHERE id=$1",
         ra_id,
     )
     assert row["source_key_id"] == api_key_id
@@ -1656,8 +1651,13 @@ async def test_update_assignment_fields_identical_claims_unowned_row(
     assert row["end_date"] is None
     assert row["is_current"] is True
     # A claim is a real change: the #327 touch trigger fires, so a subscriber
-    # sees the provenance stamp like any other update.
-    assert row["updated_at"] > before["updated_at"]
+    # sees the provenance stamp like any other update. The BIGSERIAL outbox is
+    # the pin, NOT updated_at — set_updated_at() writes now(), which is
+    # transaction-start time and therefore constant across the whole test under
+    # the rollback fixture. The INSERT above and this UPDATE get the same
+    # microsecond no matter what the code does, so a comparison there can only
+    # ever be vacuous or wrong (it was wrong). Same reasoning as
+    # `_outbox_count` in tests/api/public/test_observations_assignments.py.
     changes_after = await db.fetchval(
         "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
         ra_id,
@@ -1679,7 +1679,6 @@ async def test_update_assignment_fields_identical_same_source_stays_quiet(
         date(2013, 1, 14),
         api_key_id,
     )
-    before = await db.fetchval("SELECT updated_at FROM role_assignments WHERE id=$1", ra_id)
     changes_before = await db.fetchval(
         "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
         ra_id,
@@ -1690,13 +1689,18 @@ async def test_update_assignment_fields_identical_same_source_stays_quiet(
     )
 
     assert claimed is False
-    after = await db.fetchval("SELECT updated_at FROM role_assignments WHERE id=$1", ra_id)
-    assert after == before  # no clock bump, no outbox row
+    # "Wrote nothing" is pinned by the outbox, again not by updated_at: the
+    # trigger is unconditional, so an UPDATE of any kind would emit a row here.
+    # An `updated_at` equality check would have passed whether or not the row was
+    # written — transaction-constant now() makes it vacuous in the no-op
+    # direction exactly as it makes it unsatisfiable in the claim direction.
     changes_after = await db.fetchval(
         "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
         ra_id,
     )
     assert changes_after == changes_before
+    owner = await db.fetchval("SELECT source_key_id FROM role_assignments WHERE id=$1", ra_id)
+    assert owner == api_key_id
 
 
 async def test_update_assignment_fields_change_on_unowned_row_reports_claim(

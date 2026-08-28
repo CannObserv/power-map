@@ -7,10 +7,15 @@ agreeing with it. That short-circuit also skipped the ``COALESCE`` that claims a
 a value change — leaving 6,698 pre-#311 assignments unclaimable without
 falsifying a date (#478).
 
-Behaviour against a real database (the #327 touch-trigger emit, the ``updated_at``
-bump, the sibling unique index) lives in the integration tier. These pin the
-*decision table* with a stub connection so the branch itself is covered by the
-hermetic suite, where a regression shows up on every commit.
+Behaviour against a real database (the #327 touch-trigger emit, the sibling
+unique index) lives in the integration tier. These pin the *decision table* with
+a stub connection so the branch itself is covered by the hermetic suite, where a
+regression shows up on every commit.
+
+The ``updated_at`` bump is deliberately pinned nowhere: ``set_updated_at()``
+writes ``now()``, which is transaction-start time, and the integration fixtures
+run a whole test in one transaction — so the column is constant there no matter
+what the code does. The outbox row is the observable that actually moves.
 """
 
 from datetime import date
