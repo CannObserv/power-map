@@ -1595,10 +1595,12 @@ async def test_update_assignment_fields_foreign_identical_redelivery_quiet(
         date(2013, 1, 14),
         other_key,
     )
-    # Identical value → no raise, row untouched (still owned by other_key).
-    await update_assignment_fields(
+    # Identical value → no raise, row untouched (still owned by other_key), and
+    # nothing claimed (#478 — agreement never wins an *owned* row).
+    claimed = await update_assignment_fields(
         db, ra_id, start_date=date(2013, 1, 14), source_key_id=api_key_id
     )
+    assert claimed is False
     row = await db.fetchrow(
         "SELECT start_date, source_key_id FROM role_assignments WHERE id=$1", ra_id
     )
@@ -1609,6 +1611,118 @@ async def test_update_assignment_fields_foreign_identical_redelivery_quiet(
         await update_assignment_fields(
             db, ra_id, start_date=date(2014, 1, 1), source_key_id=api_key_id
         )
+
+
+async def test_update_assignment_fields_identical_claims_unowned_row(
+    db, person_id, role_id, api_key_id
+):
+    """#478: an identical assertion claims provenance on an unowned tenure.
+
+    Pre-#311 rows carry ``source_key_id IS NULL``. Before #478 the only way to
+    claim one was to change a value that was already correct, because the
+    idempotence short-circuit ran before the ``COALESCE``.
+    """
+    ra_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, start_date, is_current)"
+        " VALUES ($1, $2, $3, $4, TRUE)",
+        ra_id,
+        person_id,
+        role_id,
+        date(2013, 1, 14),
+    )
+    before = await db.fetchrow(
+        "SELECT updated_at FROM role_assignments WHERE id=$1",
+        ra_id,
+    )
+    changes_before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
+        ra_id,
+    )
+
+    claimed = await update_assignment_fields(
+        db, ra_id, start_date=date(2013, 1, 14), source_key_id=api_key_id
+    )
+
+    assert claimed is True
+    row = await db.fetchrow(
+        "SELECT start_date, end_date, is_current, source_key_id, updated_at"
+        " FROM role_assignments WHERE id=$1",
+        ra_id,
+    )
+    assert row["source_key_id"] == api_key_id
+    # Nothing else about the row moves.
+    assert row["start_date"] == date(2013, 1, 14)
+    assert row["end_date"] is None
+    assert row["is_current"] is True
+    # A claim is a real change: the #327 touch trigger fires, so a subscriber
+    # sees the provenance stamp like any other update.
+    assert row["updated_at"] > before["updated_at"]
+    changes_after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
+        ra_id,
+    )
+    assert changes_after == changes_before + 1
+
+
+async def test_update_assignment_fields_identical_same_source_stays_quiet(
+    db, person_id, role_id, api_key_id
+):
+    """Already ours: identical redelivery writes nothing and claims nothing (#478)."""
+    ra_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, start_date, is_current,"
+        " source_key_id) VALUES ($1, $2, $3, $4, TRUE, $5)",
+        ra_id,
+        person_id,
+        role_id,
+        date(2013, 1, 14),
+        api_key_id,
+    )
+    before = await db.fetchval("SELECT updated_at FROM role_assignments WHERE id=$1", ra_id)
+    changes_before = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
+        ra_id,
+    )
+
+    claimed = await update_assignment_fields(
+        db, ra_id, start_date=date(2013, 1, 14), source_key_id=api_key_id
+    )
+
+    assert claimed is False
+    after = await db.fetchval("SELECT updated_at FROM role_assignments WHERE id=$1", ra_id)
+    assert after == before  # no clock bump, no outbox row
+    changes_after = await db.fetchval(
+        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
+        ra_id,
+    )
+    assert changes_after == changes_before
+
+
+async def test_update_assignment_fields_change_on_unowned_row_reports_claim(
+    db, person_id, role_id, api_key_id
+):
+    """The ordinary COALESCE path claims too — #478 only makes it say so."""
+    ra_id = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, start_date, is_current)"
+        " VALUES ($1, $2, $3, $4, TRUE)",
+        ra_id,
+        person_id,
+        role_id,
+        date(2013, 1, 14),
+    )
+
+    claimed = await update_assignment_fields(
+        db, ra_id, start_date=date(2014, 1, 1), source_key_id=api_key_id
+    )
+
+    assert claimed is True
+    row = await db.fetchrow(
+        "SELECT start_date, source_key_id FROM role_assignments WHERE id=$1", ra_id
+    )
+    assert row["start_date"] == date(2014, 1, 1)
+    assert row["source_key_id"] == api_key_id
 
 
 async def test_resolve_assignment_no_close_when_is_current_asserted(
