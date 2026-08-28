@@ -108,6 +108,7 @@ async def test_reobserve_same_payload_is_noop(conn):
     r2 = await _one(conn, None, _observe(frm, to, valid_from=D(2023, 1, 1)))
     assert r2.disposition is RelationshipDisposition.AUTO_ATTACHED
     assert r2.relationship_id == r1.relationship_id
+    assert r2.attached_archived is False  # #477: live row, not an archived twin
 
 
 async def test_reobserve_changed_payload_updates(conn):
@@ -218,6 +219,7 @@ async def test_retract_already_archived_noop(conn):
         conn, None, RelationshipClaim(pm_relationship_id=r1.relationship_id, op="retract")
     )
     assert res.disposition is RelationshipDisposition.AUTO_ATTACHED
+    assert res.attached_archived is True  # #477: the edge addressed is retracted
 
 
 async def test_retract_requires_id(conn):
@@ -239,6 +241,7 @@ async def test_anti_resurrection(conn):
     res = await _one(conn, None, _observe(frm, to))
     assert res.disposition is RelationshipDisposition.AUTO_ATTACHED
     assert res.relationship_id == r1.relationship_id
+    assert res.attached_archived is True  # #477: anti-resurrection attach, labelled
     active = await conn.fetchval(
         """SELECT count(*) FROM role_assignment_relationships
            WHERE from_assignment_id=$1 AND to_assignment_id=$2 AND archived_at IS NULL""",

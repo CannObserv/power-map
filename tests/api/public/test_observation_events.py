@@ -172,6 +172,11 @@ async def test_people_observation_event_dedup(client, evt_write_key, db):
 
     r2 = await _post_people(client, raw, payload)
     assert r2.status_code == 200
+    # #477: dedup against a *live* event — auto-attached with no archived signal.
+    # Asserted on the embedded surface (ObservationResponse.events), which shares
+    # EventObservationResult with the event-native endpoint.
+    assert r2.json()["events"][0]["disposition"] == "auto-attached"
+    assert r2.json()["events"][0]["attached_archived"] is None
 
     count = await db.fetchval(
         """SELECT COUNT(*) FROM entity_events ee
@@ -1058,6 +1063,7 @@ async def test_event_retract_re_emit_is_noop_no_outbox(client, evt_write_key, db
 
     r2 = await _post_org_events(client, raw, pred_id, [retract])
     assert r2.json()["results"][0]["disposition"] == "auto-attached"
+    assert r2.json()["results"][0]["attached_archived"] is True  # #477
     assert await _outbox_count(db, pred_id) == outbox_after_first  # no-op, no emit
 
 
@@ -1247,6 +1253,10 @@ async def test_reobserve_after_retract_stays_retracted(client, evt_write_key, db
     res = r3.json()["results"][0]
     assert res["disposition"] == "auto-attached"
     assert res["event_id"] == old_id
+    # #477: label the anti-resurrection attach. Content dedup against a live row
+    # and against a retracted one are both "auto-attached" — only this flag
+    # separates them, and only the second means "stop re-emitting this".
+    assert res["attached_archived"] is True
     # no active founded event exists — the retract stuck
     active = await db.fetch(
         """SELECT ee.id FROM entity_events ee
