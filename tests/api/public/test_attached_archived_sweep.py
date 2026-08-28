@@ -13,7 +13,16 @@ in the integration tiers):
 2. every core result type that can attach to an archived row defaults it to False;
 3. every wire construction site that maps a core per-item result **passes it
    through** — an AST ratchet, so a new mapping site that drops the flag fails
-   here rather than silently lying to the producer.
+   here rather than silently lying to the producer;
+4. ``retract_assignment`` only answers ``AUTO_ATTACHED`` for an archived row —
+   the assignments retract branch *infers* the flag from the disposition rather
+   than propagating one, so that inference needs pinning.
+
+**Boundary of guard 3:** it covers the three per-item result models, not
+``ObservationResponse`` itself, whose ``attached_archived`` is populated only by
+the assignments route. Extend it if another surface learns to detect an archived
+match — #481 (the identifier lookup that resolves to an archived person or org)
+is the likely first.
 """
 
 import ast
@@ -110,4 +119,45 @@ def test_every_per_item_result_site_forwards_attached_archived(model_name):
     ]
     assert not missing, (
         f"{model_name} built without attached_archived= at: {', '.join(missing)} (#477)"
+    )
+
+
+def test_retract_assignment_returns_auto_attached_only_for_an_archived_row():
+    """The assignments retract branch infers ``attached_archived`` from the
+    disposition (``src/api/public/assignments.py``), unlike the other three paths
+    which propagate an explicit flag. That inference is sound only while
+    ``retract_assignment`` answers ``AUTO_ATTACHED`` from inside its
+    ``archived_at is not None`` guard and nowhere else. A second such return —
+    an idempotent no-op for a *live* row, say — would make the wire signal lie
+    silently, so pin it here rather than trusting review to catch it.
+    """
+    tree = ast.parse(pathlib.Path("src/core/observation.py").read_text())
+    fn = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.AsyncFunctionDef) and n.name == "retract_assignment"
+    )
+
+    def _is_auto_attached(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Return)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "AUTO_ATTACHED"
+        )
+
+    guarded = {
+        id(r)
+        for branch in ast.walk(fn)
+        if isinstance(branch, ast.If) and "archived_at" in ast.unparse(branch.test)
+        for r in ast.walk(branch)
+        if _is_auto_attached(r)
+    }
+    all_returns = [r for r in ast.walk(fn) if _is_auto_attached(r)]
+
+    assert all_returns, "retract_assignment no longer returns AUTO_ATTACHED — has it moved? (#477)"
+    unguarded = [r.lineno for r in all_returns if id(r) not in guarded]
+    assert not unguarded, (
+        f"retract_assignment returns AUTO_ATTACHED outside an archived_at guard at line(s) "
+        f"{unguarded} — assignments.py infers attached_archived from this disposition, so that "
+        f"return would report a live row as retracted (#477)"
     )

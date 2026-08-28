@@ -87,9 +87,9 @@ same proof — the orphan's end is dated *and* the survivor covers it (dated end
 ≥ the orphan's, or the survivor open with `is_current`). Creation order only
 picks which auto-merge category a covering pair lands in:
 
-- `deepened_start` — covering, wider (earlier-start) row created later: the
+- `deepened_start` — covering, earlier-start row created later: the
   producer-correction signature; auto-merged by `--execute`
-- `subsumed` — covering, wider row created first; auto-merged
+- `subsumed` — covering, earlier-start row created first; auto-merged
 - `overlapping_review` — coverage unprovable (unknown end on the survivor, an
   open-ended orphan, or a survivor ending *before* its orphan), report-only
 

@@ -7,8 +7,10 @@ pairs for the same (person, role) — both dated; undated tenures coexist with
 dated ones by design (#289) and are never flagged. Non-overlapping tenures
 (returning legislators) are legitimate and never flagged.
 
-Pair orientation: the earlier-start row is the **survivor** (the wider,
-corrected record), the later-start row the **orphan**. Categories:
+Pair orientation: the earlier-start row is the **survivor**, the later-start
+row the **orphan**. Earlier-start does *not* imply wider — assuming it did is
+what produced the #474 archivals — so coverage is proven, never inferred from
+orientation. Categories:
 
 **Coverage is the merge gate (#476).** Both auto-merge categories require the
 same proof: the orphan's end is dated *and* the survivor's window provably
@@ -57,6 +59,7 @@ AUTO_MERGE_CATEGORIES = ("deepened_start", "subsumed")
 
 _ORPHAN_NOTE = "Archived as duplicate of {survivor} (#311 audit). Span was {start}..{end}."
 _OPEN_END = "open"
+_UNKNOWN_START = "unknown"
 
 # survivor s = earlier start (strictly — equal active starts are impossible under
 # uq_role_assignment_person_role_start); orphan o = later start. Overlap given
@@ -210,7 +213,7 @@ async def _merge_pair(conn: asyncpg.Connection, survivor_id: str, orphan_id: str
     # The merge keeps the survivor's window, so the orphan's is otherwise lost.
     note = _ORPHAN_NOTE.format(
         survivor=survivor_id,
-        start=orphan["start_date"],
+        start=orphan["start_date"] or _UNKNOWN_START,
         end=orphan["end_date"] or _OPEN_END,
     )
     await conn.execute(_ARCHIVE_ORPHAN_SQL, orphan_id, note)
