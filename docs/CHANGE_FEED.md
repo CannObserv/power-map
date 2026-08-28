@@ -58,6 +58,8 @@ assignments, `docs/API_ASSIGNMENTS.md`.
 
 `merged_into` is `null` for genuine deletes and for all `"updated"` events. When `change_kind` is `"deleted"` and the entity was merged rather than hard-deleted, `merged_into` contains the id of the winner entity of the same type — the subscriber should re-anchor its reference to that id rather than retiring the entity locally.
 
+A `"deleted"` event is true when written, not permanently — a restore can bring the id back while the event stays in the feed. See **A `deleted` event can be reversed** below before replaying one.
+
 Since #467 the winner named there is the survivor **of that row**, not of the parent merge: a `role_assignment` tombstone points at the sibling assignment that absorbed it, and a `role` tombstone at the role that absorbed it. So a merge that reaches down into a subtree is repairable one anchor at a time, without re-deriving the whole cohort from the parent.
 
 `seq_id` is a strictly increasing integer from the append-only outbox log (`BIGSERIAL`). It is **monotonic**, not gapless — the log is an offset cursor, not a contiguous counter. Do not infer "missed events" from a gap between consecutive `seq_id`s: the sequence skips values for rolled-back or failed writes, and the id space is global across all entities while your feed is subscription-filtered, so consecutive delivered ids are expected to jump. See **Delivery semantics** below for the exactly-what-is-guaranteed contract (it is *at-least-once*, not exactly-once) — read it before building a consumer that trims or removes a reconciliation backstop.
@@ -124,6 +126,19 @@ Because the feed is at-least-once and idempotent, a consumer does **not** need t
 2. On a periodic cadence, **rewind**: re-poll from `seq = high_water − margin`. This re-covers the concurrent-writer skip window and any near-horizon churn at O(events-in-window) instead of O(cohort).
 3. Choose `margin` so it exceeds your longest expected in-flight write/import transaction, and keep your rewind cadence comfortably under `90 days − margin` so you never rewind into pruned range.
 4. Keep a **low-frequency** full reconcile (or a 404-driven check against read endpoints) only for the residual the outbox cannot signal — the no-emit cases above. Right-size it against that boundary; the outbox lets you shrink it, not necessarily remove it.
+
+#### A `deleted` event can be reversed — re-check before replaying a destructive branch
+
+Rewind-and-replay is the recommended pattern above, and it has one sharp edge: **a `deleted` event is a fact about the moment it was written, not a permanent one.** A restore can resurrect a hard-deleted or merged id under its original ULID — that is what `scripts/restore_467_committee_succession.py` did on 2026-08-27, re-creating an org whose `merged_into` tombstone had been written two days earlier. The restore drops the `deleted_entities` row, so the id resolves 200 again, but the outbox is **append-only**: the original `"deleted"` event stays in the feed, still carrying `merged_into`, for the rest of the 90-day retention window. A consumer that rewinds below its `seq_id` will read it again — and, following the guidance above literally, re-apply the retirement to an entity that is live.
+
+So: **before acting on a `"deleted"` event during a replay, confirm the entity is still gone.** Two cheap checks, either is sufficient:
+
+- **Read-back.** `GET` the id from its read endpoint. `404` (or a `deleted_entities` hit) confirms the retirement; `200` means it came back and the event is void — process the later `"updated"` rows in the window instead.
+- **Later-event wins within the window.** If the same `(entity_type, entity_id)` also carries an `"updated"` event at a **higher** `seq_id` in the window you are replaying, the delete has been superseded. `"updated"` is only ever written for a row that exists.
+
+Skip the check only on a strictly incremental first pass, where every event is new; it is a replay-specific duty. This costs one conditional request per replayed delete, which is a rounding error against the rewind itself.
+
+Two limits worth knowing. There is deliberately **no counter-signal in the feed** — no `restored` `change_kind`, and no `deleted` row with `merged_into` cleared. `change_kind` is `"updated"` or `"deleted"` and every consumer parses it, so a third value is a breaking contract change for an event that occurs roughly monthly; the read-back above is the supported reconciliation. And **the resurrection is invisible to a key that unsubscribed**: `GET /changes` joins on *current* subscriptions, so a consumer that did the documented thing on a `merged_into` tombstone — re-anchor to the winner, `DELETE /api/v1/subscriptions/{retired_id}` — receives nothing for that id afterwards, including the events saying it is live again. A restore therefore carries an operator duty on our side: re-subscribe the keys watching the winner it un-merges from (`src.core.merge_signals.copy_subscriptions`), because the consumer cannot discover the resurrection on its own. If you receive a subscription you did not create for an id you previously retired, that is why — treat it as a resurrection notice and re-fetch the id.
 
 ---
 
