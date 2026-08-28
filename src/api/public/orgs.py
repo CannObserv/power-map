@@ -135,14 +135,20 @@ async def submit_org_observation(
         entity_type=entity_type,
         events=[
             EventObservationResult(
-                disposition=r.disposition.value, event_id=r.event_id, reason=r.reason
+                disposition=r.disposition.value,
+                event_id=r.event_id,
+                reason=r.reason,
+                attached_archived=r.attached_archived or None,
             )
             for r in event_results
         ]
         or None,
         citations=[
             CitationObservationResult(
-                disposition=r.disposition.value, citation_id=r.citation_id, reason=r.reason
+                disposition=r.disposition.value,
+                citation_id=r.citation_id,
+                reason=r.reason,
+                attached_archived=r.attached_archived or None,
             )
             for r in citation_results
         ]
@@ -183,7 +189,10 @@ async def submit_org_event_observations(
     return EventObservationsResponse(
         results=[
             EventObservationResult(
-                disposition=r.disposition.value, event_id=r.event_id, reason=r.reason
+                disposition=r.disposition.value,
+                event_id=r.event_id,
+                reason=r.reason,
+                attached_archived=r.attached_archived or None,
             )
             for r in results
         ]

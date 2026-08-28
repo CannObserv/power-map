@@ -116,6 +116,7 @@ async def test_reobserve_identical_is_noop_auto_attached(db):
     [second] = await write_citations(db, "person", pid, None, [claim])
     assert second.disposition is CitationDisposition.AUTO_ATTACHED
     assert second.citation_id == first.citation_id
+    assert second.attached_archived is False  # #477: live row, not an archived twin
     assert (await _row(db, first.citation_id))["updated_at"] == before  # no clock bump
     assert await db.fetchval("SELECT count(*) FROM citations WHERE entity_id=$1", pid) == 1
 
@@ -316,6 +317,7 @@ async def test_retract_already_archived_is_noop(db):
         db, "person", pid, None, [CitationClaim(op="retract", pm_citation_id=first.citation_id)]
     )
     assert res.disposition is CitationDisposition.AUTO_ATTACHED
+    assert res.attached_archived is True  # #477: the row addressed is retracted
     assert (await _row(db, first.citation_id))["archived_at"] == archived_at  # no clock bump
 
 
@@ -329,6 +331,7 @@ async def test_reobserve_retracted_content_stays_retracted(db):
     [res] = await write_citations(db, "person", pid, None, [claim])  # same content again
     assert res.disposition is CitationDisposition.AUTO_ATTACHED
     assert res.citation_id == first.citation_id
+    assert res.attached_archived is True  # #477: anti-resurrection attach, labelled
     assert (await _row(db, first.citation_id))["archived_at"] is not None  # not resurrected
     assert await db.fetchval("SELECT count(*) FROM citations WHERE entity_id=$1", pid) == 1
 

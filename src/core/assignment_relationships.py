@@ -76,6 +76,9 @@ class RelationshipResult:
     disposition: RelationshipDisposition
     relationship_id: str | None = None
     reason: str | None = None  # RelationshipRejectReason slug on REJECTED, else None
+    # #477: the AUTO_ATTACHED match was an *archived* row — the anti-resurrection
+    # dedup, or a retract re-emitted against an already-archived edge.
+    attached_archived: bool = False
 
 
 @dataclass
@@ -258,7 +261,10 @@ async def _create_or_refine_natural(
         rel_type_id,
     )
     if archived_id is not None:
-        return RelationshipResult(RelationshipDisposition.AUTO_ATTACHED, archived_id)
+        # #477: labelled, so a producer can tell this from a dedup onto a live edge.
+        return RelationshipResult(
+            RelationshipDisposition.AUTO_ATTACHED, archived_id, attached_archived=True
+        )
 
     new_id = generate_id()
     await conn.execute(
@@ -377,7 +383,9 @@ async def _retract_relationship(
     if existing is None:
         raise _RelationshipRejected(RelationshipRejectReason.RELATIONSHIP_NOT_FOUND)
     if existing["archived_at"] is not None:
-        return RelationshipResult(RelationshipDisposition.AUTO_ATTACHED, existing["id"])
+        return RelationshipResult(
+            RelationshipDisposition.AUTO_ATTACHED, existing["id"], attached_archived=True
+        )
 
     await _assert_identity_matches(conn, existing, claim)
 

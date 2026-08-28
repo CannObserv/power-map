@@ -88,7 +88,10 @@ async def submit_citation_observations(
     return CitationObservationsResponse(
         results=[
             CitationObservationResult(
-                disposition=r.disposition.value, citation_id=r.citation_id, reason=r.reason
+                disposition=r.disposition.value,
+                citation_id=r.citation_id,
+                reason=r.reason,
+                attached_archived=r.attached_archived or None,
             )
             for r in results
         ]
