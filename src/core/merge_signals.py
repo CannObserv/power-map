@@ -33,6 +33,13 @@ Two helpers close that:
 
 Both are idempotent and safe on an empty pair list, so a caller can hand over
 whatever its conflict query returned without a length check.
+
+:func:`copy_subscriptions` is the direction-neutral statement under
+``mirror_subscriptions``. A **restore** — un-merging an id the feed already
+tombstoned — needs the same copy pointed the other way, because ``changes.py``
+joins on *current* subscriptions: the consumer that acted on the tombstone and
+unsubscribed is precisely the one that cannot be told the id is live again
+(#479, ``docs/CHANGE_FEED.md`` § "A `deleted` event can be reversed").
 """
 
 import asyncpg
@@ -104,13 +111,37 @@ async def mirror_subscriptions(db: asyncpg.Connection, pairs: list[tuple[str, st
     from the row makes a caller's mismatched argument impossible instead of
     silently retyping a subscription.
     """
+    await copy_subscriptions(db, pairs)
+
+
+async def copy_subscriptions(db: asyncpg.Connection, pairs: list[tuple[str, str]]) -> None:
+    """Subscribe every watcher of ``source`` to ``target`` too, keeping the source row.
+
+    ``pairs`` is ``[(source_id, target_id), ...]``.
+
+    The direction-neutral primitive under :func:`mirror_subscriptions`. A merge
+    copies loser → winner; a **restore** copies winner → resurrected id (#479),
+    which is the same statement run the other way. That second caller is why the
+    parameters are not named loser/winner here: ``GET /changes`` joins on
+    *current* subscriptions, so a consumer that processed a merge tombstone and
+    correctly unsubscribed from the retired id can never be told through the feed
+    that the id came back. The winner's current watchers are the closest
+    available stand-in for the audience that was lost, and re-subscribing them is
+    the only path back.
+
+    ``entity_type`` is read from the source's own subscription row, so a caller
+    cannot retype a subscription by passing a mismatched argument — there is no
+    argument to mismatch. ``ON CONFLICT DO NOTHING`` on the
+    ``(api_key_id, entity_id)`` PK makes a re-run a no-op, and an empty
+    ``pairs`` is a no-op so a caller can hand over whatever its query returned.
+    """
     if not pairs:
         return
     await db.executemany(
         """INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)
-           SELECT l.api_key_id, $2, l.entity_type
-           FROM api_key_entity_subscriptions l
-           WHERE l.entity_id = $1
+           SELECT s.api_key_id, $2, s.entity_type
+           FROM api_key_entity_subscriptions s
+           WHERE s.entity_id = $1
            ON CONFLICT DO NOTHING""",
         pairs,
     )

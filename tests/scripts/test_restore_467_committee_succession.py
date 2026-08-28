@@ -5,9 +5,16 @@ identifiers and the loser's reminted pre-2021 assignments — then runs the
 restore and asserts the succession shape: predecessor org + role resurrected
 under their original ULIDs, tombstones cleared, identifier moved, assignments
 re-pointed, dated succeeded_by event created. Re-running must be a no-op.
+
+Since #479 the restore also carries a subscriber duty: the resurrection is
+unobservable through `GET /changes` to any key that unsubscribed on the
+tombstone, so the winner's current watchers — the closest available stand-in for
+the delete-time audience — are re-subscribed to the ids that came back.
 """
 
 import datetime
+import hashlib
+import os
 
 import pytest
 import pytest_asyncio
@@ -30,6 +37,33 @@ async def conn(db_pool):
             yield c
         finally:
             await tr.rollback()
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def api_key_id(conn):
+    """A key that can hold subscriptions — the consumer side of the restore."""
+    uid, kid = generate_id(), generate_id()
+    raw_key = "pm_" + os.urandom(16).hex()
+    await conn.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "restore@test.com")
+    await conn.execute(
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        uid,
+        "Restore Unit",
+        raw_key[:8],
+        hashlib.sha256(raw_key.encode()).hexdigest(),
+    )
+    return kid
+
+
+async def _subscribe(conn, kid, entity_id, entity_type):
+    await conn.execute(
+        "INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)"
+        " VALUES ($1,$2,$3)",
+        kid,
+        entity_id,
+        entity_type,
+    )
 
 
 async def _mk_org(conn, name):
@@ -231,3 +265,71 @@ async def test_current_rows_in_cohort_are_counted_and_warned(conn, merged_state)
     assert summary["current_moved"] == 1
     summary = await run_restore(conn, st["plan"], execute=True)
     assert summary["current_moved"] == 1
+
+
+# ---------------------------------------------------------------------------
+# The subscriber duty (#479)
+# ---------------------------------------------------------------------------
+
+
+async def test_dry_run_reports_the_audience_without_subscribing_it(conn, merged_state, api_key_id):
+    """The count is the report; nothing is written until --execute."""
+    st = merged_state
+    await _subscribe(conn, api_key_id, st["winner"], "organization")
+    await _subscribe(conn, api_key_id, st["winner_role"], "role")
+
+    summary = await run_restore(conn, st["plan"], execute=False)
+
+    assert summary["subscriptions_restored"] == 2
+    assert (
+        await conn.fetchval(
+            "SELECT count(*) FROM api_key_entity_subscriptions WHERE entity_id = ANY($1::text[])",
+            [st["pred_org"], st["pred_role"]],
+        )
+        == 0
+    )
+
+
+async def test_execute_resubscribes_the_winners_watchers(conn, merged_state, api_key_id):
+    """The winner's current watchers stand in for the audience the tombstone lost.
+
+    A consumer that processed the `deleted` event and unsubscribed can never be
+    told through the feed that the id is live again — `GET /changes` joins on
+    *current* subscriptions. Re-subscribing is the only path back.
+    """
+    st = merged_state
+    await _subscribe(conn, api_key_id, st["winner"], "organization")
+    await _subscribe(conn, api_key_id, st["winner_role"], "role")
+
+    summary = await run_restore(conn, st["plan"], execute=True)
+
+    assert summary["subscriptions_restored"] == 2
+    rows = await conn.fetch(
+        "SELECT entity_id, entity_type FROM api_key_entity_subscriptions WHERE api_key_id=$1",
+        api_key_id,
+    )
+    assert {(r["entity_id"], r["entity_type"]) for r in rows} == {
+        (st["winner"], "organization"),
+        (st["winner_role"], "role"),
+        (st["pred_org"], "organization"),
+        (st["pred_role"], "role"),
+    }
+
+
+async def test_resubscribe_counts_only_the_keys_that_are_missing_it(conn, merged_state, api_key_id):
+    """Already-subscribed keys are not re-reported, so a second run reports zero."""
+    st = merged_state
+    await _subscribe(conn, api_key_id, st["winner"], "organization")
+    await _subscribe(conn, api_key_id, st["pred_org"], "organization")
+
+    first = await run_restore(conn, st["plan"], execute=True)
+    assert first["subscriptions_restored"] == 0
+
+    second = await run_restore(conn, st["plan"], execute=True)
+    assert second["subscriptions_restored"] == 0
+
+
+async def test_no_watchers_means_nothing_to_restore(conn, merged_state):
+    """Nobody watching the winner means no audience to approximate — not an error."""
+    summary = await run_restore(conn, merged_state["plan"], execute=True)
+    assert summary["subscriptions_restored"] == 0
