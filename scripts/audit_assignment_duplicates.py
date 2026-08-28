@@ -7,21 +7,35 @@ pairs for the same (person, role) — both dated; undated tenures coexist with
 dated ones by design (#289) and are never flagged. Non-overlapping tenures
 (returning legislators) are legitimate and never flagged.
 
-Pair orientation: the earlier-start row is the **survivor** (the wider,
-corrected record), the later-start row the **orphan**. Categories:
+Pair orientation: the earlier-start row is the **survivor**, the later-start
+row the **orphan**. Earlier-start does *not* imply wider — assuming it did is
+what produced the #474 archivals — so coverage is proven, never inferred from
+orientation. Categories:
 
-- ``deepened_start`` — the survivor was created *after* the orphan: the #311
-  producer-correction signature. Auto-mergeable.
-- ``subsumed`` — the survivor's window provably covers the orphan's
-  (dated end ≥ orphan's dated end, or survivor ``is_current``). Auto-mergeable.
-- ``overlapping_review`` — overlap without provable coverage (e.g. unknown end
-  on the survivor); report only.
+**Coverage is the merge gate (#476).** Both auto-merge categories require the
+same proof: the orphan's end is dated *and* the survivor's window provably
+covers it (dated end ≥ orphan's dated end, or the survivor is open and
+``is_current``). Only then does creation order pick between them:
+
+- ``deepened_start`` — covering, and the survivor was created *after* the
+  orphan: the #311 producer-correction signature. Auto-mergeable.
+- ``subsumed`` — covering, survivor created first. Auto-mergeable.
+- ``overlapping_review`` — overlap without provable coverage (unknown end on
+  the survivor, an open-ended orphan, or a survivor that ends *before* its
+  orphan does); report only.
+
+The merge reconciles no dates — it keeps the survivor's window as stored — so a
+pair whose coverage is unproven would discard the orphan's tenure outright.
+Before #476 ``deepened_start`` skipped the proof and did exactly that (#474: 21
+archivals). The audit never widens a span either: coverage it cannot prove is a
+human decision, not a guess.
 
 ``--execute`` merges auto-mergeable pairs: links / contact methods / addresses
 / identifiers move to the survivor (rows that would duplicate stay on the
 orphan), notes concatenate, and the orphan is **archived** (never deleted) with
-a provenance note. The archive UPDATE hits the entity_changes outbox, so
-subscribed producers see the retirement and can drop stale anchors.
+a provenance note recording the span the merge discarded. The archive UPDATE
+hits the entity_changes outbox, so subscribed producers see the retirement and
+can drop stale anchors.
 
 Idempotent: a merged pair leaves the audit's scope (archived rows are ignored).
 
@@ -43,13 +57,20 @@ logger = get_logger(__name__)
 FINDING_CATEGORIES = ("deepened_start", "subsumed", "overlapping_review")
 AUTO_MERGE_CATEGORIES = ("deepened_start", "subsumed")
 
-_ORPHAN_NOTE = "Archived as duplicate of {survivor} (#311 audit)."
+_ORPHAN_NOTE = "Archived as duplicate of {survivor} (#311 audit). Span was {start}..{end}."
+_OPEN_END = "open"
+_UNKNOWN_START = "unknown"
 
 # survivor s = earlier start (strictly — equal active starts are impossible under
 # uq_role_assignment_person_role_start); orphan o = later start. Overlap given
 # s.start < o.start reduces to o.start <= s's effective end (NULL end = open:
 # covers both is_current and unknown-end conservatively, so unprovable pairs
 # surface for review instead of hiding).
+#
+# The outer CASE is the coverage proof, shared by both auto-merge categories
+# (#476); the inner one only names which of them it is. Written this way so a
+# NULL comparison (s.end_date IS NULL, s.is_current FALSE) falls to the ELSE
+# rather than through to a merge — a WHEN on NOT(...) would not.
 _FINDINGS_SQL = """
 SELECT s.id AS survivor_id, o.id AS orphan_id,
        s.person_id, s.role_id, r.title AS role_title,
@@ -58,10 +79,10 @@ SELECT s.id AS survivor_id, o.id AS orphan_id,
        o.start_date AS orphan_start, o.end_date AS orphan_end,
        o.is_current AS orphan_is_current,
        CASE
-           WHEN s.created_at > o.created_at THEN 'deepened_start'
            WHEN o.end_date IS NOT NULL
                 AND (s.end_date >= o.end_date OR (s.end_date IS NULL AND s.is_current))
-               THEN 'subsumed'
+               THEN CASE WHEN s.created_at > o.created_at
+                         THEN 'deepened_start' ELSE 'subsumed' END
            ELSE 'overlapping_review'
        END AS category
 FROM role_assignments s
@@ -154,6 +175,9 @@ async def find_duplicates(conn: asyncpg.Connection) -> dict[str, list[dict]]:
 async def _merge_pair(conn: asyncpg.Connection, survivor_id: str, orphan_id: str) -> bool:
     """Move the orphan's side data to the survivor and archive the orphan.
 
+    The archive note names the survivor *and* the orphan's span (#476): the
+    merge does not reconcile dates, so that window survives nowhere else.
+
     Returns False (skipping the merge) when either row was archived by an
     earlier pair this run — findings are computed once up front, so 3+-row
     overlap chains can stale-reference a row another merge just retired (CR
@@ -176,14 +200,23 @@ async def _merge_pair(conn: asyncpg.Connection, survivor_id: str, orphan_id: str
     await conn.execute(_MOVE_CONTACT_METHODS_SQL, orphan_id, survivor_id)
     await conn.execute(_MOVE_ADDRESSES_SQL, orphan_id, survivor_id)
     await conn.execute(_MOVE_IDENTIFIERS_SQL, orphan_id, survivor_id)
-    orphan_notes = await conn.fetchval("SELECT notes FROM role_assignments WHERE id=$1", orphan_id)
+    orphan = await conn.fetchrow(
+        "SELECT notes, start_date, end_date FROM role_assignments WHERE id=$1", orphan_id
+    )
+    orphan_notes = orphan["notes"]
     if orphan_notes:
         survivor_notes = await conn.fetchval(
             "SELECT notes FROM role_assignments WHERE id=$1", survivor_id
         )
         if orphan_notes not in (survivor_notes or ""):
             await conn.execute(_MERGE_NOTES_SQL, survivor_id, orphan_notes)
-    await conn.execute(_ARCHIVE_ORPHAN_SQL, orphan_id, _ORPHAN_NOTE.format(survivor=survivor_id))
+    # The merge keeps the survivor's window, so the orphan's is otherwise lost.
+    note = _ORPHAN_NOTE.format(
+        survivor=survivor_id,
+        start=orphan["start_date"] or _UNKNOWN_START,
+        end=orphan["end_date"] or _OPEN_END,
+    )
+    await conn.execute(_ARCHIVE_ORPHAN_SQL, orphan_id, note)
     return True
 
 

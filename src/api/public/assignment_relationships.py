@@ -76,6 +76,7 @@ async def submit_relationship_observations(
                 disposition=r.disposition.value,
                 relationship_id=r.relationship_id,
                 reason=r.reason,
+                attached_archived=r.attached_archived or None,
             )
             for r in results
         ]

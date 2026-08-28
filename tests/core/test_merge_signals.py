@@ -15,6 +15,7 @@ import pytest_asyncio
 from src.core.db import generate_id
 from src.core.merge_signals import (
     MERGEABLE_ENTITY_TYPES,
+    copy_subscriptions,
     mirror_subscriptions,
     record_merge_tombstones,
 )
@@ -239,4 +240,51 @@ async def test_mirror_adds_nothing_when_nobody_watched_the_loser(db, api_key_id,
 async def test_mirror_empty_pairs_is_a_noop(db):
     before = await db.fetchval("SELECT count(*) FROM api_key_entity_subscriptions")
     await mirror_subscriptions(db, [])
+    assert await db.fetchval("SELECT count(*) FROM api_key_entity_subscriptions") == before
+
+
+# ---------------------------------------------------------------------------
+# copy_subscriptions — the direction-neutral primitive (#479)
+# ---------------------------------------------------------------------------
+
+
+async def test_copy_adds_the_target_and_keeps_the_source(db, api_key_id, org_pair):
+    """A restore copies winner → resurrected, the reverse of the merge direction.
+
+    Same statement, opposite direction, so the copy may not assume its source is
+    a loser or its target a winner. `mirror_subscriptions` keeps the merge-facing
+    name; this is the primitive both share.
+    """
+    winner, resurrected = org_pair
+    await _subscribe(db, api_key_id, winner, "organization")
+    await copy_subscriptions(db, [(winner, resurrected)])
+
+    rows = await db.fetch(
+        "SELECT entity_id, entity_type FROM api_key_entity_subscriptions WHERE api_key_id=$1",
+        api_key_id,
+    )
+    assert {(r["entity_id"], r["entity_type"]) for r in rows} == {
+        (winner, "organization"),
+        (resurrected, "organization"),
+    }
+
+
+async def test_mirror_subscriptions_is_the_merge_named_alias(db, api_key_id, org_pair):
+    """Both names reach one statement — a second copy would be free to drift."""
+    loser, winner = org_pair
+    await _subscribe(db, api_key_id, loser, "organization")
+    await mirror_subscriptions(db, [(loser, winner)])
+    await copy_subscriptions(db, [(loser, winner)])
+
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM api_key_entity_subscriptions WHERE api_key_id=$1", api_key_id
+        )
+        == 2
+    )
+
+
+async def test_copy_empty_pairs_is_a_noop(db):
+    before = await db.fetchval("SELECT count(*) FROM api_key_entity_subscriptions")
+    await copy_subscriptions(db, [])
     assert await db.fetchval("SELECT count(*) FROM api_key_entity_subscriptions") == before

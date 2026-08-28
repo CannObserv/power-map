@@ -231,6 +231,9 @@ async def test_auto_attached_on_same_natural_key(client, write_key, obs_entities
     r2 = await _post(client, raw, payload)
     assert r2.json()["disposition"] == "auto-attached"
     assert r2.json()["entity_id"] == aid
+    # #477: a healthy attach to a *live* row carries no archived signal. The field
+    # is optional-absent rather than false so the common case stays quiet.
+    assert r2.json()["attached_archived"] is None
 
 
 async def test_auto_attached_null_start_date_dedup(client, write_key, obs_entities, db):
@@ -1248,6 +1251,9 @@ async def test_retract_re_emit_is_noop_no_outbox(client, write_key, obs_entities
     body = r2.json()
     assert body["disposition"] == "auto-attached"
     assert body["entity_id"] == aid
+    # #477: the re-emitted retract is answered "auto-attached" too. Without the
+    # flag a producer cannot tell that from a fresh attach to a live row.
+    assert body["attached_archived"] is True
     assert await _outbox_count(db, aid) == after_first  # no-op, no emit
 
 
@@ -1376,6 +1382,10 @@ async def test_reobserve_after_retract_stays_retracted(client, write_key, obs_en
     body = r2.json()
     assert body["disposition"] == "auto-attached"
     assert body["entity_id"] == aid  # the archived row, not a new one
+    # #477: the whole point of the signal — this response is otherwise
+    # indistinguishable from a healthy attach where one field didn't apply, which
+    # is exactly what left usa-wa anchored to a dead row for a month (#474).
+    assert body["attached_archived"] is True
 
     rows = await db.fetch(
         "SELECT id, archived_at FROM role_assignments WHERE person_id=$1 AND role_id=$2",

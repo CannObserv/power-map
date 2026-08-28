@@ -200,6 +200,12 @@ async def submit_assignment_observation(
     ``contact_methods`` / ``addresses``) is skipped rather than pinned to a
     retracted row. Every withheld field name comes back in ``unapplied`` so a
     producer still emitting the tenure is told rather than silently no-op'd.
+
+    Both archived outcomes — that attach and a re-emitted ``op="retract"`` — also
+    set ``attached_archived: true`` (#477). ``auto-attached`` alone cannot
+    separate them from a healthy attach to a live tenure, and ``unapplied`` never
+    meant "archived"; inferring it from a field name there cost the downstream
+    producer a month anchored to a retracted row (#474).
     """
     is_pm_native = req.identifier_type == "pm_assignment_id"
     unapplied: list[str] = []
@@ -216,10 +222,14 @@ async def submit_assignment_observation(
                     role_id=req.role_id,
                     source_key_id=auth.key_id,
                 )
+            # A retract against an already-archived tenure is answered
+            # `auto-attached` (idempotent, no outbox emit). #477: say so — the
+            # producer is re-emitting a retract PM already applied.
             return ObservationResponse(
                 disposition=disposition.value,
                 entity_id=req.identifier_value,
                 entity_type="role_assignment",
+                attached_archived=(disposition is Disposition.AUTO_ATTACHED) or None,
             )
         # Resolution + all writes share one transaction so any rejection or
         # constraint failure rolls the whole observation back — nothing
@@ -295,4 +305,7 @@ async def submit_assignment_observation(
         entity_id=assignment_id,
         entity_type="role_assignment",
         unapplied=unapplied or None,
+        # #477: `unapplied` says *what* was withheld, never *why*. Only this says
+        # the addressed row is retracted — the signal usa-wa lacked for a month.
+        attached_archived=attached_archived or None,
     )

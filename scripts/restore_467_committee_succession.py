@@ -19,6 +19,13 @@ This restores the two-source-record shape the #469 design canonizes:
    (see CannObserv/usa-wa#283).
 4. Record a year-2020 ``succeeded_by`` event (predecessor → winner), which
    also derives the predecessor's lifespan end (2020-12-31).
+5. Re-subscribe the winner's current watchers to the resurrected ids (#479).
+   Steps 1–4 all emit outbox rows, but ``GET /changes`` joins on **current**
+   subscriptions: a consumer that processed the merge tombstone and correctly
+   unsubscribed from the retired id receives none of them, including the ones
+   saying it came back. PM does not record the delete-time audience, so the
+   winner's watchers stand in for it — an approximation, and exactly right in
+   the case this script exists for.
 
 Idempotent: every step no-ops when its outcome is already in place. All writes
 ride ordinary triggers, so the change feed announces each touched row.
@@ -38,6 +45,7 @@ import asyncpg
 from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
+from src.core.merge_signals import copy_subscriptions
 
 logger = get_logger(__name__)
 
@@ -214,8 +222,10 @@ async def _move_identifier(conn: asyncpg.Connection, plan: RestorePlan, *, execu
 
 async def _repoint_assignments(
     conn: asyncpg.Connection, plan: RestorePlan, *, execute: bool
-) -> int:
+) -> tuple[int, int]:
     """Move pre-cutoff assignments from the winner's Member role to the resurrected role.
+
+    Returns ``(moved, current_moved)`` — the second is the #307 warning count.
 
     NULL-start rows are reported but never moved — the cutoff cannot classify
     them; resolve those by hand if any appear.
@@ -309,6 +319,52 @@ async def _record_succession(conn: asyncpg.Connection, plan: RestorePlan, *, exe
     return True
 
 
+async def _resubscribe_watchers(
+    conn: asyncpg.Connection, plan: RestorePlan, *, execute: bool
+) -> int:
+    """Re-subscribe the winner's current watchers to the resurrected org and role.
+
+    The restore's compensating ``updated`` events cannot reach the one consumer
+    that needs them: ``GET /changes`` joins on **current** subscriptions, so a
+    key that processed the merge tombstone, re-anchored to the winner and
+    unsubscribed from the retired id is permanently deaf to that id. Nothing
+    records who held a subscription at delete time, so the winner's watchers are
+    the stand-in — the same key set in every case where the consumer re-anchored,
+    which is the documented response to a ``merged_into`` tombstone.
+
+    Returns the number of (key, id) subscriptions that are missing, which is what
+    a re-run reports as zero.
+    """
+    added = 0
+    for source, target in (
+        (plan.winner_org_id, plan.predecessor_org_id),
+        (plan.winner_member_role_id, plan.predecessor_role_id),
+    ):
+        keys = await conn.fetch(
+            """SELECT s.api_key_id FROM api_key_entity_subscriptions s
+               WHERE s.entity_id = $1
+                 AND NOT EXISTS (
+                     SELECT 1 FROM api_key_entity_subscriptions t
+                     WHERE t.api_key_id = s.api_key_id AND t.entity_id = $2)""",
+            source,
+            target,
+        )
+        for k in keys:
+            logger.info(
+                "%s key %s to restored entity %s (watches winner %s)",
+                "subscribing" if execute else "would subscribe",
+                k["api_key_id"],
+                target,
+                source,
+            )
+        added += len(keys)
+        if execute and keys:
+            await copy_subscriptions(conn, [(source, target)])
+    if not added:
+        logger.info("no winner subscriptions to copy — the restored ids have no audience")
+    return added
+
+
 async def run_restore(
     conn: asyncpg.Connection, plan: RestorePlan, *, execute: bool
 ) -> dict[str, int | bool]:
@@ -327,6 +383,9 @@ async def run_restore(
         conn, plan, execute=execute
     )
     summary["succession_recorded"] = await _record_succession(conn, plan, execute=execute)
+    # Last: the ids exist again by now, so the audience is being pointed at
+    # something live rather than at a tombstone the earlier steps still held.
+    summary["subscriptions_restored"] = await _resubscribe_watchers(conn, plan, execute=execute)
     logger.info("summary: %s", summary)
     if not execute:
         logger.info("Pass --execute to apply")
