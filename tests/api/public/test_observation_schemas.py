@@ -62,6 +62,21 @@ def test_observation_response_rejected_entity_id_none():
     assert resp.entity_type is None
 
 
+def test_observation_response_provenance_claimed_is_additive_and_optional():
+    """#478: `null`/absent unless this observation stamped provenance.
+
+    Same contract as `attached_archived` (#477) — never `false` on a healthy
+    response, but always present as a key so a producer can probe for support
+    rather than infer it from an absent field.
+    """
+    field = ObservationResponse.model_fields.get("provenance_claimed")
+    assert field is not None, "ObservationResponse does not expose provenance_claimed (#478)"
+    assert field.default is None
+    dumped = ObservationResponse(disposition="auto-attached", entity_id="01ABC").model_dump()
+    assert "provenance_claimed" in dumped
+    assert dumped["provenance_claimed"] is None
+
+
 # ---------------------------------------------------------------------------
 # ObservationContactMethod / ObservationAddress / ObservationPersonNameParts
 # ---------------------------------------------------------------------------
