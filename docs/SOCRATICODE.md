@@ -139,6 +139,15 @@ re-run (skills#210); everything below it survives. So this is where a
 repo-specific reading goes — not in `AGENTS.md`, which is loaded on every
 invocation and whose policy block `curating-context` refuses to trim.
 
+**No degraded variant is defined here.** § Graph health tells a `verdict: "low"`
+repo to put the `AGENTS.md` block on one. power-map measures `ok` — 1,107 edges
+across 736 files, 1.5 edges/file (2026-08-29) — so the marked
+`## Code Exploration Policy` block has exactly one form and that instruction has
+nothing to select. Writing the variant is the work if a check ever returns
+`low`; it is not sitting there waiting. (The 65.7% `unresolvedPct` beside the
+`ok` is the call-graph statistic § Graph health says it is, not a second
+verdict.)
+
 One region above the marker is **not** the template's and does not survive
 either: the *When to use each tool* table, which names the tools this server
 build exposes and this project's tree. The skill's own adaptation checklist asks

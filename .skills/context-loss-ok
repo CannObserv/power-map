@@ -94,3 +94,29 @@ docs/TESTING.md :: retarget :: recipes live in `docs/SCHEMA.md`; the a11y rules 
 #   GH_TOKEN / TEST_DATABASE_URL ownership -> § Environment, the env-vars table
 AGENTS.md :: duplicate :: Scheduled timers (outbox prune · API anomaly · schema parity
 AGENTS.md :: duplicate :: It replaces the `.venv` symlink `worktree-create.sh` leaves behind
+
+# --- #473 (2026-08-29): AGENTS.md § Project Layout — the docs/ line named five of
+#     the twenty-seven docs the `## Detail Docs` index lists in full a hundred lines
+#     below, and dated the split to #407. The enumeration is a sample of the index it
+#     points at; the date is history of a completed reorganisation. Verified by
+#     command before rewriting:
+#       grep -c '^- \[docs/' AGENTS.md  -> 21 bullets naming 27 docs (index complete)
+#       gh issue view 407 --json state  -> CLOSED
+#     Replaced by one line carrying the same pointer: "Reference docs, split by
+#     subject — complete index at the end of this file".
+AGENTS.md :: duplicate :: docs/           — Reference docs (COMMANDS, STYLE, CONVENTIONS, SKILLS, PUBLIC_API)
+AGENTS.md :: duplicate :: split by subject since #407 — complete index at the end of this file
+
+# --- #473 (2026-08-29): the operational-scripts paragraph was tightened a second
+#     time (the #456 `retarget` entry above still matches its prefix and is what
+#     covers it). The dropped half is mechanism, carried claim-for-claim by
+#     docs/RUNBOOKS.md § Operational scripts, which the surviving sentence points at:
+#       `add_dsn_args`/`resolve_dsn`, `--database-url`/`--test`  -> the uniform-flags table
+#       `test_dsn_sweep.py` … AST … no allowlist                 -> "All three rules are
+#                                                                   enforced by … It has
+#                                                                   no allowlist"
+#       `apply-schema.sh` targets prod / refuses in a worktree    -> also verbatim in the
+#                                                                   two AGENTS.md table
+#                                                                   rows twelve lines above
+#     The rule that must stay inline — DATABASE_URL is production everywhere, so gate
+#     behind `--execute` and `echo_target()` first — is unchanged.

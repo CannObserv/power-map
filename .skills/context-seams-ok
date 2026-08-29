@@ -257,4 +257,24 @@ docs/SOCRATICODE.md :: repo-specific reading goes — not in `AGENTS.md`, which 
 # regenerating the span. That is the documented hazard, landing on the very file
 # that documents it. The reading still holds (health-check 2026-08-27: verdict
 # ok, 1.504 edges/file); restoring it BELOW the marker is tracked in #473.
+#
+# #473 CLOSED IT (2026-08-29). The answer is back, below the END marker, under
+# `## Repo-specific notes` — "No degraded variant is defined here." This entry
+# stays: line 94 still back-references `AGENTS.md` and is still template-owned,
+# so the seam is permanent and only the unanswered half was the defect.
 docs/SOCRATICODE.md :: `AGENTS.md` block should be on its degraded variant.
+
+# --- #473 (2026-08-29) ---------------------------------------------------------
+# back-reference — the restored degraded-variant note. It names `AGENTS.md` as
+# the SUBJECT it is a reading of, not as a location content moved out of, which
+# is the same judgement already recorded for SOCRATICODE.md:4, :12, :94 and :139.
+# Verified at judging time: the `socraticode-policy` marker pair is at
+# AGENTS.md:17/38 and the block still has exactly one form.
+docs/SOCRATICODE.md :: repo to put the `AGENTS.md` block on one. power-map measures `ok` — 1,107 edges
+
+# provenance-heading — #477's heading, landed in Batch A after the last sweep.
+# Not fallout of this run and not renameable: `docs/PUBLIC_API.md:187` and
+# `docs/API_ASSIGNMENTS.md:98` both cite it by title, and neither is a markdown
+# link, so a rename would break two references no gate can see. Same shape and
+# same judgement as the other ~57 `#NNN` headings acknowledged above.
+docs/OBSERVATIONS.md :: ## Anti-resurrection is labelled — `attached_archived` (#477)
