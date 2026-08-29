@@ -46,8 +46,7 @@ src/api/        — FastAPI app (ASGI, routes, auth, schemas)
 src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion)
 src/static/     — Static assets; vendor/ is SHA-pinned and excluded from linting
 tests/          — Mirrors src/ structure; js/ for Vitest
-docs/           — Reference docs (COMMANDS, STYLE, CONVENTIONS, SKILLS, PUBLIC_API)
-                  split by subject since #407 — complete index at the end of this file
+docs/           — Reference docs, split by subject — complete index at the end of this file
 scripts/        — One-off operational scripts
 infra/          — systemd units (API + prune timer) + terraform
 ```
@@ -120,7 +119,7 @@ exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 
 Eight scheduled timers all surface failure through `systemctl --failed` — roster, cadences and scripts in `docs/COMMANDS.md` § Scheduled timers.
 
-**Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates the write behind `--execute` and calls `echo_target()` (`scripts/_dsn.py`) before connecting. `add_dsn_args`/`resolve_dsn` give every script `--database-url` and `--test`; `tests/scripts/test_dsn_sweep.py` enforces gate, echo, and resolver by AST with no allowlist. `apply-schema.sh` writes to production on the bare invocation and refuses in a linked worktree (#398) — use `--test` from a worktree. Full rules → `docs/RUNBOOKS.md` § Operational scripts.
+**Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates the write behind `--execute` and calls `echo_target()` (`scripts/_dsn.py`) before connecting. The uniform flags, the resolver, and the no-allowlist AST sweep that enforces all three → `docs/RUNBOOKS.md` § Operational scripts.
 
 Full command reference: `docs/COMMANDS.md`
 
