@@ -112,12 +112,15 @@ async def test_identical_assertion_reports_nothing_when_the_claim_loses_a_race()
     matches nothing. Reporting the stale read here would tell a producer it owns
     a row another key holds.
     """
-    conn = _StubConn(_row(source_key_id=None), lost_race=True)
+    conn = _StubConn(_row(source_key_id=None), lost_race=True, now_owned_by=_THEIRS)
 
     claimed = await update_assignment_fields(
         conn, _RA_ID, start_date=date(2013, 1, 14), source_key_id=_MINE
     )
 
+    # Quiet, not a rejection: the bounds this producer asserted *are* what the
+    # row stores, so its observation was satisfied — only the claim lost (#480
+    # CR3). Contrast the archived case below, which the bounds path also rejects.
     assert claimed is False
 
 
@@ -237,6 +240,24 @@ async def test_bounds_update_rejects_when_the_row_vanished_mid_flight():
     with pytest.raises(ObservationRejected) as exc:
         await update_assignment_fields(
             conn, _RA_ID, start_date=date(2020, 1, 1), source_key_id=_MINE
+        )
+
+    assert exc.value.detail == "assignment_not_found"
+
+
+async def test_identical_assertion_rejects_when_the_row_is_archived_mid_claim():
+    """The claim path's other zero-row cause is not the same event (#480 CR3).
+
+    Losing the claim to another key leaves the producer's assertion true and is
+    answered quietly. A row archived between the read and the claim is the event
+    the bounds path rejects, and answering `auto-attached` would tell a producer
+    its observation landed on a row that no longer exists.
+    """
+    conn = _StubConn(_row(source_key_id=None), lost_race=True, gone=True)
+
+    with pytest.raises(ObservationRejected) as exc:
+        await update_assignment_fields(
+            conn, _RA_ID, start_date=date(2013, 1, 14), source_key_id=_MINE
         )
 
     assert exc.value.detail == "assignment_not_found"

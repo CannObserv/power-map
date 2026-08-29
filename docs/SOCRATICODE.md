@@ -141,7 +141,8 @@ invocation and whose policy block `curating-context` refuses to trim.
 
 **No degraded variant is defined here.** § Graph health tells a `verdict: "low"`
 repo to put the `AGENTS.md` block on one. power-map measures `ok` — 1,107 edges
-across 736 files, 1.5 edges/file (2026-08-29) — so the marked
+across 736 files, 1.5 edges/file, from `codebase_health` on 2026-08-29; re-run
+it rather than trusting that line — so the marked
 `## Code Exploration Policy` block has exactly one form and that instruction has
 nothing to select. Writing the variant is the work if a check ever returns
 `low`; it is not sitting there waiting. (The 65.7% `unresolvedPct` beside the

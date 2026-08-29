@@ -2101,7 +2101,10 @@ async def update_assignment_fields(
 
     **Must be called inside the caller's transaction** so a rejection rolls the
     whole observation back. Raises ``ObservationRejected`` when the row is
-    archived/gone (``assignment_not_found``); the merged state would be
+    archived/gone (``assignment_not_found`` — including a row archived between
+    this function's read and its write); another key owns the row
+    (``source_key_mismatch``, from the gate on the stored value *or* from losing
+    a race to a key that claimed it after that read); the merged state would be
     ``is_current`` with a dated end (``is_current_end_date_conflict`` — send an
     explicit ``end_date: null`` to reopen); the merged bounds invert
     (``start_after_end_date``); or the new ``start_date`` collides with a
@@ -2158,7 +2161,22 @@ async def update_assignment_fields(
             source_key_id,
         )
         if claimed_by != source_key_id:
-            return False  # lost the race, or the row was archived meanwhile
+            # Zero rows, two causes that are not the same event (#480 CR3).
+            # Another key claiming first is not an error: the producer's
+            # assertion still holds — the bounds it sent are what the row
+            # stores — and only the claim failed, so stay quiet. The row being
+            # archived underneath us is the event the bounds path rejects, and
+            # the producer is addressing a row that no longer exists.
+            current = await conn.fetchrow(
+                "SELECT archived_at FROM role_assignments WHERE id=$1", assignment_id
+            )
+            if current is None or current["archived_at"] is not None:
+                logger.warning(
+                    "update_assignment_fields: assignment=%s archived between read and claim",
+                    assignment_id,
+                )
+                raise ObservationRejected("assignment_not_found")
+            return False
         logger.info(
             "Claimed provenance on role_assignment id=%s source_key_id=%s",
             assignment_id,
