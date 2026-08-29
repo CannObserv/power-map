@@ -2183,11 +2183,19 @@ async def update_assignment_fields(
     try:
         # RETURNING for the same reason as the claim branch above: the reported
         # claim must come from what the write settled on, not the stale read.
-        claimed_by = await conn.fetchval(
+        #
+        # The ownership predicate repeats the gate 20 lines up *in the write*
+        # (#478 CR): that gate tests a value read before this statement, so a key
+        # that claimed the row in between would otherwise have another producer's
+        # bounds written over its own — the read decides which error to name, the
+        # predicate is what actually enforces authority. The claim branch above
+        # already worked this way; this is the same technique on the bounds path.
+        updated = await conn.fetchrow(
             "UPDATE role_assignments SET start_date=$2, end_date=$3, is_current=$4,"
             " source_key_id=COALESCE(source_key_id, $5)"
             " WHERE id=$1 AND archived_at IS NULL"
-            " RETURNING source_key_id",
+            "   AND (source_key_id IS NULL OR source_key_id=$5)"
+            " RETURNING id, source_key_id",
             assignment_id,
             new_start,
             new_end,
@@ -2202,6 +2210,33 @@ async def update_assignment_fields(
         )
         raise ObservationRejected("start_date_conflict") from exc
 
+    if updated is None:
+        # Zero rows matched, so nothing was written — never log or return success
+        # for a write that did not land (#478 CR). The pre-UPDATE gate passed, so
+        # the row moved underneath us: archived, or claimed by another key since
+        # the SELECT. One diagnostic read to name which; it only runs on a path
+        # that should effectively never fire.
+        current = await conn.fetchrow(
+            "SELECT archived_at, source_key_id FROM role_assignments WHERE id=$1",
+            assignment_id,
+        )
+        if (
+            current is not None
+            and current["archived_at"] is None
+            and current["source_key_id"] not in (None, source_key_id)
+        ):
+            logger.warning(
+                "update_assignment_fields: assignment=%s claimed by %s between read and write",
+                assignment_id,
+                current["source_key_id"],
+            )
+            raise ObservationRejected("source_key_mismatch")
+        logger.warning(
+            "update_assignment_fields: assignment=%s vanished between read and write",
+            assignment_id,
+        )
+        raise ObservationRejected("assignment_not_found")
+
     logger.info(
         "Updated role_assignment id=%s start_date=%s end_date=%s is_current=%s",
         assignment_id,
@@ -2211,7 +2246,7 @@ async def update_assignment_fields(
     )
     # The COALESCE above already claimed an unowned row; #478 only makes the
     # caller able to say so.
-    return claims_provenance and claimed_by == source_key_id
+    return claims_provenance and updated["source_key_id"] == source_key_id
 
 
 async def retract_assignment(
