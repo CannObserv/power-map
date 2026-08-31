@@ -95,7 +95,16 @@ setup_worktree_fixture() {
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
     unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
     unset GIT_AUTHOR_DATE GIT_COMMITTER_DATE GIT_EDITOR GIT_REFLOG_ACTION
-    export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+
+    # A tmpdir global config rather than /dev/null: the developer's own global
+    # config is still neutralised, but `protocol.file.allow` has to come from
+    # somewhere. Submodule clones run with file transport disabled (the fix for
+    # CVE-2022-39253), and the setting is ignored from the superproject's own
+    # config — the clone reads it as the submodule repo. Without it every
+    # fixture submodule fails to clone from its file:// source.
+    export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig-global"
+    export GIT_CONFIG_SYSTEM=/dev/null
+    printf '[protocol "file"]\n\tallow = always\n' > "$GIT_CONFIG_GLOBAL"
 
     FAKE_MAIN="$BATS_TEST_TMPDIR/main"
     FAKE_WORKTREE="$BATS_TEST_TMPDIR/wt/feature"
@@ -120,4 +129,47 @@ setup_worktree_fixture() {
     git -C "$FAKE_MAIN" add README.md
     git -C "$FAKE_MAIN" commit --quiet --no-verify -m "init"
     git -C "$FAKE_MAIN" worktree add --quiet -b feature "$FAKE_WORKTREE" >/dev/null
+}
+
+# Add a submodule at skills-vendor/$1 (default: thing) to $FAKE_MAIN and
+# fast-forward the linked worktree onto it, leaving the worktree in the state a
+# fresh `worktree-create.sh` produces: .gitmodules present, submodule directory
+# empty (#482).
+#
+# The source is a throwaway repo in $BATS_TEST_TMPDIR reached over file
+# transport — see setup_worktree_fixture for why that needs a global config.
+add_fixture_submodule() {
+    local name="${1:-thing}"
+    local src="$BATS_TEST_TMPDIR/sub-$name"
+
+    mkdir -p "$src"
+    git -C "$src" init --quiet --initial-branch=main --template=
+    git -C "$src" config user.email bats@example.invalid
+    git -C "$src" config user.name bats
+    git -C "$src" config core.hooksPath /dev/null
+    : > "$src/SKILL.md"
+    git -C "$src" add SKILL.md
+    git -C "$src" commit --quiet --no-verify -m "vendored skill"
+
+    git -C "$FAKE_MAIN" submodule add --quiet "$src" "skills-vendor/$name"
+    git -C "$FAKE_MAIN" commit --quiet --no-verify -m "vendor $name"
+    # The worktree branch was cut before the submodule commit, so it carries no
+    # .gitmodules until it catches up. Tracked files only — the .venv and .env
+    # this suite fusses over are untracked and survive.
+    git -C "$FAKE_WORKTREE" reset --hard --quiet main
+}
+
+# Point a fixture submodule at a commit nothing has, so
+# `git submodule update --init` fails the way an unreachable source does: it
+# can populate the worktree only if it can resolve the recorded gitlink.
+#
+# The gitlink, not the URL: `submodule add` already cloned the source into
+# <common-dir>/modules/, so an update in the worktree reuses that gitdir and
+# never touches the URL at all.
+break_fixture_submodule() {
+    local name="${1:-thing}"
+    local bogus="0000000000000000000000000000000000000001"
+    git -C "$FAKE_MAIN" update-index --add --cacheinfo "160000,$bogus,skills-vendor/$name"
+    git -C "$FAKE_MAIN" commit --quiet --no-verify -m "break $name gitlink"
+    git -C "$FAKE_WORKTREE" reset --hard --quiet main
 }

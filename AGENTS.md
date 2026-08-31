@@ -103,7 +103,7 @@ Single VM; port split:
 ```bash
 bash scripts/worktree-setup.sh <worktree-path>
 ```
-It replaces the `.venv` symlink `worktree-create.sh` leaves behind with a real per-worktree environment (`uv sync --group browser --group seed`) and symlinks the gitignored `.env`. **Never share a venv with the main checkout** — that is production's working directory, and its systemd units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it (`docs/COMMANDS.md` § Worktree setup). Refuses (exit 2) against the main checkout.
+It replaces the `.venv` symlink `worktree-create.sh` leaves behind with a real per-worktree environment (`uv sync --group browser --group seed`), initialises the `skills-vendor/` submodules, and symlinks the gitignored `.env` and `data/cannabis_observer` — without the last two a worktree's baseline is red and one test short of main's (#482). **Never share a venv with the main checkout** — that is production's working directory, and its systemd units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it (`docs/COMMANDS.md` § Worktree setup). Refuses (exit 2) against the main checkout.
 
 exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 

@@ -22,6 +22,16 @@
 # default `dev` group is a worktree whose browser and seed tiers quietly do not
 # exist. `tests/conftest.py` announces them when they are absent.
 #
+# Why the rest (#482). A worktree arrives carrying neither its submodules nor
+# anything gitignored, so an agent's first act — establish a baseline — is red
+# or off-by-one for reasons that have nothing to do with its work: the
+# skills-vendor submodules are empty directories (three of
+# `tests/test_vendor_skills.py` fail), and `data/cannabis_observer/` is absent
+# (`test_seed_jurisdictions.py` skips one test, so a fully-provisioned worktree
+# reports one pass fewer than the main checkout on an identical tree). A count
+# that differs by provisioning is a count nobody can use as a fall-through
+# detector, which is what it cost #480.
+#
 # Exit codes: 0 set up, 1 uv sync failed, 2 refused (not a linked worktree).
 
 set -euo pipefail
@@ -33,8 +43,9 @@ usage: bash scripts/worktree-setup.sh [<worktree-path>]
   <worktree-path>  the linked worktree to set up (default: current directory)
 
 Replaces a shared .venv symlink with a real per-worktree environment
-(`uv sync --group browser --group seed`) and symlinks .env from the main
-checkout. Refuses to run against the main checkout.
+(`uv sync --group browser --group seed`), initialises the skills-vendor
+submodules, and symlinks the gitignored .env and data/cannabis_observer from
+the main checkout. Refuses to run against the main checkout.
 EOF
 }
 
@@ -131,24 +142,53 @@ if ! (cd "$TARGET" && uv sync --group browser --group seed); then
     exit 1
 fi
 
-# ── The .env symlink ─────────────────────────────────────────────────────────
-# .env is gitignored, so a worktree inherits none. TEST_DATABASE_URL comes from
-# /etc/power-map/.env; the repo .env still carries the GH_* tokens.
-# A dangling symlink is `-L` true and `-e` false: leaving it in place would
-# break every `uv run --env-file .env` in this worktree, which is the state
-# this step exists to resolve — so replace it rather than report it present.
-if [ -L "$TARGET/.env" ] && [ ! -e "$TARGET/.env" ]; then
-    echo "removing dangling .env symlink -> $(readlink "$TARGET/.env")" >&2
-    rm "$TARGET/.env"
+# ── The vendored skill submodules ────────────────────────────────────────────
+# `git worktree add` populates tracked files only: .gitmodules arrives, the
+# submodule directories arrive empty. Non-fatal on failure — the source may be
+# unreachable (offline host, moved remote) and the venv and links are already
+# in place by here — but never silent, because the symptom of skipping it is a
+# red baseline that reads as the agent's own doing.
+if [ -f "$TARGET/.gitmodules" ] && grep -q 'skills-vendor/' "$TARGET/.gitmodules"; then
+    echo "initialising the skills-vendor submodules" >&2
+    if ! (cd "$TARGET" && git submodule update --init skills-vendor/); then
+        echo "WARN: could not initialise skills-vendor/ — the vendored-driver" >&2
+        echo "      guards will fail; re-run from $TARGET when reachable:" >&2
+        echo "      git submodule update --init skills-vendor/" >&2
+    fi
 fi
 
-if [ -e "$TARGET/.env" ] || [ -L "$TARGET/.env" ]; then
-    echo ".env already present — left alone" >&2
-elif [ -f "$MAIN_ROOT/.env" ]; then
-    ln -s "$MAIN_ROOT/.env" "$TARGET/.env"
-    echo "linked .env -> $MAIN_ROOT/.env" >&2
-else
-    echo "WARN: no .env in $MAIN_ROOT — GH_TOKEN-dependent commands will not work" >&2
-fi
+# ── The shared gitignored paths ──────────────────────────────────────────────
+# Gitignored paths never arrive with a worktree, so anything read from one has
+# to be linked from the main checkout:
+#   .env                    — the GH_* tokens; TEST_DATABASE_URL comes from
+#                             /etc/power-map/.env, not this file
+#   data/cannabis_observer  — importer and seed fixtures; without it the
+#                             worktree's baseline count cannot match main's
+#
+# A dangling symlink is `-L` true and `-e` false: leaving it in place would
+# break every reader, which is the state this step exists to resolve — so
+# replace it rather than report it present.
+link_shared() {
+    local rel="$1" consequence="$2"
+    local dest="$TARGET/$rel" src="$MAIN_ROOT/$rel"
+
+    if [ -L "$dest" ] && [ ! -e "$dest" ]; then
+        echo "removing dangling $rel symlink -> $(readlink "$dest")" >&2
+        rm "$dest"
+    fi
+
+    if [ -e "$dest" ] || [ -L "$dest" ]; then
+        echo "$rel already present — left alone" >&2
+    elif [ -e "$src" ]; then
+        mkdir -p "$(dirname "$dest")"
+        ln -s "$src" "$dest"
+        echo "linked $rel -> $src" >&2
+    else
+        echo "WARN: no $rel in $MAIN_ROOT — $consequence" >&2
+    fi
+}
+
+link_shared .env "GH_TOKEN-dependent commands will not work"
+link_shared data/cannabis_observer "importer and seed-file tests will skip"
 
 echo "worktree ready: $TARGET" >&2
