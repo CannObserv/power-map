@@ -29,7 +29,9 @@ package.json
 uv.lock
 package-lock.json
 
-# The domain contract, inventoried by docs/SCHEMA*.md
+# The domain contract, inventoried by docs/SCHEMA*.md. Redundant with src/core/
+# below while it lives there — kept deliberately, so the contract keeps its own
+# line if it ever moves out from under that tree.
 schema.sql
 
 # Application code the docs describe route by route and panel by panel
@@ -42,11 +44,17 @@ src/static/
 infra/
 scripts/
 
-# Agent tooling docs/SKILLS.md and docs/SOCRATICODE.md inventory by name
+# Agent tooling docs/SKILLS.md and docs/SOCRATICODE.md name directly. `skills/`
+# also reaches `.claude/skills/<name>` on the interior `/skills/` segment, so
+# that directory needs no entry of its own.
 .claude/hooks/
-.claude/skills/
 .claude/settings.json
 skills/
-.gitmodules
 .socraticodecontextartifacts.json
+
+# Repo-wide tooling described elsewhere: the pre-commit hook roster
+# (docs/COMMANDS.md § Linting), the submodule roster (docs/SKILLS.md § External
+# Skill Repos), and the weekly context cadence (docs/CONTEXT.md, #471)
 .pre-commit-config.yaml
+.gitmodules
+.github/

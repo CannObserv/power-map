@@ -23,7 +23,10 @@ layout.
 
 **The list is the thing under test, not the matcher.** `path_matches` below
 mirrors the vendored bash so an entry can be checked against the tree the way
-the gate will check it; the assertions are all about our list. Two failure modes
+the gate will check it; the assertions are all about our list. The mirror is a
+hand-copy, so `TestTheMirrorStillDescribesTheGate` reads the vendored source
+back — ancestry proves the pin carries skills#252, not that the semantics have
+held still since. Two failure modes
 they close, both of which read as a pass in the gate itself:
 
 - **A dead entry.** It cannot contribute to any verdict, so it is a line of the
@@ -51,6 +54,14 @@ LIST_PATH = REPO_ROOT / ".skills" / "doc-sensitive-paths"
 # our list is ignored in silence and the defaults run instead.
 SEGMENT_MATCH_COMMIT = "662de71"
 
+DOC_CHECK_PATH = (
+    vendor_skills.VENDOR_ROOT
+    / "skills"
+    / "shipping-work-python-fastapi"
+    / "scripts"
+    / "doc-check.sh"
+)
+
 ROLLBACK_HINT = (
     f"The vendored gregoryfoster/skills pin does not contain {SEGMENT_MATCH_COMMIT} "
     "(skills#252), so doc-check.sh does not read .skills/doc-sensitive-paths at "
@@ -75,6 +86,7 @@ REPRESENTATIVE_PATHS = (
     "infra/power-map.service",  # deployment units (docs/COMMANDS.md)
     ".claude/hooks/socraticode-health.sh",  # hook inventory (docs/SKILLS.md)
     "skills/brainstorming/SKILL.md",  # skill inventory (docs/SKILLS.md)
+    ".github/workflows/context-cadence.yml",  # weekly cadence (docs/CONTEXT.md, #471)
 )
 
 
@@ -205,3 +217,50 @@ def test_the_pin_reads_the_project_list() -> None:
             "ancestry unverifiable, so it is not reported either way"
         )
     assert contains, ROLLBACK_HINT
+
+
+@pytest.mark.skipif(
+    not vendor_skills.vendor_skills_present(),
+    reason=vendor_skills.SKIP_REASON,
+)
+class TestTheMirrorStillDescribesTheGate:
+    """Corroboration for `path_matches` — the mirror is a hand-copy of bash.
+
+    The ancestry guard above proves the pin is at or past skills#252; it cannot
+    prove the semantics have not moved *since*. A drifted mirror is the worst
+    shape a guard here can take: every assertion in this file stays green while
+    predicting a verdict the real gate no longer reaches. So the vendored source
+    is read for the two `case` statements the mirror encodes.
+
+    A miss here is upstream having refactored, not this repo having broken —
+    re-anchor the mirror against the vendored script and do NOT edit
+    `skills-vendor/` to make it pass.
+    """
+
+    REFACTOR_HINT = (
+        "The vendored doc-check.sh no longer carries this matcher, so "
+        "path_matches in this file may no longer describe the gate. Re-read "
+        f"{DOC_CHECK_PATH.name} and re-anchor the mirror; treat it as an "
+        "upstream change, not a rollback, and never edit skills-vendor/."
+    )
+
+    @pytest.fixture(scope="class")
+    def source(self) -> str:
+        """The vendored gate's source."""
+        return DOC_CHECK_PATH.read_text()
+
+    def test_the_trailing_slash_branch_is_unchanged(self, source: str) -> None:
+        """Directory entries: prefix, or anywhere after a `/`."""
+        assert 'case "$file" in "$entry"*|*"/$entry"*) return 0 ;; esac' in source, (
+            self.REFACTOR_HINT
+        )
+
+    def test_the_slashless_branch_is_unchanged(self, source: str) -> None:
+        """File-or-directory entries: exact, suffix, prefix-dir, interior-dir."""
+        assert '"$entry"|*"/$entry"|"$entry"/*|*"/$entry"/*) return 0 ;;' in source, (
+            self.REFACTOR_HINT
+        )
+
+    def test_the_gate_still_reads_this_project_list(self, source: str) -> None:
+        """The override path is the one this repo committed to."""
+        assert "if [[ -f .skills/doc-sensitive-paths ]]; then" in source, self.REFACTOR_HINT
