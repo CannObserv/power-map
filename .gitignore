@@ -34,7 +34,7 @@ node_modules/
 .eslintcache
 
 # CSV import data
-data/cannabis_observer/
+data/cannabis_observer
 
 # Local script output (analyser CSVs, etc.)
 tmp/

@@ -1,7 +1,9 @@
 # power-map — Dedup & Merge UI
 
-The duplicate-detection workflow and the merge-bar pattern that drives it, across
-the people, orgs and roles list and detail screens.
+The server-side merge data contract — id preservation, the one destructive case,
+tombstones and subscription re-homing (#467) — plus the duplicate-detection
+workflow and the merge-bar pattern that drives it, across the people, orgs and
+roles list and detail screens.
 
 ---
 
