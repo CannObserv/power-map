@@ -47,7 +47,9 @@ DOCS = REPO_ROOT / "docs"
 ARCHIVAL = {"plans", "research", "archive", "audits", "specs"}
 
 # Whole-line ceiling for an index pointer, in characters. Set below the two
-# blurbs that broke the budget (249 and 224) and above every line that survived
+# blurbs that broke the budget (247 and 222 characters — `awk length` reports
+# 249 and 224 there, counting the em-dash's three bytes) and above every line
+# that survived
 # the rewrite, so the ceiling is a property of the shape rather than a snapshot
 # of the current longest line. A pointer that cannot be said in this much space
 # is describing the doc's contents instead of naming what a task would need it
@@ -77,11 +79,16 @@ CARDINAL_RE = re.compile(rf"\b({CARDINALS})\b", re.IGNORECASE)
 DIGIT_COUNT_RE = re.compile(r"\b\d{1,5} `")
 
 # The escape hatch, and the reason the gate can be strict: a count may stay if
-# the same line carries the command that re-derives it. Narrow on purpose —
-# `wc -l` is what re-derivation looks like, whereas any backticked command would
-# have let "Eight scheduled timers … `systemctl --failed`" through, and that
-# command counts nothing.
+# it carries the command that re-derives it. Narrow on purpose — `wc -l` is what
+# re-derivation looks like, whereas any backticked command would have let
+# "Eight scheduled timers … `systemctl --failed`" through, and that command
+# counts nothing.
 REDERIVATION_RE = re.compile(r"`[^`]*wc -l[^`]*`")
+
+# The exemption applies per CLAUSE, not per line. These lines run long and carry
+# several claims; exempting the whole line would let one properly re-derived
+# count shelter every bare one beside it.
+CLAUSE_SPLIT_RE = re.compile(r"(?<=[.;:])\s+")
 
 
 def _lines(path: Path) -> list[tuple[int, str]]:
@@ -155,7 +162,11 @@ def test_every_live_doc_is_reachable_from_the_policy_file(live_docs: set[Path]) 
         if current in seen:
             continue
         seen.add(current)
-        for name in re.findall(r"(?:\]\(|`)((?:docs/)?[A-Za-z_0-9]+\.md)", current.read_text()):
+        # `-` included: a doc named `db-triage.md` is linked like any other,
+        # and a pattern that cannot see it reports a correctly-linked doc as
+        # unreachable — a false failure teaches the next author to loosen the
+        # gate rather than fix the link.
+        for name in re.findall(r"(?:\]\(|`)((?:docs/)?[A-Za-z_0-9-]+\.md)", current.read_text()):
             target = DOCS / Path(name).name
             if target.is_file():
                 frontier.append(target)
@@ -171,12 +182,13 @@ def test_the_policy_file_carries_no_bare_counts() -> None:
     """A count either re-derives itself or drops its precision (#483)."""
     offenders = []
     for number, line in _lines(POLICY):
-        if REDERIVATION_RE.search(line):
-            continue
-        for pattern in (CARDINAL_RE, DIGIT_COUNT_RE):
-            for match in pattern.finditer(line):
-                excerpt = line[max(0, match.start() - 40) : match.end() + 40]
-                offenders.append(f"AGENTS.md:{number}: …{excerpt}…")
+        for clause in CLAUSE_SPLIT_RE.split(line):
+            if REDERIVATION_RE.search(clause):
+                continue
+            for pattern in (CARDINAL_RE, DIGIT_COUNT_RE):
+                for match in pattern.finditer(clause):
+                    excerpt = clause[max(0, match.start() - 40) : match.end() + 40]
+                    offenders.append(f"AGENTS.md:{number}: …{excerpt}…")
     assert not offenders, (
         "a count in this file rots silently and nothing detects it — three "
         "parties measured the same claim as 180, 189 and 182 (#483). Either drop "
@@ -187,15 +199,26 @@ def test_the_policy_file_carries_no_bare_counts() -> None:
 
 
 def test_routing_table_cells_stay_pointers() -> None:
-    """The same ceiling for the one doc-side index of the same shape."""
+    """A tighter ceiling for the one doc-side index of the same shape."""
     routing = DOCS / "API_ENTITIES.md"
-    too_long = []
+    too_long, examined = [], 0
     for number, line in _lines(routing):
         if not line.startswith("| ") or "](" not in line:
             continue
         cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if len(cells) == 3 and len(cells[2]) > ROUTING_CELL_MAX:
+        if len(cells) != 3:
+            continue
+        examined += 1
+        if len(cells[2]) > ROUTING_CELL_MAX:
             too_long.append(f"API_ENTITIES.md:{number}: {cells[2]}")
+
+    # Vacuity guard, the same one the Detail Docs index carries: a table that
+    # gains a column, or a pointer that moves out of a table, would leave the
+    # loop examining nothing and passing — coverage that has quietly stopped.
+    assert examined >= 5, (
+        f"examined {examined} routing rows in API_ENTITIES.md — the table's shape "
+        "changed and this gate is no longer checking anything"
+    )
     assert not too_long, (
         f"a routing row's 'Covers' cell stays under {ROUTING_CELL_MAX} chars — it "
         "names what the doc answers, it does not summarise it (#484):\n" + "\n".join(too_long)

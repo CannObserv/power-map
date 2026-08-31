@@ -244,8 +244,8 @@ the `skills-vendor/` submodules, and symlinks the gitignored `.env` and
 
 The last two exist so a worktree's first test run matches the main checkout's (#482).
 `git worktree add` populates tracked files only: the submodule directories arrive empty, so
-`tests/test_vendor_skills.py` fails three vendored-driver guards, and `data/cannabis_observer`
-is absent, so `test_seed_jurisdictions.py::test_load_seed_file_actual_wa_file` skips — one
+`tests/test_vendor_skills.py`'s vendored-driver guards fail, and `data/cannabis_observer`
+is absent, so `test_seed_jurisdictions.py::test_load_seed_file_actual_wa_file` skips — a
 pass fewer than main on an identical tree. Both are non-fatal warnings when the source is
 missing, because a briefed baseline count is only useful if the provisioning is not the
 variable.

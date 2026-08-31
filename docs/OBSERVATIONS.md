@@ -1,7 +1,7 @@
 # power-map — Observation Write Semantics & Provenance
 
 How the public observation path writes: the identifier-type vocabulary entities are
-addressed by, what counts as identity versus payload, when a re-emitted observation
+addressed by and its per-slug value conventions, what counts as identity versus payload, when a re-emitted observation
 refines in place, how `op="retract"` works, the
 `source_key_id` provenance gate, and the merge re-homing every conflict-delete owes
 its ancillary rows. Table definitions live in `docs/SCHEMA.md`.

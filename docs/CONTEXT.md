@@ -37,7 +37,7 @@ would need the doc for**; the doc's own opening paragraph says what is in it.
   subject is described *in the doc*, not in the pointer at it.
 - **Ceiling: 200 characters per line**, whole line including the link. A pointer
   that will not fit is summarising rather than routing.
-- The same ceiling (100 characters) applies to the `Covers` cells of
+- A tighter ceiling — 100 characters — applies to the `Covers` cells of
   `docs/API_ENTITIES.md`'s routing table, the one doc-side index of the same
   shape. `docs/SCHEMA.md`'s "DB key rules at a glance" is deliberately *not*
   covered: those lines are rule statements ending `Full rules → …`, a digest
@@ -92,8 +92,9 @@ had to correct `docs/AUDITS.md`'s preamble from six timers to four.
 
 `test_the_policy_file_carries_no_bare_counts` scans `AGENTS.md` for cardinal
 *words* ("two" … "twenty", "dozen") and for a digit qualifying a backticked term
-("180 `hx-get`"). A line carrying a `wc -l` command in backticks is exempt —
-that is form (1).
+("180 `hx-get`"). A *clause* carrying a `wc -l` command in backticks is exempt
+— that is form (1). Per clause, not per line: these lines run long, and one
+properly re-derived count must not shelter a bare one beside it.
 
 Bare digits are deliberately not scanned: in this file they are overwhelmingly
 status codes, ports, standards and versions, and a gate that cries wolf on `403`

@@ -189,6 +189,25 @@ EOF
     [ -f "$FAKE_WORKTREE/skills-vendor/thing/SKILL.md" ]
 }
 
+@test "a submodule moved off its gitlink is left where it is" {
+    # The script is documented idempotent and gets re-run; `submodule update`
+    # would check the recorded gitlink back out, silently undoing the one
+    # reason to be at another commit — testing a pointer bump. Provision only
+    # what is unprovisioned.
+    add_fixture_submodule
+    bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+
+    local sub="$FAKE_WORKTREE/skills-vendor/thing" moved
+    git -C "$sub" -c user.email=bats@example.invalid -c user.name=bats \
+        commit --quiet --no-verify --allow-empty -m "local pointer bump"
+    moved="$(git -C "$sub" rev-parse HEAD)"
+
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$sub" rev-parse HEAD)" = "$moved" ]
+    [[ "$output" == *"already initialised"* ]]
+}
+
 # --- the shared gitignored data (#482) --------------------------------------
 
 @test "symlinks data/cannabis_observer from the main checkout" {
@@ -237,6 +256,18 @@ EOF
     [ "$status" -eq 0 ]
     [ -L "$FAKE_WORKTREE/data/cannabis_observer" ]
     [ "$(cat "$FAKE_WORKTREE/data/cannabis_observer/seed.json")" = "{}" ]
+}
+
+@test "a parent that cannot hold the link warns instead of aborting the run" {
+    # `set -e` on a bare mkdir would kill the script with exit 1 here — the code
+    # the header documents as "uv sync failed", after the sync already succeeded.
+    mkdir -p "$FAKE_MAIN/data/cannabis_observer"
+    : > "$FAKE_WORKTREE/data"          # a FILE where the directory must go
+
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARN: could not link data/cannabis_observer"* ]]
+    [[ "$output" == *"worktree ready"* ]]
 }
 
 @test "no data in the main checkout is a warning, not a failure" {

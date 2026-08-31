@@ -25,10 +25,11 @@
 # Why the rest (#482). A worktree arrives carrying neither its submodules nor
 # anything gitignored, so an agent's first act — establish a baseline — is red
 # or off-by-one for reasons that have nothing to do with its work: the
-# skills-vendor submodules are empty directories (three of
+# skills-vendor submodules are empty directories (the vendored-driver guards in
 # `tests/test_vendor_skills.py` fail), and `data/cannabis_observer/` is absent
-# (`test_seed_jurisdictions.py` skips one test, so a fully-provisioned worktree
-# reports one pass fewer than the main checkout on an identical tree). A count
+# (`test_seed_jurisdictions.py` skips its real-seed-file case, so a
+# fully-provisioned worktree reports a pass fewer than the main checkout on an
+# identical tree). A count
 # that differs by provisioning is a count nobody can use as a fall-through
 # detector, which is what it cost #480.
 #
@@ -148,12 +149,23 @@ fi
 # unreachable (offline host, moved remote) and the venv and links are already
 # in place by here — but never silent, because the symptom of skipping it is a
 # red baseline that reads as the agent's own doing.
+#
+# Provision only what is unprovisioned. This script is documented idempotent and
+# gets re-run, and a blanket `submodule update` checks the recorded gitlink back
+# out — silently undoing the one reason to be at another commit, testing a
+# pointer bump. `git submodule status` flags an uninitialised submodule with a
+# leading `-` and a moved one with `+`; only the former is ours to fix.
 if [ -f "$TARGET/.gitmodules" ] && grep -q 'skills-vendor/' "$TARGET/.gitmodules"; then
-    echo "initialising the skills-vendor submodules" >&2
-    if ! (cd "$TARGET" && git submodule update --init skills-vendor/); then
-        echo "WARN: could not initialise skills-vendor/ — the vendored-driver" >&2
-        echo "      guards will fail; re-run from $TARGET when reachable:" >&2
-        echo "      git submodule update --init skills-vendor/" >&2
+    uninitialised="$(cd "$TARGET" && git submodule status skills-vendor/ 2>/dev/null | grep -c '^-' || true)"
+    if [ "${uninitialised:-0}" -gt 0 ]; then
+        echo "initialising the skills-vendor submodules" >&2
+        if ! (cd "$TARGET" && git submodule update --init skills-vendor/); then
+            echo "WARN: could not initialise skills-vendor/ — the vendored-driver" >&2
+            echo "      guards will fail; re-run from $TARGET when reachable:" >&2
+            echo "      git submodule update --init skills-vendor/" >&2
+        fi
+    else
+        echo "skills-vendor/ already initialised — left alone" >&2
     fi
 fi
 
@@ -180,8 +192,14 @@ link_shared() {
     if [ -e "$dest" ] || [ -L "$dest" ]; then
         echo "$rel already present — left alone" >&2
     elif [ -e "$src" ]; then
-        mkdir -p "$(dirname "$dest")"
-        ln -s "$src" "$dest"
+        # Guarded rather than bare: `set -e` on a parent that is a regular file
+        # would abort here with coreutils' message and exit 1 — the code the
+        # header documents as "uv sync failed", pointing the reader at the half
+        # of the script that already succeeded.
+        if ! mkdir -p "$(dirname "$dest")" 2>/dev/null || ! ln -s "$src" "$dest"; then
+            echo "WARN: could not link $rel into $TARGET — $consequence" >&2
+            return 0
+        fi
         echo "linked $rel -> $src" >&2
     else
         echo "WARN: no $rel in $MAIN_ROOT — $consequence" >&2
