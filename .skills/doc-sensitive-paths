@@ -1,0 +1,60 @@
+# Sensitive paths for shipping-work's doc-check.sh, Step 1.5 (#488).
+#
+# Files whose existence, names or structure the docs inventory: a branch that
+# touches one of these probably owes a doc section an edit. One path per line,
+# blank lines and #-comments ignored, same grammar as .skills/import-targets.
+# Entries match whole path SEGMENTS at any depth, so `scripts/` also reaches
+# `tests/scripts/` — over-matching is the cheap failure for a spot-check that
+# exits 1 and asks a human to look (gregoryfoster/skills#252).
+#
+# This file REPLACES the skill's built-in defaults rather than extending them.
+# Five of those twelve describe a layout this service does not have:
+# CHANGELOG.md, alembic/versions/ (schema is src/core/schema.sql plus
+# reconciliation DO blocks), deploy/ (infra/), src/models/ (no ORM package)
+# and .env.example (/etc/power-map/.env plus a gitignored .env).
+#
+# Guarded by tests/test_doc_sensitive_paths.py: every entry must match a
+# tracked file, and each documented tree must stay covered.
+# Deliberately absent: docs/ (a doc edit is not a signal to check the docs) and
+# tests/ (TDD means every branch touches it, so it would make the gate constant).
+
+# Agent-context surface and orientation
+AGENTS.md
+CLAUDE.md
+README.md
+
+# Dependency and build manifests — pyproject/package.json are a version-sync pair
+pyproject.toml
+package.json
+uv.lock
+package-lock.json
+
+# The domain contract, inventoried by docs/SCHEMA*.md. Redundant with src/core/
+# below while it lives there — kept deliberately, so the contract keeps its own
+# line if it ever moves out from under that tree.
+schema.sql
+
+# Application code the docs describe route by route and panel by panel
+src/api/
+src/core/
+src/templates/
+src/static/
+
+# Operations: systemd units, terraform, and the operational scripts
+infra/
+scripts/
+
+# Agent tooling docs/SKILLS.md and docs/SOCRATICODE.md name directly. `skills/`
+# also reaches `.claude/skills/<name>` on the interior `/skills/` segment, so
+# that directory needs no entry of its own.
+.claude/hooks/
+.claude/settings.json
+skills/
+.socraticodecontextartifacts.json
+
+# Repo-wide tooling described elsewhere: the pre-commit hook roster
+# (docs/COMMANDS.md § Linting), the submodule roster (docs/SKILLS.md § External
+# Skill Repos), and the weekly context cadence (docs/CONTEXT.md, #471)
+.pre-commit-config.yaml
+.gitmodules
+.github/

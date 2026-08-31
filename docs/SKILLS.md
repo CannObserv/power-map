@@ -43,6 +43,15 @@ Force-refresh: `git submodule update --remote --merge -- skills-vendor/`
 
 To add a new external skill repo: follow the `managing-skills` skill.
 
+### Sensitive-path list (#488)
+
+`.skills/doc-sensitive-paths` is this repo's replacement for the built-in `SENSITIVE_PATHS` in `shipping-work-python-fastapi/scripts/doc-check.sh` (Step 1.5) — one path per line, blank lines and `#`-comments ignored, same grammar as `.skills/import-targets`. It **replaces** the defaults wholesale; five of those twelve (`CHANGELOG.md`, `alembic/versions/`, `deploy/`, `src/models/`, `.env.example`) describe a layout this service does not have.
+
+- Entries match whole path **segments** at any depth (upstream skills#252), so `scripts/` also reaches `tests/scripts/`. Over-matching is the cheap failure for a gate that exits `1` and asks a human to look; the under-match it replaced printed as a clean green. Do not re-anchor.
+- A list where **no** entry matches a tracked file exits `2`; dead entries on a green run print as a note. `tests/test_doc_sensitive_paths.py` is the ratchet: every entry must match a tracked file, each documented tree must stay covered, and the pin must contain skills#252 (below it the file is ignored in silence).
+- `docs/` and `tests/` are deliberately absent — a doc edit is not a signal to check the docs, and TDD means every branch touches `tests/`, which would make the gate constant.
+- The guard also mirrors the vendored `path_matches` in Python so an entry can be checked the way the gate will check it, and corroborates that mirror against the vendored source. A miss there is an upstream refactor to re-anchor against — never a reason to edit `skills-vendor/`.
+
 ## Available Skills
 
 | Skill | Source | Triggers |
