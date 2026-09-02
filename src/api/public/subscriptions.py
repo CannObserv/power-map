@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from src.api.deps import get_db
-from src.api.public.deps import AuthedKey, require_key, require_scope
+from src.api.public.deps import AuthedKey, require_key, require_scope, stamped_transaction
 from src.api.public.schemas import (
     DiscoveryItem,
     DiscoveryMeta,
@@ -444,7 +444,7 @@ async def register_subscriptions(
     Unknown entity IDs are listed in ``not_found``; the rest of the batch still applies.
     The entire batch is applied atomically.
     """
-    async with db.transaction():
+    async with stamped_transaction(db, auth.key_id):
         # Single round-trip to resolve all entity types.
         rows = await db.fetch(_BATCH_RESOLVE_ENTITY_TYPE, body.entity_ids)
         found: dict[str, str] = {r["entity_id"]: r["entity_type"] for r in rows}

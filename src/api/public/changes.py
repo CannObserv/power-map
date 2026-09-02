@@ -20,7 +20,8 @@ router = APIRouter()
 _QUERY = """
 WITH horizon AS (SELECT MIN(id) AS min_seq FROM entity_changes),
 page AS (
-    SELECT ec.id, ec.entity_type, ec.entity_id, ec.change_kind, ec.changed_at, ec.merged_into
+    SELECT ec.id, ec.entity_type, ec.entity_id, ec.change_kind, ec.changed_at, ec.merged_into,
+           ec.source_key_id
     FROM entity_changes ec
     JOIN api_key_entity_subscriptions s
         ON s.entity_id = ec.entity_id
@@ -30,7 +31,8 @@ page AS (
     LIMIT $3
 )
 SELECT h.min_seq,
-       p.id, p.entity_type, p.entity_id, p.change_kind, p.changed_at, p.merged_into
+       p.id, p.entity_type, p.entity_id, p.change_kind, p.changed_at, p.merged_into,
+       p.source_key_id
 FROM horizon h
 LEFT JOIN page p ON true
 ORDER BY p.id ASC NULLS LAST
@@ -77,6 +79,7 @@ async def get_changes(
             change_kind=row["change_kind"],
             changed_at=row["changed_at"],
             merged_into=row["merged_into"],
+            source_key_id=row["source_key_id"],
         )
         for row in page
     ]

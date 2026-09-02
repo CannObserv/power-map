@@ -4025,3 +4025,67 @@ ALTER TABLE role_assignments
 
 ALTER TABLE organizations
     ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;
+
+-- =============================================================================
+-- Migration (#491): stamp writer identity on outbox rows — echo suppression
+-- =============================================================================
+-- Bridge while #490 (dataset-subscription) is built: a feed consumer could not
+-- tell its own write's echo from a curator edit, so it read back and diffed
+-- every changed entity (~49k reqs/day, 2026-09-01). Public write routes set the
+-- txn-local GUC app.source_key_id (stamped_transaction, src.api.public.deps);
+-- the outbox triggers record it here. NULL = curator/admin, merge, or script
+-- origin — none of those set the GUC. Semantics are CAUSAL: the key whose
+-- request transaction produced the row, so #327 indirect touches and #301
+-- cascade clamps carry the initiating key (documented in docs/CHANGE_FEED.md).
+--
+-- Deliberately NOT the #311 FK convention (REFERENCES api_keys ON DELETE SET
+-- NULL): this is the trigger-heavy insert path the table comment above keeps
+-- unindexed, an FK adds a lookup per insert, and ON DELETE SET NULL on an
+-- unindexed 90-day table means a seq scan per key deletion. Diagnostic echo
+-- tag, not relational integrity; rows prune inside 90 days. No index either —
+-- the feed query filters by subscription join + id, never by this column.
+--
+-- NULLIF: a custom GUC that was set and reverted on a reused session reads
+-- back as '' (not NULL) from current_setting(..., true) — without NULLIF a
+-- pooled connection would stamp '' on every later curator-origin row.
+-- ADD COLUMN IF NOT EXISTS is itself the reconciliation; entity_changes has
+-- no set_updated_at() trigger, so the #307/#312 ordering rule is moot here.
+-- The fn_record_deleted_entity_change replaced below is the #235 override
+-- (merged_into), not the base definition.
+
+ALTER TABLE entity_changes
+    ADD COLUMN IF NOT EXISTS source_key_id TEXT;
+
+CREATE OR REPLACE FUNCTION fn_record_entity_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO entity_changes (entity_type, entity_id, change_kind, source_key_id)
+    VALUES (
+        CASE TG_TABLE_NAME
+            WHEN 'people'            THEN 'person'
+            WHEN 'organizations'     THEN 'organization'
+            WHEN 'jurisdictions'     THEN 'jurisdiction'
+            WHEN 'roles'             THEN 'role'
+            WHEN 'role_assignments'  THEN 'role_assignment'
+            WHEN 'role_assignment_relationships' THEN 'role_assignment_relationship'
+        END,
+        NEW.id,
+        'updated',
+        NULLIF(current_setting('app.source_key_id', true), '')
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- In practice always NULL today — public writes archive, never tombstone — but
+-- the two outbox writers stay uniform so a future producer-visible delete path
+-- is attributed for free.
+CREATE OR REPLACE FUNCTION fn_record_deleted_entity_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO entity_changes (entity_type, entity_id, change_kind, merged_into, source_key_id)
+    VALUES (NEW.entity_type, NEW.entity_id, 'deleted', NEW.merged_into,
+            NULLIF(current_setting('app.source_key_id', true), ''));
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;

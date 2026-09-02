@@ -6,7 +6,12 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
-from src.api.public.deps import AuthedKey, require_api_key, require_scope
+from src.api.public.deps import (
+    AuthedKey,
+    require_api_key,
+    require_scope,
+    stamped_transaction,
+)
 from src.api.public.etag import NOT_MODIFIED, conditional_response, make_etag
 from src.api.public.schemas import (
     AssignmentDetail,
@@ -222,7 +227,7 @@ async def submit_assignment_observation(
         if req.op == "retract":
             if not is_pm_native:
                 raise ObservationRejected("invalid")
-            async with db.transaction():
+            async with stamped_transaction(db, auth.key_id):
                 disposition = await retract_assignment(
                     db,
                     req.identifier_value,
@@ -242,7 +247,7 @@ async def submit_assignment_observation(
         # Resolution + all writes share one transaction so any rejection or
         # constraint failure rolls the whole observation back — nothing
         # half-written (a REJECTED disposition is raised to trigger rollback).
-        async with db.transaction():
+        async with stamped_transaction(db, auth.key_id):
             if is_pm_native:
                 assignment_id, _, disposition, reason = await resolve_entity(
                     db, "pm_assignment_id", req.identifier_value

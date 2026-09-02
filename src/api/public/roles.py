@@ -6,7 +6,12 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
-from src.api.public.deps import AuthedKey, require_api_key, require_scope
+from src.api.public.deps import (
+    AuthedKey,
+    require_api_key,
+    require_scope,
+    stamped_transaction,
+)
 from src.api.public.etag import NOT_MODIFIED, conditional_response, make_etag
 from src.api.public.schemas import (
     ObservationResponse,
@@ -219,7 +224,7 @@ async def submit_role_observation(
             return ObservationResponse(disposition="rejected", reason=reason)
 
     try:
-        async with db.transaction():
+        async with stamped_transaction(db, auth.key_id):
             await write_links(db, role_id, "role", req.links)
             await write_contact_methods(db, role_id, "role", req.contact_methods)
             await write_addresses(db, role_id, "role", req.addresses)

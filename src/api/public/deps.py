@@ -3,6 +3,7 @@
 import hashlib
 import os
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Query, Request
@@ -50,6 +51,32 @@ class AuthedKey:
 
     user_id: str
     key_id: str
+
+
+@asynccontextmanager
+async def stamped_transaction(db, key_id: str):
+    """Open a transaction with the writer's key stamped for outbox attribution (#491).
+
+    Sets the txn-local GUC ``app.source_key_id`` that the entity_changes
+    triggers record onto every outbox row the transaction causes — including
+    ancillary touch fan-out (#327) and cascade clamps (#301), which is why the
+    stamp lives at transaction open rather than per-write. All public write
+    transactions go through here (sweep: ``test_stamped_txn_sweep.py``).
+
+    ``set_config(..., true)`` not ``SET LOCAL``: SET takes no bind parameters.
+    The explicit reset on the success path is for the rollback test client
+    (#288), where route transactions are savepoints whose released local GUC
+    would otherwise persist — and later read back as ``''`` — for the rest of
+    the outer test transaction. On the exception path the savepoint/transaction
+    rollback reverts the GUC itself, and an aborted transaction would reject
+    the reset statement anyway. Production transactions revert on COMMIT too,
+    so the reset is belt-and-braces there; the trigger's NULLIF normalizes the
+    ``''`` a reused session reads back either way.
+    """
+    async with db.transaction():
+        await db.execute("SELECT set_config('app.source_key_id', $1, true)", key_id)
+        yield
+        await db.execute("SELECT set_config('app.source_key_id', '', true)")
 
 
 async def _resolve_api_key(

@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
-from src.api.public.deps import AuthedKey, require_scope
+from src.api.public.deps import AuthedKey, require_scope, stamped_transaction
 from src.api.public.etag import NOT_MODIFIED, collection_etag, conditional_response
 from src.api.public.schemas import (
     CitationListResponse,
@@ -83,7 +83,7 @@ async def submit_citation_observations(
     """
     _validate_entity_type(entity_type)
     claims = to_citation_claims(request.citations)
-    async with db.transaction():
+    async with stamped_transaction(db, auth.key_id):
         results = await apply_citation_observations(db, entity_type, entity_id, auth.key_id, claims)
     return CitationObservationsResponse(
         results=[
