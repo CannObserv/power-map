@@ -22,6 +22,7 @@ pytestmark = [
 
 _CHANGES = "/api/v1/changes"
 _PEOPLE_OBS = "/api/v1/people/observations"
+_ASSIGN_OBS = "/api/v1/assignments/observations"
 
 
 # ---------------------------------------------------------------------------
@@ -173,3 +174,45 @@ async def test_stamp_does_not_leak_past_route_transaction(client, db, write_key)
     await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
     rows = await _outbox_rows(db, person_id, before)
     assert rows and all(r["source_key_id"] is None for r in rows)
+
+
+async def test_retract_stamps_feed_row(client, db, write_key):
+    # The assignments retract branch runs in its own stamped transaction
+    # (separate from the create path). Skipping your own retract echo is the
+    # loaded case for a consumer, so it gets its own seam test (CR round 1).
+    raw, kid = write_key
+    person_id, org_id, role_id = generate_id(), generate_id(), generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Stamp Retract Role')",
+        role_id,
+        org_id,
+    )
+    created = await client.post(
+        _ASSIGN_OBS,
+        json={"person_id": person_id, "role_id": role_id, "start_date": "2001-01-08"},
+        headers={"X-API-Key": raw},
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["disposition"] == "new"
+    assignment_id = created.json()["entity_id"]
+    await _subscribe(db, kid, assignment_id, "role_assignment")
+
+    before = await db.fetchval("SELECT COALESCE(MAX(id),0) FROM entity_changes")
+    retracted = await client.post(
+        _ASSIGN_OBS,
+        json={
+            "identifier_type": "pm_assignment_id",
+            "identifier_value": assignment_id,
+            "op": "retract",
+        },
+        headers={"X-API-Key": raw},
+    )
+    assert retracted.status_code == 200, retracted.text
+    assert retracted.json()["disposition"] == "retracted"
+
+    feed = await client.get(_CHANGES, params={"after": before}, headers={"X-API-Key": raw})
+    assert feed.status_code == 200
+    items = [i for i in feed.json()["data"] if i["entity_id"] == assignment_id]
+    assert items and all(i["source_key_id"] == kid for i in items)
