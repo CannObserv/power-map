@@ -33,7 +33,8 @@ assignments, `docs/API_ASSIGNMENTS.md`.
       "entity_id": "01JVBN...",
       "changed_at": "2025-06-01T12:00:00.000000Z",
       "change_kind": "updated",
-      "merged_into": null
+      "merged_into": null,
+      "source_key_id": "01JKEY..."
     },
     {
       "seq_id": 4301,
@@ -41,7 +42,8 @@ assignments, `docs/API_ASSIGNMENTS.md`.
       "entity_id": "01JXCC...",
       "changed_at": "2025-06-02T09:15:00.000000Z",
       "change_kind": "deleted",
-      "merged_into": "01JXCD..."
+      "merged_into": "01JXCD...",
+      "source_key_id": null
     }
   ],
   "meta": {
@@ -63,6 +65,12 @@ A `"deleted"` event is true when written, not permanently — a restore can brin
 Since #467 the winner named there is the survivor **of that row**, not of the parent merge: a `role_assignment` tombstone points at the sibling assignment that absorbed it, and a `role` tombstone at the role that absorbed it. So a merge that reaches down into a subtree is repairable one anchor at a time, without re-deriving the whole cohort from the parent.
 
 `seq_id` is a strictly increasing integer from the append-only outbox log (`BIGSERIAL`). It is **monotonic**, not gapless — the log is an offset cursor, not a contiguous counter. Do not infer "missed events" from a gap between consecutive `seq_id`s: the sequence skips values for rolled-back or failed writes, and the id space is global across all entities while your feed is subscription-filtered, so consecutive delivered ids are expected to jump. See **Delivery semantics** below for the exactly-what-is-guaranteed contract (it is *at-least-once*, not exactly-once) — read it before building a consumer that trims or removes a reconciliation backstop.
+
+`source_key_id` (#491) is the id of the API key whose request **transaction** caused the row; `null` means curator/admin, merge, or script origin (and every row written before the field shipped). The semantics are **causal, not ownership**: an ancillary touch fan-out (#327) or a cascade clamp (#301) triggered by your write carries *your* key, even when the touched entity was created by someone else. Three consequences:
+
+- **Echo suppression — the field's purpose.** A producer that polls the feed may skip rows where `source_key_id` equals its own key id instead of reading the entity back: those rows are the echo of writes whose outcome the observation response already reported. This removes the read-back-and-diff churn on every own-write echo. Distinct from the row-level `source_key_id` ownership gate on assignments, orgs and events (`docs/OBSERVATIONS.md`) — the feed field records who *caused* this change, not who owns the row.
+- **Skipping own-key rows also skips your cascades.** The #301 auto-clamp was made observable on purpose; if you skip your own key you will not see edges *your* retract clamped or archived. Acceptable when your rewind/reconcile cadence (below) covers it — just choose knowingly.
+- **Key ids are visible to co-subscribers.** Any key subscribed to an entity sees which key id (an opaque ULID, not the secret) wrote each change. Accepted for this bridge surface — it is also the missing triage observability — and the field retires with `/changes` at the #490 cutover.
 
 `meta.min_seq` is the **oldest outbox `seq_id` still retained** — the prune horizon (`null` when the outbox is empty). It is global, not subscription-scoped: pruning is a global `changed_at`-based delete, so `min_seq` is the single id below which *any* event, subscribed or not, may already have been pruned. Use it to detect that a persisted cursor has fallen off the retention window — if your stored `after` is below `min_seq - 1`, events may have been pruned before you read them, so full-reconcile against the read endpoints (see **Falling off the horizon** below).
 

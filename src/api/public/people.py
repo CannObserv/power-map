@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.citations import to_citation_claims
-from src.api.public.deps import AuthedKey, identifier_filter, require_api_key, require_scope
+from src.api.public.deps import (
+    AuthedKey,
+    identifier_filter,
+    require_api_key,
+    require_scope,
+    stamped_transaction,
+)
 from src.api.public.etag import NOT_MODIFIED, conditional_response, make_etag
 from src.api.public.events import (
     events_collection_validator,
@@ -68,7 +74,7 @@ async def submit_people_observation(
         # and indistinguishable from a real record. Both guards raise rather than
         # return, so the rollback covers the entity_type mismatch too — posting an
         # org identifier here used to mint an Organization and then say "rejected".
-        async with db.transaction():
+        async with stamped_transaction(db, auth.key_id):
             entity_id, entity_type, disposition, reason = await resolve_entity(
                 db, request.identifier_type, request.identifier_value
             )

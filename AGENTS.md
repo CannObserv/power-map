@@ -67,7 +67,7 @@ Accessibility rules and their test tiers → `docs/ACCESSIBILITY.md`
 
 Full conventions → `docs/CONVENTIONS.md`
 
-- Auth deps (all from `src.api.public.deps`): `require_api_key` (read), `require_key` (read + `key_id`), `require_scope("scope:id")` (write); 403 missing/insufficient, 401 invalid
+- Auth deps (all from `src.api.public.deps`): `require_api_key` (read), `require_key` (read + `key_id`), `require_scope("scope:id")` (write); 403 missing/insufficient, 401 invalid. Write txns open via `stamped_transaction(db, key_id)`, never bare `db.transaction()` (#491, sweep-enforced)
 - All routes: Pydantic `response_model` + `operation_id`; no `dict[str, Any]` returns
 - Lists: `{"data": [...], "meta": {...}}`, fetch `limit+1` for `has_more`; every paginated `ORDER BY` **must end with a unique column** (#297)
 - Timestamps: `datetime` + `@field_serializer` → `TimestampStr` via `fmt_ts()`, never hand-built (#440)

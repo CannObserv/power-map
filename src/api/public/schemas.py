@@ -1139,6 +1139,10 @@ class ChangeItem(BaseModel):
     changed_at: datetime
     change_kind: Literal["updated", "deleted"]
     merged_into: str | None = None
+    # #491: key whose request transaction caused this row (causal, not
+    # ownership — cascades and touch fan-out carry the initiating key).
+    # NULL = curator/admin, merge, or script origin. Additive-optional (#477).
+    source_key_id: str | None = None
 
     @field_serializer("changed_at")
     def _serialize_ts(self, v: datetime) -> TimestampStr:

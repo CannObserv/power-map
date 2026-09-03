@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from src.api.deps import get_db
-from src.api.public.deps import AuthedKey, require_scope
+from src.api.public.deps import AuthedKey, require_scope, stamped_transaction
 from src.api.public.etag import NOT_MODIFIED, collection_etag, conditional_response
 from src.api.public.schemas import (
     RelationshipListResponse,
@@ -68,7 +68,7 @@ async def submit_relationship_observations(
     are recorded freely here — the daily audit reconciles against endpoint windows.
     """
     claims = to_relationship_claims(request.relationships)
-    async with db.transaction():
+    async with stamped_transaction(db, auth.key_id):
         results = await apply_relationship_observations(db, auth.key_id, claims)
     return RelationshipObservationsResponse(
         results=[

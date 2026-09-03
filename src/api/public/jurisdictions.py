@@ -6,7 +6,12 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
-from src.api.public.deps import AuthedKey, require_api_key, require_scope
+from src.api.public.deps import (
+    AuthedKey,
+    require_api_key,
+    require_scope,
+    stamped_transaction,
+)
 from src.api.public.etag import (
     NOT_MODIFIED,
     catalog_validator,
@@ -429,7 +434,7 @@ async def submit_jurisdiction_observation(
         # people route for the full rationale: resolve_entity creates on an
         # unseen identifier, so running it outside left a bare Jurisdiction committed
         # behind a "rejected" response that withheld entity_id.
-        async with db.transaction():
+        async with stamped_transaction(db, auth.key_id):
             entity_id, entity_type, disposition, reason = await resolve_entity(
                 db,
                 request.identifier_type,
