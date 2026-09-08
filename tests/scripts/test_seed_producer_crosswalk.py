@@ -117,3 +117,12 @@ async def test_a_blocking_report_still_returns_in_dry_run(db, tmp_path):
 
     assert report.is_blocking
     assert report.counts == {"missing": 1}
+
+
+def test_read_export_names_a_manifest_key_it_cannot_find(tmp_path):
+    """Every other malformed-input path here says what is wrong; this one said `KeyError`."""
+    (tmp_path / "anchors.csv").write_text("kind,usa_wa_id,pm_id\n")
+    (tmp_path / "manifest.json").write_text('{"exported_at": "2026-09-03T00:00:00Z"}')
+
+    with pytest.raises(AnchorFormatError, match="sha256"):
+        read_export(tmp_path)

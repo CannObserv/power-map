@@ -39,6 +39,7 @@ import asyncpg
 from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.ingestion.crosswalk import (
     Anchor,
+    AnchorFormatError,
     SeedReport,
     load_anchors,
     parse_anchors,
@@ -61,6 +62,10 @@ def read_export(export_dir: Path) -> tuple[list[Anchor], dict]:
     export_dir = Path(export_dir)
     raw = (export_dir / ANCHORS_FILE).read_bytes()
     manifest = json.loads((export_dir / MANIFEST_FILE).read_text())
+
+    for key in ("sha256", "exported_at"):
+        if key not in manifest:
+            raise AnchorFormatError(f"{MANIFEST_FILE} has no {key!r}")
 
     # Before parsing, not after: a truncated file is a shorter valid CSV.
     verify_digest(raw, manifest["sha256"])
