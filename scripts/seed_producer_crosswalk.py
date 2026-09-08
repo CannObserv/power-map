@@ -90,32 +90,27 @@ async def seed(
     """Resolve an export against ``db``; write it only when nothing blocks."""
     anchors, manifest = read_export(export_dir)
     generated_at = datetime.fromisoformat(manifest["exported_at"].replace("Z", "+00:00"))
-
-    # Resolve without writing first: the report decides whether writing is allowed
-    # at all, so it cannot be a side effect of the write.
-    report = await load_anchors(
-        db,
-        source,
-        anchors,
-        execute=False,
-        export_generated_at=generated_at,
-        export_sha256=manifest["sha256"],
-    )
     logger.info("%d anchor(s) from %s", len(anchors), export_dir)
-    _log_report(report)
 
     if not execute:
+        report = await load_anchors(
+            db,
+            source,
+            anchors,
+            execute=False,
+            export_generated_at=generated_at,
+            export_sha256=manifest["sha256"],
+        )
+        _log_report(report)
         logger.info("Dry run — pass --execute to seed the crosswalk")
         return report
 
-    if report.is_blocking:
-        raise BlockedSeed(
-            f"{len(report.unresolved)} unresolvable anchor(s) and "
-            f"{len(report.collisions)} collision(s) — resolve them before seeding"
-        )
-
+    # One pass, inside the transaction: resolving twice would read the database at
+    # two instants, so a merge landing between them makes the report describe
+    # something other than what was written. The rollback — not a prior pass — is
+    # what makes a blocking report write nothing.
     async with db.transaction():
-        await load_anchors(
+        report = await load_anchors(
             db,
             source,
             anchors,
@@ -123,6 +118,13 @@ async def seed(
             export_generated_at=generated_at,
             export_sha256=manifest["sha256"],
         )
+        _log_report(report)
+        if report.is_blocking:
+            raise BlockedSeed(
+                f"{len(report.unresolved)} unresolvable anchor(s) and "
+                f"{len(report.collisions)} collision(s) — resolve them before seeding"
+            )
+
     logger.info("Seeded %d crosswalk row(s)", len(anchors))
     return report
 
