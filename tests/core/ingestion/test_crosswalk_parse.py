@@ -108,3 +108,20 @@ def test_the_same_producer_id_under_a_different_kind_is_not_a_duplicate():
         "role,01KV6T7RTS5PVF1HB94T5X23HY,01KVGJM842V1GPTX81N1MN33HT\n"
     )
     assert len(parse_anchors(csv)) == 2
+
+
+def test_verify_digest_accepts_the_published_prefixed_form():
+    """The catalog states `"hash": "sha256:6d51…"`, which is what the puller hands over."""
+    verify_digest(
+        b"kind,usa_wa_id,pm_id\n",
+        "sha256:f3b3d96d77da4cd2b38d77c4a1d51d518cb7bcb47614bf776dbd68c88d307f86",
+    )
+
+
+def test_verify_digest_refuses_an_algorithm_it_does_not_compute():
+    """Comparing a sha512 digest as opaque text would fail as a content mismatch.
+
+    That reads as 'this file is corrupt' when the truth is 'nobody checked it'.
+    """
+    with pytest.raises(AnchorFormatError, match="unsupported digest algorithm"):
+        verify_digest(b"anything", "sha512:" + "0" * 128)

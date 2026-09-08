@@ -157,10 +157,19 @@ def verify_digest(data: bytes, expected_sha256: str) -> None:
 
     A truncated download parses cleanly as a shorter export, so this runs before
     the rows are believed, not after.
+
+    Accepts both the bare hex digest and the published contract's prefixed form
+    (``sha256:6d51…``, which is how a catalog entry states it). An algorithm this
+    does not compute is refused by name rather than compared as opaque text: the
+    latter fails as a content mismatch, which reads as "this file is corrupt"
+    when the truth is "nobody checked it".
     """
+    algorithm, _, digest = expected_sha256.rpartition(":")
+    if algorithm and algorithm.lower() != "sha256":
+        raise AnchorFormatError(f"unsupported digest algorithm: {algorithm!r}")
     actual = hashlib.sha256(data).hexdigest()
-    if actual != expected_sha256.lower():
-        raise AnchorFormatError(f"digest mismatch: expected {expected_sha256}, got {actual}")
+    if actual != digest.lower():
+        raise AnchorFormatError(f"digest mismatch: expected {digest}, got {actual}")
 
 
 async def resolve_anchor(db: asyncpg.Connection, kind: str, pm_id: str) -> Resolution:
