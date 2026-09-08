@@ -296,3 +296,21 @@ async def test_a_supersession_names_the_producer_id_that_hit_it(db):
     report = await load_anchors(db, SOURCE, [anchor], execute=True)
 
     assert report.supersessions == [Supersession(anchor, superseded, [survivor])]
+
+
+async def test_stale_detection_is_reported_as_skipped_when_the_table_is_absent(db):
+    """A dry run before the schema lands is the point of a dry run.
+
+    It still reads the live entity tables, so its resolution is real — but it
+    cannot see a crosswalk that does not exist yet. Saying so is the difference
+    between a check that passed and a check that never ran.
+    """
+    await db.execute("DROP TABLE producer_crosswalk")
+
+    report = await load_anchors(
+        db, SOURCE, [Anchor("person", generate_id(), await _person(db))], execute=False
+    )
+
+    assert report.stale_checked is False
+    assert report.stale == []
+    assert report.counts == {"live": 1}

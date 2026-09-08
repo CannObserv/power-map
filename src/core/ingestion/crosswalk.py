@@ -237,6 +237,10 @@ class SeedReport:
     supersessions: list[Supersession] = field(default_factory=list)
     stale: list[tuple[str, str]] = field(default_factory=list)
 
+    # False when the crosswalk table does not exist yet, so an empty `stale` is
+    # never read as "nothing is stale" when the truth is "nobody looked".
+    stale_checked: bool = True
+
     @property
     def is_blocking(self) -> bool:
         """True when a human has to look before the applier may run.
@@ -339,13 +343,23 @@ async def load_anchors(
     # but saying nothing would leave a retired producer id inside the applier's
     # scope indefinitely.
     present = {(a.kind, a.producer_id) for a in anchors}
-    report.stale = [
-        (r["kind"], r["producer_id"])
-        for r in await db.fetch(
+    try:
+        seeded = await db.fetch(
             "SELECT kind, producer_id FROM producer_crosswalk WHERE source = $1"
             " ORDER BY kind, producer_id",
             source,
         )
+    except asyncpg.exceptions.UndefinedTableError:
+        # Dry-running against a database the schema has not reached yet is a
+        # supported and useful thing to do — the resolution above reads only the
+        # live entity tables, so it is real. What cannot be checked is announced
+        # rather than passed: an empty `stale` here would otherwise mean
+        # "nothing is stale" when it means "nobody looked".
+        report.stale_checked = False
+        return report
+    report.stale = [
+        (r["kind"], r["producer_id"])
+        for r in seeded
         if (r["kind"], r["producer_id"]) not in present
     ]
     return report

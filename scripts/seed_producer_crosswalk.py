@@ -93,6 +93,10 @@ def _log_report(report: SeedReport) -> None:
             entry.archived_pm_id,
             ", ".join(entry.live_siblings),
         )
+    if not report.stale_checked:
+        logger.warning(
+            "  stale detection SKIPPED — producer_crosswalk does not exist on this target"
+        )
     for kind, producer_id in report.stale:
         logger.warning("  STALE      %s %s is no longer in the export", kind, producer_id)
 
