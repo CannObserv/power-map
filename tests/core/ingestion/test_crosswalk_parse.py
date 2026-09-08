@@ -81,3 +81,30 @@ def test_verify_digest_rejects_a_mismatch():
     """A truncated download is the failure this catches; it must not be a warning."""
     with pytest.raises(AnchorFormatError, match="digest"):
         verify_digest(b"anything", "0" * 64)
+
+
+def test_rejects_the_same_producer_id_twice():
+    """Two rows for one producer id would upsert last-wins with nothing said.
+
+    It is the mirror of the collision check — that one catches two producer ids
+    landing on one PM row; this catches one producer id claiming two PM rows —
+    and only this half is invisible, because `ON CONFLICT DO UPDATE` resolves it
+    silently while the report still counts both.
+    """
+    csv = (
+        "kind,usa_wa_id,pm_id\n"
+        "person,01KV6T7RTS5PVF1HB94T5X23HY,01KV6SW78XKRQDWC4MPWNEPQ5A\n"
+        "person,01KV6T7RTS5PVF1HB94T5X23HY,01KVGJM842V1GPTX81N1MN33HT\n"
+    )
+    with pytest.raises(AnchorFormatError, match="duplicate"):
+        parse_anchors(csv)
+
+
+def test_the_same_producer_id_under_a_different_kind_is_not_a_duplicate():
+    """The key is (kind, id): usa-wa mints per-kind, so the pair is the identity."""
+    csv = (
+        "kind,usa_wa_id,pm_id\n"
+        "person,01KV6T7RTS5PVF1HB94T5X23HY,01KV6SW78XKRQDWC4MPWNEPQ5A\n"
+        "role,01KV6T7RTS5PVF1HB94T5X23HY,01KVGJM842V1GPTX81N1MN33HT\n"
+    )
+    assert len(parse_anchors(csv)) == 2

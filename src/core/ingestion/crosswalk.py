@@ -126,6 +126,7 @@ def parse_anchors(text: str) -> list[Anchor]:
         )
 
     anchors: list[Anchor] = []
+    seen_keys: set[tuple[str, str]] = set()
     for line, row in enumerate(reader, start=2):
         if not row:
             continue
@@ -136,6 +137,11 @@ def parse_anchors(text: str) -> list[Anchor]:
         kind, producer_id, pm_id = row
         if kind not in ANCHOR_KINDS:
             raise AnchorFormatError(f"line {line}: unknown kind {kind!r}")
+        # The upsert resolves a repeated key silently (last row wins) while the
+        # report still counts both, so the only place this can be seen is here.
+        if (kind, producer_id) in seen_keys:
+            raise AnchorFormatError(f"line {line}: duplicate anchor for {kind} {producer_id}")
+        seen_keys.add((kind, producer_id))
         anchors.append(
             Anchor(
                 kind,
