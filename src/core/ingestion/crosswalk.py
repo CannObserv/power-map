@@ -74,10 +74,6 @@ _ENTITY_TABLE = {
 # left for the triage pass (#501) — never guessed at.
 UNRESOLVABLE = ("deleted_no_successor", "missing", "cycle")
 
-# A merge chain is a handful of hops in practice; the bound is only here so a
-# cycle terminates as a reported state rather than a hung seed.
-_MAX_HOPS = 32
-
 
 class AnchorFormatError(ValueError):
     """The export is not a well-formed anchor file."""
@@ -179,11 +175,13 @@ async def resolve_anchor(db: asyncpg.Connection, kind: str, pm_id: str) -> Resol
     table = _ENTITY_TABLE[kind]
     tombstone_type = _TOMBSTONE_TYPE[kind]
 
+    # `seen` both detects a cycle and bounds the walk: ids are finite and each
+    # hop consumes one, so no separate hop limit is needed — and a hop limit
+    # could only ever fire by reporting a merely long chain as a cycle.
     seen: set[str] = set()
     current = pm_id
-    hops = 0
     while True:
-        if current in seen or hops > _MAX_HOPS:
+        if current in seen:
             return Resolution("cycle", None)
         seen.add(current)
 
@@ -204,7 +202,6 @@ async def resolve_anchor(db: asyncpg.Connection, kind: str, pm_id: str) -> Resol
         if tombstone["merged_into"] is None:
             return Resolution("deleted_no_successor", None)
         current = tombstone["merged_into"]
-        hops += 1
 
 
 @dataclass(frozen=True)
@@ -281,6 +278,12 @@ async def load_anchors(
 
     Resolution happens either way: the report is the point of a dry run, and it
     is identical to the one the real run produces.
+
+    **The caller owns the transaction.** With ``execute=True`` this writes row by
+    row and opens nothing of its own, so a caller that does not wrap it leaves a
+    partially seeded scope behind on any mid-run failure — the one state this
+    design exists to prevent. :func:`scripts.seed_producer_crosswalk.seed` is the
+    intended door and supplies it.
     """
     report = SeedReport()
     landed: dict[tuple[str, str], list[str]] = defaultdict(list)
