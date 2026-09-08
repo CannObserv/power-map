@@ -262,5 +262,12 @@ class TestTheMirrorStillDescribesTheGate:
         )
 
     def test_the_gate_still_reads_this_project_list(self, source: str) -> None:
-        """The override path is the one this repo committed to."""
-        assert "if [[ -f .skills/doc-sensitive-paths ]]; then" in source, self.REFACTOR_HINT
+        """The override path is the one this repo committed to.
+
+        Re-anchored at skills 79c2324: upstream replaced the bare `-f` test with
+        an `override_present` helper, because `-f` follows symlinks and reads
+        false for a dangling `.skills` — a repo whose tailoring silently stopped
+        being read looked identical to one that never tailored. The path this
+        repo commits to is unchanged; only how the gate notices it is.
+        """
+        assert "if override_present .skills/doc-sensitive-paths; then" in source, self.REFACTOR_HINT
