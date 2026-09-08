@@ -11,6 +11,12 @@ identity — the one thing the applier cannot settle by itself. Re-pointing it o
 a guess is how a seed mints duplicates, so the script refuses and leaves the
 diff for the triage pass (#501).
 
+An archived anchor is stored rather than blocked, but it is **not** in the
+applier's scope: the scope query is ``resolution IN ('live', 'merged')``. Where
+PM's duplicate audit archived the producer's span and kept a deepened one under a
+new ULID, the report names the live sibling — that re-point is a triage decision
+(#501), never the seed's to make.
+
 Note the asymmetry a dry run cannot fix: `deleted_entities` is pruned at 90 days
 (`scripts/prune_outbox.py`), so an anchor broken by an older merge resolves as
 ``missing`` rather than ``merged``. ``missing`` therefore means "PM cannot say",
@@ -74,6 +80,8 @@ def _log_report(report: SeedReport) -> None:
         )
     for (kind, pm_id), producer_ids in report.collisions.items():
         logger.warning("  COLLISION  %s %s <- %s", kind, pm_id, ", ".join(producer_ids))
+    for archived_id, siblings in report.supersessions.items():
+        logger.warning("  SUPERSEDED %s -> live sibling(s) %s", archived_id, ", ".join(siblings))
 
 
 async def seed(

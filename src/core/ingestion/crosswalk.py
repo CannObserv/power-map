@@ -207,6 +207,7 @@ class SeedReport:
     counts: dict[str, int] = field(default_factory=dict)
     unresolved: list[UnresolvedAnchor] = field(default_factory=list)
     collisions: dict[tuple[str, str], list[str]] = field(default_factory=dict)
+    supersessions: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def is_blocking(self) -> bool:
@@ -218,6 +219,25 @@ class SeedReport:
         """
         return bool(self.unresolved or self.collisions)
 
+
+# An archived assignment whose person+role still carries a live row is the shape
+# PM's duplicate audit leaves behind: the narrow span is archived and a deepened
+# one is kept under a **new** ULID the producer has never seen. That is a merge
+# in all but name, and `archived_at` writes no `deleted_entities` row, so the
+# merge-chain walk cannot follow it. Reported, never applied: which live sibling
+# absorbs the anchor is a judgement (one prod case has three, spanning different
+# eras), and guessing it would write a tenure onto the wrong row.
+_SUPERSESSION_SQL = """
+SELECT live.id
+FROM role_assignments archived
+JOIN role_assignments live
+  ON live.person_id = archived.person_id
+ AND live.role_id   = archived.role_id
+ AND live.id       <> archived.id
+ AND live.archived_at IS NULL
+WHERE archived.id = $1
+ORDER BY live.start_date NULLS LAST, live.id
+"""
 
 _UPSERT_SQL = """
 INSERT INTO producer_crosswalk (
@@ -258,6 +278,11 @@ async def load_anchors(
             report.unresolved.append(UnresolvedAnchor(anchor, resolution.status))
         else:
             landed[(anchor.kind, resolution.pm_id)].append(anchor.producer_id)
+
+        if resolution.status == "archived" and anchor.kind == "assignment":
+            siblings = [r["id"] for r in await db.fetch(_SUPERSESSION_SQL, resolution.pm_id)]
+            if siblings:
+                report.supersessions[resolution.pm_id] = siblings
 
         if execute:
             await db.execute(

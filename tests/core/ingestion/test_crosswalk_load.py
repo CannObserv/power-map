@@ -10,6 +10,8 @@ an anchor PM cannot resolve, and two producer entities that PM has already
 merged into one.
 """
 
+from datetime import date
+
 import pytest
 import pytest_asyncio
 
@@ -170,3 +172,82 @@ async def test_a_clean_export_does_not_block(db):
 
     assert report.unresolved == []
     assert not report.is_blocking
+
+
+async def _role(db) -> tuple[str, str]:
+    org_id, role_id = generate_id(), generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Member')", role_id, org_id
+    )
+    return org_id, role_id
+
+
+async def _assignment(db, person_id, role_id, start, end, *, archived: bool):
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, start_date, end_date)"
+        " VALUES ($1,$2,$3,$4,$5)",
+        aid,
+        person_id,
+        role_id,
+        start,
+        end,
+    )
+    if archived:
+        await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", aid)
+    return aid
+
+
+async def test_an_archived_assignment_with_a_live_sibling_is_reported_as_superseded(db):
+    """PM's dup audit archives the narrow span and keeps a deepened one under a NEW ULID.
+
+    That is a merge in everything but name — and `archived_at` writes no
+    `deleted_entities` row, so the merge-chain walk cannot see it. The anchor
+    resolves `archived` and stops, pointing at a row the applier must not write
+    to, while the row the producer's data actually describes is out of scope.
+    Detecting it is the only way the triage pass gets a worklist.
+    """
+    person = await _person(db)
+    _, role = await _role(db)
+    superseded = await _assignment(
+        db, person, role, date(1991, 1, 1), date(1992, 12, 31), archived=True
+    )
+    survivor = await _assignment(
+        db, person, role, date(1985, 1, 1), date(1992, 12, 31), archived=False
+    )
+    anchor = Anchor("assignment", generate_id(), superseded)
+
+    report = await load_anchors(db, SOURCE, [anchor], execute=True)
+
+    assert report.supersessions == {superseded: [survivor]}
+
+
+async def test_an_archived_assignment_with_no_live_sibling_is_not_a_supersession(db):
+    """A genuine archive — nothing absorbed it, and the triage answer is different."""
+    person = await _person(db)
+    _, role = await _role(db)
+    archived = await _assignment(
+        db, person, role, date(1991, 1, 1), date(1992, 12, 31), archived=True
+    )
+
+    report = await load_anchors(
+        db, SOURCE, [Anchor("assignment", generate_id(), archived)], execute=True
+    )
+
+    assert report.supersessions == {}
+    assert report.counts == {"archived": 1}
+
+
+async def test_a_live_anchor_is_never_a_supersession_candidate(db):
+    """Only an archived anchor can have been superseded; a live one is just in scope."""
+    person = await _person(db)
+    _, role = await _role(db)
+    live = await _assignment(db, person, role, date(1991, 1, 1), date(1992, 12, 31), archived=False)
+    await _assignment(db, person, role, date(1985, 1, 1), date(1992, 12, 31), archived=False)
+
+    report = await load_anchors(
+        db, SOURCE, [Anchor("assignment", generate_id(), live)], execute=True
+    )
+
+    assert report.supersessions == {}
