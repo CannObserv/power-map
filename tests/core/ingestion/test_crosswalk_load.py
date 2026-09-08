@@ -16,7 +16,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
-from src.core.ingestion.crosswalk import Anchor, load_anchors
+from src.core.ingestion.crosswalk import Anchor, Supersession, load_anchors
 
 pytestmark = [pytest.mark.integration]
 
@@ -220,7 +220,7 @@ async def test_an_archived_assignment_with_a_live_sibling_is_reported_as_superse
 
     report = await load_anchors(db, SOURCE, [anchor], execute=True)
 
-    assert report.supersessions == {superseded: [survivor]}
+    assert report.supersessions == [Supersession(anchor, superseded, [survivor])]
 
 
 async def test_an_archived_assignment_with_no_live_sibling_is_not_a_supersession(db):
@@ -235,7 +235,7 @@ async def test_an_archived_assignment_with_no_live_sibling_is_not_a_supersession
         db, SOURCE, [Anchor("assignment", generate_id(), archived)], execute=True
     )
 
-    assert report.supersessions == {}
+    assert report.supersessions == []
     assert report.counts == {"archived": 1}
 
 
@@ -250,4 +250,49 @@ async def test_a_live_anchor_is_never_a_supersession_candidate(db):
         db, SOURCE, [Anchor("assignment", generate_id(), live)], execute=True
     )
 
-    assert report.supersessions == {}
+    assert report.supersessions == []
+
+
+async def test_an_anchor_dropped_from_a_later_export_is_reported_as_stale(db):
+    """The seed is re-runnable, so an export that shrinks is an ordinary event.
+
+    The row stays — retiring it is triage's decision, not the seed's — but an
+    unreported stale row keeps a retired producer id inside the applier's scope
+    indefinitely, which is the one thing the scope must not do quietly.
+    """
+    kept = Anchor("person", generate_id(), await _person(db))
+    dropped = Anchor("person", generate_id(), await _person(db))
+    await load_anchors(db, SOURCE, [kept, dropped], execute=True)
+
+    report = await load_anchors(db, SOURCE, [kept], execute=True)
+
+    assert report.stale == [("person", dropped.producer_id)]
+    assert await _row(db, dropped.producer_id) is not None
+
+
+async def test_another_source_is_not_stale(db):
+    """Scope is per producer: one source's export says nothing about another's."""
+    mine = Anchor("person", generate_id(), await _person(db))
+    theirs = Anchor("person", generate_id(), await _person(db))
+    await load_anchors(db, "observo", [theirs], execute=True)
+
+    report = await load_anchors(db, SOURCE, [mine], execute=True)
+
+    assert report.stale == []
+
+
+async def test_a_supersession_names_the_producer_id_that_hit_it(db):
+    """#501 works from producer ids; a report keyed only by PM id makes them re-join."""
+    person = await _person(db)
+    _, role = await _role(db)
+    superseded = await _assignment(
+        db, person, role, date(1991, 1, 1), date(1992, 12, 31), archived=True
+    )
+    survivor = await _assignment(
+        db, person, role, date(1985, 1, 1), date(1992, 12, 31), archived=False
+    )
+    anchor = Anchor("assignment", generate_id(), superseded)
+
+    report = await load_anchors(db, SOURCE, [anchor], execute=True)
+
+    assert report.supersessions == [Supersession(anchor, superseded, [survivor])]

@@ -85,8 +85,16 @@ def _log_report(report: SeedReport) -> None:
         )
     for (kind, pm_id), producer_ids in report.collisions.items():
         logger.warning("  COLLISION  %s %s <- %s", kind, pm_id, ", ".join(producer_ids))
-    for archived_id, siblings in report.supersessions.items():
-        logger.warning("  SUPERSEDED %s -> live sibling(s) %s", archived_id, ", ".join(siblings))
+    for entry in report.supersessions:
+        logger.warning(
+            "  SUPERSEDED %s %s -> archived %s, live sibling(s) %s",
+            entry.anchor.kind,
+            entry.anchor.producer_id,
+            entry.archived_pm_id,
+            ", ".join(entry.live_siblings),
+        )
+    for kind, producer_id in report.stale:
+        logger.warning("  STALE      %s %s is no longer in the export", kind, producer_id)
 
 
 async def seed(

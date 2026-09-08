@@ -40,6 +40,7 @@ __all__ = [
     "AnchorFormatError",
     "Resolution",
     "SeedReport",
+    "Supersession",
     "UnresolvedAnchor",
     "load_anchors",
     "parse_anchors",
@@ -212,6 +213,20 @@ class UnresolvedAnchor:
     status: str
 
 
+@dataclass(frozen=True)
+class Supersession:
+    """An archived anchor and the live rows that could have absorbed it.
+
+    Carries the anchor, not just the archived id: #501 works from producer ids,
+    and a report that names only PM ids makes the operator re-join to find out
+    whose anchor broke.
+    """
+
+    anchor: Anchor
+    archived_pm_id: str
+    live_siblings: list[str]
+
+
 @dataclass
 class SeedReport:
     """What a seed run found — the first half of the triage pass (#501)."""
@@ -219,7 +234,8 @@ class SeedReport:
     counts: dict[str, int] = field(default_factory=dict)
     unresolved: list[UnresolvedAnchor] = field(default_factory=list)
     collisions: dict[tuple[str, str], list[str]] = field(default_factory=dict)
-    supersessions: dict[str, list[str]] = field(default_factory=dict)
+    supersessions: list[Supersession] = field(default_factory=list)
+    stale: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def is_blocking(self) -> bool:
@@ -300,7 +316,7 @@ async def load_anchors(
         if resolution.status == "archived" and anchor.kind == "assignment":
             siblings = [r["id"] for r in await db.fetch(_SUPERSESSION_SQL, resolution.pm_id)]
             if siblings:
-                report.supersessions[resolution.pm_id] = siblings
+                report.supersessions.append(Supersession(anchor, resolution.pm_id, siblings))
 
         if execute:
             await db.execute(
@@ -317,4 +333,19 @@ async def load_anchors(
             )
 
     report.collisions = {key: ids for key, ids in landed.items() if len(ids) > 1}
+
+    # An export that shrinks is ordinary — usa-wa retires an id and stops
+    # exporting it. The row stays (retiring it is triage's call, not the seed's),
+    # but saying nothing would leave a retired producer id inside the applier's
+    # scope indefinitely.
+    present = {(a.kind, a.producer_id) for a in anchors}
+    report.stale = [
+        (r["kind"], r["producer_id"])
+        for r in await db.fetch(
+            "SELECT kind, producer_id FROM producer_crosswalk WHERE source = $1"
+            " ORDER BY kind, producer_id",
+            source,
+        )
+        if (r["kind"], r["producer_id"]) not in present
+    ]
     return report
