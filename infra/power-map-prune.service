@@ -10,4 +10,12 @@ EnvironmentFile=/etc/power-map/.env
 EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 # Default retention is 90 days; override with --retention-days N.
-ExecStart=uv run python -m scripts.prune_outbox --execute
+#
+# TEMPORARY HOLD (#495): raised to 104 days for the #490 cutover. The crosswalk
+# seed resolves usa-wa's anchors through `deleted_entities.merged_into`, so every
+# tombstone this prune removes is merge history the seed can no longer see — an
+# anchor broken by a pruned merge resolves `missing` instead of `merged`, which
+# is unresolvable rather than wrong-but-recoverable. Revert to the default when
+# the triage pass (#501) is done; the outbox is ~45k static rows, so the extra
+# fortnight costs nothing.
+ExecStart=uv run python -m scripts.prune_outbox --execute --retention-days 104

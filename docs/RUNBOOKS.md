@@ -186,6 +186,15 @@ uv run "${env_args[@]}" python -m scripts.sweep_role_data_quality --execute  # c
 ## Outbox + tombstone TTL prune (issue #204)
 
 
+**Temporarily held at 104 days (#495).** The installed unit passes
+`--retention-days 104` until the #490 cutover: the crosswalk seed resolves
+usa-wa's anchors through `deleted_entities.merged_into`, so a pruned tombstone is
+merge history the seed can no longer see — the anchor resolves `missing`
+(unresolvable) instead of `merged`. Prod's oldest surviving tombstone is
+2026-06-17, so the hold protects what is left rather than recovering what is
+gone. Revert to the default once the triage pass (#501) is done. The consumer
+contract is unaffected: 90 days is a floor, and a longer window only helps.
+
 `scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)
 from **three** append-only tables: `entity_changes` (the change-feed outbox),
 `deleted_entities` (deletion tombstones), and `api_request_log` (the public-API
