@@ -1,7 +1,7 @@
 ---
 title: Dataset-subscription architecture — usa-wa → power-map
 date: 2026-09-01
-status: approved
+status: approved (amended 2026-09-08 — see § Review addendum)
 ---
 
 # Dataset-subscription architecture — usa-wa → power-map
@@ -99,9 +99,9 @@ usa-wa never reads PM. PM never writes usa-wa. The contract is the datapackage s
    remains direct curation. PM state for the slice = f(snapshot, overlay) — idempotent,
    replayable, and the desired state is a diffable artifact *before any write*.
 4. **Diff-applier** — generic, schema-driven, domain-free Python. Diffs desired-state vs live
-   Postgres and issues minimal writes. **Row-scoped** (only usa-wa-owned rows —
-   `source_key_id` repurposed as a routing tag, no longer a gate) and **column-scoped** (only
-   columns the dataset asserts; curator-only columns never enter the diff). Dry-run by
+   Postgres and issues minimal writes. **Row-scoped** (only usa-wa-owned rows — scope key is
+   **crosswalk membership**, not `source_key_id`; see addendum gap A) and **column-scoped**
+   (only columns the dataset asserts; curator-only columns never enter the diff). Dry-run by
    default, `--execute` gated (house rule #402), abort thresholds (see Transition).
 5. **Retraction = absence**, per-dataset policy: assignments/roles auto-archive when absent
    from the snapshot; persons/orgs report-only (absence from WA data ≠ nonexistence; rows may
@@ -109,13 +109,18 @@ usa-wa never reads PM. PM never writes usa-wa. The contract is the datapackage s
    `attached_archived` for this producer.
 6. **Identifiers** — one per entity kind: `usa_wa_person` / `usa_wa_organization` = usa-wa
    ULIDs. The ~14 WA scheme types stop being contract (rows retained as historical data); the
-   scheme graph lives in usa-wa's published crosswalk.
+   scheme graph lives in usa-wa's published crosswalk. Roles and assignments get **no**
+   public identifier under this collapse — their per-row producer handle lives in the
+   crosswalk table instead (addendum gap B), which is what makes archive-on-absence
+   addressable for the only two datasets that auto-archive.
 
 ### Retirements
 
-- usa-wa: `clearinghouse-core`, `clearinghouse-sync-powermap`, `usa-wa-sync-powermap`,
-  `powermap-client` (698 files), sync outbox, redrive, `/health/sync`, anchor columns, the
-  entire LWW-NOOP-GATE apparatus (#65/#85/#102/#104/#109/#112/#132/#160/#247 machinery).
+- usa-wa: `clearinghouse-sync-powermap` (28), `usa-wa-sync-powermap` (69), `powermap-client`
+  (566) — **663 files across three packages**, not the 698 first counted: `clearinghouse-core`
+  (35) is usa-wa's own Layer-1 framework and shrinks rather than dying. Plus the sync outbox,
+  redrive, `/health/sync`, anchor columns, and the entire LWW-NOOP-GATE apparatus
+  (#65/#85/#102/#104/#109/#112/#132/#160/#247 machinery).
 - power-map, post-cutover: `/changes`, all five `/subscriptions` routes, discovery, the
   outbox prune timer, `min_seq` — usa-wa is their only consumer in the feature's life
   (request-log verified). The `entity_changes` *table* has internal duties (merge tombstones,
@@ -144,14 +149,93 @@ usa-wa never reads PM. PM never writes usa-wa. The contract is the datapackage s
 | 3 | One supervised triage pass: the first dry-run diff is the complete "PM disagrees with producer" audit; each diff resolved once — producer-wins (apply) or PM-wins (overlay row) | silently reverting curator corrections |
 | 4 | Column-scoped writes | loss of curator enrichment on producer-owned rows |
 | 5 | Row scope + per-dataset retraction policy | non-usa-wa data loss |
-| 6 | Single-writer freeze: revoke usa-wa write scopes before first `--execute` | dual-writer races |
+| 6 | Single-writer freeze: revoke usa-wa write scopes before first `--execute` — **already true in fact since 2026-08-27**, formalise it early (addendum) | dual-writer races |
 | 7 | Archived-anchor sweep (#481 / usa-wa#288) resolved in the triage pass | writing onto soft-deleted rows |
 | 8 | Pre-cutover DB backup; schema-parity timer green throughout | everything else |
 
-Sequence: (0, optional bridge) `source_key_id` on `entity_changes` rows to stop the churn
-while building. (1) usa-wa publishes datasets in parallel with the old sync. (2) Crosswalk
-seed. (3) PM applier dry-runs until clean; triage pass. (4) Freeze usa-wa writes; flip to
-execute. (5) Delete sync packages; retire `/changes` surface.
+Sequence: ~~(0, optional bridge) `source_key_id` on `entity_changes` rows to stop the
+churn while building~~ — shipped as #491 but overtaken: the churn ended when the producer
+stopped writing. (1) usa-wa publishes datasets in parallel with the old sync — **done**.
+(2) Crosswalk seed. (3) PM applier dry-runs until clean; triage pass. (4) Freeze usa-wa
+writes; flip to execute. (5) Delete sync packages; retire `/changes` surface.
+
+The freeze moved to the front: it costs nothing now (see addendum) and the triage pass needs
+a still producer anyway.
+
+## Review addendum — 2026-09-08 (producer side deployed)
+
+usa-wa's epic (usa-wa#302) is built and deployed: #303–#313 closed, catalog live,
+`/api/v1` flipped to the serving tier, its deployment now registers no mutating route
+(usa-wa#349). Only usa-wa#314 (cutover + deletion sweep) is open, gated on this repo. PM-side
+implementation has not started.
+
+### The sync is already one-way dead
+
+Measured on prod (`api_request_log`, usa-wa key `01KV6T7RTS5PVF1HB94T5X23HY`), 7 days to
+2026-09-08:
+
+| Signal | Count |
+|---|---|
+| Reads (`/assignments/{id}` 88,619 in 3d, `/people/{id}`, …) | 254,653 |
+| `/changes` polls | 7,405 (2,707 of 3,167 empty over 3d; 45,586 rows delivered) |
+| **Writes (observations)** | **4** — one weekly org re-observation batch, all `auto-attached` no-ops |
+
+Last substantive write: an assignment observation on **2026-08-27**; `entity_changes` has not
+grown since **2026-08-29**, yet the feed re-delivered 45,586 rows in three days. Two
+consequences the design predates:
+
+- **Safeguard 6 has already happened in fact.** PM's WA slice is frozen as of 2026-08-27 and
+  going stale. Staleness, not sync churn, is the clock on this work.
+- **What remains is pure cost** — ~36k reads/day and 1,270 polls/day replaying a dead outbox.
+  Stop and mask the sidecar and revoke the key's write scopes now, ahead of the applier: it
+  decouples usa-wa#314's freeze step from PM readiness and fixes the "as-of" baseline the
+  triage pass compares against. usa-wa#315 (adopt #491 echo suppression) is overtaken.
+
+### Gap A — row scope has no key
+
+The applier cannot scope by `source_key_id`. On prod: `people` and `roles` have no such
+column; `organizations` has one but only **4 of 1,666** rows carry it (the #334 reparenting
+gate); `role_assignments` has **4,420 stamped against 8,812 assignment anchors** usa-wa
+exported — about half of producer-owned assignments predate stamping (seed/backfill rows).
+Row scope is therefore **membership in the seeded crosswalk**, and `source_key_id` stays what
+it is elsewhere in the schema.
+
+### Gap B — assignments and roles lose their handle
+
+The identifier collapse leaves the two auto-archiving datasets with no stable per-row
+producer key. Decision: persist usa-wa's `anchors.csv` as a PM-side crosswalk table under the
+ingestion tree, keyed `(kind, usa_wa_id, pm_id)`, and let the applier join on it;
+`identifiers` keeps `usa_wa_person` / `usa_wa_organization` as public-facing identity only.
+
+### Gap C — seed sizing: persons clean, assignments are the work
+
+Against the 2026-09-03 export (person 3,118 · organization 219 · role 312 · assignment 8,812):
+
+| Kind | Producer anchors | PM side | Note |
+|---|---|---|---|
+| person | 3,118 | **3,118** distinct people carrying `person_wa_legislature_roster` (2,477) + `member_id` (641) | exact match; **0 archived** — safeguard 7 / #481 is likely a non-issue here |
+| organization | 219 | 211 with `org_wa_legislature*` | 8 to resolve in triage |
+| assignment | 8,812 | 11,787 total RAs, 4,420 stamped | the dominant triage surface; size the pass for it |
+
+### Gap D — the catalog is not reachable from PM
+
+`GET https://usa-wa.exe.xyz:8000/datasets/catalog.json` returns an exe.dev login redirect —
+the proxy is private, so the puller cannot fetch it as designed. Decide the transport before
+step 1: `ssh exe.dev share set-public` on that VM's port (publishes the whole app), an
+exe.dev-authenticated fetch, or SSH/rsync VM-to-VM. Integrity is transport-independent — the
+catalog entries carry sha256.
+
+### Gap E — crosswalk tombstones
+
+`person_crosswalk` carries `merged_into` tombstones, and with persons on a report-only
+retraction policy they are the *only* signal the mapping layer gets to re-point a merged-away
+`usa_wa_person`'s assignments at the survivor. Load-bearing for the mapping models; not
+optional.
+
+### Also
+
+#481 folds into the triage pass. #485 / #486 were written against usa-wa's write path and now
+scope to Observo only — retitle or they will be worked at the wrong priority.
 
 ## Out of scope
 
