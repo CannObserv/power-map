@@ -183,6 +183,40 @@ uv run "${env_args[@]}" python -m scripts.sweep_role_data_quality --execute  # c
 
 ---
 
+## Seed the producer crosswalk (idempotent, #495)
+
+
+`scripts/seed_producer_crosswalk.py` reads a published anchor export
+(`anchors.csv` + `manifest.json`), resolves every PM id through PM's merge
+history, and writes `producer_crosswalk` — transition safeguard 1 of the
+dataset-subscription design (#490).
+
+```bash
+uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
+    --export data/anchor-export             # dry run: prints the report
+uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
+    --export data/anchor-export --execute
+```
+
+Three refusals, each deliberate:
+
+- **Digest before parse.** A truncated copy is a shorter valid CSV, so the
+  manifest's `sha256` is checked against the raw bytes before any row is read.
+- **The file is rejected whole.** A bad kind or a non-base32 id fails the export
+  rather than skipping the row — a short parse silently narrows the applier's
+  scope instead of failing it.
+- **A blocking report stops `--execute`.** An anchor that resolves nowhere, or
+  two producer ids landing on one PM row (PM merged what the producer holds
+  apart), is a disagreement about identity. The script writes nothing and leaves
+  the diff for the triage pass (#501). A dry run still prints it — that is the
+  point of the dry run.
+
+`missing` in the report means PM has no record of the id at all, which includes
+every merge older than the 90-day tombstone TTL below. It is never evidence that
+the row never existed.
+
+---
+
 ## Outbox + tombstone TTL prune (issue #204)
 
 

@@ -4089,3 +4089,51 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- =============================================================================
+-- Producer crosswalk (#495) — the row scope for an applied dataset (#490)
+-- =============================================================================
+-- A snapshot producer's ids, mapped to the PM rows they name. This is the
+-- applier's row scope and, for roles and assignments, their only per-row
+-- producer handle: `source_key_id` cannot serve either duty (people and roles
+-- have no such column; half of usa-wa's assignments predate stamping).
+--
+-- `exported_pm_id` is what the producer sent; `pm_id` is where it leads after
+-- PM's merge history is walked, and is NULL exactly when the anchor is
+-- unresolvable. Keeping both is what makes the seed re-runnable: the export is
+-- immutable, PM's merge history is not.
+
+CREATE TABLE IF NOT EXISTS producer_crosswalk (
+    id                  TEXT        PRIMARY KEY,
+    source              TEXT        NOT NULL,
+    kind                TEXT        NOT NULL
+                                    CHECK (kind IN ('person', 'organization', 'role', 'assignment')),
+    producer_id         TEXT        NOT NULL,
+    exported_pm_id      TEXT        NOT NULL,
+    pm_id               TEXT,
+    resolution          TEXT        NOT NULL
+                                    CHECK (resolution IN ('live', 'archived', 'merged',
+                                                          'deleted_no_successor', 'missing', 'cycle')),
+    export_generated_at TIMESTAMPTZ,
+    export_sha256       TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- An unresolvable anchor is stored, not dropped: the blocking report has to
+    -- survive the run that produced it.
+    CONSTRAINT producer_crosswalk_resolved_ck
+        CHECK ((pm_id IS NULL) = (resolution IN ('deleted_no_successor', 'missing', 'cycle')))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_producer_crosswalk_producer
+    ON producer_crosswalk (source, kind, producer_id);
+
+-- The applier's hot path: "is this PM row in scope, and whose is it?"
+CREATE INDEX IF NOT EXISTS idx_producer_crosswalk_pm
+    ON producer_crosswalk (kind, pm_id)
+    WHERE pm_id IS NOT NULL;
+
+DROP TRIGGER IF EXISTS trg_producer_crosswalk_updated_at ON producer_crosswalk;
+CREATE TRIGGER trg_producer_crosswalk_updated_at
+    BEFORE UPDATE ON producer_crosswalk
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
