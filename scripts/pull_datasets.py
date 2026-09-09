@@ -132,7 +132,11 @@ async def run(
 def main(argv: list[str] | None = None) -> int:
     """Entry point; returns the process exit code."""
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    # Raw formatter: argparse otherwise reflows the docstring, running the
+    # usage examples and the exit-code list together into one paragraph.
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
         "--base-url", default=os.environ.get("USA_WA_DATASETS_URL", DEFAULT_BASE_URL)
     )
