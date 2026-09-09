@@ -247,7 +247,7 @@ class Subscription:
     names: frozenset[str] | None
     schema_major: int
 
-    def wants(self, entry: "CatalogEntry") -> bool:
+    def wants(self, entry: CatalogEntry) -> bool:
         if self.names is None:
             return entry.tier == CONFORMED_TIER
         return entry.name in self.names
