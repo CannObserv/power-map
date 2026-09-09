@@ -56,7 +56,7 @@ def build_subscription(datasets: list[str], *, schema_major: int) -> Subscriptio
     return Subscription(names=frozenset(datasets) if datasets else None, schema_major=schema_major)
 
 
-def _log_report(report: PullReport) -> None:
+def _log_report(report: PullReport, *, schema_major: int) -> None:
     logger.info(
         "pull complete: %d landed, %d unchanged, %d failed",
         len(report.landed),
@@ -74,7 +74,7 @@ def _log_report(report: PullReport) -> None:
             "  INCOMPATIBLE %s — publishes schema %s, this consumer is pinned to major %s",
             name,
             schema_version,
-            DEFAULT_SCHEMA_MAJOR,
+            schema_major,
         )
     for name in report.missing:
         logger.error("  MISSING   %s — subscribed, but the catalog does not carry it", name)
@@ -116,7 +116,7 @@ async def run(
         for version in removed:
             logger.info("  pruned    %s %s", entry.name, version)
 
-    _log_report(report)
+    _log_report(report, schema_major=subscription.schema_major)
     return report
 
 

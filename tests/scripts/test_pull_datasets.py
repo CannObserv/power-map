@@ -5,6 +5,7 @@ which outcomes are allowed to look like success.
 """
 
 import hashlib
+import logging
 
 import httpx
 import pytest
@@ -154,3 +155,21 @@ def test_an_unreadable_catalog_is_reported_as_a_sentence_not_a_traceback(
     assert code == 1
     assert "authentication failed" in logged
     assert "Traceback" not in logged
+
+
+async def test_the_incompatible_line_names_the_pin_actually_in_force(tmp_path, caplog):
+    """The flag exists for a major cutover; the message must not name the default."""
+    catalog = {"datasets": [dict(CATALOG["datasets"][0], schema_version="1.5.0")]}
+
+    async with _client(catalog=catalog) as client:
+        with caplog.at_level(logging.ERROR, logger="scripts.pull_datasets"):
+            await run(
+                "https://usa-wa.exe.xyz:8000",
+                token="tok",
+                store=SnapshotStore(tmp_path),
+                subscription=build_subscription([], schema_major=2),
+                keep=3,
+                client=client,
+            )
+
+    assert any("pinned to major 2" in r.getMessage() for r in caplog.records)
