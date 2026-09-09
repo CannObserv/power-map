@@ -211,16 +211,24 @@ as authentication — and the script refuses to start with no token at all.
   nothing new upstream costs one catalog request.
 - **Landing is atomic.** Files are verified into a staging directory and moved
   into place, so a version directory exists only when the snapshot in it is
-  complete. Presence means completeness.
+  complete. Presence means completeness. Verification is the length the catalog
+  states, then its digest — a truncated transfer says so in bytes rather than as
+  two unequal hashes.
+- **A snapshot lands without `datapackage.json` only on a 404**, the publisher
+  stating there is none (logged at WARNING). Any other failure fetching it — a
+  500, an expired token — fails the dataset instead, because hash-skip would
+  otherwise make a one-second blip a permanently schema-less snapshot for the
+  life of that version.
 - **Each version carries `snapshot.json`** — name, version, schema version,
   digest, row count, `generated_at`. That is what lets a consumer verify a
   snapshot without a second catalog fetch that may answer with a newer version
   by then. `scripts/seed_producer_crosswalk.py` reads it directly, so
   `--export data/usa_wa_snapshots/pm_anchors/<version>` needs no hand-staging.
 - **Pruning spares the version just landed**, whatever `--keep` says.
-- **Exit 1** on a failed digest, an incompatible schema major, or a subscribed
-  dataset the catalog does not carry. That last one matters: a renamed dataset
-  that silently pulls nothing is indistinguishable from a quiet night otherwise.
+- **Exit 1** on a failed verification, an incompatible schema major, or a
+  subscribed dataset the catalog does not carry. That last one matters: a
+  renamed dataset that silently pulls nothing is indistinguishable from a quiet
+  night otherwise.
 
 Writes only into `data/usa_wa_snapshots/` (gitignored) — never the database, so
 there is no `--execute` gate here. The gated step is the applier (#499).

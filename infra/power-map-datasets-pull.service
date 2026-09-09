@@ -14,7 +14,7 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # collecting a login page (see the module docstring).
 #
 # Writes only into data/usa_wa_snapshots/, never the database; the gated step
-# is the applier (#499). Exits 1 when a dataset failed its digest, published an
+# is the applier (#499). Exits 1 when a dataset failed verification, published an
 # incompatible schema major, or was subscribed but absent from the catalog — so
 # all three reach `systemctl --failed` instead of passing as a quiet night.
 ExecStart=uv run python -m scripts.pull_datasets
