@@ -25,6 +25,7 @@ how it is specified:
 import hashlib
 import json
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +52,14 @@ CATALOG_PATH = "/datasets/catalog.json"
 AUTH_HEADER = "X-Exedev-Authorization"
 
 _REQUIRED_FIELDS = ("name", "latest_version", "schema_version", "hash", "rows", "bytes")
+
+# A dataset name and a version are both interpolated straight into filesystem
+# paths that `SnapshotStore` mkdirs and rmtrees, and both are read verbatim from
+# a document fetched over the network. Anything outside this alphabet — a
+# separator, a leading dot, `..` — either escapes the store root or nests a
+# directory that `has()` and `versions()` cannot then see. Validated where the
+# document is parsed, and asserted again where the path is built.
+_SAFE_PATH_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 # The default subscription. Staging datasets are the triage and lineage surface
 # and the escape hatch for source-granular consumption — never something PM
@@ -93,6 +102,13 @@ class CatalogEntry:
         return int(self.schema_version.split(".", 1)[0])
 
 
+def _safe_segment(value: object, *, field: str, where: str) -> str:
+    """Return ``value`` if it is usable as a single path component."""
+    if not isinstance(value, str) or not _SAFE_PATH_SEGMENT.match(value):
+        raise CatalogError(f"{where}: unsafe {field} {value!r} — not a single path segment")
+    return value
+
+
 def _digest(raw: str, *, where: str) -> str:
     """Return the bare hex digest from a published `sha256:…` (or bare) hash."""
     algorithm, _, digest = raw.rpartition(":")
@@ -119,9 +135,13 @@ def parse_catalog(payload: dict) -> list[CatalogEntry]:
             raise CatalogError(f"catalog entry {name}: missing {', '.join(missing)}")
         entries.append(
             CatalogEntry(
-                name=raw["name"],
+                name=_safe_segment(raw["name"], field="name", where=f"catalog entry {name}"),
                 tier=raw.get("tier", "unknown"),
-                latest_version=raw["latest_version"],
+                latest_version=_safe_segment(
+                    raw["latest_version"],
+                    field="latest_version",
+                    where=f"catalog entry {name}",
+                ),
                 schema_version=raw["schema_version"],
                 sha256=_digest(raw["hash"], where=f"catalog entry {name}"),
                 rows=int(raw["rows"]),
@@ -261,6 +281,12 @@ class SnapshotStore:
         verification or a crash mid-write leaves no directory rather than a
         half-populated one.
         """
+        for value, field in ((entry.name, "name"), (entry.latest_version, "latest_version")):
+            # `parse_catalog` guards the catalog; this guards every other caller,
+            # because what follows is a `mkdir(parents=True)` and an `rmtree`.
+            if not _SAFE_PATH_SEGMENT.match(value):
+                raise ValueError(f"unsafe {field} {value!r} — not a single path segment")
+
         data = files.get(DATA_FILE)
         if data is None:
             raise ValueError(f"{entry.name} {entry.latest_version}: no {DATA_FILE} to verify")

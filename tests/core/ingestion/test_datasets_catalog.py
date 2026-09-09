@@ -164,3 +164,26 @@ async def test_fetch_refuses_a_non_json_content_type_even_with_200():
     async with httpx.AsyncClient(transport=_transport(handler)) as client:
         with pytest.raises(CatalogError, match="content type"):
             await fetch_catalog("https://usa-wa.exe.xyz:8000", token="tok", client=client)
+
+
+def test_refuses_a_dataset_name_that_would_escape_the_store():
+    """The name becomes a directory that `land` mkdirs and `prune` rmtrees."""
+    payload = {"datasets": [dict(CATALOG["datasets"][0], name="../../etc")]}
+
+    with pytest.raises(CatalogError, match="unsafe name"):
+        parse_catalog(payload)
+
+
+def test_refuses_a_version_that_would_escape_the_store():
+    payload = {"datasets": [dict(CATALOG["datasets"][0], latest_version="..")]}
+
+    with pytest.raises(CatalogError, match="unsafe latest_version"):
+        parse_catalog(payload)
+
+
+def test_refuses_a_hierarchical_dataset_name():
+    """A separator nests a directory that `has` and `versions` then cannot see."""
+    payload = {"datasets": [dict(CATALOG["datasets"][0], name="wa/persons")]}
+
+    with pytest.raises(CatalogError, match="unsafe name"):
+        parse_catalog(payload)

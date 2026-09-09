@@ -293,3 +293,13 @@ def test_the_recorded_digest_matches_the_file_it_describes(tmp_path):
 
     meta = json.loads((path / "snapshot.json").read_text())
     assert hashlib.sha256((path / "data.csv").read_bytes()).hexdigest() == meta["sha256"]
+
+
+def test_land_refuses_an_entry_whose_name_escapes_the_store(tmp_path):
+    """`parse_catalog` guards the catalog; this guards a hand-built entry."""
+    store = SnapshotStore(tmp_path / "store")
+
+    with pytest.raises(ValueError, match="unsafe"):
+        store.land(entry(name="../escaped"), {"data.csv": DATA})
+
+    assert not (tmp_path / "escaped").exists()
