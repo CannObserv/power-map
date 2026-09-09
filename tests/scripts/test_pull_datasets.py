@@ -128,6 +128,20 @@ def test_a_missing_token_fails_before_any_request(monkeypatch, tmp_path):
     assert exc.value.code == 2
 
 
+def test_a_clean_run_exits_zero_through_main(monkeypatch, tmp_path):
+    """The success branch of `main`'s exit code; the other two tests cover failures."""
+    monkeypatch.setenv("USA_WA_TOKEN", "tok")
+    # Built before the patch: `scripts.pull_datasets.httpx` is the httpx module
+    # itself, so patching the class through it would make `_client()` recurse.
+    stub = _client()
+    monkeypatch.setattr("scripts.pull_datasets.httpx.AsyncClient", lambda **kw: stub)
+
+    code = main(["--root", str(tmp_path)])
+
+    assert code == 0
+    assert SnapshotStore(tmp_path).has("persons", "v1-aaa")
+
+
 def test_an_unreadable_catalog_is_reported_as_a_sentence_not_a_traceback(
     monkeypatch, tmp_path, capsys
 ):
