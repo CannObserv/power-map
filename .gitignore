@@ -51,3 +51,6 @@ infra/terraform/terraform.tfstate.backup
 infra/terraform/terraform.tfvars
 infra/terraform/backend.hcl
 infra/terraform/crash.log
+
+# Pulled usa-wa dataset snapshots (#496) — verbatim upstream copies, re-fetchable
+data/usa_wa_snapshots

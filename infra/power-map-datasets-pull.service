@@ -1,0 +1,20 @@
+[Unit]
+Description=power-map nightly pull of usa-wa published dataset snapshots (issue #496)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
+# Requires USA_WA_TOKEN — an exe.dev VM bearer token for usa-wa's private
+# proxy. Without it the script exits 2 before making a request rather than
+# collecting a login page (see the module docstring).
+#
+# Writes only into data/usa_wa_snapshots/, never the database; the gated step
+# is the applier (#499). Exits 1 when a dataset failed its digest, published an
+# incompatible schema major, or was subscribed but absent from the catalog — so
+# all three reach `systemctl --failed` instead of passing as a quiet night.
+ExecStart=uv run python -m scripts.pull_datasets

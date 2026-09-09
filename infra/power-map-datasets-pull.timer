@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly power-map pull of usa-wa dataset snapshots (issue #496)
+
+[Timer]
+# usa-wa publishes at 08:00 UTC; pull an hour later so a late publish is
+# already in the catalog rather than being raced for.
+OnCalendar=*-*-* 09:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
