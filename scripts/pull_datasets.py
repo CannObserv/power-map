@@ -2,7 +2,7 @@
 
 Step 1 of the #490 PM-side pipeline. Fetches the catalog, lands every subscribed
 dataset whose latest version is not already held, verifies each against the
-digest the catalog states, and prunes old versions.
+length and digest the catalog states, and prunes old versions.
 
 **No `--execute` flag, deliberately.** The #402/#399 rule gates writes to the
 production *database*, and this script never opens a database connection: it
@@ -21,8 +21,9 @@ Usage:
     uv run "${env_args[@]}" python -m scripts.pull_datasets --dataset pm_anchors
     uv run "${env_args[@]}" python -m scripts.pull_datasets --root /srv/snapshots --keep 5
 
-Exit codes: 0 all subscribed datasets are held; 1 a dataset failed, was
-incompatible, or was subscribed but absent from the catalog; 2 usage.
+Exit codes: 0 all subscribed datasets are held — including any the publisher
+serves with no `datapackage.json`, which the report names; 1 a dataset failed,
+was incompatible, or was subscribed but absent from the catalog; 2 usage.
 """
 
 import argparse
