@@ -238,14 +238,20 @@ there is no `--execute` gate here. The gated step is the applier (#499).
 ## Seed the producer crosswalk (idempotent, #495)
 
 
-`scripts/seed_producer_crosswalk.py` reads a published anchor export
-(`anchors.csv` + `manifest.json`), resolves every PM id through PM's merge
-history, and writes `producer_crosswalk` — transition safeguard 1 of the
-dataset-subscription design (#490).
+`scripts/seed_producer_crosswalk.py` reads a published anchor export, resolves
+every PM id through PM's merge history, and writes `producer_crosswalk` —
+transition safeguard 1 of the dataset-subscription design (#490).
+
+**Either export layout works** (#496): usa-wa's VM-file export (`anchors.csv` +
+`manifest.json`) or a snapshot the puller landed (`data.csv` + `snapshot.json`).
+Both carry the rows and the digest that vouches for them, and both are verified
+the same way, so a pulled snapshot needs no hand-staging.
 
 ```bash
 uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
     --export data/anchor-export             # dry run: prints the report
+uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
+    --export data/usa_wa_snapshots/pm_anchors/<version>   # a pulled snapshot
 uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
     --export data/anchor-export --execute
 ```
