@@ -442,7 +442,10 @@ async def pull(
                     PACKAGE_FILE,
                 )
             store.land(entry, files)
-        except (CatalogError, ValueError, httpx.HTTPError) as exc:
+        except (CatalogError, ValueError, httpx.HTTPError, OSError) as exc:
+            # OSError included: `land()` is all filesystem calls, and a full
+            # disk should fail its dataset like any other cause rather than
+            # abandon the datasets after it.
             report.failed.append((entry.name, str(exc)))
             continue
         report.landed.append(entry.name)

@@ -424,3 +424,33 @@ def test_a_truncated_download_names_the_length_the_catalog_stated(tmp_path):
 
     with pytest.raises(ValueError, match=r"length mismatch.*catalog says"):
         store.land(entry(), {"data.csv": DATA[:10]})
+
+
+async def test_a_filesystem_failure_fails_its_dataset_not_the_run(tmp_path, monkeypatch):
+    """A full disk raises OSError, which sat outside the per-entry guard.
+
+    Same isolation failure CR 2 fixed, through the other door: `land()` is all
+    filesystem calls, and this VM has run out of disk before.
+    """
+    store = SnapshotStore(tmp_path)
+    real_land = store.land
+
+    def land(entry, files):
+        if entry.name == "broken":
+            raise OSError(28, "No space left on device")
+        return real_land(entry, files)
+
+    monkeypatch.setattr(store, "land", land)
+
+    async with httpx.AsyncClient(transport=serving()) as client:
+        report = await pull(
+            "https://usa-wa.exe.xyz:8000",
+            [entry(name="broken"), entry()],
+            store,
+            token="tok",
+            client=client,
+            subscription=Subscription(names=frozenset({"broken", "pm_anchors"}), schema_major=1),
+        )
+
+    assert report.landed == ["pm_anchors"]
+    assert [name for name, _ in report.failed] == ["broken"]
