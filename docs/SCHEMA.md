@@ -69,6 +69,22 @@ them; since #428 that is never this file.
 
 ---
 
+## Producer crosswalk (#495)
+
+
+`producer_crosswalk` maps a snapshot producer's ids to the PM rows they name. It is the **row scope** for the dataset applier (#490) and, for roles and assignments, their only per-row producer handle — `source_key_id` cannot serve either duty: `people` and `roles` have no such column, 4 of 1,666 organizations carry one, and half of usa-wa's assignments predate stamping.
+
+- Keyed `(source, kind, producer_id)`; `kind` is the producer's vocabulary (`person|organization|role|assignment`), which is **not** PM's tombstone vocabulary — an `assignment` walks `role_assignment` tombstones
+- `exported_pm_id` is what the producer sent; `pm_id` is where it leads after merge history is walked, and is NULL **exactly** when `resolution` is unresolvable (`deleted_no_successor`, `missing`, `cycle`) — a CHECK holds the two in step
+- Keeping both is what makes the seed re-runnable: the export is immutable, PM's merge history is not. Re-running a stale export after a new merge updates the resolution in place
+- Resolution walks `deleted_entities.merged_into`, whose target is *that row's* survivor (`docs/MERGE.md`). Tombstones are pruned at 90 days, so an anchor broken by an older merge resolves `missing` — which means "PM cannot say", never "it never existed"
+
+**The applier's scope query is `resolution IN ('live', 'merged')`.** An `archived` row is in the table but not in scope — writing onto a soft-deleted row is the #481 hazard, and `archived_at` writes no `deleted_entities` row, so the merge walk cannot follow it. Where PM's duplicate audit archived the producer's span and kept a deepened one under a **new** ULID the producer has never seen, the seed reports the live sibling as a supersession candidate; re-pointing is a triage decision (#501), never the seed's.
+
+Seeded by `scripts/seed_producer_crosswalk.py` (`docs/RUNBOOKS.md`).
+
+---
+
 ## Moved out
 
 - `docs/SCHEMA_INDEXES.md` — the unique indexes that encode identity, role-type
