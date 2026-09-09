@@ -33,6 +33,7 @@ import sys
 import httpx
 
 from src.core.ingestion.datasets import (
+    CatalogError,
     PullReport,
     SnapshotStore,
     Subscription,
@@ -153,15 +154,22 @@ def main(argv: list[str] | None = None) -> int:
             f"{TOKEN_VAR} is not set — mint one with 'ssh exe.dev ssh-key generate-api-key'"
         )
 
-    report = asyncio.run(
-        run(
-            args.base_url,
-            token=token,
-            store=SnapshotStore(args.root),
-            subscription=build_subscription(args.dataset, schema_major=args.schema_major),
-            keep=args.keep,
+    try:
+        report = asyncio.run(
+            run(
+                args.base_url,
+                token=token,
+                store=SnapshotStore(args.root),
+                subscription=build_subscription(args.dataset, schema_major=args.schema_major),
+                keep=args.keep,
+            )
         )
-    )
+    except CatalogError as exc:
+        # The catalog is the one failure that stops the whole run, and its message
+        # is written to tell the operator whether to look at the token or at the
+        # publisher. A traceback in the journal buries that sentence.
+        logger.error("catalog unreadable: %s", exc)
+        return 1
     return 1 if report.failed_run else 0
 
 

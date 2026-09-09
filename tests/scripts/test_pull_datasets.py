@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from scripts.pull_datasets import build_subscription, main, run
-from src.core.ingestion.datasets import CatalogEntry, SnapshotStore
+from src.core.ingestion.datasets import CatalogEntry, CatalogError, SnapshotStore
 
 DATA = b"kind,usa_wa_id,pm_id\n"
 DIGEST = hashlib.sha256(DATA).hexdigest()
@@ -125,3 +125,32 @@ def test_a_missing_token_fails_before_any_request(monkeypatch, tmp_path):
         main(["--root", str(tmp_path)])
 
     assert exc.value.code == 2
+
+
+def test_an_unreadable_catalog_is_reported_as_a_sentence_not_a_traceback(
+    monkeypatch, tmp_path, capsys
+):
+    """The whole module exists to make the operator look at the token.
+
+    Ending in a stack trace buries the one sentence that says so; the exit code
+    is right either way, so nothing else catches this.
+    """
+
+    async def refuse(*args, **kwargs):
+        raise CatalogError(
+            "https://usa-wa.exe.xyz:8000/datasets/catalog.json: authentication failed"
+        )
+
+    monkeypatch.setenv("USA_WA_TOKEN", "tok")
+    monkeypatch.setattr("scripts.pull_datasets.fetch_catalog", refuse)
+
+    code = main(["--root", str(tmp_path)])
+
+    # Read from stdout rather than caplog: `main` calls `configure_logging()`,
+    # which replaces the root handlers caplog installed. Stdout is what the
+    # journal records anyway.
+    logged = capsys.readouterr().out
+
+    assert code == 1
+    assert "authentication failed" in logged
+    assert "Traceback" not in logged
