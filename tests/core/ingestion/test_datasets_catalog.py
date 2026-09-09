@@ -204,3 +204,17 @@ def test_refuses_a_non_numeric_count(column):
 
     with pytest.raises(CatalogError, match=column):
         parse_catalog(payload)
+
+
+@pytest.mark.parametrize("published", ["sha256:", "nonsense", "sha256:abc", "sha256:" + "z" * 64])
+def test_refuses_a_hash_that_is_not_a_digest(published):
+    """`sha256` was the one required field nothing checked.
+
+    An empty or malformed digest surfaces much later as
+    `digest mismatch — catalog says , downloaded 02a6…`, which reads as a bug in
+    the puller rather than as a malformed catalog.
+    """
+    payload = {"datasets": [dict(CATALOG["datasets"][0], hash=published)]}
+
+    with pytest.raises(CatalogError, match="not a sha256 digest"):
+        parse_catalog(payload)

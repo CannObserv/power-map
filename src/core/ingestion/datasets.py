@@ -66,6 +66,8 @@ _REQUIRED_FIELDS = ("name", "latest_version", "schema_version", "hash", "rows", 
 # document is parsed, and asserted again where the path is built.
 _SAFE_PATH_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
+
 # The default subscription. Staging datasets are the triage and lineage surface
 # and the escape hatch for source-granular consumption — never something PM
 # applies, so they are opt-in by name rather than by tier.
@@ -143,12 +145,20 @@ def _count(raw: object, *, label: str, where: str) -> int:
         raise CatalogError(f"{where}: {label} {raw!r} is not a number") from exc
 
 
-def _digest(raw: str, *, where: str) -> str:
+def _digest(raw: object, *, where: str) -> str:
     """Return the bare hex digest from a published `sha256:…` (or bare) hash."""
+    if not isinstance(raw, str):
+        raise CatalogError(f"{where}: hash {raw!r} is not a sha256 digest")
     algorithm, _, digest = raw.rpartition(":")
     if algorithm and algorithm.lower() != "sha256":
         raise CatalogError(f"{where}: unsupported digest algorithm {algorithm!r}")
-    return digest.lower()
+    digest = digest.lower()
+    # Checked here rather than at comparison time: an empty or malformed digest
+    # otherwise surfaces as "digest mismatch — catalog says , downloaded 02a6…",
+    # which sends the reader looking for a bug in this module.
+    if not _SHA256_HEX.match(digest):
+        raise CatalogError(f"{where}: hash {raw!r} is not a sha256 digest")
+    return digest
 
 
 def parse_catalog(payload: dict) -> list[CatalogEntry]:
