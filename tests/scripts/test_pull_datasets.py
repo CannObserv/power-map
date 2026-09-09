@@ -173,3 +173,22 @@ async def test_the_incompatible_line_names_the_pin_actually_in_force(tmp_path, c
             )
 
     assert any("pinned to major 2" in r.getMessage() for r in caplog.records)
+
+
+async def test_the_headline_counts_every_outcome_that_fails_the_run(tmp_path, caplog):
+    """ "0 failed" on a run that exits 1 is the line an operator greps."""
+    async with _client() as client:
+        with caplog.at_level(logging.INFO, logger="scripts.pull_datasets"):
+            report = await run(
+                "https://usa-wa.exe.xyz:8000",
+                token="tok",
+                store=SnapshotStore(tmp_path),
+                subscription=build_subscription(["persons", "renamed_away"], schema_major=1),
+                keep=3,
+                client=client,
+            )
+
+    headline = next(r.getMessage() for r in caplog.records if "pull complete" in r.getMessage())
+
+    assert report.failed_run
+    assert "1 missing" in headline

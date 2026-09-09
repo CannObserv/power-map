@@ -57,11 +57,16 @@ def build_subscription(datasets: list[str], *, schema_major: int) -> Subscriptio
 
 
 def _log_report(report: PullReport, *, schema_major: int) -> None:
+    # Every outcome `failed_run` counts is in the headline: it is the line that
+    # gets grepped, and "0 failed" on a run that exits 1 contradicts the exit
+    # code for two of the three ways a pull can fail.
     logger.info(
-        "pull complete: %d landed, %d unchanged, %d failed",
+        "pull complete: %d landed, %d unchanged, %d failed, %d incompatible, %d missing",
         len(report.landed),
         len(report.skipped),
         len(report.failed),
+        len(report.incompatible),
+        len(report.missing),
     )
     for name in report.landed:
         logger.info("  landed    %s", name)
