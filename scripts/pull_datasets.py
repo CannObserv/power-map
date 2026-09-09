@@ -139,7 +139,9 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
-        "--base-url", default=os.environ.get("USA_WA_DATASETS_URL", DEFAULT_BASE_URL)
+        "--base-url",
+        default=os.environ.get("USA_WA_DATASETS_URL", DEFAULT_BASE_URL),
+        help=f"Publisher root (env USA_WA_DATASETS_URL, default {DEFAULT_BASE_URL})",
     )
     parser.add_argument(
         "--root", default=DEFAULT_ROOT, help=f"Snapshot store (default {DEFAULT_ROOT})"
@@ -150,7 +152,16 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="Dataset to pull; repeatable. Omit for every conformed product.",
     )
-    parser.add_argument("--schema-major", type=int, default=DEFAULT_SCHEMA_MAJOR)
+    parser.add_argument(
+        "--schema-major",
+        type=int,
+        default=DEFAULT_SCHEMA_MAJOR,
+        help=(
+            "Dataset schema major this consumer is pinned to "
+            f"(default {DEFAULT_SCHEMA_MAJOR}); a dataset publishing another is "
+            "reported INCOMPATIBLE and never landed"
+        ),
+    )
     parser.add_argument(
         "--keep",
         type=int,
