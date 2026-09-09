@@ -109,6 +109,13 @@ def _safe_segment(value: object, *, field: str, where: str) -> str:
     return value
 
 
+def _schema_version(raw: object, *, where: str) -> str:
+    """Return ``raw`` if its major component is the integer the pin compares against."""
+    if not isinstance(raw, str) or not raw.split(".", 1)[0].isdigit():
+        raise CatalogError(f"{where}: schema_version {raw!r} has no numeric major")
+    return raw
+
+
 def _digest(raw: str, *, where: str) -> str:
     """Return the bare hex digest from a published `sha256:…` (or bare) hash."""
     algorithm, _, digest = raw.rpartition(":")
@@ -142,7 +149,9 @@ def parse_catalog(payload: dict) -> list[CatalogEntry]:
                     field="latest_version",
                     where=f"catalog entry {name}",
                 ),
-                schema_version=raw["schema_version"],
+                schema_version=_schema_version(
+                    raw["schema_version"], where=f"catalog entry {name}"
+                ),
                 sha256=_digest(raw["hash"], where=f"catalog entry {name}"),
                 rows=int(raw["rows"]),
                 bytes=int(raw["bytes"]),
@@ -365,17 +374,21 @@ async def pull(
             continue
         seen.add(entry.name)
 
-        if entry.schema_major != subscription.schema_major:
-            # Not landed, and not silently skipped either: a major bump means the
-            # mapping models were written against a shape that no longer holds.
-            report.incompatible.append((entry.name, entry.schema_version))
-            continue
-
-        if store.has(entry.name, entry.latest_version):
-            report.skipped.append(entry.name)
-            continue
-
+        # Everything per-entry lives inside the guard, `schema_major` included:
+        # it parses the version string, and a failure there once aborted the whole
+        # run after earlier datasets had already landed.
         try:
+            if entry.schema_major != subscription.schema_major:
+                # Not landed, and not silently skipped either: a major bump means
+                # the mapping models were written against a shape that no longer
+                # holds.
+                report.incompatible.append((entry.name, entry.schema_version))
+                continue
+
+            if store.has(entry.name, entry.latest_version):
+                report.skipped.append(entry.name)
+                continue
+
             files = {DATA_FILE: await _fetch_file(base_url, entry, DATA_FILE, token, client)}
             try:
                 files[PACKAGE_FILE] = await _fetch_file(

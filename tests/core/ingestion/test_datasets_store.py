@@ -303,3 +303,26 @@ def test_land_refuses_an_entry_whose_name_escapes_the_store(tmp_path):
         store.land(entry(name="../escaped"), {"data.csv": DATA})
 
     assert not (tmp_path / "escaped").exists()
+
+
+async def test_an_unparseable_schema_version_fails_only_its_own_dataset(tmp_path):
+    """The schema check ran outside the per-entry guard, so one bad row aborted the run.
+
+    Datasets that had already landed stayed on disk while the rest were never
+    attempted — the opposite of what `test_one_dataset_failing_does_not_stop_the_others`
+    promises.
+    """
+    store = SnapshotStore(tmp_path)
+
+    async with httpx.AsyncClient(transport=serving()) as client:
+        report = await pull(
+            "https://usa-wa.exe.xyz:8000",
+            [entry(name="broken", schema="unversioned"), entry()],
+            store,
+            token="tok",
+            client=client,
+            subscription=Subscription(names=frozenset({"broken", "pm_anchors"}), schema_major=1),
+        )
+
+    assert report.landed == ["pm_anchors"]
+    assert [name for name, _ in report.failed] == ["broken"]

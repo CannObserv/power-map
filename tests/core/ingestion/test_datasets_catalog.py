@@ -187,3 +187,11 @@ def test_refuses_a_hierarchical_dataset_name():
 
     with pytest.raises(CatalogError, match="unsafe name"):
         parse_catalog(payload)
+
+
+def test_refuses_a_schema_version_with_no_numeric_major():
+    """`schema_major` is compared before anything is fetched; it must not throw."""
+    payload = {"datasets": [dict(CATALOG["datasets"][0], schema_version="unversioned")]}
+
+    with pytest.raises(CatalogError, match="schema_version"):
+        parse_catalog(payload)
