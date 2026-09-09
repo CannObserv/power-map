@@ -5,7 +5,7 @@ the whole cross-repo contract under #490. This module is the consumer half:
 read the catalog, fetch what the subscription asks for, verify it, and store it
 verbatim.
 
-Three things here are shaped by how this surface actually fails rather than by
+Four things here are shaped by how this surface actually fails rather than by
 how it is specified:
 
 * **The catalog is served from a private exe.dev proxy.** An unauthenticated
@@ -20,6 +20,10 @@ how it is specified:
 * **A snapshot lands or it does not.** Files are verified before the version
   directory exists under its final name, so a partially written snapshot is
   never visible to the applier as a complete one.
+* **The catalog names the directories this writes to.** A dataset name and a
+  version reach ``mkdir(parents=True)`` and ``shutil.rmtree`` straight from a
+  fetched document, so both are validated as single path segments — at the
+  parse door and again at the write.
 """
 
 import hashlib
