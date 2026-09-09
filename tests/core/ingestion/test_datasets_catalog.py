@@ -195,3 +195,12 @@ def test_refuses_a_schema_version_with_no_numeric_major():
 
     with pytest.raises(CatalogError, match="schema_version"):
         parse_catalog(payload)
+
+
+@pytest.mark.parametrize("column", ["rows", "bytes"])
+def test_refuses_a_non_numeric_count(column):
+    """`int()` would raise ValueError — a type no caller of this module catches."""
+    payload = {"datasets": [dict(CATALOG["datasets"][0], **{column: "many"})]}
+
+    with pytest.raises(CatalogError, match=column):
+        parse_catalog(payload)

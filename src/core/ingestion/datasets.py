@@ -129,6 +129,14 @@ def _schema_version(raw: object, *, where: str) -> str:
     return raw
 
 
+def _count(raw: object, *, field: str, where: str) -> int:
+    """Coerce a published count, as a `CatalogError` rather than a bare `ValueError`."""
+    try:
+        return int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise CatalogError(f"{where}: {field} {raw!r} is not a number") from exc
+
+
 def _digest(raw: str, *, where: str) -> str:
     """Return the bare hex digest from a published `sha256:…` (or bare) hash."""
     algorithm, _, digest = raw.rpartition(":")
@@ -166,8 +174,8 @@ def parse_catalog(payload: dict) -> list[CatalogEntry]:
                     raw["schema_version"], where=f"catalog entry {name}"
                 ),
                 sha256=_digest(raw["hash"], where=f"catalog entry {name}"),
-                rows=int(raw["rows"]),
-                bytes=int(raw["bytes"]),
+                rows=_count(raw["rows"], field="rows", where=f"catalog entry {name}"),
+                bytes=_count(raw["bytes"], field="bytes", where=f"catalog entry {name}"),
                 generated_at=raw.get("generated_at", ""),
                 derived_from=tuple(raw.get("derived_from", ())),
             )
@@ -294,7 +302,10 @@ class SnapshotStore:
         d = self.dataset_dir(name)
         if not d.is_dir():
             return []
-        return sorted(p.name for p in d.iterdir() if p.is_dir())
+        # `.incoming-*` is a staging directory a crashed `land()` left behind —
+        # never verified, so never a version. A published version cannot begin
+        # with a dot (`_SAFE_PATH_SEGMENT`), so the prefix is unambiguous.
+        return sorted(p.name for p in d.iterdir() if p.is_dir() and not p.name.startswith("."))
 
     def land(self, entry: CatalogEntry, files: dict[str, bytes]) -> Path:
         """Verify ``files`` against ``entry`` and store them as a complete version.
