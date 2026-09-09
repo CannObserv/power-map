@@ -115,10 +115,10 @@ class CatalogEntry:
         return int(self.schema_version.split(".", 1)[0])
 
 
-def _safe_segment(value: object, *, field: str, where: str) -> str:
+def _safe_segment(value: object, *, label: str, where: str) -> str:
     """Return ``value`` if it is usable as a single path component."""
     if not isinstance(value, str) or not _SAFE_PATH_SEGMENT.match(value):
-        raise CatalogError(f"{where}: unsafe {field} {value!r} — not a single path segment")
+        raise CatalogError(f"{where}: unsafe {label} {value!r} — not a single path segment")
     return value
 
 
@@ -129,12 +129,18 @@ def _schema_version(raw: object, *, where: str) -> str:
     return raw
 
 
-def _count(raw: object, *, field: str, where: str) -> int:
-    """Coerce a published count, as a `CatalogError` rather than a bare `ValueError`."""
+def _count(raw: object, *, label: str, where: str) -> int:
+    """Coerce a published count, as a `CatalogError` rather than a bare `ValueError`.
+
+    ``label`` rather than ``field``: `dataclasses.field` is imported in this
+    module, and a parameter of that name shadows it silently — ruff's F402
+    covers loop variables only, which is how the same collision reached a commit
+    once already here.
+    """
     try:
         return int(raw)  # type: ignore[arg-type]
     except (TypeError, ValueError) as exc:
-        raise CatalogError(f"{where}: {field} {raw!r} is not a number") from exc
+        raise CatalogError(f"{where}: {label} {raw!r} is not a number") from exc
 
 
 def _digest(raw: str, *, where: str) -> str:
@@ -163,19 +169,19 @@ def parse_catalog(payload: dict) -> list[CatalogEntry]:
             raise CatalogError(f"catalog entry {name}: missing {', '.join(missing)}")
         entries.append(
             CatalogEntry(
-                name=_safe_segment(raw["name"], field="name", where=f"catalog entry {name}"),
+                name=_safe_segment(raw["name"], label="name", where=f"catalog entry {name}"),
                 tier=raw.get("tier", "unknown"),
                 latest_version=_safe_segment(
                     raw["latest_version"],
-                    field="latest_version",
+                    label="latest_version",
                     where=f"catalog entry {name}",
                 ),
                 schema_version=_schema_version(
                     raw["schema_version"], where=f"catalog entry {name}"
                 ),
                 sha256=_digest(raw["hash"], where=f"catalog entry {name}"),
-                rows=_count(raw["rows"], field="rows", where=f"catalog entry {name}"),
-                bytes=_count(raw["bytes"], field="bytes", where=f"catalog entry {name}"),
+                rows=_count(raw["rows"], label="rows", where=f"catalog entry {name}"),
+                bytes=_count(raw["bytes"], label="bytes", where=f"catalog entry {name}"),
                 generated_at=raw.get("generated_at", ""),
                 derived_from=tuple(raw.get("derived_from", ())),
             )
