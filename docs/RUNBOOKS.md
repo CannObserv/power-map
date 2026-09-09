@@ -183,17 +183,75 @@ uv run "${env_args[@]}" python -m scripts.sweep_role_data_quality --execute  # c
 
 ---
 
+## Pull usa-wa dataset snapshots (idempotent, #496)
+
+
+`scripts/pull_datasets.py` is step 1 of the #490 PM-side pipeline: catalog →
+verified, verbatim, versioned local snapshots.
+
+```bash
+uv run "${env_args[@]}" python -m scripts.pull_datasets                      # conformed tier
+uv run "${env_args[@]}" python -m scripts.pull_datasets --dataset pm_anchors # by name
+```
+
+**Auth is an exe.dev VM bearer token in `USA_WA_TOKEN`** (header
+`X-Exedev-Authorization`), minted with
+`ssh exe.dev ssh-key generate-api-key --vm=usa-wa`. usa-wa's `/datasets` surface
+sits behind a **private** proxy, and this is the failure worth knowing: an
+absent or wrong token does not produce a 401. The proxy answers 307 with an HTML
+login page, so a client that follows redirects and checks only for a 2xx parses
+that page as a catalog and reports an empty one. The puller therefore does not
+follow redirects, asserts the content type, and names every auth-shaped outcome
+as authentication — and the script refuses to start with no token at all.
+
+- **Subscription.** No `--dataset` flag means every `conformed`-tier product.
+  Naming datasets **replaces** that default rather than extending it. `pm_anchors`
+  is tier `cutover`, so it is pulled by name.
+- **Hash-skip.** A version already in the store is not re-fetched; a night with
+  nothing new upstream costs one catalog request.
+- **Landing is atomic.** Files are verified into a staging directory and moved
+  into place, so a version directory exists only when the snapshot in it is
+  complete. Presence means completeness. Verification is the length the catalog
+  states, then its digest — a truncated transfer says so in bytes rather than as
+  two unequal hashes.
+- **A snapshot lands without `datapackage.json` only on a 404**, the publisher
+  stating there is none (logged at WARNING). Any other failure fetching it — a
+  500, an expired token — fails the dataset instead, because hash-skip would
+  otherwise make a one-second blip a permanently schema-less snapshot for the
+  life of that version.
+- **Each version carries `snapshot.json`** — name, version, schema version,
+  digest, row count, `generated_at`. That is what lets a consumer verify a
+  snapshot without a second catalog fetch that may answer with a newer version
+  by then. `scripts/seed_producer_crosswalk.py` reads it directly, so
+  `--export data/usa_wa_snapshots/pm_anchors/<version>` needs no hand-staging.
+- **Pruning spares the version just landed**, whatever `--keep` says.
+- **Exit 1** on a failed verification, an incompatible schema major, or a
+  subscribed dataset the catalog does not carry. That last one matters: a
+  renamed dataset that silently pulls nothing is indistinguishable from a quiet
+  night otherwise.
+
+Writes only into `data/usa_wa_snapshots/` (gitignored) — never the database, so
+there is no `--execute` gate here. The gated step is the applier (#499).
+
+---
+
 ## Seed the producer crosswalk (idempotent, #495)
 
 
-`scripts/seed_producer_crosswalk.py` reads a published anchor export
-(`anchors.csv` + `manifest.json`), resolves every PM id through PM's merge
-history, and writes `producer_crosswalk` — transition safeguard 1 of the
-dataset-subscription design (#490).
+`scripts/seed_producer_crosswalk.py` reads a published anchor export, resolves
+every PM id through PM's merge history, and writes `producer_crosswalk` —
+transition safeguard 1 of the dataset-subscription design (#490).
+
+**Either export layout works** (#496): usa-wa's VM-file export (`anchors.csv` +
+`manifest.json`) or a snapshot the puller landed (`data.csv` + `snapshot.json`).
+Both carry the rows and the digest that vouches for them, and both are verified
+the same way, so a pulled snapshot needs no hand-staging.
 
 ```bash
 uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
     --export data/anchor-export             # dry run: prints the report
+uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
+    --export data/usa_wa_snapshots/pm_anchors/<version>   # a pulled snapshot
 uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
     --export data/anchor-export --execute
 ```

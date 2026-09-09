@@ -126,3 +126,44 @@ def test_read_export_names_a_manifest_key_it_cannot_find(tmp_path):
 
     with pytest.raises(AnchorFormatError, match="sha256"):
         read_export(tmp_path)
+
+
+def test_read_export_reads_a_pulled_snapshot_directory(tmp_path):
+    """The puller (#496) writes `data.csv` + `snapshot.json`, not the VM-file shape.
+
+    Teaching the seed to read what the store lands is what makes the puller
+    actually replace the hand-staged fetch, rather than sitting beside it.
+    """
+    import hashlib
+    import json as _json
+
+    rows = f"kind,usa_wa_id,pm_id\nperson,{generate_id()},{generate_id()}\n"
+    (tmp_path / "data.csv").write_text(rows)
+    (tmp_path / "snapshot.json").write_text(
+        _json.dumps(
+            {
+                "name": "pm_anchors",
+                "version": "v20260909T043402Z-4f46dd",
+                "sha256": hashlib.sha256(rows.encode()).hexdigest(),
+                "generated_at": "2026-09-09T04:34:02Z",
+            }
+        )
+    )
+
+    anchors, manifest = read_export(tmp_path)
+
+    assert len(anchors) == 1
+    assert manifest["exported_at"] == "2026-09-09T04:34:02Z"
+
+
+def test_read_export_verifies_a_pulled_snapshot_against_its_recorded_digest(tmp_path):
+    """The store's own record is the guard once the catalog is out of reach."""
+    import json as _json
+
+    (tmp_path / "data.csv").write_text("kind,usa_wa_id,pm_id\n")
+    (tmp_path / "snapshot.json").write_text(
+        _json.dumps({"sha256": "0" * 64, "generated_at": "2026-09-09T04:34:02Z"})
+    )
+
+    with pytest.raises(AnchorFormatError, match="digest"):
+        read_export(tmp_path)

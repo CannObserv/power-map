@@ -52,20 +52,40 @@ logger = get_logger(__name__)
 ANCHORS_FILE = "anchors.csv"
 MANIFEST_FILE = "manifest.json"
 
+# The shape `scripts/pull_datasets.py` lands (#496). Both layouts carry the same
+# two facts — the rows and the digest that vouches for them — so the seed reads
+# either rather than requiring the export to be re-staged by hand.
+SNAPSHOT_DATA_FILE = "data.csv"
+SNAPSHOT_META_FILE = "snapshot.json"
+
 
 class BlockedSeed(RuntimeError):
     """The report says a human has to look before anything is written."""
 
 
 def read_export(export_dir: Path) -> tuple[list[Anchor], dict]:
-    """Read and verify an export directory, returning its anchors and manifest."""
-    export_dir = Path(export_dir)
-    raw = (export_dir / ANCHORS_FILE).read_bytes()
-    manifest = json.loads((export_dir / MANIFEST_FILE).read_text())
+    """Read and verify an export directory, returning its anchors and manifest.
 
-    for key in ("sha256", "exported_at"):
+    Accepts either layout: usa-wa's VM-file export (`anchors.csv` +
+    `manifest.json`) or a snapshot the puller landed (`data.csv` +
+    `snapshot.json`). Both are verified the same way, against the digest their
+    own metadata states.
+    """
+    export_dir = Path(export_dir)
+
+    if (export_dir / SNAPSHOT_META_FILE).exists():
+        data_file, meta_file, timestamp_key = SNAPSHOT_DATA_FILE, SNAPSHOT_META_FILE, "generated_at"
+    else:
+        data_file, meta_file, timestamp_key = ANCHORS_FILE, MANIFEST_FILE, "exported_at"
+
+    raw = (export_dir / data_file).read_bytes()
+    manifest = json.loads((export_dir / meta_file).read_text())
+
+    for key in ("sha256", timestamp_key):
         if key not in manifest:
-            raise AnchorFormatError(f"{MANIFEST_FILE} has no {key!r}")
+            raise AnchorFormatError(f"{meta_file} has no {key!r}")
+    # One key downstream regardless of which layout carried it.
+    manifest.setdefault("exported_at", manifest[timestamp_key])
 
     # Before parsing, not after: a truncated file is a shorter valid CSV.
     verify_digest(raw, manifest["sha256"])
