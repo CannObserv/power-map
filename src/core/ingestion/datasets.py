@@ -27,7 +27,7 @@ import json
 import os
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -257,16 +257,11 @@ class Subscription:
 class PullReport:
     """What one pull did, in the shape an operator reads at 08:00."""
 
-    landed: list[str] = None  # type: ignore[assignment]
-    skipped: list[str] = None  # type: ignore[assignment]
-    failed: list[tuple[str, str]] = None  # type: ignore[assignment]
-    incompatible: list[tuple[str, str]] = None  # type: ignore[assignment]
-    missing: list[str] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        for f in ("landed", "skipped", "failed", "incompatible", "missing"):
-            if getattr(self, f) is None:
-                setattr(self, f, [])
+    landed: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
+    incompatible: list[tuple[str, str]] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)
 
     @property
     def failed_run(self) -> bool:
@@ -314,11 +309,11 @@ class SnapshotStore:
         verification or a crash mid-write leaves no directory rather than a
         half-populated one.
         """
-        for value, field in ((entry.name, "name"), (entry.latest_version, "latest_version")):
+        for value, label in ((entry.name, "name"), (entry.latest_version, "latest_version")):
             # `parse_catalog` guards the catalog; this guards every other caller,
             # because what follows is a `mkdir(parents=True)` and an `rmtree`.
             if not _SAFE_PATH_SEGMENT.match(value):
-                raise ValueError(f"unsafe {field} {value!r} — not a single path segment")
+                raise ValueError(f"unsafe {label} {value!r} — not a single path segment")
 
         data = files.get(DATA_FILE)
         if data is None:

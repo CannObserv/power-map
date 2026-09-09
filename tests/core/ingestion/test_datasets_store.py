@@ -15,6 +15,7 @@ import pytest
 
 from src.core.ingestion.datasets import (
     CatalogEntry,
+    PullReport,
     SnapshotStore,
     Subscription,
     pull,
@@ -399,3 +400,19 @@ def test_a_crashed_run_leaves_no_version_behind_in_the_listing(tmp_path):
     (store.dataset_dir("pm_anchors") / ".incoming-v2-bbb").mkdir()
 
     assert store.versions("pm_anchors") == ["v1-aaa"]
+
+
+def test_two_reports_do_not_share_a_list():
+    """The None-sentinel dance existed to avoid this; `default_factory` is the tool."""
+    first, second = PullReport(), PullReport()
+
+    first.landed.append("pm_anchors")
+
+    assert second.landed == []
+
+
+def test_a_report_starts_empty_and_is_typed_as_such():
+    report = PullReport()
+
+    assert (report.landed, report.skipped, report.failed) == ([], [], [])
+    assert not report.failed_run
