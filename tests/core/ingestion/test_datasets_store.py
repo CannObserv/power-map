@@ -8,6 +8,7 @@ rather than reporting the same green as a run that did.
 
 import hashlib
 import json
+import logging
 
 import httpx
 import pytest
@@ -326,3 +327,62 @@ async def test_an_unparseable_schema_version_fails_only_its_own_dataset(tmp_path
 
     assert report.landed == ["pm_anchors"]
     assert [name for name, _ in report.failed] == ["broken"]
+
+
+def _serving_package_status(status):
+    """Serves data.csv normally and answers datapackage.json with `status`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("data.csv"):
+            return httpx.Response(200, content=DATA, headers={"content-type": "text/csv"})
+        return httpx.Response(status)
+
+    return httpx.MockTransport(handler)
+
+
+async def _pull_one(store, transport):
+    async with httpx.AsyncClient(transport=transport) as client:
+        return await pull(
+            "https://usa-wa.exe.xyz:8000",
+            [entry()],
+            store,
+            token="tok",
+            client=client,
+            subscription=Subscription(names=frozenset({"pm_anchors"}), schema_major=1),
+        )
+
+
+async def test_a_transient_error_on_the_package_fails_the_dataset(tmp_path):
+    """Landing anyway makes the damage permanent, not transient.
+
+    `store.has()` is true afterwards, so hash-skip never re-fetches this version:
+    a 500 that lasted one second would leave a schema-less snapshot that #497
+    reads for the life of the version.
+    """
+    store = SnapshotStore(tmp_path)
+
+    report = await _pull_one(store, _serving_package_status(500))
+
+    assert [name for name, _ in report.failed] == ["pm_anchors"]
+    assert not store.has("pm_anchors", "v1-aaa")
+
+
+async def test_a_genuinely_absent_package_still_lands_and_says_so(tmp_path, caplog):
+    """404 is the publisher stating there is none; the digest covers data.csv."""
+    store = SnapshotStore(tmp_path)
+
+    with caplog.at_level(logging.WARNING, logger="src.core.ingestion.datasets"):
+        report = await _pull_one(store, _serving_package_status(404))
+
+    assert report.landed == ["pm_anchors"]
+    assert not (store.version_dir("pm_anchors", "v1-aaa") / "datapackage.json").exists()
+    assert any("datapackage.json" in r.getMessage() for r in caplog.records)
+
+
+async def test_an_auth_failure_on_the_package_fails_the_dataset(tmp_path):
+    """An expired token mid-pull is not a statement that no schema exists."""
+    store = SnapshotStore(tmp_path)
+
+    report = await _pull_one(store, _serving_package_status(403))
+
+    assert [name for name, _ in report.failed] == ["pm_anchors"]

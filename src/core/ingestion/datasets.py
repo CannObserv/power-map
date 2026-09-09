@@ -32,11 +32,14 @@ from pathlib import Path
 
 import httpx
 
+from src.core.logging import get_logger
+
 __all__ = [
     "CATALOG_PATH",
     "CONFORMED_TIER",
     "CatalogEntry",
     "CatalogError",
+    "DatasetNotFound",
     "PullReport",
     "SnapshotStore",
     "Subscription",
@@ -44,6 +47,8 @@ __all__ = [
     "parse_catalog",
     "pull",
 ]
+
+logger = get_logger(__name__)
 
 CATALOG_PATH = "/datasets/catalog.json"
 
@@ -80,6 +85,14 @@ SNAPSHOT_FILE = "snapshot.json"
 
 class CatalogError(RuntimeError):
     """The catalog could not be read, or is not a catalog."""
+
+
+class DatasetNotFound(CatalogError):
+    """The publisher answered 404 — a statement that this document does not exist.
+
+    Distinct from its parent because that statement is the only failure a caller
+    may treat as "there is none", as opposed to "nobody could read it just now".
+    """
 
 
 @dataclass(frozen=True)
@@ -176,7 +189,7 @@ def _check_response(response: httpx.Response, url: str) -> None:
             "token is missing, expired, or scoped to another VM"
         )
     if response.status_code == 404:
-        raise CatalogError(f"{url}: not found (HTTP 404) — the publisher is not serving this")
+        raise DatasetNotFound(f"{url}: not found (HTTP 404) — the publisher is not serving this")
     if response.status_code >= 400:
         raise CatalogError(f"{url}: HTTP {response.status_code}")
     if _looks_like_a_login_page(response):
@@ -394,10 +407,19 @@ async def pull(
                 files[PACKAGE_FILE] = await _fetch_file(
                     base_url, entry, PACKAGE_FILE, token, client
                 )
-            except CatalogError:
-                # The digest covers data.csv; a missing datapackage is worth
-                # storing without rather than discarding a verified snapshot for.
-                pass
+            except DatasetNotFound:
+                # Only a 404 — the publisher stating there is no schema file. The
+                # digest covers data.csv, so landing without it is right. Anything
+                # else (a 500, an expired token) must fail the dataset instead:
+                # `store.has()` is true once a version lands and hash-skip never
+                # re-fetches it, so a one-second blip would otherwise leave a
+                # permanently schema-less snapshot for #497 to read.
+                logger.warning(
+                    "%s %s: no %s published — landing without it",
+                    entry.name,
+                    entry.latest_version,
+                    PACKAGE_FILE,
+                )
             store.land(entry, files)
         except (CatalogError, ValueError, httpx.HTTPError) as exc:
             report.failed.append((entry.name, str(exc)))
