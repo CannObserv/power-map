@@ -19,7 +19,9 @@ how it is specified:
   truth is "nobody checked it".
 * **A snapshot lands or it does not.** Files are verified before the version
   directory exists under its final name, so a partially written snapshot is
-  never visible to the applier as a complete one.
+  never visible to the applier as a complete one. Each landing stages into its
+  own directory, so two runs of the same version cannot promote each other's
+  half-written one.
 * **The catalog names the directories this writes to.** A dataset name and a
   version reach ``mkdir(parents=True)`` and ``shutil.rmtree`` straight from a
   fetched document, so both are validated as single path segments — at the
@@ -31,6 +33,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -364,31 +367,43 @@ class SnapshotStore:
             )
 
         final = self.version_dir(entry.name, entry.latest_version)
-        staging = final.with_name(f".incoming-{entry.latest_version}")
-        if staging.exists():
-            shutil.rmtree(staging)
-        staging.mkdir(parents=True)
-        for filename, payload in files.items():
-            (staging / filename).write_bytes(payload)
-        (staging / SNAPSHOT_FILE).write_text(
-            json.dumps(
-                {
-                    "name": entry.name,
-                    "version": entry.latest_version,
-                    "tier": entry.tier,
-                    "schema_version": entry.schema_version,
-                    "sha256": entry.sha256,
-                    "rows": entry.rows,
-                    "generated_at": entry.generated_at,
-                },
-                indent=2,
-            )
-            + "\n"
+        final.parent.mkdir(parents=True, exist_ok=True)
+        # One staging directory per landing, not per version: a name derived from
+        # the version alone is shared by every process, so the nightly timer and
+        # a manual run landing the same version race — one deletes the other's
+        # half-written directory, and either can then `os.replace` it into place
+        # as a complete snapshot. `versions()` ignores dotted names, so the
+        # prefix keeps these invisible as versions.
+        staging = Path(
+            tempfile.mkdtemp(prefix=f".incoming-{entry.latest_version}-", dir=final.parent)
         )
-        # Re-landing repairs a corrupted local copy, so replacing is supported.
-        if final.exists():
-            shutil.rmtree(final)
-        os.replace(staging, final)
+        staging.chmod(0o755)  # mkdtemp is 0700; landed versions were always 0755
+        try:
+            for filename, payload in files.items():
+                (staging / filename).write_bytes(payload)
+            (staging / SNAPSHOT_FILE).write_text(
+                json.dumps(
+                    {
+                        "name": entry.name,
+                        "version": entry.latest_version,
+                        "tier": entry.tier,
+                        "schema_version": entry.schema_version,
+                        "sha256": entry.sha256,
+                        "rows": entry.rows,
+                        "generated_at": entry.generated_at,
+                    },
+                    indent=2,
+                )
+                + "\n"
+            )
+            # Re-landing repairs a corrupted local copy, so replacing is supported.
+            if final.exists():
+                shutil.rmtree(final)
+            os.replace(staging, final)
+        finally:
+            # A no-op once `os.replace` has moved it; on any failure it is the
+            # difference between one inert directory per failed write and none.
+            shutil.rmtree(staging, ignore_errors=True)
         return final
 
     def prune(self, name: str, *, keep: int, keep_version: str | None) -> list[str]:

@@ -136,6 +136,33 @@ def test_landing_the_same_version_twice_is_allowed_and_replaces_it(tmp_path):
     assert (store.version_dir("pm_anchors", "v1-aaa") / "datapackage.json").exists()
 
 
+def test_landing_does_not_disturb_another_runs_staging_directory(tmp_path):
+    """The timer and a manual run can land the same version at the same moment.
+
+    A staging name derived only from the version is shared across processes: one
+    run deletes the other's half-written directory, and whichever reaches
+    `os.replace` first can promote a snapshot the other was midway through.
+    """
+    store = SnapshotStore(tmp_path)
+    other_run = store.dataset_dir("pm_anchors") / ".incoming-v1-aaa"
+    other_run.mkdir(parents=True)
+    (other_run / "half-written.csv").write_bytes(b"partial")
+
+    store.land(entry(), {"data.csv": DATA})
+
+    assert (other_run / "half-written.csv").exists()
+
+
+def test_a_failed_write_leaves_no_staging_directory_behind(tmp_path):
+    """Unique staging names would otherwise accumulate one leak per failure."""
+    store = SnapshotStore(tmp_path)
+
+    with pytest.raises(TypeError):
+        store.land(entry(), {"data.csv": DATA, "datapackage.json": "not bytes"})
+
+    assert list(store.dataset_dir("pm_anchors").glob(".incoming*")) == []
+
+
 def test_a_landed_version_records_its_own_provenance(tmp_path):
     """The store is self-describing, so nothing downstream re-reads the catalog.
 
