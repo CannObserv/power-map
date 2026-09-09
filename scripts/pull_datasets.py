@@ -113,7 +113,9 @@ async def run(
             await client.aclose()
 
     # Prune after landing, sparing the version this run just fetched: a `--keep`
-    # smaller than the number of versions must never delete the newest one.
+    # smaller than the number of versions must never delete the newest one. Note
+    # this is the newest *published* version, not the one the applier last
+    # applied — nothing records that yet (#499).
     for entry in catalog:
         if not subscription.wants(entry):
             continue

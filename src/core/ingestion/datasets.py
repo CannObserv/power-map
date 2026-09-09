@@ -365,8 +365,12 @@ class SnapshotStore:
     def prune(self, name: str, *, keep: int, keep_version: str | None) -> list[str]:
         """Drop all but the newest ``keep`` versions, always sparing ``keep_version``.
 
-        ``keep_version`` is the last-applied snapshot: pruning it would leave the
-        applier unable to say what it last applied, which is worse than the disk.
+        ``keep_version`` is a version the caller wants kept whatever ``keep``
+        says. Nothing yet records which snapshot the applier last applied, so
+        the puller passes the newest **published** version — enough to stop a
+        small ``--keep`` deleting what the run just fetched, but not the same
+        guarantee. Protecting the applied version is #499's to add once there is
+        something that knows it.
         """
         stored = self.versions(name)
         survivors = set(stored[-keep:]) if keep > 0 else set()
