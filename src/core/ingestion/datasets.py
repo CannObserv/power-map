@@ -369,7 +369,13 @@ class SnapshotStore:
         return removed
 
 
-async def _fetch_file(base_url: str, entry: CatalogEntry, filename: str, token, client) -> bytes:
+async def _fetch_file(
+    base_url: str,
+    entry: CatalogEntry,
+    filename: str,
+    token: str,
+    client: httpx.AsyncClient,
+) -> bytes:
     url = f"{base_url.rstrip('/')}/datasets/{entry.name}/{entry.latest_version}/{filename}"
     response = await _get(url, token, client)
     return response.content
