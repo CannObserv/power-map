@@ -192,3 +192,32 @@ async def test_the_headline_counts_every_outcome_that_fails_the_run(tmp_path, ca
 
     assert report.failed_run
     assert "1 missing" in headline
+
+
+async def test_a_snapshot_landed_without_its_package_is_named_in_the_report(tmp_path, caplog):
+    """ "landed persons" alone does not tell the operator it arrived schema-less."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("catalog.json"):
+            return httpx.Response(200, json=CATALOG)
+        if request.url.path.endswith("data.csv"):
+            return httpx.Response(200, content=DATA, headers={"content-type": "text/csv"})
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with caplog.at_level(logging.WARNING, logger="scripts.pull_datasets"):
+            report = await run(
+                "https://usa-wa.exe.xyz:8000",
+                token="tok",
+                store=SnapshotStore(tmp_path),
+                subscription=build_subscription([], schema_major=1),
+                keep=3,
+                client=client,
+            )
+
+    # From the report block specifically: `pull` already warns, but that line is
+    # interleaved with httpx's INFO output rather than sitting with the summary.
+    summary = [r.getMessage() for r in caplog.records if r.name == "scripts.pull_datasets"]
+
+    assert not report.failed_run
+    assert any("no datapackage.json" in line for line in summary)

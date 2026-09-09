@@ -454,3 +454,18 @@ async def test_a_filesystem_failure_fails_its_dataset_not_the_run(tmp_path, monk
 
     assert report.landed == ["pm_anchors"]
     assert [name for name, _ in report.failed] == ["broken"]
+
+
+async def test_the_report_says_which_snapshots_landed_without_a_package(tmp_path):
+    """The WARNING is interleaved with httpx INFO; the report is what is read.
+
+    Exit stays 0 — a genuinely absent package is the publisher's statement, not
+    a failure — but #497 reads these files, so the run must say it happened.
+    """
+    store = SnapshotStore(tmp_path)
+
+    report = await _pull_one(store, _serving_package_status(404))
+
+    assert report.landed == ["pm_anchors"]
+    assert report.landed_without_package == ["pm_anchors"]
+    assert not report.failed_run

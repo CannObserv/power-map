@@ -72,6 +72,8 @@ def _log_report(report: PullReport, *, schema_major: int) -> None:
         logger.info("  landed    %s", name)
     for name in report.skipped:
         logger.info("  unchanged %s", name)
+    for name in report.landed_without_package:
+        logger.warning("  landed    %s — with no datapackage.json (see #497)", name)
     for name, reason in report.failed:
         logger.error("  FAILED    %s — %s", name, reason)
     for name, schema_version in report.incompatible:

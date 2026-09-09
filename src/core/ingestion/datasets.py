@@ -278,6 +278,10 @@ class PullReport:
     failed: list[tuple[str, str]] = field(default_factory=list)
     incompatible: list[tuple[str, str]] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
+    # Landed, verified, but with no schema file — not a failure (the exit code
+    # stays 0), yet the thing #497 will trip over, so the report carries it
+    # rather than leaving it to a WARNING among httpx's INFO lines.
+    landed_without_package: list[str] = field(default_factory=list)
 
     @property
     def failed_run(self) -> bool:
@@ -461,6 +465,7 @@ async def pull(
                     entry.latest_version,
                     PACKAGE_FILE,
                 )
+                report.landed_without_package.append(entry.name)
             store.land(entry, files)
         except (CatalogError, ValueError, httpx.HTTPError, OSError) as exc:
             # OSError included: `land()` is all filesystem calls, and a full
