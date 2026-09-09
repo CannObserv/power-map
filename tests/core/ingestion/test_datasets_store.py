@@ -416,3 +416,11 @@ def test_a_report_starts_empty_and_is_typed_as_such():
 
     assert (report.landed, report.skipped, report.failed) == ([], [], [])
     assert not report.failed_run
+
+
+def test_a_truncated_download_names_the_length_the_catalog_stated(tmp_path):
+    """ "digest mismatch" is true but "10 bytes, not 105" is diagnostic."""
+    store = SnapshotStore(tmp_path)
+
+    with pytest.raises(ValueError, match=r"length mismatch.*catalog says"):
+        store.land(entry(), {"data.csv": DATA[:10]})

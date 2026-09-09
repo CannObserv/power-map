@@ -318,6 +318,15 @@ class SnapshotStore:
         data = files.get(DATA_FILE)
         if data is None:
             raise ValueError(f"{entry.name} {entry.latest_version}: no {DATA_FILE} to verify")
+        if len(data) != entry.bytes:
+            # Checked before the digest because it names the failure better: a
+            # truncated transfer reads as "10 bytes, not 105" rather than as two
+            # unequal hashes. It is also the only thing that reads `bytes`, which
+            # the catalog requires and nothing else consults.
+            raise ValueError(
+                f"{entry.name} {entry.latest_version}: length mismatch — "
+                f"catalog says {entry.bytes} bytes, downloaded {len(data)}"
+            )
         actual = hashlib.sha256(data).hexdigest()
         if actual != entry.sha256:
             raise ValueError(
