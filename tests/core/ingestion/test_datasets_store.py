@@ -386,3 +386,16 @@ async def test_an_auth_failure_on_the_package_fails_the_dataset(tmp_path):
     report = await _pull_one(store, _serving_package_status(403))
 
     assert [name for name, _ in report.failed] == ["pm_anchors"]
+
+
+def test_a_crashed_run_leaves_no_version_behind_in_the_listing(tmp_path):
+    """`.incoming-*` is a staging directory, not a stored version.
+
+    Reported as one it inflates the count `prune` reasons about and would be
+    handed to a consumer as a version that was never verified.
+    """
+    store = SnapshotStore(tmp_path)
+    store.land(entry(), {"data.csv": DATA})
+    (store.dataset_dir("pm_anchors") / ".incoming-v2-bbb").mkdir()
+
+    assert store.versions("pm_anchors") == ["v1-aaa"]
