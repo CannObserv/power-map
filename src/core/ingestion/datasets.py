@@ -338,6 +338,11 @@ class SnapshotStore:
             # because what follows is a `mkdir(parents=True)` and an `rmtree`.
             if not _SAFE_PATH_SEGMENT.match(value):
                 raise ValueError(f"unsafe {label} {value!r} — not a single path segment")
+        for filename in files:
+            # The third path input into this function. `pull` passes module
+            # constants, so this is for whoever calls `land()` next.
+            if not _SAFE_PATH_SEGMENT.match(filename):
+                raise ValueError(f"unsafe filename {filename!r} — not a single path segment")
 
         data = files.get(DATA_FILE)
         if data is None:

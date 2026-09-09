@@ -116,6 +116,16 @@ def test_land_refuses_an_entry_whose_name_escapes_the_store(tmp_path):
     assert not (tmp_path / "escaped").exists()
 
 
+def test_land_refuses_a_filename_that_would_escape_the_version(tmp_path):
+    """The third path input into the same function; `pull` passes constants today."""
+    store = SnapshotStore(tmp_path / "store")
+
+    with pytest.raises(ValueError, match="unsafe filename"):
+        store.land(entry(), {"data.csv": DATA, "../escaped.json": b"{}"})
+
+    assert not (tmp_path / "escaped.json").exists()
+
+
 def test_landing_the_same_version_twice_is_allowed_and_replaces_it(tmp_path):
     """Re-landing is how a corrupted local copy is repaired; it must not error."""
     store = SnapshotStore(tmp_path)
