@@ -11,7 +11,8 @@ which is where the DSN lives and is echoed.
 
 Exit codes: 0 built and written; 1 the build failed or a dbt test *errored*
 (a dbt *warning* — the fixture-known blank names — does not fail the run, but
-is printed); 2 usage.
+is printed); 2 usage. A successful run also writes `BUILD.json` beside the
+tables: the dataset versions and PM-export digests the artifact came from.
 
 Usage:
     uv run --group mapping python -m scripts.build_desired_state
@@ -22,7 +23,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from src.core.ingestion.mapping import run_dbt, write_desired_state
+from src.core.ingestion.mapping import run_dbt, write_build_info, write_desired_state
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -48,6 +49,8 @@ def build(root: Path, out: Path, duckdb_path: Path) -> int:
     counts = write_desired_state(duckdb_path, out)
     for table, n in counts.items():
         logger.info("  wrote     %-32s %d row(s)", table, n)
+    info = write_build_info(out, snapshot_root=root, counts=counts)
+    logger.info("  built from %s", ", ".join(f"{k}@{v}" for k, v in info["datasets"].items()))
     logger.info("desired state written: %d table(s) under %s", len(counts), out)
     return 0
 

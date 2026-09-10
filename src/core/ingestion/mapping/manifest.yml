@@ -1,5 +1,6 @@
-# The ownership manifest: what each desired-state table claims, and how far
-# that claim reaches. This is the contract #499 (the diff-applier) reads.
+# The ownership manifest: what each desired-state table claims, how far that
+# claim reaches, and how a row binds to a PM table. This is the contract the
+# applier (#499) reads; `manifest.py` is its typed loader.
 #
 #   key            the columns that identify a row within the table
 #   retraction     what an absent row means for a PM row in scope:
@@ -10,10 +11,33 @@
 #                  row is PM's, column-scoped (safeguard 4)
 #   owned_event_types  events only: retraction-as-absence reaches these types
 #                  and no others — 315 org events in PM have no producer column
+#   target         the binding (v2): one of four shapes the applier interprets
+#                    entity  — a row in an entity table: identity, create,
+#                              report-only retraction
+#                    column  — one column on that row (columns: desired → PM)
+#                    child   — a keyed child row of the entity; `match` is
+#                              any_then_canonical (any row of the type carrying
+#                              the value satisfies; else the canonical row is
+#                              the one in dispute) or key (match on the key
+#                              columns among unarchived rows; >1 is a conflict)
+#                    merge   — every row is a report entry (#514 acts on them)
 #
 # Persons and organizations are report-only for now: safeguard 2 says nothing
 # retracts until creates ≈ 0 and unexpected archives = 0 across N clean runs.
-version: 1
+version: 2
+
+# What an --execute refuses to exceed. A dry run always completes and records
+# its verdict; these decide only whether writing is allowed. `updates` is
+# unlimited by default — #501 passes --max-updates for the flip.
+thresholds:
+  creates: 0
+  merges: 0
+  conflicts: 0
+  stale: 0
+  updates: null
+# Consecutive clean dry runs, with the same diff digest, before --execute is offered.
+streak: 3
+
 tables:
   desired_people:
     entity: person
@@ -21,48 +45,88 @@ tables:
     pm_key: pm_id
     retraction: report
     owned_columns: []          # usa-wa fills no column on people
+    target:
+      shape: entity
+      table: people
   desired_person_names:
     entity: person
     key: [producer_id, name_type]
     pm_key: pm_id
     retraction: none           # PM keeps every other name; 3,121 rows for 3,118 people
     owned_columns: [name]
+    target:
+      shape: child
+      table: person_names
+      parent: person_id
+      columns: {name: name, name_type: name_type}
+      match: any_then_canonical
+      type_column: name_type
+      canonical: is_canonical
+      insert_defaults: {visibility: public}
+      hint_on_create: true     # a create whose name PM already holds is probably a twin
   desired_person_merges:
     entity: person
     key: [loser_pm_id]
     pm_key: loser_pm_id
     retraction: none           # gap E: a re-point instruction, not a row to diff
     owned_columns: [survivor_pm_id]   # null = survivor out of scope (unanchored, a create, archived): report, never act
+    target:
+      shape: merge
   desired_organizations:
     entity: organization
     key: [producer_id]
     pm_key: pm_id
     retraction: report
     owned_columns: []
+    target:
+      shape: entity
+      table: organizations
   desired_organization_parents:
     entity: organization
     key: [producer_id]
     pm_key: pm_id
     retraction: none           # an absent row is silence, not a null parent
     owned_columns: [parent_pm_id]
+    target:
+      shape: column
+      table: organizations
+      columns: {parent_pm_id: parent_id}
   desired_organization_names:
     entity: organization
     key: [producer_id, name_type]
     pm_key: pm_id
     retraction: none           # 310 legal + 13 former rows stay PM's
     owned_columns: [name]
+    target:
+      shape: child
+      table: organization_names
+      parent: organization_id
+      columns: {name: name, name_type: name_type}
+      match: any_then_canonical
+      type_column: name_type
+      canonical: is_canonical
+      hint_on_create: true
   desired_organization_acronyms:
     entity: organization
     key: [producer_id]
     pm_key: pm_id
     retraction: none           # 240 acronym rows on 219 orgs; the producer has 186
     owned_columns: [acronym]
+    target:
+      shape: child
+      table: organization_acronyms
+      parent: organization_id
+      columns: {acronym: acronym}
+      match: any_then_canonical   # no type_column: every row of the table is "the type"
+      canonical: is_canonical
   desired_organization_merges:
     entity: organization
     key: [loser_pm_id]
     pm_key: loser_pm_id
     retraction: none
     owned_columns: [survivor_pm_id]   # null = survivor out of scope (unanchored, a create, archived): report, never act
+    target:
+      shape: merge
   desired_entity_events:
     entity: organization
     key: [producer_id, event_type]   # never pm_id: a create has none (CR 19)
@@ -70,3 +134,15 @@ tables:
     retraction: report
     owned_event_types: [dissolved]
     owned_columns: [event_year]   # month/day: PM holds finer precision on 5 of 152
+    target:
+      shape: child
+      table: entity_events
+      parent: entity_id
+      columns: {event_year: event_year, event_type: event_type_id}
+      constants: {entity_type: organization}
+      match: key
+      key_columns: [event_type]
+      lookups:
+        event_type: {table: entity_event_types, from: slug, to: id}
+      archived: archived_at
+      insert_defaults: {visibility: public}

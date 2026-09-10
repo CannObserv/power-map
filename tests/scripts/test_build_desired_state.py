@@ -6,6 +6,8 @@ code, so a failed build — or a dbt *error* — must reach it, while the warnin
 the fixture is built to raise must not.
 """
 
+import hashlib
+import json
 import shutil
 
 import pytest
@@ -68,3 +70,25 @@ def test_a_store_with_no_export_fails_the_build_and_exits_one(tmp_path):
 
     assert code == 1
     assert not (tmp_path / "out" / "desired_people.parquet").exists()
+
+
+def test_a_build_records_its_provenance(store, tmp_path):
+    """#499 step 1 (round-2 finding 24): BUILD.json says which inputs the artifact came from —
+    the dataset versions, the digests of PM's exports — so a run summary can carry it."""
+    out = tmp_path / "desired_state"
+
+    args = ["--root", str(store), "--out", str(out), "--duckdb", str(tmp_path / "m.duckdb")]
+    assert main(args) == 0
+
+    info = json.loads((out / "BUILD.json").read_text())
+    assert info["datasets"] == {
+        "persons": "v1",
+        "organizations": "v1",
+        "person_crosswalk": "v1",
+        "org_crosswalk": "v1",
+    }
+    crosswalk = (store / PM_EXPORT_DIR / "producer_crosswalk.parquet").read_bytes()
+    assert info["pm_exports"]["producer_crosswalk"] == hashlib.sha256(crosswalk).hexdigest()
+    assert "curation_overlay" in info["pm_exports"]
+    assert info["tables"]["desired_people"] == 4
+    assert info["built_at"].endswith("Z") and "T" in info["built_at"]
