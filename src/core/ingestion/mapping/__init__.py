@@ -121,7 +121,16 @@ def run_dbt(
     ``~/.dbt``.
     """
     root = Path(snapshot_root)
-    target = Path(target_path) if target_path else root / ".dbt-target"
+    if target_path:
+        target = Path(target_path)
+    elif duckdb_path != ":memory:":
+        # Beside the working file it describes, never inside the snapshot
+        # store — that is a verbatim mirror of upstream (CR 4).
+        target = Path(duckdb_path).resolve().parent / ".dbt-target"
+    else:
+        target = root / ".dbt-target"
+    if duckdb_path != ":memory:":
+        Path(duckdb_path).resolve().parent.mkdir(parents=True, exist_ok=True)
     paths = RunPaths(root, duckdb_path, target, target / "logs")
     env = {"PM_MAPPING_DUCKDB": paths.duckdb_path, "PM_SNAPSHOT_ROOT": str(root)}
     env.update(source_env(root, versions=versions))

@@ -61,3 +61,16 @@ def test_a_built_file_is_openable_read_only_the_moment_run_dbt_returns(tmp_path)
 
     con = duckdb.connect(str(db), read_only=True)
     con.close()
+
+
+def test_dbt_scratch_lives_beside_the_duckdb_file_not_in_the_store(tmp_path):
+    """CR 4: the store is a verbatim mirror of upstream; dbt's target/logs are not part of it."""
+    store = tmp_path / "store"
+    store.mkdir()
+    db = tmp_path / "work" / "mapping.duckdb"
+
+    result = run_dbt(["parse"], snapshot_root=store, duckdb_path=str(db))
+
+    assert result.success
+    assert (db.parent / ".dbt-target").is_dir()
+    assert not (store / ".dbt-target").exists()
