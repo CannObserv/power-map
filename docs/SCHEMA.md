@@ -83,6 +83,19 @@ them; since #428 that is never this file.
 
 Seeded by `scripts/seed_producer_crosswalk.py` (`docs/RUNBOOKS.md`).
 
+## Curation overlay (#497)
+
+
+`curation_overlay` holds PM-wins overrides on **producer-owned** fields — the slice of each row the dataset applier (#490) would otherwise rewrite from the snapshot. The mapping models join it declaratively, `COALESCE(overlay.value, mapped.value)`, so PM state for that slice is f(snapshot, overlay): idempotent, replayable, and diffable before any write. Everything a producer does not publish stays direct curation on the entity row.
+
+- Keyed `(entity_type, entity_id, field)`, unique — one override per field per entity, so COALESCE never has to choose
+- `entity_type` is the producer crosswalk's `kind` vocabulary (`person|organization|role|assignment`): the rows this can override are exactly the rows in the crosswalk's scope. No FK on `entity_id` (polymorphic, like `links`)
+- `value` is **nullable on purpose** — a curator can assert a producer-owned field should be empty
+- `field` is free text at the table; the mapping models' source tests enforce the per-type vocabulary, so an override naming a column no model maps fails the build loudly rather than being ignored. #498's admin UI constrains it further
+- `created_by` → `app_users`, `ON DELETE SET NULL`
+
+Written by #498's admin path; read only through `scripts/export_pm_tables.py`, which hands it to the models as Parquet so they never open a database connection.
+
 ---
 
 ## Moved out
