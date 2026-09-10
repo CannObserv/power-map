@@ -51,10 +51,10 @@ models:
         tests: [unique]
 
   - name: desired_person_names
+    description: Keyed (producer_id, name_type) — tests/desired_person_names_key_unique.sql (CR 28).
     columns:
       - name: producer_id
         tests:
-          - unique
           - not_null
           - relationships:
               to: ref('desired_people')
@@ -129,10 +129,10 @@ models:
               field: pm_id
 
   - name: desired_organization_names
+    description: Keyed (producer_id, name_type) — tests/desired_organization_names_key_unique.sql (CR 28).
     columns:
       - name: producer_id
         tests:
-          - unique
           - not_null
           - relationships:
               to: ref('desired_organizations')
@@ -168,10 +168,10 @@ models:
                 severity: warn
 
   - name: desired_entity_events
+    description: Keyed (producer_id, event_type) — tests/desired_entity_events_key_unique.sql (CR 28).
     columns:
       - name: producer_id
         tests:
-          - unique
           - not_null
           - relationships:
               to: ref('desired_organizations')
