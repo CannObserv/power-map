@@ -78,15 +78,21 @@ models:
                 severity: warn
 
   - name: stg_usa_wa__organizations
+    description: Warn, never halt, on a bad producer row (CR 16, the persons rule) — a blank name still lands its identity and takes its legal name from long_name; an org_type the vocabulary has not met determines no parent and nothing else.
     columns:
       - name: entity_id
         tests: [unique, not_null]
       - name: name
-        tests: [not_null]
+        tests:
+          - not_null:
+              config:
+                severity: warn
       - name: org_type
         tests:
           - accepted_values:
               values: [legislature, chamber, committee, party, other]
+              config:
+                severity: warn
 
   - name: stg_usa_wa__org_crosswalk
     columns:
