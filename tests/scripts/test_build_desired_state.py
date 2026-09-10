@@ -6,12 +6,15 @@ code, so a failed build — or a dbt *error* — must reach it, while the warnin
 the fixture is built to raise must not.
 """
 
+import shutil
+
 import pytest
 
 pytest.importorskip("dbt.adapters.duckdb")
 
 from scripts.build_desired_state import main  # noqa: E402
-from src.core.ingestion.mapping.parquet import read_rows  # noqa: E402
+from scripts.export_pm_tables import TABLES  # noqa: E402
+from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, read_rows, write_parquet  # noqa: E402
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     DEFAULT_CROSSWALK,
     DEFAULT_OVERLAY,
@@ -21,11 +24,6 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
 
 @pytest.fixture
 def store(tmp_path):
-    import shutil
-
-    from scripts.export_pm_tables import TABLES
-    from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, write_parquet
-
     root = tmp_path / "store"
     shutil.copytree(FIXTURE_STORE, root)
     write_parquet(
@@ -54,8 +52,6 @@ def test_a_clean_build_writes_every_desired_state_table_and_exits_zero(store, tm
 
 def test_a_store_with_no_export_fails_the_build_and_exits_one(tmp_path):
     """Models read the _pm/ files; without them the build errors — loudly."""
-    import shutil
-
     root = tmp_path / "store"
     shutil.copytree(FIXTURE_STORE, root)
 
