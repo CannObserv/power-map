@@ -100,3 +100,36 @@ class _FakeTransaction:
     async def __aexit__(self, exc_type, exc, tb):
         self._conn.events.append("rollback" if exc_type else "commit")
         return False
+
+
+# The desired-state tables' shapes, as the marts materialise them — for tests
+# that need a directory the applier can load (`write_desired`).
+DESIRED_SPECS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "desired_people": (("pm_id", "producer_id"), ("TEXT", "TEXT")),
+    "desired_person_names": (("pm_id", "producer_id", "name", "name_type"), ("TEXT",) * 4),
+    "desired_person_merges": (
+        ("loser_pm_id", "survivor_pm_id", "loser_producer_id", "survivor_producer_id"),
+        ("TEXT",) * 4,
+    ),
+    "desired_organizations": (("pm_id", "producer_id"), ("TEXT", "TEXT")),
+    "desired_organization_parents": (("pm_id", "parent_pm_id", "producer_id"), ("TEXT",) * 3),
+    "desired_organization_names": (("pm_id", "producer_id", "name", "name_type"), ("TEXT",) * 4),
+    "desired_organization_acronyms": (("pm_id", "producer_id", "acronym"), ("TEXT",) * 3),
+    "desired_organization_merges": (
+        ("loser_pm_id", "survivor_pm_id", "loser_producer_id", "survivor_producer_id"),
+        ("TEXT",) * 4,
+    ),
+    "desired_entity_events": (
+        ("pm_id", "producer_id", "entity_type", "event_type", "event_year"),
+        ("TEXT", "TEXT", "TEXT", "TEXT", "INTEGER"),
+    ),
+}
+
+
+def write_desired(directory, **rows_by_table) -> None:
+    """Write every desired-state table under ``directory`` (empty unless given rows as dicts)."""
+    from src.core.ingestion.mapping.parquet import TableSpec, write_parquet
+
+    for table, (columns, types) in DESIRED_SPECS.items():
+        rows = [tuple(r.get(c) for c in columns) for r in rows_by_table.get(table, [])]
+        write_parquet(rows, TableSpec(table, columns, types), directory / f"{table}.parquet")

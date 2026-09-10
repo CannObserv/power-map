@@ -13,13 +13,12 @@ is a report, and a `stale` entry refuses the whole plan.
 back unless nothing is left to write.
 """
 
-import re
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
 from src.core.db import generate_id
-from src.core.ingestion.applier import ApplierError, Diff
+from src.core.ingestion.applier import ApplierError, Diff, sql_identifier
 from src.core.ingestion.mapping import Manifest
 
 __all__ = [
@@ -33,7 +32,6 @@ __all__ = [
 ]
 
 WRITE_KINDS = ("create", "insert", "update")
-_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _CROSSWALK_SQL = (
     "INSERT INTO producer_crosswalk"
     " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
@@ -71,10 +69,7 @@ class ApplyResult:
     after: Diff
 
 
-def _ident(name: str) -> str:
-    if not _IDENTIFIER.match(name):
-        raise ApplierError(f"{name!r} is not a plain SQL identifier")
-    return name
+_ident = sql_identifier
 
 
 def _generate_ids() -> Iterator[str]:

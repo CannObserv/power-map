@@ -14,6 +14,7 @@ integration tier against asyncpg.
 """
 
 import json
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +37,7 @@ __all__ = [
     "diff_desired",
     "entry_id",
     "scope_rows",
+    "sql_identifier",
 ]
 
 # Crosswalk resolutions that put a row in the applier's scope (docs/SCHEMA.md
@@ -55,6 +57,16 @@ ENTRY_KINDS = ("noop", "create", "insert", "update", "retract", "stale", "confli
 
 class ApplierError(RuntimeError):
     """The applier cannot proceed; the message says why and what to do."""
+
+
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def sql_identifier(name: str) -> str:
+    """A table or column name the manifest supplied, checked before it reaches SQL."""
+    if not isinstance(name, str) or not _IDENTIFIER.match(name):
+        raise ApplierError(f"{name!r} is not a plain SQL identifier")
+    return name
 
 
 class LiveStore(Protocol):

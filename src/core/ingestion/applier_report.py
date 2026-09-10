@@ -53,7 +53,9 @@ LEDGER = "ledger.jsonl"
 DIFF_FILE = "diff.jsonl"
 SUMMARY_JSON = "summary.json"
 SUMMARY_MD = "summary.md"
-VERDICTS = ("clean", "blocked", "stale")
+# `rolled_back` is recorded only by an execute whose in-transaction re-diff
+# still had writes; it breaks the streak so the next execute re-earns it.
+VERDICTS = ("clean", "blocked", "stale", "rolled_back")
 
 # threshold name → the entry kinds it counts. `updates` is every write to a
 # row PM already has or a child row it lacks; `creates` is new entities only.
