@@ -75,7 +75,11 @@ models:
       - name: loser_pm_id
         tests: [unique, not_null]
       - name: survivor_pm_id
-        tests: [not_null]
+        description: Null when the survivor is not anchored in PM — reported, never fatal (CR 1).
+        tests:
+          - not_null:
+              config:
+                severity: warn
 
   - name: stg_usa_wa__organizations
     columns:
@@ -150,7 +154,11 @@ models:
       - name: loser_pm_id
         tests: [unique, not_null]
       - name: survivor_pm_id
-        tests: [not_null]
+        description: Null when the survivor is not anchored in PM — reported, never fatal (CR 1).
+        tests:
+          - not_null:
+              config:
+                severity: warn
 
   - name: desired_entity_events
     columns:

@@ -10,6 +10,7 @@ import pytest
 pytest.importorskip("dbt.adapters.duckdb")
 
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
+    DEFAULT_CROSSWALK,
     EXPECTED_WARNINGS,
     P1,
     P2,
@@ -129,3 +130,15 @@ def test_a_person_published_with_a_blank_name_keeps_identity_but_asserts_no_name
 
     assert (PM7, P7) in b.rows("desired_people")
     assert P7 not in {r[1] for r in b.rows("desired_person_names")}
+
+
+def test_a_tombstone_whose_survivor_is_unanchored_is_reported_not_fatal(build):
+    """CR 1: PM cannot re-point PM4 when P1 has no PM row. That is a finding for
+    the applier to report — not a reason for the nightly build to produce nothing."""
+    without_p1 = [r for r in DEFAULT_CROSSWALK if r[3] != P1]
+
+    b = build(crosswalk=without_p1)
+    merges = {r[0]: r for r in b.rows("desired_person_merges")}
+
+    assert merges[PM4][1] is None
+    assert "not_null_desired_person_merges_survivor_pm_id" in b.warnings
