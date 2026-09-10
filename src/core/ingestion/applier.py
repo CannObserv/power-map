@@ -264,6 +264,9 @@ async def diff_desired(
         if spec.target.shape == "column":
             entries.extend(await _diff_column(spec, kept[name], creating, store))
     for name, spec in manifest.tables.items():
+        if spec.target.shape == "child":
+            entries.extend(await _diff_child(spec, kept[name], creating, state, scope, store))
+    for name, spec in manifest.tables.items():
         if spec.target.shape == "merge":
             entries.extend(_diff_merge(spec, kept[name]))
     return Diff(entries)
@@ -428,4 +431,173 @@ def _diff_merge(spec: TableSpec, rows: Sequence[dict]) -> list[Entry]:
                 reason=f"{why} — acting on merges is #514",
             )
         )
+    return entries
+
+
+async def _diff_child(
+    spec: TableSpec,
+    rows: Sequence[dict],
+    creating: set[tuple[str, str]],
+    state: DesiredState,
+    scope: Scope,
+    store: LiveStore,
+) -> list[Entry]:
+    """A keyed child row of the entity (a name, an acronym, an event).
+
+    `any_then_canonical`: any row of the key type carrying the value satisfies
+    the claim; absent everywhere, the canonical row of that type is the one in
+    dispute (`update`); no such row, `insert` — canonical only when the parent
+    has no canonical row at all. `key`: match on the key columns among
+    unarchived rows — none is an `insert`, one compares the owned columns,
+    more than one is a `conflict`. Under `retraction: report`, an owned event
+    type on an in-scope parent that the snapshot no longer carries is a
+    `retract` entry; every other live row is invisible.
+    """
+    if spec.retraction == "archive":
+        raise ApplierError(
+            f"{spec.name}: retraction 'archive' is #500's to build — this applier reports only"
+        )
+    target = spec.target
+    columns = target.columns  # desired column → PM column
+
+    # Every in-scope parent when absence is reported (an owned type PM holds
+    # that the snapshot dropped), else only the parents the desired rows name.
+    # Both are within scope, so nothing outside the crosswalk is ever read.
+    if spec.retraction == "report":
+        parents = sorted(
+            {scope.resolve(spec.entity, p) for p in scope.in_scope(spec.entity)} - {None}
+        )
+    else:
+        parents = sorted({r[spec.pm_key] for r in rows if r.get(spec.pm_key) is not None})
+    if not rows and not parents:
+        return []  # nothing to compare and nothing that could be retracted: read nothing
+    lookups = {
+        col: await store.lookup(lk["table"], lk["from"], lk["to"])
+        for col, lk in target.lookups.items()
+    }
+
+    def pm_value(row: dict, desired_col: str) -> object:
+        value = row.get(desired_col)
+        if desired_col in lookups:
+            if value not in lookups[desired_col]:
+                table = target.lookups[desired_col]["table"]
+                raise ApplierError(f"{spec.name}: unknown {desired_col} {value!r}; not in {table}")
+            return lookups[desired_col][value]
+        return value
+
+    wanted = sorted(
+        set(columns.values())
+        | set(target.constants)
+        | {c for c in (target.canonical, target.archived) if c}
+    )
+    live = await store.child_rows(target.table, target.parent, parents, wanted) if parents else {}
+
+    def candidates(pm_id: str) -> list[dict]:
+        found = live.get(pm_id, [])
+        if target.archived:
+            found = [r for r in found if r.get(target.archived) is None]
+        if target.constants:
+            found = [r for r in found if all(r.get(k) == v for k, v in target.constants.items())]
+        return found
+
+    def insert_changes(row: dict) -> dict[str, tuple[object, object]]:
+        changes = {columns[c]: (None, pm_value(row, c)) for c in columns}
+        changes.update({k: (None, v) for k, v in target.constants.items()})
+        return changes
+
+    entries: list[Entry] = []
+    seen: set[tuple[str, tuple]] = set()
+    for row in rows:
+        pm_id = row.get(spec.pm_key)
+        if pm_id is None:
+            if (spec.entity, row["producer_id"]) not in creating:
+                entries.append(_entry(spec, row, "stale", reason="no entity row is created for it"))
+                continue
+            changes = insert_changes(row)
+            if target.match == "any_then_canonical":
+                changes[target.canonical] = (None, True)  # a new parent has no canonical
+            entries.append(
+                _entry(spec, row, "insert", changes=changes, reason="on a row this run creates")
+            )
+            continue
+        found = candidates(pm_id)
+        if target.match == "any_then_canonical":
+            if len(spec.owned_columns) != 1:
+                raise ApplierError(f"{spec.name}: any_then_canonical needs one owned column")
+            value_col = columns[spec.owned_columns[0]]
+            desired = pm_value(row, spec.owned_columns[0])
+            of_type = found
+            if target.type_column:
+                type_col = columns[target.type_column]
+                type_value = pm_value(row, target.type_column)
+                of_type = [r for r in found if r.get(type_col) == type_value]
+            match = next((r for r in of_type if r.get(value_col) == desired), None)
+            if match is not None:
+                entries.append(_entry(spec, row, "noop", row_id=match.get("id")))
+                continue
+            canonical = next((r for r in of_type if r.get(target.canonical)), None)
+            if canonical is not None:
+                entries.append(
+                    _entry(
+                        spec,
+                        row,
+                        "update",
+                        row_id=canonical.get("id"),
+                        changes={value_col: (canonical.get(value_col), desired)},
+                    )
+                )
+            else:
+                changes = insert_changes(row)
+                changes[target.canonical] = (None, not any(r.get(target.canonical) for r in found))
+                entries.append(_entry(spec, row, "insert", changes=changes))
+        else:
+            key = {columns[c]: pm_value(row, c) for c in target.key_columns}
+            seen.add((pm_id, tuple(sorted(key.items()))))
+            matches = [r for r in found if all(r.get(k) == v for k, v in key.items())]
+            if not matches:
+                entries.append(_entry(spec, row, "insert", changes=insert_changes(row)))
+            elif len(matches) > 1:
+                ids = ", ".join(str(r.get("id")) for r in matches)
+                entries.append(
+                    _entry(
+                        spec,
+                        row,
+                        "conflict",
+                        reason=f"{len(matches)} live rows match {key}: {ids}; a person decides",
+                    )
+                )
+            else:
+                m = matches[0]
+                changes = {
+                    columns[c]: (m.get(columns[c]), pm_value(row, c))
+                    for c in spec.owned_columns
+                    if m.get(columns[c]) != pm_value(row, c)
+                }
+                kind = "update" if changes else "noop"
+                entries.append(_entry(spec, row, kind, row_id=m.get("id"), changes=changes))
+
+    if spec.retraction == "report" and spec.owned_event_types and target.match == "key":
+        type_desired = target.key_columns[0]
+        type_pm = columns[type_desired]
+        owned_values = {pm_value({type_desired: t}, type_desired) for t in spec.owned_event_types}
+        reverse = {v: k for k, v in lookups.get(type_desired, {}).items()}
+        for producer_id in sorted(scope.in_scope(spec.entity)):
+            pm_id = scope.resolve(spec.entity, producer_id)
+            for r in candidates(pm_id):
+                if r.get(type_pm) not in owned_values:
+                    continue
+                key = tuple(sorted((columns[c], r.get(columns[c])) for c in target.key_columns))
+                if (pm_id, key) in seen:
+                    continue
+                row = {"producer_id": producer_id, spec.pm_key: pm_id}
+                row[type_desired] = reverse.get(r.get(type_pm), r.get(type_pm))
+                entries.append(
+                    _entry(
+                        spec,
+                        row,
+                        "retract",
+                        row_id=r.get("id"),
+                        reason="absent from the snapshot; policy is report, nothing is written",
+                    )
+                )
     return entries

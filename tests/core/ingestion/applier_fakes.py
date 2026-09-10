@@ -8,6 +8,12 @@ request, which is how "a row outside the crosswalk is never read" is asserted.
 
 from collections.abc import Iterable, Mapping, Sequence
 
+# Seeded vocabularies the real database always holds; a fake without them would
+# make the engine's lookup read look like a defect in every org test.
+DEFAULT_LOOKUPS: dict[tuple[str, str, str], dict[str, str]] = {
+    ("entity_event_types", "slug", "id"): {"dissolved": "EVT_DISSOLVED", "founded": "EVT_FOUNDED"},
+}
+
 
 class FakeLiveStore:
     def __init__(
@@ -21,7 +27,7 @@ class FakeLiveStore:
         self.tables: dict[str, list[dict]] = {
             name: [dict(r) for r in rows] for name, rows in (tables or {}).items()
         }
-        self._lookups = {k: dict(v) for k, v in (lookups or {}).items()}
+        self._lookups = {k: dict(v) for k, v in {**DEFAULT_LOOKUPS, **(lookups or {})}.items()}
         self.requested: list[tuple] = []
 
     async def crosswalk(self, source: str, kinds: Sequence[str]) -> list[dict]:
