@@ -146,7 +146,7 @@ the insert defaults the manifest declares; `updated_at` is the trigger's.
 
 ## Docs, version
 
-`RUNBOOKS.md` § Apply the desired state; `COMMANDS.md` scheduled-timers row;
+`RUNBOOK_DESIRED_STATE.md` § Apply the desired state; `COMMANDS.md` scheduled-timers row;
 `TESTING.md` applier tier; `SCHEMA.md` § Producer crosswalk (the applier writes
 creates). Minor bump to 0.47.0.
 
