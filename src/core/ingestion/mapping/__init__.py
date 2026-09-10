@@ -19,8 +19,17 @@ from pathlib import Path
 from dbt.cli.main import dbtRunner, dbtRunnerResult
 
 from src.core.ingestion.datasets import DATA_FILE, SnapshotStore
+from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR
 
-__all__ = ["PROJECT_DIR", "USA_WA_SOURCES", "PM_SOURCES", "RunPaths", "run_dbt", "source_env"]
+__all__ = [
+    "PM_EXPORT_DIR",
+    "PM_SOURCES",
+    "PROJECT_DIR",
+    "RunPaths",
+    "USA_WA_SOURCES",
+    "run_dbt",
+    "source_env",
+]
 
 PROJECT_DIR = Path(__file__).resolve().parent
 
@@ -38,8 +47,6 @@ PM_SOURCES: dict[str, str] = {
     "producer_crosswalk": "PM_SRC_PRODUCER_CROSSWALK",
     "curation_overlay": "PM_SRC_CURATION_OVERLAY",
 }
-
-PM_EXPORT_DIR = "_pm"
 
 
 @dataclass(frozen=True)
