@@ -1,7 +1,7 @@
 ---
 title: "#497 mapping project — build plan"
 date: 2026-09-10
-status: draft
+status: approved 2026-09-10
 design: 2026-09-10-mapping-project-design.md
 ---
 
@@ -137,12 +137,11 @@ own commit or small run of commits. Test-first throughout.
 
 - **Version bump size for a breaking API change.** Step 8 re-tightens #267's
   loosening. No live producer sends seat observations, so the blast radius is
-  documentation — but it is a contract change. Minor or major? Prior breaking
-  changes in this repo set the precedent; I will follow it and say which.
+  documentation — but it is a contract change. **Decided: minor.**
 - **Where the mapping group runs in production.** The API service does not need
   dbt. #499's timer will. Proposal: `mapping` is a group like `seed`, synced by
   `worktree-setup.sh` now and by #499's unit's `ExecStartPre` later — nothing
-  changes in `power-map.service` here.
+  changes in `power-map.service` here. **Agreed.**
 - **The 152 `dissolved` agreement is unproven.** Step 7 is the first time the
   producer's implied events meet PM's stored ones. Expected to match; if not,
   the numbers go to #501.
