@@ -22,6 +22,7 @@ from dbt.cli.main import dbtRunner, dbtRunnerResult
 
 from src.core.ingestion.datasets import DATA_FILE, SnapshotStore
 from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, export_table
+from src.core.logging import get_logger
 
 __all__ = [
     "PM_EXPORT_DIR",
@@ -34,6 +35,8 @@ __all__ = [
     "source_env",
     "write_desired_state",
 ]
+
+logger = get_logger(__name__)
 
 PROJECT_DIR = Path(__file__).resolve().parent
 MANIFEST_PATH = PROJECT_DIR / "manifest.yml"
@@ -159,7 +162,13 @@ def write_desired_state(duckdb_path: Path | str, out_dir: Path | str) -> dict[st
     #499 can treat a file's presence as the whole table. Returns row counts.
     """
     out = Path(out_dir)
-    return {
-        table: export_table(duckdb_path, table, out / f"{table}.parquet")
-        for table in load_manifest()["tables"]
-    }
+    tables = list(load_manifest()["tables"])
+    counts = {table: export_table(duckdb_path, table, out / f"{table}.parquet") for table in tables}
+    # The directory is #499's input. A .parquet left over from a table the
+    # manifest no longer names would read as a live claim, so it goes; nothing
+    # else in the directory is ours to touch (CR 3).
+    for stale in out.glob("*.parquet"):
+        if stale.stem not in tables:
+            stale.unlink()
+            logger.warning("removed stale desired-state file %s — not in the manifest", stale.name)
+    return counts

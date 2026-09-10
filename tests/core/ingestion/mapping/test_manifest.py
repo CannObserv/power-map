@@ -59,3 +59,19 @@ def test_write_desired_state_emits_one_parquet_per_declared_table(build, tmp_pat
     assert sorted(p.stem for p in out.glob("*.parquet")) == MARTS
     assert counts["desired_entity_events"] == len(read_rows(out / "desired_entity_events.parquet"))
     assert list(out.glob(".incoming*")) == []
+
+
+def test_write_desired_state_removes_parquet_the_manifest_no_longer_names(build, tmp_path):
+    """CR 3: data/desired_state is #499's input; a ghost table reads as a live claim."""
+    b = build()
+    out = tmp_path / "desired_state"
+    out.mkdir()
+    ghost = out / "desired_ghost.parquet"
+    ghost.write_bytes(b"not a table")
+    unrelated = out / "README.txt"
+    unrelated.write_text("mine")
+
+    write_desired_state(b.duckdb_path, out)
+
+    assert not ghost.exists()
+    assert unrelated.exists()
