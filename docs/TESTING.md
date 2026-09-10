@@ -14,7 +14,7 @@ in `docs/ACCESSIBILITY.md`.
 # Run all tests (excludes integration). The opt-in groups are named on purpose:
 # `uv run` installs what it is asked for, so this re-arms the browser/seed tiers
 # that a bare `uv sync` elsewhere may have pruned (#450).
-uv run --group browser --group seed pytest
+uv run --group browser --group seed --group mapping pytest
 
 # Bare form — fine for a quick loop, but any tier whose group is absent is
 # skipped at import; the run says so in a red summary line.
@@ -63,11 +63,11 @@ the lxml tier never drift.
 
 ```bash
 # One-time setup (installs Playwright + a ~120MB Chromium; not in the dev group)
-uv sync --group browser --group seed
+uv sync --group browser --group seed --group mapping
 uv run --group browser playwright install chromium
 
 # Run the whole tier (needs TEST_DATABASE_URL; env flags per § Environment)
-uv run --group browser --group seed --env-file /etc/power-map/.env --env-file .env \
+uv run --group browser --group seed --group mapping --env-file /etc/power-map/.env --env-file .env \
     pytest tests/api/admin/ -m browser
 ```
 

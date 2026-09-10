@@ -1,0 +1,10 @@
+# Kept beside the project rather than in ~/.dbt so the target is a function of
+# the invocation, never of the machine. `run_dbt` sets PM_MAPPING_DUCKDB; the
+# `:memory:` default is what the fixture tier wants.
+pm_mapping:
+  target: default
+  outputs:
+    default:
+      type: duckdb
+      path: "{{ env_var('PM_MAPPING_DUCKDB', ':memory:') }}"
+      threads: 1

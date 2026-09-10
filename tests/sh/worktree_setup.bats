@@ -94,6 +94,9 @@ EOF
     run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
     grep -q -- "--group browser" "$STUB_UV_CALL_LOG"
     grep -q -- "--group seed" "$STUB_UV_CALL_LOG"
+    # #497: the dbt wrapper tests importorskip at module scope, so a worktree
+    # without this group runs a narrower suite that still reports green.
+    grep -q -- "--group mapping" "$STUB_UV_CALL_LOG"
 }
 
 @test "a failed sync is fatal and names the worktree" {

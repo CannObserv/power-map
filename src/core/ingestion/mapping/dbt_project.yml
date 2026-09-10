@@ -1,0 +1,21 @@
+# PM's mapping layer (#497): usa-wa ontology → PM-shaped desired state.
+# The only place WA/usa-wa knowledge lives in this repo. Models are file-to-file
+# — they read the snapshot store and the `_pm/` Parquet exports and never open a
+# database connection — so `dbt build` is hermetic and its tests run in the
+# unit tier. Invoke through `src.core.ingestion.mapping.run_dbt`, which resolves
+# the paths the profile and sources read from env.
+name: pm_mapping
+version: "1.0.0"
+config-version: 2
+profile: pm_mapping
+
+model-paths: ["models"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+
+models:
+  pm_mapping:
+    +materialized: table
+    staging:
+      +materialized: view

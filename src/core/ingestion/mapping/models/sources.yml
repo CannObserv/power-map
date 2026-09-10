@@ -1,0 +1,36 @@
+version: 2
+
+# Every source is a file path resolved by `run_dbt` into an env var: a named
+# snapshot version for each usa-wa dataset (never "latest" — #499 pins what it
+# applies), and the `_pm/` Parquet exports of PM's own tables. An unset var
+# renders as '' so `dbt parse` succeeds without data; a run then fails on the
+# read, which is the right place to fail.
+sources:
+  - name: usa_wa
+    description: usa-wa's published conformed datasets, verbatim from the snapshot store (#496).
+    tables:
+      - name: persons
+        meta:
+          external_location: "read_csv('{{ env_var('PM_SRC_PERSONS', '') }}', header=true, all_varchar=true)"
+      - name: organizations
+        meta:
+          external_location: "read_csv('{{ env_var('PM_SRC_ORGANIZATIONS', '') }}', header=true, all_varchar=true)"
+      - name: person_crosswalk
+        description: usa-wa's own crosswalk — entity → source keys, with merged_into tombstones (design § gap E).
+        meta:
+          external_location: "read_csv('{{ env_var('PM_SRC_PERSON_CROSSWALK', '') }}', header=true, all_varchar=true)"
+      - name: org_crosswalk
+        meta:
+          external_location: "read_csv('{{ env_var('PM_SRC_ORG_CROSSWALK', '') }}', header=true, all_varchar=true)"
+
+  - name: pm
+    description: PM's own tables, exported to Parquet by scripts/export_pm_tables.py so the models never open a database connection.
+    tables:
+      - name: producer_crosswalk
+        description: The #495 seed — producer id → PM id, with resolution.
+        meta:
+          external_location: "read_parquet('{{ env_var('PM_SRC_PRODUCER_CROSSWALK', '') }}')"
+      - name: curation_overlay
+        description: PM-wins overrides on producer-owned fields, joined as COALESCE(overlay, mapped).
+        meta:
+          external_location: "read_parquet('{{ env_var('PM_SRC_CURATION_OVERLAY', '') }}')"

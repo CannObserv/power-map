@@ -238,7 +238,7 @@ Accessible via exe.dev proxy at `https://power-map.exe.xyz:8001/`.
 bash scripts/worktree-setup.sh <worktree-path>   # default: current directory
 ```
 
-Gives the worktree **its own** `.venv` (`uv sync --group browser --group seed`), initialises
+Gives the worktree **its own** `.venv` (`uv sync --group browser --group seed --group mapping`), initialises
 the `skills-vendor/` submodules, and symlinks the gitignored `.env` and
 `data/cannabis_observer` from the main checkout. Refuses (exit 2) against the main checkout.
 

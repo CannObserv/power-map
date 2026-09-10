@@ -54,3 +54,11 @@ infra/terraform/crash.log
 
 # Pulled usa-wa dataset snapshots (#496) — verbatim upstream copies, re-fetchable
 data/usa_wa_snapshots
+
+# #497 mapping project: the desired-state artifact, duckdb's working file, and
+# dbt's own scratch directories — all rebuilt from the snapshot store
+data/desired_state
+data/mapping.duckdb
+src/core/ingestion/mapping/target
+src/core/ingestion/mapping/logs
+src/core/ingestion/mapping/dbt_packages
