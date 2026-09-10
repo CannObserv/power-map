@@ -24,6 +24,7 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     PM4,
     PM6,
     PM7,
+    crosswalk_row,
 )
 
 
@@ -142,3 +143,37 @@ def test_a_tombstone_whose_survivor_is_unanchored_is_reported_not_fatal(build):
 
     assert merges[PM4][1] is None
     assert "not_null_desired_person_merges_survivor_pm_id" in b.warnings
+
+
+def _with(crosswalk, producer_id, row):
+    """DEFAULT_CROSSWALK with one producer's row replaced."""
+    return [row if r[3] == producer_id else r for r in crosswalk]
+
+
+def test_a_tombstone_whose_survivor_is_archived_is_reported_not_re_pointed(build):
+    """CR 14: an archived survivor is out of scope here as everywhere else. A non-null
+    survivor_pm_id is an instruction to act; pointing it at a soft-deleted row is the
+    #481 hazard by another door — the same gap CR 2 closed for parents."""
+    b = build(crosswalk=_with(DEFAULT_CROSSWALK, P1, crosswalk_row(P1, PM1, "archived")))
+    merges = {r[0]: r for r in b.rows("desired_person_merges")}
+
+    assert merges[PM4][1] is None
+    assert merges[PM6][1] is None  # two hops away, same survivor
+    assert "not_null_desired_person_merges_survivor_pm_id" in b.warnings
+
+
+def test_a_merge_pm_already_made_is_not_re_instructed(build):
+    """P4's row says PM already merged it into PM1 — the merge usa-wa now publishes.
+    A loser that already points at its survivor is nothing to re-point."""
+    b = build(crosswalk=_with(DEFAULT_CROSSWALK, P4, crosswalk_row(P4, PM1, "merged")))
+    losers = {r[2] for r in b.rows("desired_person_merges")}
+
+    assert P4 not in losers
+    assert P6 in losers  # PM6 → PM1 still stands
+
+
+def test_an_archived_loser_is_out_of_scope(build):
+    """A merge instruction is a write; an archived loser gets none, like every other write."""
+    b = build(crosswalk=_with(DEFAULT_CROSSWALK, P4, crosswalk_row(P4, PM4, "archived")))
+
+    assert P4 not in {r[2] for r in b.rows("desired_person_merges")}

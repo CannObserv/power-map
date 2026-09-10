@@ -32,7 +32,7 @@ tables:
     key: [loser_pm_id]
     pm_key: loser_pm_id
     retraction: none           # gap E: a re-point instruction, not a row to diff
-    owned_columns: [survivor_pm_id]   # null = survivor unanchored in PM: report, never act
+    owned_columns: [survivor_pm_id]   # null = survivor out of scope (unanchored, a create, archived): report, never act
   desired_organizations:
     entity: organization
     key: [producer_id]
@@ -62,7 +62,7 @@ tables:
     key: [loser_pm_id]
     pm_key: loser_pm_id
     retraction: none
-    owned_columns: [survivor_pm_id]   # null = survivor unanchored in PM: report, never act
+    owned_columns: [survivor_pm_id]   # null = survivor out of scope (unanchored, a create, archived): report, never act
   desired_entity_events:
     entity: organization
     key: [pm_id, event_type]

@@ -27,6 +27,7 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     O5,
     O9,
     O10,
+    crosswalk_row,
 )
 
 
@@ -118,3 +119,13 @@ def test_a_parent_the_producer_names_but_pm_cannot_resolve_is_reported(build):
 
     assert MO4 not in parents
     assert "unresolved_org_parents" in b.warnings
+
+
+def test_an_org_tombstone_whose_survivor_is_archived_is_reported_not_re_pointed(build):
+    """CR 14, the organization side: O9 → O4, and O4's PM row is archived."""
+    o4_archived = crosswalk_row(O4, MO4, "archived", kind="organization")
+    b = build(crosswalk=[o4_archived if r[3] == O4 else r for r in DEFAULT_CROSSWALK])
+    merges = {r[0]: r for r in b.rows("desired_organization_merges")}
+
+    assert merges[MO9][1] is None
+    assert "not_null_desired_organization_merges_survivor_pm_id" in b.warnings
