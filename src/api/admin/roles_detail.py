@@ -145,23 +145,11 @@ async def role_inline_title_post(
 ):
     """Save title; return updated read partial."""
     role = await _get_role(role_id, db)
-    # The title of a role with a role type is PM-curated from its
-    # (role type, jurisdiction, qualifier) tuple (#267) — refuse manual edits so
-    # the admin can't become a drift vector.
-    if role["role_type_id"]:
-        if not is_htmx(request):
-            return RedirectResponse(
-                with_flash(f"/admin/roles/{role_id}/", "invalid"), status_code=303
-            )
-        return templates.TemplateResponse(
-            request,
-            "admin/roles/partials/_title_read.html",
-            {"role": role},
-            headers=flash_trigger(
-                "warning",
-                "This title is generated from the role type, jurisdiction, and qualifier.",
-            ),
-        )
+    # Every role's title is editable here (#497): PM no longer synthesizes a
+    # typed role's title, so this editor is the one place it can be corrected.
+    # (#267 refused typed roles so the admin could not drift PM's curated form;
+    # #490 retracted that — the producer owns the title, the overlay carries
+    # PM's overrides.)
     cleaned = title.strip()
     if not cleaned:
         if not is_htmx(request):
@@ -329,7 +317,7 @@ async def role_inline_structural_post(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Save the structural tuple; re-synthesize the curated title when possible (#267)."""
+    """Save the structural tuple; the title is never touched here (#497)."""
     role = await _get_role(role_id, db)
     rt = role_type_id.strip() or None
     jur = jurisdiction_id.strip() or None
