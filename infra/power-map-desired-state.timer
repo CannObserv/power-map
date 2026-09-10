@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly power-map desired-state chain (issue #499)
+
+[Timer]
+# The pull lands at 09:00 UTC (power-map-datasets-pull.timer); half an hour
+# later the snapshot it landed is what the build reads.
+OnCalendar=*-*-* 09:30:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

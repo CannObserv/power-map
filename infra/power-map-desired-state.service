@@ -1,0 +1,32 @@
+[Unit]
+Description=power-map nightly desired-state chain: export PM tables, build the mapping project, dry-run the applier (issue #499)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
+#
+# Three steps, in order; a oneshot runs its ExecStart= lines sequentially and
+# stops at the first non-zero exit, so a broken step reaches `systemctl
+# --failed` instead of the next step reading a stale input.
+#
+#   1. export_pm_tables   — producer_crosswalk + curation_overlay → Parquet under
+#                           data/usa_wa_snapshots/_pm/ (read-only on the database;
+#                           the DSN is echoed)
+#   2. build_desired_state — dbt build → data/desired_state/*.parquet + BUILD.json
+#                           (no database)
+#   3. apply_desired_state — the DRY RUN: diff against live Postgres, write
+#                           data/applier/<run-id>/ and a ledger line. Exit 0 for
+#                           clean or blocked (both recorded — the streak #501 waits
+#                           on is counted here), 3 when a person is needed (stale).
+#                           --execute is never on this unit: it is a person's flag.
+#
+# `--group mapping` on every step: the API service's own `uv sync` prunes the
+# group from this checkout's venv, and `uv run --group` reinstalls it exactly.
+ExecStart=uv run --group mapping python -m scripts.export_pm_tables
+ExecStart=uv run --group mapping python -m scripts.build_desired_state
+ExecStart=uv run --group mapping python -m scripts.apply_desired_state
