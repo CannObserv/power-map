@@ -439,24 +439,28 @@ def test_role_request_qualifier_without_jurisdiction_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_role_request_structural_mode_title_optional():
-    """An observation with a jurisdiction_id may omit title — PM synthesizes it."""
-    req = RoleObservationRequest(
-        organization_id="org1",
-        role_type="state_senator",
-        jurisdiction_id="jur1",
-    )
-    assert req.title is None
+def test_role_request_structural_mode_requires_title():
+    """#497 reverses #267's loosening: PM no longer synthesizes, so title is required.
+
+    Breaking on `/api/v1/`, recorded in docs/PUBLIC_API.md § Versioning.
+    """
+    with pytest.raises(ValidationError, match="title is required"):
+        RoleObservationRequest(
+            organization_id="org1",
+            role_type="state_senator",
+            jurisdiction_id="jur1",
+        )
 
 
-def test_role_request_structural_mode_with_qualifier_title_optional():
+def test_role_request_structural_mode_stores_the_supplied_title():
     req = RoleObservationRequest(
         organization_id="org1",
         role_type="state_representative",
         jurisdiction_id="jur1",
         qualifier="Position 2",
+        title="Representative, LD-1, Position 2",
     )
-    assert req.title is None
+    assert req.title == "Representative, LD-1, Position 2"
     assert req.qualifier == "Position 2"
 
 

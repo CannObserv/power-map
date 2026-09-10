@@ -265,22 +265,28 @@ async def _wa_ld(db, n: int) -> str:
     return jid
 
 
-async def test_structural_create_without_title_synthesizes_senator(db):
+async def test_structural_create_without_title_is_rejected(db):
+    """#497: the producer owns the title, so PM no longer synthesizes one.
+
+    A titleless create on any jurisdiction is `title_required` — the same
+    answer a plain role has always got — rather than a mint with a PM-made
+    title (#267, retracted by #490).
+    """
     org, jur = await _org(db), await _wa_ld(db, 7)
     rid, disp, reason = await resolve_role(
         db, org, None, role_type="state_senator", jurisdiction_id=jur
     )
-    assert disp is Disposition.NEW
-    title = await db.fetchval("SELECT title FROM roles WHERE id=$1", rid)
-    assert title == "Washington State Senator, LD-7"
+    assert disp is Disposition.REJECTED
+    assert reason == "title_required"
+    assert rid == ""
 
 
-async def test_structural_create_without_title_synthesizes_representative_position(db):
+async def test_structural_create_stores_the_supplied_title_verbatim(db):
     org, jur = await _org(db), await _wa_ld(db, 7)
     rid, disp, _ = await resolve_role(
         db,
         org,
-        None,
+        "Washington State Representative, LD-7, Position 2",
         role_type="state_representative",
         jurisdiction_id=jur,
         qualifier="Position 2",
@@ -290,37 +296,35 @@ async def test_structural_create_without_title_synthesizes_representative_positi
     assert title == "Washington State Representative, LD-7, Position 2"
 
 
-async def test_structural_create_prefers_synthesis_over_supplied_title(db):
-    """PM prefers the synthesized title over a supplied one (no upstream drift)."""
+async def test_structural_create_never_rewrites_a_supplied_title(db):
+    """The #267 stance — prefer PM's form over the observer's — is gone with it."""
     org, jur = await _org(db), await _wa_ld(db, 7)
     rid, disp, _ = await resolve_role(
         db, org, "Custom Senator Title", role_type="state_senator", jurisdiction_id=jur
     )
     assert disp is Disposition.NEW
     title = await db.fetchval("SELECT title FROM roles WHERE id=$1", rid)
-    assert title == "Washington State Senator, LD-7"
+    assert title == "Custom Senator Title"
 
 
-async def test_structural_create_unsynthesizable_falls_back_to_supplied_title(db):
-    """A role whose title can't be synthesized uses the supplied title as fallback."""
-    org, jur = await _org(db), await _jur(db)  # slug ld-<hex>, not usa-wa-ld-N
+async def test_structural_create_on_a_non_ld_jurisdiction_uses_the_supplied_title(db):
+    org, jur = await _org(db), await _jur(db)
     rid, disp, _ = await resolve_role(
-        db, org, "Fallback Title", role_type="state_senator", jurisdiction_id=jur
+        db, org, "County Seat", role_type="state_senator", jurisdiction_id=jur
     )
     assert disp is Disposition.NEW
     title = await db.fetchval("SELECT title FROM roles WHERE id=$1", rid)
-    assert title == "Fallback Title"
+    assert title == "County Seat"
 
 
-async def test_structural_create_unsynthesizable_without_title_rejected(db):
-    """Non-usa-wa-ld jurisdiction can't be synthesized; titleless create is rejected."""
-    org, jur = await _org(db), await _jur(db)  # slug ld-<hex>, not usa-wa-ld-N
+async def test_structural_create_on_a_non_ld_jurisdiction_without_title_is_rejected(db):
+    """`role_title_unavailable` is retired: there is one reason, and it is `title_required`."""
+    org, jur = await _org(db), await _jur(db)
     rid, disp, reason = await resolve_role(
         db, org, None, role_type="state_senator", jurisdiction_id=jur
     )
     assert disp is Disposition.REJECTED
-    assert reason.startswith("role_title_unavailable:")
-    assert "state_senator" in reason
+    assert reason == "title_required"
     assert rid == ""
 
 
@@ -334,11 +338,11 @@ async def test_non_structural_without_title_rejected(db):
 
 
 async def test_structural_match_without_title_auto_attaches(db):
-    """Title is not the match key — a titleless re-observation attaches."""
+    """Title is not the match key — a re-observation attaches whatever its title."""
     org, jur = await _org(db), await _wa_ld(db, 7)
     kw = dict(role_type="state_senator", jurisdiction_id=jur)
-    id1, disp1, _ = await resolve_role(db, org, None, **kw)
-    id2, disp2, _ = await resolve_role(db, org, None, **kw)
+    id1, disp1, _ = await resolve_role(db, org, "Seat", **kw)
+    id2, disp2, _ = await resolve_role(db, org, "Seat", **kw)
     assert disp1 is Disposition.NEW
     assert disp2 is Disposition.AUTO_ATTACHED
     assert id1 == id2
@@ -425,7 +429,7 @@ async def test_positioned_house_seat_accepted(db):
     rid, disp, _ = await resolve_role(
         db,
         org,
-        None,
+        "Seat",
         role_type="state_representative",
         jurisdiction_id=jur,
         qualifier="Position 1",
@@ -437,7 +441,9 @@ async def test_positioned_house_seat_accepted(db):
 async def test_senate_seat_null_qualifier_not_rejected(db):
     """`state_senator` (requires_qualifier=False) still accepts a NULL qualifier."""
     org, jur = await _org(db), await _wa_ld(db, 11)
-    rid, disp, _ = await resolve_role(db, org, None, role_type="state_senator", jurisdiction_id=jur)
+    rid, disp, _ = await resolve_role(
+        db, org, "Seat", role_type="state_senator", jurisdiction_id=jur
+    )
     assert disp is Disposition.NEW
     assert rid != ""
 
@@ -463,7 +469,7 @@ async def test_positionless_house_seat_empty_qualifier_rejected(db):
 
 
 async def test_at_large_seat_accepted_without_qualifier(db):
-    """A pre-1965 at-large seat resolves with no qualifier and a synthesized title.
+    """A pre-1965 at-large seat resolves with no qualifier.
 
     The at-large era had no Position designation; `requires_qualifier=False` on
     the at-large type is what lets the positionless tuple through, while
@@ -471,7 +477,11 @@ async def test_at_large_seat_accepted_without_qualifier(db):
     """
     org, jur = await _org(db), await _wa_ld(db, 13)
     rid, disp, reason = await resolve_role(
-        db, org, None, role_type="state_representative_at_large", jurisdiction_id=jur
+        db,
+        org,
+        "Washington State Representative (At-Large), LD-13",
+        role_type="state_representative_at_large",
+        jurisdiction_id=jur,
     )
     assert disp is Disposition.NEW, reason
     title = await db.fetchval("SELECT title FROM roles WHERE id=$1", rid)
@@ -483,8 +493,8 @@ async def test_at_large_seat_auto_attaches(db):
     """One at-large role per district — a second observation attaches, never mints."""
     org, jur = await _org(db), await _wa_ld(db, 14)
     kw = dict(role_type="state_representative_at_large", jurisdiction_id=jur)
-    id1, disp1, _ = await resolve_role(db, org, None, **kw)
-    id2, disp2, _ = await resolve_role(db, org, None, **kw)
+    id1, disp1, _ = await resolve_role(db, org, "Seat", **kw)
+    id2, disp2, _ = await resolve_role(db, org, "Seat", **kw)
     assert disp1 is Disposition.NEW
     assert disp2 is Disposition.AUTO_ATTACHED
     assert id1 == id2
@@ -498,12 +508,12 @@ async def test_at_large_and_positioned_seats_are_distinct_roles(db):
     """
     org, jur = await _org(db), await _wa_ld(db, 15)
     at_large, d1, _ = await resolve_role(
-        db, org, None, role_type="state_representative_at_large", jurisdiction_id=jur
+        db, org, "Seat", role_type="state_representative_at_large", jurisdiction_id=jur
     )
     positioned, d2, _ = await resolve_role(
         db,
         org,
-        None,
+        "Seat",
         role_type="state_representative",
         jurisdiction_id=jur,
         qualifier="Position 1",
@@ -522,7 +532,7 @@ async def test_at_large_role_holds_concurrent_assignments(db):
     """
     org, jur = await _org(db), await _wa_ld(db, 16)
     rid, disp, _ = await resolve_role(
-        db, org, None, role_type="state_representative_at_large", jurisdiction_id=jur
+        db, org, "Seat", role_type="state_representative_at_large", jurisdiction_id=jur
     )
     assert disp is Disposition.NEW
 
@@ -578,7 +588,7 @@ async def test_at_large_seat_blank_qualifier_treated_as_absent(db):
         rid, disp, reason = await resolve_role(
             db,
             org,
-            None,
+            "Seat",
             role_type="state_representative_at_large",
             jurisdiction_id=jur,
             qualifier=blank,

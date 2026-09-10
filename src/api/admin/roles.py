@@ -27,7 +27,6 @@ from src.api.admin.roles_shared import (
 from src.core.ancillary_migrate import delete_role_ancillary
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
-from src.core.role_title import synthesize_role_title
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles", tags=["admin-roles"])
@@ -192,24 +191,15 @@ async def role_create(
         return await _reload("A jurisdiction requires a role type.")
 
     if jurisdiction_id_c is not None:
-        # With a jurisdiction, PM curates the title. When the formatter can render
-        # one, ALWAYS synthesize — any supplied title is ignored so the admin
-        # can't diverge from the canonical form (#264 CR-1, matching the inline
-        # editor). Keep/require a manual title only when synthesis is unavailable
-        # (non-WA jurisdictions).
+        # The title is typed, never synthesized (#497): the producer owns a
+        # jurisdictional role's title and the curation overlay is where PM
+        # overrides it, so the admin form asks for one like any other role.
+        if not title_c:
+            return await _reload("Title is required for a role with a jurisdiction — enter one.")
         rt_row = await db.fetchrow(
             "SELECT slug, requires_qualifier, forbids_qualifier FROM role_types WHERE id=$1",
             role_type_id_c,
         )
-        rt_slug = rt_row["slug"] if rt_row else None
-        jur_slug = await db.fetchval(
-            "SELECT slug FROM jurisdictions WHERE id=$1", jurisdiction_id_c
-        )
-        synthesized = synthesize_role_title(rt_slug, jur_slug, qualifier_c) if rt_slug else None
-        if synthesized is not None:
-            title_c = synthesized
-        elif not title_c:
-            return await _reload("Could not auto-generate a title for this role — enter one.")
         # Mirror the requires_qualifier/forbids_qualifier guards + DB triggers
         # (#273/#302), after the title check so a missing title still reports
         # first. The `or` is safe because the two flags are mutually exclusive —

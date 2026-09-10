@@ -1,0 +1,10 @@
+entity_id,name,long_name,acronym,agency,org_type,first_biennium,last_biennium
+01O1000000000000000000000A,Washington State Legislature,,,,legislature,,
+01O2000000000000000000000A,Washington State House of Representatives,,,,chamber,,
+01O3000000000000000000000A,Washington State Senate,,,,chamber,,
+01O4000000000000000000000A,Capital Budget,House Committee on Capital Budget,CB,House,committee,2021-22,2025-26
+01O5000000000000000000000A,Ways & Means,Senate Committee on Ways & Means,WM,Senate,committee,1991-92,2019-20
+01O6000000000000000000000A,Joint Transportation Committee,,,Joint,other,,
+01O7000000000000000000000A,JLARC I-900 Subcommittee,,,Other,other,,
+01O8000000000000000000000A,Washington State Republican Party,,,,party,,
+01O10000000000000000000000A,Agriculture & Ecology,House Committee on Agriculture & Ecology,AGEC,House,committee,1993-94,1999-00

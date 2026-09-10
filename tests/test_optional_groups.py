@@ -131,3 +131,9 @@ def test_banner_lists_every_missing_group_in_one_line():
     banner = og.missing_groups_banner({"browser": ["playwright"], "seed": ["langcodes"]})
     assert "browser" in banner and "seed" in banner
     assert "\n" not in banner
+
+
+def test_install_hint_names_every_registered_group():
+    """A group the hint omits is one the banner tells you to install incompletely."""
+    for group in og.OPTIONAL_GROUPS:
+        assert f"--group {group}" in og.INSTALL_HINT

@@ -43,7 +43,7 @@ Full tool table, prefetch query, per-tool guidance: [`docs/SOCRATICODE.md`](docs
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
   admin/        — Jinja2 + HTMX admin dashboard
   public/       — JSON API (X-API-Key auth, server-to-server)
-src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion)
+src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion); `ingestion/mapping/` is the dbt-duckdb project and the only place usa-wa ontology lives (#497, gate: `test_src_core_wa_free.py`)
 src/static/     — Static assets; vendor/ is SHA-pinned and excluded from linting
 tests/          — Mirrors src/ structure; js/ for Vitest
 docs/           — Reference docs, split by subject — complete index at the end of this file
@@ -103,7 +103,7 @@ Single VM; port split:
 ```bash
 bash scripts/worktree-setup.sh <worktree-path>
 ```
-It replaces the `.venv` symlink `worktree-create.sh` leaves behind with a real per-worktree environment (`uv sync --group browser --group seed`), initialises the `skills-vendor/` submodules, and symlinks the gitignored `.env` and `data/cannabis_observer` — without them a worktree's baseline is red and a test short of main's (#482). **Never share a venv with the main checkout** — that is production's working directory, and its systemd units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it (`docs/COMMANDS.md` § Worktree setup). Refuses (exit 2) against the main checkout.
+It replaces the `.venv` symlink `worktree-create.sh` leaves behind with a real per-worktree environment (`uv sync --group browser --group seed --group mapping`), initialises the `skills-vendor/` submodules, and symlinks the gitignored `.env` and `data/cannabis_observer` — without them a worktree's baseline is red and a test short of main's (#482). **Never share a venv with the main checkout** — that is production's working directory, and its systemd units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it (`docs/COMMANDS.md` § Worktree setup). Refuses (exit 2) against the main checkout.
 
 exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 

@@ -550,6 +550,17 @@ async def _insert_role_assignment(conn: asyncpg.Connection) -> str:
     return ra_id
 
 
+async def _insert_curation_overlay(conn: asyncpg.Connection) -> str:
+    row_id = generate_id()
+    await conn.execute(
+        """INSERT INTO curation_overlay (id, entity_type, entity_id, field, value)
+           VALUES ($1, 'person', $2, 'name', 'Curated')""",
+        row_id,
+        generate_id(),
+    )
+    return row_id
+
+
 async def _insert_app_user(conn: asyncpg.Connection) -> str:
     uid = generate_id()
     await conn.execute(
@@ -568,6 +579,7 @@ async def _insert_app_user(conn: asyncpg.Connection) -> str:
         ("roles", _insert_role),
         ("role_assignments", _insert_role_assignment),
         ("app_users", _insert_app_user),
+        ("curation_overlay", _insert_curation_overlay),
     ],
 )
 async def test_updated_at_trigger_binding_per_table(db, table, insert_helper):
@@ -1543,3 +1555,63 @@ async def test_affiliation_trigger_covers_delete_event(db):
         """
     )
     assert row is not None, "trg_touch_org_on_affiliation_change not registered for DELETE"
+
+
+# --- curation_overlay (#497) --------------------------------------------------
+# PM-wins overrides on producer-owned fields. The mapping models join it as
+# COALESCE(overlay.value, mapped.value); the admin write path is #498's.
+
+
+async def _insert_overlay(db, **overrides):
+    row = {
+        "id": generate_id(),
+        "entity_type": "person",
+        "entity_id": generate_id(),
+        "field": "name",
+        "value": "Curated Name",
+    }
+    row.update(overrides)
+    await db.execute(
+        """INSERT INTO curation_overlay (id, entity_type, entity_id, field, value)
+           VALUES ($1, $2, $3, $4, $5)""",
+        row["id"],
+        row["entity_type"],
+        row["entity_id"],
+        row["field"],
+        row["value"],
+    )
+    return row["id"]
+
+
+@pytest.mark.integration
+async def test_curation_overlay_is_one_row_per_entity_field(db):
+    """Two overrides for the same field would leave COALESCE picking arbitrarily."""
+    entity_id = generate_id()
+    await _insert_overlay(db, entity_id=entity_id)
+
+    with pytest.raises(asyncpg.UniqueViolationError):
+        await _insert_overlay(db, entity_id=entity_id, value="Another")
+
+
+@pytest.mark.integration
+async def test_curation_overlay_allows_one_row_per_field_on_the_same_entity(db):
+    entity_id = generate_id()
+    await _insert_overlay(db, entity_id=entity_id, field="name")
+    await _insert_overlay(db, entity_id=entity_id, field="parent_id")
+
+    n = await db.fetchval("SELECT count(*) FROM curation_overlay WHERE entity_id = $1", entity_id)
+    assert n == 2
+
+
+@pytest.mark.integration
+async def test_curation_overlay_rejects_an_entity_type_no_model_maps(db):
+    with pytest.raises(asyncpg.CheckViolationError):
+        await _insert_overlay(db, entity_type="jurisdiction")
+
+
+@pytest.mark.integration
+async def test_curation_overlay_value_may_be_null_to_assert_absence(db):
+    """A curator can say "this producer-owned field should be empty"."""
+    row_id = await _insert_overlay(db, value=None)
+
+    assert await db.fetchval("SELECT value FROM curation_overlay WHERE id = $1", row_id) is None

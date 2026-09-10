@@ -1,7 +1,10 @@
 """Seed legislative roles from a role seed JSON file (#263).
 
-Reads a file of the shape produced by ``scripts.generate_wa_roles`` (a ``roles``
-array; see ``data/cannabis_observer/*-usa_wa-legislative-roles.json``). Each role
+Reads a role seed JSON (a ``roles`` array; see
+``data/cannabis_observer/*-usa_wa-legislative-roles.json``). The generator that
+produced it, ``scripts.generate_wa_roles``, was retired in #497 — legislative
+roles now arrive through usa-wa's published ``roles`` dataset (#500); this
+seeder remains only to replay an existing file. Each role
 references its chamber by the ``org_wa_legislature_chamber`` identifier value,
 its district by jurisdiction slug, and its office by role_type slug. Creation
 goes through ``resolve_role`` (#261), so the run is idempotent — re-running

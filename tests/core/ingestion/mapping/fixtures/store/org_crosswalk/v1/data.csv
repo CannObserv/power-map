@@ -1,0 +1,11 @@
+entity_id,natural_key,key_namespace,key_value,registered_by,merged_into
+01O1000000000000000000000A,usa_wa_legislature:usa_wa_legislature,usa_wa_legislature,usa_wa_legislature,seed,
+01O2000000000000000000000A,usa_wa_legislature:usa_wa_house,usa_wa_legislature,usa_wa_house,seed,
+01O3000000000000000000000A,usa_wa_legislature:usa_wa_senate,usa_wa_legislature,usa_wa_senate,seed,
+01O4000000000000000000000A,usa_wa_legislature:committee-house-cb,usa_wa_legislature,committee-house-cb,seed,
+01O5000000000000000000000A,usa_wa_legislature:committee-senate-wm,usa_wa_legislature,committee-senate-wm,seed,
+01O6000000000000000000000A,usa_wa_legislature:joint-transportation,usa_wa_legislature,joint-transportation,seed,
+01O7000000000000000000000A,usa_wa_legislature:jlarc-i900,usa_wa_legislature,jlarc-i900,seed,
+01O8000000000000000000000A,usa_wa_legislature:party-republican,usa_wa_legislature,party-republican,seed,
+01O9000000000000000000000A,usa_wa_legislature:committee-house-cb-old,usa_wa_legislature,committee-house-cb-old,seed,01O4000000000000000000000A
+01O10000000000000000000000A,usa_wa_legislature:committee-house-agec,usa_wa_legislature,committee-house-agec,seed,

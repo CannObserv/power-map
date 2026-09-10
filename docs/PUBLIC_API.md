@@ -168,6 +168,8 @@ Uniformity is enforced in CI, not by convention (#440), so it is safe to parse o
 
 Path-versioned (`/api/v1/`). Breaking changes introduce a new prefix (`/api/v2/`). Additive changes (new optional fields, new endpoints) may appear within a version without notice.
 
+**Recorded exception — #497 (2026-09-10).** `POST /roles/observations` requires `title` again for a role with a jurisdiction, reversing #267's loosening. This is a breaking tightening shipped under `/api/v1/` with a minor version bump, on the record that no live producer sends seat observations: usa-wa's key was last used at the #494 freeze, and the one other `observations:write` holder never emits them. The contract returns to its pre-#267 shape rather than to a new one.
+
 ---
 
 ## Observation writes — shared behavior

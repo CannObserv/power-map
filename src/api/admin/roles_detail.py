@@ -15,7 +15,6 @@ from src.api.admin.roles_shared import (
     positioned_at_large_error,
     positionless_seat_error,
 )
-from src.core.role_title import synthesize_role_title
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles/{role_id}", tags=["admin-roles-detail"])
@@ -362,22 +361,17 @@ async def role_inline_structural_post(
         return await _form("A jurisdiction requires a role type.")
 
     # Demotion: a role that had a role_type is being cleared back to a plain role.
-    # We keep the old (synthesized) title — the title editor un-gates for plain
-    # roles, so the admin can retitle it — but flag the retention in the flash.
+    # We keep the old title — the title editor un-gates for plain roles, so the
+    # admin can retitle it — but flag the retention in the flash.
     demoted = role["role_type_id"] is not None and rt is None
 
-    # The title is PM-curated: regenerate it from the new tuple when the
-    # formatter can render one; otherwise leave the existing title untouched.
+    # A structural save never rewrites the title (#497): PM no longer
+    # synthesizes one, and the title editor is the place to change it.
     new_title = role["title"]
     if jur is not None:
         rt_row = await db.fetchrow(
             "SELECT slug, requires_qualifier, forbids_qualifier FROM role_types WHERE id=$1", rt
         )
-        rt_slug = rt_row["slug"] if rt_row else None
-        jur_slug = await db.fetchval("SELECT slug FROM jurisdictions WHERE id=$1", jur)
-        synthesized = synthesize_role_title(rt_slug, jur_slug, qual) if rt_slug else None
-        if synthesized is not None:
-            new_title = synthesized
         # Mirror the requires_qualifier/forbids_qualifier guards + DB triggers
         # (#273/#302). The `or` is safe because the two flags are mutually
         # exclusive — chk_role_type_qualifier_policy forbids both being TRUE.

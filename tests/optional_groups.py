@@ -36,9 +36,12 @@ except ImportError:  # pragma: no cover — pytest moved its expression parser
 OPTIONAL_GROUPS: dict[str, list[str]] = {
     "browser": ["playwright"],
     "seed": ["langcodes", "pycountry"],
+    # The adapter, not just `dbt`: dbt-core alone would pass a bare `dbt` probe
+    # while every model still fails to run (#497).
+    "mapping": ["dbt.adapters.duckdb", "duckdb"],
 }
 
-INSTALL_HINT = "uv sync --group browser --group seed"
+INSTALL_HINT = "uv sync --group browser --group seed --group mapping"
 
 
 def _has_module(name: str) -> bool:

@@ -19,8 +19,9 @@
 # second, hardlinked, so it was never worth the shared mutable state.
 #
 # The groups are synced here on purpose: a worktree that only ever runs the
-# default `dev` group is a worktree whose browser and seed tiers quietly do not
-# exist. `tests/conftest.py` announces them when they are absent.
+# default `dev` group is a worktree whose browser, seed and mapping (#497, the
+# dbt-duckdb models) tiers quietly do not exist. `tests/conftest.py` announces
+# them when they are absent.
 #
 # Why the rest (#482). A worktree arrives carrying neither its submodules nor
 # anything gitignored, so an agent's first act — establish a baseline — is red
@@ -44,7 +45,7 @@ usage: bash scripts/worktree-setup.sh [<worktree-path>]
   <worktree-path>  the linked worktree to set up (default: current directory)
 
 Replaces a shared .venv symlink with a real per-worktree environment
-(`uv sync --group browser --group seed`), initialises the skills-vendor
+(`uv sync --group browser --group seed --group mapping`), initialises the skills-vendor
 submodules, and symlinks the gitignored .env and data/cannabis_observer from
 the main checkout. Refuses to run against the main checkout.
 EOF
@@ -137,7 +138,7 @@ if [ -L "$TARGET/.venv" ]; then
 fi
 
 echo "syncing $TARGET/.venv (dev + browser + seed)" >&2
-if ! (cd "$TARGET" && uv sync --group browser --group seed); then
+if ! (cd "$TARGET" && uv sync --group browser --group seed --group mapping); then
     echo "ERROR: uv sync failed in $TARGET — the shared symlink (if any) was" >&2
     echo "       already removed, so the worktree has no venv; re-run after fixing" >&2
     exit 1

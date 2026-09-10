@@ -1,0 +1,182 @@
+version: 2
+
+models:
+  - name: stg_usa_wa__persons
+    columns:
+      - name: entity_id
+        tests: [unique, not_null]
+      - name: name_full
+        description: Warn, never halt — five real rows arrive blank. Identity still lands; no name is asserted for them.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+  - name: stg_usa_wa__person_crosswalk
+    columns:
+      - name: entity_id
+        tests: [not_null]
+      - name: natural_key
+        tests: [unique, not_null]
+
+  - name: stg_pm__producer_crosswalk
+    columns:
+      - name: producer_id
+        tests: [not_null]
+      - name: resolution
+        tests:
+          - accepted_values:
+              values: [live, archived, merged, deleted_no_successor, missing, cycle]
+
+  - name: stg_pm__curation_overlay
+    description: The overlay's field vocabulary is enforced here, per the design — a row naming a column no model maps fails the build.
+    columns:
+      - name: entity_type
+        tests:
+          - accepted_values:
+              values: [person, organization, role, assignment]
+      - name: field
+        tests:
+          - accepted_values:
+              values: [name, parent_id, legal_name, acronym]
+
+  - name: int_person_identity
+    columns:
+      - name: producer_id
+        tests: [unique, not_null]
+      - name: survivor_producer_id
+        tests: [not_null]
+
+  - name: desired_people
+    columns:
+      - name: producer_id
+        tests: [unique, not_null]
+      - name: pm_id
+        tests: [unique]
+
+  - name: desired_person_names
+    columns:
+      - name: producer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_people')
+              field: producer_id
+      - name: name
+        tests: [not_null]
+      - name: name_type
+        tests:
+          - accepted_values:
+              values: [legal]
+
+  - name: desired_person_merges
+    columns:
+      - name: loser_pm_id
+        tests: [unique, not_null]
+      - name: survivor_pm_id
+        description: Null when the survivor is not anchored in PM — reported, never fatal (CR 1).
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+  - name: stg_usa_wa__organizations
+    columns:
+      - name: entity_id
+        tests: [unique, not_null]
+      - name: name
+        tests: [not_null]
+      - name: org_type
+        tests:
+          - accepted_values:
+              values: [legislature, chamber, committee, party, other]
+
+  - name: stg_usa_wa__org_crosswalk
+    columns:
+      - name: natural_key
+        tests: [unique, not_null]
+
+  - name: int_org_identity
+    columns:
+      - name: producer_id
+        tests: [unique, not_null]
+
+  - name: desired_organizations
+    columns:
+      - name: producer_id
+        tests: [unique, not_null]
+      - name: pm_id
+        tests: [unique]
+
+  - name: desired_organization_parents
+    columns:
+      - name: producer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: producer_id
+      - name: parent_pm_id
+        description: Every claim names an in-scope PM org — an invariant, not a warning (CR 2).
+        tests:
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: pm_id
+
+  - name: desired_organization_names
+    columns:
+      - name: producer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: producer_id
+      - name: name
+        tests: [not_null]
+      - name: name_type
+        tests:
+          - accepted_values:
+              values: [legal]
+
+  - name: desired_organization_acronyms
+    columns:
+      - name: producer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: producer_id
+      - name: acronym
+        tests: [not_null]
+
+  - name: desired_organization_merges
+    columns:
+      - name: loser_pm_id
+        tests: [unique, not_null]
+      - name: survivor_pm_id
+        description: Null when the survivor is not anchored in PM — reported, never fatal (CR 1).
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+  - name: desired_entity_events
+    columns:
+      - name: pm_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: pm_id
+      - name: event_type
+        tests:
+          - accepted_values:
+              values: [dissolved]
+      - name: event_year
+        tests: [not_null]

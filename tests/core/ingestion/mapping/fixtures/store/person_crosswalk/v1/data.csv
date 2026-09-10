@@ -1,0 +1,8 @@
+entity_id,natural_key,key_namespace,key_value,registered_by,merged_into
+01P1000000000000000000000A,usa_wa_legislature:31526,usa_wa_legislature,31526,seed,
+01P1000000000000000000000A,wa_pdc:1688,wa_pdc,1688,seed,
+01P2000000000000000000000A,usa_wa_legislature:31527,usa_wa_legislature,31527,seed,
+01P3000000000000000000000A,usa_wa_legislature:31528,usa_wa_legislature,31528,seed,
+01P4000000000000000000000A,usa_wa_legislature_roster:peterabbarno:2019,usa_wa_legislature_roster,peterabbarno:2019,registrar,01P1000000000000000000000A
+01P5000000000000000000000A,usa_wa_legislature:31530,usa_wa_legislature,31530,seed,
+01P6000000000000000000000A,usa_wa_legislature_roster:pabbarno:2017,usa_wa_legislature_roster,pabbarno:2017,registrar,01P4000000000000000000000A

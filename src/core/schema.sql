@@ -4137,3 +4137,46 @@ DROP TRIGGER IF EXISTS trg_producer_crosswalk_updated_at ON producer_crosswalk;
 CREATE TRIGGER trg_producer_crosswalk_updated_at
     BEFORE UPDATE ON producer_crosswalk
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- Curation overlay (#497 / #490 design § Curation overlay)
+--
+-- PM-wins overrides on **producer-owned** fields. The mapping models join this
+-- declaratively — `COALESCE(overlay.value, mapped.value)` — so PM state for a
+-- producer-owned slice is f(snapshot, overlay): idempotent, replayable, and the
+-- desired state is a diffable artifact before any write. Everything a producer
+-- does not publish stays direct curation on the entity row itself.
+--
+-- `entity_type` is the producer crosswalk's `kind` vocabulary, because the
+-- rows this can override are exactly the rows in the crosswalk's scope. No FK
+-- on `entity_id`: polymorphic, like `links` and `contact_methods`. `value` is
+-- nullable on purpose — a curator can assert that a producer-owned field
+-- should be empty. `field` is free text here; the mapping models' source
+-- tests enforce the per-type vocabulary, so a row naming a column no model
+-- maps fails the build loudly instead of being silently ignored (#498's UI
+-- constrains it further).
+--
+-- Written by #498's admin path. Read only by the export the models consume.
+
+CREATE TABLE IF NOT EXISTS curation_overlay (
+    id          TEXT        PRIMARY KEY,
+    entity_type TEXT        NOT NULL
+                            CHECK (entity_type IN ('person', 'organization', 'role', 'assignment')),
+    entity_id   TEXT        NOT NULL,
+    field       TEXT        NOT NULL,
+    value       TEXT,
+    note        TEXT,
+    created_by  TEXT        REFERENCES app_users(id) ON DELETE SET NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- One override per field per entity: two rows would leave COALESCE picking
+-- arbitrarily, and "which curator wins" is not a question the models answer.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_curation_overlay_entity_field
+    ON curation_overlay (entity_type, entity_id, field);
+
+DROP TRIGGER IF EXISTS trg_curation_overlay_updated_at ON curation_overlay;
+CREATE TRIGGER trg_curation_overlay_updated_at
+    BEFORE UPDATE ON curation_overlay
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();

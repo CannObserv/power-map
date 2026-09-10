@@ -112,16 +112,15 @@ Safe to re-run; upserts are idempotent.
 
 ---
 
-## Seed WA legislative roles (idempotent, #263)
+## Seed WA legislative roles (idempotent, #263 — generator retired in #497)
 
 
-Creates the 147 canonical legislative roles (49 Senate + 98 House Position 1/2) against
-the already-seeded `legislative_district` jurisdictions. Prerequisites: `apply_schema`
-(role_types seeded), § Seed jurisdictions from a pre-seed JSON file (LD jurisdictions
-present), and the WA
-chamber orgs carrying the `org_wa_legislature_chamber` identifier (`usa_wa_house` /
-`usa_wa_senate`). The role seed file is a local, gitignored artifact under
-`data/cannabis_observer/` — regenerate it from the jurisdictions seed if absent.
+`scripts/seed_roles.py` replays a role seed JSON (create-or-attach through
+`resolve_role`, so re-runs attach rather than duplicate). Its generator,
+`scripts/generate_wa_roles.py`, was **retired in #497**: the 147 legislative
+seats it bootstrapped now arrive through usa-wa's published `roles` dataset
+(#500), and `src/core` carries no WA vocabulary to generate titles from. Keep
+this only to replay an existing file under `data/cannabis_observer/`.
 
 ```bash
 # Build --env-file flags (see § Environment)
@@ -129,22 +128,16 @@ env_args=()
 [ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
 [ -f .env ] && env_args+=(--env-file .env)
 
-# 1. Generate the role seed JSON from the jurisdictions seed (deterministic, no DB)
-uv run "${env_args[@]}" python -m scripts.generate_wa_roles \
-    data/cannabis_observer/2026_06_07-usa_wa-jurisdictions.json \
-    -o data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json
-
-# 2. Dry run — read-only; reports would-create / already-exist / unresolved counts
+# Dry run — read-only; reports would-create / already-exist / unresolved counts
 uv run "${env_args[@]}" python -m scripts.seed_roles data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json
 
-# 3. Execute — create-or-attach the roles and commit
+# Execute — create-or-attach the roles and commit
 uv run "${env_args[@]}" python -m scripts.seed_roles data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json --execute
 ```
 
-Idempotent: roles match on identity (org + role_type + jurisdiction + qualifier), so re-runs
-attach rather than duplicate. Seeder, not updater — it does not revise existing roles'
-titles/attributes. Merging existing (idiosyncratic) legislator Roles onto these roles is
-separate (#265).
+Seeder, not updater — it does not revise existing roles' titles/attributes.
+Merging existing (idiosyncratic) legislator Roles onto these roles is separate
+(#265).
 
 ---
 
@@ -272,6 +265,49 @@ Three refusals, each deliberate:
 `missing` in the report means PM has no record of the id at all, which includes
 every merge older than the 90-day tombstone TTL below. It is never evidence that
 the row never existed.
+
+---
+
+## Build the desired state (mapping project, #497)
+
+
+The dbt-duckdb project at `src/core/ingestion/mapping/` turns usa-wa's snapshots
+into PM-shaped **desired-state** tables — the diffable artifact the applier
+(#499) reads. It is the only place usa-wa's ontology lives in PM
+(`tests/test_src_core_wa_free.py` keeps the rest of `src/core` free of it).
+
+Three steps, each file-to-file except the export:
+
+```bash
+uv run "${env_args[@]}" python -m scripts.pull_datasets                       # 1. snapshots (#496)
+uv run --group mapping "${env_args[@]}" python -m scripts.export_pm_tables    # 2. producer_crosswalk + curation_overlay → _pm/*.parquet (read-only; DSN echoed)
+uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 3. dbt build → data/desired_state/*.parquet
+```
+
+- **Models never open a database.** PM's two tables cross the seam as Parquet
+  (step 2), so `dbt build` is hermetic and its tests run in the unit tier on
+  fixtures. Neither step 2 nor 3 carries `--execute`: nothing writes a database.
+- **`manifest.yml` is the contract #499 reads** — per table: key, retraction
+  policy (`none` / `report` / `archive`), owned columns, and for events the
+  owned types. `desired_entity_events` owns `dissolved` only; the 315 other org
+  events in PM have no producer column and are never diffed.
+- **Persons:** identity plus one legal name; pronouns, notes and every non-legal
+  name stay PM's. **Organizations:** identity, legal name
+  (`coalesce(long_name, name)` — no dba), acronym, a row-scoped parent claim
+  (House/Senate/Joint/chambers only), and `dissolved` from `last_biennium`
+  (year = first year + 1; none at the dataset's newest biennium).
+- **The overlay wins by presence.** A `curation_overlay` row overrides the
+  mapped value even when its value is null (the row then drops out). Its `field`
+  vocabulary is enforced by the staging test, so a row naming a column no model
+  maps fails the build. #498 builds the write path.
+- **Five persons are published with a blank name** (usa-wa#364). Staging trims
+  and nullifies; the build **warns** rather than halts; identity lands and no
+  name is asserted, so PM's own legal name stands.
+- **The real-snapshot check** (`tests/core/ingestion/mapping/test_real_snapshot.py`,
+  `-m integration`) asserts the design doc's measurements against the landed
+  store and skips by name when steps 1–2 have not been run in that checkout.
+
+Design and measurements: `docs/plans/2026-09-10-mapping-project-design.md`.
 
 ---
 

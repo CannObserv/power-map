@@ -14,7 +14,7 @@ in `docs/ACCESSIBILITY.md`.
 # Run all tests (excludes integration). The opt-in groups are named on purpose:
 # `uv run` installs what it is asked for, so this re-arms the browser/seed tiers
 # that a bare `uv sync` elsewhere may have pruned (#450).
-uv run --group browser --group seed pytest
+uv run --group browser --group seed --group mapping pytest
 
 # Bare form — fine for a quick loop, but any tier whose group is absent is
 # skipped at import; the run says so in a red summary line.
@@ -31,6 +31,23 @@ uv run pytest -m integration
 ```
 
 ---
+
+## Mapping-project tier (#497)
+
+
+`tests/core/ingestion/mapping/` builds the dbt-duckdb project against a fixture
+store (`fixtures/store/`, the puller's layout) through a `build` fixture that
+writes PM's tables as Parquet from tuples and runs `dbt build`. Each test is a
+full build (~2.5s); the tier is unit-tier and needs the `mapping` group —
+`tests/optional_groups.py` announces its absence rather than letting the skip
+pass as coverage. `EXPECTED_WARNINGS` pins exactly which dbt warnings a build
+may raise (the blank-name case); a new warning fails the test.
+
+`test_real_snapshot.py` is marked `integration`: it builds against the landed
+store plus the read-only crosswalk export and asserts the design doc's
+measurements. It never opens a database, and it **skips by name** when the
+store or the export is absent in that checkout — provision with
+`scripts/pull_datasets.py` and `scripts/export_pm_tables.py`.
 
 ## Endpoint-test client (#288)
 
@@ -63,11 +80,11 @@ the lxml tier never drift.
 
 ```bash
 # One-time setup (installs Playwright + a ~120MB Chromium; not in the dev group)
-uv sync --group browser --group seed
+uv sync --group browser --group seed --group mapping
 uv run --group browser playwright install chromium
 
 # Run the whole tier (needs TEST_DATABASE_URL; env flags per § Environment)
-uv run --group browser --group seed --env-file /etc/power-map/.env --env-file .env \
+uv run --group browser --group seed --group mapping --env-file /etc/power-map/.env --env-file .env \
     pytest tests/api/admin/ -m browser
 ```
 
