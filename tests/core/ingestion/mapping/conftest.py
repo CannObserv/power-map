@@ -7,7 +7,7 @@ that is the shape the export step produces and the models read.
 """
 
 import shutil
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -22,6 +22,7 @@ from src.core.ingestion.mapping import run_dbt  # noqa: E402
 from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, write_parquet  # noqa: E402
 
 FIXTURE_STORE = Path(__file__).parent / "fixtures" / "store"
+FIXTURE_VERSION = "v1"
 NOW = datetime(2026, 9, 10, tzinfo=UTC)
 
 
@@ -66,6 +67,24 @@ def overlay_row(entity_type: str, entity_id: str, field: str, value: str | None)
     return (f"ov-{entity_id}-{field}", entity_type, entity_id, field, value, None, None, NOW, NOW)
 
 
+def fixture_csv(
+    dataset: str,
+    *,
+    drop: str | None = None,
+    replace: Mapping[str, str] | None = None,
+    add: Sequence[str] = (),
+) -> str:
+    """The fixture's CSV for ``dataset``, edited: lines containing ``drop`` removed,
+    each ``replace`` key substituted, ``add`` lines appended. For ``build(datasets=…)``."""
+    text = (FIXTURE_STORE / dataset / FIXTURE_VERSION / "data.csv").read_text()
+    lines = [ln for ln in text.splitlines() if drop is None or drop not in ln]
+    text = "\n".join([*lines, *add]) + "\n"
+    for needle, replacement in (replace or {}).items():
+        assert needle in text, f"{needle!r} is not in the {dataset} fixture"
+        text = text.replace(needle, replacement)
+    return text
+
+
 DEFAULT_CROSSWALK = [
     crosswalk_row(P1, PM1, "live"),
     crosswalk_row(P2, PM2, "merged"),  # PM merged it; pm_id already points at the survivor
@@ -108,6 +127,13 @@ class Built:
         """Names of dbt tests that warned — a warning is by design, but only the ones we name."""
         return sorted(r.node.name for r in self.result.result.results if str(r.status) == "warn")
 
+    @property
+    def failures(self) -> list[str]:
+        """Names of nodes that failed or errored (a build asked to tolerate failure)."""
+        return sorted(
+            r.node.name for r in self.result.result.results if str(r.status) in ("fail", "error")
+        )
+
     def columns(self, model: str) -> list[str]:
         con = duckdb.connect(str(self.duckdb_path), read_only=True)
         try:
@@ -130,20 +156,30 @@ def _build_cache(tmp_path_factory):
         *,
         crosswalk: Sequence[tuple] = DEFAULT_CROSSWALK,
         overlay: Sequence[tuple] = DEFAULT_OVERLAY,
+        datasets: Mapping[str, str] | None = None,
         select: str | None = None,
+        must_succeed: bool = True,
     ) -> Built:
-        key = (tuple(crosswalk), tuple(overlay), select)
+        """``datasets`` replaces a usa-wa dataset's CSV (see `fixture_csv`); ``must_succeed=False``
+        returns a failed build for a test that asserts *what* failed."""
+        edits = tuple(sorted((datasets or {}).items()))
+        key = (tuple(crosswalk), tuple(overlay), edits, select, must_succeed)
         if key in cache:
             return cache[key]
         root = tmp_path_factory.mktemp("mapping") / "store"
         shutil.copytree(FIXTURE_STORE, root)
+        for dataset, text in edits:
+            (root / dataset / FIXTURE_VERSION / "data.csv").write_text(text)
         pm = root / PM_EXPORT_DIR
         write_parquet(crosswalk, TABLES["producer_crosswalk"], pm / "producer_crosswalk.parquet")
         write_parquet(overlay, TABLES["curation_overlay"], pm / "curation_overlay.parquet")
         db = root.parent / "mapping.duckdb"
         args = ["build"] + (["--select", select] if select else [])
         result = run_dbt(args, snapshot_root=root, duckdb_path=str(db))
-        assert result.success, getattr(result, "exception", None) or _failures(result)
+        if must_succeed:
+            assert result.success, getattr(result, "exception", None) or _failures(result)
+        else:
+            assert result.result is not None, getattr(result, "exception", None)
         # A selector naming no model is a successful no-op to dbt; here it is
         # a test that would go on to assert against nothing.
         assert result.result.results, f"nothing built — does {select!r} name a model?"

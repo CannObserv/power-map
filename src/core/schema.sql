@@ -4151,10 +4151,11 @@ CREATE TRIGGER trg_producer_crosswalk_updated_at
 -- rows this can override are exactly the rows in the crosswalk's scope. No FK
 -- on `entity_id`: polymorphic, like `links` and `contact_methods`. `value` is
 -- nullable on purpose — a curator can assert that a producer-owned field
--- should be empty. `field` is free text here; the mapping models' source
--- tests enforce the per-type vocabulary, so a row naming a column no model
--- maps fails the build loudly instead of being silently ignored (#498's UI
--- constrains it further).
+-- should be empty. `field` is free text here; the mapping project's
+-- overlay_field_unmapped test enforces the per-type vocabulary, so a row naming
+-- a column no model maps is warned by name and applied nowhere — never
+-- silently ignored, never a reason to withhold the rest of the build (#498's
+-- UI offers only the mapped pairs).
 --
 -- Written by #498's admin path. Read only by the export the models consume.
 

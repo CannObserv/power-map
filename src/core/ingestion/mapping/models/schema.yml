@@ -29,16 +29,12 @@ models:
               values: [live, archived, merged, deleted_no_successor, missing, cycle]
 
   - name: stg_pm__curation_overlay
-    description: The overlay's field vocabulary is enforced here, per the design — a row naming a column no model maps fails the build.
+    description: The overlay's vocabulary is enforced per entity type by tests/overlay_field_unmapped.sql (CR 15) — a row naming a field no model maps for its type is warned by name and applied nowhere (CR 26). entity_type mirrors the table's CHECK.
     columns:
       - name: entity_type
         tests:
           - accepted_values:
               values: [person, organization, role, assignment]
-      - name: field
-        tests:
-          - accepted_values:
-              values: [name, parent_id, legal_name, acronym]
 
   - name: int_person_identity
     columns:
@@ -55,10 +51,10 @@ models:
         tests: [unique]
 
   - name: desired_person_names
+    description: Keyed (producer_id, name_type) — tests/desired_person_names_key_unique.sql (CR 28).
     columns:
       - name: producer_id
         tests:
-          - unique
           - not_null
           - relationships:
               to: ref('desired_people')
@@ -75,22 +71,28 @@ models:
       - name: loser_pm_id
         tests: [unique, not_null]
       - name: survivor_pm_id
-        description: Null when the survivor is not anchored in PM — reported, never fatal (CR 1).
+        description: Null when the survivor is out of scope — unanchored, a create, or archived — reported, never fatal (CR 1, CR 14).
         tests:
           - not_null:
               config:
                 severity: warn
 
   - name: stg_usa_wa__organizations
+    description: Warn, never halt, on a bad producer row (CR 16, the persons rule) — a blank name still lands its identity and takes its legal name from long_name; an org_type the vocabulary has not met determines no parent and nothing else.
     columns:
       - name: entity_id
         tests: [unique, not_null]
       - name: name
-        tests: [not_null]
+        tests:
+          - not_null:
+              config:
+                severity: warn
       - name: org_type
         tests:
           - accepted_values:
               values: [legislature, chamber, committee, party, other]
+              config:
+                severity: warn
 
   - name: stg_usa_wa__org_crosswalk
     columns:
@@ -127,10 +129,10 @@ models:
               field: pm_id
 
   - name: desired_organization_names
+    description: Keyed (producer_id, name_type) — tests/desired_organization_names_key_unique.sql (CR 28).
     columns:
       - name: producer_id
         tests:
-          - unique
           - not_null
           - relationships:
               to: ref('desired_organizations')
@@ -159,18 +161,25 @@ models:
       - name: loser_pm_id
         tests: [unique, not_null]
       - name: survivor_pm_id
-        description: Null when the survivor is not anchored in PM — reported, never fatal (CR 1).
+        description: Null when the survivor is out of scope — unanchored, a create, or archived — reported, never fatal (CR 1, CR 14).
         tests:
           - not_null:
               config:
                 severity: warn
 
   - name: desired_entity_events
+    description: Keyed (producer_id, event_type) — tests/desired_entity_events_key_unique.sql (CR 28).
     columns:
+      - name: producer_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: producer_id
       - name: pm_id
+        description: Null for a create, like every mart — the key is producer_id (CR 19).
         tests:
           - unique
-          - not_null
           - relationships:
               to: ref('desired_organizations')
               field: pm_id

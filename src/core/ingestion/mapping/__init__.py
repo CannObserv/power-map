@@ -132,7 +132,7 @@ def run_dbt(
     if duckdb_path != ":memory:":
         Path(duckdb_path).resolve().parent.mkdir(parents=True, exist_ok=True)
     paths = RunPaths(root, duckdb_path, target, target / "logs")
-    env = {"PM_MAPPING_DUCKDB": paths.duckdb_path, "PM_SNAPSHOT_ROOT": str(root)}
+    env = {"PM_MAPPING_DUCKDB": paths.duckdb_path}
     env.update(source_env(root, versions=versions))
     full = [
         *args,

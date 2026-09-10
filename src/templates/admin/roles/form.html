@@ -30,7 +30,7 @@
       <label for="title">Title</label>
       <input id="title" name="title" type="text" value="{{ v.get('title') or '' }}">
       <p style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin:var(--space-1) 0 0">
-        Required for a plain role. For a fully-qualified WA legislative role the title is generated automatically — anything entered here is replaced.
+        Required. For a role with a jurisdiction it is stored as typed — nothing generates one (#497).
       </p>
     </div>
 

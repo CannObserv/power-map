@@ -52,8 +52,9 @@ def real(tmp_path_factory):
     shutil.copytree(STORE, root)
     overlay = root / PM_EXPORT_DIR / "curation_overlay.parquet"
     if not overlay.exists():
-        # Until schema.sql reaches production the export cannot write this;
-        # an empty overlay is exactly what production holds before #498.
+        # An export taken before curation_overlay existed on its target has no
+        # overlay file; an empty one is what production holds until #498 writes
+        # rows, so the measurements below are the same either way.
         write_parquet([], TABLES["curation_overlay"], overlay)
     db = root / "mapping.duckdb"
     result = run_dbt(["build"], snapshot_root=root, duckdb_path=str(db))

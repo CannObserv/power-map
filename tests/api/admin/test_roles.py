@@ -949,25 +949,36 @@ async def test_structural_inline_positionless_seat_rejected(client, db, structur
     assert row["qualifier"] == "Position 1"  # unchanged
 
 
-async def test_structural_title_edit_post_rejected(client, db, structural_role):
-    """A curated role's title is PM-owned — the manual title editor refuses to change it."""
+async def test_structural_title_edit_post_updates_the_title(client, db, structural_role):
+    """#497 (CR 13): PM no longer synthesizes a typed role's title, so the title
+    editor is the one place it can be corrected — the #267 refusal is gone."""
     r = await client.post(
         f"/admin/roles/{structural_role['role_id']}/inline/title/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={"title": "Hand Edited Title"},
     )
     assert r.status_code == 200
+    assert "generated from the role type" not in r.text
     title = await db.fetchval("SELECT title FROM roles WHERE id=$1", structural_role["role_id"])
-    assert title == "WA Rep Seat One"
+    assert title == "Hand Edited Title"
 
 
-async def test_structural_detail_hides_title_edit_button(client, structural_role, role_id):
+async def test_structural_detail_shows_title_edit_button(client, structural_role, role_id):
+    """Both a typed and a plain role offer Edit; nothing is "curated from the role type" now."""
     structural = await client.get(
         f"/admin/roles/{structural_role['role_id']}/", headers=AUTH_HEADERS
     )
     plain = await client.get(f"/admin/roles/{role_id}/", headers=AUTH_HEADERS)
-    assert "inline/title/edit/" not in structural.text
+    assert "inline/title/edit/" in structural.text
+    assert "Curated from the role type" not in structural.text
     assert "inline/title/edit/" in plain.text
+
+
+async def test_new_role_form_does_not_promise_a_generated_title(client):
+    r = await client.get("/admin/roles/new/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "generated automatically" not in r.text
+    assert "anything entered here is replaced" not in r.text
 
 
 # ---------------------------------------------------------------------------

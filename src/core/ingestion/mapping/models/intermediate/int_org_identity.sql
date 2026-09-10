@@ -8,8 +8,11 @@
 -- under committees, the Legislature itself, the parties) are PM's to curate,
 -- so no row is a claim, not a claim of null.
 --
--- Chamber ids come from the producer's own crosswalk keys (usa_wa_house,
--- usa_wa_senate), the Legislature from org_type; nothing is hard-coded.
+-- The rule is stated once, as `parent_rule` (CR 27): the anchor CASE below
+-- and tests/unresolved_org_parents.sql both read it, so a rule added here is
+-- covered there without a second copy. Chamber ids come from the producer's
+-- own crosswalk keys (usa_wa_house, usa_wa_senate), the Legislature from
+-- org_type; nothing is hard-coded.
 with recursive
 
 tombstones as (
@@ -78,6 +81,19 @@ entities as (
     where r.loser_id not in (select entity_id from orgs)
 ),
 
+-- Which anchor, if any, an org's agency / org_type determines.
+ruled as (
+    select
+        *,
+        case
+            when agency = 'House' then 'house'
+            when agency = 'Senate' then 'senate'
+            when agency = 'Joint' then 'legislature'
+            when org_type = 'chamber' then 'legislature'
+        end as parent_rule
+    from entities
+),
+
 pm as (
     select producer_id, pm_id, resolution
     from {{ ref('stg_pm__producer_crosswalk') }}
@@ -95,16 +111,16 @@ select
     e.org_type,
     e.first_biennium,
     e.last_biennium,
-    case
-        when e.agency = 'House' then a.house_id
-        when e.agency = 'Senate' then a.senate_id
-        when e.agency = 'Joint' then l.legislature_id
-        when e.org_type = 'chamber' then l.legislature_id
+    e.parent_rule,
+    case e.parent_rule
+        when 'house' then a.house_id
+        when 'senate' then a.senate_id
+        when 'legislature' then l.legislature_id
     end as parent_producer_id,
     own.pm_id,
     own.resolution,
     survivor.pm_id as survivor_pm_id
-from entities as e
+from ruled as e
 cross join anchors as a
 cross join legislature as l
 left join resolved as r on r.loser_id = e.entity_id
