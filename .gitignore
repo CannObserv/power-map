@@ -60,6 +60,8 @@ data/usa_wa_snapshots
 data/desired_state
 data/mapping.duckdb*
 data/.dbt-target
+# #499 applier: per-run reports and the ledger
+data/applier
 src/core/ingestion/mapping/target
 src/core/ingestion/mapping/logs
 src/core/ingestion/mapping/dbt_packages

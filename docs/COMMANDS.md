@@ -289,10 +289,20 @@ uv run "${env_args[@]}" python -m scripts.pull_datasets            # provision t
 uv run --group mapping "${env_args[@]}" python -m scripts.export_pm_tables   # … and the export
 uv run --group mapping "${env_args[@]}" pytest tests/core/ingestion/mapping/test_real_snapshot.py -m integration
 uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # the operator run
+uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state # the dry run (#499); --execute is gated
 ```
 
-`export_pm_tables` is read-only but connects (DSN echoed, `--test` available); the
-other two never open a database. Runbook: `docs/RUNBOOKS.md` § Build the desired state.
+`export_pm_tables` is read-only but connects (DSN echoed, `--test` available);
+`build_desired_state` never opens a database; `apply_desired_state` reads live
+Postgres and, only under `--execute` after a clean streak, writes. Runbooks:
+`docs/RUNBOOKS.md` § Build the desired state and § Apply the desired state.
+
+Install the nightly chain once (mirrors the pull timer):
+
+```bash
+sudo cp infra/power-map-desired-state.service infra/power-map-desired-state.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now power-map-desired-state.timer
+```
 
 ### Applying a schema change during development
 
@@ -415,6 +425,7 @@ detail is in the section named in each row.
 | Outbox/tombstone TTL prune | daily `power-map-prune.timer` runs `scripts/prune_outbox.py --execute` (90-day window, `entity_changes` + `deleted_entities`); see `docs/RUNBOOKS.md` |
 | Per-key API anomaly check | hourly `power-map-anomaly.timer` runs `scripts/check_api_anomalies.py` — journal WARNING + exit 3 per key ≥ `API_ANOMALY_HOURLY_THRESHOLD` req/hr (#294); human layer = Admin → Activity → API Requests per-key panel; see `docs/AUDITS.md` |
 | usa-wa dataset pull | nightly 09:00 UTC `power-map-datasets-pull.timer` runs `scripts/pull_datasets.py` — fetches usa-wa's catalog over an exe.dev VM bearer token (`USA_WA_TOKEN`), lands every subscribed dataset whose latest version is not already held into `data/usa_wa_snapshots/`, verifies each `data.csv` against the length and digest the catalog states, and prunes to the newest `--keep` versions (never the one just landed). Writes **no** database rows — the gated step is the applier (#499). Exit 1 on a failed digest, an incompatible schema major, or a subscribed dataset the catalog does not carry. Runs an hour after usa-wa publishes at 08:00 UTC; see `docs/RUNBOOKS.md` |
+| Desired-state chain (dry-run applier) | nightly 09:30 UTC `power-map-desired-state.timer` runs one oneshot with three `ExecStart=` lines under `uv run --group mapping` — `scripts/export_pm_tables.py` (PM's two tables → Parquet, read-only, DSN echoed), `scripts/build_desired_state.py` (dbt build → `data/desired_state/` + `BUILD.json`, no database), `scripts/apply_desired_state.py` (the **dry run**: diff against live Postgres → `data/applier/<run-id>/` + a `ledger.jsonl` line). A step failing stops the chain. Exit 0 for verdict `clean` or `blocked` — both recorded, the clean-run streak #501 waits on is counted here — and 3 for `stale`. `--execute` is never on the unit; see `docs/RUNBOOKS.md` § Apply the desired state |
 | Schema-parity audit | daily `power-map-schema-parity.timer` runs `scripts/audit_schema_constraint_parity.py` — snapshots full `pg_get_constraintdef` + `pg_get_functiondef` + `pg_get_triggerdef` on reference (`PARITY_REFERENCE_URL`, default `TEST_DATABASE_URL`) vs prod, exit 3 on any missing/different object, per-kind breakdown `constraint.*`/`function.*`/`trigger.*` (#315 constraints + #331 functions/triggers; `CREATE TABLE IF NOT EXISTS` inline-drift + `CREATE OR REPLACE` body-drift; extension-owned/internal excluded; function/trigger diff skipped on a PG-major mismatch); see `docs/AUDITS.md` |
 | role / role_assignment / citation ancillary orphan audit | daily `power-map-ancillary-orphans.timer` runs `scripts/audit_ancillary_orphans.py` — anti-join count of no-FK polymorphic ancillary keyed on a non-existent parent, over **three** scopes: `role_assignment` (`links`/`contact_methods`/`field_confidence`/`identifiers`, #324), `role` (`links`/`contact_methods`, #326), and `citation` (all 7 citable entity types, #319); exit 3 on any orphan, breakdown namespaced `role.*`/`role_assignment.*`/`citation.*`. Recovery: `scripts/cleanup_role_assignment_ancillary_orphans.py` (heuristic re-home, dry-run → `--execute`; role_assignment-only — role/citation orphans go to manual triage); see `docs/AUDITS.md` |
 | assignment-relationship window audit | daily `power-map-assignment-rel-windows.timer` runs `scripts/audit_assignment_relationship_windows.py` — report-only reconcile of active `role_assignment_relationships` edges whose window drifted outside the intersection of both endpoint assignment windows (or whose endpoint archived); shares the `cascade_assignment_relationships` clamp rule (#301). Categories `clamp`/`inverted`/`archived_endpoint`; **exit 3 on any finding** (#363) so a drifted run surfaces in `systemctl --failed`. `--execute` clamps/archives and always exits 0 (supervised); see `docs/AUDITS.md` |
