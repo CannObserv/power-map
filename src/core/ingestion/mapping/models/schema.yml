@@ -6,7 +6,11 @@ models:
       - name: entity_id
         tests: [unique, not_null]
       - name: name_full
-        tests: [not_null]
+        description: Warn, never halt — five real rows arrive blank. Identity still lands; no name is asserted for them.
+        tests:
+          - not_null:
+              config:
+                severity: warn
 
   - name: stg_usa_wa__person_crosswalk
     columns:

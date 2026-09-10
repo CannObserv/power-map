@@ -25,14 +25,19 @@ FIXTURE_STORE = Path(__file__).parent / "fixtures" / "store"
 NOW = datetime(2026, 9, 10, tzinfo=UTC)
 
 
+# The one dbt warning the fixture is built to raise: P7 is published with a
+# blank name, as five real legislators are.
+EXPECTED_WARNINGS = ["not_null_stg_usa_wa__persons_name_full"]
+
+
 # Short, readable ids for fixture rows. Real ids are ULIDs; nothing here checks
 # the format, only the joins.
 def _ids(prefix: str, ns) -> list[str]:
     return [f"01{prefix}{n}000000000000000000000A" for n in ns]
 
 
-P1, P2, P3, P4, P5, P6 = _ids("P", range(1, 7))
-PM1, PM2, PM4, PM5, PM6 = _ids("M", (1, 2, 4, 5, 6))
+P1, P2, P3, P4, P5, P6, P7 = _ids("P", range(1, 8))
+PM1, PM2, PM4, PM5, PM6, PM7 = _ids("M", (1, 2, 4, 5, 6, 7))
 O1, O2, O3, O4, O5, O6, O7, O8, O9 = _ids("O", range(1, 10))
 MO1, MO2, MO3, MO4, MO5, MO6, MO7, MO8, MO9 = _ids("N", range(1, 10))
 # O10 / MO10: a committee whose last biennium is 1999-00 — the century wrap.
@@ -67,6 +72,7 @@ DEFAULT_CROSSWALK = [
     crosswalk_row(P4, PM4, "live"),  # a usa-wa tombstone whose PM row still exists
     crosswalk_row(P5, PM5, "archived"),  # in the table, not in scope
     crosswalk_row(P6, PM6, "live"),  # two hops from its survivor
+    crosswalk_row(P7, PM7, "live"),  # published with a blank name (real: 5 such rows)
     # P3 has no row: an unanchored producer person → a create
     *(crosswalk_row(o, m, "live", kind="organization") for o, m in ORG_ANCHORS),
 ]
@@ -92,6 +98,15 @@ class Built:
             return con.execute(f"SELECT * FROM {model} ORDER BY {order_by}").fetchall()
         finally:
             con.close()
+
+    @property
+    def statuses(self) -> set[str]:
+        return {str(r.status) for r in self.result.result.results}
+
+    @property
+    def warnings(self) -> list[str]:
+        """Names of dbt tests that warned — a warning is by design, but only the ones we name."""
+        return sorted(r.node.name for r in self.result.result.results if str(r.status) == "warn")
 
     def columns(self, model: str) -> list[str]:
         con = duckdb.connect(str(self.duckdb_path), read_only=True)

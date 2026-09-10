@@ -10,6 +10,7 @@ import pytest
 pytest.importorskip("dbt.adapters.duckdb")
 
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
+    EXPECTED_WARNINGS,
     MO1,
     MO2,
     MO3,
@@ -101,4 +102,5 @@ def test_an_org_tombstone_resolves_to_its_survivor(build):
 def test_the_projects_own_tests_pass_with_organizations(build):
     b = build()
 
-    assert {str(r.status) for r in b.result.result.results} <= {"success", "pass"}
+    assert b.statuses <= {"success", "pass", "warn"}, b.statuses
+    assert b.warnings == EXPECTED_WARNINGS

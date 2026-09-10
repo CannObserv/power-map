@@ -10,23 +10,26 @@ import pytest
 pytest.importorskip("dbt.adapters.duckdb")
 
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
+    EXPECTED_WARNINGS,
     P1,
     P2,
     P3,
     P4,
     P5,
     P6,
+    P7,
     PM1,
     PM2,
     PM4,
     PM6,
+    PM7,
 )
 
 
 def test_staging_reads_every_producer_person_verbatim(build):
     b = build(select="stg_usa_wa__persons")
 
-    assert [r[0] for r in b.rows("stg_usa_wa__persons")] == [P1, P2, P3, P5]
+    assert [r[0] for r in b.rows("stg_usa_wa__persons")] == [P1, P2, P3, P5, P7]
 
 
 def test_identity_resolves_each_producer_person_through_the_crosswalk(build):
@@ -56,6 +59,7 @@ def test_desired_people_is_identity_only(build):
         (PM1, P1),
         (PM2, P2),
         (None, P3),
+        (PM7, P7),
     ]
 
 
@@ -110,5 +114,18 @@ def test_the_projects_own_tests_pass_on_the_fixture(build):
     """dbt's unique / not_null / relationships tests run as part of `build`."""
     b = build()
 
-    statuses = {str(r.status) for r in b.result.result.results}
-    assert statuses <= {"success", "pass"}, statuses
+    assert b.statuses <= {"success", "pass", "warn"}, b.statuses
+    assert b.warnings == EXPECTED_WARNINGS
+
+
+def test_a_person_published_with_a_blank_name_keeps_identity_but_asserts_no_name(build):
+    """Real data: five anchored legislators arrive with name_full of ' ' or ''.
+
+    A space is not NULL. Without trimming at staging the model would assert a
+    legal name of ' ' for four of them. Identity stands; the name row does not,
+    so PM's own legal name is left exactly as it is (names are assert-only).
+    """
+    b = build()
+
+    assert (PM7, P7) in b.rows("desired_people")
+    assert P7 not in {r[1] for r in b.rows("desired_person_names")}
