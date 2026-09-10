@@ -588,7 +588,7 @@ async def test_at_large_seat_blank_qualifier_treated_as_absent(db):
         rid, disp, reason = await resolve_role(
             db,
             org,
-            None,
+            "Seat",
             role_type="state_representative_at_large",
             jurisdiction_id=jur,
             qualifier=blank,

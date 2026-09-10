@@ -892,8 +892,9 @@ async def test_structural_inline_update_qualifier_persists(client, db, structura
     assert row["title"] == "WA Rep Seat One"
 
 
-async def test_structural_inline_wa_title_resynthesized(client, db, wa_structural_role):
-    """WA role: changing the tuple regenerates the curated title."""
+async def test_structural_inline_wa_title_unchanged(client, db, wa_structural_role):
+    """#497: changing the tuple never rewrites the title — the title editor does that."""
+    before = await db.fetchval("SELECT title FROM roles WHERE id=$1", wa_structural_role["role_id"])
     r = await client.post(
         f"/admin/roles/{wa_structural_role['role_id']}/inline/structural/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
@@ -908,7 +909,7 @@ async def test_structural_inline_wa_title_resynthesized(client, db, wa_structura
         "SELECT title, qualifier FROM roles WHERE id=$1", wa_structural_role["role_id"]
     )
     assert row["qualifier"] == "Position 2"
-    assert row["title"] == "Washington State Representative, LD-998, Position 2"
+    assert row["title"] == before
 
 
 async def test_structural_inline_qualifier_without_jurisdiction_rejected(
@@ -1037,7 +1038,8 @@ async def test_structural_inline_error_preserves_cleared_jurisdiction(client, st
 async def test_structural_inline_add_to_plain_role(
     client, db, promotable_role, rt_rep_id, wa_ld_jurisdiction
 ):
-    """Adding structural fields to a plain role sets the tuple and synthesizes the WA title."""
+    """Adding structural fields to a plain role sets the tuple and keeps its title (#497)."""
+    before = await db.fetchval("SELECT title FROM roles WHERE id=$1", promotable_role)
     r = await client.post(
         f"/admin/roles/{promotable_role}/inline/structural/",
         headers={**AUTH_HEADERS, "HX-Request": "true"},
@@ -1055,7 +1057,7 @@ async def test_structural_inline_add_to_plain_role(
     assert row["role_type_id"] == rt_rep_id
     assert row["jurisdiction_id"] == wa_ld_jurisdiction
     assert row["qualifier"] == "Position 7"
-    assert row["title"] == "Washington State Representative, LD-999, Position 7"
+    assert row["title"] == before
 
 
 async def test_structural_inline_demote_to_plain(client, db, demotable_role):
@@ -1079,11 +1081,11 @@ async def test_structural_inline_demote_to_plain(client, db, demotable_role):
     assert "retained" in r.headers.get("HX-Trigger", "")
 
 
-async def test_create_wa_structural_role_ignores_supplied_title(
+async def test_create_wa_structural_role_stores_the_supplied_title(
     client, db, org_id, wa_ld_jurisdiction, rt_rep_id
 ):
-    """A supplied title is ignored for a fully-qualified WA role — PM always
-    synthesizes the canonical title (#264 CR-1, directive 5)."""
+    """#497: the title the admin typed is what is stored. (#264 CR-1 had PM
+    override it with a synthesized canonical form; #490 retracts that.)"""
     r = await client.post(
         "/admin/roles/new/",
         headers=AUTH_HEADERS,
@@ -1104,7 +1106,7 @@ async def test_create_wa_structural_role_ignores_supplied_title(
         wa_ld_jurisdiction,
         "Position 5",
     )
-    assert title == "Washington State Representative, LD-999, Position 5"
+    assert title == "My Custom Override"
 
 
 # --- forbids_qualifier admin mirror (#302) ---
@@ -1150,14 +1152,14 @@ async def test_create_at_large_role_with_qualifier_rejected(
 async def test_create_at_large_role_without_qualifier_ok(
     client, db, org_id, rt_at_large_id, wa_ld_jurisdiction
 ):
-    """The same office with no qualifier is created normally, title synthesized."""
+    """The same office with no qualifier is created normally, title as typed."""
     r = await client.post(
         "/admin/roles/new/",
         headers=AUTH_HEADERS,
         follow_redirects=False,
         data={
             "organization_id": org_id,
-            "title": "",
+            "title": "Washington State Representative (At-Large), LD-999",
             "role_type_id": rt_at_large_id,
             "jurisdiction_id": wa_ld_jurisdiction,
             "qualifier": "",
