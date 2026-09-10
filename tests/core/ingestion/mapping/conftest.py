@@ -116,9 +116,15 @@ class Built:
             con.close()
 
 
-@pytest.fixture
-def build(tmp_path):
-    """Copy the fixture store, write PM's tables, run `dbt build`, return `Built`."""
+@pytest.fixture(scope="session")
+def _build_cache(tmp_path_factory):
+    """One build per distinct (crosswalk, overlay, select) for the whole session.
+
+    A full `dbt build` is ~2.5s and most tests build the identical default
+    project; unshared, the tier took the unit gate from 12s to 93s (CR 6).
+    Sharing is safe because tests only ever open the built file read-only.
+    """
+    cache: dict[tuple, Built] = {}
 
     def _build(
         *,
@@ -126,21 +132,31 @@ def build(tmp_path):
         overlay: Sequence[tuple] = DEFAULT_OVERLAY,
         select: str | None = None,
     ) -> Built:
-        root = tmp_path / "store"
+        key = (tuple(crosswalk), tuple(overlay), select)
+        if key in cache:
+            return cache[key]
+        root = tmp_path_factory.mktemp("mapping") / "store"
         shutil.copytree(FIXTURE_STORE, root)
         pm = root / PM_EXPORT_DIR
         write_parquet(crosswalk, TABLES["producer_crosswalk"], pm / "producer_crosswalk.parquet")
         write_parquet(overlay, TABLES["curation_overlay"], pm / "curation_overlay.parquet")
-        db = tmp_path / "mapping.duckdb"
+        db = root.parent / "mapping.duckdb"
         args = ["build"] + (["--select", select] if select else [])
         result = run_dbt(args, snapshot_root=root, duckdb_path=str(db))
         assert result.success, getattr(result, "exception", None) or _failures(result)
         # A selector naming no model is a successful no-op to dbt; here it is
         # a test that would go on to assert against nothing.
         assert result.result.results, f"nothing built — does {select!r} name a model?"
-        return Built(db, result)
+        cache[key] = Built(db, result)
+        return cache[key]
 
     return _build
+
+
+@pytest.fixture
+def build(_build_cache):
+    """Build (or reuse) the fixture project; see `_build_cache`."""
+    return _build_cache
 
 
 def _failures(result) -> str:
