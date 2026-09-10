@@ -116,6 +116,13 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   (the four subcommittees PM parents under their committee), 17 creates of which
   13 are probable twins — so the verdict is `blocked` until #501 works the diff.
 
+Install the nightly chain once (`docs/COMMANDS.md` § Scheduled timers lists it):
+
+```bash
+sudo cp infra/power-map-desired-state.service infra/power-map-desired-state.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now power-map-desired-state.timer
+```
+
 Design: `docs/plans/2026-09-10-diff-applier-design.md`.
 
 ---

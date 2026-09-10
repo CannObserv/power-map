@@ -297,13 +297,6 @@ uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state # 
 Postgres and, only under `--execute` after a clean streak, writes. Runbook:
 `docs/RUNBOOK_DESIRED_STATE.md`.
 
-Install the nightly chain once (mirrors the pull timer):
-
-```bash
-sudo cp infra/power-map-desired-state.service infra/power-map-desired-state.timer /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now power-map-desired-state.timer
-```
-
 ### Applying a schema change during development
 
 From a worktree, apply to the **test** database — the bare command targets production and
