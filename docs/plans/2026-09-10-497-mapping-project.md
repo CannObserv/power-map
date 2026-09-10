@@ -88,13 +88,16 @@ own commit or small run of commits. Test-first throughout.
    `merged_into` set resolves to the survivor's `pm_id`, and a model that
    ignored the tombstone would fail it.
 
-5. **Organizations models.** `stg_usa_wa__organizations`, `int_org_identity`,
-   `desired_organizations` (`parent_id` from `agency`),
-   `desired_organization_names` (`long_name` → legal, `name` → dba),
-   `desired_organization_acronyms`. Overlay joined on every producer-owned
-   column.
+5. **Organizations models.** `stg_usa_wa__organizations`,
+   `stg_usa_wa__org_crosswalk`, `int_org_identity`, `desired_organizations`
+   (identity), `desired_organization_parents` (row-scoped, from `agency` /
+   `org_type`), `desired_organization_names` (`coalesce(long_name, name)` →
+   legal — no dba; see the design doc's 2026-09-10 revision),
+   `desired_organization_acronyms`, `desired_organization_merges`. Overlay
+   joined on every producer-owned field.
    *Done when:* fixture build green; a fixture org with an overlay row for
-   `parent_id` emits the overlay value, and one without emits the mapped value.
+   `parent_id` emits the overlay value, one without emits the mapped value, and
+   an org whose agency determines no parent emits no row.
 
 6. **`desired_entity_events` + the ownership manifest.** `dissolved` only, from
    `last_biennium`, year precision, none when it equals the current biennium.

@@ -34,7 +34,7 @@ models:
       - name: field
         tests:
           - accepted_values:
-              values: [name]
+              values: [name, parent_id, legal_name, acronym]
 
   - name: int_person_identity
     columns:
@@ -67,6 +67,81 @@ models:
               values: [legal]
 
   - name: desired_person_merges
+    columns:
+      - name: loser_pm_id
+        tests: [unique, not_null]
+      - name: survivor_pm_id
+        tests: [not_null]
+
+  - name: stg_usa_wa__organizations
+    columns:
+      - name: entity_id
+        tests: [unique, not_null]
+      - name: name
+        tests: [not_null]
+      - name: org_type
+        tests:
+          - accepted_values:
+              values: [legislature, chamber, committee, party, other]
+
+  - name: stg_usa_wa__org_crosswalk
+    columns:
+      - name: natural_key
+        tests: [unique, not_null]
+
+  - name: int_org_identity
+    columns:
+      - name: producer_id
+        tests: [unique, not_null]
+
+  - name: desired_organizations
+    columns:
+      - name: producer_id
+        tests: [unique, not_null]
+      - name: pm_id
+        tests: [unique]
+
+  - name: desired_organization_parents
+    columns:
+      - name: producer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: producer_id
+      - name: parent_pm_id
+        tests: [not_null]
+
+  - name: desired_organization_names
+    columns:
+      - name: producer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: producer_id
+      - name: name
+        tests: [not_null]
+      - name: name_type
+        tests:
+          - accepted_values:
+              values: [legal]
+
+  - name: desired_organization_acronyms
+    columns:
+      - name: producer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: producer_id
+      - name: acronym
+        tests: [not_null]
+
+  - name: desired_organization_merges
     columns:
       - name: loser_pm_id
         tests: [unique, not_null]

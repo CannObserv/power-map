@@ -95,10 +95,30 @@ curator's deliberate display choice would revert nightly.
 
 | Model | Source column | Note |
 |---|---|---|
-| `desired_organizations` | `agency` → `parent_id` | authoritative since #334 |
-| `desired_organization_names` | `long_name` → `legal`, `name` → `dba` | |
+| `desired_organizations` | identity | like persons: `(pm_id, producer_id)` |
+| `desired_organization_parents` | `agency` / `org_type` → parent | row-scoped; see revision below |
+| `desired_organization_names` | `coalesce(long_name, name)` → `legal` | see revision below |
 | `desired_organization_acronyms` | `acronym` | 186 rows |
+| `desired_organization_merges` | `org_crosswalk.merged_into` | gap E for orgs; zero live today |
 | `desired_entity_events` | `last_biennium` → `dissolved`, year precision | see below |
+
+**Revision 2026-09-10 (step 5 measurements).** Two of the rows above changed
+from the approved draft once PM's side was measured, and both change in the
+direction of convergence:
+
+- *No `dba` from `name`.* PM holds 310 `legal` and 13 `former` name rows on the
+  219 anchored orgs and **no** `dba` rows — `long_name` is the canonical legal
+  name and the short `name` was never stored. Asserting 186 `dba` rows would
+  fail safeguard 2's "creates ≈ 0 on anchored cohorts" by construction. Legal
+  is `coalesce(long_name, name)`; `name` stays in staging for a later decision.
+- *Parents are row-scoped, not a column.* `agency` reproduces PM for House
+  (98), Senate (84) and Joint/Other/chambers → Legislature (24), but four orgs
+  are parented to **other committees** (subcommittees), which `agency='Other'`
+  cannot express, and three House-agency orgs are parented elsewhere too. A
+  producer-owned `parent_id` column would clobber all seven. So
+  `desired_organization_parents(pm_id, parent_pm_id)` asserts a parent only
+  where the producer determines one; an absent row is no claim. The seven are
+  expected step-7 divergences for #501, and overlay material if PM wins.
 
 ### Decision: `dissolved` is the only event type the model owns
 

@@ -28,6 +28,10 @@ NOW = datetime(2026, 9, 10, tzinfo=UTC)
 # the format, only the joins.
 P1, P2, P3, P4, P5, P6 = (f"01P{n}000000000000000000000A" for n in range(1, 7))
 PM1, PM2, PM4, PM5, PM6 = (f"01M{n}000000000000000000000A" for n in (1, 2, 4, 5, 6))
+O1, O2, O3, O4, O5, O6, O7, O8, O9 = (f"01O{n}000000000000000000000A" for n in range(1, 10))
+MO1, MO2, MO3, MO4, MO5, MO6, MO7, MO8, MO9 = (
+    f"01N{n}000000000000000000000A" for n in range(1, 10)
+)
 
 
 def crosswalk_row(producer_id: str, pm_id: str | None, resolution: str, *, kind: str = "person"):
@@ -58,8 +62,28 @@ DEFAULT_CROSSWALK = [
     crosswalk_row(P5, PM5, "archived"),  # in the table, not in scope
     crosswalk_row(P6, PM6, "live"),  # two hops from its survivor
     # P3 has no row: an unanchored producer person → a create
+    *(
+        crosswalk_row(o, m, "live", kind="organization")
+        for o, m in (
+            (O1, MO1),
+            (O2, MO2),
+            (O3, MO3),
+            (O4, MO4),
+            (O5, MO5),
+            (O6, MO6),
+            (O7, MO7),
+            (O8, MO8),
+            (O9, MO9),
+        )
+    ),
 ]
-DEFAULT_OVERLAY = [overlay_row("person", PM1, "name", "Curated One")]
+DEFAULT_OVERLAY = [
+    overlay_row("person", PM1, "name", "Curated One"),
+    # PM parents the subcommittee under a committee; the producer's agency says
+    # 'Other', which determines nothing — so this override is only reachable
+    # if a model claimed a parent it should not. Kept as the "no claim" probe.
+    overlay_row("organization", MO5, "parent_id", MO1),
+]
 
 
 class Built:
