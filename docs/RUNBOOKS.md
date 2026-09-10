@@ -299,8 +299,8 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
 - **The overlay wins by presence.** A `curation_overlay` row overrides the
   mapped value even when its value is null (the row then drops out). Its
   vocabulary is enforced per entity type by the project's `overlay_field_unmapped`
-  test, so a row naming a field no model maps for its type fails the build.
-  #498 builds the write path.
+  test, so a row naming a field no model maps for its type is warned by name
+  and applied nowhere. #498 builds the write path.
 - **Five persons are published with a blank name** (usa-wa#364). Staging trims
   and nullifies; the build **warns** rather than halts; identity lands and no
   name is asserted, so PM's own legal name stands.

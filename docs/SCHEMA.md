@@ -91,7 +91,7 @@ Seeded by `scripts/seed_producer_crosswalk.py` (`docs/RUNBOOKS.md`).
 - Keyed `(entity_type, entity_id, field)`, unique — one override per field per entity, so COALESCE never has to choose
 - `entity_type` is the producer crosswalk's `kind` vocabulary (`person|organization|role|assignment`): the rows this can override are exactly the rows in the crosswalk's scope. No FK on `entity_id` (polymorphic, like `links`)
 - `value` is **nullable on purpose** — a curator can assert a producer-owned field should be empty
-- `field` is free text at the table; the mapping project's `overlay_field_unmapped` test enforces the vocabulary **per entity type** (`person.name`; `organization.parent_id|legal_name|acronym`; nothing yet for `role`/`assignment`), so an override naming a field no model maps for its type fails the build loudly rather than being ignored. #498's admin UI offers exactly those pairs
+- `field` is free text at the table; the mapping project's `overlay_field_unmapped` test enforces the vocabulary **per entity type** (`person.name`; `organization.parent_id|legal_name|acronym`; nothing yet for `role`/`assignment`), so an override naming a field no model maps for its type is **warned by name and applied nowhere** — never silently ignored, never applied to the wrong column, and never a reason to withhold the rest of the desired state (one bad row does not halt the build, producer's or curator's). #498's admin UI offers exactly those pairs
 - `created_by` → `app_users`, `ON DELETE SET NULL`
 
 Written by #498's admin path; read only through `scripts/export_pm_tables.py`, which hands it to the models as Parquet so they never open a database connection.

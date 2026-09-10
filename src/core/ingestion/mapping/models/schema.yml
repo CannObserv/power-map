@@ -29,7 +29,7 @@ models:
               values: [live, archived, merged, deleted_no_successor, missing, cycle]
 
   - name: stg_pm__curation_overlay
-    description: The overlay's vocabulary is enforced per entity type by tests/overlay_field_unmapped.sql (CR 15) — a row naming a field no model maps for its type fails the build. entity_type mirrors the table's CHECK.
+    description: The overlay's vocabulary is enforced per entity type by tests/overlay_field_unmapped.sql (CR 15) — a row naming a field no model maps for its type is warned by name and applied nowhere (CR 26). entity_type mirrors the table's CHECK.
     columns:
       - name: entity_type
         tests:
