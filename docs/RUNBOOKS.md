@@ -118,9 +118,9 @@ Safe to re-run; upserts are idempotent.
 `scripts/seed_roles.py` replays a role seed JSON (create-or-attach through
 `resolve_role`, so re-runs attach rather than duplicate). Its generator,
 `scripts/generate_wa_roles.py`, was **retired in #497**: the 147 legislative
-seats it bootstrapped now arrive through usa-wa's published `roles` dataset
-(#500), and `src/core` carries no WA vocabulary to generate titles from. Keep
-this only to replay an existing file under `data/cannabis_observer/`.
+seats it bootstrapped will arrive through usa-wa's published `roles` dataset
+once #500 ships, and `src/core` carries no WA vocabulary to generate titles
+from. Keep this only to replay an existing file under `data/cannabis_observer/`.
 
 ```bash
 # Build --env-file flags (see § Environment)
