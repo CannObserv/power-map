@@ -147,3 +147,19 @@ models:
         tests: [unique, not_null]
       - name: survivor_pm_id
         tests: [not_null]
+
+  - name: desired_entity_events
+    columns:
+      - name: pm_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: pm_id
+      - name: event_type
+        tests:
+          - accepted_values:
+              values: [dissolved]
+      - name: event_year
+        tests: [not_null]

@@ -1,0 +1,72 @@
+# The ownership manifest: what each desired-state table claims, and how far
+# that claim reaches. This is the contract #499 (the diff-applier) reads.
+#
+#   key            the columns that identify a row within the table
+#   retraction     what an absent row means for a PM row in scope:
+#                    none    — assert presence only; absence says nothing
+#                    report  — absence is reported, never acted on (safeguard 2)
+#                    archive — absence archives the PM row (reserved; #500/#501)
+#   owned_columns  the PM columns the producer asserts; everything else on the
+#                  row is PM's, column-scoped (safeguard 4)
+#   owned_event_types  events only: retraction-as-absence reaches these types
+#                  and no others — 315 org events in PM have no producer column
+#
+# Persons and organizations are report-only for now: safeguard 2 says nothing
+# retracts until creates ≈ 0 and unexpected archives = 0 across N clean runs.
+version: 1
+tables:
+  desired_people:
+    entity: person
+    key: [producer_id]
+    pm_key: pm_id
+    retraction: report
+    owned_columns: []          # usa-wa fills no column on people
+  desired_person_names:
+    entity: person
+    key: [producer_id, name_type]
+    pm_key: pm_id
+    retraction: none           # PM keeps every other name; 3,121 rows for 3,118 people
+    owned_columns: [name]
+  desired_person_merges:
+    entity: person
+    key: [loser_pm_id]
+    pm_key: loser_pm_id
+    retraction: none           # gap E: a re-point instruction, not a row to diff
+    owned_columns: [survivor_pm_id]
+  desired_organizations:
+    entity: organization
+    key: [producer_id]
+    pm_key: pm_id
+    retraction: report
+    owned_columns: []
+  desired_organization_parents:
+    entity: organization
+    key: [producer_id]
+    pm_key: pm_id
+    retraction: none           # an absent row is silence, not a null parent
+    owned_columns: [parent_pm_id]
+  desired_organization_names:
+    entity: organization
+    key: [producer_id, name_type]
+    pm_key: pm_id
+    retraction: none           # 310 legal + 13 former rows stay PM's
+    owned_columns: [name]
+  desired_organization_acronyms:
+    entity: organization
+    key: [producer_id]
+    pm_key: pm_id
+    retraction: none           # 240 acronym rows on 219 orgs; the producer has 186
+    owned_columns: [acronym]
+  desired_organization_merges:
+    entity: organization
+    key: [loser_pm_id]
+    pm_key: loser_pm_id
+    retraction: none
+    owned_columns: [survivor_pm_id]
+  desired_entity_events:
+    entity: organization
+    key: [pm_id, event_type]
+    pm_key: pm_id
+    retraction: report
+    owned_event_types: [dissolved]
+    owned_columns: [event_year]   # month/day: PM holds finer precision on 5 of 152

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import duckdb
 
-__all__ = ["PM_EXPORT_DIR", "TableSpec", "read_rows", "write_parquet"]
+__all__ = ["PM_EXPORT_DIR", "TableSpec", "export_table", "read_rows", "write_parquet"]
 
 # Where the export step puts PM's own tables, under the snapshot root.
 PM_EXPORT_DIR = "_pm"
@@ -104,3 +104,28 @@ def read_rows(path: Path | str, *, order_by: str | None = None) -> list[tuple]:
         return con.execute(sql).fetchall()
     finally:
         con.close()
+
+
+def export_table(duckdb_path: Path | str, table: str, path: Path | str) -> int:
+    """Copy ``table`` out of a built duckdb file to ``path``; return its row count.
+
+    Same staging-then-replace contract as `write_parquet`, read-only on the
+    source, so a desired-state file is either the whole table or absent.
+    """
+    if not _IDENTIFIER.match(table):
+        raise ValueError(f"{table!r} is not a plain identifier")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".incoming-{path.name}-", dir=path.parent))
+    try:
+        tmp = staging / path.name
+        con = duckdb.connect(str(duckdb_path), read_only=True)
+        try:
+            con.execute(f"COPY \"{table}\" TO '{_sql_path(tmp)}' (FORMAT PARQUET)")
+            count = con.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0]
+        finally:
+            con.close()
+        os.replace(tmp, path)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return int(count)

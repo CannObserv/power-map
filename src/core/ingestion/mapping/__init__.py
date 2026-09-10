@@ -16,11 +16,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
 from dbt.adapters.duckdb.connections import DuckDBConnectionManager
 from dbt.cli.main import dbtRunner, dbtRunnerResult
 
 from src.core.ingestion.datasets import DATA_FILE, SnapshotStore
-from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR
+from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, export_table
 
 __all__ = [
     "PM_EXPORT_DIR",
@@ -28,11 +29,14 @@ __all__ = [
     "PROJECT_DIR",
     "RunPaths",
     "USA_WA_SOURCES",
+    "load_manifest",
     "run_dbt",
     "source_env",
+    "write_desired_state",
 ]
 
 PROJECT_DIR = Path(__file__).resolve().parent
+MANIFEST_PATH = PROJECT_DIR / "manifest.yml"
 
 # dataset name → the env var its source reads. Adding a source means adding it
 # here and in models/sources.yml; `test_project.py` holds the two together.
@@ -140,3 +144,22 @@ def run_dbt(
             # adapter let go. Release it here, every time, so a built file is
             # a plain file the moment `run_dbt` returns.
             DuckDBConnectionManager.close_all_connections()
+
+
+def load_manifest() -> dict:
+    """The ownership manifest — what each desired-state table claims (#499's contract)."""
+    with MANIFEST_PATH.open() as f:
+        return yaml.safe_load(f)
+
+
+def write_desired_state(duckdb_path: Path | str, out_dir: Path | str) -> dict[str, int]:
+    """Copy every manifest table out of a built duckdb file as Parquet.
+
+    One file per table under ``out_dir``, each staged and moved into place, so
+    #499 can treat a file's presence as the whole table. Returns row counts.
+    """
+    out = Path(out_dir)
+    return {
+        table: export_table(duckdb_path, table, out / f"{table}.parquet")
+        for table in load_manifest()["tables"]
+    }

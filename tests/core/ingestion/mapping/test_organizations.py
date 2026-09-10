@@ -19,16 +19,18 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     MO7,
     MO8,
     MO9,
+    MO10,
     O4,
     O5,
     O9,
+    O10,
 )
 
 
 def test_staging_reads_every_producer_organization_verbatim(build):
     b = build(select="stg_usa_wa__organizations")
 
-    assert len(b.rows("stg_usa_wa__organizations")) == 8
+    assert len(b.rows("stg_usa_wa__organizations")) == 9
 
 
 def test_desired_organizations_is_identity_only(build):
@@ -44,6 +46,7 @@ def test_desired_organizations_is_identity_only(build):
         MO6,
         MO7,
         MO8,
+        MO10,
     }
     assert MO9 not in {r[0] for r in b.rows("desired_organizations")}  # tombstone
 
@@ -77,7 +80,7 @@ def test_names_are_one_legal_row_from_long_name_else_name(build):
     assert names[MO4][2] == "House Committee on Capital Budget"
     assert names[MO8][2] == "Washington State Republican Party"
     assert {r[3] for r in names.values()} == {"legal"}
-    assert len(names) == 8
+    assert len(names) == 9
 
 
 def test_acronyms_only_where_the_producer_publishes_one(build):
@@ -85,7 +88,7 @@ def test_acronyms_only_where_the_producer_publishes_one(build):
     rows = b.rows("desired_organization_acronyms", order_by="producer_id")
 
     assert b.columns("desired_organization_acronyms") == ["pm_id", "producer_id", "acronym"]
-    assert rows == [(MO4, O4, "CB"), (MO5, O5, "WM")]
+    assert rows == [(MO10, O10, "AGEC"), (MO4, O4, "CB"), (MO5, O5, "WM")]
 
 
 def test_an_org_tombstone_resolves_to_its_survivor(build):

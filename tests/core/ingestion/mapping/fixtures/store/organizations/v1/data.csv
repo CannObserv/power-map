@@ -7,3 +7,4 @@ entity_id,name,long_name,acronym,agency,org_type,first_biennium,last_biennium
 01O6000000000000000000000A,Joint Transportation Committee,,,Joint,other,,
 01O7000000000000000000000A,JLARC I-900 Subcommittee,,,Other,other,,
 01O8000000000000000000000A,Washington State Republican Party,,,,party,,
+01O10000000000000000000000A,Agriculture & Ecology,House Committee on Agriculture & Ecology,AGEC,House,committee,1993-94,1999-00
