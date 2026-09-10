@@ -10,6 +10,7 @@ import pytest
 pytest.importorskip("dbt.adapters.duckdb")
 
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
+    DEFAULT_CROSSWALK,
     EXPECTED_WARNINGS,
     MO1,
     MO2,
@@ -21,6 +22,7 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     MO8,
     MO9,
     MO10,
+    O2,
     O4,
     O5,
     O9,
@@ -104,3 +106,15 @@ def test_the_projects_own_tests_pass_with_organizations(build):
 
     assert b.statuses <= {"success", "pass", "warn"}, b.statuses
     assert b.warnings == EXPECTED_WARNINGS
+
+
+def test_a_parent_the_producer_names_but_pm_cannot_resolve_is_reported(build):
+    """CR 2: agency House names the House chamber; if that chamber is unanchored the
+    claim cannot be made. No row is right — but silence is not. A warning names it."""
+    without_house = [r for r in DEFAULT_CROSSWALK if r[3] != O2]
+
+    b = build(crosswalk=without_house)
+    parents = {r[0]: r[1] for r in b.rows("desired_organization_parents")}
+
+    assert MO4 not in parents
+    assert "unresolved_org_parents" in b.warnings

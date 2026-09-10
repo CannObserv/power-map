@@ -15,7 +15,12 @@ mapped as (
         parent.pm_id as parent_pm_id
     from {{ ref('desired_organizations') }} as d
     inner join {{ ref('int_org_identity') }} as i on i.producer_id = d.producer_id
-    inner join {{ ref('int_org_identity') }} as parent
+    -- Through desired_organizations, not int_org_identity: the parent must be
+    -- in scope itself. An archived anchor or an unresolvable one would
+    -- otherwise become a claim to re-parent under a row the applier must not
+    -- touch (CR 2). A parent that is a create drops out here and is named by
+    -- the unresolved_org_parents test.
+    inner join {{ ref('desired_organizations') }} as parent
         on parent.producer_id = i.parent_producer_id
 )
 

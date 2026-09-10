@@ -119,7 +119,12 @@ models:
               to: ref('desired_organizations')
               field: producer_id
       - name: parent_pm_id
-        tests: [not_null]
+        description: Every claim names an in-scope PM org — an invariant, not a warning (CR 2).
+        tests:
+          - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: pm_id
 
   - name: desired_organization_names
     columns:
