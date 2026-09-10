@@ -616,7 +616,24 @@ async def obs_wa_jur(db):
     return jid, n
 
 
-async def test_titleless_structural_observation_synthesizes_title(
+async def test_titleless_structural_observation_is_422(client, role_write_key, obs_org, obs_wa_jur):
+    """#497: title is required for a role with a jurisdiction — PM no longer synthesizes one.
+
+    Rejected at the schema boundary, like the non-structural case below.
+    Breaking on /api/v1/ (docs/PUBLIC_API.md § Versioning).
+    """
+    raw, _ = role_write_key
+    jid, _ = obs_wa_jur
+    r = await _post(
+        client,
+        raw,
+        {"organization_id": obs_org, "role_type": "state_senator", "jurisdiction_id": jid},
+    )
+    assert r.status_code == 422
+    assert "title is required" in r.text
+
+
+async def test_structural_observation_stores_the_supplied_title(
     client, role_write_key, obs_org, obs_wa_jur, db
 ):
     raw, _ = role_write_key
@@ -624,7 +641,12 @@ async def test_titleless_structural_observation_synthesizes_title(
     r = await _post(
         client,
         raw,
-        {"organization_id": obs_org, "role_type": "state_senator", "jurisdiction_id": jid},
+        {
+            "organization_id": obs_org,
+            "role_type": "state_senator",
+            "jurisdiction_id": jid,
+            "title": f"Washington State Senator, LD-{n}",
+        },
     )
     assert r.status_code == 200
     assert r.json()["disposition"] == "new"
