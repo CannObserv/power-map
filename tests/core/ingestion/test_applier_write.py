@@ -208,7 +208,7 @@ async def _apply(diff, conn, rediff):
 async def test_apply_commits_when_the_rediff_has_nothing_left_to_write():
     conn = FakeConn()
 
-    async def rediff():
+    async def rediff(minted):
         return Diff([E("noop", "desired_organization_parents", O2, pm_id=MO2)])
 
     result = await _apply(Diff([parent_update()]), conn, rediff)
@@ -221,7 +221,7 @@ async def test_apply_commits_when_the_rediff_has_nothing_left_to_write():
 async def test_apply_rolls_back_when_the_rediff_still_wants_to_write():
     conn = FakeConn()
 
-    async def rediff():
+    async def rediff(minted):
         return Diff([parent_update(3)])
 
     with pytest.raises(VerificationFailed, match="desired_organization_parents:01O2"):
@@ -233,7 +233,7 @@ async def test_apply_rolls_back_when_the_rediff_still_wants_to_write():
 async def test_apply_rolls_back_when_the_rediff_is_stale():
     conn = FakeConn()
 
-    async def rediff():
+    async def rediff(minted):
         return Diff([E("stale", "desired_people", P1, pm_id=PM1, reason="drift")])
 
     with pytest.raises(VerificationFailed, match="stale"):

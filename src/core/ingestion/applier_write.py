@@ -13,7 +13,7 @@ is a report, and a `stale` entry refuses the whole plan.
 back unless nothing is left to write.
 """
 
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -157,15 +157,20 @@ async def apply_diff(
     conn: Connection,
     *,
     source: str,
-    rediff: Callable[[], Awaitable[Diff]],
+    rediff: Callable[[Mapping[tuple[str, str], str]], Awaitable[Diff]],
     ids: Iterator[str] | None = None,
 ) -> ApplyResult:
-    """Write the diff in one transaction; re-diff inside it; commit only if nothing is left."""
+    """Write the diff in one transaction; re-diff inside it; commit only if nothing is left.
+
+    ``rediff`` receives the ids this plan minted, so a row created here reads
+    as anchored on the second pass rather than as a create the live crosswalk
+    now contradicts.
+    """
     statements, minted = plan_statements(diff, manifest, source=source, ids=ids)
     async with conn.transaction():
         for st in statements:
             await conn.execute(st.sql, *st.args)
-        after = await rediff()
+        after = await rediff(minted)
         left = [e for e in after.entries if e.kind in WRITE_KINDS or e.kind == "stale"]
         if left:
             named = ", ".join(f"{e.entry_id} ({e.kind})" for e in left[:5])

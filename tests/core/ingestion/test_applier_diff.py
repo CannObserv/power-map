@@ -257,3 +257,28 @@ async def test_archive_retraction_is_refused_until_500_builds_it():
 
     with pytest.raises(ApplierError, match="#500"):
         await diff_desired(_state(desired_people=[PERSON_P1]), manifest, store)
+
+
+async def test_a_create_minted_this_run_is_consistent_not_stale():
+    """Inside the execute transaction the crosswalk already resolves the producer id
+    to the row just minted; the re-diff must see an anchored noop, never a stale."""
+    held = {
+        "id": "n1",
+        "person_id": PMX,
+        "name": "Emily",
+        "name_type": "legal",
+        "is_canonical": True,
+    }
+    store = FakeLiveStore(
+        crosswalk=[xw(P3, PMX)], tables={"people": [live(PMX)], "person_names": [held]}
+    )
+    state = _state(
+        desired_people=[{"pm_id": None, "producer_id": P3}],
+        desired_person_names=[
+            {"pm_id": None, "producer_id": P3, "name": "Emily", "name_type": "legal"}
+        ],
+    )
+
+    diff = await diff_desired(state, MANIFEST, store, minted={("person", P3): PMX})
+
+    assert _kinds(diff) == {"noop": 2}

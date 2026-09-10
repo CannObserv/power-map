@@ -15,7 +15,7 @@ integration tier against asyncpg.
 
 import json
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -248,21 +248,46 @@ class Diff:
         return {kind: sum(1 for e in self.entries if e.kind == kind) for kind in ENTRY_KINDS}
 
 
+def _with_minted(
+    spec: TableSpec, rows: Sequence[dict], minted: Mapping[tuple[str, str], str]
+) -> list[dict]:
+    """Desired rows with this run's minted ids filled in, so the re-diff inside the
+    execute transaction sees a created row as anchored, not as a create the live
+    crosswalk now contradicts."""
+    if not minted or spec.target.shape == "merge":
+        return list(rows)
+    out = []
+    for row in rows:
+        pm_id = minted.get((spec.entity, row.get("producer_id")))
+        if row.get(spec.pm_key) is None and pm_id is not None:
+            row = {**row, spec.pm_key: pm_id}
+        out.append(row)
+    return out
+
+
 async def diff_desired(
-    state: DesiredState, manifest: Manifest, store: LiveStore, *, source: str = "usa-wa"
+    state: DesiredState,
+    manifest: Manifest,
+    store: LiveStore,
+    *,
+    source: str = "usa-wa",
+    minted: Mapping[tuple[str, str], str] | None = None,
 ) -> Diff:
     """Diff the whole desired state against the live database, read-only.
 
     Order matters and is fixed: scope every table first (stale entries), then
     entity shapes (so creates are known), then columns, then child rows, then
     merges. Nothing here writes; the caller decides what to do with the diff.
+    ``minted`` — (kind, producer_id) → pm_id for entities created by the run
+    that is now re-diffing inside its transaction — is applied to the desired
+    rows first (`_with_minted`).
     """
     kinds = sorted({spec.entity for spec in manifest.tables.values()})
     scope = await Scope.load(store, source=source, kinds=kinds)
     entries: list[Entry] = []
     kept: dict[str, list[dict]] = {}
     for name, spec in manifest.tables.items():
-        rows, stale = scope_rows(spec, state.tables[name], scope)
+        rows, stale = scope_rows(spec, _with_minted(spec, state.tables[name], minted or {}), scope)
         kept[name] = rows
         entries.extend(stale)
 

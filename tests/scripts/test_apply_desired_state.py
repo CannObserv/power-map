@@ -12,6 +12,7 @@ import itertools
 import json
 from datetime import UTC, datetime, timedelta
 
+import asyncpg
 import pytest
 
 pytest.importorskip("duckdb")
@@ -191,6 +192,25 @@ async def test_a_rolled_back_execute_is_recorded_and_breaks_the_streak(world):
     assert last["mode"] == "execute" and last["verdict"] == "rolled_back"
     ok, why = cli.may_execute(read_ledger(world["out"] / LEDGER), digest=last["digest"], streak=3)
     assert not ok and "execute" in why
+
+
+async def test_a_database_error_during_execute_is_recorded_as_rolled_back(world, monkeypatch):
+    """A trigger (the org-cycle guard) raises inside the transaction: nothing lands, the
+    ledger says rolled_back, the exit code says refused — never a traceback."""
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+    for _ in range(3):
+        assert await _run(world, store) == 0
+
+    async def boom(*a, **kw):
+        raise asyncpg.PostgresError("org hierarchy cycle detected")
+
+    monkeypatch.setattr(cli, "apply_diff", boom)
+
+    code = await _run(world, store, execute=True)
+
+    assert code == 1
+    assert read_ledger(world["out"] / LEDGER)[-1]["verdict"] == "rolled_back"
 
 
 # --- main ------------------------------------------------------------------------

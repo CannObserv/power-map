@@ -120,8 +120,8 @@ async def run(
         else:
             mode = "execute"
 
-            async def rediff():
-                return await diff_desired(state, manifest, store, source=SOURCE)
+            async def rediff(minted):
+                return await diff_desired(state, manifest, store, source=SOURCE, minted=minted)
 
             try:
                 result = await apply_diff(diff, manifest, conn, source=SOURCE, rediff=rediff)
@@ -130,7 +130,9 @@ async def run(
                     result.written,
                     len(result.minted),
                 )
-            except VerificationFailed as exc:
+            except (VerificationFailed, asyncpg.PostgresError) as exc:
+                # A trigger or constraint (the org-cycle guard, a unique index)
+                # is a rollback like a failed verification: nothing landed.
                 logger.error("rolled back: %s", exc)
                 verdict = Verdict("rolled_back", verdict.exceeded)
                 code = EXIT_REFUSED
