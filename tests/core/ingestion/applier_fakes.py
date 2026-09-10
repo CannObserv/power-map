@@ -8,6 +8,8 @@ request, which is how "a row outside the crosswalk is never read" is asserted.
 
 from collections.abc import Iterable, Mapping, Sequence
 
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE
+
 # Seeded vocabularies the real database always holds; a fake without them would
 # make the engine's lookup read look like a defect in every org test.
 DEFAULT_LOOKUPS: dict[tuple[str, str, str], dict[str, str]] = {
@@ -33,7 +35,9 @@ class FakeLiveStore:
     async def crosswalk(self, source: str, kinds: Sequence[str]) -> list[dict]:
         self.requested.append(("crosswalk", source, tuple(kinds)))
         return [
-            r for r in self._crosswalk if r.get("source", "usa-wa") == source and r["kind"] in kinds
+            r
+            for r in self._crosswalk
+            if r.get("source", PRODUCER_SOURCE) == source and r["kind"] in kinds
         ]
 
     async def entity_rows(

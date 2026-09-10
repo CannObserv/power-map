@@ -33,6 +33,7 @@ import asyncpg
 from src.core.db import generate_id
 
 __all__ = [
+    "PRODUCER_SOURCE",
     "ANCHOR_HEADER",
     "ANCHOR_KINDS",
     "UNRESOLVABLE",
@@ -50,6 +51,11 @@ __all__ = [
 
 ANCHOR_HEADER = ("kind", "usa_wa_id", "pm_id")
 ANCHOR_KINDS = ("person", "organization", "role", "assignment")
+# The `source` every usa-wa crosswalk row carries — the seed writes it, the
+# applier (#499) scopes by it, a create the applier mints copies it. One
+# definition, because the first production dry run matched zero rows on a
+# `usa-wa` / `usa_wa` mismatch between the two.
+PRODUCER_SOURCE = "usa_wa"
 
 # Crockford base32 excludes I, L, O and U so a transcribed id cannot be
 # confused with 1 and 0.

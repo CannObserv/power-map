@@ -20,6 +20,7 @@ pytest.importorskip("duckdb")
 from scripts import apply_desired_state as cli  # noqa: E402
 from src.core.ingestion.applier import ApplierError  # noqa: E402
 from src.core.ingestion.applier_report import LEDGER, read_ledger  # noqa: E402
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from src.core.ingestion.mapping import load_manifest  # noqa: E402
 from tests.core.ingestion.applier_fakes import FakeConn, FakeLiveStore, write_desired  # noqa: E402
 
@@ -30,7 +31,7 @@ MANIFEST = load_manifest()
 
 def xw(producer_id, pm_id, resolution="live"):
     return {
-        "source": "usa-wa",
+        "source": PRODUCER_SOURCE,
         "kind": "person",
         "producer_id": producer_id,
         "pm_id": pm_id,
@@ -276,3 +277,12 @@ def test_main_reports_an_applier_error_as_a_sentence_and_exits_three(monkeypatch
     out = capsys.readouterr().out
     assert code == 3
     assert "desired_people" in out and "Traceback" not in out
+
+
+def test_the_applier_scopes_by_the_source_the_seed_writes():
+    """The first production dry run matched zero crosswalk rows: the seed wrote `usa_wa`,
+    the applier asked for `usa-wa`. One constant now, and this pins it."""
+    from scripts import seed_producer_crosswalk
+
+    assert cli.SOURCE == PRODUCER_SOURCE == "usa_wa"
+    assert seed_producer_crosswalk.DEFAULT_SOURCE == PRODUCER_SOURCE

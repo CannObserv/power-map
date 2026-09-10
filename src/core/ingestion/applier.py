@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE
 from src.core.ingestion.mapping import BUILD_INFO, Manifest
 from src.core.ingestion.mapping.manifest import TableSpec
 from src.core.ingestion.mapping.parquet import read_records
@@ -270,7 +271,7 @@ async def diff_desired(
     manifest: Manifest,
     store: LiveStore,
     *,
-    source: str = "usa-wa",
+    source: str = PRODUCER_SOURCE,
     minted: Mapping[tuple[str, str], str] | None = None,
 ) -> Diff:
     """Diff the whole desired state against the live database, read-only.

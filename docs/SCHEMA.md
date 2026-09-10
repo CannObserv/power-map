@@ -74,7 +74,7 @@ them; since #428 that is never this file.
 
 `producer_crosswalk` maps a snapshot producer's ids to the PM rows they name. It is the **row scope** for the dataset applier (#490) and, for roles and assignments, their only per-row producer handle — `source_key_id` cannot serve either duty: `people` and `roles` have no such column, 4 of 1,666 organizations carry one, and half of usa-wa's assignments predate stamping.
 
-- Keyed `(source, kind, producer_id)`; `kind` is the producer's vocabulary (`person|organization|role|assignment`), which is **not** PM's tombstone vocabulary — an `assignment` walks `role_assignment` tombstones
+- Keyed `(source, kind, producer_id)`; `source` is `usa_wa` for every row — one constant, `PRODUCER_SOURCE` in `src/core/ingestion/crosswalk.py`, that the seed writes and the applier scopes by (the first production dry run matched zero rows on a `usa-wa`/`usa_wa` mismatch, v0.47.1); `kind` is the producer's vocabulary (`person|organization|role|assignment`), which is **not** PM's tombstone vocabulary — an `assignment` walks `role_assignment` tombstones
 - `exported_pm_id` is what the producer sent; `pm_id` is where it leads after merge history is walked, and is NULL **exactly** when `resolution` is unresolvable (`deleted_no_successor`, `missing`, `cycle`) — a CHECK holds the two in step
 - Keeping both is what makes the seed re-runnable: the export is immutable, PM's merge history is not. Re-running a stale export after a new merge updates the resolution in place
 - Resolution walks `deleted_entities.merged_into`, whose target is *that row's* survivor (`docs/MERGE.md`). Tombstones are pruned at 90 days, so an anchor broken by an older merge resolves `missing` — which means "PM cannot say", never "it never existed"

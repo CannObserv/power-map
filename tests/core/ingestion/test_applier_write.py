@@ -20,6 +20,7 @@ from src.core.ingestion.applier_write import (  # noqa: E402
     apply_diff,
     plan_statements,
 )
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from src.core.ingestion.mapping import load_manifest  # noqa: E402
 from tests.core.ingestion.applier_fakes import FakeConn  # noqa: E402
 
@@ -61,7 +62,7 @@ def _ids():
 
 
 def _plan(*entries):
-    return plan_statements(Diff(list(entries)), MANIFEST, source="usa-wa", ids=_ids())
+    return plan_statements(Diff(list(entries)), MANIFEST, source=PRODUCER_SOURCE, ids=_ids())
 
 
 def _sql(statements, kind=None):
@@ -146,7 +147,7 @@ def test_creates_come_first_mint_ids_and_their_crosswalk_rows():
     assert _sql(statements, "entity")[0] == ("INSERT INTO people (id) VALUES ($1)", ("NEW1",))
     crosswalk_sql, crosswalk_args = _sql(statements, "crosswalk")[0]
     assert crosswalk_sql.startswith("INSERT INTO producer_crosswalk (")
-    assert crosswalk_args == ("NEW2", "usa-wa", "person", P3, "NEW1", "NEW1", "live")
+    assert crosswalk_args == ("NEW2", PRODUCER_SOURCE, "person", P3, "NEW1", "NEW1", "live")
     assert "NEW1" in _sql(statements, "insert")[0][1]  # the child names the minted parent
     assert _sql(statements, "column")[0] == (PARENT_SQL, (MO2, "NEW3"))
 
@@ -202,7 +203,7 @@ def test_a_child_of_a_create_with_no_create_entry_is_an_error():
 
 
 async def _apply(diff, conn, rediff):
-    return await apply_diff(diff, MANIFEST, conn, source="usa-wa", rediff=rediff, ids=_ids())
+    return await apply_diff(diff, MANIFEST, conn, source=PRODUCER_SOURCE, rediff=rediff, ids=_ids())
 
 
 async def test_apply_commits_when_the_rediff_has_nothing_left_to_write():

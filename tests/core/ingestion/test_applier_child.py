@@ -14,6 +14,7 @@ import pytest
 pytest.importorskip("duckdb")
 
 from src.core.ingestion.applier import ApplierError, DesiredState, diff_desired  # noqa: E402
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from src.core.ingestion.mapping import load_manifest  # noqa: E402
 from tests.core.ingestion.applier_fakes import FakeLiveStore  # noqa: E402
 
@@ -29,7 +30,7 @@ LOOKUPS = {("entity_event_types", "slug", "id"): {"dissolved": DISSOLVED, "found
 
 def xw(producer_id, pm_id, *, kind="person"):
     return {
-        "source": "usa-wa",
+        "source": PRODUCER_SOURCE,
         "kind": kind,
         "producer_id": producer_id,
         "pm_id": pm_id,
