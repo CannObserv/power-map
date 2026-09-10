@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from dbt.adapters.duckdb.connections import DuckDBConnectionManager
 from dbt.cli.main import dbtRunner, dbtRunnerResult
 
 from src.core.ingestion.datasets import DATA_FILE, SnapshotStore
@@ -129,4 +130,13 @@ def run_dbt(
         str(paths.log_path),
     ]
     with _environ(env):
-        return dbtRunner().invoke(full)
+        try:
+            return dbtRunner().invoke(full)
+        finally:
+            # dbt runs in-process and its adapter keeps the duckdb file open in
+            # a module-level singleton. duckdb refuses a second connection to
+            # the same file with a different configuration, so the export
+            # step — or a test's read-only connection — would fail until the
+            # adapter let go. Release it here, every time, so a built file is
+            # a plain file the moment `run_dbt` returns.
+            DuckDBConnectionManager.close_all_connections()

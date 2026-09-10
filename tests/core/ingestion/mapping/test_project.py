@@ -9,6 +9,8 @@ import pytest
 
 pytest.importorskip("dbt.adapters.duckdb")
 
+import duckdb  # noqa: E402
+
 from src.core.ingestion.mapping import (  # noqa: E402
     PM_SOURCES,
     PROJECT_DIR,
@@ -39,3 +41,23 @@ def test_every_registered_source_is_declared_and_vice_versa(tmp_path):
     registered = {("usa_wa", n) for n in USA_WA_SOURCES} | {("pm", n) for n in PM_SOURCES}
 
     assert declared == registered
+
+
+def test_a_built_file_is_openable_read_only_the_moment_run_dbt_returns(tmp_path):
+    """dbt's adapter holds the file open in-process; run_dbt must let go.
+
+    duckdb refuses a second connection to the same file with a different
+    configuration, so without this the export step and every assertion
+    against a built model failed with "Can't open a connection to same
+    database file".
+    """
+    db = tmp_path / "m.duckdb"
+    result = run_dbt(["parse"], snapshot_root=tmp_path, duckdb_path=str(db))
+    assert result.success
+
+    duckdb.connect(str(db)).close()  # create it, as a build would
+    result = run_dbt(["parse"], snapshot_root=tmp_path, duckdb_path=str(db))
+    assert result.success
+
+    con = duckdb.connect(str(db), read_only=True)
+    con.close()
