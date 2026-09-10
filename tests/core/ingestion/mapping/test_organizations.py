@@ -160,3 +160,16 @@ def test_an_unknown_org_type_is_reported_and_claims_no_parent(build):
     assert O12 not in {r[2] for r in b.rows("desired_organization_parents")}
     prefix = "accepted_values_stg_usa_wa__organizations_org_type"
     assert any(w.startswith(prefix) for w in b.warnings)
+
+
+def test_a_missing_chamber_anchor_is_reported_not_silently_unparented(build):
+    """CR 17: the House chamber is found by its usa_wa_house key in the producer's own
+    crosswalk. Without it no House committee can be parented — no claim is right, but
+    silence would lose 101 real claims unseen. The singular test names each orphan."""
+    b = build(datasets={"org_crosswalk": fixture_csv("org_crosswalk", drop="usa_wa_house")})
+    parents = {r[2]: r[1] for r in b.rows("desired_organization_parents")}
+
+    assert b.result.success
+    assert O4 not in parents  # agency House, chamber unknown
+    assert parents[O5] == MO1  # agency Senate: the Senate key is still there (overlay → MO1)
+    assert "unresolved_org_parents" in b.warnings
