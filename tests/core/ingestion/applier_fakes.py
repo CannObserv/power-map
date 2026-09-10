@@ -33,7 +33,7 @@ class FakeLiveStore:
     async def entity_rows(
         self, table: str, ids: Sequence[str], columns: Sequence[str]
     ) -> dict[str, dict]:
-        self.requested.append(("entity_rows", table, tuple(ids)))
+        self.requested.append(("entity_rows", table, tuple(ids), tuple(columns)))
         wanted = set(ids)
         return {
             r["id"]: {c: r.get(c) for c in ("id", "archived_at", *columns)}
@@ -55,3 +55,15 @@ class FakeLiveStore:
     async def lookup(self, table: str, from_col: str, to_col: str) -> dict[str, str]:
         self.requested.append(("lookup", table, (from_col, to_col)))
         return dict(self._lookups[(table, from_col, to_col)])
+
+    async def value_matches(
+        self, table: str, column: str, values: Sequence, parent: str
+    ) -> dict[object, list[str]]:
+        """Parents in ``table`` whose ``column`` carries each value — the create hint."""
+        self.requested.append(("value_matches", table, column, tuple(values)))
+        wanted = set(values)
+        out: dict[object, list[str]] = {}
+        for r in self.tables.get(table, []):
+            if r.get(column) in wanted:
+                out.setdefault(r[column], []).append(r[parent])
+        return out

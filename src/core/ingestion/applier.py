@@ -29,9 +29,11 @@ __all__ = [
     "ApplierError",
     "CrosswalkRow",
     "DesiredState",
+    "Diff",
     "Entry",
     "LiveStore",
     "Scope",
+    "diff_desired",
     "entry_id",
     "scope_rows",
 ]
@@ -69,6 +71,10 @@ class LiveStore(Protocol):
     ) -> dict[str, list[dict]]: ...
 
     async def lookup(self, table: str, from_col: str, to_col: str) -> dict[str, str]: ...
+
+    async def value_matches(
+        self, table: str, column: str, values: Sequence, parent: str
+    ) -> dict[object, list[str]]: ...
 
 
 @dataclass(frozen=True)
@@ -214,3 +220,212 @@ def scope_rows(
         else:
             kept.append(row)
     return kept, stale
+
+
+@dataclass
+class Diff:
+    """Every entry of one run, in manifest table order then key order."""
+
+    entries: list[Entry]
+
+    def by_kind(self, kind: str) -> list[Entry]:
+        return [e for e in self.entries if e.kind == kind]
+
+    @property
+    def counts(self) -> dict[str, int]:
+        return {kind: sum(1 for e in self.entries if e.kind == kind) for kind in ENTRY_KINDS}
+
+
+async def diff_desired(
+    state: DesiredState, manifest: Manifest, store: LiveStore, *, source: str = "usa-wa"
+) -> Diff:
+    """Diff the whole desired state against the live database, read-only.
+
+    Order matters and is fixed: scope every table first (stale entries), then
+    entity shapes (so creates are known), then columns, then child rows, then
+    merges. Nothing here writes; the caller decides what to do with the diff.
+    """
+    kinds = sorted({spec.entity for spec in manifest.tables.values()})
+    scope = await Scope.load(store, source=source, kinds=kinds)
+    entries: list[Entry] = []
+    kept: dict[str, list[dict]] = {}
+    for name, spec in manifest.tables.items():
+        rows, stale = scope_rows(spec, state.tables[name], scope)
+        kept[name] = rows
+        entries.extend(stale)
+
+    creating: set[tuple[str, str]] = set()
+    for name, spec in manifest.tables.items():
+        if spec.target.shape == "entity":
+            found = await _diff_entity(spec, kept[name], state, manifest, scope, store)
+            entries.extend(found)
+            creating |= {(spec.entity, e.producer_id) for e in found if e.kind == "create"}
+    for name, spec in manifest.tables.items():
+        if spec.target.shape == "column":
+            entries.extend(await _diff_column(spec, kept[name], creating, store))
+    for name, spec in manifest.tables.items():
+        if spec.target.shape == "merge":
+            entries.extend(_diff_merge(spec, kept[name]))
+    return Diff(entries)
+
+
+def _entry(spec: TableSpec, row: dict, kind: str, **kw) -> Entry:
+    return Entry(
+        entry_id=entry_id(spec, row),
+        table=spec.name,
+        kind=kind,
+        producer_id=row.get("producer_id"),
+        pm_id=row.get(spec.pm_key),
+        **kw,
+    )
+
+
+async def _diff_entity(
+    spec: TableSpec,
+    rows: Sequence[dict],
+    state: DesiredState,
+    manifest: Manifest,
+    scope: Scope,
+    store: LiveStore,
+) -> list[Entry]:
+    if spec.retraction == "archive":
+        raise ApplierError(
+            f"{spec.name}: retraction 'archive' is #500's to build — this applier reports only"
+        )
+    table = spec.target.table
+    anchored = [r for r in rows if r.get(spec.pm_key) is not None]
+    live = (
+        await store.entity_rows(table, [r[spec.pm_key] for r in anchored], columns=())
+        if anchored
+        else {}
+    )
+    entries: list[Entry] = []
+    for row in anchored:
+        pm_id = row[spec.pm_key]
+        found = live.get(pm_id)
+        if found is None:
+            entries.append(_entry(spec, row, "stale", reason=f"live row missing: {table}/{pm_id}"))
+        elif found.get("archived_at") is not None:
+            entries.append(
+                _entry(spec, row, "stale", reason=f"live row archived since the export: {pm_id}")
+            )
+        else:
+            entries.append(_entry(spec, row, "noop"))
+
+    creates = [r for r in rows if r.get(spec.pm_key) is None]
+    hints = await _create_hints(spec, creates, state, manifest, store)
+    for row in creates:
+        entries.append(_entry(spec, row, "create", hint=hints.get(row["producer_id"], ())))
+
+    if spec.retraction == "report":
+        present = {r["producer_id"] for r in state.tables[spec.name]}
+        for producer_id in sorted(scope.in_scope(spec.entity) - present):
+            row = {"producer_id": producer_id, spec.pm_key: scope.resolve(spec.entity, producer_id)}
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "retract",
+                    reason="absent from the snapshot; policy is report, nothing is written",
+                )
+            )
+    return entries
+
+
+async def _create_hints(
+    spec: TableSpec,
+    creates: Sequence[dict],
+    state: DesiredState,
+    manifest: Manifest,
+    store: LiveStore,
+) -> dict[str, tuple[dict, ...]]:
+    """For each create, the parents in a hinting child table already carrying its value —
+    a person PM holds under another producer's anchor is a twin, not a create."""
+    if not creates:
+        return {}
+    producers = {r["producer_id"] for r in creates}
+    hints: dict[str, list[dict]] = {}
+    for child in manifest.tables.values():
+        target = child.target
+        if not (target.shape == "child" and target.hint_on_create and child.entity == spec.entity):
+            continue
+        value_col = child.owned_columns[0]
+        pm_col = target.columns[value_col]
+        wanted = {
+            r["producer_id"]: r[value_col]
+            for r in state.tables[child.name]
+            if r["producer_id"] in producers and r.get(value_col) is not None
+        }
+        if not wanted:
+            continue
+        matches = await store.value_matches(
+            target.table, pm_col, sorted(set(wanted.values())), target.parent
+        )
+        for producer_id, value in wanted.items():
+            for parent in sorted(matches.get(value, [])):
+                hints.setdefault(producer_id, []).append(
+                    {"table": target.table, "column": pm_col, "value": value, "parent": parent}
+                )
+    return {k: tuple(v) for k, v in hints.items()}
+
+
+async def _diff_column(
+    spec: TableSpec, rows: Sequence[dict], creating: set[tuple[str, str]], store: LiveStore
+) -> list[Entry]:
+    target = spec.target
+    columns = target.columns  # desired column → PM column
+    pm_columns = tuple(columns.values())
+    anchored = [r for r in rows if r.get(spec.pm_key) is not None]
+    live = (
+        await store.entity_rows(target.table, [r[spec.pm_key] for r in anchored], pm_columns)
+        if anchored
+        else {}
+    )
+    entries: list[Entry] = []
+    for row in rows:
+        pm_id = row.get(spec.pm_key)
+        if pm_id is None:
+            if (spec.entity, row["producer_id"]) not in creating:
+                entries.append(_entry(spec, row, "stale", reason="no entity row is created for it"))
+                continue
+            changes = {columns[d]: (None, row.get(d)) for d in columns}
+            entries.append(
+                _entry(spec, row, "update", changes=changes, reason="on a row this run creates")
+            )
+            continue
+        found = live.get(pm_id)
+        if found is None:
+            entries.append(
+                _entry(spec, row, "stale", reason=f"live row missing: {target.table}/{pm_id}")
+            )
+        elif found.get("archived_at") is not None:
+            entries.append(
+                _entry(spec, row, "stale", reason=f"live row archived since the export: {pm_id}")
+            )
+        else:
+            changes = {
+                columns[d]: (found.get(columns[d]), row.get(d))
+                for d in columns
+                if found.get(columns[d]) != row.get(d)
+            }
+            entries.append(_entry(spec, row, "update" if changes else "noop", changes=changes))
+    return entries
+
+
+def _diff_merge(spec: TableSpec, rows: Sequence[dict]) -> list[Entry]:
+    entries: list[Entry] = []
+    for row in rows:
+        survivor = row.get("survivor_pm_id")
+        why = "survivor out of scope: report, never act" if survivor is None else "report-only"
+        entries.append(
+            Entry(
+                entry_id=entry_id(spec, row),
+                table=spec.name,
+                kind="merge",
+                producer_id=row.get("loser_producer_id"),
+                pm_id=row.get(spec.pm_key),
+                changes={"survivor_pm_id": (None, survivor)},
+                reason=f"{why} — acting on merges is #514",
+            )
+        )
+    return entries
