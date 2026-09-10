@@ -63,3 +63,5 @@ data/.dbt-target
 src/core/ingestion/mapping/target
 src/core/ingestion/mapping/logs
 src/core/ingestion/mapping/dbt_packages
+# dbt writes a per-user cookie into the project directory on first run
+src/core/ingestion/mapping/.user.yml
