@@ -43,6 +43,22 @@ def test_events_own_exactly_dissolved():
     assert spec["owned_columns"] == ["event_year"]  # month/day: PM holds finer precision on 5
 
 
+def test_events_are_keyed_by_producer_id_like_every_other_table():
+    """CR 19: an org create has no pm_id, so a key naming it could not identify its event."""
+    spec = load_manifest()["tables"]["desired_entity_events"]
+
+    assert spec["key"] == ["producer_id", "event_type"]
+    assert spec["pm_key"] == "pm_id"
+
+
+@pytest.mark.parametrize("table", MARTS)
+def test_no_key_names_pm_id(table):
+    """`pm_id` is the row's *target*, resolved from the key — null for a create — never the key."""
+    spec = load_manifest()["tables"][table]
+
+    assert "pm_id" not in spec["key"]
+
+
 def test_no_other_table_claims_event_types():
     tables = load_manifest()["tables"]
 

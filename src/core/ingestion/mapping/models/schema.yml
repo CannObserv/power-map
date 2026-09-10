@@ -169,10 +169,17 @@ models:
 
   - name: desired_entity_events
     columns:
-      - name: pm_id
+      - name: producer_id
         tests:
           - unique
           - not_null
+          - relationships:
+              to: ref('desired_organizations')
+              field: producer_id
+      - name: pm_id
+        description: Null for a create, like every mart — the key is producer_id (CR 19).
+        tests:
+          - unique
           - relationships:
               to: ref('desired_organizations')
               field: pm_id

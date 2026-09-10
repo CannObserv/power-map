@@ -65,7 +65,7 @@ tables:
     owned_columns: [survivor_pm_id]   # null = survivor out of scope (unanchored, a create, archived): report, never act
   desired_entity_events:
     entity: organization
-    key: [pm_id, event_type]
+    key: [producer_id, event_type]   # never pm_id: a create has none (CR 19)
     pm_key: pm_id
     retraction: report
     owned_event_types: [dissolved]
