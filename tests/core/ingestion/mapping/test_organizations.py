@@ -22,9 +22,14 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     MO8,
     MO9,
     MO10,
+    O1,
     O2,
+    O3,
     O4,
     O5,
+    O6,
+    O7,
+    O8,
     O9,
     O10,
     crosswalk_row,
@@ -173,3 +178,31 @@ def test_a_missing_chamber_anchor_is_reported_not_silently_unparented(build):
     assert O4 not in parents  # agency House, chamber unknown
     assert parents[O5] == MO1  # agency Senate: the Senate key is still there (overlay → MO1)
     assert "unresolved_org_parents" in b.warnings
+
+
+def test_the_parent_rule_is_stated_once_on_the_identity_model(build):
+    """CR 27: `parent_rule` names which anchor an org's agency/org_type determines. The
+    anchor CASE and the unresolved_org_parents test both read it, so a new rule cannot
+    be added to one and missed by the other."""
+    b = build(select="+int_org_identity")
+    cols = b.columns("int_org_identity")
+    rule = {r[0]: r[cols.index("parent_rule")] for r in b.rows("int_org_identity")}
+
+    assert rule[O4] == "house" and rule[O10] == "house"
+    assert rule[O5] == "senate"
+    assert rule[O6] == "legislature"  # agency Joint
+    assert rule[O2] == "legislature" and rule[O3] == "legislature"  # chambers
+    assert rule[O1] is None and rule[O7] is None and rule[O8] is None  # legislature, Other, party
+
+
+def test_an_out_of_scope_child_with_a_missing_anchor_is_not_reported(build):
+    """An archived org claims nothing whatever its parent resolves to, so naming it as
+    unresolved is noise that could bury a real one. O5 is the only Senate child."""
+    o5_archived = crosswalk_row(O5, MO5, "archived", kind="organization")
+    b = build(
+        crosswalk=[o5_archived if r[3] == O5 else r for r in DEFAULT_CROSSWALK],
+        datasets={"org_crosswalk": fixture_csv("org_crosswalk", drop="usa_wa_senate")},
+    )
+
+    assert O5 not in {r[2] for r in b.rows("desired_organization_parents")}
+    assert "unresolved_org_parents" not in b.warnings
