@@ -73,3 +73,30 @@ class FakeLiveStore:
             if r.get(column) in wanted:
                 out.setdefault(r[column], []).append(r[parent])
         return out
+
+
+class FakeConn:
+    """Records every statement and the transaction outcome; executes nothing."""
+
+    def __init__(self):
+        self.statements: list[tuple[str, tuple]] = []
+        self.events: list[str] = []
+
+    async def execute(self, sql: str, *args) -> None:
+        self.statements.append((sql, args))
+
+    def transaction(self):
+        return _FakeTransaction(self)
+
+
+class _FakeTransaction:
+    def __init__(self, conn: FakeConn):
+        self._conn = conn
+
+    async def __aenter__(self):
+        self._conn.events.append("begin")
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self._conn.events.append("rollback" if exc_type else "commit")
+        return False
