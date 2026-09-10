@@ -49,6 +49,24 @@ measurements. It never opens a database, and it **skips by name** when the
 store or the export is absent in that checkout — provision with
 `scripts/pull_datasets.py` and `scripts/export_pm_tables.py`.
 
+## Applier tier (#499)
+
+
+The diff-applier reads the database only through a `LiveStore` protocol, so
+its engine tests (`tests/core/ingestion/test_applier_*.py`, ~90) run with no
+database against `FakeLiveStore` in `tests/core/ingestion/applier_fakes.py`,
+which serves rows from dicts and records every request — how "a row outside
+the crosswalk is never read" and "a column outside the owned set is never in
+an UPDATE" are asserted on the emitted SQL (`FakeConn` records statements and
+the transaction outcome). `write_desired(dir, **tables)` builds a loadable
+desired-state directory from dicts.
+
+`tests/scripts/test_apply_desired_state_db.py` is the integration tier for
+what the fake cannot prove — the asyncpg store's SQL, apply-twice-is-a-no-op,
+a gated create writing nothing, an execute writing exactly the predicted
+entries with the outbox firing, a curator column surviving, a cyclic parent
+rolling back, a crosswalk change being stale — on the rollback connection.
+
 ## Endpoint-test client (#288)
 
 

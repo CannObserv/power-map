@@ -24,7 +24,14 @@ from pathlib import Path
 
 import duckdb
 
-__all__ = ["PM_EXPORT_DIR", "TableSpec", "export_table", "read_rows", "write_parquet"]
+__all__ = [
+    "PM_EXPORT_DIR",
+    "TableSpec",
+    "export_table",
+    "read_records",
+    "read_rows",
+    "write_parquet",
+]
 
 # Where the export step puts PM's own tables, under the snapshot root.
 PM_EXPORT_DIR = "_pm"
@@ -102,6 +109,27 @@ def read_rows(path: Path | str, *, order_by: str | None = None) -> list[tuple]:
         if order_by:
             sql += f' ORDER BY "{order_by}"'
         return con.execute(sql).fetchall()
+    finally:
+        con.close()
+
+
+def read_records(path: Path | str, *, order_by: str | None = None) -> list[dict]:
+    """Read a Parquet file back as dicts keyed by column, timestamps in UTC.
+
+    The applier reads by name (#499) so a reordered SELECT upstream cannot swap
+    two TEXT columns on it the way a positional read would.
+    """
+    if order_by is not None and not _IDENTIFIER.match(order_by):
+        raise ValueError(f"order_by {order_by!r} is not a plain identifier")
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute("SET TimeZone = 'UTC'")
+        sql = f"SELECT * FROM read_parquet('{_sql_path(Path(path))}')"
+        if order_by:
+            sql += f' ORDER BY "{order_by}"'
+        cursor = con.execute(sql)
+        columns = [c[0] for c in cursor.description]
+        return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
     finally:
         con.close()
 

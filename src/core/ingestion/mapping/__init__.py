@@ -10,36 +10,45 @@ usa-wa's `data.csv` per dataset version and Parquet exports of PM's own tables
 — which is what lets `dbt build` run hermetically in the unit tier.
 """
 
+import hashlib
+import json
 import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
-import yaml
 from dbt.adapters.duckdb.connections import DuckDBConnectionManager
 from dbt.cli.main import dbtRunner, dbtRunnerResult
 
 from src.core.ingestion.datasets import DATA_FILE, SnapshotStore
+from src.core.ingestion.mapping.manifest import MANIFEST_PATH, Manifest, load_manifest
 from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, export_table
 from src.core.logging import get_logger
 
 __all__ = [
+    "BUILD_INFO",
+    "MANIFEST_PATH",
     "PM_EXPORT_DIR",
     "PM_SOURCES",
     "PROJECT_DIR",
+    "Manifest",
     "RunPaths",
     "USA_WA_SOURCES",
     "load_manifest",
+    "resolved_versions",
     "run_dbt",
     "source_env",
+    "write_build_info",
     "write_desired_state",
 ]
 
 logger = get_logger(__name__)
 
 PROJECT_DIR = Path(__file__).resolve().parent
-MANIFEST_PATH = PROJECT_DIR / "manifest.yml"
+# Written beside the desired-state tables: which inputs the artifact came from.
+BUILD_INFO = "BUILD.json"
 
 # dataset name → the env var its source reads. Adding a source means adding it
 # here and in models/sources.yml; `test_project.py` holds the two together.
@@ -67,22 +76,33 @@ class RunPaths:
     log_path: Path
 
 
+def resolved_versions(
+    snapshot_root: Path | str, *, versions: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """The named version each usa-wa dataset resolves to — from ``versions`` if
+    given, else the newest the store holds. A dataset the store lacks is absent."""
+    store = SnapshotStore(snapshot_root)
+    resolved: dict[str, str] = {}
+    for name in USA_WA_SOURCES:
+        version = (versions or {}).get(name) or (store.versions(name) or [None])[-1]
+        if version is not None:
+            resolved[name] = version
+    return resolved
+
+
 def source_env(
     snapshot_root: Path | str, *, versions: Mapping[str, str] | None = None
 ) -> dict[str, str]:
     """Env vars pointing each declared source at a concrete file.
 
-    A usa-wa dataset resolves to a **named** version — the one in ``versions``
-    if given, else the newest the store holds. A dataset the store lacks is
-    left unset, so its source renders as ``''`` and the model that reads it
-    fails at run time rather than at parse.
+    A usa-wa dataset resolves to a **named** version (`resolved_versions`). A
+    dataset the store lacks is left unset, so its source renders as ``''`` and
+    the model that reads it fails at run time rather than at parse.
     """
     store = SnapshotStore(snapshot_root)
     env: dict[str, str] = {}
-    for name, var in USA_WA_SOURCES.items():
-        version = (versions or {}).get(name) or (store.versions(name) or [None])[-1]
-        if version is not None:
-            env[var] = str(store.version_dir(name, version) / DATA_FILE)
+    for name, version in resolved_versions(snapshot_root, versions=versions).items():
+        env[USA_WA_SOURCES[name]] = str(store.version_dir(name, version) / DATA_FILE)
     for table, var in PM_SOURCES.items():
         path = Path(snapshot_root) / PM_EXPORT_DIR / f"{table}.parquet"
         if path.exists():
@@ -158,12 +178,6 @@ def run_dbt(
             DuckDBConnectionManager.close_all_connections()
 
 
-def load_manifest() -> dict:
-    """The ownership manifest — what each desired-state table claims (#499's contract)."""
-    with MANIFEST_PATH.open() as f:
-        return yaml.safe_load(f)
-
-
 def write_desired_state(duckdb_path: Path | str, out_dir: Path | str) -> dict[str, int]:
     """Copy every manifest table out of a built duckdb file as Parquet.
 
@@ -171,7 +185,7 @@ def write_desired_state(duckdb_path: Path | str, out_dir: Path | str) -> dict[st
     #499 can treat a file's presence as the whole table. Returns row counts.
     """
     out = Path(out_dir)
-    tables = list(load_manifest()["tables"])
+    tables = list(load_manifest().tables)
     counts = {table: export_table(duckdb_path, table, out / f"{table}.parquet") for table in tables}
     # The directory is #499's input. A .parquet left over from a table the
     # manifest no longer names would read as a live claim, so it goes; nothing
@@ -181,3 +195,38 @@ def write_desired_state(duckdb_path: Path | str, out_dir: Path | str) -> dict[st
             stale.unlink()
             logger.warning("removed stale desired-state file %s — not in the manifest", stale.name)
     return counts
+
+
+def _sha256(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def write_build_info(
+    out_dir: Path | str,
+    *,
+    snapshot_root: Path | str,
+    counts: Mapping[str, int],
+    versions: Mapping[str, str] | None = None,
+) -> dict:
+    """Record what the desired state was built from (#499; round-2 finding 24).
+
+    `BUILD.json` beside the tables: the dataset version each source resolved
+    to, the digest of each PM export the models joined, the row counts, and
+    when. The applier copies it into every run summary and ledger line, so a
+    diff can always be traced to the inputs that produced it.
+    """
+    root = Path(snapshot_root)
+    info = {
+        "built_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "snapshot_root": str(root.resolve()),
+        "datasets": resolved_versions(root, versions=versions),
+        "pm_exports": {
+            table: _sha256(root / PM_EXPORT_DIR / f"{table}.parquet") for table in PM_SOURCES
+        },
+        "tables": dict(counts),
+    }
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    (Path(out_dir) / BUILD_INFO).write_text(json.dumps(info, indent=2, sort_keys=True) + "\n")
+    return info

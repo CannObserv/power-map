@@ -268,58 +268,13 @@ the row never existed.
 
 ---
 
-## Build the desired state (mapping project, #497)
+## Build and apply the desired state (#497, #499)
 
 
-The dbt-duckdb project at `src/core/ingestion/mapping/` turns usa-wa's snapshots
-into PM-shaped **desired-state** tables — the diffable artifact the applier
-(#499) reads. It is the only place usa-wa's ontology lives in PM
-(`tests/test_src_core_wa_free.py` keeps the rest of `src/core` free of it).
-
-Three steps, each file-to-file except the export:
-
-```bash
-uv run "${env_args[@]}" python -m scripts.pull_datasets                       # 1. snapshots (#496)
-uv run --group mapping "${env_args[@]}" python -m scripts.export_pm_tables    # 2. producer_crosswalk + curation_overlay → _pm/*.parquet (read-only; DSN echoed)
-uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 3. dbt build → data/desired_state/*.parquet
-```
-
-- **Models never open a database.** PM's two tables cross the seam as Parquet
-  (step 2), so `dbt build` is hermetic and its tests run in the unit tier on
-  fixtures. Neither step 2 nor 3 carries `--execute`: nothing writes a database.
-- **`manifest.yml` is the contract #499 reads** — per table: key, retraction
-  policy (`none` / `report` / `archive`), owned columns, and for events the
-  owned types. `desired_entity_events` owns `dissolved` only; the 315 other org
-  events in PM have no producer column and are never diffed.
-- **Persons:** identity plus one legal name; pronouns, notes and every non-legal
-  name stay PM's. **Organizations:** identity, legal name
-  (`coalesce(long_name, name)` — no dba), acronym, a row-scoped parent claim
-  (House/Senate/Joint/chambers only), and `dissolved` from `last_biennium`
-  (year = first year + 1; none at the dataset's newest biennium).
-- **The overlay wins by presence.** A `curation_overlay` row overrides the
-  mapped value even when its value is null (the row then drops out). Its
-  vocabulary is enforced per entity type by the project's `overlay_field_unmapped`
-  test, so a row naming a field no model maps for its type is warned by name
-  and applied nowhere. #498 builds the write path.
-- **Five persons are published with a blank name** (usa-wa#364). Staging trims
-  and nullifies; the build **warns** rather than halts; identity lands and no
-  name is asserted, so PM's own legal name stands.
-- **Every warning is a named no-claim, never a halt** — one bad row, producer's
-  or curator's, costs only its own claim. `not_null_stg_usa_wa__persons_name_full`
-  / `…organizations_name`: blank name, identity lands, no name asserted.
-  `accepted_values_stg_usa_wa__organizations_org_type…`: an org_type the
-  vocabulary has not met, no parent determined. `malformed_bienniums`: not
-  `YYYY-YY`, dropped, no `dissolved` claimed. `unresolved_org_parents`: a
-  determined parent PM cannot resolve, or its chamber/legislature anchor missing
-  from the dataset, no claim. `not_null_desired_*_merges_survivor_pm_id`: a
-  tombstone whose survivor is out of scope, report, never act.
-  `overlay_field_unmapped`: a curator row naming a field no model maps, applied
-  nowhere. `build_desired_state` prints each WARN node and exits 0.
-- **The real-snapshot check** (`tests/core/ingestion/mapping/test_real_snapshot.py`,
-  `-m integration`) asserts the design doc's measurements against the landed
-  store and skips by name when steps 1–2 have not been run in that checkout.
-
-Design and measurements: `docs/plans/2026-09-10-mapping-project-design.md`.
+Moved to [`docs/RUNBOOK_DESIRED_STATE.md`](RUNBOOK_DESIRED_STATE.md): the
+three-step chain (export → `dbt build` → dry-run applier), the ownership
+manifest, the applier's entry kinds, verdicts, exit codes and thresholds, the
+flip's flags, and the first production measurement.
 
 ---
 
