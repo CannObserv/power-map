@@ -304,6 +304,17 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
 - **Five persons are published with a blank name** (usa-wa#364). Staging trims
   and nullifies; the build **warns** rather than halts; identity lands and no
   name is asserted, so PM's own legal name stands.
+- **Every warning is a named no-claim, never a halt** — one bad row, producer's
+  or curator's, costs only its own claim. `not_null_stg_usa_wa__persons_name_full`
+  / `…organizations_name`: blank name, identity lands, no name asserted.
+  `accepted_values_stg_usa_wa__organizations_org_type…`: an org_type the
+  vocabulary has not met, no parent determined. `malformed_bienniums`: not
+  `YYYY-YY`, dropped, no `dissolved` claimed. `unresolved_org_parents`: a
+  determined parent PM cannot resolve, or its chamber/legislature anchor missing
+  from the dataset, no claim. `not_null_desired_*_merges_survivor_pm_id`: a
+  tombstone whose survivor is out of scope, report, never act.
+  `overlay_field_unmapped`: a curator row naming a field no model maps, applied
+  nowhere. `build_desired_state` prints each WARN node and exits 0.
 - **The real-snapshot check** (`tests/core/ingestion/mapping/test_real_snapshot.py`,
   `-m integration`) asserts the design doc's measurements against the landed
   store and skips by name when steps 1–2 have not been run in that checkout.
