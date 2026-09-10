@@ -277,6 +277,23 @@ mitmdump \
   --set modify_headers='/~q/X-Exedev-Userid/usr_local_dev'
 ```
 
+### Mapping project (dbt-duckdb, #497)
+
+The `mapping` group is synced by `worktree-setup.sh`. The models' tests build the
+project against fixtures and run in the unit tier; the real-snapshot check needs
+the store provisioned in that checkout:
+
+```bash
+uv run --group mapping pytest tests/core/ingestion/mapping        # fixture tier (~20 builds, ~60s)
+uv run "${env_args[@]}" python -m scripts.pull_datasets            # provision the store …
+uv run --group mapping "${env_args[@]}" python -m scripts.export_pm_tables   # … and the export
+uv run --group mapping "${env_args[@]}" pytest tests/core/ingestion/mapping/test_real_snapshot.py -m integration
+uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # the operator run
+```
+
+`export_pm_tables` is read-only but connects (DSN echoed, `--test` available); the
+other two never open a database. Runbook: `docs/RUNBOOKS.md` § Build the desired state.
+
 ### Applying a schema change during development
 
 From a worktree, apply to the **test** database — the bare command targets production and

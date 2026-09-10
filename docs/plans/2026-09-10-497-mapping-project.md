@@ -1,7 +1,7 @@
 ---
 title: "#497 mapping project — build plan"
 date: 2026-09-10
-status: approved 2026-09-10
+status: executed 2026-09-10 (steps 1–9)
 design: 2026-09-10-mapping-project-design.md
 ---
 

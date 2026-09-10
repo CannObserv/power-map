@@ -32,6 +32,23 @@ uv run pytest -m integration
 
 ---
 
+## Mapping-project tier (#497)
+
+
+`tests/core/ingestion/mapping/` builds the dbt-duckdb project against a fixture
+store (`fixtures/store/`, the puller's layout) through a `build` fixture that
+writes PM's tables as Parquet from tuples and runs `dbt build`. Each test is a
+full build (~2.5s); the tier is unit-tier and needs the `mapping` group —
+`tests/optional_groups.py` announces its absence rather than letting the skip
+pass as coverage. `EXPECTED_WARNINGS` pins exactly which dbt warnings a build
+may raise (the blank-name case); a new warning fails the test.
+
+`test_real_snapshot.py` is marked `integration`: it builds against the landed
+store plus the read-only crosswalk export and asserts the design doc's
+measurements. It never opens a database, and it **skips by name** when the
+store or the export is absent in that checkout — provision with
+`scripts/pull_datasets.py` and `scripts/export_pm_tables.py`.
+
 ## Endpoint-test client (#288)
 
 

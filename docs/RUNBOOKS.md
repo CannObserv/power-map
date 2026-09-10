@@ -268,6 +268,49 @@ the row never existed.
 
 ---
 
+## Build the desired state (mapping project, #497)
+
+
+The dbt-duckdb project at `src/core/ingestion/mapping/` turns usa-wa's snapshots
+into PM-shaped **desired-state** tables — the diffable artifact the applier
+(#499) reads. It is the only place usa-wa's ontology lives in PM
+(`tests/test_src_core_wa_free.py` keeps the rest of `src/core` free of it).
+
+Three steps, each file-to-file except the export:
+
+```bash
+uv run "${env_args[@]}" python -m scripts.pull_datasets                       # 1. snapshots (#496)
+uv run --group mapping "${env_args[@]}" python -m scripts.export_pm_tables    # 2. producer_crosswalk + curation_overlay → _pm/*.parquet (read-only; DSN echoed)
+uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 3. dbt build → data/desired_state/*.parquet
+```
+
+- **Models never open a database.** PM's two tables cross the seam as Parquet
+  (step 2), so `dbt build` is hermetic and its tests run in the unit tier on
+  fixtures. Neither step 2 nor 3 carries `--execute`: nothing writes a database.
+- **`manifest.yml` is the contract #499 reads** — per table: key, retraction
+  policy (`none` / `report` / `archive`), owned columns, and for events the
+  owned types. `desired_entity_events` owns `dissolved` only; the 315 other org
+  events in PM have no producer column and are never diffed.
+- **Persons:** identity plus one legal name; pronouns, notes and every non-legal
+  name stay PM's. **Organizations:** identity, legal name
+  (`coalesce(long_name, name)` — no dba), acronym, a row-scoped parent claim
+  (House/Senate/Joint/chambers only), and `dissolved` from `last_biennium`
+  (year = first year + 1; none at the dataset's newest biennium).
+- **The overlay wins by presence.** A `curation_overlay` row overrides the
+  mapped value even when its value is null (the row then drops out). Its `field`
+  vocabulary is enforced by the staging test, so a row naming a column no model
+  maps fails the build. #498 builds the write path.
+- **Five persons are published with a blank name** (usa-wa#364). Staging trims
+  and nullifies; the build **warns** rather than halts; identity lands and no
+  name is asserted, so PM's own legal name stands.
+- **The real-snapshot check** (`tests/core/ingestion/mapping/test_real_snapshot.py`,
+  `-m integration`) asserts the design doc's measurements against the landed
+  store and skips by name when steps 1–2 have not been run in that checkout.
+
+Design and measurements: `docs/plans/2026-09-10-mapping-project-design.md`.
+
+---
+
 ## Outbox + tombstone TTL prune (issue #204)
 
 

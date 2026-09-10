@@ -43,7 +43,7 @@ Full tool table, prefetch query, per-tool guidance: [`docs/SOCRATICODE.md`](docs
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
   admin/        — Jinja2 + HTMX admin dashboard
   public/       — JSON API (X-API-Key auth, server-to-server)
-src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion)
+src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion); `ingestion/mapping/` is the dbt-duckdb project and the only place usa-wa ontology lives (#497, gate: `test_src_core_wa_free.py`)
 src/static/     — Static assets; vendor/ is SHA-pinned and excluded from linting
 tests/          — Mirrors src/ structure; js/ for Vitest
 docs/           — Reference docs, split by subject — complete index at the end of this file
