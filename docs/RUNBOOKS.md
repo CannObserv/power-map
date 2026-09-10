@@ -112,16 +112,15 @@ Safe to re-run; upserts are idempotent.
 
 ---
 
-## Seed WA legislative roles (idempotent, #263)
+## Seed WA legislative roles (idempotent, #263 — generator retired in #497)
 
 
-Creates the 147 canonical legislative roles (49 Senate + 98 House Position 1/2) against
-the already-seeded `legislative_district` jurisdictions. Prerequisites: `apply_schema`
-(role_types seeded), § Seed jurisdictions from a pre-seed JSON file (LD jurisdictions
-present), and the WA
-chamber orgs carrying the `org_wa_legislature_chamber` identifier (`usa_wa_house` /
-`usa_wa_senate`). The role seed file is a local, gitignored artifact under
-`data/cannabis_observer/` — regenerate it from the jurisdictions seed if absent.
+`scripts/seed_roles.py` replays a role seed JSON (create-or-attach through
+`resolve_role`, so re-runs attach rather than duplicate). Its generator,
+`scripts/generate_wa_roles.py`, was **retired in #497**: the 147 legislative
+seats it bootstrapped now arrive through usa-wa's published `roles` dataset
+(#500), and `src/core` carries no WA vocabulary to generate titles from. Keep
+this only to replay an existing file under `data/cannabis_observer/`.
 
 ```bash
 # Build --env-file flags (see § Environment)
@@ -129,22 +128,16 @@ env_args=()
 [ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
 [ -f .env ] && env_args+=(--env-file .env)
 
-# 1. Generate the role seed JSON from the jurisdictions seed (deterministic, no DB)
-uv run "${env_args[@]}" python -m scripts.generate_wa_roles \
-    data/cannabis_observer/2026_06_07-usa_wa-jurisdictions.json \
-    -o data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json
-
-# 2. Dry run — read-only; reports would-create / already-exist / unresolved counts
+# Dry run — read-only; reports would-create / already-exist / unresolved counts
 uv run "${env_args[@]}" python -m scripts.seed_roles data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json
 
-# 3. Execute — create-or-attach the roles and commit
+# Execute — create-or-attach the roles and commit
 uv run "${env_args[@]}" python -m scripts.seed_roles data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json --execute
 ```
 
-Idempotent: roles match on identity (org + role_type + jurisdiction + qualifier), so re-runs
-attach rather than duplicate. Seeder, not updater — it does not revise existing roles'
-titles/attributes. Merging existing (idiosyncratic) legislator Roles onto these roles is
-separate (#265).
+Seeder, not updater — it does not revise existing roles' titles/attributes.
+Merging existing (idiosyncratic) legislator Roles onto these roles is separate
+(#265).
 
 ---
 

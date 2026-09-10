@@ -93,7 +93,7 @@ The treatment, on `role_unarchive` and `ra_unarchive`:
 
 - The `UPDATE` runs inside `async with db.transaction():` — a savepoint. A plain `execute` that raises leaves the connection's transaction aborted and the response path unusable (same idiom and reason as `ra_create`, #288).
 - `asyncpg.UniqueViolationError` is caught and surfaced as a **flash**, not a 409: the admin registers no `HTTPException` handler and no client-side `htmx:responseError` hook, so a 4xx from an `hx-post` is silently inert and the curator sees a dead button. HTMX → `Response(204, headers=flash_trigger("warning", …))` (warning = reject, per `§ Flash notifications → Level taxonomy`); non-HTMX → 303 to the detail page with the shared `exists` key.
-- **The message names the remedy the colliding index actually allows.** Roles branch on `jurisdiction_id`: a seat role's title is synthesized from role type + jurisdiction + qualifier, so "rename it" is not on offer there — only "archive the role holding the seat". Same split as `role_create`'s create-time `UniqueViolation` branch. The conflicting title is DB-derived → `markupsafe.escape()`.
+- **The message names the remedy the colliding index actually allows.** Roles branch on `jurisdiction_id`: a seat role's identity is its structural tuple (role type + jurisdiction + qualifier), not its title, so "rename it" is not on offer there — only "archive the role holding the seat". Same split as `role_create`'s create-time `UniqueViolation` branch. The conflicting title is DB-derived → `markupsafe.escape()`.
 - The 409 stays for the "not archived" precondition, which is a race, not a curator-actionable state.
 
 ### List status filters & search discoverability (#306)

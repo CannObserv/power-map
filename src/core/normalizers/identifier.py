@@ -7,7 +7,7 @@ from src.core.normalizers.base import NormalizationResult, is_null_like
 
 @dataclass
 class IdentifierNormalizer:
-    """Normalizes identifier strings (UBI, WA PDC IDs, etc.) by stripping whitespace."""
+    """Normalizes identifier strings (UBI, disclosure ids, etc.) by stripping whitespace."""
 
     def normalize(self, raw: str | None) -> NormalizationResult:
         """Return stripped identifier, or skipped result for null-like input."""

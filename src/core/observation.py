@@ -18,7 +18,6 @@ from src.core.normalizers.address import get_address_normalizer
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
 from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
-from src.core.role_title import synthesize_role_title
 from src.core.types import EVENT_PLACE_PRECISIONS
 
 logger = get_logger(__name__)
@@ -1001,23 +1000,17 @@ async def resolve_role(
 
     Roles without a jurisdiction (jurisdiction_id is None) match by
     (organization_id, lower(title)). Roles with a jurisdiction (jurisdiction_id
-    set) match by (organization_id, role_type, jurisdiction_id, qualifier), so
-    distinct roles sharing a title — e.g. the two WA House positions in a
-    district — never collapse into one another, and a title-only observation
-    never glues onto a role with a jurisdiction.
+    set) match on the structural tuple (organization_id, role_type, jurisdiction,
+    qualifier), so distinct roles sharing a title never collapse — e.g. the two
+    positions of a per-position office in one district — and a title-only
+    submission never attaches to a role with a jurisdiction.
 
-    ``role_type`` is a ``role_types`` slug, resolved and validated here — the
-    single resolution point for both the observation endpoint and direct
-    callers.
-
-    ``title`` is optional for a role with a jurisdiction: on create PM
-    synthesizes the canonical title from the structural tuple via
-    ``src.core.role_title`` (#267) and **prefers it over any supplied title**, so
-    an upstream observer never drifts PM's curated form. A supplied title is used
-    only as a fallback when the title cannot be synthesized (unknown role_type /
-    non-``usa-wa-ld`` jurisdiction); a jurisdictional role with neither is
-    REJECTED (``role_title_unavailable``). A role without a jurisdiction requires
-    a title — it is the match key — else REJECTED (``title_required``).
+    ``title`` is **required** on every create (#497). PM used to synthesize a
+    canonical title for a jurisdictional role and prefer it over the observer's
+    (#267); the dataset-subscription design (#490) retracts that — the producer
+    owns the title, and the curation overlay is where PM overrides it — so the
+    resolver stores what it is given and rejects ``title_required`` when it is
+    given nothing.
 
     Jurisdiction history: a superseded/redistricted district row stays
     ``archived_at IS NULL`` (supersession is tracked via ``superseded_at`` /
@@ -1067,7 +1060,7 @@ async def resolve_role(
             return "", Disposition.REJECTED, f"jurisdiction_archived: {jurisdiction_id!r}"
         if role_type_id is None:
             return "", Disposition.REJECTED, "role_type_required_for_jurisdiction"
-        # A per-position office (e.g. a WA House seat) needs a qualifier; without
+        # A per-position office needs a qualifier; without
         # one, a create would mint a spurious positionless seat (#267/#273).
         # Reject before match/create so the omission is loud, not silently minted.
         # Treat an empty/whitespace qualifier as missing (the API normalizes it to
@@ -1148,21 +1141,10 @@ async def resolve_role(
             )
         return existing["id"], Disposition.AUTO_ATTACHED, None
 
-    if jurisdiction_id is not None:
-        # Jurisdictional-role create: PM curates the canonical title from the
-        # structural tuple (#267) and prefers it over any supplied title, so an
-        # upstream observer can never drift PM's form. A supplied title is used
-        # only as a fallback when it can't be synthesized (unknown role_type /
-        # non-usa-wa-ld jurisdiction); if neither is available, reject.
-        title = synthesize_role_title(role_type, jur["slug"], qualifier) or title
-        if not title:
-            return (
-                "",
-                Disposition.REJECTED,
-                f"role_title_unavailable: role_type={role_type!r} jurisdiction={jur['slug']!r}",
-            )
-    elif not title:
-        # Role without a jurisdiction: title is the match key and is required.
+    if not title:
+        # Required on every create (#497). For a plain role it is the match key;
+        # for a role with a jurisdiction it is the producer's to supply — PM no
+        # longer synthesizes one (#267, retracted by #490).
         return "", Disposition.REJECTED, "title_required"
 
     role_id = generate_id()

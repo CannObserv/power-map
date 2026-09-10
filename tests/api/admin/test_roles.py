@@ -155,7 +155,7 @@ async def rt_rep_id(db):
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def wa_ld_jurisdiction(db):
-    """A WA legislative district; slug usa-wa-ld-999 drives title synthesis."""
+    """A WA legislative district (slug usa-wa-ld-999)."""
     jid = generate_id()
     type_id = await db.fetchval(
         "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
@@ -172,7 +172,7 @@ async def wa_ld_jurisdiction(db):
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def nonwa_jurisdiction(db):
-    """A jurisdiction whose slug is NOT usa-wa-ld-N → title synthesis returns None."""
+    """A jurisdiction whose slug is not a legislative district."""
     jid = generate_id()
     type_id = await db.fetchval(
         "SELECT id FROM jurisdiction_types WHERE slug='legislative_district'"
@@ -199,17 +199,17 @@ async def test_jurisdiction_search_returns_matches(client, wa_ld_jurisdiction):
     assert wa_ld_jurisdiction in r.text
 
 
-async def test_create_structural_role_synthesizes_title(
+async def test_create_structural_role_stores_the_supplied_title(
     client, db, org_id, wa_ld_jurisdiction, rt_rep_id
 ):
-    """Role-with-jurisdiction create with empty title → PM synthesizes the canonical WA title."""
+    """#497: PM no longer synthesizes; the title the admin typed is what is stored."""
     r = await client.post(
         "/admin/roles/new/",
         headers=AUTH_HEADERS,
         follow_redirects=False,
         data={
             "organization_id": org_id,
-            "title": "",
+            "title": "Washington State Representative, LD-999, Position 1",
             "role_type_id": rt_rep_id,
             "jurisdiction_id": wa_ld_jurisdiction,
             "qualifier": "Position 1",
@@ -289,10 +289,10 @@ async def test_create_plain_role_requires_title(client, org_id):
     assert "Title is required for a role without a jurisdiction" in r.text
 
 
-async def test_create_structural_role_nonwa_requires_manual_title(
+async def test_create_structural_role_without_title_is_rejected(
     client, org_id, rt_rep_id, nonwa_jurisdiction
 ):
-    """Synthesis returns None for a non-WA jurisdiction → manual title required."""
+    """Every role with a jurisdiction needs a typed title — nothing synthesizes one now."""
     r = await client.post(
         "/admin/roles/new/",
         headers=AUTH_HEADERS,
@@ -307,13 +307,13 @@ async def test_create_structural_role_nonwa_requires_manual_title(
         },
     )
     assert r.status_code == 200
-    assert "Could not auto-generate" in r.text
+    assert "Title is required" in r.text
 
 
 async def test_create_structural_role_nonwa_manual_title_ok(
     client, db, org_id, rt_rep_id, nonwa_jurisdiction
 ):
-    """A supplied title is respected for an unsynthesizable role (fill-when-absent)."""
+    """A supplied title is stored as typed."""
     r = await client.post(
         "/admin/roles/new/",
         headers=AUTH_HEADERS,

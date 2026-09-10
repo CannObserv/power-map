@@ -1458,13 +1458,11 @@ class RoleObservationRequest(BaseModel):
         else:
             if not self.organization_id:
                 raise ValueError("organization_id is required when identifier_type is absent")
-            # With a jurisdiction: PM synthesizes the canonical title from the
-            # structural tuple (#267), so title is optional. A role without a
-            # jurisdiction still requires a title — it is the match key.
-            if self.jurisdiction_id is None and not self.title:
-                raise ValueError(
-                    "title is required for a role without a jurisdiction (jurisdiction_id absent)"
-                )
+            # Required on every create (#497): the producer owns a jurisdictional
+            # role's title now that PM no longer synthesizes one (#267, retracted
+            # by #490), and a plain role's title is its match key.
+            if not self.title:
+                raise ValueError("title is required")
         return self
 
     @model_validator(mode="after")
