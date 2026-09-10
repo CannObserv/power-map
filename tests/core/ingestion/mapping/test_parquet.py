@@ -13,7 +13,12 @@ pytest.importorskip("duckdb")
 
 import duckdb  # noqa: E402
 
-from src.core.ingestion.mapping.parquet import TableSpec, read_rows, write_parquet  # noqa: E402
+from src.core.ingestion.mapping.parquet import (  # noqa: E402
+    TableSpec,
+    read_records,
+    read_rows,
+    write_parquet,
+)
 
 SPEC = TableSpec(
     name="things",
@@ -60,3 +65,14 @@ def test_a_row_of_the_wrong_width_is_refused_before_anything_is_written(tmp_path
 
     assert not path.exists()
     assert list(tmp_path.glob(".incoming*")) == []
+
+
+def test_read_records_returns_dicts_keyed_by_column(tmp_path):
+    """The applier reads by name (#499): a reordered SELECT must not swap two TEXT columns."""
+    path = tmp_path / "things.parquet"
+    write_parquet([("a", "one", TS), ("b", None, None)], SPEC, path)
+
+    assert read_records(path, order_by="id") == [
+        {"id": "a", "label": "one", "created_at": TS},
+        {"id": "b", "label": None, "created_at": None},
+    ]
