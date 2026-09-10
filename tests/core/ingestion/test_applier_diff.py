@@ -19,6 +19,7 @@ from src.core.ingestion.applier import (  # noqa: E402
     DesiredState,
     diff_desired,
 )
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from src.core.ingestion.mapping import load_manifest  # noqa: E402
 from tests.core.ingestion.applier_fakes import FakeLiveStore  # noqa: E402
 
@@ -34,7 +35,7 @@ ORG_O2, ORG_O4 = {"pm_id": MO2, "producer_id": O2}, {"pm_id": MO4, "producer_id"
 
 def xw(producer_id, pm_id, resolution="live", *, kind="person"):
     return {
-        "source": "usa-wa",
+        "source": PRODUCER_SOURCE,
         "kind": kind,
         "producer_id": producer_id,
         "pm_id": pm_id,

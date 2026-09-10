@@ -15,6 +15,7 @@ import pytest
 
 pytest.importorskip("duckdb")
 
+from src.core.ingestion.applier import Diff, Entry  # noqa: E402
 from src.core.ingestion.applier_report import (  # noqa: E402
     LEDGER,
     append_ledger,
@@ -25,8 +26,6 @@ from src.core.ingestion.applier_report import (  # noqa: E402
     verdict_for,
     write_report,
 )
-
-from src.core.ingestion.applier import Diff, Entry  # noqa: E402
 from src.core.ingestion.mapping.manifest import Thresholds  # noqa: E402
 
 NOW = datetime(2026, 9, 11, 9, 30, 5, tzinfo=UTC)

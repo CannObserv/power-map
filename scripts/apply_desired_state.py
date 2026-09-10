@@ -48,6 +48,7 @@ from src.core.ingestion.applier_report import (
     write_report,
 )
 from src.core.ingestion.applier_write import VerificationFailed, apply_diff
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE
 from src.core.ingestion.mapping import load_manifest
 from src.core.ingestion.mapping.manifest import Thresholds
 from src.core.logging import configure_logging, get_logger
@@ -56,7 +57,7 @@ logger = get_logger(__name__)
 
 DEFAULT_DESIRED = "data/desired_state"
 DEFAULT_OUT = "data/applier"
-SOURCE = "usa-wa"
+SOURCE = PRODUCER_SOURCE  # the seed's value; a mismatch here scopes zero rows
 
 EXIT_OK = 0
 EXIT_REFUSED = 1

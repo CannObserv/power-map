@@ -38,6 +38,7 @@ import asyncpg
 
 from scripts._dsn import add_dsn_args, resolve_dsn
 from src.core.ingestion.crosswalk import (
+    PRODUCER_SOURCE,
     Anchor,
     AnchorFormatError,
     SeedReport,
@@ -48,6 +49,8 @@ from src.core.ingestion.crosswalk import (
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
+
+DEFAULT_SOURCE = PRODUCER_SOURCE
 
 ANCHORS_FILE = "anchors.csv"
 MANIFEST_FILE = "manifest.json"
@@ -187,8 +190,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--source",
-        default="usa_wa",
-        help="Producer key recorded on every row (default: usa_wa)",
+        default=DEFAULT_SOURCE,
+        help=f"Producer key recorded on every row (default: {DEFAULT_SOURCE})",
     )
     parser.add_argument(
         "--execute",

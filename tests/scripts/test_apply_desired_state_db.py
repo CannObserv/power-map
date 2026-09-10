@@ -20,6 +20,7 @@ pytest.importorskip("duckdb")
 from scripts import apply_desired_state as cli  # noqa: E402
 from src.core.db import generate_id  # noqa: E402
 from src.core.ingestion.applier_report import LEDGER, read_ledger  # noqa: E402
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from tests.core.ingestion.applier_fakes import write_desired  # noqa: E402
 
 pytestmark = pytest.mark.integration
@@ -75,13 +76,14 @@ async def _anchor(db, kind, producer_id, pm_id, resolution="live"):
     await db.execute(
         "INSERT INTO producer_crosswalk"
         " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
-        " VALUES ($1, 'usa-wa', $2, $3, $4, $5, $6)",
+        " VALUES ($1, $7, $2, $3, $4, $5, $6)",
         generate_id(),
         kind,
         producer_id,
         pm_id,
         pm_id,
         resolution,
+        PRODUCER_SOURCE,
     )
 
 
@@ -279,8 +281,9 @@ async def test_an_allowed_create_lands_with_its_name_and_crosswalk_row(world):
     assert code == 0
     row = await db.fetchrow(
         "SELECT pm_id, exported_pm_id, resolution FROM producer_crosswalk"
-        " WHERE source = 'usa-wa' AND kind = 'person' AND producer_id = $1",
+        " WHERE source = $2 AND kind = 'person' AND producer_id = $1",
         p3,
+        PRODUCER_SOURCE,
     )
     assert row["resolution"] == "live" and row["pm_id"] == row["exported_pm_id"]
     name = await db.fetchrow(

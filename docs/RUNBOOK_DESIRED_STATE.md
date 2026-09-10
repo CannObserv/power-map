@@ -70,8 +70,10 @@ Design and measurements: `docs/plans/2026-09-10-mapping-project-design.md`.
 Postgres and, by default, only reports. It is generic and domain-free: every
 PM table and column it touches is named by `manifest.yml`'s `target` bindings
 (four shapes: `entity`, `column`, `child`, `merge`), never by the Python. Row
-scope is the **live** `producer_crosswalk` (`resolution IN ('live','merged')`),
-read at run time — never the `pm_id` a desired row carries.
+scope is the **live** `producer_crosswalk` (`resolution IN ('live','merged')`,
+`source = PRODUCER_SOURCE` — the seed's value, one constant), read at run time —
+never the `pm_id` a desired row carries. A run that reports every anchored row
+`stale` with "no crosswalk row" is that constant disagreeing with the table.
 
 ```bash
 # The nightly chain does exactly this at 09:30 UTC (power-map-desired-state.timer)

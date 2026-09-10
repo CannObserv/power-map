@@ -18,6 +18,7 @@ pytest.importorskip("dbt.adapters.duckdb")
 import duckdb  # noqa: E402
 
 from scripts.export_pm_tables import TABLES  # noqa: E402
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from src.core.ingestion.mapping import run_dbt  # noqa: E402
 from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, write_parquet  # noqa: E402
 
@@ -50,7 +51,7 @@ def crosswalk_row(producer_id: str, pm_id: str | None, resolution: str, *, kind:
     """One producer_crosswalk tuple in export column order."""
     return (
         f"xw-{producer_id}",
-        "usa-wa",
+        PRODUCER_SOURCE,
         kind,
         producer_id,
         pm_id or producer_id,

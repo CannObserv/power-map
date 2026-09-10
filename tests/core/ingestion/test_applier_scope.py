@@ -18,6 +18,7 @@ from src.core.ingestion.applier import (  # noqa: E402
     Scope,
     scope_rows,
 )
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from src.core.ingestion.mapping import load_manifest  # noqa: E402
 from src.core.ingestion.mapping.parquet import write_parquet  # noqa: E402
 from tests.core.ingestion.applier_fakes import FakeLiveStore  # noqa: E402
@@ -28,7 +29,7 @@ PM1, PM2, PM9 = "01M1", "01M2", "01M9"
 
 def xw(producer_id, pm_id, resolution, *, kind="person"):
     return {
-        "source": "usa-wa",
+        "source": PRODUCER_SOURCE,
         "kind": kind,
         "producer_id": producer_id,
         "pm_id": pm_id,
@@ -40,7 +41,9 @@ SPEC = load_manifest().tables["desired_people"]
 
 
 async def _scope(*rows):
-    return await Scope.load(FakeLiveStore(crosswalk=rows), source="usa-wa", kinds=("person",))
+    return await Scope.load(
+        FakeLiveStore(crosswalk=rows), source=PRODUCER_SOURCE, kinds=("person",)
+    )
 
 
 async def test_scope_resolves_only_live_and_merged():
