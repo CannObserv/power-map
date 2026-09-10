@@ -22,7 +22,11 @@ from scripts.export_pm_tables import TABLES  # noqa: E402
 from src.core.ingestion.mapping import USA_WA_SOURCES, run_dbt  # noqa: E402
 from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, write_parquet  # noqa: E402
 
-STORE = Path(__file__).resolve().parents[4] / "data" / "usa_wa_snapshots"
+REPO_ROOT = Path(__file__).resolve().parents[4]
+# Path arithmetic that silently pointed elsewhere would skip "store absent"
+# forever — a vacuous pass by another route (CR 8).
+assert (REPO_ROOT / "pyproject.toml").exists(), f"not the repo root: {REPO_ROOT}"
+STORE = REPO_ROOT / "data" / "usa_wa_snapshots"
 CROSSWALK = STORE / PM_EXPORT_DIR / "producer_crosswalk.parquet"
 
 pytestmark = pytest.mark.integration
@@ -31,7 +35,7 @@ pytestmark = pytest.mark.integration
 def _missing() -> list[str]:
     absent = [name for name in USA_WA_SOURCES if not (STORE / name).is_dir()]
     if not CROSSWALK.exists():
-        absent.append(str(CROSSWALK.relative_to(STORE.parent.parent)))
+        absent.append(str(CROSSWALK.relative_to(REPO_ROOT)))
     return absent
 
 
