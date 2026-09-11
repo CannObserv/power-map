@@ -35,6 +35,7 @@ __all__ = [
     "pin",
     "pin_changed",
     "unpin",
+    "unpin_pin",
 ]
 
 logger = get_logger(__name__)
@@ -53,6 +54,10 @@ _INSERT_SQL = (
     f" VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {_COLUMNS}"
 )
 _ARCHIVE_SQL = "UPDATE curation_overlay SET archived_at = NOW() WHERE id = $1"
+_UNPIN_ID_SQL = (
+    "UPDATE curation_overlay SET archived_at = NOW() WHERE id = $1 AND archived_at IS NULL"
+    f" RETURNING {_COLUMNS}"
+)
 _UNPIN_SQL = (
     "UPDATE curation_overlay SET archived_at = NOW()"
     " WHERE entity_type = $1 AND entity_id = $2 AND field = $3 AND archived_at IS NULL"
@@ -153,6 +158,21 @@ async def unpin(
     if row is not None:
         logger.info("unpinned %s.%s on %s by %s", entity_type, field, entity_id, user_id)
     return row is not None
+
+
+async def unpin_pin(conn: asyncpg.Connection, pin_id: str, *, user_id: str) -> Pin | None:
+    """Archive one pin by id — only while it is still the live one.
+
+    A list row can be older than its page: the pin it shows may have been
+    replaced since, and unpinning by field would archive the newer pin instead.
+    Returns the archived pin, or None when that row was no longer live.
+    """
+    row = await conn.fetchrow(_UNPIN_ID_SQL, pin_id)
+    if row is None:
+        return None
+    held = _pin(row)
+    logger.info("unpinned %s.%s on %s by %s", held.entity_type, held.field, held.entity_id, user_id)
+    return held
 
 
 async def pin_changed(

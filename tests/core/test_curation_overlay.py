@@ -20,6 +20,7 @@ from src.core.curation_overlay import (
     pin,
     pin_changed,
     unpin,
+    unpin_pin,
 )
 from src.core.db import generate_id
 from src.core.ingestion.crosswalk import PRODUCER_SOURCE
@@ -247,3 +248,28 @@ async def test_pin_changed_outside_the_crosswalk_writes_nothing(db, curator):
 
     assert pinned == []
     assert await _rows(db, person) == []
+
+
+# --- unpin by id: the pins page's row action --------------------------------------
+
+
+async def test_unpin_pin_archives_that_row_and_returns_it(db, curator):
+    person = await _person(db)
+    held = await pin(db, "person", person, "name", "Curated", user_id=curator)
+
+    gone = await unpin_pin(db, held.id, user_id=curator)
+
+    assert gone is not None and gone.id == held.id and gone.archived_at is not None
+    assert await active_pin(db, "person", person, "name") is None
+
+
+async def test_unpin_pin_on_a_stale_row_never_touches_the_newer_pin(db, curator):
+    """A list row can be older than the page: its pin may have been replaced since.
+    Unpinning *that* row must not archive the live pin that superseded it."""
+    person = await _person(db)
+    old = await pin(db, "person", person, "name", "First", user_id=curator)
+    await pin(db, "person", person, "name", "Second", user_id=curator)  # archives `old`
+
+    assert await unpin_pin(db, old.id, user_id=curator) is None
+
+    assert (await active_pin(db, "person", person, "name")).value == "Second"

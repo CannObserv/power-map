@@ -1,0 +1,20 @@
+{# admin/pins/_row.html — one curation-overlay pin (#498). `p` from pins_queries. #}
+{% set _detail = ("/admin/people/" if p.entity_type == "person" else "/admin/orgs/") ~ p.entity_id ~ "/" %}
+<tr id="pin-row-{{ p.id }}">
+  <td><a href="{{ _detail }}">{{ p.entity_name or p.entity_id }}</a></td>
+  <td>{{ p.label }}</td>
+  <td>{% if p.value is none %}<em>kept empty</em>{% else %}{{ p.display }}{% endif %}</td>
+  <td>{{ p.note or "—" }}</td>
+  <td>{{ p.pinned_by or "—" }}</td>
+  <td class="col--date">{{ p.created_at.strftime("%Y-%m-%d") }}</td>
+  <td>{% if p.archived_at %}<span class="badge badge--inactive">Unpinned {{ p.archived_at.strftime("%Y-%m-%d") }}</span>{% else %}<span class="badge badge--pinned">Pinned</span>{% endif %}</td>
+  <td style="text-align:right">
+    {% if not p.archived_at %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-post="/admin/pins/{{ p.id }}/unpin/"
+            hx-target="#pin-row-{{ p.id }}"
+            hx-swap="outerHTML"
+            aria-label="Unpin {{ p.label | lower }} on {{ p.entity_name or p.entity_id }}">Unpin</button>
+    {% endif %}
+  </td>
+</tr>

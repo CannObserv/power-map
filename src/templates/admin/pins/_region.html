@@ -1,0 +1,21 @@
+{# admin/pins/_region.html — the pins table, swapped on each filter change (#498). #}
+<div class="table-wrapper">
+  <table class="data-table" id="pins-table">
+    <caption>Pins — {{ rows | length }} record{{ "s" if rows | length != 1 else "" }}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Entity</th><th scope="col">Field</th><th scope="col">Pinned value</th>
+        <th scope="col">Note</th><th scope="col">Pinned by</th>
+        <th scope="col" class="col--date">Pinned</th><th scope="col">Status</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in rows %}
+      {% include "admin/pins/_row.html" %}
+      {% else %}
+      <tr><td colspan="8" style="text-align:center;color:var(--color-text-muted)">No pins</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

@@ -1,0 +1,41 @@
+{% extends "admin/base.html" %}
+{% from "admin/macros/flash.html" import message %}
+{% block title %}Pins{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span><span>Pins</span>
+{% endblock %}
+{% block flash %}{% if flash_msg %}{{ message(flash_msg.level, flash_msg.body) }}{% endif %}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Pins</h1>
+</div>
+<p>A pin holds PM's value for a field {{ producer }} maintains, over every later snapshot. Editing such a field pins it; unpin to let {{ producer }}'s value return on the next apply.</p>
+<div class="filter-card">
+  <div class="filter-card__controls">
+    <div class="filter-card__field">
+      <label for="pins-type-filter">Type</label>
+      <select id="pins-type-filter" name="type"
+              hx-get="/admin/pins/" hx-trigger="change"
+              hx-target="#pins-list-region"
+              hx-include="[name='status']" hx-push-url="true">
+        <option value="" {% if not entity_type %}selected{% endif %}>All types</option>
+        {% for t in entity_types %}
+        <option value="{{ t }}" {% if entity_type == t %}selected{% endif %}>{{ t | capitalize }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="filter-card__field">
+      <label for="pins-status-filter">Status</label>
+      <select id="pins-status-filter" name="status"
+              hx-get="/admin/pins/" hx-trigger="change"
+              hx-target="#pins-list-region"
+              hx-include="[name='type']" hx-push-url="true">
+        <option value="active"   {% if status == "active"   %}selected{% endif %}>Pinned</option>
+        <option value="archived" {% if status == "archived" %}selected{% endif %}>Unpinned</option>
+        <option value="all"      {% if status == "all"      %}selected{% endif %}>All</option>
+      </select>
+    </div>
+  </div>
+</div>
+<div id="pins-list-region">{% include "admin/pins/_region.html" %}</div>
+{% endblock %}
