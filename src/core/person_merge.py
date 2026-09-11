@@ -91,7 +91,8 @@ _CONFLICTING_ASSIGNMENTS_SQL = """SELECT l.id AS loser_ra, w.id AS winner_ra
            ORDER BY l.id"""
 
 # The polymorphic tables a merge re-homes wholesale (deduping where the winner
-# already holds the row). The preview counts the loser's rows in each.
+# already holds the row). One list for both: the merge re-points each, the
+# preview counts the loser's rows in each.
 _PERSON_ANCILLARY_TABLES = (
     "contact_methods",
     "links",
@@ -385,14 +386,8 @@ async def merge_person_into(
         winner_id,
     )
 
-    # Polymorphic entity tables.
-    for table in (
-        "contact_methods",
-        "links",
-        "entity_addresses",
-        "import_provenance",
-        "field_confidence",
-    ):
+    # Polymorphic entity tables — the list the preview counts, so the two cannot drift.
+    for table in _PERSON_ANCILLARY_TABLES:
         await db.execute(
             f"UPDATE {table} SET entity_id=$1 "  # noqa: S608
             f"WHERE entity_type='person' AND entity_id=$2",
