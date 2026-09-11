@@ -262,3 +262,44 @@ def test_the_projects_uniqueness_tests_match_the_declared_key(table):
     else:
         assert not (set(key) & unique), f"{table}: composite key {key} but unique on {unique}"
         assert (PROJECT_DIR / "tests" / f"{table}_key_unique.sql").exists(), table
+
+
+# --- #498: each producer-owned slot names its overlay field --------------------
+
+OVERLAY_SLOTS = {
+    ("person", "name"),
+    ("organization", "legal_name"),
+    ("organization", "acronym"),
+    ("organization", "parent_id"),
+    ("organization", "dissolved_year"),
+}
+
+
+def test_every_owned_slot_names_its_overlay_field():
+    """A column the producer owns with no overlay field is one a curator cannot pin —
+    a correction the #501 flip would revert without a word."""
+    tables = load_manifest().tables
+    slots = {
+        (s.entity, s.overlay) for s in tables.values() if s.target.shape in ("column", "child")
+    }
+
+    assert slots == OVERLAY_SLOTS
+
+
+@pytest.mark.parametrize("table", ["desired_person_names", "desired_entity_events"])
+def test_an_owned_binding_without_an_overlay_field_fails_at_load(table):
+    raw = _raw()
+    raw["tables"][table].pop("overlay")
+
+    with pytest.raises(ManifestError, match="overlay"):
+        parse_manifest(raw)
+
+
+@pytest.mark.parametrize("table", ["desired_people", "desired_person_merges"])
+def test_an_overlay_field_on_an_entity_or_merge_table_fails_at_load(table):
+    """Identity and merges are not values a curator pins; an overlay key there is a typo."""
+    raw = _raw()
+    raw["tables"][table]["overlay"] = "name"
+
+    with pytest.raises(ManifestError, match="overlay"):
+        parse_manifest(raw)

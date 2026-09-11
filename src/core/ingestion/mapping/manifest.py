@@ -27,6 +27,7 @@ __all__ = [
     "MANIFEST_PATH",
     "MATCHES",
     "MERGE_PRIMITIVES",
+    "OVERLAY_SHAPES",
     "RETRACTIONS",
     "SHAPES",
     "Manifest",
@@ -95,6 +96,13 @@ class TableSpec:
     owned_columns: list[str]
     target: Target
     owned_event_types: list[str] = field(default_factory=list)
+    # #498: the curation_overlay field that pins this table's owned value — the
+    # pair is (entity, overlay). Required where a value is owned (column, child).
+    overlay: str | None = None
+
+
+# The shapes that carry a producer-owned value a curator can pin (#498).
+OVERLAY_SHAPES = ("column", "child")
 
 
 @dataclass(frozen=True)
@@ -182,6 +190,15 @@ def _table(name: str, raw: object) -> TableSpec:
     key = list(_require(raw, "key", name))
     if not key:
         raise ManifestError(f"{name}: key must name at least one column")
+    target = _target(name, raw.get("target"))
+    overlay = raw.get("overlay")
+    if target.shape in OVERLAY_SHAPES and not overlay:
+        raise ManifestError(
+            f"{name}: a {target.shape} binding owns a value, so it names its overlay field"
+            " — without one a curator's correction cannot be pinned (#498)"
+        )
+    if target.shape not in OVERLAY_SHAPES and overlay is not None:
+        raise ManifestError(f"{name}: an overlay field on a {target.shape} table pins nothing")
     return TableSpec(
         name=name,
         entity=str(_require(raw, "entity", name)),
@@ -190,7 +207,8 @@ def _table(name: str, raw: object) -> TableSpec:
         retraction=str(retraction),
         owned_columns=list(_require(raw, "owned_columns", name)),
         owned_event_types=list(raw.get("owned_event_types") or []),
-        target=_target(name, raw.get("target")),
+        target=target,
+        overlay=str(overlay) if overlay is not None else None,
     )
 
 
