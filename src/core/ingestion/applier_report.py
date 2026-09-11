@@ -11,7 +11,9 @@ from: ``diff.jsonl`` holds one actionable entry per line (never a noop),
 sorted by ``entry_id`` so a decision can name a line and a diff between two
 runs is a diff of two files; ``summary.json`` carries the verdict, counts,
 thresholds, the diff's digest and the inputs (`BUILD.json`); ``summary.md``
-says the same for a person. ``ledger.jsonl`` gets one line per run.
+says the same for a person. ``ledger.jsonl`` gets one line per run, carrying
+the mode it ran in — ``dry``, ``execute``, or ``refused`` for an ``--execute``
+the gate turned away. Only a dry run builds the streak.
 
 The digest covers the actionable entries only — id, kind, target and the
 value changes, never the prose — in a fixed order, so two runs that would do
@@ -33,6 +35,7 @@ from src.core.ingestion.mapping.manifest import Thresholds
 __all__ = [
     "DIFF_FILE",
     "LEDGER",
+    "MODES",
     "SUMMARY_JSON",
     "SUMMARY_MD",
     "THRESHOLD_KINDS",
@@ -56,6 +59,11 @@ SUMMARY_MD = "summary.md"
 # `rolled_back` is recorded only by an execute whose in-transaction re-diff
 # still had writes; it breaks the streak so the next execute re-earns it.
 VERDICTS = ("clean", "blocked", "stale", "rolled_back")
+
+# How a run reached the ledger. `dry` is the only mode that builds the streak,
+# which is why a refused `--execute` is `refused` and not a dry run (CR 3): the
+# operator's own attempts used to be the streak they were waiting on.
+MODES = ("dry", "execute", "refused")
 
 # threshold name → the entry kinds it counts. `updates` is every write to a
 # row PM already has or a child row it lacks; `creates` is new entities only.
@@ -178,6 +186,8 @@ def write_report(
     finished_at: datetime,
 ) -> dict:
     """Write diff.jsonl, summary.json and summary.md; return the summary (JSON-native)."""
+    if mode not in MODES:
+        raise ValueError(f"unknown run mode {mode!r} (one of {', '.join(MODES)})")
     out = Path(run_dir)
     out.mkdir(parents=True, exist_ok=True)
     actionable = _actionable(diff)

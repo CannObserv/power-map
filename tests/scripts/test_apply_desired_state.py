@@ -132,7 +132,23 @@ async def test_execute_refuses_without_a_streak_and_opens_no_transaction(world):
 
     assert code == 1
     assert conn.events == []
-    assert [ln["mode"] for ln in read_ledger(world["out"] / LEDGER)] == ["dry"]
+    assert [ln["mode"] for ln in read_ledger(world["out"] / LEDGER)] == ["refused"]
+
+
+async def test_three_refused_attempts_do_not_build_the_streak_they_wait_on(world):
+    """CR 3: a refusal was recorded as a clean dry run, so the operator's own attempts
+    were the streak — three `--execute` invocations seconds apart wrote on the third.
+    A refusal is its own mode now, and `may_execute` already refuses any line that is
+    not a dry run, so only the nightly timer's dry runs build the gate."""
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+    conns = [FakeConn() for _ in range(3)]
+
+    codes = [await _run(world, store, execute=True, conn=c) for c in conns]
+
+    assert codes == [1, 1, 1]
+    assert all(c.events == [] for c in conns)
+    assert [ln["mode"] for ln in read_ledger(world["out"] / LEDGER)] == ["refused"] * 3
 
 
 async def test_execute_refuses_a_blocked_run_even_after_a_streak(world):

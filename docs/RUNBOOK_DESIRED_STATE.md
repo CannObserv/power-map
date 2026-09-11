@@ -101,11 +101,13 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
 - **Verdicts and exit codes.** A dry run always completes: `clean` or `blocked`
   (a threshold exceeded) exit **0** — seventeen pending creates must not fail the
   timer every night — and `stale` exits **3**. `--execute` refuses (exit **1**)
-  unless the ledger's last `streak` (manifest: 3) dry runs are all clean and
+  unless the ledger's last `streak` (manifest: 3) **dry** runs are all clean and
   carry this run's diff digest; it then writes in **one transaction**, re-diffs
   inside it, and rolls back — verdict `rolled_back`, exit 1, the streak restarts
   — unless nothing is left to write. A trigger or constraint firing (the
-  org-cycle guard) is the same rollback.
+  org-cycle guard) is the same rollback. A refused `--execute` is recorded as
+  mode `refused`, which is not a dry run and so restarts the streak: attempts at
+  the gate never add up to opening it, and only the nightly chain builds it.
 - **Thresholds** live in `manifest.yml` (`creates 0`, `merges 0`, `conflicts 0`,
   `stale 0`, `updates` unlimited). The flip (#501) passes `--allow-creates N`,
   `--max-updates N`, `--streak N` for one run. Each has a floor: the thresholds

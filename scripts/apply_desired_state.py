@@ -8,7 +8,9 @@ ownership manifest; the Python knows neither WA nor a table name.
 
 Every run writes `data/applier/<run-id>/{diff.jsonl,summary.json,summary.md}`
 and appends a line to `data/applier/ledger.jsonl`. `--execute` is offered only
-after `streak` consecutive clean dry runs carrying this run's diff digest.
+after `streak` consecutive clean dry runs carrying this run's diff digest. A
+refused `--execute` is recorded as `refused`, not as a dry run: an attempt at
+the gate does not count towards opening it.
 
 Exit codes: 0 a dry run completed (verdict clean or blocked — both recorded,
 neither fails the timer) or an execute applied and verified; 1 an execute was
@@ -133,8 +135,8 @@ async def run(
         if verdict.verdict != "clean":
             ok, why = False, f"this run is {verdict.verdict} ({_exceeded(verdict)})"
         if not ok:
-            logger.error("execute refused: %s — recorded as a dry run", why)
-            code = EXIT_REFUSED
+            logger.error("execute refused: %s — recorded as a refused attempt", why)
+            mode, code = "refused", EXIT_REFUSED
         else:
             mode = "execute"
 
