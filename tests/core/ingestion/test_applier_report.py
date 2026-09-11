@@ -261,3 +261,13 @@ def test_a_non_positive_streak_never_opens_the_gate():
             ok, reason = may_execute(ledger, digest="d1", streak=streak)
 
             assert not ok and "streak" in reason
+
+
+def test_a_short_ledger_names_the_line_that_blocks_it_before_counting():
+    """CR 12: the length was checked first and counted lines of any mode, so a ledger
+    ending in a refused attempt read "only 2 of 3 dry runs recorded" — progress, to
+    the operator whose attempt had just reset the streak. The lines present are
+    checked first; the count is only reported once every one of them qualifies."""
+    ok, reason = may_execute([_line("r1"), _line("r2", mode="refused")], digest="d1", streak=3)
+
+    assert not ok and "r2" in reason and "recorded" not in reason

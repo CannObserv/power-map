@@ -252,12 +252,14 @@ def may_execute(ledger: Sequence[dict], *, digest: str, streak: int) -> tuple[bo
     < 0`` is never true — so a zero read an empty ledger as a satisfied one and
     answered yes. The CLI refuses the flag too; this is the gate refusing to be
     asked at all, whoever is asking.
+
+    The lines present are judged before they are counted (CR 12), so the count
+    is only ever reported when every one of them qualifies — a refused attempt
+    is named as the blocker, never tallied as progress towards the streak.
     """
     if streak < 1:
         return False, f"a streak of {streak} is no gate; at least one clean dry run is required"
     recent = list(ledger)[-streak:]
-    if len(recent) < streak:
-        return False, f"only {len(recent)} of {streak} dry runs recorded"
     for ln in recent:
         if ln.get("mode") != "dry":
             return False, f"run {ln.get('run_id')} was an execute; the streak restarts after it"
@@ -265,4 +267,6 @@ def may_execute(ledger: Sequence[dict], *, digest: str, streak: int) -> tuple[bo
             return False, f"run {ln.get('run_id')} was {ln.get('verdict')}"
         if ln.get("digest") != digest:
             return False, f"the diff changed since run {ln.get('run_id')}"
+    if len(recent) < streak:
+        return False, f"only {len(recent)} of {streak} dry runs recorded"
     return True, f"{streak} consecutive clean dry runs with this digest"
