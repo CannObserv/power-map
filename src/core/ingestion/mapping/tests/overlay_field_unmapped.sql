@@ -17,5 +17,6 @@ select
 from {{ ref('stg_pm__curation_overlay') }}
 where not (
     (entity_type = 'person' and field = 'name')
-    or (entity_type = 'organization' and field in ('parent_id', 'legal_name', 'acronym'))
+    or (entity_type = 'organization'
+        and field in ('parent_id', 'legal_name', 'acronym', 'dissolved_year'))
 )
