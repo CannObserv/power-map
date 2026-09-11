@@ -19,6 +19,10 @@ Two jobs live here:
   successor, and an id PM has no record of at all — the latter including every
   merge older than the 90-day tombstone TTL (`scripts/prune_outbox.py`).
   Both belong on the blocking report; guessing is how a seed mints duplicates.
+* **Re-pointing** after a merge (#514). The table stores the walk's answer, so a
+  merge that retires a row must write the new answer or every anchor naming the
+  row keeps pointing at nothing — and the walk that could recover it forgets once
+  the tombstone is pruned.
 """
 
 import csv
@@ -45,6 +49,7 @@ __all__ = [
     "UnresolvedAnchor",
     "load_anchors",
     "parse_anchors",
+    "repoint_anchors",
     "resolve_anchor",
     "verify_digest",
 ]
@@ -369,3 +374,35 @@ async def load_anchors(
         if (r["kind"], r["producer_id"]) not in present
     ]
     return report
+
+
+# The walk's answer for an anchor whose row was just merged away: the survivor,
+# `merged` when it is live and `archived` when it is not — `resolve_anchor`'s own
+# rule, so a re-seed reaches the same row and the same status.
+_REPOINT_SQL = """
+UPDATE producer_crosswalk
+   SET pm_id = $3,
+       resolution = CASE WHEN (SELECT archived_at FROM {table} WHERE id = $3) IS NULL
+                         THEN 'merged' ELSE 'archived' END
+ WHERE kind = $1 AND pm_id = $2
+RETURNING id
+"""
+
+
+async def repoint_anchors(db: asyncpg.Connection, kind: str, pairs: list[tuple[str, str]]) -> int:
+    """Re-point every anchor naming a merged-away row at its survivor; return how many.
+
+    ``pairs`` is ``[(loser_id, winner_id), ...]`` in the crosswalk's ``kind``
+    vocabulary (``assignment``, not ``role_assignment``). Every source moves: the
+    row is gone for all of them. ``exported_pm_id`` — the producer's word — is
+    left as it was, which is what lets a re-seed of a stale export still resolve.
+    Call it after the merge, inside the merge's transaction, with a survivor that
+    exists.
+    """
+    if kind not in ANCHOR_KINDS:
+        raise ValueError(f"not a crosswalk kind: {kind!r} (one of {', '.join(ANCHOR_KINDS)})")
+    sql = _REPOINT_SQL.format(table=_ENTITY_TABLE[kind])
+    moved = 0
+    for loser_id, winner_id in pairs:
+        moved += len(await db.fetch(sql, kind, loser_id, winner_id))
+    return moved
