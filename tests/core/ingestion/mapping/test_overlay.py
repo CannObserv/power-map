@@ -10,10 +10,14 @@ halting would withhold every other table for it. Measured before the change:
 one such row skipped 23 nodes and wrote no desired state at all.
 """
 
+import re
+
 import pytest
 
 pytest.importorskip("dbt.adapters.duckdb")
 
+from src.api.admin.overlay_slots import SLOTS  # noqa: E402
+from src.core.ingestion.mapping import PROJECT_DIR, load_manifest  # noqa: E402
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     DEFAULT_OVERLAY,
     EXPECTED_WARNINGS,
@@ -72,3 +76,35 @@ def test_an_archived_pin_is_applied_nowhere(build):
     assert {r[1]: r[2] for r in live.rows("desired_person_names")}[P1] == "Curated One"
     assert names[P1] != "Curated One"
     assert "overlay_field_unmapped" not in unpinned.warnings
+
+
+# --- #498: one vocabulary, three places ---------------------------------------
+
+VOCABULARY_SQL = PROJECT_DIR / "tests" / "overlay_field_unmapped.sql"
+_PAIR = re.compile(
+    r"\(entity_type\s*=\s*'(\w+)'\s+and\s+field\s*(?:=\s*'(\w+)'|in\s*\(([^)]*)\))\)", re.S
+)
+
+
+def _vocabulary_pairs() -> set[tuple[str, str]]:
+    """The (entity_type, field) pairs the dbt vocabulary test accepts."""
+    pairs = set()
+    for entity_type, one, many in _PAIR.findall(VOCABULARY_SQL.read_text()):
+        fields = [one] if one else re.findall(r"'(\w+)'", many)
+        pairs |= {(entity_type, f) for f in fields}
+    return pairs
+
+
+def test_the_manifest_the_models_and_the_admin_agree_on_the_pinnable_fields():
+    """#498: the manifest names each owned slot's overlay field, the models accept
+    exactly those pairs, and the admin offers exactly those. A slot in one list and
+    not another is a pin that is refused, ignored, or never offered."""
+    manifest = {(s.entity, s.overlay) for s in load_manifest().tables.values() if s.overlay}
+
+    assert _vocabulary_pairs() == manifest
+    assert set(SLOTS) == manifest
+
+
+def test_the_vocabulary_parser_reads_every_pair_the_sql_names():
+    """The sync test above must not pass by parsing nothing."""
+    assert len(_vocabulary_pairs()) == 5
