@@ -21,7 +21,7 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
-from src.core.ingestion.crosswalk import PRODUCER_SOURCE
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE, TOMBSTONE_TYPE
 from src.core.ingestion.mapping import BUILD_INFO, Manifest
 from src.core.ingestion.mapping.manifest import TableSpec
 from src.core.ingestion.mapping.parquet import read_records
@@ -53,7 +53,8 @@ IN_SCOPE = ("live", "merged")
 # retract  an in-scope row the producer no longer publishes — report-only here
 # stale    the desired state disagrees with the live crosswalk — rebuild
 # conflict more than one live row matches a keyed child — a person decides
-# merge    a producer tombstone's re-point instruction — report-only (#514)
+# merge    a producer tombstone: actionable when `effects` names the primitive
+#          that acts on it (#514), report-only when it names none
 ENTRY_KINDS = ("noop", "create", "insert", "update", "retract", "stale", "conflict", "merge")
 
 
@@ -95,6 +96,10 @@ class LiveStore(Protocol):
 
     async def lookup(self, table: str, from_col: str, to_col: str) -> dict[str, str]: ...
 
+    async def tombstones(self, entity_type: str, ids: Sequence[str]) -> dict[str, str | None]: ...
+
+    async def merge_preview(self, primitive: str, loser_id: str, survivor_id: str) -> dict: ...
+
     async def value_matches(
         self, table: str, column: str, values: Sequence, parent: str
     ) -> dict[object, list[str]]: ...
@@ -123,6 +128,9 @@ class Entry:
     reason: str | None = None
     hint: tuple[dict, ...] = ()
     row_id: str | None = None  # the PM child row an update targets
+    # merge only: what acting on it does — {"primitive", "preview"} or
+    # {"primitive", "already_merged"}. Empty = report-only. Enters the digest.
+    effects: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.kind not in ENTRY_KINDS:
@@ -324,7 +332,7 @@ async def diff_desired(
             entries.extend(await _diff_child(spec, kept[name], creating, state, scope, store))
     for name, spec in manifest.tables.items():
         if spec.target.shape == "merge":
-            entries.extend(_diff_merge(spec, kept[name]))
+            entries.extend(await _diff_merge(spec, kept[name], scope, store))
     return Diff(entries)
 
 
@@ -378,7 +386,19 @@ async def _diff_entity(
 
     if spec.retraction == "report":
         present = {r["producer_id"] for r in state.tables[spec.name]}
-        for producer_id in sorted(scope.in_scope(spec.entity) - present):
+        # An absent producer id a tombstone accounts for is a merge, not a
+        # retraction (#514): before the merge it is a loser in this build's merge
+        # table; after it, its anchor resolves to a row a published id still claims.
+        merged_away = {
+            r.get("loser_producer_id")
+            for name, other in manifest.tables.items()
+            if other.target.shape == "merge" and other.entity == spec.entity
+            for r in state.tables[name]
+        }
+        claimed = {scope.resolve(spec.entity, p) for p in present} - {None}
+        for producer_id in sorted(scope.in_scope(spec.entity) - present - merged_away):
+            if scope.resolve(spec.entity, producer_id) in claimed:
+                continue
             row = {"producer_id": producer_id, spec.pm_key: scope.resolve(spec.entity, producer_id)}
             entries.append(
                 _entry(
@@ -484,23 +504,96 @@ async def _diff_column(
     return entries
 
 
-def _diff_merge(spec: TableSpec, rows: Sequence[dict]) -> list[Entry]:
+async def _diff_merge(
+    spec: TableSpec, rows: Sequence[dict], scope: Scope, store: LiveStore
+) -> list[Entry]:
+    """A producer tombstone, classified against live state (#514).
+
+    `noop` once the live crosswalk resolves the loser's producer id to the
+    survivor — the merge ran, and the next build, or the re-diff inside the
+    execute transaction, sees it. Report-only (`merge`, no effects) for a null
+    survivor or a table no primitive binds. Otherwise both rows must be ones PM
+    can write: an actionable `merge` carries the primitive's preview; a loser PM
+    already folded into the survivor (a curator merged the pair first) is an
+    actionable merge whose only work is the anchors; anything else is `stale`.
+    """
+    target = spec.target
+    live: dict[str, dict] = {}
+    if target.primitive is not None:
+        ids = sorted({r[k] for r in rows for k in (spec.pm_key, "survivor_pm_id") if r.get(k)})
+        live = await store.entity_rows(target.table, ids, ()) if ids else {}
+
     entries: list[Entry] = []
     for row in rows:
-        survivor = row.get("survivor_pm_id")
-        why = "survivor out of scope: report, never act" if survivor is None else "report-only"
-        entries.append(
-            Entry(
-                entry_id=entry_id(spec, row),
-                table=spec.name,
-                kind="merge",
-                producer_id=row.get("loser_producer_id"),
-                pm_id=row.get(spec.pm_key),
-                changes={"survivor_pm_id": (None, survivor)},
-                reason=f"{why} — acting on merges is #514",
+        loser, survivor = row.get(spec.pm_key), row.get("survivor_pm_id")
+
+        def add(kind: str, reason: str | None = None, effects: dict | None = None) -> None:
+            entries.append(
+                Entry(
+                    entry_id=entry_id(spec, row),
+                    table=spec.name,
+                    kind=kind,
+                    producer_id=row.get("loser_producer_id"),
+                    pm_id=loser,
+                    changes={"survivor_pm_id": (None, survivor)},
+                    reason=reason,
+                    effects=effects or {},
+                )
             )
-        )
+
+        if survivor is None:
+            add("merge", "survivor out of scope: report, never act")
+            continue
+        if target.primitive is None:
+            add("merge", f"no merge primitive is bound for {spec.entity}: report-only")
+            continue
+        if scope.resolve(spec.entity, row.get("loser_producer_id")) == survivor:
+            add("noop")
+            continue
+        survivor_row = live.get(survivor)
+        if survivor_row is None or survivor_row.get("archived_at") is not None:
+            state = "missing from" if survivor_row is None else "archived in"
+            add("stale", f"survivor {survivor} is {state} {target.table}: a person decides")
+            continue
+        loser_row = live.get(loser)
+        if loser_row is not None and loser_row.get("archived_at") is not None:
+            add("stale", f"loser {loser} is archived in {target.table}: a person decides")
+        elif loser_row is not None:
+            preview = await store.merge_preview(target.primitive, loser, survivor)
+            add(
+                "merge",
+                f"fold {loser} into {survivor} through the {target.primitive} merge",
+                {"primitive": target.primitive, "preview": preview},
+            )
+        elif (end := await _merged_into(store, TOMBSTONE_TYPE[spec.entity], loser)) == survivor:
+            add(
+                "merge",
+                f"PM already merged {loser} into {survivor}: only the anchors re-point",
+                {"primitive": target.primitive, "already_merged": True},
+            )
+        else:
+            where = "with no survivor" if end is None else f"into {end}, not {survivor}"
+            add("stale", f"loser {loser} left {target.table} {where}: a person decides")
     return entries
+
+
+async def _merged_into(store: LiveStore, entity_type: str, pm_id: str) -> str | None:
+    """Where ``pm_id``'s tombstones lead: the first id with none, or None.
+
+    None when ``pm_id`` has no tombstone at all, when a hop records no survivor,
+    or on a cycle — every case in which PM cannot say the row folded anywhere.
+    """
+    seen: set[str] = set()
+    current = pm_id
+    while current not in seen:
+        seen.add(current)
+        found = await store.tombstones(entity_type, [current])
+        if current not in found:
+            return None if current == pm_id else current
+        if found[current] is None:
+            return None
+        current = found[current]
+    return None
 
 
 async def _diff_child(

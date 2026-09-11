@@ -43,6 +43,7 @@ __all__ = [
     "Verdict",
     "append_ledger",
     "diff_digest",
+    "digest_view",
     "entry_json",
     "ledger_line",
     "may_execute",
@@ -109,8 +110,14 @@ def _changes(entry: Entry) -> dict[str, list]:
     return {col: [old, new] for col, (old, new) in entry.changes.items()}
 
 
-def _digest_view(entry: Entry) -> dict:
-    return {
+def digest_view(entry: Entry) -> dict:
+    """What an entry *does*, without its prose or hints — the unit the digest hashes.
+
+    ``effects`` joins only when present, so a diff without an actionable merge
+    hashes exactly as it did before merges could act (#514): the streak a
+    deploy lands in the middle of is not reset by the upgrade.
+    """
+    view = {
         "entry_id": entry.entry_id,
         "table": entry.table,
         "kind": entry.kind,
@@ -119,17 +126,20 @@ def _digest_view(entry: Entry) -> dict:
         "row_id": entry.row_id,
         "changes": _changes(entry),
     }
+    if entry.effects:
+        view["effects"] = entry.effects
+    return view
 
 
 def diff_digest(diff: Diff) -> str:
     """sha256 over the actionable entries in a fixed order; prose and hints excluded."""
-    body = json.dumps([_digest_view(e) for e in _actionable(diff)], sort_keys=True, default=str)
+    body = json.dumps([digest_view(e) for e in _actionable(diff)], sort_keys=True, default=str)
     return hashlib.sha256(body.encode()).hexdigest()
 
 
 def entry_json(entry: Entry) -> dict:
     """One diff.jsonl line."""
-    return {**_digest_view(entry), "reason": entry.reason, "hint": list(entry.hint)}
+    return {**digest_view(entry), "reason": entry.reason, "hint": list(entry.hint)}
 
 
 def _ts(moment: datetime) -> str:

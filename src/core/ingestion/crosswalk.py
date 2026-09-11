@@ -46,6 +46,7 @@ __all__ = [
     "Resolution",
     "SeedReport",
     "Supersession",
+    "TOMBSTONE_TYPE",
     "UnresolvedAnchor",
     "load_anchors",
     "parse_anchors",
@@ -69,7 +70,7 @@ _ULID_LEN = 26
 
 # usa-wa's kind vocabulary is not PM's tombstone vocabulary: an "assignment" is
 # a `role_assignment` on this side.
-_TOMBSTONE_TYPE = {
+TOMBSTONE_TYPE = {
     "person": "person",
     "organization": "organization",
     "role": "role",
@@ -185,7 +186,7 @@ async def resolve_anchor(db: asyncpg.Connection, kind: str, pm_id: str) -> Resol
     if kind not in ANCHOR_KINDS:
         raise ValueError(f"unknown anchor kind: {kind!r}")
     table = _ENTITY_TABLE[kind]
-    tombstone_type = _TOMBSTONE_TYPE[kind]
+    tombstone_type = TOMBSTONE_TYPE[kind]
 
     # `seen` both detects a cycle and bounds the walk: ids are finite and each
     # hop consumes one, so no separate hop limit is needed — and a hop limit

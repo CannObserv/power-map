@@ -10,7 +10,9 @@ per desired-state table, what the producer claims (`key`, `retraction`,
     column   one column on that entity row (organizations.parent_id)
     child    a keyed child row of the entity (names, acronyms, events), matched
              by `any_then_canonical` or `key`
-    merge    nothing — every row is a report entry (#514 acts on them)
+    merge    a producer tombstone: re-point the loser's PM row at the survivor's.
+             Acted on only when the binding names a merge `primitive` (#514,
+             persons); an unbound merge table is report-only (#520, orgs)
 
 The loader is typed and strict so a binding missing what its shape needs
 fails here, at load, rather than at 09:30 in the nightly chain.
@@ -24,6 +26,7 @@ import yaml
 __all__ = [
     "MANIFEST_PATH",
     "MATCHES",
+    "MERGE_PRIMITIVES",
     "RETRACTIONS",
     "SHAPES",
     "Manifest",
@@ -39,6 +42,9 @@ MANIFEST_PATH = Path(__file__).resolve().parent / "manifest.yml"
 SHAPES = ("entity", "column", "child", "merge")
 MATCHES = ("any_then_canonical", "key")
 RETRACTIONS = ("none", "report", "archive")
+# The merge primitives a `merge` binding may name — each is a core merge function
+# the applier's registry (`applier_merge.MERGE_PRIMITIVES`) knows how to call.
+MERGE_PRIMITIVES = ("person",)
 _THRESHOLD_KEYS = ("creates", "merges", "conflicts", "stale", "updates")
 
 
@@ -74,6 +80,7 @@ class Target:
     insert_defaults: dict[str, object] = field(default_factory=dict)  # PM column → literal
     archived: str | None = None  # key: match among rows where this is null
     hint_on_create: bool = False
+    primitive: str | None = None  # merge: the core merge it acts through; None = report-only
 
 
 @dataclass(frozen=True)
@@ -127,7 +134,18 @@ def _target(name: str, raw: object) -> Target:
         insert_defaults=dict(raw.get("insert_defaults") or {}),
         archived=raw.get("archived"),
         hint_on_create=bool(raw.get("hint_on_create", False)),
+        primitive=raw.get("primitive"),
     )
+    if target.primitive is not None:
+        if shape != "merge":
+            raise ManifestError(f"{where}: only a merge binding names a primitive, not {shape}")
+        if target.primitive not in MERGE_PRIMITIVES:
+            raise ManifestError(
+                f"{where}: unknown primitive {target.primitive!r}"
+                f" (one of {', '.join(MERGE_PRIMITIVES)})"
+            )
+        if not target.table:
+            raise ManifestError(f"{where}: a merge with a primitive requires target.table")
     if shape in ("entity", "column", "child") and not target.table:
         raise ManifestError(f"{where}: shape {shape} requires target.table")
     if shape in ("column", "child") and not target.columns:
