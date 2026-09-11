@@ -36,11 +36,17 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   (`coalesce(long_name, name)` — no dba), acronym, a row-scoped parent claim
   (House/Senate/Joint/chambers only), and `dissolved` from `last_biennium`
   (year = first year + 1; none at the dataset's newest biennium).
-- **The overlay wins by presence.** A `curation_overlay` row overrides the
-  mapped value even when its value is null (the row then drops out). Its
-  vocabulary is enforced per entity type by the project's `overlay_field_unmapped`
-  test, so a row naming a field no model maps for its type is warned by name
-  and applied nowhere. #498 builds the write path.
+- **The overlay wins by presence.** An *active* `curation_overlay` row (a pin)
+  overrides the mapped value even when its value is null (the row then drops
+  out); an unpinned one is archived and applies nowhere. Its vocabulary —
+  person `name`, organization `legal_name`, `acronym`, `parent_id`,
+  `dissolved_year` — is enforced per entity type by `overlay_field_unmapped`, so
+  a row naming a field no model maps is warned by name and applied nowhere; a
+  `dissolved_year` that is not an integer is named by `overlay_value_malformed`
+  and the producer's year stands. Pins are written by the admin: an edit that
+  moves a producer-owned value pins it (`docs/ADMIN_OVERLAY.md`). A pin reaches
+  the desired state at the next export and build — the chain's steps 2 and 3 —
+  so the export must run first after a deploy that changes its columns.
 - **Five persons are published with a blank name** (usa-wa#364). Staging trims
   and nullifies; the build **warns** rather than halts; identity lands and no
   name is asserted, so PM's own legal name stands.
@@ -54,7 +60,9 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   from the dataset, no claim. `not_null_desired_*_merges_survivor_pm_id`: a
   tombstone whose survivor is out of scope, report, never act.
   `overlay_field_unmapped`: a curator row naming a field no model maps, applied
-  nowhere. `build_desired_state` prints each WARN node and exits 0.
+  nowhere. `overlay_value_malformed`: a pinned value its slot cannot read (a
+  non-integer dissolved year), applied nowhere. `build_desired_state` prints
+  each WARN node and exits 0.
 - **The real-snapshot check** (`tests/core/ingestion/mapping/test_real_snapshot.py`,
   `-m integration`) asserts the design doc's measurements against the landed
   store and skips by name when steps 1–2 have not been run in that checkout.

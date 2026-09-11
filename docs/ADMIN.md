@@ -177,3 +177,5 @@ conventions every admin route needs:
   linked reading rows, structured parts, the single-form/single-Save shape
 - `docs/ADMIN_PANELS.md` — lingering-state warnings (#307), roles structural fields (#264),
   the jurisdictions surface (#275), person voice-embeddings (#284), the citations indicator (#341)
+- [`docs/ADMIN_OVERLAY.md`](ADMIN_OVERLAY.md) — curation-overlay pins (#498): the five producer-owned slots, the
+  pin-on-edit rule, the slot line, Pin/Unpin, `/admin/pins/`

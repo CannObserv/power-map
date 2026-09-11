@@ -1,7 +1,7 @@
 ---
 title: "#498 curation overlay — build plan"
 date: 2026-09-11
-status: draft
+status: executed 2026-09-11 (steps 1–10)
 design: 2026-09-11-curation-overlay-design.md
 ---
 
