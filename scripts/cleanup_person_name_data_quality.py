@@ -34,9 +34,9 @@ from typing import Literal
 import asyncpg
 
 from scripts._dsn import add_dsn_args, resolve_dsn
-from src.api.admin.people_merge import merge_person_into
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
+from src.core.person_merge import merge_person_into
 
 logger = get_logger(__name__)
 

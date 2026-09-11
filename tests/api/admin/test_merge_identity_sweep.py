@@ -18,11 +18,24 @@ paths, so they are enforced structurally instead:
 import ast
 from pathlib import Path
 
-ADMIN_DIR = Path(__file__).resolve().parents[3] / "src" / "api" / "admin"
+SRC_DIR = Path(__file__).resolve().parents[3] / "src"
+ADMIN_DIR = SRC_DIR / "api" / "admin"
 
-#: Every path that folds one entity into another. Named explicitly: a new merge
-#: module is a deliberate addition and should be added here consciously.
-MERGE_MODULES = ("orgs_merge.py", "people_merge.py", "orgs_roles.py")
+#: Every path that folds one entity into another, relative to `src/`. Named
+#: explicitly: a new merge module is a deliberate addition and should be added
+#: here consciously. The person merge primitive moved to core for the applier
+#: (#514); its admin module stays listed because it still hosts the merge routes.
+MERGE_MODULES = (
+    "api/admin/orgs_merge.py",
+    "api/admin/people_merge.py",
+    "api/admin/orgs_roles.py",
+    "core/person_merge.py",
+)
+
+#: Modules the tombstone ratchet reads: every admin module, plus the merge
+#: modules that live outside it — a primitive moved out of the admin tree must
+#: not move out of the ratchet with it.
+TOMBSTONE_SCOPE = sorted({*ADMIN_DIR.glob("*.py"), *(SRC_DIR / name for name in MERGE_MODULES)})
 
 DELETE_LITERALS = ("DELETE FROM roles", "DELETE FROM role_assignments")
 TOMBSTONE_MARKERS = ("record_merge_tombstones", "deleted_entities")
@@ -39,7 +52,7 @@ def _string_constants(path: Path) -> list[str]:
 def test_merge_modules_exist():
     """Guards the ratchets below against silently passing on a renamed file."""
     for name in MERGE_MODULES:
-        assert (ADMIN_DIR / name).is_file(), f"{name} moved — update MERGE_MODULES"
+        assert (SRC_DIR / name).is_file(), f"{name} moved — update MERGE_MODULES"
 
 
 def test_no_merge_path_inserts_a_role_assignment():
@@ -47,7 +60,7 @@ def test_no_merge_path_inserts_a_role_assignment():
     offenders = [
         name
         for name in MERGE_MODULES
-        if any("INSERT INTO role_assignments" in s for s in _string_constants(ADMIN_DIR / name))
+        if any("INSERT INTO role_assignments" in s for s in _string_constants(SRC_DIR / name))
     ]
     assert not offenders, (
         f"{offenders} INSERTs a role_assignment during a merge. Re-point the existing"
@@ -58,7 +71,7 @@ def test_no_merge_path_inserts_a_role_assignment():
 def test_every_role_or_assignment_hard_delete_emits_a_tombstone():
     """#467: a DELETE fires no outbox trigger, so it must be announced explicitly."""
     offenders = []
-    for path in sorted(ADMIN_DIR.glob("*.py")):
+    for path in TOMBSTONE_SCOPE:
         literals = _string_constants(path)
         deletes = any(any(lit in s for lit in DELETE_LITERALS) for s in literals)
         if not deletes:
