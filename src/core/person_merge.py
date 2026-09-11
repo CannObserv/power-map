@@ -19,7 +19,7 @@ from src.core.ancillary_migrate import (
 from src.core.merge_signals import mirror_subscriptions, record_merge_tombstones
 from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
 
-__all__ = ["PersonNotFoundError", "merge_person_into"]
+__all__ = ["PersonNotFoundError", "merge_person_into", "preview_person_merge"]
 
 # Winner-vs-loser name-identity match, shared verbatim by the #309 reading
 # re-point UPDATE and the dedup DELETE in `merge_person_into` so the two can
@@ -63,6 +63,41 @@ _DEDUP_LOSER_NAMES_SQL = (
     " WHERE l.person_id=$1"
     "   AND EXISTS ("
     "       SELECT 1 FROM person_names w WHERE w.person_id=$2 AND" + _NAME_IDENTITY_MATCH_SQL + ")"
+)
+
+# Every loser name with the winner row it collapses into — NULL when it moves
+# instead. The same lowest-id LATERAL pick as the reading re-point, so the merge
+# (which re-homes a deduped name's citations to `winner`) and its preview (#514)
+# name the same twin. Binds as `_NAME_IDENTITY_MATCH_SQL` does.
+_LOSER_NAME_TWINS_SQL = (
+    "SELECT l.id AS loser, m.id AS winner FROM person_names l"
+    " LEFT JOIN LATERAL ("
+    "     SELECT w.id FROM person_names w WHERE w.person_id=$2 AND"
+    + _NAME_IDENTITY_MATCH_SQL
+    + " ORDER BY w.id LIMIT 1"
+    " ) m ON TRUE WHERE l.person_id=$1 ORDER BY l.id"
+)
+
+# Loser assignments colliding with a winner assignment on (role, start) — the one
+# case a re-point cannot serve, since uq_role_assignment_person_role_start holds
+# that tuple once. Shared by the merge and its preview. $1 loser, $2 winner.
+_CONFLICTING_ASSIGNMENTS_SQL = """SELECT l.id AS loser_ra, w.id AS winner_ra
+           FROM role_assignments l
+           JOIN role_assignments w
+             ON w.person_id=$2 AND w.archived_at IS NULL
+            AND w.role_id = l.role_id
+            AND w.start_date IS NOT DISTINCT FROM l.start_date
+           WHERE l.person_id=$1 AND l.archived_at IS NULL
+           ORDER BY l.id"""
+
+# The polymorphic tables a merge re-homes wholesale (deduping where the winner
+# already holds the row). The preview counts the loser's rows in each.
+_PERSON_ANCILLARY_TABLES = (
+    "contact_methods",
+    "links",
+    "entity_addresses",
+    "import_provenance",
+    "field_confidence",
 )
 
 
@@ -239,19 +274,12 @@ async def merge_person_into(
     # winner's surviving equivalent (same LATERAL lowest-id pick as the reading
     # re-point), so a matched-duplicate name's provenance follows the winner name
     # rather than orphaning. Must precede the dedup DELETE.
-    dedup_name_pairs = await db.fetch(
-        "SELECT l.id AS loser, m.id AS winner FROM person_names l"
-        " CROSS JOIN LATERAL ("
-        "     SELECT w.id FROM person_names w WHERE w.person_id=$2 AND"
-        + _NAME_IDENTITY_MATCH_SQL
-        + " ORDER BY w.id LIMIT 1"
-        " ) m WHERE l.person_id=$1",
-        loser_id,
-        winner_id,
-        list(NO_AUTO_CANONICAL_NAME_TYPES),
+    name_twins = await db.fetch(
+        _LOSER_NAME_TWINS_SQL, loser_id, winner_id, list(NO_AUTO_CANONICAL_NAME_TYPES)
     )
-    for pair in dedup_name_pairs:
-        await migrate_citations(db, "person_name", pair["loser"], pair["winner"])
+    for pair in name_twins:
+        if pair["winner"] is not None:
+            await migrate_citations(db, "person_name", pair["loser"], pair["winner"])
 
     await db.execute(
         _DEDUP_LOSER_NAMES_SQL,
@@ -287,17 +315,7 @@ async def merge_person_into(
     # / field_confidence / identifiers / import_provenance — see ancillary_migrate)
     # onto the surviving winner assignment BEFORE the hard-delete, else those rows
     # keyed on the deleted id are silently orphaned.
-    conflict_pairs = await db.fetch(
-        """SELECT l.id AS loser_ra, w.id AS winner_ra
-           FROM role_assignments l
-           JOIN role_assignments w
-             ON w.person_id=$2 AND w.archived_at IS NULL
-            AND w.role_id = l.role_id
-            AND w.start_date IS NOT DISTINCT FROM l.start_date
-           WHERE l.person_id=$1 AND l.archived_at IS NULL""",
-        loser_id,
-        winner_id,
-    )
+    conflict_pairs = await db.fetch(_CONFLICTING_ASSIGNMENTS_SQL, loser_id, winner_id)
     _conflict_pairs = [(r["loser_ra"], r["winner_ra"]) for r in conflict_pairs]
     await rehome_conflicting_assignment_ancillary(db, _conflict_pairs)
     # #301: re-point the loser assignments' active relationship edges onto the
@@ -460,3 +478,92 @@ async def merge_person_into(
         winner_id,
     )
     return _conflict_pairs
+
+
+async def preview_person_merge(db, *, winner_id: str, loser_id: str) -> dict:
+    """What :func:`merge_person_into` would do to ``loser_id``, read-only (#514).
+
+    Stated per row for what carries identity — each loser name ``move`` or
+    ``dedup`` (with the winner row it collapses into), each loser assignment
+    ``move`` or ``drop`` (with its surviving duplicate), the identifiers that
+    move — and as counts for the rest. It shares the merge's own predicates
+    (`_LOSER_NAME_TWINS_SQL`, `_CONFLICTING_ASSIGNMENTS_SQL`), so the two cannot
+    disagree about which rows collapse; the applier's in-transaction re-diff is
+    the check that they did not. Describes the default merge (every loser name
+    inherited), which is the only one a non-admin caller runs. JSON-native and
+    ordered by id, because it enters the applier's diff digest.
+
+    Raises:
+        PersonNotFoundError: when either id is missing from ``people``.
+    """
+    found = {
+        r["id"]
+        for r in await db.fetch(
+            "SELECT id FROM people WHERE id = ANY($1::text[])", [winner_id, loser_id]
+        )
+    }
+    if {winner_id, loser_id} - found:
+        raise PersonNotFoundError(
+            f"preview_person_merge: missing person row (winner_id={winner_id!r}"
+            f" found={winner_id in found}, loser_id={loser_id!r} found={loser_id in found})"
+        )
+
+    twins = await db.fetch(
+        _LOSER_NAME_TWINS_SQL, loser_id, winner_id, list(NO_AUTO_CANONICAL_NAME_TYPES)
+    )
+    conflicts = {
+        r["loser_ra"]: r["winner_ra"]
+        for r in await db.fetch(_CONFLICTING_ASSIGNMENTS_SQL, loser_id, winner_id)
+    }
+    assignments = await db.fetch(
+        "SELECT id FROM role_assignments WHERE person_id=$1 ORDER BY id", loser_id
+    )
+    overlay = await db.fetch(
+        "SELECT l.field, EXISTS ("
+        "    SELECT 1 FROM curation_overlay w"
+        "     WHERE w.entity_type = 'person' AND w.entity_id = $2 AND w.field = l.field"
+        ") AS clash"
+        " FROM curation_overlay l WHERE l.entity_type = 'person' AND l.entity_id = $1"
+        " ORDER BY l.field",
+        loser_id,
+        winner_id,
+    )
+    ancillary = {
+        table: await db.fetchval(
+            f"SELECT count(*) FROM {table} WHERE entity_type='person' AND entity_id=$1",  # noqa: S608
+            loser_id,
+        )
+        for table in _PERSON_ANCILLARY_TABLES
+    }
+    ancillary["citations"] = await db.fetchval(
+        "SELECT count(*) FROM citations WHERE entity_type='person' AND entity_id=$1", loser_id
+    )
+    return {
+        "names": [
+            {
+                "id": r["loser"],
+                "action": "move" if r["winner"] is None else "dedup",
+                "into": r["winner"],
+            }
+            for r in twins
+        ],
+        "assignments": [
+            {
+                "id": r["id"],
+                "action": "drop" if r["id"] in conflicts else "move",
+                "into": conflicts.get(r["id"]),
+            }
+            for r in assignments
+        ],
+        "identifiers": [
+            r["id"]
+            for r in await db.fetch(
+                "SELECT id FROM identifiers WHERE entity_id=$1 ORDER BY id", loser_id
+            )
+        ],
+        "overlay": {
+            "moved": [r["field"] for r in overlay if not r["clash"]],
+            "dropped": [r["field"] for r in overlay if r["clash"]],
+        },
+        "ancillary": ancillary,
+    }
