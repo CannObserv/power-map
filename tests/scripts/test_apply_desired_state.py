@@ -286,3 +286,30 @@ def test_the_applier_scopes_by_the_source_the_seed_writes():
 
     assert cli.SOURCE == PRODUCER_SOURCE == "usa_wa"
     assert seed_producer_crosswalk.DEFAULT_SOURCE == PRODUCER_SOURCE
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        ["--streak", "0"],
+        ["--streak", "-1"],
+        ["--allow-creates", "-1"],
+        ["--max-updates", "-1"],
+    ],
+    ids=["zero streak", "negative streak", "negative creates", "negative updates"],
+)
+def test_a_count_flag_that_could_only_weaken_the_gate_is_a_usage_error(flag, monkeypatch):
+    """CR 2: `--streak 0` opened the gate on an empty ledger — `[-0:]` is the whole
+    ledger and `len(recent) < 0` is never true — and a negative threshold blocks a
+    run with nothing to block. Neither is a thing an operator can mean."""
+
+    async def never(dsn, **kw):
+        raise AssertionError("connected despite a bad flag")
+
+    monkeypatch.setenv("DATABASE_URL", "postgres://u:p@db.example/pm")
+    monkeypatch.setattr(cli, "_run_against", never)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main([*flag, "--execute"])
+
+    assert exc.value.code == 2

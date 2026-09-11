@@ -108,7 +108,10 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   org-cycle guard) is the same rollback.
 - **Thresholds** live in `manifest.yml` (`creates 0`, `merges 0`, `conflicts 0`,
   `stale 0`, `updates` unlimited). The flip (#501) passes `--allow-creates N`,
-  `--max-updates N`, `--streak N` for one run.
+  `--max-updates N`, `--streak N` for one run. Each has a floor: the thresholds
+  refuse a negative, `--streak` refuses anything below 1, and the gate refuses a
+  non-positive streak whoever asks it — `--streak 0` used to answer yes on an
+  empty ledger.
 - **Column scope is exact:** an `UPDATE` names only the changed owned columns;
   an `INSERT` names the parent, the changed columns and the manifest's insert
   defaults. `updated_at`, the touch triggers and the outbox fire as for any

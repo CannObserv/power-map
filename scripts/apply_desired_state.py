@@ -80,6 +80,23 @@ def thresholds_with(
     return dataclasses.replace(base, **changes)
 
 
+def _at_least(minimum: int) -> Callable[[str], int]:
+    """An argparse type for a count flag that must not fall below ``minimum`` (CR 2).
+
+    `--streak 0` opened the gate on an empty ledger, and a negative threshold
+    blocks a run that has nothing to block. Both are caught at parse time, so
+    neither reaches a connection.
+    """
+
+    def parse(raw: str) -> int:
+        value = int(raw)
+        if value < minimum:
+            raise argparse.ArgumentTypeError(f"must be {minimum} or more, not {value}")
+        return value
+
+    return parse
+
+
 def _exceeded(verdict: Verdict) -> str:
     return ", ".join(f"{k} {n} > {limit}" for k, (n, limit) in verdict.exceeded.items())
 
@@ -201,21 +218,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--allow-creates",
-        type=int,
+        type=_at_least(0),
         default=None,
         metavar="N",
         help="Raise the creates threshold for this run (manifest default 0)",
     )
     parser.add_argument(
         "--max-updates",
-        type=int,
+        type=_at_least(0),
         default=None,
         metavar="N",
         help="Cap updates + inserts for this run (manifest default: unlimited)",
     )
     parser.add_argument(
         "--streak",
-        type=int,
+        type=_at_least(1),
         default=None,
         metavar="N",
         help="Clean dry runs required before --execute (manifest default)",

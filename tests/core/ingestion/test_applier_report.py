@@ -249,3 +249,15 @@ def test_an_execute_in_the_streak_refuses():
 
 def test_run_ids_are_utc_to_the_second():
     assert run_id_for(NOW) == "2026-09-11T093005Z"
+
+
+def test_a_non_positive_streak_never_opens_the_gate():
+    """CR 2: `list(ledger)[-0:]` is the whole ledger, not its last zero lines, and
+    `len(recent) < 0` is never true — so a zero streak read an empty ledger as a
+    satisfied one and answered yes. The gate refuses to be asked that way."""
+    clean = [_line("r1"), _line("r2"), _line("r3")]
+    for streak in (0, -1):
+        for ledger in ([], clean):
+            ok, reason = may_execute(ledger, digest="d1", streak=streak)
+
+            assert not ok and "streak" in reason

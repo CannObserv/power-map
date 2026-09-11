@@ -235,7 +235,16 @@ def read_ledger(path: Path | str) -> list[dict]:
 
 
 def may_execute(ledger: Sequence[dict], *, digest: str, streak: int) -> tuple[bool, str]:
-    """The gate: the last ``streak`` runs are clean dry runs carrying ``digest``."""
+    """The gate: the last ``streak`` runs are clean dry runs carrying ``digest``.
+
+    A streak below 1 is refused here rather than honoured by the slice (CR 2):
+    ``[-0:]`` is the whole ledger, not its last zero lines, and ``len(recent)
+    < 0`` is never true — so a zero read an empty ledger as a satisfied one and
+    answered yes. The CLI refuses the flag too; this is the gate refusing to be
+    asked at all, whoever is asking.
+    """
+    if streak < 1:
+        return False, f"a streak of {streak} is no gate; at least one clean dry run is required"
     recent = list(ledger)[-streak:]
     if len(recent) < streak:
         return False, f"only {len(recent)} of {streak} dry runs recorded"
