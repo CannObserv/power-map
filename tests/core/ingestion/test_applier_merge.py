@@ -151,6 +151,30 @@ async def test_a_loser_merged_through_a_chain_to_the_survivor_repoints_anchors_o
 
 
 @pytest.mark.parametrize(
+    "loser_anchor",
+    [[xw(P_LOSER, PM_ELSEWHERE)], [xw(P_LOSER, None, "missing")], []],
+    ids=["drifted", "left scope", "no anchor"],
+)
+async def test_a_loser_the_live_crosswalk_no_longer_anchors_is_stale(loser_anchor):
+    """The mart's `loser_pm_id` is the build's crosswalk export; the live one rules.
+
+    Folding a row the live anchor does not name could never re-point that anchor,
+    so every execute would roll back on a merge still pending — `scope_rows`'
+    rule for every other shape: rebuild.
+    """
+    store = _store(
+        crosswalk=[*loser_anchor, xw(P_SURVIVOR, PM_SURVIVOR)],
+        people=[live(PM_LOSER), live(PM_SURVIVOR), live(PM_ELSEWHERE)],
+    )
+
+    entry = await _merge_entry(store)
+
+    assert entry.kind == "stale" and "anchor" in entry.reason
+    assert entry.effects == {}
+    assert ("merge_preview", "person", PM_LOSER, PM_SURVIVOR) not in store.requested
+
+
+@pytest.mark.parametrize(
     "tombstones",
     [[], [tomb(PM_LOSER, PM_ELSEWHERE)], [tomb(PM_LOSER, None)]],
     ids=["no tombstone", "merged elsewhere", "deleted outright"],

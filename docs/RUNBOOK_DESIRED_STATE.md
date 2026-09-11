@@ -102,7 +102,9 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   `move`/`dedup`, each assignment `move`/`drop`, the identifiers that move, all
   by id (an unmerge is a script over these ids; the merge itself is one-way).
   Or it is `already_merged` when a curator folded the pair first and only the
-  anchors lag, or `stale` when the survivor or loser is missing or archived.
+  anchors lag, or `stale` when the survivor or loser is missing or archived —
+  or when the loser's live anchor no longer names the row the build exported
+  (rebuild, as for any drifted row).
   **A diff holding an actionable merge is a merge phase:** only the merges,
   conflicts and stale thresholds decide its verdict, every other count is
   reported as *deferred*, and its execute folds the merges through

@@ -205,8 +205,9 @@ def scope_rows(
     A desired row carries the pm_id the crosswalk export said at build time;
     the live crosswalk is the authority. Any disagreement — a merge since, an
     archive since, a re-seed, a producer id PM linked since — means the desired
-    state must be rebuilt before anything is applied. Merge tables are report
-    entries whatever the crosswalk says, so they pass through untouched.
+    state must be rebuilt before anything is applied. Merge tables pass through
+    untouched: a tombstoned loser has no producer row to scope here, so
+    `_diff_merge` checks its anchor itself (#514).
     """
     if spec.target.shape == "merge":
         return list(rows), []
@@ -522,10 +523,12 @@ async def _diff_merge(
     `noop` once the live crosswalk resolves the loser's producer id to the
     survivor — the merge ran, and the next build, or the re-diff inside the
     execute transaction, sees it. Report-only (`merge`, no effects) for a null
-    survivor or a table no primitive binds. Otherwise both rows must be ones PM
-    can write: an actionable `merge` carries the primitive's preview; a loser PM
-    already folded into the survivor (a curator merged the pair first) is an
-    actionable merge whose only work is the anchors; anything else is `stale`.
+    survivor or a table no primitive binds. `stale` when the loser's live anchor
+    no longer names the row the build exported — the rule `scope_rows` applies to
+    every other shape. Otherwise both rows must be ones PM can write: an
+    actionable `merge` carries the primitive's preview; a loser PM already folded
+    into the survivor (a curator merged the pair first) is an actionable merge
+    whose only work is the anchors; anything else is `stale`.
     """
     target = spec.target
     live: dict[str, dict] = {}
@@ -557,8 +560,16 @@ async def _diff_merge(
         if target.primitive is None:
             add("merge", f"no merge primitive is bound for {spec.entity}: report-only")
             continue
-        if scope.resolve(spec.entity, row.get("loser_producer_id")) == survivor:
+        anchored = scope.resolve(spec.entity, row.get("loser_producer_id"))
+        if anchored == survivor:
             add("noop")
+            continue
+        if anchored != loser:
+            # `loser_pm_id` is the build's crosswalk export; the live crosswalk is
+            # the authority (`scope_rows`). A fold through an anchor that no longer
+            # names the loser could never re-point it, so it could never verify.
+            now = anchored or "nothing in scope"
+            add("stale", f"loser anchor drifted: desired {loser}, live {now} — rebuild")
             continue
         survivor_row = live.get(survivor)
         if survivor_row is None or survivor_row.get("archived_at") is not None:
