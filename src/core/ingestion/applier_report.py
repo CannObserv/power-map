@@ -11,7 +11,9 @@ from: ``diff.jsonl`` holds one actionable entry per line (never a noop),
 sorted by ``entry_id`` so a decision can name a line and a diff between two
 runs is a diff of two files; ``summary.json`` carries the verdict, counts,
 thresholds, the diff's digest and the inputs (`BUILD.json`); ``summary.md``
-says the same for a person. ``ledger.jsonl`` gets one line per run.
+says the same for a person. ``ledger.jsonl`` gets one line per run, carrying
+the mode it ran in — ``dry``, ``execute``, or ``refused`` for an ``--execute``
+the gate turned away. Only a dry run builds the streak.
 
 The digest covers the actionable entries only — id, kind, target and the
 value changes, never the prose — in a fixed order, so two runs that would do
@@ -33,6 +35,7 @@ from src.core.ingestion.mapping.manifest import Thresholds
 __all__ = [
     "DIFF_FILE",
     "LEDGER",
+    "MODES",
     "SUMMARY_JSON",
     "SUMMARY_MD",
     "THRESHOLD_KINDS",
@@ -56,6 +59,11 @@ SUMMARY_MD = "summary.md"
 # `rolled_back` is recorded only by an execute whose in-transaction re-diff
 # still had writes; it breaks the streak so the next execute re-earns it.
 VERDICTS = ("clean", "blocked", "stale", "rolled_back")
+
+# How a run reached the ledger. `dry` is the only mode that builds the streak,
+# which is why a refused `--execute` is `refused` and not a dry run (CR 3): the
+# operator's own attempts used to be the streak they were waiting on.
+MODES = ("dry", "execute", "refused")
 
 # threshold name → the entry kinds it counts. `updates` is every write to a
 # row PM already has or a child row it lacks; `creates` is new entities only.
@@ -178,6 +186,8 @@ def write_report(
     finished_at: datetime,
 ) -> dict:
     """Write diff.jsonl, summary.json and summary.md; return the summary (JSON-native)."""
+    if mode not in MODES:
+        raise ValueError(f"unknown run mode {mode!r} (one of {', '.join(MODES)})")
     out = Path(run_dir)
     out.mkdir(parents=True, exist_ok=True)
     actionable = _actionable(diff)
@@ -235,15 +245,29 @@ def read_ledger(path: Path | str) -> list[dict]:
 
 
 def may_execute(ledger: Sequence[dict], *, digest: str, streak: int) -> tuple[bool, str]:
-    """The gate: the last ``streak`` runs are clean dry runs carrying ``digest``."""
+    """The gate: the last ``streak`` runs are clean dry runs carrying ``digest``.
+
+    A streak below 1 is refused here rather than honoured by the slice (CR 2):
+    ``[-0:]`` is the whole ledger, not its last zero lines, and ``len(recent)
+    < 0`` is never true — so a zero read an empty ledger as a satisfied one and
+    answered yes. The CLI refuses the flag too; this is the gate refusing to be
+    asked at all, whoever is asking.
+
+    The lines present are judged before they are counted (CR 12), so the count
+    is only ever reported when every one of them qualifies — a refused attempt
+    is named as the blocker, never tallied as progress towards the streak.
+    """
+    if streak < 1:
+        return False, f"a streak of {streak} is no gate; at least one clean dry run is required"
     recent = list(ledger)[-streak:]
-    if len(recent) < streak:
-        return False, f"only {len(recent)} of {streak} dry runs recorded"
     for ln in recent:
         if ln.get("mode") != "dry":
-            return False, f"run {ln.get('run_id')} was an execute; the streak restarts after it"
+            run, mode = ln.get("run_id"), ln.get("mode")
+            return False, f"run {run} was {mode}, not a dry run; the streak restarts after it"
         if ln.get("verdict") != "clean":
             return False, f"run {ln.get('run_id')} was {ln.get('verdict')}"
         if ln.get("digest") != digest:
             return False, f"the diff changed since run {ln.get('run_id')}"
+    if len(recent) < streak:
+        return False, f"only {len(recent)} of {streak} dry runs recorded"
     return True, f"{streak} consecutive clean dry runs with this digest"

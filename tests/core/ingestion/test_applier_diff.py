@@ -198,6 +198,40 @@ async def test_a_column_that_already_matches_is_a_noop_and_a_differing_one_an_up
     assert update.changes == {"parent_id": (MO_OLD, MO2)}
 
 
+async def test_a_null_owned_value_is_no_claim_and_never_nulls_the_live_column():
+    """CR 5: a present row carrying a null was doing what the manifest promises absence
+    will not — `retraction: none`, an absent row is silence, not a null parent. The
+    mart filters nulls (desired_organization_parents.sql), so the engine was being
+    saved by its one caller; the engine is the generic half."""
+    store = FakeLiveStore(
+        crosswalk=[xw(O4, MO4, kind="organization")],
+        tables={"organizations": [live(MO4, parent_id=MO_OLD)]},
+    )
+    state = _state(
+        desired_organizations=[ORG_O4],
+        desired_organization_parents=[{"pm_id": MO4, "parent_pm_id": None, "producer_id": O4}],
+    )
+
+    diff = await diff_desired(state, MANIFEST, store)
+
+    assert _kinds(diff) == {"noop": 2}
+
+
+async def test_a_null_owned_value_on_a_created_row_writes_nothing():
+    store = FakeLiveStore(
+        crosswalk=[xw(O2, MO2, kind="organization")],
+        tables={"organizations": [live(MO2, parent_id=None)]},
+    )
+    state = _state(
+        desired_organizations=[ORG_O2, {"pm_id": None, "producer_id": O11}],
+        desired_organization_parents=[{"pm_id": None, "parent_pm_id": None, "producer_id": O11}],
+    )
+
+    diff = await diff_desired(state, MANIFEST, store)
+
+    assert _kinds(diff) == {"noop": 2, "create": 1}
+
+
 async def test_a_column_read_asks_for_the_bound_column_only():
     store = FakeLiveStore(
         crosswalk=[xw(O4, MO4, kind="organization")],

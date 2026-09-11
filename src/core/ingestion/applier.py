@@ -17,6 +17,7 @@ import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Protocol
 
@@ -71,7 +72,16 @@ def sql_identifier(name: str) -> str:
 
 
 class LiveStore(Protocol):
-    """What the engine reads from the database — and nothing else."""
+    """What the engine reads from the database — and nothing else.
+
+    ``entity_rows`` and ``child_rows`` always carry ``id`` back, and
+    ``entity_rows`` always carries ``archived_at``, whatever ``columns`` asks
+    for: the engine reads both on rows it requested no columns of at all (an
+    entity binding owns no column, and still has to see a row archived since
+    the export). An implementation that honours the signature literally would
+    disable that check in silence, so it is stated here and asserted of both
+    implementations.
+    """
 
     async def crosswalk(self, source: str, kinds: Sequence[str]) -> list[dict]: ...
 
@@ -282,13 +292,21 @@ async def diff_desired(
     ``minted`` — (kind, producer_id) → pm_id for entities created by the run
     that is now re-diffing inside its transaction — is applied to the desired
     rows first (`_with_minted`).
+
+    Rows are taken in key order, never file order (CR 11): the Parquet a build
+    writes carries no ORDER BY, and a shape with state across rows — the
+    canonical claim in `_diff_child` — must reach the same answer, and the run
+    the same digest, whichever order a rebuild happened to write.
     """
     kinds = sorted({spec.entity for spec in manifest.tables.values()})
     scope = await Scope.load(store, source=source, kinds=kinds)
     entries: list[Entry] = []
     kept: dict[str, list[dict]] = {}
     for name, spec in manifest.tables.items():
-        rows, stale = scope_rows(spec, _with_minted(spec, state.tables[name], minted or {}), scope)
+        ordered = sorted(
+            _with_minted(spec, state.tables[name], minted or {}), key=partial(entry_id, spec)
+        )
+        rows, stale = scope_rows(spec, ordered, scope)
         kept[name] = rows
         entries.extend(stale)
 
@@ -422,6 +440,13 @@ async def _diff_column(
         if anchored
         else {}
     )
+
+    # A null in an owned column is silence, not an instruction to clear PM's
+    # value (CR 5). `retraction: none` says an absent row says nothing; a
+    # present row carrying a null must not say more than one that is missing.
+    def claimed(row: dict) -> list[str]:
+        return [d for d in columns if row.get(d) is not None]
+
     entries: list[Entry] = []
     for row in rows:
         pm_id = row.get(spec.pm_key)
@@ -429,9 +454,15 @@ async def _diff_column(
             if (spec.entity, row["producer_id"]) not in creating:
                 entries.append(_entry(spec, row, "stale", reason="no entity row is created for it"))
                 continue
-            changes = {columns[d]: (None, row.get(d)) for d in columns}
+            changes = {columns[d]: (None, row[d]) for d in claimed(row)}
             entries.append(
-                _entry(spec, row, "update", changes=changes, reason="on a row this run creates")
+                _entry(
+                    spec,
+                    row,
+                    "update" if changes else "noop",
+                    changes=changes,
+                    reason="on a row this run creates" if changes else None,
+                )
             )
             continue
         found = live.get(pm_id)
@@ -445,9 +476,9 @@ async def _diff_column(
             )
         else:
             changes = {
-                columns[d]: (found.get(columns[d]), row.get(d))
-                for d in columns
-                if found.get(columns[d]) != row.get(d)
+                columns[d]: (found.get(columns[d]), row[d])
+                for d in claimed(row)
+                if found.get(columns[d]) != row[d]
             }
             entries.append(_entry(spec, row, "update" if changes else "noop", changes=changes))
     return entries
@@ -485,7 +516,9 @@ async def _diff_child(
     `any_then_canonical`: any row of the key type carrying the value satisfies
     the claim; absent everywhere, the canonical row of that type is the one in
     dispute (`update`); no such row, `insert` — canonical only when the parent
-    has no canonical row at all. `key`: match on the key columns among
+    has no canonical row at all, and only for the first such insert of the run
+    in key order — the flag is unique per parent, and which row takes it must
+    not depend on file order. `key`: match on the key columns among
     unarchived rows — none is an `insert`, one compares the owned columns,
     more than one is a `conflict`. Under `retraction: report`, an owned event
     type on an in-scope parent that the snapshot no longer carries is a
@@ -543,6 +576,20 @@ async def _diff_child(
         changes.update({k: (None, v) for k, v in target.constants.items()})
         return changes
 
+    # The canonical flag is the parent's *display pointer*, and PM's indexes
+    # (uq_person_canonical_name, uq_org_canonical_name, uq_org_canonical_acronym)
+    # are unique on the parent alone where it is true. Canonicality was decided
+    # per row against the pre-write snapshot, so two inserts on one parent both
+    # claimed it and the second aborted the transaction (CR 4). A claim made
+    # here is remembered for the rest of the run.
+    canonical_taken: set[object] = set()
+
+    def claims_canonical(parent: object, already_taken: bool) -> bool:
+        if already_taken or parent in canonical_taken:
+            return False
+        canonical_taken.add(parent)
+        return True
+
     entries: list[Entry] = []
     seen: set[tuple[str, tuple]] = set()
     for row in rows:
@@ -553,7 +600,9 @@ async def _diff_child(
                 continue
             changes = insert_changes(row)
             if target.match == "any_then_canonical":
-                changes[target.canonical] = (None, True)  # a new parent has no canonical
+                # A new parent has no canonical row — but only its first insert.
+                new_parent = ("create", row["producer_id"])
+                changes[target.canonical] = (None, claims_canonical(new_parent, False))
             entries.append(
                 _entry(spec, row, "insert", changes=changes, reason="on a row this run creates")
             )
@@ -586,7 +635,8 @@ async def _diff_child(
                 )
             else:
                 changes = insert_changes(row)
-                changes[target.canonical] = (None, not any(r.get(target.canonical) for r in found))
+                taken = any(r.get(target.canonical) for r in found)
+                changes[target.canonical] = (None, claims_canonical(pm_id, taken))
                 entries.append(_entry(spec, row, "insert", changes=changes))
         else:
             key = {columns[c]: pm_value(row, c) for c in target.key_columns}

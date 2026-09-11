@@ -98,25 +98,49 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   dispute.** Any row of the type carrying the value is a noop (PM's short and
   long org names both stay); absent everywhere, the canonical row becomes an
   `update` for #501 to decide apply-or-overlay; no row of the type, an `insert`.
+  An insert takes the parent's canonical flag only if the parent has no canonical
+  row *and* no earlier insert of the same run claimed it — the flag is unique per
+  parent, so a second claim aborts the transaction. "Earlier" is key order, not
+  file order, so a rebuild cannot move the flag; the winner is stable but
+  arbitrary, and an overlay is how a person picks otherwise.
 - **Verdicts and exit codes.** A dry run always completes: `clean` or `blocked`
   (a threshold exceeded) exit **0** — seventeen pending creates must not fail the
   timer every night — and `stale` exits **3**. `--execute` refuses (exit **1**)
-  unless the ledger's last `streak` (manifest: 3) dry runs are all clean and
+  unless the ledger's last `streak` (manifest: 3) **dry** runs are all clean and
   carry this run's diff digest; it then writes in **one transaction**, re-diffs
   inside it, and rolls back — verdict `rolled_back`, exit 1, the streak restarts
   — unless nothing is left to write. A trigger or constraint firing (the
-  org-cycle guard) is the same rollback.
+  org-cycle guard) is the same rollback. A refused `--execute` is recorded as
+  mode `refused`, which is not a dry run and so restarts the streak: attempts at
+  the gate never add up to opening it, and only the nightly chain builds it.
 - **Thresholds** live in `manifest.yml` (`creates 0`, `merges 0`, `conflicts 0`,
   `stale 0`, `updates` unlimited). The flip (#501) passes `--allow-creates N`,
-  `--max-updates N`, `--streak N` for one run.
+  `--max-updates N`, `--streak N` for one run. Each has a floor: the thresholds
+  refuse a negative, `--streak` refuses anything below 1, and the gate refuses a
+  non-positive streak whoever asks it — `--streak 0` used to answer yes on an
+  empty ledger.
+- **A null owned value is silence.** A desired row carrying a null claims
+  nothing for that column — the same as no row at all — so the applier never
+  clears a PM value by writing NULL over it.
 - **Column scope is exact:** an `UPDATE` names only the changed owned columns;
   an `INSERT` names the parent, the changed columns and the manifest's insert
   defaults. `updated_at`, the touch triggers and the outbox fire as for any
-  writer; no `source_key_id` is stamped.
-- **First dry run against production** (2026-09-10 measurement): 24 person-name
-  updates (punctuation and nickname forms), 26 acronym updates, 4 parent updates
-  (the four subcommittees PM parents under their committee), 17 creates of which
-  13 are probable twins — so the verdict is `blocked` until #501 works the diff.
+  writer; no `source_key_id` is stamped. That makes the applier a **second door**
+  to `organizations.parent_id`, beside the observation API's authoritative
+  reparent: the `source_key_mismatch` gate (#334) guards that API, not the
+  column, so it neither blocks nor records an applier reparent.
+- **What the runs find**, in shape rather than tally: person-name updates
+  (punctuation and nickname forms), acronym updates, parent updates on the
+  subcommittees PM parents under their committee, and creates of which most are
+  probable twins — so the verdict stays `blocked` until #501 works the diff. The
+  numbers are re-derived from the artifact, never restated here (`docs/CONTEXT.md`
+  Rule 2 — a doc that repeats a count owns a second copy of it, and the runbook's
+  first copy was already one update behind the run beside it):
+
+  ```bash
+  jq '{verdict, counts, by_table}' "data/applier/$(ls data/applier | grep 'Z$' | tail -1)/summary.json"
+  jq -r '[.run_id, .mode, .verdict] | @tsv' data/applier/ledger.jsonl   # the streak
+  ```
 
 Install the nightly chain once (`docs/COMMANDS.md` § Scheduled timers lists it):
 

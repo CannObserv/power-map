@@ -53,8 +53,9 @@ store or the export is absent in that checkout — provision with
 
 
 The diff-applier reads the database only through a `LiveStore` protocol, so
-its engine tests (`tests/core/ingestion/test_applier_*.py`, ~90) run with no
-database against `FakeLiveStore` in `tests/core/ingestion/applier_fakes.py`,
+its engine tests (`tests/core/ingestion/test_applier_*.py` — count them with
+`uv run pytest --collect-only -q tests/core/ingestion/test_applier_*.py`) run
+with no database against `FakeLiveStore` in `tests/core/ingestion/applier_fakes.py`,
 which serves rows from dicts and records every request — how "a row outside
 the crosswalk is never read" and "a column outside the owned set is never in
 an UPDATE" are asserted on the emitted SQL (`FakeConn` records statements and
@@ -65,7 +66,9 @@ desired-state directory from dicts.
 what the fake cannot prove — the asyncpg store's SQL, apply-twice-is-a-no-op,
 a gated create writing nothing, an execute writing exactly the predicted
 entries with the outbox firing, a curator column surviving, a cyclic parent
-rolling back, a crosswalk change being stale — on the rollback connection.
+rolling back, a crosswalk change being stale, and an entity archived since the
+export being stale — the `LiveStore` contract that `entity_rows` returns
+`archived_at` whatever columns it was asked for — on the rollback connection.
 
 ## Endpoint-test client (#288)
 

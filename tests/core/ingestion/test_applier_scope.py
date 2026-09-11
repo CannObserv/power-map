@@ -172,3 +172,14 @@ def test_a_missing_build_info_is_tolerated(tmp_path):
         write_parquet([], spec, tmp_path / f"{table}.parquet")
 
     assert DesiredState.load(tmp_path, load_manifest()).build_info is None
+
+
+async def test_the_fake_store_carries_id_and_archived_at_whatever_columns_asks_for():
+    """CR 9: the engine reads `archived_at` on rows it requested no columns of — an
+    entity binding owns no column and still has to see a row archived since the
+    export. Both implementations do it; only the signature said otherwise."""
+    store = FakeLiveStore(crosswalk=[], tables={"people": [{"id": PM1, "archived_at": None}]})
+
+    rows = await store.entity_rows("people", [PM1], columns=())
+
+    assert set(rows[PM1]) == {"id", "archived_at"}

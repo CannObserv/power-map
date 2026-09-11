@@ -129,6 +129,70 @@ async def test_a_value_absent_everywhere_updates_the_canonical_row_of_the_type()
     assert update.changes == {"name": ('A.L. "Slim" Rasmussen', "A. L. “Slim” Rasmussen")}
 
 
+async def test_two_inserts_on_one_parent_claim_the_canonical_slot_once():
+    """CR 4: canonicality was decided per row against the pre-write snapshot, so a
+    parent with no canonical row took two `is_canonical = TRUE` inserts — and
+    `uq_person_canonical_name` is unique on (person_id) WHERE is_canonical, so the
+    second one aborts the whole transaction. The manifest keys names on
+    (producer_id, name_type) precisely because a second name type is expected."""
+    store = _person_store()
+    state = _state(
+        desired_people=[{"pm_id": PM1, "producer_id": P1}],
+        desired_person_names=[
+            {"pm_id": PM1, "producer_id": P1, "name": "Michael Padden", "name_type": "legal"},
+            {"pm_id": PM1, "producer_id": P1, "name": "Mike", "name_type": "preferred"},
+        ],
+    )
+
+    diff = await diff_desired(state, MANIFEST, store)
+
+    inserts = diff.by_kind("insert")
+    assert len(inserts) == 2
+    assert [i.changes["is_canonical"][1] for i in inserts] == [True, False]
+
+
+async def test_a_created_parents_inserts_claim_the_canonical_slot_once():
+    """The same collision on a create, where every insert took `is_canonical = True`
+    on the grounds that a new parent has none. Seventeen creates carrying one name
+    row each is what kept it out of night one."""
+    store = _person_store()
+    state = _state(
+        desired_people=[{"pm_id": None, "producer_id": P3}],
+        desired_person_names=[
+            {"pm_id": None, "producer_id": P3, "name": "Cliff Bailey", "name_type": "legal"},
+            {"pm_id": None, "producer_id": P3, "name": "Cliff", "name_type": "preferred"},
+        ],
+    )
+
+    diff = await diff_desired(state, MANIFEST, store)
+
+    inserts = diff.by_kind("insert")
+    assert len(inserts) == 2
+    assert [i.changes["is_canonical"][1] for i in inserts] == [True, False]
+
+
+async def test_the_canonical_claim_does_not_depend_on_the_order_rows_arrive_in():
+    """CR 11: CR 4 handed the flag to whichever insert came first, and "first" was the
+    Parquet file's row order — dbt promises none. A reordered rebuild moved the
+    display pointer and, since `changes` feeds the digest, broke the streak with
+    nothing having changed. The claim now follows key order: stable, if arbitrary,
+    and a person overrides it through the overlay."""
+    legal = {"pm_id": PM1, "producer_id": P1, "name": "Michael Padden", "name_type": "legal"}
+    preferred = {"pm_id": PM1, "producer_id": P1, "name": "Mike", "name_type": "preferred"}
+    claims = []
+    for rows in ([legal, preferred], [preferred, legal]):
+        state = _state(
+            desired_people=[{"pm_id": PM1, "producer_id": P1}], desired_person_names=rows
+        )
+
+        diff = await diff_desired(state, MANIFEST, _person_store())
+
+        claims.append({e.entry_id: e.changes["is_canonical"][1] for e in diff.by_kind("insert")})
+
+    assert claims[0] == claims[1]
+    assert claims[0]["desired_person_names:01P1|legal"] is True
+
+
 async def test_a_row_of_another_type_never_satisfies_the_claim():
     store = _person_store(name("n1", PM1, "Mike Padden", name_type="preferred", canonical=True))
 

@@ -132,7 +132,23 @@ async def test_execute_refuses_without_a_streak_and_opens_no_transaction(world):
 
     assert code == 1
     assert conn.events == []
-    assert [ln["mode"] for ln in read_ledger(world["out"] / LEDGER)] == ["dry"]
+    assert [ln["mode"] for ln in read_ledger(world["out"] / LEDGER)] == ["refused"]
+
+
+async def test_three_refused_attempts_do_not_build_the_streak_they_wait_on(world):
+    """CR 3: a refusal was recorded as a clean dry run, so the operator's own attempts
+    were the streak — three `--execute` invocations seconds apart wrote on the third.
+    A refusal is its own mode now, and `may_execute` already refuses any line that is
+    not a dry run, so only the nightly timer's dry runs build the gate."""
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+    conns = [FakeConn() for _ in range(3)]
+
+    codes = [await _run(world, store, execute=True, conn=c) for c in conns]
+
+    assert codes == [1, 1, 1]
+    assert all(c.events == [] for c in conns)
+    assert [ln["mode"] for ln in read_ledger(world["out"] / LEDGER)] == ["refused"] * 3
 
 
 async def test_execute_refuses_a_blocked_run_even_after_a_streak(world):
@@ -286,3 +302,41 @@ def test_the_applier_scopes_by_the_source_the_seed_writes():
 
     assert cli.SOURCE == PRODUCER_SOURCE == "usa_wa"
     assert seed_producer_crosswalk.DEFAULT_SOURCE == PRODUCER_SOURCE
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        ["--streak", "0"],
+        ["--streak", "-1"],
+        ["--allow-creates", "-1"],
+        ["--max-updates", "-1"],
+    ],
+    ids=["zero streak", "negative streak", "negative creates", "negative updates"],
+)
+def test_a_count_flag_that_could_only_weaken_the_gate_is_a_usage_error(flag, monkeypatch):
+    """CR 2: `--streak 0` opened the gate on an empty ledger — `[-0:]` is the whole
+    ledger and `len(recent) < 0` is never true — and a negative threshold blocks a
+    run with nothing to block. Neither is a thing an operator can mean."""
+
+    async def never(dsn, **kw):
+        raise AssertionError("connected despite a bad flag")
+
+    monkeypatch.setenv("DATABASE_URL", "postgres://u:p@db.example/pm")
+    monkeypatch.setattr(cli, "_run_against", never)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main([*flag, "--execute"])
+
+    assert exc.value.code == 2
+
+
+def test_a_bad_count_flag_says_what_it_wanted(monkeypatch, capsys):
+    """CR 16: argparse builds its message from `type.__name__`, and the closure was
+    called `parse` — "invalid parse value: 'abc'" told the operator nothing."""
+    monkeypatch.setenv("DATABASE_URL", "postgres://u:p@db.example/pm")
+
+    with pytest.raises(SystemExit):
+        cli.main(["--streak", "abc"])
+
+    assert "invalid count value: 'abc'" in capsys.readouterr().err

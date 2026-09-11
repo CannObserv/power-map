@@ -8,7 +8,9 @@ ownership manifest; the Python knows neither WA nor a table name.
 
 Every run writes `data/applier/<run-id>/{diff.jsonl,summary.json,summary.md}`
 and appends a line to `data/applier/ledger.jsonl`. `--execute` is offered only
-after `streak` consecutive clean dry runs carrying this run's diff digest.
+after `streak` consecutive clean dry runs carrying this run's diff digest. A
+refused `--execute` is recorded as `refused`, not as a dry run: an attempt at
+the gate does not count towards opening it.
 
 Exit codes: 0 a dry run completed (verdict clean or blocked — both recorded,
 neither fails the timer) or an execute applied and verified; 1 an execute was
@@ -80,6 +82,24 @@ def thresholds_with(
     return dataclasses.replace(base, **changes)
 
 
+def _at_least(minimum: int) -> Callable[[str], int]:
+    """An argparse type for a count flag that must not fall below ``minimum`` (CR 2).
+
+    `--streak 0` opened the gate on an empty ledger, and a negative threshold
+    blocks a run that has nothing to block. Both are caught at parse time, so
+    neither reaches a connection.
+    """
+
+    def count(raw: str) -> int:
+        # Named for argparse, which builds "invalid <name> value" from it (CR 16).
+        value = int(raw)
+        if value < minimum:
+            raise argparse.ArgumentTypeError(f"must be {minimum} or more, not {value}")
+        return value
+
+    return count
+
+
 def _exceeded(verdict: Verdict) -> str:
     return ", ".join(f"{k} {n} > {limit}" for k, (n, limit) in verdict.exceeded.items())
 
@@ -116,8 +136,8 @@ async def run(
         if verdict.verdict != "clean":
             ok, why = False, f"this run is {verdict.verdict} ({_exceeded(verdict)})"
         if not ok:
-            logger.error("execute refused: %s — recorded as a dry run", why)
-            code = EXIT_REFUSED
+            logger.error("execute refused: %s — recorded as a refused attempt", why)
+            mode, code = "refused", EXIT_REFUSED
         else:
             mode = "execute"
 
@@ -201,21 +221,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--allow-creates",
-        type=int,
+        type=_at_least(0),
         default=None,
         metavar="N",
         help="Raise the creates threshold for this run (manifest default 0)",
     )
     parser.add_argument(
         "--max-updates",
-        type=int,
+        type=_at_least(0),
         default=None,
         metavar="N",
         help="Cap updates + inserts for this run (manifest default: unlimited)",
     )
     parser.add_argument(
         "--streak",
-        type=int,
+        type=_at_least(1),
         default=None,
         metavar="N",
         help="Clean dry runs required before --execute (manifest default)",

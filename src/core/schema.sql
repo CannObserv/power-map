@@ -4019,7 +4019,10 @@ ALTER TABLE role_assignments
 -- externally-matched rows; claimed (COALESCE) on the first authoritative
 -- (id-addressed pm_org_id) parent write or write-if-null fill. Update authority:
 -- an org whose source_key_id is non-NULL is only reparentable through the
--- observation API by that key (`source_key_mismatch` otherwise). ADD COLUMN
+-- observation API by that key (`source_key_mismatch` otherwise). The dataset
+-- applier (#499) is the second door: it owns parent_id per the ownership
+-- manifest, writes it directly, and neither consults nor claims this column --
+-- so the gate above scopes the observation API, not the column. ADD COLUMN
 -- IF NOT EXISTS is itself the reconciliation — it reaches a table that predates
 -- the column (unlike an inline CREATE TABLE modifier, #307/#312/#315).
 

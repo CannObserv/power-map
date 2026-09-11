@@ -249,3 +249,35 @@ def test_an_execute_in_the_streak_refuses():
 
 def test_run_ids_are_utc_to_the_second():
     assert run_id_for(NOW) == "2026-09-11T093005Z"
+
+
+def test_a_non_positive_streak_never_opens_the_gate():
+    """CR 2: `list(ledger)[-0:]` is the whole ledger, not its last zero lines, and
+    `len(recent) < 0` is never true — so a zero streak read an empty ledger as a
+    satisfied one and answered yes. The gate refuses to be asked that way."""
+    clean = [_line("r1"), _line("r2"), _line("r3")]
+    for streak in (0, -1):
+        for ledger in ([], clean):
+            ok, reason = may_execute(ledger, digest="d1", streak=streak)
+
+            assert not ok and "streak" in reason
+
+
+def test_a_short_ledger_names_the_line_that_blocks_it_before_counting():
+    """CR 12: the length was checked first and counted lines of any mode, so a ledger
+    ending in a refused attempt read "only 2 of 3 dry runs recorded" — progress, to
+    the operator whose attempt had just reset the streak. The lines present are
+    checked first; the count is only reported once every one of them qualifies."""
+    ok, reason = may_execute([_line("r1"), _line("r2", mode="refused")], digest="d1", streak=3)
+
+    assert not ok and "r2" in reason and "recorded" not in reason
+
+
+def test_a_line_that_is_not_a_dry_run_is_named_by_its_own_mode():
+    """CR 13: every non-dry line was reported as "an execute", so a refused attempt —
+    which wrote nothing — read to the operator as a write."""
+    ledger = [_line("r1"), _line("r2", mode="refused"), _line("r3")]
+
+    ok, reason = may_execute(ledger, digest="d1", streak=3)
+
+    assert not ok and "r2 was refused" in reason and "an execute" not in reason

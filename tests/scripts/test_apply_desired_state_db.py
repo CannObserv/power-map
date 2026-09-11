@@ -182,6 +182,22 @@ async def test_a_dry_run_against_a_real_store_reports_the_measured_shapes(world)
     assert by["desired_people"]["noop"] == 1 and by["desired_organizations"]["noop"] == 2
 
 
+async def test_an_entity_archived_since_the_export_is_stale(world):
+    """CR 9: the engine asks `entity_rows` for no columns on an entity binding and
+    still reads `archived_at` off the answer. This is the asyncpg store's half of
+    that contract — a literal reading of the signature would return neither, and
+    the archived check would go quiet against a real database only."""
+    _write_world(world)
+    await world["db"].execute("UPDATE people SET archived_at = NOW() WHERE id = $1", world["pm1"])
+
+    code = await _run(world, execute=False)
+
+    assert code == 3
+    summary = _summary(world)
+    assert summary["verdict"] == "stale"
+    assert summary["by_table"]["desired_people"]["stale"] == 1
+
+
 async def test_execute_writes_exactly_the_predicted_entries_and_the_outbox_fires(world):
     db = world["db"]
     _write_world(world)
