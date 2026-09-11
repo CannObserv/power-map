@@ -81,7 +81,7 @@ them; since #428 that is never this file.
 
 **The applier's scope query is `resolution IN ('live', 'merged')`.** An `archived` row is in the table but not in scope — writing onto a soft-deleted row is the #481 hazard, and `archived_at` writes no `deleted_entities` row, so the merge walk cannot follow it. Where PM's duplicate audit archived the producer's span and kept a deepened one under a **new** ULID the producer has never seen, the seed reports the live sibling as a supersession candidate; re-pointing is a triage decision (#501), never the seed's.
 
-Seeded by `scripts/seed_producer_crosswalk.py` (`docs/RUNBOOKS.md`). The applier (#499) is the table's second writer: a `create` it applies mints the entity row and a crosswalk row for it in the same transaction — `exported_pm_id = pm_id =` the new ULID, `resolution = 'live'`, export fields null, the applier being the exporter — so the next run finds the row anchored. It never edits an existing crosswalk row.
+Seeded by `scripts/seed_producer_crosswalk.py` (`docs/RUNBOOKS.md`). The applier (#499) is the table's second writer: a `create` it applies mints the entity row and a crosswalk row for it in the same transaction — `exported_pm_id = pm_id =` the new ULID, `resolution = 'live'`, export fields null, the applier being the exporter — so the next run finds the row anchored. It edits an existing row only to follow a merge it applied (#514): every anchor naming the retired row re-points at the survivor as `merged` (`repoint_anchors`), `exported_pm_id` untouched.
 
 ## Curation overlay (#497)
 

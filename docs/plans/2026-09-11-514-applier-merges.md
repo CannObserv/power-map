@@ -1,7 +1,7 @@
 ---
 title: "#514 applier acts on producer person-merge tombstones — build plan"
 date: 2026-09-11
-status: draft
+status: executed 2026-09-11 (steps 1–9; step 10 is the prod proof, recorded on the PR)
 design: 2026-09-10-diff-applier-design.md (§ Merges are report-only — this plan lifts it for persons)
 ---
 
@@ -99,7 +99,8 @@ against. `--allow-merges N` opens the threshold, the same pattern as `--allow-cr
 9. **Docs + version**: `docs/RUNBOOK_DESIRED_STATE.md`, `docs/MERGE.md`, the manifest comment,
    the applier design doc's merges line; bump 0.47.2 → 0.48.0.
 10. **Prod proof (read-only)**: a scratchpad dry run against prod shows exactly one actionable
-    merge with its effects, and no Heck name entry.
+    merge with its effects, the run in the merge phase with the Heck name insert (non-canonical,
+    after the retype) deferred, and no `retract` for the loser.
 
 ## Open questions / risks
 

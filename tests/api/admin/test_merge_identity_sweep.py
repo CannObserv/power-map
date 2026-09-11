@@ -9,7 +9,8 @@ paths, so they are enforced structurally instead:
    Migrating a tenure is a re-point (`UPDATE ... SET role_id` / `SET person_id`);
    an INSERT there is by definition a reminted ULID, which silently breaks every
    `pm_assignment_id` anchor a producer holds.
-2. **Tombstone ratchet.** Any admin module that hard-deletes a `role` or a
+2. **Tombstone ratchet.** Any admin module — or merge module outside the admin
+   tree, like the core person merge — that hard-deletes a `role` or a
    `role_assignment` must also emit a tombstone, because the outbox triggers fire
    on INSERT/UPDATE only — a DELETE is invisible to `/api/v1/changes` unless a
    `deleted_entities` row announces it.
