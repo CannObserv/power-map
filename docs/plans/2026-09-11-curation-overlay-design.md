@@ -36,6 +36,7 @@ override visible and removable.
 | How the admin knows what is pinnable | **Registry + manifest key + sync test** — each owned table names its overlay field in `manifest.yml`; the admin carries a five-slot registry; one structural test holds the manifest, the dbt vocabulary and the registry to each other |
 | Pin rule | A write that **changes** a slot's value pins the post-edit value; NULL when nothing of the slot remains |
 | UI | Per-slot note, Pin and Unpin, a Pinned badge, and a `/admin/pins` page |
+| Pins across a PM merge (found at plan review) | **Fold in** — #514's `rehome_curation_overlay` already moves them on every merge path; a clashing loser pin is now **archived**, not deleted, and only active pins clash |
 
 Rejected: the manifest driving the admin directly (needs a dbt-free split of
 the mapping package *and* row selectors in `target:` — a query language for five
