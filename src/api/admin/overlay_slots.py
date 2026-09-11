@@ -20,7 +20,7 @@ never a re-insert. ``person_names`` is read directly (allow-listed in
 matches every legal row whatever its visibility, and curators see every name.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
@@ -28,7 +28,22 @@ import asyncpg
 
 from src.core.curation_overlay import in_scope, pin_changed
 
-__all__ = ["SLOTS", "Slot", "TrackedEdit", "read_slots", "slots_for", "tracked"]
+__all__ = [
+    "PRODUCER_LABEL",
+    "SLOTS",
+    "Slot",
+    "TrackedEdit",
+    "flash_key",
+    "pinned_note",
+    "read_slots",
+    "slots_for",
+    "tracked",
+]
+
+# The producer a pin wins over, as a curator reads it. The admin layer names it;
+# `src/core` never does (`test_src_core_wa_free.py`). One producer today (#490);
+# key it by crosswalk `source` when a second arrives.
+PRODUCER_LABEL = "usa-wa"
 
 
 @dataclass(frozen=True)
@@ -88,16 +103,32 @@ _SLOTS = (
 SLOTS: dict[tuple[str, str], Slot] = {(s.entity_type, s.field): s for s in _SLOTS}
 
 
-def slots_for(entity_type: str) -> list[Slot]:
-    """The pinnable slots of one entity type, in registry order."""
-    return [s for s in _SLOTS if s.entity_type == entity_type]
+def slots_for(entity_type: str, fields: Iterable[str] | None = None) -> list[Slot]:
+    """The pinnable slots of one entity type, in registry order — ``fields`` narrows."""
+    wanted = None if fields is None else set(fields)
+    return [
+        s for s in _SLOTS if s.entity_type == entity_type and (wanted is None or s.field in wanted)
+    ]
 
 
 async def read_slots(
-    conn: asyncpg.Connection, entity_type: str, entity_id: str
+    conn: asyncpg.Connection,
+    entity_type: str,
+    entity_id: str,
+    fields: Iterable[str] | None = None,
 ) -> dict[str, object]:
-    """Every slot's live value for one entity, keyed by field."""
-    return {s.field: await conn.fetchval(s.sql, entity_id) for s in slots_for(entity_type)}
+    """The slots' live values for one entity, keyed by field."""
+    return {s.field: await conn.fetchval(s.sql, entity_id) for s in slots_for(entity_type, fields)}
+
+
+def pinned_note(pinned: list[str]) -> str:
+    """The sentence an HTMX success flash gains when the edit pinned (static text)."""
+    return f" Pinned: PM keeps it over {PRODUCER_LABEL}'s value." if pinned else ""
+
+
+def flash_key(base: str, pinned: list[str]) -> str:
+    """The non-HTMX fallback's flash key: ``saved`` → ``saved_pinned`` when it pinned."""
+    return f"{base}_pinned" if pinned else base
 
 
 @dataclass
@@ -109,22 +140,30 @@ class TrackedEdit:
 
 @asynccontextmanager
 async def tracked(
-    conn: asyncpg.Connection, entity_type: str, entity_id: str, *, user_id: str
+    conn: asyncpg.Connection,
+    entity_type: str,
+    entity_id: str,
+    *,
+    user_id: str,
+    fields: Iterable[str] | None = None,
 ) -> AsyncIterator[TrackedEdit]:
     """Wrap an admin write: read the slots, run it, read again, pin what moved.
 
     Use inside the route's transaction, so the pins land with the edit or not at
     all; an edit that raises never reaches the second read. An entity outside
     the producer's row scope is direct curation — nothing is read or pinned.
-    ``user_id`` must be an ``app_users`` row (``provision_app_user``).
+    ``user_id`` must be an ``app_users`` row (``provision_app_user``). ``fields``
+    narrows to the slots the write can move — an event edit reads only the
+    dissolved year, and a person's events read nothing.
     """
     edit = TrackedEdit()
-    if not slots_for(entity_type) or not await in_scope(conn, entity_type, entity_id):
+    fields = None if fields is None else tuple(fields)
+    if not slots_for(entity_type, fields) or not await in_scope(conn, entity_type, entity_id):
         yield edit
         return
-    before = await read_slots(conn, entity_type, entity_id)
+    before = await read_slots(conn, entity_type, entity_id, fields)
     yield edit
-    after = await read_slots(conn, entity_type, entity_id)
+    after = await read_slots(conn, entity_type, entity_id, fields)
     edit.pinned = await pin_changed(
         conn, entity_type, entity_id, before=before, after=after, user_id=user_id
     )

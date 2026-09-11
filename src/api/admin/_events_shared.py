@@ -15,9 +15,11 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    provision_app_user,
     with_flash,
 )
 from src.api.admin.entity_lookup import ENTITY_TYPES, entity_exists, resolve_entity_label
+from src.api.admin.overlay_slots import flash_key, pinned_note, tracked
 from src.core.ancillary_migrate import delete_citations
 from src.core.db import generate_id
 from src.core.types import EVENT_PLACE_PRECISIONS
@@ -317,7 +319,7 @@ def make_events_router(
         linked_entity_id: str = Form(""),
         notes: str = Form(""),
         visibility: str = Form("public"),
-        user: AdminUser = Depends(get_admin_user),
+        user: AdminUser = Depends(provision_app_user),
         db=Depends(get_db),
     ):
         """Create a new event."""
@@ -396,42 +398,52 @@ def make_events_router(
             return _form_response(request, entity_id, None, event_types, error=addr_error)
 
         eid = generate_id()
-        await db.execute(
-            """INSERT INTO entity_events
-               (id, entity_type, entity_id, event_type_id,
-                event_year, event_month, event_day,
-                event_hour, event_minute, event_second,
-                event_place_text, event_place_address_id,
-                linked_entity_type, linked_entity_id,
-                notes, visibility)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)""",
-            eid,
-            entity_type,
-            entity_id,
-            event_type_id,
-            year_val,
-            month_val,
-            day_val,
-            hour_val,
-            minute_val,
-            second_val,
-            event_place_text.strip() or None,
-            place_addr_id,
-            linked_type,
-            linked_id,
-            notes.strip() or None,
-            visibility,
-        )
+        async with (
+            db.transaction(),
+            tracked(
+                db, entity_type, entity_id, user_id=user.id, fields=("dissolved_year",)
+            ) as edit,
+        ):
+            await db.execute(
+                """INSERT INTO entity_events
+                   (id, entity_type, entity_id, event_type_id,
+                    event_year, event_month, event_day,
+                    event_hour, event_minute, event_second,
+                    event_place_text, event_place_address_id,
+                    linked_entity_type, linked_entity_id,
+                    notes, visibility)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                           $9, $10, $11, $12, $13, $14, $15, $16)""",
+                eid,
+                entity_type,
+                entity_id,
+                event_type_id,
+                year_val,
+                month_val,
+                day_val,
+                hour_val,
+                minute_val,
+                second_val,
+                event_place_text.strip() or None,
+                place_addr_id,
+                linked_type,
+                linked_id,
+                notes.strip() or None,
+                visibility,
+            )
         row = await _get_event_or_404(eid, entity_id, db)
         if not is_htmx(request):
-            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
+            return RedirectResponse(
+                with_flash(detail_url(entity_id), flash_key("saved", edit.pinned)), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             tmpl_read_row,
             _ctx(entity_id, ev=row),
             headers=flash_trigger(
                 "success",
-                f"Event <strong>{escape(row['event_type_name'])}</strong> added.",
+                f"Event <strong>{escape(row['event_type_name'])}</strong> added."
+                + pinned_note(edit.pinned),
             ),
         )
 
@@ -479,7 +491,7 @@ def make_events_router(
         linked_entity_id: str = Form(""),
         notes: str = Form(""),
         visibility: str = Form("public"),
-        user: AdminUser = Depends(get_admin_user),
+        user: AdminUser = Depends(provision_app_user),
         db=Depends(get_db),
     ):
         """Update an event."""
@@ -592,40 +604,49 @@ def make_events_router(
                 linked_label=existing_label,
             )
 
-        await db.execute(
-            """UPDATE entity_events SET
-               event_type_id=$1,
-               event_year=$2, event_month=$3, event_day=$4,
-               event_hour=$5, event_minute=$6, event_second=$7,
-               event_place_text=$8, event_place_address_id=$9,
-               linked_entity_type=$10, linked_entity_id=$11,
-               notes=$12, visibility=$13
-               WHERE id=$14""",
-            event_type_id,
-            year_val,
-            month_val,
-            day_val,
-            hour_val,
-            minute_val,
-            second_val,
-            event_place_text.strip() or None,
-            place_addr_id,
-            linked_type,
-            linked_id,
-            notes.strip() or None,
-            visibility,
-            event_id,
-        )
+        async with (
+            db.transaction(),
+            tracked(
+                db, entity_type, entity_id, user_id=user.id, fields=("dissolved_year",)
+            ) as edit,
+        ):
+            await db.execute(
+                """UPDATE entity_events SET
+                   event_type_id=$1,
+                   event_year=$2, event_month=$3, event_day=$4,
+                   event_hour=$5, event_minute=$6, event_second=$7,
+                   event_place_text=$8, event_place_address_id=$9,
+                   linked_entity_type=$10, linked_entity_id=$11,
+                   notes=$12, visibility=$13
+                   WHERE id=$14""",
+                event_type_id,
+                year_val,
+                month_val,
+                day_val,
+                hour_val,
+                minute_val,
+                second_val,
+                event_place_text.strip() or None,
+                place_addr_id,
+                linked_type,
+                linked_id,
+                notes.strip() or None,
+                visibility,
+                event_id,
+            )
         row = await _get_event_or_404(event_id, entity_id, db)
         if not is_htmx(request):
-            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
+            return RedirectResponse(
+                with_flash(detail_url(entity_id), flash_key("saved", edit.pinned)), status_code=303
+            )
         return templates.TemplateResponse(
             request,
             tmpl_read_row,
             _ctx(entity_id, ev=row),
             headers=flash_trigger(
                 "success",
-                f"Event <strong>{escape(row['event_type_name'])}</strong> saved.",
+                f"Event <strong>{escape(row['event_type_name'])}</strong> saved."
+                + pinned_note(edit.pinned),
             ),
         )
 
@@ -634,22 +655,30 @@ def make_events_router(
         entity_id: str,
         event_id: str,
         request: Request,
-        user: AdminUser = Depends(get_admin_user),
+        user: AdminUser = Depends(provision_app_user),
         db=Depends(get_db),
     ):
         """Archive an event. Returns 409 if already archived."""
         ev = await _get_event_or_404(event_id, entity_id, db)
         if ev["archived_at"]:
             raise HTTPException(status_code=409, detail="Event is already archived")
-        await db.execute("UPDATE entity_events SET archived_at = NOW() WHERE id=$1", event_id)
+        async with (
+            db.transaction(),
+            tracked(
+                db, entity_type, entity_id, user_id=user.id, fields=("dissolved_year",)
+            ) as edit,
+        ):
+            await db.execute("UPDATE entity_events SET archived_at = NOW() WHERE id=$1", event_id)
         if not is_htmx(request):
-            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
+            return RedirectResponse(
+                with_flash(detail_url(entity_id), flash_key("saved", edit.pinned)), status_code=303
+            )
         events = await fetch_entity_events(entity_id, entity_type, db)
         return templates.TemplateResponse(
             request,
             tmpl_rows,
             _ctx(entity_id, events=events),
-            headers=flash_trigger("success", "Event archived."),
+            headers=flash_trigger("success", "Event archived." + pinned_note(edit.pinned)),
         )
 
     @router.post("/{event_id}/unarchive/")
@@ -657,22 +686,30 @@ def make_events_router(
         entity_id: str,
         event_id: str,
         request: Request,
-        user: AdminUser = Depends(get_admin_user),
+        user: AdminUser = Depends(provision_app_user),
         db=Depends(get_db),
     ):
         """Unarchive an event. Returns 409 if not archived."""
         ev = await _get_event_or_404(event_id, entity_id, db)
         if not ev["archived_at"]:
             raise HTTPException(status_code=409, detail="Event is not archived")
-        await db.execute("UPDATE entity_events SET archived_at = NULL WHERE id=$1", event_id)
+        async with (
+            db.transaction(),
+            tracked(
+                db, entity_type, entity_id, user_id=user.id, fields=("dissolved_year",)
+            ) as edit,
+        ):
+            await db.execute("UPDATE entity_events SET archived_at = NULL WHERE id=$1", event_id)
         if not is_htmx(request):
-            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
+            return RedirectResponse(
+                with_flash(detail_url(entity_id), flash_key("saved", edit.pinned)), status_code=303
+            )
         events = await fetch_entity_events(entity_id, entity_type, db)
         return templates.TemplateResponse(
             request,
             tmpl_rows,
             _ctx(entity_id, events=events),
-            headers=flash_trigger("success", "Event unarchived."),
+            headers=flash_trigger("success", "Event unarchived." + pinned_note(edit.pinned)),
         )
 
     @router.delete("/{event_id}/")

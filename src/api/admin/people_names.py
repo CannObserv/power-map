@@ -60,6 +60,8 @@ router = make_names_router(
     last_identity_blocked=_last_identity_blocked,
     last_identity_error_msg="Cannot remove the only name.",
     last_identity_409_msg="Cannot remove the only name.",
+    overlay_entity_type="person",
+    overlay_field="name",
     header_extra=person_header_extra,
     supports_person_metadata=True,
 )
