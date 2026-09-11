@@ -171,6 +171,28 @@ async def test_a_created_parents_inserts_claim_the_canonical_slot_once():
     assert [i.changes["is_canonical"][1] for i in inserts] == [True, False]
 
 
+async def test_the_canonical_claim_does_not_depend_on_the_order_rows_arrive_in():
+    """CR 11: CR 4 handed the flag to whichever insert came first, and "first" was the
+    Parquet file's row order — dbt promises none. A reordered rebuild moved the
+    display pointer and, since `changes` feeds the digest, broke the streak with
+    nothing having changed. The claim now follows key order: stable, if arbitrary,
+    and a person overrides it through the overlay."""
+    legal = {"pm_id": PM1, "producer_id": P1, "name": "Michael Padden", "name_type": "legal"}
+    preferred = {"pm_id": PM1, "producer_id": P1, "name": "Mike", "name_type": "preferred"}
+    claims = []
+    for rows in ([legal, preferred], [preferred, legal]):
+        state = _state(
+            desired_people=[{"pm_id": PM1, "producer_id": P1}], desired_person_names=rows
+        )
+
+        diff = await diff_desired(state, MANIFEST, _person_store())
+
+        claims.append({e.entry_id: e.changes["is_canonical"][1] for e in diff.by_kind("insert")})
+
+    assert claims[0] == claims[1]
+    assert claims[0]["desired_person_names:01P1|legal"] is True
+
+
 async def test_a_row_of_another_type_never_satisfies_the_claim():
     store = _person_store(name("n1", PM1, "Mike Padden", name_type="preferred", canonical=True))
 

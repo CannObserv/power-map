@@ -100,7 +100,9 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   `update` for #501 to decide apply-or-overlay; no row of the type, an `insert`.
   An insert takes the parent's canonical flag only if the parent has no canonical
   row *and* no earlier insert of the same run claimed it — the flag is unique per
-  parent, so a second claim aborts the transaction.
+  parent, so a second claim aborts the transaction. "Earlier" is key order, not
+  file order, so a rebuild cannot move the flag; the winner is stable but
+  arbitrary, and an overlay is how a person picks otherwise.
 - **Verdicts and exit codes.** A dry run always completes: `clean` or `blocked`
   (a threshold exceeded) exit **0** — seventeen pending creates must not fail the
   timer every night — and `stale` exits **3**. `--execute` refuses (exit **1**)

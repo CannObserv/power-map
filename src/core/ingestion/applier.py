@@ -17,6 +17,7 @@ import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Protocol
 
@@ -291,13 +292,21 @@ async def diff_desired(
     ``minted`` — (kind, producer_id) → pm_id for entities created by the run
     that is now re-diffing inside its transaction — is applied to the desired
     rows first (`_with_minted`).
+
+    Rows are taken in key order, never file order (CR 11): the Parquet a build
+    writes carries no ORDER BY, and a shape with state across rows — the
+    canonical claim in `_diff_child` — must reach the same answer, and the run
+    the same digest, whichever order a rebuild happened to write.
     """
     kinds = sorted({spec.entity for spec in manifest.tables.values()})
     scope = await Scope.load(store, source=source, kinds=kinds)
     entries: list[Entry] = []
     kept: dict[str, list[dict]] = {}
     for name, spec in manifest.tables.items():
-        rows, stale = scope_rows(spec, _with_minted(spec, state.tables[name], minted or {}), scope)
+        ordered = sorted(
+            _with_minted(spec, state.tables[name], minted or {}), key=partial(entry_id, spec)
+        )
+        rows, stale = scope_rows(spec, ordered, scope)
         kept[name] = rows
         entries.extend(stale)
 
@@ -508,7 +517,8 @@ async def _diff_child(
     the claim; absent everywhere, the canonical row of that type is the one in
     dispute (`update`); no such row, `insert` — canonical only when the parent
     has no canonical row at all, and only for the first such insert of the run
-    because the flag is unique per parent. `key`: match on the key columns among
+    in key order — the flag is unique per parent, and which row takes it must
+    not depend on file order. `key`: match on the key columns among
     unarchived rows — none is an `insert`, one compares the owned columns,
     more than one is a `conflict`. Under `retraction: report`, an owned event
     type on an in-scope parent that the snapshot no longer carries is a
