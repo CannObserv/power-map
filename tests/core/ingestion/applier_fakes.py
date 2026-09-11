@@ -107,6 +107,11 @@ class FakeConn:
     async def execute(self, sql: str, *args) -> None:
         self.statements.append((sql, args))
 
+    async def fetch(self, sql: str, *args) -> list:
+        """A statement with RETURNING (the crosswalk re-point, #514); matches nothing."""
+        self.statements.append((sql, args))
+        return []
+
     def transaction(self):
         return _FakeTransaction(self)
 

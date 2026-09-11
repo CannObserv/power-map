@@ -13,14 +13,35 @@ is a report, and a `stale` entry refuses the whole plan.
 back unless nothing is left to write — nor left for a person: a `conflict` the
 writes themselves created blocks the commit too, since the verdict that would
 have caught it ran before the write.
+
+**The merge phase (#514).** A diff holding an actionable merge writes the merges
+and nothing else: each through its registered primitive (`applier_merge`), then
+every crosswalk anchor naming a row the merge retired re-points at its survivor.
+The row entries were computed against the pre-merge state and wait for the next
+diff. The commit needs every merge acted on to be a `noop` in the re-diff and
+nothing in the re-diff that the pre-write diff lacked: a merge may only make
+entries go away. The Heck case (#515) is why — a merge and a name update in
+one plan destroyed the canonical name in either order, and the ordinary
+"nothing left to write" check passed, because the end state satisfied the
+desired state.
 """
 
+import json
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
 from src.core.db import generate_id
-from src.core.ingestion.applier import ApplierError, Diff, sql_identifier
+from src.core.ingestion.applier import (
+    ApplierError,
+    Diff,
+    Entry,
+    actionable_merges,
+    sql_identifier,
+)
+from src.core.ingestion.applier_merge import MERGE_PRIMITIVES, MergePrimitive
+from src.core.ingestion.applier_report import digest_view
+from src.core.ingestion.crosswalk import repoint_anchors
 from src.core.ingestion.mapping import Manifest
 
 __all__ = [
@@ -56,6 +77,8 @@ class Connection(Protocol):
 
     async def execute(self, sql: str, *args) -> object: ...
 
+    async def fetch(self, sql: str, *args) -> list: ...
+
     def transaction(self): ...
 
 
@@ -75,6 +98,8 @@ class ApplyResult:
     written: int
     minted: dict[tuple[str, str], str]
     after: Diff
+    merged: int = 0  # merge phase: merges folded through a primitive
+    anchors: int = 0  # merge phase: crosswalk anchors re-pointed at a survivor
 
 
 _ident = sql_identifier
@@ -167,13 +192,19 @@ async def apply_diff(
     source: str,
     rediff: Callable[[Mapping[tuple[str, str], str]], Awaitable[Diff]],
     ids: Iterator[str] | None = None,
+    merges: Mapping[str, MergePrimitive] = MERGE_PRIMITIVES,
 ) -> ApplyResult:
     """Write the diff in one transaction; re-diff inside it; commit only if nothing is left.
 
     ``rediff`` receives the ids this plan minted, so a row created here reads
     as anchored on the second pass rather than as a create the live crosswalk
-    now contradicts.
+    now contradicts. A diff holding an actionable merge is written by
+    :func:`_apply_merges` instead — merges only.
     """
+    if acted := actionable_merges(diff):
+        return await _apply_merges(
+            diff, acted, manifest, conn, source=source, rediff=rediff, merges=merges
+        )
     statements, minted = plan_statements(diff, manifest, source=source, ids=ids)
     async with conn.transaction():
         for st in statements:
@@ -186,3 +217,61 @@ async def apply_diff(
                 f"after writing, {len(left)} entries remain — rolled back: {named}"
             )
     return ApplyResult(written=len(statements), minted=minted, after=after)
+
+
+async def _apply_merges(
+    diff: Diff,
+    acted: list[Entry],
+    manifest: Manifest,
+    conn: Connection,
+    *,
+    source: str,
+    rediff: Callable[[Mapping[tuple[str, str], str]], Awaitable[Diff]],
+    merges: Mapping[str, MergePrimitive],
+) -> ApplyResult:
+    """Fold each actionable merge and re-point its anchors, in one verified transaction."""
+    stale = diff.by_kind("stale")
+    if stale:
+        raise ApplierError(
+            f"{len(stale)} stale entries (first: {stale[0].entry_id}) — no merge is folded "
+            "beside a stale row; rebuild the desired state first"
+        )
+    actor = f"apply_desired_state ({source} merge tombstone, #514)"
+    merged = anchors = 0
+    async with conn.transaction():
+        for e in acted:
+            spec = manifest.tables[e.table]
+            primitive = merges[spec.target.primitive]
+            survivor = e.changes["survivor_pm_id"][1]
+            if not e.effects.get("already_merged"):
+                dropped = await primitive.merge(
+                    conn, winner_id=survivor, loser_id=e.pm_id, actor_email=actor
+                )
+                anchors += await repoint_anchors(conn, primitive.dropped_kind, dropped)
+                merged += 1
+            anchors += await repoint_anchors(conn, spec.entity, [(e.pm_id, survivor)])
+        after = await rediff({})
+        _verify_merges(diff, acted, after)
+    return ApplyResult(written=merged, minted={}, after=after, merged=merged, anchors=anchors)
+
+
+def _view(entry: Entry) -> str:
+    return json.dumps(digest_view(entry), sort_keys=True, default=str)
+
+
+def _verify_merges(before: Diff, acted: list[Entry], after: Diff) -> None:
+    """Raise unless every merge acted on is now a noop and the re-diff holds nothing new."""
+    acted_ids = {e.entry_id for e in acted}
+    pending = [e for e in after.entries if e.entry_id in acted_ids and e.kind != "noop"]
+    known = {_view(e) for e in before.entries if e.kind != "noop" and e.entry_id not in acted_ids}
+    appeared = [
+        e
+        for e in after.entries
+        if e.kind != "noop" and e.entry_id not in acted_ids and _view(e) not in known
+    ]
+    if pending or appeared:
+        named = ", ".join(f"{e.entry_id} ({e.kind})" for e in [*pending, *appeared][:5])
+        raise VerificationFailed(
+            f"after the merges, {len(pending)} merge(s) still pending and {len(appeared)}"
+            f" entry(ies) the merges changed or created — rolled back: {named}"
+        )

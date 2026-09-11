@@ -153,11 +153,19 @@ async def run(
 
             try:
                 result = await apply_diff(diff, manifest, conn, source=SOURCE, rediff=rediff)
-                logger.info(
-                    "applied %d statement(s), %d entity(ies) minted; verified in-transaction",
-                    result.written,
-                    len(result.minted),
-                )
+                if verdict.phase == "merge":
+                    logger.info(
+                        "merge phase: folded %d merge(s), re-pointed %d anchor(s);"
+                        " verified in-transaction — the rows wait for the next diff",
+                        result.merged,
+                        result.anchors,
+                    )
+                else:
+                    logger.info(
+                        "applied %d statement(s), %d entity(ies) minted; verified in-transaction",
+                        result.written,
+                        len(result.minted),
+                    )
             except (VerificationFailed, asyncpg.PostgresError) as exc:
                 # A trigger or constraint (the org-cycle guard, a unique index)
                 # is a rollback like a failed verification: nothing landed.
