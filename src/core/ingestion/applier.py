@@ -485,7 +485,8 @@ async def _diff_child(
     `any_then_canonical`: any row of the key type carrying the value satisfies
     the claim; absent everywhere, the canonical row of that type is the one in
     dispute (`update`); no such row, `insert` — canonical only when the parent
-    has no canonical row at all. `key`: match on the key columns among
+    has no canonical row at all, and only for the first such insert of the run
+    because the flag is unique per parent. `key`: match on the key columns among
     unarchived rows — none is an `insert`, one compares the owned columns,
     more than one is a `conflict`. Under `retraction: report`, an owned event
     type on an in-scope parent that the snapshot no longer carries is a
@@ -543,6 +544,20 @@ async def _diff_child(
         changes.update({k: (None, v) for k, v in target.constants.items()})
         return changes
 
+    # The canonical flag is the parent's *display pointer*, and PM's indexes
+    # (uq_person_canonical_name, uq_org_canonical_name, uq_org_canonical_acronym)
+    # are unique on the parent alone where it is true. Canonicality was decided
+    # per row against the pre-write snapshot, so two inserts on one parent both
+    # claimed it and the second aborted the transaction (CR 4). A claim made
+    # here is remembered for the rest of the run.
+    claimed: set[object] = set()
+
+    def claims_canonical(parent: object, already_taken: bool) -> bool:
+        if already_taken or parent in claimed:
+            return False
+        claimed.add(parent)
+        return True
+
     entries: list[Entry] = []
     seen: set[tuple[str, tuple]] = set()
     for row in rows:
@@ -553,7 +568,9 @@ async def _diff_child(
                 continue
             changes = insert_changes(row)
             if target.match == "any_then_canonical":
-                changes[target.canonical] = (None, True)  # a new parent has no canonical
+                # A new parent has no canonical row — but only its first insert.
+                new_parent = ("create", row["producer_id"])
+                changes[target.canonical] = (None, claims_canonical(new_parent, False))
             entries.append(
                 _entry(spec, row, "insert", changes=changes, reason="on a row this run creates")
             )
@@ -586,7 +603,8 @@ async def _diff_child(
                 )
             else:
                 changes = insert_changes(row)
-                changes[target.canonical] = (None, not any(r.get(target.canonical) for r in found))
+                taken = any(r.get(target.canonical) for r in found)
+                changes[target.canonical] = (None, claims_canonical(pm_id, taken))
                 entries.append(_entry(spec, row, "insert", changes=changes))
         else:
             key = {columns[c]: pm_value(row, c) for c in target.key_columns}

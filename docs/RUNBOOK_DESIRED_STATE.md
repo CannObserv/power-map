@@ -98,6 +98,9 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   dispute.** Any row of the type carrying the value is a noop (PM's short and
   long org names both stay); absent everywhere, the canonical row becomes an
   `update` for #501 to decide apply-or-overlay; no row of the type, an `insert`.
+  An insert takes the parent's canonical flag only if the parent has no canonical
+  row *and* no earlier insert of the same run claimed it — the flag is unique per
+  parent, so a second claim aborts the transaction.
 - **Verdicts and exit codes.** A dry run always completes: `clean` or `blocked`
   (a threshold exceeded) exit **0** — seventeen pending creates must not fail the
   timer every night — and `stale` exits **3**. `--execute` refuses (exit **1**)
