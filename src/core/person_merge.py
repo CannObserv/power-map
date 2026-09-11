@@ -14,6 +14,7 @@ from src.core.ancillary_migrate import (
     rehome_assignment_relationships,
     rehome_citations,
     rehome_conflicting_assignment_ancillary,
+    rehome_curation_overlay,
 )
 from src.core.merge_signals import mirror_subscriptions, record_merge_tombstones
 from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
@@ -77,7 +78,7 @@ async def merge_person_into(
     actor_email: str,
     loser_display_name: str | None = None,
     keep_name_ids: list[str] | None = None,
-) -> None:
+) -> list[tuple[str, str]]:
     """Merge `loser_id` into `winner_id` — reassign references + hard-delete loser.
 
     Caller MUST own the surrounding transaction; this function executes
@@ -99,6 +100,12 @@ async def merge_person_into(
             including deadnames / hidden (#121). A list keeps only those loser
             ``person_names.id`` rows (transferred as non-canonical aliases); the
             rest are dropped. An empty list drops every loser name.
+
+    Returns:
+        The ``(loser_assignment_id, winner_assignment_id)`` pairs dropped as
+        same-role, same-start duplicates. Each dropped assignment is tombstoned
+        into its survivor here; a caller holding its own anchors — the #514
+        applier re-pointing ``producer_crosswalk`` — needs the pairs too.
 
     Raises:
         PersonNotFoundError: when either ``winner_id`` or ``loser_id``
@@ -298,6 +305,8 @@ async def merge_person_into(
     await rehome_assignment_relationships(db, _conflict_pairs)
     # #467: whoever watches a dropped duplicate also watches its survivor.
     await mirror_subscriptions(db, _conflict_pairs)
+    # #514: and a curator's override on it follows it there.
+    await rehome_curation_overlay(db, "assignment", _conflict_pairs)
     # Delete exactly the rows we just re-homed — deriving the DELETE set from the
     # same `conflict_pairs` (rather than re-deriving via a COALESCE sentinel) keeps
     # the re-homed set and the deleted set provably identical, so no conflict row
@@ -443,9 +452,11 @@ async def merge_person_into(
     # #467: a key watching the loser also watches the winner; its own subscription
     # stays, or the tombstone below would have no audience.
     await mirror_subscriptions(db, [(loser_id, winner_id)])
+    await rehome_curation_overlay(db, "person", [(loser_id, winner_id)])
     await db.execute(
         "INSERT INTO deleted_entities (entity_type, entity_id, merged_into)"
         " VALUES ('person', $1, $2) ON CONFLICT DO NOTHING",
         loser_id,
         winner_id,
     )
+    return _conflict_pairs

@@ -15,6 +15,7 @@ from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
 from src.core.ancillary_migrate import (
     rehome_assignment_relationships,
     rehome_conflicting_assignment_ancillary,
+    rehome_curation_overlay,
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
@@ -208,6 +209,7 @@ async def role_merge(
         await rehome_assignment_relationships(db, _conflict_pairs)
         # #467: whoever watches a dropped duplicate also watches its survivor.
         await mirror_subscriptions(db, _conflict_pairs)
+        await rehome_curation_overlay(db, "assignment", _conflict_pairs)  # #514
         # Delete exactly the rows just re-homed, derived from the same pair list, so
         # the re-homed set and the deleted set are provably identical (#324 CR2).
         await db.execute(
@@ -226,6 +228,7 @@ async def role_merge(
         # the hard-delete, else they orphan (entity_type='role', no FK).
         await rehome_role_ancillary(db, loser_id, winner_id)
         await mirror_subscriptions(db, [(loser_id, winner_id)])
+        await rehome_curation_overlay(db, "role", [(loser_id, winner_id)])  # #514
         await db.execute("DELETE FROM roles WHERE id=$1", loser_id)
         # #467: the role id retires here — say so, and say what replaced it.
         await record_merge_tombstones(db, "role", [(loser_id, winner_id)])

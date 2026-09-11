@@ -1,4 +1,4 @@
-"""AST ratchets for the two rules #467 established, with no allowlist.
+"""AST ratchets for the rules #467 and #514 established, with no allowlist.
 
 The org-merge regression was not a typo — it was one of two near-identical blocks
 drifting from the primitive its siblings used, in a file nobody re-reads. Both
@@ -13,6 +13,10 @@ paths, so they are enforced structurally instead:
    `role_assignment` must also emit a tombstone, because the outbox triggers fire
    on INSERT/UPDATE only — a DELETE is invisible to `/api/v1/changes` unless a
    `deleted_entities` row announces it.
+3. **Overlay ratchet (#514).** Wherever a merge path mirrors a subscription onto
+   a survivor, it re-homes the loser's `curation_overlay` rows too. Both tables
+   are keyed on an id with no FK, and an override left on a merged-away id stops
+   applying without a word — the mapping layer joins it on the surviving pm_id.
 """
 
 import ast
@@ -83,4 +87,33 @@ def test_every_role_or_assignment_hard_delete_emits_a_tombstone():
         f"{offenders} hard-delete a role or role_assignment without a tombstone."
         " The change-feed triggers are INSERT/UPDATE-only, so subscribers see"
         " nothing unless a deleted_entities row announces it (#467)."
+    )
+
+
+def _calls(path: Path, name: str) -> int:
+    """How many times the module calls ``name`` (bare or attribute form)."""
+    tree = ast.parse(path.read_text())
+    return sum(
+        1
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and (
+            (isinstance(n.func, ast.Name) and n.func.id == name)
+            or (isinstance(n.func, ast.Attribute) and n.func.attr == name)
+        )
+    )
+
+
+def test_every_subscription_mirror_carries_the_curation_overlay():
+    """#514: a merge step that re-homes watchers re-homes curator overrides with them."""
+    offenders = {
+        name: (mirrors, rehomes)
+        for name in MERGE_MODULES
+        if (mirrors := _calls(SRC_DIR / name, "mirror_subscriptions"))
+        != (rehomes := _calls(SRC_DIR / name, "rehome_curation_overlay"))
+    }
+    assert not offenders, (
+        f"{offenders} (mirror_subscriptions calls, rehome_curation_overlay calls) differ."
+        " Each merge step that mirrors a subscription must re-home the loser's"
+        " curation_overlay rows beside it (#514)."
     )
