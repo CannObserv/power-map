@@ -10,7 +10,9 @@ Every run writes `data/applier/<run-id>/{diff.jsonl,summary.json,summary.md}`
 and appends a line to `data/applier/ledger.jsonl`. `--execute` is offered only
 after `streak` consecutive clean dry runs carrying this run's diff digest. A
 refused `--execute` is recorded as `refused`, not as a dry run: an attempt at
-the gate does not count towards opening it.
+the gate does not count towards opening it. A diff holding an actionable
+producer merge is a merge phase (#514): its verdict weighs merges, conflicts and
+stale only, and its execute folds the merges and writes nothing else.
 
 Exit codes: 0 a dry run completed (verdict clean or blocked — both recorded,
 neither fails the timer) or an execute applied and verified; 1 an execute was
@@ -22,6 +24,8 @@ Usage:
     uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state --execute
     uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state \\
         --execute --allow-creates 4 --max-updates 60
+    uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state \\
+        --execute --allow-merges 1 --streak 1     # a merge phase: merges only
 """
 
 import argparse
@@ -70,6 +74,7 @@ def thresholds_with(
     base: Thresholds | None = None,
     *,
     allow_creates: int | None = None,
+    allow_merges: int | None = None,
     max_updates: int | None = None,
 ) -> Thresholds:
     """The manifest's thresholds with this run's overrides."""
@@ -77,6 +82,8 @@ def thresholds_with(
     changes = {}
     if allow_creates is not None:
         changes["creates"] = allow_creates
+    if allow_merges is not None:
+        changes["merges"] = allow_merges
     if max_updates is not None:
         changes["updates"] = max_updates
     return dataclasses.replace(base, **changes)
@@ -155,7 +162,7 @@ async def run(
                 # A trigger or constraint (the org-cycle guard, a unique index)
                 # is a rollback like a failed verification: nothing landed.
                 logger.error("rolled back: %s", exc)
-                verdict = Verdict("rolled_back", verdict.exceeded)
+                verdict = dataclasses.replace(verdict, verdict="rolled_back")
                 code = EXIT_REFUSED
 
     summary = write_report(
@@ -189,6 +196,13 @@ def _log_summary(summary: dict, run_dir: Path, ledger_path: Path, streak: int) -
     if summary["exceeded"]:
         over = ", ".join(f"{k} {n} > {limit}" for k, (n, limit) in summary["exceeded"].items())
         logger.warning("  thresholds exceeded: %s", over)
+    if summary["phase"] == "merge":
+        deferred = ", ".join(f"{k} {n}" for k, n in summary["deferred"].items()) or "nothing"
+        logger.info(
+            "  merge phase: %d merge(s) to apply first; deferred to the next diff: %s",
+            len(summary["merges"]),
+            deferred,
+        )
     logger.info("  report: %s", run_dir)
     if summary["mode"] == "dry":
         ok, why = may_execute(read_ledger(ledger_path), digest=summary["digest"], streak=streak)
@@ -227,6 +241,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Raise the creates threshold for this run (manifest default 0)",
     )
     parser.add_argument(
+        "--allow-merges",
+        type=_at_least(0),
+        default=None,
+        metavar="N",
+        help="Raise the merges threshold for this run (manifest default 0; #514)",
+    )
+    parser.add_argument(
         "--max-updates",
         type=_at_least(0),
         default=None,
@@ -242,7 +263,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     dsn = resolve_dsn(args, parser)
-    thresholds = thresholds_with(allow_creates=args.allow_creates, max_updates=args.max_updates)
+    thresholds = thresholds_with(
+        allow_creates=args.allow_creates,
+        allow_merges=args.allow_merges,
+        max_updates=args.max_updates,
+    )
     streak = args.streak if args.streak is not None else load_manifest().streak
     try:
         return asyncio.run(

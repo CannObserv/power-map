@@ -20,6 +20,7 @@ from src.core.ingestion.applier_report import (  # noqa: E402
     LEDGER,
     append_ledger,
     diff_digest,
+    ledger_line,
     may_execute,
     read_ledger,
     run_id_for,
@@ -80,6 +81,58 @@ def test_merges_and_conflicts_have_their_own_thresholds():
     diff = Diff([E("merge", table="desired_person_merges"), E("conflict", "01P2")])
 
     assert verdict_for(diff, Thresholds()).exceeded == {"merges": (1, 0), "conflicts": (1, 0)}
+
+
+# --- the merge phase (#514) -------------------------------------------------------
+#
+# A diff holding an actionable merge writes merges and nothing else, so only the
+# thresholds that bear on a merge decide its verdict; the rest are deferred to the
+# next night's diff, which is computed against the merged state.
+
+PREVIEW = {
+    "names": [{"id": "01NM", "action": "move", "into": None}],
+    "assignments": [{"id": "01RA", "action": "drop", "into": "01RB"}],
+    "identifiers": ["01ID"],
+}
+
+
+def _merge(effects=None):
+    return E(
+        "merge",
+        "01ML",
+        table="desired_person_merges",
+        pm_id="01ML",
+        changes={"survivor_pm_id": (None, "01MS")},
+        effects={"primitive": "person", "preview": PREVIEW} if effects is None else effects,
+    )
+
+
+def test_an_actionable_merge_puts_the_run_in_the_merge_phase_and_defers_the_rest():
+    diff = Diff([_merge(), E("create", "01P2"), E("update", "01P3", changes={"n": ("a", "b")})])
+
+    verdict = verdict_for(diff, Thresholds(merges=1))
+
+    assert verdict.phase == "merge"
+    assert verdict.verdict == "clean" and verdict.exceeded == {}
+    assert verdict.deferred == {"creates": 1, "updates": 1}
+
+
+def test_the_merge_phase_still_blocks_on_merges_stale_and_conflicts():
+    diff = Diff([_merge(), E("conflict", "01P2"), E("stale", "01P3")])
+
+    verdict = verdict_for(diff, Thresholds())
+
+    assert verdict.verdict == "stale"
+    assert verdict.exceeded == {"merges": (1, 0), "conflicts": (1, 0), "stale": (1, 0)}
+
+
+def test_a_report_only_merge_leaves_the_run_in_the_rows_phase():
+    diff = Diff([_merge(effects={}), E("create", "01P2")])
+
+    verdict = verdict_for(diff, Thresholds(merges=1))
+
+    assert verdict.phase == "rows" and verdict.deferred == {}
+    assert verdict.exceeded == {"creates": (1, 0)}
 
 
 # --- digest ---------------------------------------------------------------------
@@ -182,6 +235,37 @@ def test_the_markdown_summary_is_readable(tmp_path):
     md = (tmp_path / "run" / "summary.md").read_text()
     assert "blocked" in md and "creates" in md
     assert "desired_people" in md and "| create" in md or "create |" in md
+
+
+def test_the_summary_names_the_phase_what_it_defers_and_each_merge(tmp_path):
+    diff = Diff([_merge(), _merge_already(), E("create", "01P2")])
+
+    summary = _report(tmp_path, diff)
+
+    assert summary["phase"] == "merge" and summary["deferred"] == {"creates": 1}
+    md = (tmp_path / "run" / "summary.md").read_text()
+    assert "Merge phase" in md and "creates 1" in md
+    assert "`01ML` → `01MS`" in md
+    assert "names: 1 move, 0 dedup" in md and "assignments: 0 move, 1 drop" in md
+    assert "identifiers: 1" in md
+    assert "`01MK` → `01MS`" in md and "already merged in PM" in md
+
+
+def _merge_already():
+    return E(
+        "merge",
+        "01MK",
+        table="desired_person_merges",
+        pm_id="01MK",
+        changes={"survivor_pm_id": (None, "01MS")},
+        effects={"primitive": "person", "already_merged": True},
+    )
+
+
+def test_the_ledger_line_records_the_phase(tmp_path):
+    summary = _report(tmp_path, Diff([_merge()]))
+
+    assert ledger_line(summary)["phase"] == "merge"
 
 
 # --- the ledger and the gate -----------------------------------------------------

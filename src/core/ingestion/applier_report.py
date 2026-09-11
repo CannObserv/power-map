@@ -6,6 +6,12 @@ A dry run always completes and records a verdict:
     blocked  a threshold was exceeded (creates, merges, conflicts, updates)
     stale    the desired state disagrees with the live crosswalk — rebuild
 
+A diff holding an actionable merge is in the **merge phase** (#514): an execute
+writes the merges and nothing else, so only the merges, conflicts and stale
+thresholds decide its verdict, and every other count is reported as deferred
+to the next night's diff — computed against the merged state, which is what
+the row writes must be approved against.
+
 The artifact under ``data/applier/<run-id>/`` is what #501's triage works
 from: ``diff.jsonl`` holds one actionable entry per line (never a noop),
 sorted by ``entry_id`` so a decision can name a line and a diff between two
@@ -25,16 +31,17 @@ digest, which the current run must reproduce.
 import hashlib
 import json
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.core.ingestion.applier import ENTRY_KINDS, Diff, Entry
+from src.core.ingestion.applier import ENTRY_KINDS, Diff, Entry, actionable_merges
 from src.core.ingestion.mapping.manifest import Thresholds
 
 __all__ = [
     "DIFF_FILE",
     "LEDGER",
+    "MERGE_PHASE_THRESHOLDS",
     "MODES",
     "SUMMARY_JSON",
     "SUMMARY_MD",
@@ -76,21 +83,37 @@ THRESHOLD_KINDS: dict[str, tuple[str, ...]] = {
     "updates": ("update", "insert"),
 }
 
+# What a merge-phase run can still trip. A create or an update is not written in
+# that run, so its threshold has nothing to guard until the next one.
+MERGE_PHASE_THRESHOLDS = ("merges", "conflicts", "stale")
+
 
 @dataclass(frozen=True)
 class Verdict:
-    """The run's verdict and, per exceeded threshold, (count, limit)."""
+    """The run's verdict; per exceeded threshold, (count, limit); the phase it judged.
+
+    ``phase`` is ``merge`` when the diff holds an actionable merge, else ``rows``.
+    ``deferred`` names the counts a merge phase does not judge.
+    """
 
     verdict: str
     exceeded: dict[str, tuple[int, int | None]]
+    phase: str = "rows"
+    deferred: dict[str, int] = field(default_factory=dict)
 
 
 def verdict_for(diff: Diff, thresholds: Thresholds) -> Verdict:
     counts = diff.counts
+    phase = "merge" if actionable_merges(diff) else "rows"
     exceeded: dict[str, tuple[int, int | None]] = {}
+    deferred: dict[str, int] = {}
     for name, kinds in THRESHOLD_KINDS.items():
-        limit = getattr(thresholds, name)
         n = sum(counts[k] for k in kinds)
+        if phase == "merge" and name not in MERGE_PHASE_THRESHOLDS:
+            if n:
+                deferred[name] = n
+            continue
+        limit = getattr(thresholds, name)
         if limit is not None and n > limit:
             exceeded[name] = (n, limit)
     if "stale" in exceeded:
@@ -99,7 +122,7 @@ def verdict_for(diff: Diff, thresholds: Thresholds) -> Verdict:
         verdict = "blocked"
     else:
         verdict = "clean"
-    return Verdict(verdict, exceeded)
+    return Verdict(verdict, exceeded, phase, deferred)
 
 
 def _actionable(diff: Diff) -> list[Entry]:
@@ -171,6 +194,8 @@ def _markdown(summary: dict) -> str:
     if summary["exceeded"]:
         over = ", ".join(f"{k} {n} > {limit}" for k, (n, limit) in summary["exceeded"].items())
         lines += ["", f"**Thresholds exceeded:** {over}"]
+    if summary["phase"] == "merge":
+        lines += _merge_lines(summary)
     lines += [
         "",
         "| table | " + " | ".join(ENTRY_KINDS) + " |",
@@ -180,6 +205,37 @@ def _markdown(summary: dict) -> str:
         lines.append(f"| {table} | " + " | ".join(str(counts[k]) for k in ENTRY_KINDS) + " |")
     lines.append("")
     return "\n".join(lines)
+
+
+def _merge_effect(merge: dict) -> str:
+    """One merge as a line a person can check before `--execute`."""
+    loser, survivor = merge["pm_id"], merge["changes"]["survivor_pm_id"][1]
+    effects = merge["effects"]
+    head = f"- `{loser}` → `{survivor}` ({effects['primitive']})"
+    if effects.get("already_merged"):
+        return f"{head}: already merged in PM — only the anchors re-point"
+    preview = effects.get("preview") or {}
+
+    def split(rows: list[dict], moved: str, gone: str) -> str:
+        n_moved = sum(1 for r in rows if r["action"] == moved)
+        return f"{n_moved} {moved}, {len(rows) - n_moved} {gone}"
+
+    return (
+        f"{head}: names: {split(preview.get('names', []), 'move', 'dedup')}"
+        f" · assignments: {split(preview.get('assignments', []), 'move', 'drop')}"
+        f" · identifiers: {len(preview.get('identifiers', []))}"
+    )
+
+
+def _merge_lines(summary: dict) -> list[str]:
+    deferred = ", ".join(f"{k} {n}" for k, n in summary["deferred"].items()) or "nothing"
+    return [
+        "",
+        f"**Merge phase:** an execute writes these merges and nothing else; deferred to the"
+        f" next diff: {deferred}.",
+        "",
+        *(_merge_effect(m) for m in summary["merges"]),
+    ]
 
 
 def write_report(
@@ -210,6 +266,11 @@ def write_report(
         "source": source,
         "verdict": verdict.verdict,
         "exceeded": {k: [n, limit] for k, (n, limit) in verdict.exceeded.items()},
+        "phase": verdict.phase,
+        "deferred": verdict.deferred,
+        "merges": [
+            digest_view(e) for e in sorted(actionable_merges(diff), key=lambda e: e.entry_id)
+        ],
         "counts": diff.counts,
         "by_table": _by_table(diff),
         "entries": len(actionable),
@@ -233,6 +294,7 @@ def ledger_line(summary: dict) -> dict:
         "started_at": summary["started_at"],
         "mode": summary["mode"],
         "verdict": summary["verdict"],
+        "phase": summary["phase"],
         "digest": summary["digest"],
         "counts": summary["counts"],
         "exceeded": summary["exceeded"],

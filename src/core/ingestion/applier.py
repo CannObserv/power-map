@@ -36,6 +36,7 @@ __all__ = [
     "Entry",
     "LiveStore",
     "Scope",
+    "actionable_merges",
     "diff_desired",
     "entry_id",
     "scope_rows",
@@ -265,6 +266,15 @@ class Diff:
     @property
     def counts(self) -> dict[str, int]:
         return {kind: sum(1 for e in self.entries if e.kind == kind) for kind in ENTRY_KINDS}
+
+
+def actionable_merges(diff: Diff) -> list[Entry]:
+    """The merges a run would act on — `effects` names their primitive (#514).
+
+    Non-empty puts the run in the **merge phase**: the verdict weighs only what a
+    merge can trip, and an execute writes these and nothing else.
+    """
+    return [e for e in diff.entries if e.kind == "merge" and e.effects]
 
 
 def _with_minted(
