@@ -90,13 +90,14 @@ def _at_least(minimum: int) -> Callable[[str], int]:
     neither reaches a connection.
     """
 
-    def parse(raw: str) -> int:
+    def count(raw: str) -> int:
+        # Named for argparse, which builds "invalid <name> value" from it (CR 16).
         value = int(raw)
         if value < minimum:
             raise argparse.ArgumentTypeError(f"must be {minimum} or more, not {value}")
         return value
 
-    return parse
+    return count
 
 
 def _exceeded(verdict: Verdict) -> str:

@@ -329,3 +329,14 @@ def test_a_count_flag_that_could_only_weaken_the_gate_is_a_usage_error(flag, mon
         cli.main([*flag, "--execute"])
 
     assert exc.value.code == 2
+
+
+def test_a_bad_count_flag_says_what_it_wanted(monkeypatch, capsys):
+    """CR 16: argparse builds its message from `type.__name__`, and the closure was
+    called `parse` — "invalid parse value: 'abc'" told the operator nothing."""
+    monkeypatch.setenv("DATABASE_URL", "postgres://u:p@db.example/pm")
+
+    with pytest.raises(SystemExit):
+        cli.main(["--streak", "abc"])
+
+    assert "invalid count value: 'abc'" in capsys.readouterr().err
