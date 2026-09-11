@@ -551,6 +551,25 @@ async def count_orphaned_citations(db: asyncpg.Connection) -> dict[str, int]:
 #: assignment is `assignment` here where `deleted_entities` says `role_assignment`.
 OVERLAY_ENTITY_TYPES = frozenset({"person", "organization", "role", "assignment"})
 
+# Pins whose *value* is an id of the merging type (#498): organization.parent_id
+# names an org. The merge re-points the live column (`UPDATE organizations SET
+# parent_id` in orgs_merge), so the pin follows it, history included — a pin left
+# naming the deleted loser would have the applier write it back.
+_ID_VALUED_FIELDS: dict[str, tuple[str, ...]] = {"organization": ("parent_id",)}
+_REPOINT_VALUES_SQL = (
+    "UPDATE curation_overlay SET value = $3"
+    " WHERE entity_type = $1 AND field = ANY($4::text[]) AND value = $2"
+)
+# Re-pointed, the survivor's pin naming the loser now names the survivor; moved,
+# the loser's pin naming the survivor would too. No org is its own parent, so
+# either is displaced, as an unpin is — before the clash check, so a sound pin on
+# the other side is free to stand.
+_ARCHIVE_SELF_NAMING_SQL = (
+    "UPDATE curation_overlay SET archived_at = NOW()"
+    " WHERE entity_type = $1 AND field = ANY($4::text[]) AND archived_at IS NULL"
+    "   AND entity_id IN ($2, $3) AND value = $3"
+    " RETURNING id"
+)
 # A loser's *active* pin on a field the survivor holds live is displaced:
 # archived, as an unpin is (#498), then carried across below as history. Only an
 # active pin holds a field, so a survivor's archived pin clashes with nothing.
@@ -582,14 +601,23 @@ async def rehome_curation_overlay(
     counts the live pins that arrive live; ``archived`` the ones displaced. Pairs
     run one at a time, so two losers folding into one survivor cannot both claim
     a field.
+
+    A pin whose value is an id of the merging type (``organization.parent_id``)
+    is re-pointed too, loser to survivor, as the merge re-points the live column;
+    one that would then name its own entity is displaced.
     """
     if entity_type not in OVERLAY_ENTITY_TYPES:
         raise ValueError(
             f"not a curation_overlay entity type: {entity_type!r}"
             f" (one of {', '.join(sorted(OVERLAY_ENTITY_TYPES))})"
         )
+    id_fields = list(_ID_VALUED_FIELDS.get(entity_type, ()))
     moved = archived = 0
     for loser_id, winner_id in pairs:
+        if id_fields:
+            args = (entity_type, loser_id, winner_id, id_fields)
+            await db.execute(_REPOINT_VALUES_SQL, *args)
+            archived += len(await db.fetch(_ARCHIVE_SELF_NAMING_SQL, *args))
         archived += len(
             await db.fetch(_ARCHIVE_CLASHING_OVERRIDES_SQL, entity_type, loser_id, winner_id)
         )

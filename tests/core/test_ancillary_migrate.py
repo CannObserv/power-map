@@ -596,3 +596,42 @@ async def test_overlay_rehome_rejects_an_unknown_entity_type(db):
     """The overlay speaks the crosswalk's vocabulary: `assignment`, not `role_assignment`."""
     with pytest.raises(ValueError, match="role_assignment"):
         await rehome_curation_overlay(db, "role_assignment", [("a", "b")])
+
+
+# --- #498: a pin whose value is an org id ----------------------------------------
+
+
+async def test_overlay_rehome_repoints_a_parent_pin_that_names_the_loser(db):
+    """#498: an organization.parent_id pin holds an org id. The merge moves the
+    child's live parent to the survivor and deletes the loser, so the pin follows —
+    history too — or it names a deleted org and the applier proposes it back."""
+    loser, winner, child = generate_id(), generate_id(), generate_id()
+    await _archive(db, await _override(db, "organization", child, "parent_id", loser))
+    await _override(db, "organization", child, "parent_id", loser)
+
+    await rehome_curation_overlay(db, "organization", [(loser, winner)])
+
+    assert await _overrides(db, "organization", child) == {"parent_id": winner}
+    assert await _archived(db, "organization", child) == [("parent_id", winner)]
+
+
+@pytest.mark.parametrize("holder", ["loser", "winner"])
+async def test_overlay_rehome_displaces_a_parent_pin_that_would_name_its_own_org(db, holder):
+    """The loser's pin naming the survivor, carried across — or the survivor's pin
+    naming the loser, re-pointed — would pin the survivor as its own parent. No org
+    can hold that, so the pin is displaced, as an unpin is, and the other side's
+    live pin (if any) is free to stand."""
+    loser, winner, other = generate_id(), generate_id(), generate_id()
+    if holder == "loser":
+        await _override(db, "organization", loser, "parent_id", winner)
+        await _override(db, "organization", winner, "legal_name", "Kept")
+    else:
+        await _override(db, "organization", winner, "parent_id", loser)
+        await _override(db, "organization", loser, "parent_id", other)
+
+    moved, archived = await rehome_curation_overlay(db, "organization", [(loser, winner)])
+
+    expected_live = {"legal_name": "Kept"} if holder == "loser" else {"parent_id": other}
+    assert await _overrides(db, "organization", winner) == expected_live
+    assert await _archived(db, "organization", winner) == [("parent_id", winner)]
+    assert (moved, archived) == ((0, 1) if holder == "loser" else (1, 1))
