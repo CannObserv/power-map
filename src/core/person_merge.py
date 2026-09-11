@@ -118,8 +118,11 @@ async def merge_person_into(
     """Merge `loser_id` into `winner_id` — reassign references + hard-delete loser.
 
     Caller MUST own the surrounding transaction; this function executes
-    flat SQL inside it (acquires `FOR UPDATE` locks first). Caller is also
-    responsible for `await invalidate_person_dup_count_cache(db)` after commit.
+    flat SQL inside it (acquires `FOR UPDATE` locks first). An admin route also
+    expires the duplicate-count badge after commit
+    (`src.api.admin.people_dups.invalidate_dup_count_cache`, `docs/ADMIN.md`);
+    a caller outside the admin — the applier, the cleanup script — cannot import
+    it and leaves the count to its 5-minute TTL in `dup_count_cache`.
 
     Args:
         db: an asyncpg Connection or pool acquire — must support
