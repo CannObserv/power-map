@@ -21,7 +21,7 @@ from src.api.admin.deps import (
 from src.api.admin.entity_lookup import search_entities
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.api.admin.orgs_roles import fetch_org_roles
-from src.api.admin.overlay_slots import flash_key, pinned_note, tracked
+from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
@@ -368,7 +368,9 @@ async def org_inline_parent_post(
         request,
         "admin/orgs/partials/_parent_read.html",
         {"org": org, "parent": parent},
-        headers=flash_trigger("success", flash_body + pinned_note(edit.pinned)),
+        headers=flash_trigger(
+            "success", flash_body + pinned_note(edit.pinned), extra=overlay_refresh(edit.pinned)
+        ),
     )
 
 
@@ -647,6 +649,7 @@ async def children_add(
             "success",
             f"<strong>{escape(row['canonical_name'])}</strong> linked as child."
             + pinned_note(edit.pinned),
+            extra=overlay_refresh(edit.pinned),
         ),
     )
 
@@ -677,7 +680,11 @@ async def children_remove(
     return HTMLResponse(
         content="",
         status_code=200,
-        headers=flash_trigger("success", "Child organization unlinked." + pinned_note(edit.pinned)),
+        headers=flash_trigger(
+            "success",
+            "Child organization unlinked." + pinned_note(edit.pinned),
+            extra=overlay_refresh(edit.pinned),
+        ),
     )
 
 

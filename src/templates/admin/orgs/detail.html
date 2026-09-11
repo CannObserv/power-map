@@ -44,6 +44,7 @@
               hx-swap="afterbegin"
               type="button">+ Add name</button>
     </div>
+    <div class="overlay-slot-host" hx-get="/admin/_overlay/organization/{{ org.id }}/legal_name/" hx-trigger="load, refreshOverlay from:body" hx-swap="innerHTML"></div>
     <div class="table-wrapper">
       <table id="names-table" class="data-table" style="table-layout:fixed">
         <thead><tr><th scope="col">Name</th><th scope="col" style="text-align:right;width:5rem">Type</th><th scope="col" style="text-align:right;width:11rem">Effective</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"><span class="sr-only">Actions</span></th></tr></thead>
@@ -67,6 +68,7 @@
               hx-swap="afterbegin"
               type="button">+ Add acronym</button>
     </div>
+    <div class="overlay-slot-host" hx-get="/admin/_overlay/organization/{{ org.id }}/acronym/" hx-trigger="load, refreshOverlay from:body" hx-swap="innerHTML"></div>
     <div class="table-wrapper">
       <table id="acronyms-table" class="data-table" style="table-layout:fixed">
         <thead><tr><th scope="col">Acronym</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"><span class="sr-only">Actions</span></th></tr></thead>
@@ -90,6 +92,7 @@
   <div class="entity-card">
 
     <h3 class="field-group-label" style="margin:0 0 var(--space-3)">Parent Organization</h3>
+    <div class="overlay-slot-host" hx-get="/admin/_overlay/organization/{{ org.id }}/parent_id/" hx-trigger="load, refreshOverlay from:body" hx-swap="innerHTML"></div>
     <div class="table-wrapper">
       <table id="parent-table" class="data-table">
         <thead><tr><th scope="col">Name</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
@@ -135,6 +138,7 @@
             hx-swap="afterbegin"
             hx-sync="this:drop">+ Add event</button>
   </div>
+  <div class="overlay-slot-host" hx-get="/admin/_overlay/organization/{{ org.id }}/dissolved_year/" hx-trigger="load, refreshOverlay from:body" hx-swap="innerHTML"></div>
   <div class="table-wrapper">
     <table id="org-events-table" class="data-table">
       <thead>

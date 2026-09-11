@@ -147,6 +147,7 @@
                 {% endif %}>Cancel</button>
       </div>
     </form>
+    {% if _ev_overlay_note is defined %}<div class="overlay-note-host" hx-get="{{ _ev_overlay_note }}" hx-trigger="load" hx-swap="innerHTML"></div>{% endif %}
     {# Per-row wiring (section show/hide, linked-entity typeahead, scope switch)
        lives in static/admin/event-form-row.js, discovered via
        [data-event-form-row]. #}

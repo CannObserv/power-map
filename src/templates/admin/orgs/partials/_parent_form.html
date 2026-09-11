@@ -21,6 +21,7 @@
              value="{{ parent.id if parent else '' }}">
     </div>
     <ul id="parent-search-results" class="typeahead-results" role="listbox"></ul>
+    <div class="overlay-note-host" hx-get="/admin/_overlay/organization/{{ org.id }}/parent_id/?variant=note" hx-trigger="load" hx-swap="innerHTML"></div>
   </td>
   <td style="text-align:right">
     <div class="btn-group" style="margin-left:auto">

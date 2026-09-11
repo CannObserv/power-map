@@ -413,6 +413,24 @@ async def seed_admin_fixtures(db) -> dict:
     s["link_type_item_id"] = await db.fetchval(
         "SELECT id FROM link_types WHERE is_social = FALSE LIMIT 1"
     )
+
+    # Curation overlay (#498): the org is in the producer's row scope and its
+    # acronym is pinned, so the slot fragment renders its fullest markup (badge,
+    # value, who, Unpin) and every org detail page's slot hosts load real lines.
+    await db.execute(
+        "INSERT INTO producer_crosswalk"
+        " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
+        " VALUES ($1, 'usa_wa', 'organization', 'a11y-producer-org', $2, $2, 'live')",
+        generate_id(),
+        s["org_id"],
+    )
+    await db.execute(
+        "INSERT INTO curation_overlay (id, entity_type, entity_id, field, value, created_by)"
+        " VALUES ($1, 'organization', $2, 'acronym', 'A11Y', $3)",
+        generate_id(),
+        s["org_id"],
+        user_id,
+    )
     s["ident_type_item_id"] = ident_types["organization"]
 
     # Imports + activity log.
@@ -526,6 +544,8 @@ def param_values(path: str, s: dict) -> dict:
             "entity_id": s["org_event_id"],
             "citation_id": s["citation_ids"]["entity_event"],
         }
+    elif path.startswith("/admin/_overlay/"):
+        values |= {"entity_type": "organization", "entity_id": s["org_id"], "field": "acronym"}
     elif path.startswith("/admin/settings/link-types/"):
         values |= {"item_id": s["link_type_item_id"]}
     elif path.startswith("/admin/settings/identifier-types/"):

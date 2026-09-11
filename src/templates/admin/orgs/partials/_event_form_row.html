@@ -1,3 +1,4 @@
 {%- set _ev_url_base = "/admin/orgs/" ~ org_id -%}
 {%- set _ev_row_prefix = "org-event-row" -%}
+{%- set _ev_overlay_note = "/admin/_overlay/organization/" ~ org_id ~ "/dissolved_year/?variant=note" -%}
 {% include "admin/shared/_event_form_row.html" %}

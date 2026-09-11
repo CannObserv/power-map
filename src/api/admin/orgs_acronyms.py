@@ -15,7 +15,7 @@ from src.api.admin.deps import (
     provision_app_user,
     with_flash,
 )
-from src.api.admin.overlay_slots import flash_key, pinned_note, tracked
+from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -104,7 +104,7 @@ async def acronym_create(
         headers=flash_trigger(
             "success",
             f"Acronym <strong>{escape(acronym.strip())}</strong> added." + pinned_note(edit.pinned),
-            extra=await org_header_extra(org_id, db),
+            extra={**await org_header_extra(org_id, db), **overlay_refresh(edit.pinned)},
         ),
     )
 
@@ -207,7 +207,7 @@ async def acronym_edit_row_post(
         headers=flash_trigger(
             "success",
             f"Acronym <strong>{escape(acronym.strip())}</strong> saved." + pinned_note(edit.pinned),
-            extra=await org_header_extra(org_id, db),
+            extra={**await org_header_extra(org_id, db), **overlay_refresh(edit.pinned)},
         ),
     )
 
@@ -273,6 +273,6 @@ async def acronym_delete(
         headers=flash_trigger(
             "success",
             "Acronym removed." + pinned_note(edit.pinned),
-            extra=await org_header_extra(org_id, db),
+            extra={**await org_header_extra(org_id, db), **overlay_refresh(edit.pinned)},
         ),
     )

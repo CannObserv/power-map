@@ -30,6 +30,7 @@ from src.api.admin import orgs_merge as orgs_merge_module
 from src.api.admin import orgs_names as orgs_names_module
 from src.api.admin import orgs_roles as orgs_roles_module
 from src.api.admin import orgs_succession as orgs_succession_module
+from src.api.admin import overlay as overlay_module
 from src.api.admin import people as people_module
 from src.api.admin import people_addresses as people_addresses_module
 from src.api.admin import people_assignments as people_assignments_module
@@ -68,6 +69,7 @@ templates = Jinja2Templates(directory="src/templates")
 admin_router = APIRouter(prefix="/admin")
 
 admin_router.include_router(dup_badges_module.router)
+admin_router.include_router(overlay_module.router)
 admin_router.include_router(dashboard_module.router)
 admin_router.include_router(entities_module.router)
 admin_router.include_router(imports_module.router)

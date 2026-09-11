@@ -20,7 +20,7 @@ from src.api.admin.deps import (
     provision_app_user,
     with_flash,
 )
-from src.api.admin.overlay_slots import flash_key, pinned_note, tracked
+from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.api.admin.people_name_parts import upsert_or_delete_parts
 from src.core.ancillary_migrate import delete_citations
 from src.core.db import generate_id
@@ -682,7 +682,7 @@ def make_names_router(
             headers=flash_trigger(
                 "success",
                 f"Name <strong>{escape(name.strip())}</strong> added." + pinned_note(edit.pinned),
-                extra=await header_extra(entity_id, db),
+                extra={**await header_extra(entity_id, db), **overlay_refresh(edit.pinned)},
             ),
         )
 
@@ -943,7 +943,7 @@ def make_names_router(
             headers=flash_trigger(
                 "success",
                 f"Name <strong>{escape(name.strip())}</strong> saved." + pinned_note(edit.pinned),
-                extra=await header_extra(entity_id, db),
+                extra={**await header_extra(entity_id, db), **overlay_refresh(edit.pinned)},
             ),
         )
 
@@ -999,7 +999,7 @@ def make_names_router(
             headers=flash_trigger(
                 "success",
                 "Name removed." + pinned_note(edit.pinned),
-                extra=await header_extra(entity_id, db),
+                extra={**await header_extra(entity_id, db), **overlay_refresh(edit.pinned)},
             ),
         )
 

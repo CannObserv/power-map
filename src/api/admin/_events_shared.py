@@ -19,7 +19,7 @@ from src.api.admin.deps import (
     with_flash,
 )
 from src.api.admin.entity_lookup import ENTITY_TYPES, entity_exists, resolve_entity_label
-from src.api.admin.overlay_slots import flash_key, pinned_note, tracked
+from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.core.ancillary_migrate import delete_citations
 from src.core.db import generate_id
 from src.core.types import EVENT_PLACE_PRECISIONS
@@ -444,6 +444,7 @@ def make_events_router(
                 "success",
                 f"Event <strong>{escape(row['event_type_name'])}</strong> added."
                 + pinned_note(edit.pinned),
+                extra=overlay_refresh(edit.pinned),
             ),
         )
 
@@ -647,6 +648,7 @@ def make_events_router(
                 "success",
                 f"Event <strong>{escape(row['event_type_name'])}</strong> saved."
                 + pinned_note(edit.pinned),
+                extra=overlay_refresh(edit.pinned),
             ),
         )
 
@@ -678,7 +680,11 @@ def make_events_router(
             request,
             tmpl_rows,
             _ctx(entity_id, events=events),
-            headers=flash_trigger("success", "Event archived." + pinned_note(edit.pinned)),
+            headers=flash_trigger(
+                "success",
+                "Event archived." + pinned_note(edit.pinned),
+                extra=overlay_refresh(edit.pinned),
+            ),
         )
 
     @router.post("/{event_id}/unarchive/")
@@ -709,7 +715,11 @@ def make_events_router(
             request,
             tmpl_rows,
             _ctx(entity_id, events=events),
-            headers=flash_trigger("success", "Event unarchived." + pinned_note(edit.pinned)),
+            headers=flash_trigger(
+                "success",
+                "Event unarchived." + pinned_note(edit.pinned),
+                extra=overlay_refresh(edit.pinned),
+            ),
         )
 
     @router.delete("/{event_id}/")

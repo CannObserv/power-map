@@ -1,0 +1,29 @@
+{# admin/shared/_overlay_slot.html — one producer-owned slot's overlay line (#498).
+   Loaded into a self-refreshing host (`hx-trigger="load, refreshOverlay from:body"`);
+   empty when the entity is outside the producer's row scope. `variant == "note"`
+   is the edit form's one-line warning; `status` is the panel's line, with Pin or
+   Unpin. `base` is the slot's /admin/_overlay/<type>/<id>/<field>/ URL. #}
+{% if state %}
+{% if variant == "note" %}
+<p class="overlay-note">{{ producer }} maintains the {{ state.slot.label | lower }}. Saving a change pins your value: PM keeps it over future snapshots until you unpin it.</p>
+{% elif state.pin %}
+<p class="overlay-slot">
+  <span class="badge badge--pinned">Pinned</span>
+  <span class="overlay-slot__text">{{ state.slot.label }}
+    {% if state.pin.value is none %}<em>kept empty</em>{% else %}<strong>{{ state.display }}</strong>{% endif %}:
+    PM keeps it over {{ producer }}'s value. Pinned {{ state.pin.created_at.strftime('%Y-%m-%d') }}{% if state.pinned_by %} by {{ state.pinned_by }}{% endif %}{% if state.pin.note %} ({{ state.pin.note }}){% endif %}.</span>
+  <button type="button" class="btn btn--sm btn--secondary"
+          hx-post="{{ base }}unpin/"
+          hx-target="closest .overlay-slot-host"
+          hx-swap="innerHTML">Unpin {{ state.slot.label | lower }}</button>
+</p>
+{% else %}
+<p class="overlay-slot">
+  <span class="overlay-slot__text">{{ state.slot.label }}: Maintained by {{ producer }}. Editing it pins your value.</span>
+  <button type="button" class="btn btn--sm btn--secondary"
+          hx-post="{{ base }}pin/"
+          hx-target="closest .overlay-slot-host"
+          hx-swap="innerHTML">Pin current {{ state.slot.label | lower }}</button>
+</p>
+{% endif %}
+{% endif %}

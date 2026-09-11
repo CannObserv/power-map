@@ -77,5 +77,6 @@
       </div>
       {% endif %}
     </form>
+    <div class="overlay-note-host" hx-get="/admin/_overlay/person/{{ person_id }}/name/?variant=note" hx-trigger="load" hx-swap="innerHTML"></div>
   </td>
 </tr>

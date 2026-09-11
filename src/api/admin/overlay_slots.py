@@ -26,16 +26,19 @@ from dataclasses import dataclass, field
 
 import asyncpg
 
-from src.core.curation_overlay import in_scope, pin_changed
+from src.core.curation_overlay import Pin, active_pin, in_scope, pin_changed
 
 __all__ = [
     "PRODUCER_LABEL",
     "SLOTS",
     "Slot",
+    "SlotState",
     "TrackedEdit",
     "flash_key",
+    "overlay_refresh",
     "pinned_note",
     "read_slots",
+    "slot_state",
     "slots_for",
     "tracked",
 ]
@@ -58,6 +61,9 @@ class Slot:
     field: str
     label: str
     sql: str
+    # How a pinned value reads to a curator, when the raw value is an id — a
+    # parent's display name, not its ULID. Takes the pinned value as ``$1``.
+    display_sql: str | None = None
 
 
 _SLOTS = (
@@ -87,6 +93,7 @@ _SLOTS = (
         "parent_id",
         "Parent organization",
         "SELECT parent_id FROM organizations WHERE id = $1",
+        display_sql="SELECT display_name FROM v_org_display_names WHERE organization_id = $1",
     ),
     Slot(
         "organization",
@@ -129,6 +136,41 @@ def pinned_note(pinned: list[str]) -> str:
 def flash_key(base: str, pinned: list[str]) -> str:
     """The non-HTMX fallback's flash key: ``saved`` → ``saved_pinned`` when it pinned."""
     return f"{base}_pinned" if pinned else base
+
+
+def overlay_refresh(pinned: list[str]) -> dict:
+    """The HX-Trigger event that reloads the slot lines, when the edit pinned."""
+    return {"refreshOverlay": True} if pinned else {}
+
+
+@dataclass(frozen=True)
+class SlotState:
+    """What one in-scope entity's slot line shows: the live pin, if any, as read."""
+
+    slot: Slot
+    pin: Pin | None
+    display: str | None  # the pinned value as a curator reads it
+    pinned_by: str | None  # the pinner's email
+
+
+async def slot_state(
+    conn: asyncpg.Connection, entity_type: str, entity_id: str, field: str
+) -> SlotState | None:
+    """The slot line's content, or None when the entity is outside the row scope."""
+    slot = SLOTS[(entity_type, field)]
+    if not await in_scope(conn, entity_type, entity_id):
+        return None
+    held = await active_pin(conn, entity_type, entity_id, field)
+    display = pinned_by = None
+    if held is not None:
+        display = held.value
+        if slot.display_sql and held.value is not None:
+            display = await conn.fetchval(slot.display_sql, held.value) or held.value
+        if held.created_by:
+            pinned_by = await conn.fetchval(
+                "SELECT email FROM app_users WHERE id = $1", held.created_by
+            )
+    return SlotState(slot, held, display, pinned_by)
 
 
 @dataclass
