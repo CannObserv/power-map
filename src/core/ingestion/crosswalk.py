@@ -39,6 +39,7 @@ from src.core.db import generate_id
 __all__ = [
     "ANCHOR_HEADER",
     "ANCHOR_KINDS",
+    "IN_SCOPE",
     "PRODUCER_SOURCE",
     "UNRESOLVABLE",
     "Anchor",
@@ -62,6 +63,10 @@ ANCHOR_KINDS = ("person", "organization", "role", "assignment")
 # definition, because the first production dry run matched zero rows on a
 # `usa-wa` / `usa_wa` mismatch between the two.
 PRODUCER_SOURCE = "usa_wa"
+# Resolutions that put a crosswalk row in the producer's row scope (docs/SCHEMA.md
+# § Producer crosswalk): what the applier diffs and what a curator can pin
+# (#498). `archived` is in the table and out of scope.
+IN_SCOPE = ("live", "merged")
 
 # Crockford base32 excludes I, L, O and U so a transcribed id cannot be
 # confused with 1 and 0.
