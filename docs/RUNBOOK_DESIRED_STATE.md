@@ -127,10 +127,18 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   to `organizations.parent_id`, beside the observation API's authoritative
   reparent: the `source_key_mismatch` gate (#334) guards that API, not the
   column, so it neither blocks nor records an applier reparent.
-- **First dry run against production** (2026-09-10 measurement): 24 person-name
-  updates (punctuation and nickname forms), 26 acronym updates, 4 parent updates
-  (the four subcommittees PM parents under their committee), 17 creates of which
-  13 are probable twins — so the verdict is `blocked` until #501 works the diff.
+- **What the runs find**, in shape rather than tally: person-name updates
+  (punctuation and nickname forms), acronym updates, parent updates on the
+  subcommittees PM parents under their committee, and creates of which most are
+  probable twins — so the verdict stays `blocked` until #501 works the diff. The
+  numbers are re-derived from the artifact, never restated here (`docs/CONTEXT.md`
+  Rule 2 — a doc that repeats a count owns a second copy of it, and the runbook's
+  first copy was already one update behind the run beside it):
+
+  ```bash
+  jq '{verdict, counts, by_table}' "data/applier/$(ls data/applier | grep 'Z$' | tail -1)/summary.json"
+  jq -r '[.run_id, .mode, .verdict] | @tsv' data/applier/ledger.jsonl   # the streak
+  ```
 
 Install the nightly chain once (`docs/COMMANDS.md` § Scheduled timers lists it):
 
