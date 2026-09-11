@@ -262,7 +262,8 @@ def may_execute(ledger: Sequence[dict], *, digest: str, streak: int) -> tuple[bo
     recent = list(ledger)[-streak:]
     for ln in recent:
         if ln.get("mode") != "dry":
-            return False, f"run {ln.get('run_id')} was an execute; the streak restarts after it"
+            run, mode = ln.get("run_id"), ln.get("mode")
+            return False, f"run {run} was {mode}, not a dry run; the streak restarts after it"
         if ln.get("verdict") != "clean":
             return False, f"run {ln.get('run_id')} was {ln.get('verdict')}"
         if ln.get("digest") != digest:

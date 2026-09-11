@@ -271,3 +271,13 @@ def test_a_short_ledger_names_the_line_that_blocks_it_before_counting():
     ok, reason = may_execute([_line("r1"), _line("r2", mode="refused")], digest="d1", streak=3)
 
     assert not ok and "r2" in reason and "recorded" not in reason
+
+
+def test_a_line_that_is_not_a_dry_run_is_named_by_its_own_mode():
+    """CR 13: every non-dry line was reported as "an execute", so a refused attempt —
+    which wrote nothing — read to the operator as a write."""
+    ledger = [_line("r1"), _line("r2", mode="refused"), _line("r3")]
+
+    ok, reason = may_execute(ledger, digest="d1", streak=3)
+
+    assert not ok and "r2 was refused" in reason and "an execute" not in reason
