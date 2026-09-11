@@ -33,9 +33,9 @@ import asyncpg
 from src.core.db import generate_id
 
 __all__ = [
-    "PRODUCER_SOURCE",
     "ANCHOR_HEADER",
     "ANCHOR_KINDS",
+    "PRODUCER_SOURCE",
     "UNRESOLVABLE",
     "Anchor",
     "AnchorFormatError",
