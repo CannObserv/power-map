@@ -10,7 +10,9 @@ nothing else is ever in a statement, which is the column-scoping proof. Only
 is a report, and a `stale` entry refuses the whole plan.
 
 `apply_diff` runs the plan in one transaction, re-diffs inside it, and rolls
-back unless nothing is left to write.
+back unless nothing is left to write — nor left for a person: a `conflict` the
+writes themselves created blocks the commit too, since the verdict that would
+have caught it ran before the write.
 """
 
 from collections.abc import Awaitable, Callable, Iterator, Mapping
@@ -22,6 +24,7 @@ from src.core.ingestion.applier import ApplierError, Diff, sql_identifier
 from src.core.ingestion.mapping import Manifest
 
 __all__ = [
+    "BLOCKING_KINDS",
     "WRITE_KINDS",
     "ApplyResult",
     "Connection",
@@ -32,6 +35,11 @@ __all__ = [
 ]
 
 WRITE_KINDS = ("create", "insert", "update")
+# What the in-transaction re-diff refuses to commit over: anything still to
+# write, a desired state that drifted, and a `conflict` — which the verdict
+# would have blocked on, but the verdict is computed before the write and never
+# again, so a conflict the writes themselves created had nobody left to see it.
+BLOCKING_KINDS = (*WRITE_KINDS, "stale", "conflict")
 _CROSSWALK_SQL = (
     "INSERT INTO producer_crosswalk"
     " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
@@ -171,7 +179,7 @@ async def apply_diff(
         for st in statements:
             await conn.execute(st.sql, *st.args)
         after = await rediff(minted)
-        left = [e for e in after.entries if e.kind in WRITE_KINDS or e.kind == "stale"]
+        left = [e for e in after.entries if e.kind in BLOCKING_KINDS]
         if left:
             named = ", ".join(f"{e.entry_id} ({e.kind})" for e in left[:5])
             raise VerificationFailed(

@@ -231,6 +231,23 @@ async def test_apply_rolls_back_when_the_rediff_still_wants_to_write():
     assert conn.events == ["begin", "rollback"]
 
 
+async def test_apply_rolls_back_when_the_rediff_found_a_conflict():
+    """CR 8: the verification counted only writes and stale, so a conflict the run's own
+    inserts created — two live rows now matching a keyed child — committed, and the
+    verdict that would have named it was computed before the write and never again."""
+    conn = FakeConn()
+
+    async def rediff(minted):
+        return Diff(
+            [E("conflict", "desired_entity_events", "01O5|dissolved", reason="2 live rows match")]
+        )
+
+    with pytest.raises(VerificationFailed, match="conflict"):
+        await _apply(Diff([parent_update()]), conn, rediff)
+
+    assert conn.events == ["begin", "rollback"]
+
+
 async def test_apply_rolls_back_when_the_rediff_is_stale():
     conn = FakeConn()
 
