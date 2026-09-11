@@ -122,6 +122,14 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state --allow-merges 1 --streak 1
   uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state --execute --allow-merges 1 --streak 1
   ```
+
+  `--allow-merges` raises the whole `merges` threshold, so in a rows phase it
+  also waves through **report-only** merges. Beside a null-survivor merge that
+  is safe — its survivor is unanchored, a create or archived, and gets no row
+  writes. Beside an unbound organization merge (#520) hold it: the survivor's
+  rows would land before the merge that later folds it — the Heck ordering
+  spread over two nights, where an in-place name update overwrites the name the
+  merge would have kept.
 - **Child rows: present anywhere satisfies; else the canonical row is in
   dispute.** Any row of the type carrying the value is a noop (PM's short and
   long org names both stay); absent everywhere, the canonical row becomes an
