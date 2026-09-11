@@ -117,6 +117,9 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   refuse a negative, `--streak` refuses anything below 1, and the gate refuses a
   non-positive streak whoever asks it — `--streak 0` used to answer yes on an
   empty ledger.
+- **A null owned value is silence.** A desired row carrying a null claims
+  nothing for that column — the same as no row at all — so the applier never
+  clears a PM value by writing NULL over it.
 - **Column scope is exact:** an `UPDATE` names only the changed owned columns;
   an `INSERT` names the parent, the changed columns and the manifest's insert
   defaults. `updated_at`, the touch triggers and the outbox fire as for any

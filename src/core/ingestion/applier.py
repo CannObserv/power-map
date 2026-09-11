@@ -422,6 +422,13 @@ async def _diff_column(
         if anchored
         else {}
     )
+
+    # A null in an owned column is silence, not an instruction to clear PM's
+    # value (CR 5). `retraction: none` says an absent row says nothing; a
+    # present row carrying a null must not say more than one that is missing.
+    def claimed(row: dict) -> list[str]:
+        return [d for d in columns if row.get(d) is not None]
+
     entries: list[Entry] = []
     for row in rows:
         pm_id = row.get(spec.pm_key)
@@ -429,9 +436,15 @@ async def _diff_column(
             if (spec.entity, row["producer_id"]) not in creating:
                 entries.append(_entry(spec, row, "stale", reason="no entity row is created for it"))
                 continue
-            changes = {columns[d]: (None, row.get(d)) for d in columns}
+            changes = {columns[d]: (None, row[d]) for d in claimed(row)}
             entries.append(
-                _entry(spec, row, "update", changes=changes, reason="on a row this run creates")
+                _entry(
+                    spec,
+                    row,
+                    "update" if changes else "noop",
+                    changes=changes,
+                    reason="on a row this run creates" if changes else None,
+                )
             )
             continue
         found = live.get(pm_id)
@@ -445,9 +458,9 @@ async def _diff_column(
             )
         else:
             changes = {
-                columns[d]: (found.get(columns[d]), row.get(d))
-                for d in columns
-                if found.get(columns[d]) != row.get(d)
+                columns[d]: (found.get(columns[d]), row[d])
+                for d in claimed(row)
+                if found.get(columns[d]) != row[d]
             }
             entries.append(_entry(spec, row, "update" if changes else "noop", changes=changes))
     return entries
