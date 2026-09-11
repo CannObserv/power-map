@@ -29,7 +29,8 @@ ALLOWED_DIRECT_ACCESS = {
     "src/api/admin/people.py",  # admin detail / hard-delete — surfaces all
     "src/api/admin/people_names.py",  # name-management page — edits all
     "src/api/admin/people_name_suggest.py",  # suggest-only decomposition — reads all names
-    "src/api/admin/people_merge.py",  # merge logic — touches all rows on both sides
+    "src/api/admin/people_merge.py",  # merge preview modal — lists all loser names
+    "src/core/person_merge.py",  # merge primitive + preview — touches all rows on both sides
     # _names_shared.py uses dynamic {names_table} f-strings; the regex below
     # never matches verbatim "person_names" there. Listed for reviewer clarity.
     "src/api/admin/_names_shared.py",  # shared admin CRUD via {names_table}

@@ -20,7 +20,9 @@
 #                              the value satisfies; else the canonical row is
 #                              the one in dispute) or key (match on the key
 #                              columns among unarchived rows; >1 is a conflict)
-#                    merge   — every row is a report entry (#514 acts on them)
+#                    merge   — a producer tombstone: the loser's PM row folds into
+#                              the survivor's. `primitive` names the core merge
+#                              that acts on it (#514); without one, report-only
 #
 # Persons and organizations are report-only for now: safeguard 2 says nothing
 # retracts until creates ≈ 0 and unexpected archives = 0 across N clean runs.
@@ -72,6 +74,8 @@ tables:
     owned_columns: [survivor_pm_id]   # null = survivor out of scope (unanchored, a create, archived): report, never act
     target:
       shape: merge
+      table: people            # where the loser and survivor are checked live and unarchived
+      primitive: person        # src/core/person_merge.py::merge_person_into (#514)
   desired_organizations:
     entity: organization
     key: [producer_id]
@@ -126,7 +130,7 @@ tables:
     retraction: none
     owned_columns: [survivor_pm_id]   # null = survivor out of scope (unanchored, a create, archived): report, never act
     target:
-      shape: merge
+      shape: merge             # no primitive: report-only until #520 binds the org merge
   desired_entity_events:
     entity: organization
     key: [producer_id, event_type]   # never pm_id: a create has none (CR 19)

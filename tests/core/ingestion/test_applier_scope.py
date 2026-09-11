@@ -121,7 +121,7 @@ async def test_a_create_with_no_live_row_is_kept_as_a_create():
 
 
 async def test_a_merge_table_is_not_scoped_by_producer_id():
-    """Merge rows are report entries whatever the crosswalk says (step 3 makes them)."""
+    """Merge rows pass through; `_diff_merge` checks the loser's anchor itself (#514)."""
     spec = load_manifest().tables["desired_person_merges"]
     scope = await _scope()
     row = {

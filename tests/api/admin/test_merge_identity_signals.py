@@ -480,3 +480,94 @@ async def test_merge_role_pairs_naming_an_archived_role_are_ignored(client, db):
     assert row is not None, "archived role destroyed by an out-of-scope pair"
     assert row["organization_id"] == win_org, "archived role should re-parent, not vanish"
     assert await _tombstone(db, "role", retired_role) is None
+
+
+# ---------------------------------------------------------------------------
+# 5. Curator overrides follow the entity (#514)
+#
+# `curation_overlay` is keyed on (entity_type, entity_id) with no FK, and the
+# mapping layer joins it on the surviving pm_id — so an override left on a
+# merged-away id stops applying without a word. Every merge path carries it
+# wherever it mirrors a subscription; the sweep holds the paths to that.
+# ---------------------------------------------------------------------------
+
+
+async def _override(db, entity_type, entity_id, field, value):
+    await db.execute(
+        "INSERT INTO curation_overlay (id, entity_type, entity_id, field, value)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        generate_id(),
+        entity_type,
+        entity_id,
+        field,
+        value,
+    )
+
+
+async def _override_owner(db, entity_type, field, value):
+    return await db.fetchval(
+        "SELECT entity_id FROM curation_overlay WHERE entity_type=$1 AND field=$2 AND value=$3",
+        entity_type,
+        field,
+        value,
+    )
+
+
+async def test_person_merge_carries_person_and_dropped_assignment_overrides(client, db):
+    org = await _org(db, "Overlay Person Org")
+    role = await _role(db, org)
+    winner, loser = await _person(db, "Grace B Hopper"), await _person(db, "Grace Hopper")
+    survivor = await _assign(db, winner, role, "2020-01-01")
+    dropped = await _assign(db, loser, role, "2020-01-01")
+    await _override(db, "person", loser, "name", "Grace Brewster Hopper")
+    await _override(db, "assignment", dropped, "end_date", "2021-06-30")
+
+    response = await client.post(
+        f"/admin/people/{winner}/merge-with/{loser}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert await _override_owner(db, "person", "name", "Grace Brewster Hopper") == winner
+    assert await _override_owner(db, "assignment", "end_date", "2021-06-30") == survivor
+
+
+async def test_org_merge_carries_org_role_and_dropped_assignment_overrides(client, db):
+    win_org, lose_org = await _org(db, "Overlay Win"), await _org(db, "Overlay Lose")
+    win_role, lose_role = await _role(db, win_org), await _role(db, lose_org)
+    person = await _person(db)
+    survivor = await _assign(db, person, win_role, "2020-01-01")
+    dropped = await _assign(db, person, lose_role, "2020-01-01")
+    await _override(db, "organization", lose_org, "acronym", "OVL")
+    await _override(db, "role", lose_role, "title", "Overlay Member")
+    await _override(db, "assignment", dropped, "end_date", "2022-01-31")
+
+    response = await client.post(
+        f"/admin/orgs/{win_org}/merge-with/{lose_org}/",
+        data={"merge_role_pairs": f"{win_role}:{lose_role}"},
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert await _override_owner(db, "organization", "acronym", "OVL") == win_org
+    assert await _override_owner(db, "role", "title", "Overlay Member") == win_role
+    assert await _override_owner(db, "assignment", "end_date", "2022-01-31") == survivor
+
+
+async def test_role_merge_carries_role_and_dropped_assignment_overrides(client, db):
+    org = await _org(db, "Overlay Role Org")
+    win_role, lose_role = await _role(db, org, "Chair"), await _role(db, org, "Chairman")
+    person = await _person(db)
+    survivor = await _assign(db, person, win_role, "2020-01-01")
+    dropped = await _assign(db, person, lose_role, "2020-01-01")
+    await _override(db, "role", lose_role, "title", "Chair (curated)")
+    await _override(db, "assignment", dropped, "end_date", "2023-12-31")
+
+    response = await client.post(
+        f"/admin/orgs/{org}/roles/{win_role}/merge/{lose_role}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert await _override_owner(db, "role", "title", "Chair (curated)") == win_role
+    assert await _override_owner(db, "assignment", "end_date", "2023-12-31") == survivor

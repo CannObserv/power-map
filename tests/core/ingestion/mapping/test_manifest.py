@@ -179,6 +179,33 @@ def test_a_key_match_needs_key_columns():
         parse_manifest(raw)
 
 
+def test_person_merges_bind_the_person_primitive_and_org_merges_bind_none():
+    """#514 acts on person tombstones; organizations stay report-only until #520."""
+    tables = load_manifest().tables
+    person = tables["desired_person_merges"].target
+    org = tables["desired_organization_merges"].target
+
+    assert (person.primitive, person.table) == ("person", "people")
+    assert org.primitive is None
+
+
+@pytest.mark.parametrize(
+    ("table", "edit", "message"),
+    [
+        ("desired_people", lambda t: t.__setitem__("primitive", "person"), "only a merge"),
+        ("desired_person_merges", lambda t: t.__setitem__("primitive", "robot"), "robot"),
+        ("desired_person_merges", lambda t: t.pop("table"), "table"),
+    ],
+    ids=["primitive on an entity", "unknown primitive", "bound merge without table"],
+)
+def test_a_merge_primitive_binding_is_checked_at_load(table, edit, message):
+    raw = _raw()
+    edit(raw["tables"][table]["target"])
+
+    with pytest.raises(ManifestError, match=message):
+        parse_manifest(raw)
+
+
 def test_a_table_without_a_target_fails_at_load():
     raw = _raw()
     raw["tables"]["desired_people"].pop("target")

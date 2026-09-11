@@ -60,7 +60,9 @@ Machinery, all in `orgs_succession.py` + `orgs_merge.py`:
 The UI below decides *which* rows merge. This is what the server owes the data and
 its consumers once it does. All five paths share it: org merge
 ([orgs_merge.py](../src/api/admin/orgs_merge.py) `_execute_merge`), person merge
-([people_merge.py](../src/api/admin/people_merge.py)), and role merge
+([person_merge.py](../src/core/person_merge.py) `merge_person_into` — in core since
+#514 so the desired-state applier runs the admin's own merge; the routes in
+[people_merge.py](../src/api/admin/people_merge.py) call it), and role merge
 ([orgs_roles.py](../src/api/admin/orgs_roles.py) `role_merge`).
 
 **Identity is preserved, not re-minted.** Migrating a role assignment onto the
@@ -117,6 +119,17 @@ form) — nothing prunes subscriptions server-side, so the set grows by one row 
 merge. Note also that absorbing a collision emits **no** outbox row for the survivor
 when the dropped row carried no ancillary: nothing about the survivor changed, so
 `merged_into` is the signal to re-fetch it, not a promise of a follow-up event.
+
+**Curator overrides follow the entity (#514).** `curation_overlay` rows are keyed
+on an id with no FK, and the mapping layer joins them on the *surviving* `pm_id`,
+so an override left on a merged-away id would stop applying without a word.
+Wherever a path mirrors a subscription it also calls
+[`rehome_curation_overlay`](../src/core/ancillary_migrate.py) for the same pairs:
+the org, person or role itself, and every dropped duplicate assignment. The table
+holds one override per (entity, field), so on a clash the survivor's override
+stands and the loser's is dropped. Guard: `test_merge_identity_sweep.py` fails a
+merge module whose `mirror_subscriptions` and `rehome_curation_overlay` call counts
+differ.
 
 ---
 

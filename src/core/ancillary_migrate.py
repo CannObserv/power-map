@@ -28,6 +28,11 @@ trigger-less telemetry tables — ``field_confidence`` and ``import_provenance``
 (written per-ingestion, deliberately not triggered) — still need a manual emit,
 gated on a move of one of those (:data:`TRIGGERLESS_ANCILLARY_TABLES`). ``rehome_role_ancillary``
 touches only triggered tables, so it emits nothing manually at all.
+
+**Curator overrides (#514).** ``curation_overlay`` is the same hazard for every
+entity type the producer crosswalk scopes (person / organization / role /
+assignment): :func:`rehome_curation_overlay` carries a loser's overrides to its
+survivor, the survivor's own override winning a field clash.
 """
 
 from collections import defaultdict
@@ -504,7 +509,7 @@ async def delete_event_citations_for_owner(
 
     Merges do **not** re-point ``entity_events`` (they dangle when the parent org/
     person is deleted), so their citations would orphan. Called before the parent
-    DELETE in ``people_merge`` / ``orgs_merge``.
+    DELETE in ``person_merge`` / ``orgs_merge``.
     """
     await db.execute(
         "DELETE FROM citations WHERE entity_type='entity_event' AND entity_id IN"
@@ -529,3 +534,56 @@ async def count_orphaned_citations(db: asyncpg.Connection) -> dict[str, int]:
             entity_type,
         )
     return counts
+
+
+# ---------------------------------------------------------------------------
+# Curation overlay (#514)
+#
+# `curation_overlay` holds a curator's PM-wins overrides on producer-owned fields
+# (#497/#498), keyed on (entity_type, entity_id) with no FK — polymorphic like
+# every table above. The mapping layer joins it on the *surviving* pm_id, so an
+# override left on a merged-away id stops applying without a word. Every merge
+# step that mirrors a subscription re-homes these rows beside it
+# (`tests/api/admin/test_merge_identity_sweep.py` holds the paths to that).
+# ---------------------------------------------------------------------------
+
+#: The overlay's `entity_type` vocabulary — the producer crosswalk's `kind`, so an
+#: assignment is `assignment` here where `deleted_entities` says `role_assignment`.
+OVERLAY_ENTITY_TYPES = frozenset({"person", "organization", "role", "assignment"})
+
+_DROP_CLASHING_OVERRIDES_SQL = (
+    "DELETE FROM curation_overlay l"
+    " WHERE l.entity_type = $1 AND l.entity_id = $2"
+    "   AND EXISTS (SELECT 1 FROM curation_overlay w"
+    "                WHERE w.entity_type = $1 AND w.entity_id = $3 AND w.field = l.field)"
+    " RETURNING l.id"
+)
+_MOVE_OVERRIDES_SQL = (
+    "UPDATE curation_overlay SET entity_id = $3 WHERE entity_type = $1 AND entity_id = $2"
+    " RETURNING id"
+)
+
+
+async def rehome_curation_overlay(
+    db: asyncpg.Connection, entity_type: str, pairs: list[tuple[str, str]]
+) -> tuple[int, int]:
+    """Move each loser's curator overrides onto its survivor; return ``(moved, dropped)``.
+
+    ``pairs`` is ``[(loser_id, winner_id), ...]``, the shape every merge path
+    already holds. One override per (entity, field) is the table's own rule, so on
+    a clash the **survivor's** override stands — it is the decision made on the
+    record that continues — and the loser's is dropped. Pairs run one at a time,
+    so two losers folding into one survivor cannot both claim a field.
+    """
+    if entity_type not in OVERLAY_ENTITY_TYPES:
+        raise ValueError(
+            f"not a curation_overlay entity type: {entity_type!r}"
+            f" (one of {', '.join(sorted(OVERLAY_ENTITY_TYPES))})"
+        )
+    moved = dropped = 0
+    for loser_id, winner_id in pairs:
+        dropped += len(
+            await db.fetch(_DROP_CLASHING_OVERRIDES_SQL, entity_type, loser_id, winner_id)
+        )
+        moved += len(await db.fetch(_MOVE_OVERRIDES_SQL, entity_type, loser_id, winner_id))
+    return moved, dropped

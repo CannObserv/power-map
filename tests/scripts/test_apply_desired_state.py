@@ -253,6 +253,8 @@ def test_main_wires_the_flags_and_the_dsn(monkeypatch, tmp_path):
             "4",
             "--max-updates",
             "50",
+            "--allow-merges",
+            "1",
             "--streak",
             "2",
             "--execute",
@@ -263,6 +265,7 @@ def test_main_wires_the_flags_and_the_dsn(monkeypatch, tmp_path):
     assert seen["dsn"] == "postgres://u:p@db.example/pm"
     assert seen["execute"] is True and seen["streak"] == 2
     assert seen["thresholds"].creates == 4 and seen["thresholds"].updates == 50
+    assert seen["thresholds"].merges == 1
     assert seen["desired"] == tmp_path / "d" and seen["out"] == tmp_path / "o"
 
 
@@ -311,8 +314,15 @@ def test_the_applier_scopes_by_the_source_the_seed_writes():
         ["--streak", "-1"],
         ["--allow-creates", "-1"],
         ["--max-updates", "-1"],
+        ["--allow-merges", "-1"],
     ],
-    ids=["zero streak", "negative streak", "negative creates", "negative updates"],
+    ids=[
+        "zero streak",
+        "negative streak",
+        "negative creates",
+        "negative updates",
+        "negative merges",
+    ],
 )
 def test_a_count_flag_that_could_only_weaken_the_gate_is_a_usage_error(flag, monkeypatch):
     """CR 2: `--streak 0` opened the gate on an empty ledger — `[-0:]` is the whole

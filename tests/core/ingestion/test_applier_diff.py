@@ -268,21 +268,24 @@ async def test_a_column_on_a_created_row_is_an_update_pending_the_create():
     assert "create" in update.reason
 
 
-async def test_a_merge_row_is_a_report_entry():
+async def test_a_merge_row_no_primitive_binds_is_a_report_entry_that_reads_nothing():
+    """Narrowed by #514, which acts on person merges (tests/core/ingestion/test_applier_merge.py):
+    organization merges bind no primitive, so they report exactly as #499 did."""
     row = {
-        "loser_pm_id": PM1,
-        "survivor_pm_id": PM2,
-        "loser_producer_id": P1,
-        "survivor_producer_id": P2,
+        "loser_pm_id": MO2,
+        "survivor_pm_id": MO4,
+        "loser_producer_id": O2,
+        "survivor_producer_id": O4,
     }
-    store = FakeLiveStore(tables={"people": []})
+    store = FakeLiveStore(tables={"organizations": []})
 
-    diff = await diff_desired(_state(desired_person_merges=[row]), MANIFEST, store)
+    diff = await diff_desired(_state(desired_organization_merges=[row]), MANIFEST, store)
 
     merge = diff.by_kind("merge")[0]
-    assert merge.entry_id == "desired_person_merges:01M1"
-    assert merge.pm_id == PM1 and merge.changes == {"survivor_pm_id": (None, PM2)}
-    assert "#514" in merge.reason
+    assert merge.entry_id == "desired_organization_merges:01N2"
+    assert merge.pm_id == MO2 and merge.changes == {"survivor_pm_id": (None, MO4)}
+    assert merge.effects == {}
+    assert not [r for r in store.requested if r[0] in ("entity_rows", "tombstones")]
 
 
 async def test_archive_retraction_is_refused_until_500_builds_it():

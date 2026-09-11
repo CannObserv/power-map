@@ -26,6 +26,7 @@ from src.core.ancillary_migrate import (
     rehome_assignment_relationships,
     rehome_citations,
     rehome_conflicting_assignment_ancillary,
+    rehome_curation_overlay,
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
@@ -156,6 +157,7 @@ async def _absorb_role(db, winner_role_id: str, loser_role_id: str) -> int:
     await rehome_conflicting_assignment_ancillary(db, pairs)
     await rehome_assignment_relationships(db, pairs)
     await mirror_subscriptions(db, pairs)
+    await rehome_curation_overlay(db, "assignment", pairs)  # #514
     await db.execute(
         "DELETE FROM role_assignments WHERE id = ANY($1::text[])",
         [loser_ra for loser_ra, _ in pairs],
@@ -171,6 +173,7 @@ async def _absorb_role(db, winner_role_id: str, loser_role_id: str) -> int:
     # #326: the loser role's own contacts/links have no FK — re-home before the delete.
     await rehome_role_ancillary(db, loser_role_id, winner_role_id)
     await mirror_subscriptions(db, [(loser_role_id, winner_role_id)])
+    await rehome_curation_overlay(db, "role", [(loser_role_id, winner_role_id)])  # #514
     await db.execute("DELETE FROM roles WHERE id=$1", loser_role_id)
     await record_merge_tombstones(db, "role", [(loser_role_id, winner_role_id)])
     return len(pairs)
@@ -474,6 +477,8 @@ async def _execute_merge(
         # loser's own subscription stays — the feed joins subscriptions at read time,
         # so removing it would hide the tombstone written just below.
         await mirror_subscriptions(db, [(loser_id, winner_id)])
+        # #514: a curator's override on the loser applies to the winner from here on.
+        await rehome_curation_overlay(db, "organization", [(loser_id, winner_id)])
 
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
         await db.execute(

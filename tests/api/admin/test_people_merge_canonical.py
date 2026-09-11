@@ -13,8 +13,8 @@ the same text while being different claims.
 import pytest
 import pytest_asyncio
 
-from src.api.admin.people_merge import merge_person_into
 from src.core.db import generate_id
+from src.core.person_merge import merge_person_into
 
 pytestmark = [
     pytest.mark.integration,

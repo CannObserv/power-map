@@ -93,7 +93,43 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   `update` (owned columns differ), `retract` (an in-scope row the snapshot
   dropped — report-only), `stale` (the desired state disagrees with the live
   crosswalk — rebuild), `conflict` (more than one live row matches a keyed
-  child — a person decides), `merge` (a producer tombstone — report-only, #514).
+  child — a person decides), `merge` (a producer tombstone — acted on when the
+  manifest binds a merge primitive, i.e. persons; report-only for organizations
+  until #520). A producer id a tombstone accounts for is never also a `retract`.
+- **Merges (#514).** A tombstone is `noop` once the live crosswalk resolves the
+  loser's producer id to the survivor. Otherwise it is an actionable `merge`
+  whose `effects` carry `person_merge.preview_person_merge` — each loser name
+  `move`/`dedup`, each assignment `move`/`drop`, the identifiers that move, all
+  by id (an unmerge is a script over these ids; the merge itself is one-way).
+  Or it is `already_merged` when a curator folded the pair first and only the
+  anchors lag, or `stale` when the survivor or loser is missing or archived —
+  or when the loser's live anchor no longer names the row the build exported
+  (rebuild, as for any drifted row).
+  **A diff holding an actionable merge is a merge phase:** only the merges,
+  conflicts and stale thresholds decide its verdict, every other count is
+  reported as *deferred*, and its execute folds the merges through
+  `merge_person_into` — the admin's own merge — then re-points every anchor
+  naming a retired row (`repoint_anchors`: the loser, and each assignment
+  dropped as a duplicate), and writes **no row entry**. Those were computed
+  against the pre-merge state and wait for the next diff. It commits only if
+  every merge it acted on is a noop in the re-diff and nothing new appeared; a
+  merge may only make entries go away. The Heck tombstone (#515) is the case
+  that proves it: its merge and a pending name write, in one plan, destroyed
+  the canonical name in either order and passed the ordinary re-diff check.
+  Open a merge phase with one dry run and the execute it opens:
+
+  ```bash
+  uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state --allow-merges 1 --streak 1
+  uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state --execute --allow-merges 1 --streak 1
+  ```
+
+  `--allow-merges` raises the whole `merges` threshold, so in a rows phase it
+  also waves through **report-only** merges. Beside a null-survivor merge that
+  is safe — its survivor is unanchored, a create or archived, and gets no row
+  writes. Beside an unbound organization merge (#520) hold it: the survivor's
+  rows would land before the merge that later folds it — the Heck ordering
+  spread over two nights, where an in-place name update overwrites the name the
+  merge would have kept.
 - **Child rows: present anywhere satisfies; else the canonical row is in
   dispute.** Any row of the type carrying the value is a noop (PM's short and
   long org names both stay); absent everywhere, the canonical row becomes an
@@ -115,7 +151,7 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   the gate never add up to opening it, and only the nightly chain builds it.
 - **Thresholds** live in `manifest.yml` (`creates 0`, `merges 0`, `conflicts 0`,
   `stale 0`, `updates` unlimited). The flip (#501) passes `--allow-creates N`,
-  `--max-updates N`, `--streak N` for one run. Each has a floor: the thresholds
+  `--allow-merges N`, `--max-updates N`, `--streak N` for one run. Each has a floor: the thresholds
   refuse a negative, `--streak` refuses anything below 1, and the gate refuses a
   non-positive streak whoever asks it — `--streak 0` used to answer yes on an
   empty ledger.

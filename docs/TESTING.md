@@ -69,6 +69,11 @@ entries with the outbox firing, a curator column surviving, a cyclic parent
 rolling back, a crosswalk change being stale, and an entity archived since the
 export being stale — the `LiveStore` contract that `entity_rows` returns
 `archived_at` whatever columns it was asked for — on the rollback connection.
+#514 adds the Heck tombstone there end to end: the real person merge folded
+once through the CLI, `Denny Heck` held, and a second run a no-op. The unit
+tier proves the merge phase's routing and verification with a recording
+primitive injected into `apply_diff(..., merges=…)`; `FakeLiveStore(previews=…)`
+answers `merge_preview`.
 
 ## Endpoint-test client (#288)
 

@@ -79,7 +79,8 @@ the write is a plain `UPDATE` of the owned column and `trg_no_org_cycle` still
 guards — a rejection rolls the whole run back.
 
 **Merges are report-only in #499** (#514 acts on them, triggered by the first
-real tombstone). **Creates are built and gated at 0** — a `create` mints the
+real tombstone — done for persons, `2026-09-11-514-applier-merges.md`;
+organizations #520). **Creates are built and gated at 0** — a `create` mints the
 entity row, its canonical legal name (public, canonical because new), its other
 child rows and columns, and a `producer_crosswalk` row (`exported_pm_id = pm_id
 =` the new ULID, `resolution = 'live'`, export fields null: the applier is the

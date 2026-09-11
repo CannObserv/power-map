@@ -24,8 +24,12 @@ class FakeLiveStore:
         crosswalk: Iterable[Mapping] = (),
         tables: Mapping[str, Iterable[Mapping]] | None = None,
         lookups: Mapping[tuple[str, str, str], Mapping[str, str]] | None = None,
+        previews: Mapping[tuple[str, str], dict] | None = None,
     ):
         self._crosswalk = [dict(r) for r in crosswalk]
+        # (loser, survivor) → what `merge_preview` answers; the real preview is the
+        # db tier's to prove (tests/core/test_person_merge.py).
+        self._previews = dict(previews or {})
         self.tables: dict[str, list[dict]] = {
             name: [dict(r) for r in rows] for name, rows in (tables or {}).items()
         }
@@ -66,6 +70,20 @@ class FakeLiveStore:
         self.requested.append(("lookup", table, (from_col, to_col)))
         return dict(self._lookups[(table, from_col, to_col)])
 
+    async def tombstones(self, entity_type: str, ids: Sequence[str]) -> dict[str, str | None]:
+        """``deleted_entities`` rows for ``ids``: entity id → merged_into (None = no survivor)."""
+        self.requested.append(("tombstones", entity_type, tuple(ids)))
+        wanted = set(ids)
+        return {
+            r["entity_id"]: r.get("merged_into")
+            for r in self.tables.get("deleted_entities", [])
+            if r["entity_type"] == entity_type and r["entity_id"] in wanted
+        }
+
+    async def merge_preview(self, primitive: str, loser_id: str, survivor_id: str) -> dict:
+        self.requested.append(("merge_preview", primitive, loser_id, survivor_id))
+        return dict(self._previews.get((loser_id, survivor_id), {}))
+
     async def value_matches(
         self, table: str, column: str, values: Sequence, parent: str
     ) -> dict[object, list[str]]:
@@ -88,6 +106,11 @@ class FakeConn:
 
     async def execute(self, sql: str, *args) -> None:
         self.statements.append((sql, args))
+
+    async def fetch(self, sql: str, *args) -> list:
+        """A statement with RETURNING (the crosswalk re-point, #514); matches nothing."""
+        self.statements.append((sql, args))
+        return []
 
     def transaction(self):
         return _FakeTransaction(self)

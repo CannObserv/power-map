@@ -16,6 +16,7 @@ from src.core.ancillary_migrate import (
     delete_role_ancillary,
     migrate_role_assignment_ancillary,
     rehome_conflicting_assignment_ancillary,
+    rehome_curation_overlay,
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
@@ -465,3 +466,74 @@ async def test_role_guard_counts_orphans_after_raw_delete(db):
 
     assert after["links"] == before["links"] + 1
     assert after["contact_methods"] == before["contact_methods"] + 1
+
+
+# --- curation_overlay (#514): a curator's override follows a merged entity ---------
+
+
+async def _override(db, entity_type, entity_id, field, value):
+    oid = generate_id()
+    await db.execute(
+        "INSERT INTO curation_overlay (id, entity_type, entity_id, field, value)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        oid,
+        entity_type,
+        entity_id,
+        field,
+        value,
+    )
+    return oid
+
+
+async def _overrides(db, entity_type, entity_id) -> dict[str, str | None]:
+    rows = await db.fetch(
+        "SELECT field, value FROM curation_overlay WHERE entity_type=$1 AND entity_id=$2",
+        entity_type,
+        entity_id,
+    )
+    return {r["field"]: r["value"] for r in rows}
+
+
+async def test_overlay_rehome_moves_the_loser_override_to_the_survivor(db):
+    loser, winner = generate_id(), generate_id()
+    kept = await _override(db, "person", loser, "name", "Curated Name")
+
+    moved, dropped = await rehome_curation_overlay(db, "person", [(loser, winner)])
+
+    assert (moved, dropped) == (1, 0)
+    assert await _overrides(db, "person", loser) == {}
+    assert await _overrides(db, "person", winner) == {"name": "Curated Name"}
+    # Re-pointed, not re-inserted: the row keeps its id.
+    assert await db.fetchval("SELECT entity_id FROM curation_overlay WHERE id=$1", kept) == winner
+
+
+async def test_overlay_rehome_survivor_wins_a_field_clash(db):
+    """One override per (entity, field): the record that continues keeps its own."""
+    loser, winner = generate_id(), generate_id()
+    await _override(db, "organization", loser, "name", "Loser Pick")
+    await _override(db, "organization", loser, "acronym", "LP")
+    await _override(db, "organization", winner, "name", "Winner Pick")
+
+    moved, dropped = await rehome_curation_overlay(db, "organization", [(loser, winner)])
+
+    assert (moved, dropped) == (1, 1)
+    assert await _overrides(db, "organization", winner) == {"name": "Winner Pick", "acronym": "LP"}
+    assert await _overrides(db, "organization", loser) == {}
+
+
+async def test_overlay_rehome_is_scoped_to_its_entity_type(db):
+    loser, winner = generate_id(), generate_id()
+    await _override(db, "role", loser, "title", "Other Type")
+
+    assert await rehome_curation_overlay(db, "assignment", [(loser, winner)]) == (0, 0)
+    assert await _overrides(db, "role", loser) == {"title": "Other Type"}
+
+
+async def test_overlay_rehome_empty_pairs_is_a_noop(db):
+    assert await rehome_curation_overlay(db, "person", []) == (0, 0)
+
+
+async def test_overlay_rehome_rejects_an_unknown_entity_type(db):
+    """The overlay speaks the crosswalk's vocabulary: `assignment`, not `role_assignment`."""
+    with pytest.raises(ValueError, match="role_assignment"):
+        await rehome_curation_overlay(db, "role_assignment", [("a", "b")])

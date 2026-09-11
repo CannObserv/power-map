@@ -15,6 +15,7 @@ import pytest
 pytest.importorskip("duckdb")
 
 from src.core.ingestion.applier import ApplierError, Diff, Entry  # noqa: E402
+from src.core.ingestion.applier_merge import MergePrimitive  # noqa: E402
 from src.core.ingestion.applier_write import (  # noqa: E402
     VerificationFailed,
     apply_diff,
@@ -258,3 +259,166 @@ async def test_apply_rolls_back_when_the_rediff_is_stale():
         await _apply(Diff([parent_update()]), conn, rediff)
 
     assert conn.events == ["begin", "rollback"]
+
+
+# --- the merge phase (#514) --------------------------------------------------------
+#
+# A diff holding an actionable merge writes the merges and nothing else: the
+# primitive folds the loser, then every anchor naming a retired row follows it.
+# The commit needs every merge acted on to be a noop in the re-diff, and nothing
+# in the re-diff the pre-write diff lacked — a merge may only make entries go away.
+
+PM_LOSER, PM_SURVIVOR, DROPPED_RA, SURVIVING_RA = "01ML", "01MS", "01RD", "01RS"
+REPOINT = "UPDATE producer_crosswalk"
+
+
+class _Primitive:
+    """Records each call; answers with the assignment pairs it 'dropped'."""
+
+    def __init__(self, dropped=()):
+        self.calls: list[dict] = []
+        self.dropped = list(dropped)
+
+    async def merge(self, db, *, winner_id, loser_id, actor_email):
+        self.calls.append({"winner": winner_id, "loser": loser_id, "actor": actor_email})
+        return self.dropped
+
+    async def preview(self, db, *, winner_id, loser_id):  # pragma: no cover - not called here
+        return {}
+
+
+def _registry(primitive):
+    return {
+        "person": MergePrimitive(
+            merge=primitive.merge, preview=primitive.preview, dropped_kind="assignment"
+        )
+    }
+
+
+def merge_entry(kind="merge", *, already=False):
+    effects = (
+        {"primitive": "person", "already_merged": True}
+        if already
+        else {
+            "primitive": "person",
+            "preview": {"names": [], "assignments": [], "identifiers": []},
+        }
+    )
+    return E(
+        kind,
+        "desired_person_merges",
+        PM_LOSER,
+        producer_id="01PL",
+        pm_id=PM_LOSER,
+        changes={"survivor_pm_id": (None, PM_SURVIVOR)},
+        effects=effects if kind == "merge" else {},
+    )
+
+
+def heck_insert():
+    """The survivor's pending legal-name insert — the merge itself satisfies it."""
+    return E(
+        "insert",
+        "desired_person_names",
+        "01PS|legal",
+        pm_id=PM_SURVIVOR,
+        changes=name_changes("Dennis L. Heck", canonical=False),
+    )
+
+
+async def _apply_merges(diff, conn, rediff, primitive):
+    return await apply_diff(
+        diff,
+        MANIFEST,
+        conn,
+        source=PRODUCER_SOURCE,
+        rediff=rediff,
+        merges=_registry(primitive),
+    )
+
+
+async def test_a_merge_phase_folds_the_merge_and_writes_no_row_entry():
+    conn, primitive = FakeConn(), _Primitive(dropped=[(DROPPED_RA, SURVIVING_RA)])
+    create = E("create", "desired_people", P3)
+    before = Diff([merge_entry(), heck_insert(), parent_update(), create])
+
+    async def rediff(minted):
+        # The merge satisfied the insert; the parent update and the create wait.
+        return Diff([merge_entry("noop"), parent_update(), create])
+
+    result = await _apply_merges(before, conn, rediff, primitive)
+
+    assert conn.events == ["begin", "commit"]
+    assert primitive.calls == [
+        {"winner": PM_SURVIVOR, "loser": PM_LOSER, "actor": primitive.calls[0]["actor"]}
+    ]
+    assert PRODUCER_SOURCE in primitive.calls[0]["actor"]
+    sql = [s for s, _ in conn.statements]
+    assert sql and all(s.lstrip().startswith(REPOINT) for s in sql), sql
+    repointed = [args for s, args in conn.statements]
+    assert ("person", PM_LOSER, PM_SURVIVOR) in repointed
+    assert ("assignment", DROPPED_RA, SURVIVING_RA) in repointed
+    assert result.merged == 1 and result.minted == {}
+
+
+async def test_a_pair_pm_already_merged_repoints_the_anchors_only():
+    conn, primitive = FakeConn(), _Primitive()
+
+    async def rediff(minted):
+        return Diff([merge_entry("noop")])
+
+    await _apply_merges(Diff([merge_entry(already=True)]), conn, rediff, primitive)
+
+    assert primitive.calls == []
+    assert [args for _, args in conn.statements] == [("person", PM_LOSER, PM_SURVIVOR)]
+    assert conn.events == ["begin", "commit"]
+
+
+async def test_a_merge_still_pending_after_the_write_rolls_back():
+    conn, primitive = FakeConn(), _Primitive()
+
+    async def rediff(minted):
+        return Diff([merge_entry()])
+
+    with pytest.raises(VerificationFailed, match="desired_person_merges:01ML"):
+        await _apply_merges(Diff([merge_entry()]), conn, rediff, primitive)
+
+    assert conn.events == ["begin", "rollback"]
+
+
+async def test_an_entry_the_merge_created_rolls_back():
+    """A merge may only make entries go away: one that appears is the merge's doing."""
+    conn, primitive = FakeConn(), _Primitive()
+
+    async def rediff(minted):
+        return Diff([merge_entry("noop"), heck_insert()])
+
+    with pytest.raises(VerificationFailed, match="desired_person_names:01PS"):
+        await _apply_merges(Diff([merge_entry()]), conn, rediff, primitive)
+
+    assert conn.events == ["begin", "rollback"]
+
+
+async def test_an_entry_the_merge_changed_rolls_back():
+    conn, primitive = FakeConn(), _Primitive()
+
+    async def rediff(minted):
+        return Diff([merge_entry("noop"), parent_update(new=3)])
+
+    with pytest.raises(VerificationFailed, match="desired_organization_parents"):
+        await _apply_merges(Diff([merge_entry(), parent_update()]), conn, rediff, primitive)
+
+    assert conn.events == ["begin", "rollback"]
+
+
+async def test_a_stale_entry_refuses_the_merge_phase_before_the_transaction():
+    conn, primitive = FakeConn(), _Primitive()
+    stale = E("stale", "desired_people", P1, pm_id=PM1, reason="drift")
+
+    async def rediff(minted):  # pragma: no cover - never reached
+        return Diff([])
+
+    with pytest.raises(ApplierError, match="stale"):
+        await _apply_merges(Diff([merge_entry(), stale]), conn, rediff, primitive)
+
+    assert conn.events == [] and primitive.calls == []
