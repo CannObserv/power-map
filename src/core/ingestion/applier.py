@@ -71,7 +71,16 @@ def sql_identifier(name: str) -> str:
 
 
 class LiveStore(Protocol):
-    """What the engine reads from the database — and nothing else."""
+    """What the engine reads from the database — and nothing else.
+
+    ``entity_rows`` and ``child_rows`` always carry ``id`` back, and
+    ``entity_rows`` always carries ``archived_at``, whatever ``columns`` asks
+    for: the engine reads both on rows it requested no columns of at all (an
+    entity binding owns no column, and still has to see a row archived since
+    the export). An implementation that honours the signature literally would
+    disable that check in silence, so it is stated here and asserted of both
+    implementations.
+    """
 
     async def crosswalk(self, source: str, kinds: Sequence[str]) -> list[dict]: ...
 
