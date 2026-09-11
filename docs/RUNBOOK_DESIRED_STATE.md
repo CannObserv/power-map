@@ -123,7 +123,10 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
 - **Column scope is exact:** an `UPDATE` names only the changed owned columns;
   an `INSERT` names the parent, the changed columns and the manifest's insert
   defaults. `updated_at`, the touch triggers and the outbox fire as for any
-  writer; no `source_key_id` is stamped.
+  writer; no `source_key_id` is stamped. That makes the applier a **second door**
+  to `organizations.parent_id`, beside the observation API's authoritative
+  reparent: the `source_key_mismatch` gate (#334) guards that API, not the
+  column, so it neither blocks nor records an applier reparent.
 - **First dry run against production** (2026-09-10 measurement): 24 person-name
   updates (punctuation and nickname forms), 26 acronym updates, 4 parent updates
   (the four subcommittees PM parents under their committee), 17 creates of which
