@@ -582,12 +582,12 @@ async def _diff_child(
     # per row against the pre-write snapshot, so two inserts on one parent both
     # claimed it and the second aborted the transaction (CR 4). A claim made
     # here is remembered for the rest of the run.
-    claimed: set[object] = set()
+    canonical_taken: set[object] = set()
 
     def claims_canonical(parent: object, already_taken: bool) -> bool:
-        if already_taken or parent in claimed:
+        if already_taken or parent in canonical_taken:
             return False
-        claimed.add(parent)
+        canonical_taken.add(parent)
         return True
 
     entries: list[Entry] = []
