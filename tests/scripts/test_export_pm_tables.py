@@ -86,3 +86,27 @@ def test_a_missing_table_is_reported_as_a_sentence_not_a_traceback(monkeypatch, 
     assert code == 1
     assert "curation_overlay" in out and "schema.sql" in out
     assert "Traceback" not in out
+
+
+def test_the_overlay_export_carries_archived_at_for_the_models_to_filter():
+    """#498: unpin archives, and only an active pin may reach the desired state — the
+    staging model filters on the column, so the export must hand it over."""
+    assert "archived_at" in TABLES["curation_overlay"].columns
+
+
+def test_a_missing_column_is_reported_as_a_sentence_not_a_traceback(monkeypatch, capsys):
+    """The export can run ahead of the schema on a target — the 09:30 chain against a
+    database the #498 restart has not reached yet. Same deploy state, same answer."""
+
+    async def missing(dsn, root):
+        raise asyncpg.UndefinedColumnError('column "archived_at" does not exist')
+
+    monkeypatch.setenv("DATABASE_URL", "postgres://u:p@db.example/pm")
+    monkeypatch.setattr("scripts.export_pm_tables._run_against", missing)
+
+    code = main(["--root", "/nonexistent"])
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "archived_at" in out and "schema.sql" in out
+    assert "Traceback" not in out

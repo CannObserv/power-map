@@ -486,12 +486,28 @@ async def _override(db, entity_type, entity_id, field, value):
 
 
 async def _overrides(db, entity_type, entity_id) -> dict[str, str | None]:
+    """The entity's *active* pins (#498: an unpinned or displaced pin is archived)."""
     rows = await db.fetch(
-        "SELECT field, value FROM curation_overlay WHERE entity_type=$1 AND entity_id=$2",
+        "SELECT field, value FROM curation_overlay"
+        " WHERE entity_type=$1 AND entity_id=$2 AND archived_at IS NULL",
         entity_type,
         entity_id,
     )
     return {r["field"]: r["value"] for r in rows}
+
+
+async def _archived(db, entity_type, entity_id) -> list[tuple[str, str | None]]:
+    rows = await db.fetch(
+        "SELECT field, value FROM curation_overlay"
+        " WHERE entity_type=$1 AND entity_id=$2 AND archived_at IS NOT NULL ORDER BY value",
+        entity_type,
+        entity_id,
+    )
+    return [(r["field"], r["value"]) for r in rows]
+
+
+async def _archive(db, override_id):
+    await db.execute("UPDATE curation_overlay SET archived_at = NOW() WHERE id = $1", override_id)
 
 
 async def test_overlay_rehome_moves_the_loser_override_to_the_survivor(db):
@@ -519,6 +535,49 @@ async def test_overlay_rehome_survivor_wins_a_field_clash(db):
     assert (moved, dropped) == (1, 1)
     assert await _overrides(db, "organization", winner) == {"name": "Winner Pick", "acronym": "LP"}
     assert await _overrides(db, "organization", loser) == {}
+
+
+async def test_overlay_rehome_archives_a_clashing_loser_pin_instead_of_deleting_it(db):
+    """#498: unpin archives, so a merge that displaces a pin does too — the loser's
+    pin follows its entity across as history, never silently erased."""
+    loser, winner = generate_id(), generate_id()
+    await _override(db, "person", loser, "name", "Loser Pick")
+    await _override(db, "person", winner, "name", "Winner Pick")
+
+    moved, archived = await rehome_curation_overlay(db, "person", [(loser, winner)])
+
+    assert (moved, archived) == (0, 1)
+    assert await _overrides(db, "person", winner) == {"name": "Winner Pick"}
+    assert await _archived(db, "person", winner) == [("name", "Loser Pick")]
+    assert (
+        await db.fetchval("SELECT count(*) FROM curation_overlay WHERE entity_id = $1", loser) == 0
+    )
+
+
+async def test_overlay_rehome_an_archived_survivor_pin_is_no_clash(db):
+    """Only an *active* pin holds the field. A survivor whose own pin was unpinned
+    has nothing to defend, so the loser's live pin moves and stays live."""
+    loser, winner = generate_id(), generate_id()
+    await _override(db, "person", loser, "name", "Loser Pick")
+    await _archive(db, await _override(db, "person", winner, "name", "Unpinned Earlier"))
+
+    moved, archived = await rehome_curation_overlay(db, "person", [(loser, winner)])
+
+    assert (moved, archived) == (1, 0)
+    assert await _overrides(db, "person", winner) == {"name": "Loser Pick"}
+
+
+async def test_overlay_rehome_carries_the_losers_archived_history_across(db):
+    """An archived pin is history: it moves with its entity, even onto a field the
+    survivor holds live, where it clashes with nothing."""
+    loser, winner = generate_id(), generate_id()
+    await _archive(db, await _override(db, "person", loser, "name", "Old Loser Pick"))
+    await _override(db, "person", winner, "name", "Winner Pick")
+
+    await rehome_curation_overlay(db, "person", [(loser, winner)])
+
+    assert await _overrides(db, "person", winner) == {"name": "Winner Pick"}
+    assert await _archived(db, "person", winner) == [("name", "Old Loser Pick")]
 
 
 async def test_overlay_rehome_is_scoped_to_its_entity_type(db):

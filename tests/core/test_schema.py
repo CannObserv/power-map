@@ -1615,3 +1615,20 @@ async def test_curation_overlay_value_may_be_null_to_assert_absence(db):
     row_id = await _insert_overlay(db, value=None)
 
     assert await db.fetchval("SELECT value FROM curation_overlay WHERE id = $1", row_id) is None
+
+
+@pytest.mark.integration
+async def test_curation_overlay_uniqueness_binds_active_pins_only(db):
+    """#498: unpin archives, so history stays — and a re-pin after an unpin is a new
+    active row beside the archived one, never a clash with it."""
+    entity_id = generate_id()
+    first = await _insert_overlay(db, entity_id=entity_id)
+    await db.execute("UPDATE curation_overlay SET archived_at = NOW() WHERE id = $1", first)
+
+    await _insert_overlay(db, entity_id=entity_id, value="Re-pinned")
+
+    rows = await db.fetch(
+        "SELECT archived_at IS NULL AS active FROM curation_overlay WHERE entity_id = $1",
+        entity_id,
+    )
+    assert sorted(r["active"] for r in rows) == [False, True]

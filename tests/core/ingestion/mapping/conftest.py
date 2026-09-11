@@ -64,8 +64,12 @@ def crosswalk_row(producer_id: str, pm_id: str | None, resolution: str, *, kind:
     )
 
 
-def overlay_row(entity_type: str, entity_id: str, field: str, value: str | None):
-    return (f"ov-{entity_id}-{field}", entity_type, entity_id, field, value, None, None, NOW, NOW)
+def overlay_row(
+    entity_type: str, entity_id: str, field: str, value: str | None, *, archived_at=None
+):
+    """A `curation_overlay` export row; `archived_at` set is an unpinned pin (#498)."""
+    row_id = f"ov-{entity_id}-{field}"
+    return (row_id, entity_type, entity_id, field, value, None, None, NOW, NOW, archived_at)
 
 
 def fixture_csv(

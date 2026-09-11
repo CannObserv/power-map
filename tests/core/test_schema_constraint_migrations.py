@@ -127,3 +127,22 @@ async def test_apply_schema_repairs_fk_on_delete_action(db_pool):
         await apply_schema(conn)
         assert await conn.fetchval(_CONSTRAINT_COUNT_SQL, table, conname) == 1
         assert await conn.fetchval(_CONSTRAINT_DEF_SQL, table, conname) == repaired_def
+
+
+async def test_apply_schema_swaps_the_full_overlay_index_for_the_partial_one(db_pool):
+    """#498: a database that predates unpin-as-archive carries the full unique index,
+    and `CREATE UNIQUE INDEX IF NOT EXISTS` no-ops on it by name — without its own
+    block, every existing database would refuse a re-pin after an unpin."""
+    async with db_pool.acquire() as conn:
+        await conn.execute("DROP INDEX IF EXISTS uq_curation_overlay_entity_field")
+        await conn.execute(
+            "CREATE UNIQUE INDEX uq_curation_overlay_entity_field"
+            " ON curation_overlay (entity_type, entity_id, field)"
+        )
+
+        await apply_schema(conn)
+
+        indexdef = await conn.fetchval(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_curation_overlay_entity_field'"
+        )
+    assert "WHERE (archived_at IS NULL)" in indexdef

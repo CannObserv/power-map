@@ -551,39 +551,48 @@ async def count_orphaned_citations(db: asyncpg.Connection) -> dict[str, int]:
 #: assignment is `assignment` here where `deleted_entities` says `role_assignment`.
 OVERLAY_ENTITY_TYPES = frozenset({"person", "organization", "role", "assignment"})
 
-_DROP_CLASHING_OVERRIDES_SQL = (
-    "DELETE FROM curation_overlay l"
-    " WHERE l.entity_type = $1 AND l.entity_id = $2"
+# A loser's *active* pin on a field the survivor holds live is displaced:
+# archived, as an unpin is (#498), then carried across below as history. Only an
+# active pin holds a field, so a survivor's archived pin clashes with nothing.
+_ARCHIVE_CLASHING_OVERRIDES_SQL = (
+    "UPDATE curation_overlay l SET archived_at = NOW()"
+    " WHERE l.entity_type = $1 AND l.entity_id = $2 AND l.archived_at IS NULL"
     "   AND EXISTS (SELECT 1 FROM curation_overlay w"
-    "                WHERE w.entity_type = $1 AND w.entity_id = $3 AND w.field = l.field)"
+    "                WHERE w.entity_type = $1 AND w.entity_id = $3 AND w.field = l.field"
+    "                  AND w.archived_at IS NULL)"
     " RETURNING l.id"
 )
+# Then everything the loser holds moves — live pins and archived history alike.
 _MOVE_OVERRIDES_SQL = (
     "UPDATE curation_overlay SET entity_id = $3 WHERE entity_type = $1 AND entity_id = $2"
-    " RETURNING id"
+    " RETURNING archived_at IS NULL AS active"
 )
 
 
 async def rehome_curation_overlay(
     db: asyncpg.Connection, entity_type: str, pairs: list[tuple[str, str]]
 ) -> tuple[int, int]:
-    """Move each loser's curator overrides onto its survivor; return ``(moved, dropped)``.
+    """Move each loser's curator overrides onto its survivor; return ``(moved, archived)``.
 
     ``pairs`` is ``[(loser_id, winner_id), ...]``, the shape every merge path
-    already holds. One override per (entity, field) is the table's own rule, so on
-    a clash the **survivor's** override stands — it is the decision made on the
-    record that continues — and the loser's is dropped. Pairs run one at a time,
-    so two losers folding into one survivor cannot both claim a field.
+    already holds. One *active* override per (entity, field) is the table's own
+    rule, so on a clash the **survivor's** override stands — it is the decision
+    made on the record that continues — and the loser's is archived, as an unpin
+    is (#498), and carried across as history rather than deleted. ``moved``
+    counts the live pins that arrive live; ``archived`` the ones displaced. Pairs
+    run one at a time, so two losers folding into one survivor cannot both claim
+    a field.
     """
     if entity_type not in OVERLAY_ENTITY_TYPES:
         raise ValueError(
             f"not a curation_overlay entity type: {entity_type!r}"
             f" (one of {', '.join(sorted(OVERLAY_ENTITY_TYPES))})"
         )
-    moved = dropped = 0
+    moved = archived = 0
     for loser_id, winner_id in pairs:
-        dropped += len(
-            await db.fetch(_DROP_CLASHING_OVERRIDES_SQL, entity_type, loser_id, winner_id)
+        archived += len(
+            await db.fetch(_ARCHIVE_CLASHING_OVERRIDES_SQL, entity_type, loser_id, winner_id)
         )
-        moved += len(await db.fetch(_MOVE_OVERRIDES_SQL, entity_type, loser_id, winner_id))
-    return moved, dropped
+        rows = await db.fetch(_MOVE_OVERRIDES_SQL, entity_type, loser_id, winner_id)
+        moved += sum(1 for r in rows if r["active"])
+    return moved, archived

@@ -19,6 +19,7 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     EXPECTED_WARNINGS,
     MO1,
     MO4,
+    NOW,
     P1,
     PM1,
     overlay_row,
@@ -59,3 +60,15 @@ def test_the_mapped_pairs_build_without_a_warning(build):
 
     assert b.result.success
     assert "overlay_field_unmapped" not in b.warnings
+
+
+def test_an_archived_pin_is_applied_nowhere(build):
+    """#498: unpin archives. The row stays as history, and the producer's value is the
+    one the desired state carries again — the model reads active pins only."""
+    live = build()
+    unpinned = build(overlay=[overlay_row("person", PM1, "name", "Curated One", archived_at=NOW)])
+    names = {r[1]: r[2] for r in unpinned.rows("desired_person_names")}
+
+    assert {r[1]: r[2] for r in live.rows("desired_person_names")}[P1] == "Curated One"
+    assert names[P1] != "Curated One"
+    assert "overlay_field_unmapped" not in unpinned.warnings
