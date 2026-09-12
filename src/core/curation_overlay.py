@@ -35,7 +35,6 @@ __all__ = [
     "in_scope",
     "pin",
     "pin_changed",
-    "unpin",
     "unpin_pin",
 ]
 
@@ -61,11 +60,6 @@ _ARCHIVE_SQL = "UPDATE curation_overlay SET archived_at = NOW(), archived_by = $
 _UNPIN_ID_SQL = (
     "UPDATE curation_overlay SET archived_at = NOW(), archived_by = $2"
     f" WHERE id = $1 AND archived_at IS NULL RETURNING {_COLUMNS}"
-)
-_UNPIN_SQL = (
-    "UPDATE curation_overlay SET archived_at = NOW(), archived_by = $4"
-    " WHERE entity_type = $1 AND entity_id = $2 AND field = $3 AND archived_at IS NULL"
-    " RETURNING id"
 )
 
 
@@ -152,26 +146,15 @@ async def pin(
     return _pin(row)
 
 
-async def unpin(
-    conn: asyncpg.Connection, entity_type: str, entity_id: str, field: str, *, user_id: str
-) -> bool:
-    """Archive the live pin, letting the producer's value return on the next apply.
-
-    Returns whether there was one. The row stays as history, ``user_id`` as its
-    ``archived_by``.
-    """
-    row = await conn.fetchrow(_UNPIN_SQL, entity_type, entity_id, field, user_id)
-    if row is not None:
-        logger.info("unpinned %s.%s on %s by %s", entity_type, field, entity_id, user_id)
-    return row is not None
-
-
 async def unpin_pin(conn: asyncpg.Connection, pin_id: str, *, user_id: str) -> Pin | None:
-    """Archive one pin by id — only while it is still the live one.
+    """Archive one pin by id — only while it is still the live one — letting the
+    producer's value return on the next apply. The row stays as history, ``user_id``
+    as its ``archived_by``.
 
-    A list row can be older than its page: the pin it shows may have been
-    replaced since, and unpinning by field would archive the newer pin instead.
-    Returns the archived pin, or None when that row was no longer live.
+    By id, never by field: a line or list row can be older than its page, the pin
+    it shows replaced since, and unpinning by field would archive the newer pin —
+    one the curator never saw. Returns the archived pin, or None when that row was
+    no longer live.
     """
     row = await conn.fetchrow(_UNPIN_ID_SQL, pin_id, user_id)
     if row is None:

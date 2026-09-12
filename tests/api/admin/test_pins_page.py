@@ -16,7 +16,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin.deps import get_db
 from src.api.admin.pins_queries import STATUS_PREDICATES, VALID_STATUSES
 from src.api.main import app
-from src.core.curation_overlay import active_pin, pin, unpin
+from src.core.curation_overlay import active_pin, pin, unpin_pin
 from src.core.db import generate_id
 from src.core.ingestion.crosswalk import PRODUCER_SOURCE
 
@@ -124,8 +124,8 @@ async def test_the_page_lists_live_pins_as_a_curator_reads_them(client, db, cura
 
 async def test_the_default_status_hides_unpinned_rows_and_all_shows_them(client, db, curator):
     org = await _org(db, "Energy Committee")
-    await pin(db, "organization", org, "acronym", "OLD", user_id=curator)
-    await unpin(db, "organization", org, "acronym", user_id=curator)
+    held = await pin(db, "organization", org, "acronym", "OLD", user_id=curator)
+    await unpin_pin(db, held.id, user_id=curator)
 
     active = (await client.get("/admin/pins/", headers=AUTH)).text
     archived = (await client.get("/admin/pins/?status=archived", headers=AUTH)).text

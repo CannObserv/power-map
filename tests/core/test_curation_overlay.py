@@ -19,7 +19,6 @@ from src.core.curation_overlay import (
     in_scope,
     pin,
     pin_changed,
-    unpin,
     unpin_pin,
 )
 from src.core.db import generate_id
@@ -155,19 +154,19 @@ async def test_a_value_is_stored_as_text(db, curator):
 
 async def test_unpin_archives_the_active_row(db, curator):
     person = await _person(db)
-    await pin(db, "person", person, "name", "Curated", user_id=curator)
+    held = await pin(db, "person", person, "name", "Curated", user_id=curator)
 
-    assert await unpin(db, "person", person, "name", user_id=curator) is True
+    assert await unpin_pin(db, held.id, user_id=curator) is not None
 
     assert await active_pin(db, "person", person, "name") is None
     assert await _rows(db, person) == [("Curated", False)]
-    assert await unpin(db, "person", person, "name", user_id=curator) is False
+    assert await unpin_pin(db, held.id, user_id=curator) is None
 
 
 async def test_a_repin_after_an_unpin_is_a_fresh_active_row(db, curator):
     person = await _person(db)
-    await pin(db, "person", person, "name", "Curated", user_id=curator)
-    await unpin(db, "person", person, "name", user_id=curator)
+    held = await pin(db, "person", person, "name", "Curated", user_id=curator)
+    await unpin_pin(db, held.id, user_id=curator)
 
     await pin(db, "person", person, "name", "Curated Again", user_id=curator)
 
@@ -291,18 +290,9 @@ async def _archived_by(db, pin_id: str) -> str | None:
     return await db.fetchval("SELECT archived_by FROM curation_overlay WHERE id = $1", pin_id)
 
 
-async def test_unpin_records_who_let_the_pin_go(db, curator, second_curator):
+async def test_unpin_pin_records_who_let_the_pin_go(db, curator, second_curator):
     """Unpinning is a decision too — the producer's value returns — so it keeps its
     author beside the pinner's, in the row and not only in the log."""
-    person = await _person(db)
-    held = await pin(db, "person", person, "name", "Curated", user_id=curator)
-
-    await unpin(db, "person", person, "name", user_id=second_curator)
-
-    assert await _archived_by(db, held.id) == second_curator
-
-
-async def test_unpin_pin_records_who_let_the_pin_go(db, curator, second_curator):
     person = await _person(db)
     held = await pin(db, "person", person, "name", "Curated", user_id=curator)
 
