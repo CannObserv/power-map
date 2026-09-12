@@ -31,6 +31,9 @@ ALLOWED_DIRECT_ACCESS = {
     "src/api/admin/people_name_suggest.py",  # suggest-only decomposition — reads all names
     "src/api/admin/people_merge.py",  # merge preview modal — lists all loser names
     "src/core/person_merge.py",  # merge primitive + preview — touches all rows on both sides
+    # #498 slot registry: a slot mirrors the applier, which matches every legal
+    # row whatever its visibility; curators see every name, as on the names page.
+    "src/api/admin/overlay_slots.py",
     # _names_shared.py uses dynamic {names_table} f-strings; the regex below
     # never matches verbatim "person_names" there. Listed for reviewer clarity.
     "src/api/admin/_names_shared.py",  # shared admin CRUD via {names_table}

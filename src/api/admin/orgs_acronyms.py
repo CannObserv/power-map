@@ -12,8 +12,10 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
     org_header_extra,
+    provision_app_user,
     with_flash,
 )
+from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.core.db import generate_id
 
 templates = Jinja2Templates(directory="src/templates")
@@ -62,13 +64,16 @@ async def acronym_create(
     request: Request,
     acronym: str = Form(...),
     is_canonical: str = Form(""),
-    user: AdminUser = Depends(get_admin_user),
+    user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
     """Create a new organization acronym."""
     await _get_org_or_404(org_id, db)
     aid = generate_id()
-    async with db.transaction():
+    async with (
+        db.transaction(),
+        tracked(db, "organization", org_id, user_id=user.id, fields=("acronym",)) as edit,
+    ):
         if is_canonical == "true":
             await db.execute(
                 "UPDATE organization_acronyms SET is_canonical=FALSE"
@@ -84,7 +89,9 @@ async def acronym_create(
             is_canonical == "true",
         )
     if not is_htmx(request):
-        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/orgs/{org_id}/", flash_key("saved", edit.pinned)), status_code=303
+        )
     acronyms = await db.fetch(
         "SELECT * FROM organization_acronyms WHERE organization_id=$1"
         " ORDER BY is_canonical DESC, acronym",
@@ -96,8 +103,8 @@ async def acronym_create(
         {"org_id": org_id, "acronyms": acronyms},
         headers=flash_trigger(
             "success",
-            f"Acronym <strong>{escape(acronym.strip())}</strong> added.",
-            extra=await org_header_extra(org_id, db),
+            f"Acronym <strong>{escape(acronym.strip())}</strong> added." + pinned_note(edit.pinned),
+            extra={**await org_header_extra(org_id, db), **overlay_refresh(edit.pinned)},
         ),
     )
 
@@ -155,7 +162,7 @@ async def acronym_edit_row_post(
     request: Request,
     acronym: str = Form(...),
     is_canonical: str = Form(""),
-    user: AdminUser = Depends(get_admin_user),
+    user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
     """Update an organization acronym."""
@@ -166,7 +173,10 @@ async def acronym_edit_row_post(
     )
     if not existing:
         raise HTTPException(status_code=404)
-    async with db.transaction():
+    async with (
+        db.transaction(),
+        tracked(db, "organization", org_id, user_id=user.id, fields=("acronym",)) as edit,
+    ):
         if is_canonical == "true":
             await db.execute(
                 "UPDATE organization_acronyms SET is_canonical=FALSE"
@@ -182,7 +192,9 @@ async def acronym_edit_row_post(
         )
         await _maybe_promote_sole_acronym(org_id, db)
     if not is_htmx(request):
-        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/orgs/{org_id}/", flash_key("saved", edit.pinned)), status_code=303
+        )
     acronyms = await db.fetch(
         "SELECT * FROM organization_acronyms WHERE organization_id=$1"
         " ORDER BY is_canonical DESC, acronym",
@@ -194,8 +206,8 @@ async def acronym_edit_row_post(
         {"org_id": org_id, "acronyms": acronyms},
         headers=flash_trigger(
             "success",
-            f"Acronym <strong>{escape(acronym.strip())}</strong> saved.",
-            extra=await org_header_extra(org_id, db),
+            f"Acronym <strong>{escape(acronym.strip())}</strong> saved." + pinned_note(edit.pinned),
+            extra={**await org_header_extra(org_id, db), **overlay_refresh(edit.pinned)},
         ),
     )
 
@@ -205,7 +217,7 @@ async def acronym_delete(
     org_id: str,
     acronym_id: str,
     request: Request,
-    user: AdminUser = Depends(get_admin_user),
+    user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
     """Delete an organization acronym."""
@@ -216,7 +228,10 @@ async def acronym_delete(
     )
     if not existing:
         raise HTTPException(status_code=404)
-    async with db.transaction():
+    async with (
+        db.transaction(),
+        tracked(db, "organization", org_id, user_id=user.id, fields=("acronym",)) as edit,
+    ):
         acronym_count = await db.fetchval(
             "SELECT count(*) FROM organization_acronyms WHERE organization_id=$1",
             org_id,
@@ -243,7 +258,9 @@ async def acronym_delete(
         await db.execute("DELETE FROM organization_acronyms WHERE id=$1", acronym_id)
         await _maybe_promote_sole_acronym(org_id, db)
     if not is_htmx(request):
-        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "removed"), status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/orgs/{org_id}/", flash_key("removed", edit.pinned)), status_code=303
+        )
     acronyms = await db.fetch(
         "SELECT * FROM organization_acronyms WHERE organization_id=$1"
         " ORDER BY is_canonical DESC, acronym",
@@ -254,6 +271,8 @@ async def acronym_delete(
         "admin/orgs/partials/_acronym_rows.html",
         {"org_id": org_id, "acronyms": acronyms},
         headers=flash_trigger(
-            "success", "Acronym removed.", extra=await org_header_extra(org_id, db)
+            "success",
+            "Acronym removed." + pinned_note(edit.pinned),
+            extra={**await org_header_extra(org_id, db), **overlay_refresh(edit.pinned)},
         ),
     )

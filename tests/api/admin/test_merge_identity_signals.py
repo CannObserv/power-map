@@ -571,3 +571,28 @@ async def test_role_merge_carries_role_and_dropped_assignment_overrides(client, 
     assert response.status_code == 303
     assert await _override_owner(db, "role", "title", "Chair (curated)") == win_role
     assert await _override_owner(db, "assignment", "end_date", "2023-12-31") == survivor
+
+
+async def test_org_merge_repoints_a_childs_parent_pin_to_the_survivor(client, db):
+    """#498: a parent_id pin holds an org id. The merge moves the child's live parent
+    to the survivor and deletes the loser; a pin still naming the loser would have
+    the applier re-parent the child under a row that no longer exists."""
+    win_org, lose_org = await _org(db, "Parent Pin Win"), await _org(db, "Parent Pin Lose")
+    child = await _org(db, "Parent Pin Child")
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", lose_org, child)
+    await _override(db, "organization", child, "parent_id", lose_org)
+
+    response = await client.post(
+        f"/admin/orgs/{win_org}/merge-with/{lose_org}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    live = await db.fetchval("SELECT parent_id FROM organizations WHERE id=$1", child)
+    pinned = await db.fetchval(
+        "SELECT value FROM curation_overlay"
+        " WHERE entity_id=$1 AND field='parent_id' AND archived_at IS NULL",
+        child,
+    )
+    assert live == pinned == win_org

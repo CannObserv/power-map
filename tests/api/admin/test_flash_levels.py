@@ -33,7 +33,7 @@ ERROR_ALLOWED: frozenset[str] = frozenset()
 # rather than a string constant. These bypass the level sweeps below (the AST
 # can't resolve the value), so each must be vetted by hand and allowlisted here.
 # orgs.py active-toggle resolves `level` to success/warning only (#353).
-DYNAMIC_LEVEL_ALLOWED: frozenset[str] = frozenset({"orgs.py::L237"})
+DYNAMIC_LEVEL_ALLOWED: frozenset[str] = frozenset({"orgs.py::L239"})
 
 
 def _flash_trigger_calls() -> list[tuple[str, int, ast.expr]]:
@@ -140,12 +140,20 @@ def _registry_levels(module: str, name: str) -> dict[str, str]:
 
 
 def test_shared_flash_messages_levels_match_taxonomy():
-    """`saved`/`removed` → success, `invalid`/`exists` → warning (#353)."""
+    """`saved`/`removed` → success, `invalid`/`exists` → warning (#353); the overlay's
+    pin keys (#498) are mutations that changed state → success, save `pin_stale` and
+    `already_pinned`, rejected no-ops → warning."""
     assert _registry_levels("deps.py", "SHARED_FLASH_MESSAGES") == {
         "saved": "success",
         "removed": "success",
         "invalid": "warning",
         "exists": "warning",
+        "saved_pinned": "success",
+        "removed_pinned": "success",
+        "pinned": "success",
+        "unpinned": "success",
+        "pin_stale": "warning",
+        "already_pinned": "warning",
     }
 
 

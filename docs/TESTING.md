@@ -69,6 +69,11 @@ entries with the outbox firing, a curator column surviving, a cyclic parent
 rolling back, a crosswalk change being stale, and an entity archived since the
 export being stale — the `LiveStore` contract that `entity_rows` returns
 `archived_at` whatever columns it was asked for — on the rollback connection.
+#498's acceptance sits beside it in `tests/scripts/test_curation_overlay_seam.py`:
+a pin through the real admin route, exported through `export_pm_tables.run`
+from the same rollback connection, built with dbt over the fixture store, and
+diffed — a noop while pinned, the update back once unpinned. It needs both the
+`mapping` group and `TEST_DATABASE_URL`, and skips by name without dbt.
 #514 adds the Heck tombstone there end to end: the real person merge folded
 once through the CLI, `Denny Heck` held, and a second run a no-op. The unit
 tier proves the merge phase's routing and verification with a recording

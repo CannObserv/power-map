@@ -11,6 +11,9 @@
 #                  row is PM's, column-scoped (safeguard 4)
 #   owned_event_types  events only: retraction-as-absence reaches these types
 #                  and no others — 315 org events in PM have no producer column
+#   overlay        the curation_overlay field that pins the owned value (#498):
+#                  (entity, overlay) is the pair a curator's pin is keyed on.
+#                  Required on column and child tables, refused elsewhere
 #   target         the binding (v2): one of four shapes the applier interprets
 #                    entity  — a row in an entity table: identity, create,
 #                              report-only retraction
@@ -56,6 +59,7 @@ tables:
     pm_key: pm_id
     retraction: none           # PM keeps every other name; 3,121 rows for 3,118 people
     owned_columns: [name]
+    overlay: name
     target:
       shape: child
       table: person_names
@@ -91,6 +95,7 @@ tables:
     pm_key: pm_id
     retraction: none           # an absent row is silence, not a null parent
     owned_columns: [parent_pm_id]
+    overlay: parent_id
     target:
       shape: column
       table: organizations
@@ -101,6 +106,7 @@ tables:
     pm_key: pm_id
     retraction: none           # 310 legal + 13 former rows stay PM's
     owned_columns: [name]
+    overlay: legal_name
     target:
       shape: child
       table: organization_names
@@ -116,6 +122,7 @@ tables:
     pm_key: pm_id
     retraction: none           # 240 acronym rows on 219 orgs; the producer has 186
     owned_columns: [acronym]
+    overlay: acronym
     target:
       shape: child
       table: organization_acronyms
@@ -138,6 +145,7 @@ tables:
     retraction: report
     owned_event_types: [dissolved]
     owned_columns: [event_year]   # month/day: PM holds finer precision on 5 of 152
+    overlay: dissolved_year
     target:
       shape: child
       table: entity_events

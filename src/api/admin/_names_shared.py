@@ -17,8 +17,10 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    provision_app_user,
     with_flash,
 )
+from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.api.admin.people_name_parts import upsert_or_delete_parts
 from src.core.ancillary_migrate import delete_citations
 from src.core.db import generate_id
@@ -146,6 +148,8 @@ def make_names_router(
     last_identity_error_msg: str,
     last_identity_409_msg: str,
     header_extra: Callable[[str, object], Awaitable[dict]],
+    overlay_entity_type: str,
+    overlay_field: str,
     supports_person_metadata: bool = False,
     supports_effective_dates: bool = False,
 ) -> APIRouter:
@@ -155,6 +159,10 @@ def make_names_router(
     ----------
     entity_id_key:
         Template context key for the entity id (e.g. ``'org_id'`` or ``'person_id'``).
+    overlay_entity_type, overlay_field:
+        The curation-overlay slot these names carry (#498) — ``('person', 'name')``
+        or ``('organization', 'legal_name')``. Every write here is tracked: one that
+        moves the slot's value on an entity in the producer's row scope pins it.
     prefix:
         Router URL prefix — must contain ``{entity_id}`` as the path variable.
     tags:
@@ -534,7 +542,7 @@ def make_names_router(
         honorific_prefix: str | None = Form(None),
         honorific_suffix: str | None = Form(None),
         primary_identifier: str | None = Form(None),
-        user: AdminUser = Depends(get_admin_user),
+        user: AdminUser = Depends(provision_app_user),
         db=Depends(get_db),
     ):
         """Create a new name."""
@@ -581,7 +589,12 @@ def make_names_router(
             )
         nid = generate_id()
         try:
-            async with db.transaction():
+            async with (
+                db.transaction(),
+                tracked(
+                    db, overlay_entity_type, entity_id, user_id=user.id, fields=(overlay_field,)
+                ) as edit,
+            ):
                 if is_canonical == "true":
                     await db.execute(
                         f"UPDATE {names_table} SET is_canonical=FALSE"
@@ -658,7 +671,9 @@ def make_names_router(
             # both the name insert and any partial parts write are undone.
             return _form_error_response(str(exc), request, from_exc=exc)
         if not is_htmx(request):
-            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
+            return RedirectResponse(
+                with_flash(detail_url(entity_id), flash_key("saved", edit.pinned)), status_code=303
+            )
         names = await _fetch_names_for_rows(db, entity_id)
         return templates.TemplateResponse(
             request,
@@ -666,8 +681,8 @@ def make_names_router(
             _ctx(entity_id, names=names),
             headers=flash_trigger(
                 "success",
-                f"Name <strong>{escape(name.strip())}</strong> added.",
-                extra=await header_extra(entity_id, db),
+                f"Name <strong>{escape(name.strip())}</strong> added." + pinned_note(edit.pinned),
+                extra={**await header_extra(entity_id, db), **overlay_refresh(edit.pinned)},
             ),
         )
 
@@ -771,7 +786,7 @@ def make_names_router(
         honorific_prefix: str | None = Form(None),
         honorific_suffix: str | None = Form(None),
         primary_identifier: str | None = Form(None),
-        user: AdminUser = Depends(get_admin_user),
+        user: AdminUser = Depends(provision_app_user),
         db=Depends(get_db),
     ):
         """Update a name."""
@@ -846,7 +861,12 @@ def make_names_router(
                     ),
                 )
         try:
-            async with db.transaction():
+            async with (
+                db.transaction(),
+                tracked(
+                    db, overlay_entity_type, entity_id, user_id=user.id, fields=(overlay_field,)
+                ) as edit,
+            ):
                 if is_canonical == "true":
                     await db.execute(
                         f"UPDATE {names_table} SET is_canonical=FALSE"
@@ -912,7 +932,9 @@ def make_names_router(
             # both the name update and any partial parts write are undone.
             return _form_error_response(str(exc), request, from_exc=exc)
         if not is_htmx(request):
-            return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
+            return RedirectResponse(
+                with_flash(detail_url(entity_id), flash_key("saved", edit.pinned)), status_code=303
+            )
         names = await _fetch_names_for_rows(db, entity_id)
         return templates.TemplateResponse(
             request,
@@ -920,8 +942,8 @@ def make_names_router(
             _ctx(entity_id, names=names),
             headers=flash_trigger(
                 "success",
-                f"Name <strong>{escape(name.strip())}</strong> saved.",
-                extra=await header_extra(entity_id, db),
+                f"Name <strong>{escape(name.strip())}</strong> saved." + pinned_note(edit.pinned),
+                extra={**await header_extra(entity_id, db), **overlay_refresh(edit.pinned)},
             ),
         )
 
@@ -930,7 +952,7 @@ def make_names_router(
         entity_id: str,
         name_id: str,
         request: Request,
-        user: AdminUser = Depends(get_admin_user),
+        user: AdminUser = Depends(provision_app_user),
         db=Depends(get_db),
     ):
         """Delete a name."""
@@ -941,7 +963,12 @@ def make_names_router(
         )
         if not existing:
             raise HTTPException(status_code=404)
-        async with db.transaction():
+        async with (
+            db.transaction(),
+            tracked(
+                db, overlay_entity_type, entity_id, user_id=user.id, fields=(overlay_field,)
+            ) as edit,
+        ):
             if await last_identity_blocked(entity_id, db):
                 if not is_htmx(request):
                     raise HTTPException(
@@ -960,14 +987,19 @@ def make_names_router(
             await db.execute(f"DELETE FROM {names_table} WHERE id=$1", name_id)
             await maybe_promote_sole_name(entity_id, db)
         if not is_htmx(request):
-            return RedirectResponse(with_flash(detail_url(entity_id), "removed"), status_code=303)
+            return RedirectResponse(
+                with_flash(detail_url(entity_id), flash_key("removed", edit.pinned)),
+                status_code=303,
+            )
         names = await _fetch_names_for_rows(db, entity_id)
         return templates.TemplateResponse(
             request,
             tmpl_rows,
             _ctx(entity_id, names=names),
             headers=flash_trigger(
-                "success", "Name removed.", extra=await header_extra(entity_id, db)
+                "success",
+                "Name removed." + pinned_note(edit.pinned),
+                extra={**await header_extra(entity_id, db), **overlay_refresh(edit.pinned)},
             ),
         )
 

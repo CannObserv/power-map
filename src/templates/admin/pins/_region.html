@@ -1,0 +1,27 @@
+{# admin/pins/_region.html — the pins table, swapped on each filter change (#498). #}
+{% from "admin/macros/pagination.html" import controls as pagination %}
+{% set _qs = "status=" ~ status|urlencode ~ "&type=" ~ entity_type|urlencode ~ "&page_size=" ~ page_size %}
+<div class="table-wrapper">
+  <table class="data-table" id="pins-table">
+    <caption>Pins — {{ total }} record{{ "s" if total != 1 else "" }}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Entity</th><th scope="col">Field</th><th scope="col">Pinned value</th>
+        <th scope="col">Note</th><th scope="col">Pinned by</th>
+        <th scope="col" class="col--date">Pinned</th><th scope="col">Status</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in rows %}
+      {% include "admin/pins/_row.html" %}
+      {% else %}
+      <tr><td colspan="8" style="text-align:center;color:var(--color-text-muted)">No pins</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="pagination--sticky">
+  {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
+               "/admin/pins/", "#pins-list-region", _qs) }}
+</div>

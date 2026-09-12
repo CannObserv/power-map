@@ -71,8 +71,9 @@ TABLES: dict[str, TableSpec] = {
             "created_by",
             "created_at",
             "updated_at",
+            "archived_at",  # #498: unpin archives; the staging model reads active rows
         ),
-        types=("TEXT",) * 7 + ("TIMESTAMPTZ", "TIMESTAMPTZ"),
+        types=("TEXT",) * 7 + ("TIMESTAMPTZ", "TIMESTAMPTZ", "TIMESTAMPTZ"),
     ),
 }
 
@@ -119,10 +120,10 @@ def main(argv: list[str] | None = None) -> int:
     dsn = resolve_dsn(args, parser)
     try:
         asyncio.run(_run_against(dsn, args.root))
-    except asyncpg.UndefinedTableError as exc:
-        # A deploy state, not a bug here: curation_overlay lands on a target
-        # when schema.sql is applied to it. Say which table and why rather
-        # than leaving a traceback for the operator to decode.
+    except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError) as exc:
+        # A deploy state, not a bug here: curation_overlay (and, since #498, its
+        # archived_at) lands on a target when schema.sql is applied to it. Say
+        # which and why rather than leaving a traceback for the operator.
         logger.error("%s — has src/core/schema.sql been applied to this target?", exc)
         return 1
     return 0

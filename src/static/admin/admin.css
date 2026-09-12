@@ -78,6 +78,7 @@ html.dark .badge--inactive { background: #1e293b; color: var(--color-text-muted)
 html.dark .badge--neutral  { background: #1e293b; color: var(--color-text-muted); }
 html.dark .badge--archived { background: #450a0a; color: #fca5a5; }
 html.dark .badge--role-type     { background: #312e81; color: #c7d2fe; }
+html.dark .badge--pinned   { background: #312e81; color: #c7d2fe; }
 html.dark .badge--success  { background: #14532d; color: #86efac; }
 html.dark .badge--warning  { background: #422006; color: #fde68a; }
 /* Alert colors */
@@ -112,6 +113,7 @@ html.light .badge--inactive { background: #f1f5f9; color: #556070; }
 html.light .badge--neutral  { background: #f1f5f9; color: #556070; }
 html.light .badge--archived { background: #fee2e2; color: #991b1b; }
 html.light .badge--role-type     { background: #e0e7ff; color: #3730a3; }
+html.light .badge--pinned   { background: #e0e7ff; color: #3730a3; }
 html.light .badge--success  { background: #dcfce7; color: #15803d; }
 html.light .badge--warning  { background: #fef9c3; color: #854d0e; }
 html.light .alert--success  { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
@@ -227,6 +229,9 @@ a:hover { color: var(--color-brand-hover); }
 .badge--neutral  { background: #f1f5f9; color: #556070; }
 .badge--archived { background: #fee2e2; color: #991b1b; }
 .badge--role-type     { background: #e0e7ff; color: #3730a3; }
+/* #498: a curator's pin — PM's value held over the producer's. Indigo, like
+   role-type: a classification, not a lifecycle state or a warning. */
+.badge--pinned   { background: #e0e7ff; color: #3730a3; }
 .badge--success  { background: #dcfce7; color: #15803d; }
 .badge--warning  { background: #fef9c3; color: #854d0e; }
 /* Presence indicator (e.g. "Has notes" on assignment rows) — decorative glyph, not a status badge */
@@ -240,6 +245,7 @@ a.citation-indicator:hover { text-decoration: underline; }
   .badge--neutral  { background: #1e293b; color: var(--color-text-muted); }
   .badge--archived { background: #450a0a; color: #fca5a5; }
   .badge--role-type     { background: #312e81; color: #c7d2fe; }
+  .badge--pinned   { background: #312e81; color: #c7d2fe; }
   .badge--success  { background: #14532d; color: #86efac; }
   .badge--warning  { background: #422006; color: #fde68a; }
 }
@@ -403,3 +409,8 @@ a.citation-indicator:hover { text-decoration: underline; }
 .merge-bar { position: fixed; bottom: 3rem; left: var(--sidebar-w); right: 0; background: var(--color-surface-1); background: color-mix(in srgb, var(--color-surface-1) 88%, transparent); backdrop-filter: blur(4px); border: 1px solid var(--color-border); padding: var(--space-2) var(--space-6); align-items: center; justify-content: center; gap: var(--space-2); z-index: 100; box-shadow: 0 -2px 12px rgba(0,0,0,.10); }
 @media (max-width: 768px) { .merge-bar { left: 0; bottom: 2rem; } }
 .merge-bar__label { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); white-space: nowrap; }
+
+/* #498 curation overlay: a producer-owned slot's line (above its panel) and the
+   one-line note in its edit form. Quiet by design — the badge carries the state. */
+.overlay-slot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.overlay-note { margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }

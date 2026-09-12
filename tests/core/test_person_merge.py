@@ -121,15 +121,16 @@ async def _identifier(db, person_id, value):
     return iid
 
 
-async def _override(db, entity_type, entity_id, field, value):
+async def _override(db, entity_type, entity_id, field, value, *, archived=False):
     await db.execute(
-        "INSERT INTO curation_overlay (id, entity_type, entity_id, field, value)"
-        " VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO curation_overlay (id, entity_type, entity_id, field, value, archived_at)"
+        " VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN NOW() END)",
         generate_id(),
         entity_type,
         entity_id,
         field,
         value,
+        archived,
     )
 
 
@@ -168,7 +169,7 @@ async def test_preview_states_each_row_the_merge_then_moves_or_drops(db):
         key=lambda a: a["id"],
     )
     assert preview["identifiers"] == [ident]
-    assert preview["overlay"] == {"moved": ["pronouns"], "dropped": ["name"]}
+    assert preview["overlay"] == {"moved": ["pronouns"], "archived": ["name"], "history": []}
 
     await merge_person_into(db, winner_id=winner, loser_id=loser, actor_email=ACTOR)
 
@@ -180,6 +181,20 @@ async def test_preview_states_each_row_the_merge_then_moves_or_drops(db):
         owner = await db.fetchval("SELECT person_id FROM role_assignments WHERE id=$1", row["id"])
         assert owner == (winner if row["action"] == "move" else None), row
     assert await db.fetchval("SELECT entity_id FROM identifiers WHERE id=$1", ident) == winner
+
+
+async def test_preview_states_the_overlay_as_the_merge_will_write_it(db):
+    """#498: only an active pin holds a field. The preview is the applier's statement of
+    the merge's writes, so it must clash, archive and carry history exactly as
+    `rehome_curation_overlay` does — a survivor's unpinned pin defends nothing."""
+    winner, loser = await _person(db, "Denny Heck"), await _person(db, "Dennis L. Heck")
+    await _override(db, "person", winner, "name", "Unpinned Earlier", archived=True)
+    await _override(db, "person", loser, "name", "Loser Pick")
+    await _override(db, "person", loser, "pronouns", "he/him", archived=True)
+
+    preview = await preview_person_merge(db, winner_id=winner, loser_id=loser)
+
+    assert preview["overlay"] == {"moved": ["name"], "archived": [], "history": ["pronouns"]}
 
 
 async def test_preview_writes_nothing(db):

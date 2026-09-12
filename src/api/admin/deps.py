@@ -7,6 +7,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from fastapi import Depends, HTTPException, Request
 
+from src.api.admin.overlay_slots import PRODUCER_LABEL
 from src.api.deps import get_db as get_db  # noqa: F401 — re-export for admin importers
 
 
@@ -109,11 +110,22 @@ def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str,
 #   removed — a delete/unlink succeeded
 #   invalid — a create/edit was rejected for bad input (nothing changed)
 #   exists  — a create/edit hit a uniqueness conflict (nothing changed)
+# and the curation overlay's (#498), all mutations that changed state:
+#   saved_pinned / removed_pinned — the edit moved a producer-owned value and pinned it
+#   pinned / unpinned             — the Pin and Unpin actions
+#   pin_stale      — an Unpin naming a pin since replaced or unpinned (nothing changed)
+#   already_pinned — a Pin on a slot pinned since the page loaded (nothing changed)
 SHARED_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "saved": ("success", "Saved."),
     "removed": ("success", "Removed."),
     "invalid": ("warning", "Couldn't save — check your input."),
     "exists": ("warning", "That already exists."),
+    "saved_pinned": ("success", f"Saved. Pinned: PM keeps it over {PRODUCER_LABEL}'s value."),
+    "removed_pinned": ("success", f"Removed. Pinned: PM keeps it over {PRODUCER_LABEL}'s value."),
+    "pinned": ("success", f"Pinned: PM keeps this value over {PRODUCER_LABEL}'s."),
+    "unpinned": ("success", f"Unpinned: {PRODUCER_LABEL}'s value returns on the next apply."),
+    "pin_stale": ("warning", "That pin was already replaced or unpinned; nothing changed."),
+    "already_pinned": ("warning", "That field was pinned since the page loaded; nothing changed."),
 }
 
 

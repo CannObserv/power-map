@@ -10,7 +10,16 @@ import pytest
 
 pytest.importorskip("dbt.adapters.duckdb")
 
-from tests.core.ingestion.mapping.conftest import MO4, MO5, MO10, O5, fixture_csv  # noqa: E402
+from tests.core.ingestion.mapping.conftest import (  # noqa: E402
+    DEFAULT_OVERLAY,
+    MO4,
+    MO5,
+    MO10,
+    O4,
+    O5,
+    fixture_csv,
+    overlay_row,
+)
 
 
 def test_dissolved_year_is_the_end_of_the_last_biennium(build):
@@ -81,3 +90,47 @@ def test_a_stray_high_biennium_cannot_dissolve_the_living(build):
     assert MO4 not in events  # 2025-26 is still the current biennium
     assert MO5 not in events
     assert events[MO10][4] == 2000
+
+
+# --- #498: organization.dissolved_year, the fifth overlay slot -----------------
+
+
+def _pinned(year: str | None, org=MO5):
+    return [*DEFAULT_OVERLAY, overlay_row("organization", org, "dissolved_year", year)]
+
+
+def _years(b) -> dict[str, int]:
+    return {r[0]: r[4] for r in b.rows("desired_entity_events")}
+
+
+def test_a_pinned_year_replaces_the_producers(build):
+    b = build(overlay=_pinned("2018"))
+
+    assert _years(b)[MO5] == 2018
+    assert "overlay_field_unmapped" not in b.warnings
+
+
+def test_a_pinned_year_dissolves_an_org_the_producer_holds_live(build):
+    """Presence wins: the curator asserts a dissolution the producer does not publish."""
+    b = build(overlay=_pinned("2023", org=MO4))
+    events = {r[0]: r for r in b.rows("desired_entity_events")}
+
+    assert events[MO4] == (MO4, O4, "organization", "dissolved", 2023)
+
+
+def test_a_null_pin_withdraws_the_producers_dissolution(build):
+    """The curator says "not dissolved": the row drops rather than falling back."""
+    b = build(overlay=_pinned(None))
+
+    assert MO5 not in _years(b)
+    assert _years(b)[MO10] == 2000  # the pin is scoped to its entity
+
+
+def test_a_year_that_is_not_an_integer_is_named_and_applied_nowhere(build):
+    """Never silently ignored, never read as a withdrawal: the producer's year stands
+    and the test names the row."""
+    b = build(overlay=_pinned("twenty-eighteen"))
+
+    assert _years(b)[MO5] == 2020
+    assert "overlay_value_malformed" in b.warnings
+    assert b.failures == []

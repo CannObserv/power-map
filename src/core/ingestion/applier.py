@@ -21,7 +21,7 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
-from src.core.ingestion.crosswalk import PRODUCER_SOURCE, TOMBSTONE_TYPE
+from src.core.ingestion.crosswalk import IN_SCOPE, PRODUCER_SOURCE, TOMBSTONE_TYPE
 from src.core.ingestion.mapping import BUILD_INFO, Manifest
 from src.core.ingestion.mapping.manifest import TableSpec
 from src.core.ingestion.mapping.parquet import read_records
@@ -42,10 +42,6 @@ __all__ = [
     "scope_rows",
     "sql_identifier",
 ]
-
-# Crosswalk resolutions that put a row in the applier's scope (docs/SCHEMA.md
-# § Producer crosswalk). `archived` is in the table and out of scope.
-IN_SCOPE = ("live", "merged")
 
 # noop     the live row already says what the desired row says
 # create   an entity the producer publishes that PM has no row for

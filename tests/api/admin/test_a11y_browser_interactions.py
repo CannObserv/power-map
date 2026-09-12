@@ -19,6 +19,9 @@ States covered:
 - **Org merge search -> preview modals** — modal over a detail page: the
   typeahead search modal, its populated listbox, then the preview modal that
   replaces it in the portal (the full "Merge with..." Danger Zone flow).
+- **Curation overlay slot lines** (#498) — loaded after the page by
+  ``hx-trigger="load"``, so the full-page sweep (which runs at
+  ``domcontentloaded``) scans their hosts empty; waited for, then axed.
 - **Archived person delete confirm modal** (#426 archived seeds) — the
   ``hx-confirm`` interception is a real DOM modal (``admin-modal.js``), not a
   browser-native dialog, so it is axe-evaluable. Closed via Escape.
@@ -84,6 +87,17 @@ async def test_org_contact_edit_row_axe_clean(live_server, seeded_ids, page):
     await page.click(f'{row} button[aria-label^="Edit contact"]')
     await page.wait_for_selector(f'{row} form input[name="value"]', timeout=_WAIT_MS)
     await axe_check(page, "org detail — contact inline edit row open")
+
+
+async def test_org_overlay_slot_lines_axe_clean(live_server, seeded_ids, page):
+    """#498: the seeded org is in the producer's scope with its acronym pinned, so
+    once the lines load the page carries both states — a Pinned badge with its
+    value, pinner and Unpin, and the unpinned slots' Pin controls. The full-page
+    sweep cannot see them (it runs before HTMX loads anything); this waits."""
+    page, _ = await goto_with_retry(page, live_server + f"/admin/orgs/{seeded_ids['org_id']}/")
+    await page.wait_for_selector(".overlay-slot .badge--pinned", timeout=_WAIT_MS)
+    await page.wait_for_selector('.overlay-slot button:has-text("Pin current")', timeout=_WAIT_MS)
+    await axe_check(page, "org detail — curation overlay slot lines loaded")
 
 
 async def test_people_list_merge_mode_axe_clean(live_server, seeded_ids, page):

@@ -126,8 +126,11 @@ so an override left on a merged-away id would stop applying without a word.
 Wherever a path mirrors a subscription it also calls
 [`rehome_curation_overlay`](../src/core/ancillary_migrate.py) for the same pairs:
 the org, person or role itself, and every dropped duplicate assignment. The table
-holds one override per (entity, field), so on a clash the survivor's override
-stands and the loser's is dropped. Guard: `test_merge_identity_sweep.py` fails a
+holds one *active* override per (entity, field), so on a clash the survivor's
+override stands and the loser's is archived — as an unpin is (#498) — and carried
+across as history with the loser's other archived pins. A pin whose *value*
+is an org id (`organization.parent_id`) is re-pointed loser → survivor as the
+live column is, and one left naming its own org is archived (#498). Guard: `test_merge_identity_sweep.py` fails a
 merge module whose `mirror_subscriptions` and `rehome_curation_overlay` call counts
 differ.
 

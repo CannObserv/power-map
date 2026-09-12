@@ -516,10 +516,14 @@ async def preview_person_merge(db, *, winner_id: str, loser_id: str) -> dict:
     assignments = await db.fetch(
         "SELECT id FROM role_assignments WHERE person_id=$1 ORDER BY id", loser_id
     )
+    # As `rehome_curation_overlay` writes it (#498): only an active pin holds a
+    # field, a live loser pin under a live survivor pin is archived, and the
+    # loser's archived pins come across as history.
     overlay = await db.fetch(
-        "SELECT l.field, EXISTS ("
+        "SELECT l.field, l.archived_at IS NULL AS active, EXISTS ("
         "    SELECT 1 FROM curation_overlay w"
         "     WHERE w.entity_type = 'person' AND w.entity_id = $2 AND w.field = l.field"
+        "       AND w.archived_at IS NULL"
         ") AS clash"
         " FROM curation_overlay l WHERE l.entity_type = 'person' AND l.entity_id = $1"
         " ORDER BY l.field",
@@ -560,8 +564,9 @@ async def preview_person_merge(db, *, winner_id: str, loser_id: str) -> dict:
             )
         ],
         "overlay": {
-            "moved": [r["field"] for r in overlay if not r["clash"]],
-            "dropped": [r["field"] for r in overlay if r["clash"]],
+            "moved": [r["field"] for r in overlay if r["active"] and not r["clash"]],
+            "archived": [r["field"] for r in overlay if r["active"] and r["clash"]],
+            "history": [r["field"] for r in overlay if not r["active"]],
         },
         "ancillary": ancillary,
     }

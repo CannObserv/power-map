@@ -4161,6 +4161,10 @@ CREATE TRIGGER trg_producer_crosswalk_updated_at
 -- UI offers only the mapped pairs).
 --
 -- Written by #498's admin path. Read only by the export the models consume.
+-- Unpin archives (#498): the row stays as history, `archived_at` set and
+-- `archived_by` the curator who let it go (NULL when a merge displaced it), and
+-- only an active row is unique per (entity_type, entity_id, field) — a re-pin
+-- after an unpin is a fresh active row. The models read active rows only.
 
 CREATE TABLE IF NOT EXISTS curation_overlay (
     id          TEXT        PRIMARY KEY,
@@ -4172,13 +4176,35 @@ CREATE TABLE IF NOT EXISTS curation_overlay (
     note        TEXT,
     created_by  TEXT        REFERENCES app_users(id) ON DELETE SET NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at TIMESTAMPTZ,
+    archived_by TEXT        REFERENCES app_users(id) ON DELETE SET NULL
 );
 
--- One override per field per entity: two rows would leave COALESCE picking
+-- A table that predates #498 has neither archive column; ADD COLUMN IF NOT
+-- EXISTS is itself the reconciliation, the foreign key included.
+ALTER TABLE curation_overlay ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE curation_overlay
+    ADD COLUMN IF NOT EXISTS archived_by TEXT REFERENCES app_users(id) ON DELETE SET NULL;
+
+-- One *active* override per field per entity: two would leave COALESCE picking
 -- arbitrarily, and "which curator wins" is not a question the models answer.
+-- The #497 index was full; CREATE ... IF NOT EXISTS no-ops on it by name, so a
+-- database that predates #498 has it dropped here and rebuilt partial below.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE indexname = 'uq_curation_overlay_entity_field'
+          AND indexdef NOT LIKE '%WHERE (archived_at IS NULL)%'
+    ) THEN
+        DROP INDEX uq_curation_overlay_entity_field;
+    END IF;
+END $$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_curation_overlay_entity_field
-    ON curation_overlay (entity_type, entity_id, field);
+    ON curation_overlay (entity_type, entity_id, field)
+    WHERE archived_at IS NULL;
 
 DROP TRIGGER IF EXISTS trg_curation_overlay_updated_at ON curation_overlay;
 CREATE TRIGGER trg_curation_overlay_updated_at

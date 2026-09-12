@@ -30,6 +30,7 @@ from src.api.admin import orgs_merge as orgs_merge_module
 from src.api.admin import orgs_names as orgs_names_module
 from src.api.admin import orgs_roles as orgs_roles_module
 from src.api.admin import orgs_succession as orgs_succession_module
+from src.api.admin import overlay as overlay_module
 from src.api.admin import people as people_module
 from src.api.admin import people_addresses as people_addresses_module
 from src.api.admin import people_assignments as people_assignments_module
@@ -45,6 +46,7 @@ from src.api.admin import people_name_citations as people_name_citations_module
 from src.api.admin import people_name_suggest as people_name_suggest_module
 from src.api.admin import people_names as people_names_module
 from src.api.admin import people_reading_target_search as people_reading_target_search_module
+from src.api.admin import pins as pins_module
 from src.api.admin import role_assignments as role_assignments_module
 from src.api.admin import role_assignments_citations as role_assignments_citations_module
 from src.api.admin import role_assignments_contacts as role_assignments_contacts_module
@@ -68,6 +70,8 @@ templates = Jinja2Templates(directory="src/templates")
 admin_router = APIRouter(prefix="/admin")
 
 admin_router.include_router(dup_badges_module.router)
+admin_router.include_router(overlay_module.router)
+admin_router.include_router(pins_module.router)
 admin_router.include_router(dashboard_module.router)
 admin_router.include_router(entities_module.router)
 admin_router.include_router(imports_module.router)

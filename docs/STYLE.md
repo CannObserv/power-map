@@ -67,6 +67,7 @@ Badge, alert, and flash colors are hardcoded per-class rather than derived from 
 | `.badge--archived` | `#fee2e2` | `#991b1b` | `#450a0a` | `#fca5a5` |
 | `.badge--success` | `#dcfce7` | `#15803d` | `#14532d` | `#86efac` |
 | `.badge--warning` | `#fef9c3` | `#854d0e` | `#422006` | `#fde68a` |
+| `.badge--pinned` | `#e0e7ff` | `#3730a3` | `#312e81` | `#c7d2fe` |
 
 `.badge--neutral` and `.badge--inactive` intentionally share a palette but are **kept as distinct rules** — do not consolidate them. `--neutral` is an informational tag (e.g. a non-US country code on an address row); `--inactive` is a lifecycle status. A `badge--X` referenced in a template but missing from CSS falls back to bare `.badge` (no bg/fg) and renders unstyled — `tests/api/admin/test_css.py` guards against that. Both avoid the lower-contrast `--color-inactive` for text: light blocks use `#556070` (≈5.8:1) and dark blocks use `--color-text-muted` (≈5.7:1), so the label clears WCAG AA on the grey background.
 

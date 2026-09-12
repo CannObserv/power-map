@@ -91,6 +91,8 @@ router = make_names_router(
         "Cannot remove the only name when the organization has no canonical acronym."
     ),
     last_identity_409_msg="Cannot remove the only name: no canonical acronym exists.",
+    overlay_entity_type="organization",
+    overlay_field="legal_name",
     header_extra=org_header_extra,
     supports_effective_dates=True,
 )

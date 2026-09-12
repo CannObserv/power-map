@@ -14,12 +14,14 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    provision_app_user,
     resolve_query_flash,
     with_flash,
 )
 from src.api.admin.entity_lookup import search_entities
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.api.admin.orgs_roles import fetch_org_roles
+from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
@@ -325,7 +327,7 @@ async def org_inline_parent_post(
     org_id: str,
     request: Request,
     parent_id: str = Form(""),
-    user: AdminUser = Depends(get_admin_user),
+    user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
     """Save parent org inline; return updated read partial."""
@@ -339,7 +341,11 @@ async def org_inline_parent_post(
         exists = await db.fetchval("SELECT id FROM organizations WHERE id=$1", resolved)
         if not exists:
             raise HTTPException(status_code=422, detail="Parent organization not found")
-    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", resolved, org_id)
+    async with (
+        db.transaction(),
+        tracked(db, "organization", org_id, user_id=user.id, fields=("parent_id",)) as edit,
+    ):
+        await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", resolved, org_id)
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     parent = None
     if org["parent_id"]:
@@ -350,7 +356,9 @@ async def org_inline_parent_post(
             org["parent_id"],
         )
     if not is_htmx(request):
-        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/orgs/{org_id}/", flash_key("saved", edit.pinned)), status_code=303
+        )
     if parent:
         flash_body = f"Parent set to <strong>{escape(parent['display_name'])}</strong>."
     else:
@@ -360,7 +368,9 @@ async def org_inline_parent_post(
         request,
         "admin/orgs/partials/_parent_read.html",
         {"org": org, "parent": parent},
-        headers=flash_trigger("success", flash_body),
+        headers=flash_trigger(
+            "success", flash_body + pinned_note(edit.pinned), extra=overlay_refresh(edit.pinned)
+        ),
     )
 
 
@@ -605,7 +615,7 @@ async def children_add(
     org_id: str,
     request: Request,
     child_id: str = Form(...),
-    user: AdminUser = Depends(get_admin_user),
+    user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
     """Link an existing org as a child of this org."""
@@ -614,7 +624,12 @@ async def children_add(
     child = await db.fetchrow("SELECT id FROM organizations WHERE id=$1", child_id)
     if not child:
         raise HTTPException(status_code=422, detail="Child organization not found")
-    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, child_id)
+    # The slot that moves is the *child's* parent, so the child is what is tracked.
+    async with (
+        db.transaction(),
+        tracked(db, "organization", child_id, user_id=user.id, fields=("parent_id",)) as edit,
+    ):
+        await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, child_id)
     row = await db.fetchrow(
         """SELECT o.id, o.active, o.archived_at, dn.display_name AS canonical_name
            FROM organizations o
@@ -623,14 +638,18 @@ async def children_add(
         child_id,
     )
     if not is_htmx(request):
-        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/orgs/{org_id}/", flash_key("saved", edit.pinned)), status_code=303
+        )
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_child_row.html",
         {"org_id": org_id, "child": row},
         headers=flash_trigger(
             "success",
-            f"<strong>{escape(row['canonical_name'])}</strong> linked as child.",
+            f"<strong>{escape(row['canonical_name'])}</strong> linked as child."
+            + pinned_note(edit.pinned),
+            extra=overlay_refresh(edit.pinned),
         ),
     )
 
@@ -640,7 +659,7 @@ async def children_remove(
     org_id: str,
     child_id: str,
     request: Request,
-    user: AdminUser = Depends(get_admin_user),
+    user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
     """Unlink a child org (clears its parent_id)."""
@@ -649,13 +668,23 @@ async def children_remove(
     )
     if not child:
         raise HTTPException(status_code=404)
-    await db.execute("UPDATE organizations SET parent_id=NULL WHERE id=$1", child_id)
+    async with (
+        db.transaction(),
+        tracked(db, "organization", child_id, user_id=user.id, fields=("parent_id",)) as edit,
+    ):
+        await db.execute("UPDATE organizations SET parent_id=NULL WHERE id=$1", child_id)
     if not is_htmx(request):
-        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "removed"), status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/orgs/{org_id}/", flash_key("removed", edit.pinned)), status_code=303
+        )
     return HTMLResponse(
         content="",
         status_code=200,
-        headers=flash_trigger("success", "Child organization unlinked."),
+        headers=flash_trigger(
+            "success",
+            "Child organization unlinked." + pinned_note(edit.pinned),
+            extra=overlay_refresh(edit.pinned),
+        ),
     )
 
 

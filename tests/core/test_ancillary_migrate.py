@@ -486,12 +486,28 @@ async def _override(db, entity_type, entity_id, field, value):
 
 
 async def _overrides(db, entity_type, entity_id) -> dict[str, str | None]:
+    """The entity's *active* pins (#498: an unpinned or displaced pin is archived)."""
     rows = await db.fetch(
-        "SELECT field, value FROM curation_overlay WHERE entity_type=$1 AND entity_id=$2",
+        "SELECT field, value FROM curation_overlay"
+        " WHERE entity_type=$1 AND entity_id=$2 AND archived_at IS NULL",
         entity_type,
         entity_id,
     )
     return {r["field"]: r["value"] for r in rows}
+
+
+async def _archived(db, entity_type, entity_id) -> list[tuple[str, str | None]]:
+    rows = await db.fetch(
+        "SELECT field, value FROM curation_overlay"
+        " WHERE entity_type=$1 AND entity_id=$2 AND archived_at IS NOT NULL ORDER BY value",
+        entity_type,
+        entity_id,
+    )
+    return [(r["field"], r["value"]) for r in rows]
+
+
+async def _archive(db, override_id):
+    await db.execute("UPDATE curation_overlay SET archived_at = NOW() WHERE id = $1", override_id)
 
 
 async def test_overlay_rehome_moves_the_loser_override_to_the_survivor(db):
@@ -521,6 +537,49 @@ async def test_overlay_rehome_survivor_wins_a_field_clash(db):
     assert await _overrides(db, "organization", loser) == {}
 
 
+async def test_overlay_rehome_archives_a_clashing_loser_pin_instead_of_deleting_it(db):
+    """#498: unpin archives, so a merge that displaces a pin does too — the loser's
+    pin follows its entity across as history, never silently erased."""
+    loser, winner = generate_id(), generate_id()
+    await _override(db, "person", loser, "name", "Loser Pick")
+    await _override(db, "person", winner, "name", "Winner Pick")
+
+    moved, archived = await rehome_curation_overlay(db, "person", [(loser, winner)])
+
+    assert (moved, archived) == (0, 1)
+    assert await _overrides(db, "person", winner) == {"name": "Winner Pick"}
+    assert await _archived(db, "person", winner) == [("name", "Loser Pick")]
+    assert (
+        await db.fetchval("SELECT count(*) FROM curation_overlay WHERE entity_id = $1", loser) == 0
+    )
+
+
+async def test_overlay_rehome_an_archived_survivor_pin_is_no_clash(db):
+    """Only an *active* pin holds the field. A survivor whose own pin was unpinned
+    has nothing to defend, so the loser's live pin moves and stays live."""
+    loser, winner = generate_id(), generate_id()
+    await _override(db, "person", loser, "name", "Loser Pick")
+    await _archive(db, await _override(db, "person", winner, "name", "Unpinned Earlier"))
+
+    moved, archived = await rehome_curation_overlay(db, "person", [(loser, winner)])
+
+    assert (moved, archived) == (1, 0)
+    assert await _overrides(db, "person", winner) == {"name": "Loser Pick"}
+
+
+async def test_overlay_rehome_carries_the_losers_archived_history_across(db):
+    """An archived pin is history: it moves with its entity, even onto a field the
+    survivor holds live, where it clashes with nothing."""
+    loser, winner = generate_id(), generate_id()
+    await _archive(db, await _override(db, "person", loser, "name", "Old Loser Pick"))
+    await _override(db, "person", winner, "name", "Winner Pick")
+
+    await rehome_curation_overlay(db, "person", [(loser, winner)])
+
+    assert await _overrides(db, "person", winner) == {"name": "Winner Pick"}
+    assert await _archived(db, "person", winner) == [("name", "Old Loser Pick")]
+
+
 async def test_overlay_rehome_is_scoped_to_its_entity_type(db):
     loser, winner = generate_id(), generate_id()
     await _override(db, "role", loser, "title", "Other Type")
@@ -537,3 +596,42 @@ async def test_overlay_rehome_rejects_an_unknown_entity_type(db):
     """The overlay speaks the crosswalk's vocabulary: `assignment`, not `role_assignment`."""
     with pytest.raises(ValueError, match="role_assignment"):
         await rehome_curation_overlay(db, "role_assignment", [("a", "b")])
+
+
+# --- #498: a pin whose value is an org id ----------------------------------------
+
+
+async def test_overlay_rehome_repoints_a_parent_pin_that_names_the_loser(db):
+    """#498: an organization.parent_id pin holds an org id. The merge moves the
+    child's live parent to the survivor and deletes the loser, so the pin follows —
+    history too — or it names a deleted org and the applier proposes it back."""
+    loser, winner, child = generate_id(), generate_id(), generate_id()
+    await _archive(db, await _override(db, "organization", child, "parent_id", loser))
+    await _override(db, "organization", child, "parent_id", loser)
+
+    await rehome_curation_overlay(db, "organization", [(loser, winner)])
+
+    assert await _overrides(db, "organization", child) == {"parent_id": winner}
+    assert await _archived(db, "organization", child) == [("parent_id", winner)]
+
+
+@pytest.mark.parametrize("holder", ["loser", "winner"])
+async def test_overlay_rehome_displaces_a_parent_pin_that_would_name_its_own_org(db, holder):
+    """The loser's pin naming the survivor, carried across — or the survivor's pin
+    naming the loser, re-pointed — would pin the survivor as its own parent. No org
+    can hold that, so the pin is displaced, as an unpin is, and the other side's
+    live pin (if any) is free to stand."""
+    loser, winner, other = generate_id(), generate_id(), generate_id()
+    if holder == "loser":
+        await _override(db, "organization", loser, "parent_id", winner)
+        await _override(db, "organization", winner, "legal_name", "Kept")
+    else:
+        await _override(db, "organization", winner, "parent_id", loser)
+        await _override(db, "organization", loser, "parent_id", other)
+
+    moved, archived = await rehome_curation_overlay(db, "organization", [(loser, winner)])
+
+    expected_live = {"legal_name": "Kept"} if holder == "loser" else {"parent_id": other}
+    assert await _overrides(db, "organization", winner) == expected_live
+    assert await _archived(db, "organization", winner) == [("parent_id", winner)]
+    assert (moved, archived) == ((0, 1) if holder == "loser" else (1, 1))
