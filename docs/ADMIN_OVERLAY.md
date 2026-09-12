@@ -42,6 +42,10 @@ calls `curation_overlay.pin_changed`:
   values) → nothing;
 - the edit raised → nothing, since the pin shares the edit's transaction.
 
+Guard: `tests/api/admin/test_overlay_tracked_sweep.py` fails an admin route that
+writes a slot table without `tracked()` (creates, hard deletes, merges and
+succession are allowlisted by reason).
+
 Pinning the value *as it stands after the edit* guarantees the applier finds
 it present: a noop, never a re-insert. Routes that can pin depend on
 `provision_app_user`, because `created_by` is an `app_users` foreign key. A pin
