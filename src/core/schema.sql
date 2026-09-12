@@ -4161,9 +4161,10 @@ CREATE TRIGGER trg_producer_crosswalk_updated_at
 -- UI offers only the mapped pairs).
 --
 -- Written by #498's admin path. Read only by the export the models consume.
--- Unpin archives (#498): the row stays as history, `archived_at` set, and only an
--- active row is unique per (entity_type, entity_id, field) — a re-pin after an
--- unpin is a fresh active row. The models read active rows only.
+-- Unpin archives (#498): the row stays as history, `archived_at` set and
+-- `archived_by` the curator who let it go (NULL when a merge displaced it), and
+-- only an active row is unique per (entity_type, entity_id, field) — a re-pin
+-- after an unpin is a fresh active row. The models read active rows only.
 
 CREATE TABLE IF NOT EXISTS curation_overlay (
     id          TEXT        PRIMARY KEY,
@@ -4176,12 +4177,15 @@ CREATE TABLE IF NOT EXISTS curation_overlay (
     created_by  TEXT        REFERENCES app_users(id) ON DELETE SET NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    archived_at TIMESTAMPTZ
+    archived_at TIMESTAMPTZ,
+    archived_by TEXT        REFERENCES app_users(id) ON DELETE SET NULL
 );
 
--- A table that predates #498 has no archived_at; ADD COLUMN IF NOT EXISTS is
--- itself the reconciliation.
+-- A table that predates #498 has neither archive column; ADD COLUMN IF NOT
+-- EXISTS is itself the reconciliation, the foreign key included.
 ALTER TABLE curation_overlay ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE curation_overlay
+    ADD COLUMN IF NOT EXISTS archived_by TEXT REFERENCES app_users(id) ON DELETE SET NULL;
 
 -- One *active* override per field per entity: two would leave COALESCE picking
 -- arbitrarily, and "which curator wins" is not a question the models answer.

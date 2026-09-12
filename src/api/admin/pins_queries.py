@@ -23,11 +23,12 @@ ENTITY_TYPES: tuple[str, ...] = tuple(dict.fromkeys(t for t, _ in SLOTS))
 
 _LIST_SQL = (
     "SELECT o.id, o.entity_type, o.entity_id, o.field, o.value, o.note,"
-    "       o.created_at, o.archived_at, u.email AS pinned_by,"
+    "       o.created_at, o.archived_at, u.email AS pinned_by, ua.email AS unpinned_by,"
     "       CASE o.entity_type WHEN 'person' THEN pdn.display_name"
     "                          ELSE odn.display_name END AS entity_name"
     "  FROM curation_overlay o"
     "  LEFT JOIN app_users u ON u.id = o.created_by"
+    "  LEFT JOIN app_users ua ON ua.id = o.archived_by"
     "  LEFT JOIN v_person_display_names pdn"
     "         ON o.entity_type = 'person' AND pdn.person_id = o.entity_id"
     "  LEFT JOIN v_org_display_names odn"

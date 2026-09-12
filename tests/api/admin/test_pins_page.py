@@ -207,3 +207,17 @@ async def test_the_list_pages_with_the_shared_bounds(client, db, curator):
     assert "Pins — 11 records" in first and "Showing 1–10 of 11" in first
     assert "/admin/pins/?page=2&status=active" in first  # the pager keeps the filters
     assert (await client.get("/admin/pins/?page_size=5", headers=AUTH)).status_code == 422
+
+
+async def test_an_unpinned_row_says_who_let_it_go(client, db, curator):
+    """Who pinned and who unpinned are both decisions a curator may need to ask about."""
+    org = await _org(db, "Health Care")
+    first = generate_id()
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1, $2)", first, "first@x.org")
+    held = await pin(db, "organization", org, "acronym", "HC", user_id=first)
+
+    await client.post(f"/admin/pins/{held.id}/unpin/", headers=HX)
+    page = (await client.get("/admin/pins/?status=archived", headers=AUTH)).text
+
+    assert "first@x.org" in page  # who pinned
+    assert "by pinner@example.org" in page  # who unpinned: the route's curator

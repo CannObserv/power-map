@@ -1632,3 +1632,31 @@ async def test_curation_overlay_uniqueness_binds_active_pins_only(db):
         entity_id,
     )
     assert sorted(r["active"] for r in rows) == [False, True]
+
+
+@pytest.mark.integration
+async def test_curation_overlay_archived_by_names_an_app_user_and_outlives_them(db):
+    """CR 6: who unpinned is kept beside who pinned, and — like `created_by` — a
+    removed user leaves the history standing with its author unknown."""
+    user_id = generate_id()
+    await db.execute(
+        "INSERT INTO app_users (id, email) VALUES ($1, $2)", user_id, "gone@example.org"
+    )
+    pin_id = await _insert_overlay(db, entity_id=generate_id())
+    await db.execute(
+        "UPDATE curation_overlay SET archived_at = NOW(), archived_by = $2 WHERE id = $1",
+        pin_id,
+        user_id,
+    )
+
+    await db.execute("DELETE FROM app_users WHERE id = $1", user_id)
+
+    row = await db.fetchrow(
+        "SELECT archived_at, archived_by FROM curation_overlay WHERE id = $1", pin_id
+    )
+    assert row["archived_at"] is not None and row["archived_by"] is None
+    with pytest.raises(asyncpg.ForeignKeyViolationError):
+        async with db.transaction():
+            await db.execute(
+                "UPDATE curation_overlay SET archived_by = 'no-such-user' WHERE id = $1", pin_id
+            )

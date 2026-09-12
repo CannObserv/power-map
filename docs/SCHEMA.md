@@ -88,13 +88,13 @@ Seeded by `scripts/seed_producer_crosswalk.py` (`docs/RUNBOOKS.md`). The applier
 
 `curation_overlay` holds PM-wins overrides on **producer-owned** fields — the slice of each row the dataset applier (#490) would otherwise rewrite from the snapshot. The mapping models join it declaratively, `COALESCE(overlay.value, mapped.value)`, so PM state for that slice is f(snapshot, overlay): idempotent, replayable, and diffable before any write. Everything a producer does not publish stays direct curation on the entity row.
 
-- Keyed `(entity_type, entity_id, field)`, unique per *active* row — unpin sets `archived_at` and keeps the row as history (#498); the models read active rows only
-- `entity_type` is the producer crosswalk's `kind` vocabulary (`person|organization|role|assignment`): the rows this can override are exactly the rows in the crosswalk's scope. No FK on `entity_id` (polymorphic, like `links`)
+- Keyed `(entity_type, entity_id, field)`, unique per *active* row — unpin sets `archived_at`, keeping the row as history (#498); models read active rows only
+- `entity_type` is the producer crosswalk's `kind` vocabulary (`person|organization|role|assignment`): the rows it can override are exactly the crosswalk's scope. No FK on `entity_id` (polymorphic, like `links`)
 - `value` is **nullable on purpose** — a curator can assert a producer-owned field should be empty
-- `field` is free text at the table; the mapping project's `overlay_field_unmapped` test enforces the vocabulary **per entity type** (`person.name`; `organization.parent_id|legal_name|acronym|dissolved_year`; nothing yet for `role`/`assignment`), so an override naming a field no model maps for its type is **warned by name and applied nowhere** — never silently ignored, never applied to the wrong column, never halting the build. The admin offers exactly those pairs → `docs/ADMIN_OVERLAY.md`
-- `created_by` → `app_users`, `ON DELETE SET NULL`
+- `field` is free text at the table; the mapping project's `overlay_field_unmapped` test enforces the vocabulary **per entity type** (`person.name`; `organization.parent_id|legal_name|acronym|dissolved_year`; nothing yet for `role`/`assignment`), so an override naming a field no model maps for its type is **warned by name and applied nowhere** — never silently ignored or misapplied, never halting the build. The admin offers exactly those pairs → `docs/ADMIN_OVERLAY.md`
+- `created_by` (pinner), `archived_by` (unpinner; NULL if merge-displaced) → `app_users`, `ON DELETE SET NULL`
 
-Written by the admin (#498) and merges; read only through `scripts/export_pm_tables.py`, which hands it to the models as Parquet so they never open a database connection.
+Written by the admin (#498) and merges; read only via `scripts/export_pm_tables.py`, which hands the models Parquet so they never open a database connection.
 
 ---
 

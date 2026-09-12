@@ -8,9 +8,10 @@ for that slice is f(snapshot, overlay) and the applier needs no per-row gate.
 Keyed ``(entity_type, entity_id, field)``; only an *active* row holds a field
 (a partial unique index backs it). Unpin archives, and a changed value archives
 the old pin before inserting the new one, so every decision keeps its author
-and its time. A pin exists only for an entity in the producer's row scope — a
-live or merged ``producer_crosswalk`` row — because the models apply nothing
-else, and an inert override is the one outcome the design rules out.
+and its time: ``created_by`` who pinned, ``archived_by`` who let it go. A pin
+exists only for an entity in the producer's row scope — a live or merged
+``producer_crosswalk`` row — because the models apply nothing else, and an
+inert override is the one outcome the design rules out.
 
 Producer-free by construction: *which* fields are pinnable is the admin's slot
 registry (``src/api/admin/overlay_slots.py``), held to the ownership manifest
@@ -40,7 +41,10 @@ __all__ = [
 
 logger = get_logger(__name__)
 
-_COLUMNS = "id, entity_type, entity_id, field, value, note, created_by, created_at, archived_at"
+_COLUMNS = (
+    "id, entity_type, entity_id, field, value, note, created_by, created_at,"
+    " archived_at, archived_by"
+)
 _SCOPE_SQL = (
     "SELECT EXISTS (SELECT 1 FROM producer_crosswalk"
     " WHERE kind = $1 AND pm_id = $2 AND resolution = ANY($3::text[]))"
@@ -53,13 +57,13 @@ _INSERT_SQL = (
     "INSERT INTO curation_overlay (id, entity_type, entity_id, field, value, note, created_by)"
     f" VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {_COLUMNS}"
 )
-_ARCHIVE_SQL = "UPDATE curation_overlay SET archived_at = NOW() WHERE id = $1"
+_ARCHIVE_SQL = "UPDATE curation_overlay SET archived_at = NOW(), archived_by = $2 WHERE id = $1"
 _UNPIN_ID_SQL = (
-    "UPDATE curation_overlay SET archived_at = NOW() WHERE id = $1 AND archived_at IS NULL"
-    f" RETURNING {_COLUMNS}"
+    "UPDATE curation_overlay SET archived_at = NOW(), archived_by = $2"
+    f" WHERE id = $1 AND archived_at IS NULL RETURNING {_COLUMNS}"
 )
 _UNPIN_SQL = (
-    "UPDATE curation_overlay SET archived_at = NOW()"
+    "UPDATE curation_overlay SET archived_at = NOW(), archived_by = $4"
     " WHERE entity_type = $1 AND entity_id = $2 AND field = $3 AND archived_at IS NULL"
     " RETURNING id"
 )
@@ -82,6 +86,7 @@ class Pin:
     created_by: str | None
     created_at: datetime
     archived_at: datetime | None
+    archived_by: str | None  # who unpinned or replaced it; None while live or merge-displaced
 
 
 def _pin(row: asyncpg.Record) -> Pin:
@@ -139,7 +144,7 @@ async def pin(
     if current is not None and current.value == text:
         return current
     if current is not None:
-        await conn.execute(_ARCHIVE_SQL, current.id)
+        await conn.execute(_ARCHIVE_SQL, current.id, user_id)
     row = await conn.fetchrow(
         _INSERT_SQL, generate_id(), entity_type, entity_id, field, text, note, user_id
     )
@@ -152,9 +157,10 @@ async def unpin(
 ) -> bool:
     """Archive the live pin, letting the producer's value return on the next apply.
 
-    Returns whether there was one. The row stays as history.
+    Returns whether there was one. The row stays as history, ``user_id`` as its
+    ``archived_by``.
     """
-    row = await conn.fetchrow(_UNPIN_SQL, entity_type, entity_id, field)
+    row = await conn.fetchrow(_UNPIN_SQL, entity_type, entity_id, field, user_id)
     if row is not None:
         logger.info("unpinned %s.%s on %s by %s", entity_type, field, entity_id, user_id)
     return row is not None
@@ -167,7 +173,7 @@ async def unpin_pin(conn: asyncpg.Connection, pin_id: str, *, user_id: str) -> P
     replaced since, and unpinning by field would archive the newer pin instead.
     Returns the archived pin, or None when that row was no longer live.
     """
-    row = await conn.fetchrow(_UNPIN_ID_SQL, pin_id)
+    row = await conn.fetchrow(_UNPIN_ID_SQL, pin_id, user_id)
     if row is None:
         return None
     held = _pin(row)

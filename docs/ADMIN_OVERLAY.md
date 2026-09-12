@@ -53,7 +53,8 @@ is announced in the flash: the HTMX body gains a sentence, the fallback key
 becomes `saved_pinned` / `removed_pinned`, and `refreshOverlay` fires.
 
 **Unpin archives.** The row stays as history. A new value archives the old
-pin and inserts a fresh one, so every decision keeps its author and time. On a
+pin and inserts a fresh one, so every decision keeps its author and time:
+`created_by` pinned it, `archived_by` let it go (NULL when a merge displaced it). On a
 PM merge, `rehome_curation_overlay` moves the loser's pins across and archives
 any the survivor already holds; a parent pin naming the loser is
 re-pointed to the survivor, as the live `parent_id` is (`docs/MERGE.md`).

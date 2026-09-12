@@ -273,3 +273,49 @@ async def test_unpin_pin_on_a_stale_row_never_touches_the_newer_pin(db, curator)
     assert await unpin_pin(db, old.id, user_id=curator) is None
 
     assert (await active_pin(db, "person", person, "name")).value == "Second"
+
+
+# --- who let a pin go (CR 6) --------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def second_curator(db) -> str:
+    user_id = generate_id()
+    await db.execute(
+        "INSERT INTO app_users (id, email) VALUES ($1, $2)", user_id, "second@example.org"
+    )
+    return user_id
+
+
+async def _archived_by(db, pin_id: str) -> str | None:
+    return await db.fetchval("SELECT archived_by FROM curation_overlay WHERE id = $1", pin_id)
+
+
+async def test_unpin_records_who_let_the_pin_go(db, curator, second_curator):
+    """Unpinning is a decision too — the producer's value returns — so it keeps its
+    author beside the pinner's, in the row and not only in the log."""
+    person = await _person(db)
+    held = await pin(db, "person", person, "name", "Curated", user_id=curator)
+
+    await unpin(db, "person", person, "name", user_id=second_curator)
+
+    assert await _archived_by(db, held.id) == second_curator
+
+
+async def test_unpin_pin_records_who_let_the_pin_go(db, curator, second_curator):
+    person = await _person(db)
+    held = await pin(db, "person", person, "name", "Curated", user_id=curator)
+
+    gone = await unpin_pin(db, held.id, user_id=second_curator)
+
+    assert gone.archived_by == second_curator
+
+
+async def test_a_new_value_records_who_displaced_the_old_pin(db, curator, second_curator):
+    person = await _person(db)
+    old = await pin(db, "person", person, "name", "First", user_id=curator)
+
+    new = await pin(db, "person", person, "name", "Second", user_id=second_curator)
+
+    assert await _archived_by(db, old.id) == second_curator
+    assert new.archived_by is None

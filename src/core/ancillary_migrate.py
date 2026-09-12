@@ -573,6 +573,7 @@ _ARCHIVE_SELF_NAMING_SQL = (
 # A loser's *active* pin on a field the survivor holds live is displaced:
 # archived, as an unpin is (#498), then carried across below as history. Only an
 # active pin holds a field, so a survivor's archived pin clashes with nothing.
+# A merge displaces, no curator unpins, so `archived_by` stays NULL here.
 _ARCHIVE_CLASHING_OVERRIDES_SQL = (
     "UPDATE curation_overlay l SET archived_at = NOW()"
     " WHERE l.entity_type = $1 AND l.entity_id = $2 AND l.archived_at IS NULL"

@@ -7,7 +7,7 @@
   <td>{{ p.note or "—" }}</td>
   <td>{{ p.pinned_by or "—" }}</td>
   <td class="col--date">{{ p.created_at.strftime("%Y-%m-%d") }}</td>
-  <td>{% if p.archived_at %}<span class="badge badge--inactive">Unpinned {{ p.archived_at.strftime("%Y-%m-%d") }}</span>{% else %}<span class="badge badge--pinned">Pinned</span>{% endif %}</td>
+  <td>{% if p.archived_at %}<span class="badge badge--inactive">Unpinned {{ p.archived_at.strftime("%Y-%m-%d") }}</span>{% if p.unpinned_by %} by {{ p.unpinned_by }}{% endif %}{% else %}<span class="badge badge--pinned">Pinned</span>{% endif %}</td>
   <td style="text-align:right">
     {% if not p.archived_at %}
     <button type="button" class="btn btn--sm btn--secondary"
