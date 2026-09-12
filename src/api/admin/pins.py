@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin.deps import (
+    SHARED_FLASH_MESSAGES,
     AdminUser,
     flash_trigger,
     get_admin_user,
@@ -29,11 +30,6 @@ from src.core.curation_overlay import unpin_pin
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/pins", tags=["admin-pins"])
 
-# Route-local: a rejected no-op is `warning` (#353).
-_PIN_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
-    "stale": ("warning", "That pin was already replaced or unpinned; nothing changed."),
-}
-
 
 @router.get("/")
 async def pins_list(
@@ -49,7 +45,7 @@ async def pins_list(
         status = "active"  # never no filter (#306)
     entity_type = type_ if type_ in ENTITY_TYPES else ""
     rows = await query_pins(db, status=status, entity_type=entity_type or None)
-    flash_msg, headers = resolve_query_flash(request, _PIN_FLASH_MESSAGES, flash)
+    flash_msg, headers = resolve_query_flash(request, {}, flash)
     ctx = {
         "user": user,
         "active_section": "pins",
@@ -78,8 +74,8 @@ async def pins_unpin(
         raise HTTPException(status_code=404)
     if held is None:
         if not is_htmx(request):
-            return RedirectResponse(with_flash("/admin/pins/", "stale"), status_code=303)
-        headers = flash_trigger("warning", _PIN_FLASH_MESSAGES["stale"][1])
+            return RedirectResponse(with_flash("/admin/pins/", "pin_stale"), status_code=303)
+        headers = flash_trigger("warning", SHARED_FLASH_MESSAGES["pin_stale"][1])
     else:
         if not is_htmx(request):
             return RedirectResponse(with_flash("/admin/pins/", "unpinned"), status_code=303)

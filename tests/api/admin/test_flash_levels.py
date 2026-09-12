@@ -141,7 +141,8 @@ def _registry_levels(module: str, name: str) -> dict[str, str]:
 
 def test_shared_flash_messages_levels_match_taxonomy():
     """`saved`/`removed` → success, `invalid`/`exists` → warning (#353); the overlay's
-    pin keys (#498) are all mutations that changed state → success."""
+    pin keys (#498) are mutations that changed state → success, save `pin_stale`, a
+    rejected no-op → warning."""
     assert _registry_levels("deps.py", "SHARED_FLASH_MESSAGES") == {
         "saved": "success",
         "removed": "success",
@@ -151,6 +152,7 @@ def test_shared_flash_messages_levels_match_taxonomy():
         "removed_pinned": "success",
         "pinned": "success",
         "unpinned": "success",
+        "pin_stale": "warning",
     }
 
 

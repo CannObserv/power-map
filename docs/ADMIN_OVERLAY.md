@@ -65,11 +65,12 @@ re-pointed to the survivor, as the live `parent_id` is (`docs/MERGE.md`).
 - **The edit note** — the same route with `?variant=note`, hosted in the name,
   acronym, parent and org event forms: *Saving a change pins your value*.
 - **Pin / Unpin** — `POST …/pin/` and `…/unpin/`: HTMX partial plus the
-  `with_flash` fallback to the entity page (`?flash=pinned|unpinned`).
+  `with_flash` fallback to the entity page (`?flash=pinned|unpinned`). Unpin
+  posts the `pin_id` the line shows and archives it only while it is still that
+  slot's live pin; otherwise `pin_stale` (warning) and the line as it stands.
 - **`/admin/pins/`** — every pin, filtered by the #306 status axis (`active`
   by default, `archived`, `all`) and entity type. Unpin on a row archives *that*
-  pin only while it is still live (`unpin_pin`), because a stale row must not
-  archive the pin that replaced it.
+  pin only while it is still live (`unpin_pin`), for the same reason.
 
 The label "usa-wa" is `overlay_slots.PRODUCER_LABEL`, in the admin layer and
 never in `src/core`. Acceptance, end to end: `tests/scripts/test_curation_overlay_seam.py`.

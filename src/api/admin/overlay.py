@@ -7,15 +7,18 @@ any edit that pinned), so no panel or mutation response has to carry overlay
 state. The fragment is empty for an entity outside the producer's row scope.
 
 Pin keeps PM's current value for the slot over every later snapshot; Unpin
-archives the pin so the producer's value returns on the next apply.
+archives the pin so the producer's value returns on the next apply. Unpin names
+the pin the line showed and archives it only while it is still the slot's live
+one: a line older than a re-pin must not archive the pin that replaced it.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin.deps import (
+    SHARED_FLASH_MESSAGES,
     AdminUser,
     flash_trigger,
     get_admin_user,
@@ -31,7 +34,7 @@ from src.api.admin.overlay_slots import (
     read_slots,
     slot_state,
 )
-from src.core.curation_overlay import OverlayError, pin, unpin
+from src.core.curation_overlay import OverlayError, active_pin, pin, unpin_pin
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/_overlay", tags=["admin-overlay"])
@@ -143,13 +146,37 @@ async def overlay_unpin(
     entity_id: str,
     field: str,
     request: Request,
+    pin_id: str = Form(...),
     user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
-    """Archive the slot's pin: the producer's value returns on the next apply."""
+    """Archive the pin the line showed: the producer's value returns on the next apply.
+
+    Only while ``pin_id`` is still this slot's live pin — checked against the slot,
+    so an id from another field archives nothing. Otherwise a warning and the line
+    as it now stands.
+    """
     slot = _slot_or_404(entity_type, field)
     await _entity_or_404(db, entity_type, entity_id)
-    await unpin(db, entity_type, entity_id, field, user_id=user.id)
+    async with db.transaction():
+        live = await active_pin(db, entity_type, entity_id, field)
+        held = None
+        if live is not None and live.id == pin_id:
+            held = await unpin_pin(db, pin_id, user_id=user.id)
+    if held is None:
+        if not is_htmx(request):
+            return RedirectResponse(
+                with_flash(_detail_url(entity_type, entity_id), "pin_stale"), status_code=303
+            )
+        return await _render(
+            request,
+            db,
+            entity_type,
+            entity_id,
+            field,
+            variant="status",
+            headers=flash_trigger("warning", SHARED_FLASH_MESSAGES["pin_stale"][1]),
+        )
     if not is_htmx(request):
         return RedirectResponse(
             with_flash(_detail_url(entity_type, entity_id), "unpinned"), status_code=303

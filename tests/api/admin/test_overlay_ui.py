@@ -114,6 +114,8 @@ async def test_a_pinned_slot_shows_the_badge_the_value_who_and_an_unpin(client, 
     assert 'class="badge badge--pinned"' in r.text
     assert "EN" in r.text and "curator@example.org" in r.text and "the committee" in r.text
     assert f"{_slot(oid)}unpin/" in r.text
+    held = await active_pin(db, "organization", oid, "acronym")
+    assert f'"pin_id": "{held.id}"' in r.text  # Unpin names the pin it shows
 
 
 async def test_a_null_pin_reads_as_kept_empty(client, db, curator):
@@ -182,9 +184,9 @@ async def test_pin_keeps_the_current_value_and_returns_the_pinned_slot(client, d
 
 async def test_unpin_archives_and_returns_the_unpinned_slot(client, db, curator):
     oid = await _org(db)
-    await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
+    held = await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
 
-    r = await client.post(_slot(oid) + "unpin/", headers=HX)
+    r = await client.post(_slot(oid) + "unpin/", data={"pin_id": held.id}, headers=HX)
 
     assert r.status_code == 200
     assert await active_pin(db, "organization", oid, "acronym") is None
@@ -195,12 +197,41 @@ async def test_unpin_archives_and_returns_the_unpinned_slot(client, db, curator)
 @pytest.mark.parametrize(("action", "key"), [("pin", "pinned"), ("unpin", "unpinned")])
 async def test_the_non_htmx_fallback_returns_to_the_entity(client, db, curator, action, key):
     oid = await _org(db)
-    await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
+    held = await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
 
-    r = await client.post(_slot(oid) + f"{action}/", headers=AUTH)
+    r = await client.post(_slot(oid) + f"{action}/", data={"pin_id": held.id}, headers=AUTH)
 
     assert r.status_code == 303
     assert r.headers["location"] == f"/admin/orgs/{oid}/?flash={key}"
+
+
+async def test_unpin_from_a_stale_line_is_a_warning_and_leaves_the_newer_pin(client, db, curator):
+    """The line showed a pin another curator has since replaced. Unpinning *by field*
+    would archive the newer pin, never shown; the pin the line named is archived only
+    while it is still the live one (`unpin_pin`), and the line re-renders as it is."""
+    oid = await _org(db)
+    shown = await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
+    await pin(db, "organization", oid, "acronym", "ENV", user_id=curator)
+
+    r = await client.post(_slot(oid) + "unpin/", data={"pin_id": shown.id}, headers=HX)
+
+    assert r.status_code == 200
+    assert json.loads(r.headers["HX-Trigger"])["showFlash"]["level"] == "warning"
+    assert (await active_pin(db, "organization", oid, "acronym")).value == "ENV"
+    assert "ENV" in r.text and 'class="badge badge--pinned"' in r.text
+
+
+async def test_a_pin_id_from_another_slot_unpins_nothing(client, db, curator):
+    """The id is checked against *this* slot's live pin, so a posted id cannot reach
+    across to archive a pin on another field."""
+    oid = await _org(db)
+    other = await pin(db, "organization", oid, "legal_name", "Energy Committee", user_id=curator)
+
+    r = await client.post(_slot(oid) + "unpin/", data={"pin_id": other.id}, headers=AUTH)
+
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/admin/orgs/{oid}/?flash=pin_stale"
+    assert await active_pin(db, "organization", oid, "legal_name") is not None
 
 
 async def test_pinning_an_entity_outside_the_crosswalk_is_refused_not_a_500(client, db):

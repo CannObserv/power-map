@@ -124,7 +124,10 @@ async def test_a_curators_edit_survives_the_snapshot_and_an_unpin_lets_the_produ
     assert entry.kind == "noop"
 
     # The curator lets the producer's value back.
-    r = await client.post(f"/admin/_overlay/person/{pid}/name/unpin/", headers=HX)
+    held = await active_pin(db, "person", pid, "name")
+    r = await client.post(
+        f"/admin/_overlay/person/{pid}/name/unpin/", data={"pin_id": held.id}, headers=HX
+    )
     assert r.status_code == 200
 
     # 2. The next apply carries the producer's value back onto the row.
