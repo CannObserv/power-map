@@ -8,6 +8,7 @@ curator reads it — the slot's ``display_sql`` turns a parent's id into its nam
 """
 
 from src.api.admin.overlay_slots import SLOTS
+from src.api.admin.pagination import pagination_context
 
 __all__ = ["ENTITY_TYPES", "STATUS_PREDICATES", "VALID_STATUSES", "pin_row", "query_pins"]
 
@@ -45,16 +46,27 @@ async def _as_read(db, row) -> dict:
     return out
 
 
-async def query_pins(db, *, status: str, entity_type: str | None) -> list[dict]:
-    """Pins under the filter state: live ones first, newest first, id last for a stable order."""
+async def query_pins(
+    db, *, status: str, entity_type: str | None, page: int, page_size: int
+) -> tuple[list[dict], int, dict]:
+    """One page of pins under the filter state; return ``(rows, count, pctx)``.
+
+    Live ones first, newest first, id last so the order — and so each page — is
+    stable. ``pctx`` is ``pagination_context()``, its ``page`` clamped to range.
+    """
     conditions: list[str] = [STATUS_PREDICATES[status]] if status != "all" else []
     params: list = []
     if entity_type:
         params.append(entity_type)
         conditions.append(f"o.entity_type = ${len(params)}")
     where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+    count = await db.fetchval(f"SELECT count(*) FROM curation_overlay o{where}", *params)
+    pctx = pagination_context(page, count, page_size)
+    params += [page_size, (pctx["page"] - 1) * page_size]
     order = " ORDER BY o.archived_at IS NOT NULL, o.created_at DESC, o.id"
-    return [await _as_read(db, r) for r in await db.fetch(_LIST_SQL + where + order, *params)]
+    limit = f" LIMIT ${len(params) - 1} OFFSET ${len(params)}"
+    rows = await db.fetch(_LIST_SQL + where + order + limit, *params)
+    return [await _as_read(db, r) for r in rows], count, pctx
 
 
 async def pin_row(db, pin_id: str) -> dict | None:

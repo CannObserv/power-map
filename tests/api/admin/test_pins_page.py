@@ -190,3 +190,20 @@ async def test_an_empty_list_says_so(client, db):
     page = (await client.get("/admin/pins/?type=organization&status=archived", headers=AUTH)).text
 
     assert "No pins" in page
+
+
+async def test_the_list_pages_with_the_shared_bounds(client, db, curator):
+    """docs/HTMX.md: every list view pages. History grows a row per decision — each
+    value-moving edit archives the pin it replaces — so the list is bounded by
+    `page_size` and says how many there are."""
+    for i in range(11):
+        org = await _org(db, f"Paged Committee {i}")
+        await pin(db, "organization", org, "acronym", f"P{i}", user_id=curator)
+
+    first = (await client.get("/admin/pins/?page_size=10", headers=AUTH)).text
+    second = (await client.get("/admin/pins/?page_size=10&page=2", headers=AUTH)).text
+
+    assert first.count('id="pin-row-') == 10 and second.count('id="pin-row-') == 1
+    assert "Pins — 11 records" in first and "Showing 1–10 of 11" in first
+    assert "/admin/pins/?page=2&status=active" in first  # the pager keeps the filters
+    assert (await client.get("/admin/pins/?page_size=5", headers=AUTH)).status_code == 422

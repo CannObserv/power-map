@@ -24,6 +24,7 @@ from src.api.admin.deps import (
     with_flash,
 )
 from src.api.admin.overlay_slots import PRODUCER_LABEL
+from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.pins_queries import ENTITY_TYPES, VALID_STATUSES, pin_row, query_pins
 from src.core.curation_overlay import unpin_pin
 
@@ -36,15 +37,19 @@ async def pins_list(
     request: Request,
     status: str = "active",
     type_: str = Query("", alias="type"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(PAGE_SIZE_DEFAULT, ge=PAGE_SIZE_MIN, le=PAGE_SIZE_MAX),
     flash: str | None = Query(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """List pins by status (#306 axis) and entity type."""
+    """List pins by status (#306 axis) and entity type, a page at a time."""
     if status not in VALID_STATUSES:
         status = "active"  # never no filter (#306)
     entity_type = type_ if type_ in ENTITY_TYPES else ""
-    rows = await query_pins(db, status=status, entity_type=entity_type or None)
+    rows, count, pctx = await query_pins(
+        db, status=status, entity_type=entity_type or None, page=page, page_size=page_size
+    )
     flash_msg, headers = resolve_query_flash(request, {}, flash)
     ctx = {
         "user": user,
@@ -55,6 +60,9 @@ async def pins_list(
         "entity_types": ENTITY_TYPES,
         "producer": PRODUCER_LABEL,
         "flash_msg": flash_msg,
+        "page_size": page_size,
+        "total": count,
+        **pctx,
     }
     template = "admin/pins/_region.html" if is_htmx(request) else "admin/pins/list.html"
     return templates.TemplateResponse(request, template, ctx, headers=headers)
