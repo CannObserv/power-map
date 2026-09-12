@@ -221,6 +221,39 @@ async def test_editing_the_canonical_acronym_pins_it(client, db):
     assert "pinned" in _flash(r).lower()
 
 
+async def _acronym(db, oid: str, acronym: str = "ETT") -> str:
+    aid = generate_id()
+    await db.execute(
+        "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
+        " VALUES ($1, $2, $3, TRUE)",
+        aid,
+        oid,
+        acronym,
+    )
+    return aid
+
+
+async def test_adding_the_first_acronym_pins_it(client, db):
+    oid = await _org(db)
+
+    r = await client.post(
+        f"/admin/orgs/{oid}/acronyms/", data={"acronym": "ETT", "is_canonical": "true"}, headers=HX
+    )
+
+    assert r.status_code == 200
+    assert await _pin(db, "organization", oid, "acronym") == ("pinned", "ETT")
+
+
+async def test_deleting_the_only_acronym_pins_the_slot_empty(client, db):
+    oid = await _org(db)
+    aid = await _acronym(db, oid)
+
+    r = await client.delete(f"/admin/orgs/{oid}/acronyms/{aid}/", headers=HX)
+
+    assert r.status_code == 200
+    assert await _pin(db, "organization", oid, "acronym") == ("pinned", None)
+
+
 # --- parent: inline, add child, remove child --------------------------------------
 
 
@@ -299,3 +332,41 @@ async def test_an_event_that_is_not_the_dissolution_pins_nothing(client, db):
     )
 
     assert await active_pins(db, "organization", oid) == []
+
+
+async def _dissolution(db, oid: str, year: int, *, archived: bool = False) -> str:
+    eid = generate_id()
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year,"
+        " archived_at) VALUES ($1, 'organization', $2, $3, $4, CASE WHEN $5 THEN NOW() END)",
+        eid,
+        oid,
+        DISSOLVED,
+        year,
+        archived,
+    )
+    return eid
+
+
+async def test_editing_the_dissolutions_year_pins_the_new_year(client, db):
+    oid = await _org(db)
+    eid = await _dissolution(db, oid, 2020)
+
+    r = await client.post(
+        f"/admin/orgs/{oid}/events/{eid}/edit-row/",
+        data={"event_type_id": DISSOLVED, "event_year": "2021"},
+        headers=HX,
+    )
+
+    assert r.status_code == 200
+    assert await _pin(db, "organization", oid, "dissolved_year") == ("pinned", "2021")
+
+
+async def test_unarchiving_the_dissolution_pins_its_year(client, db):
+    oid = await _org(db)
+    eid = await _dissolution(db, oid, 2020, archived=True)
+
+    r = await client.post(f"/admin/orgs/{oid}/events/{eid}/unarchive/", headers=HX)
+
+    assert r.status_code == 200
+    assert await _pin(db, "organization", oid, "dissolved_year") == ("pinned", "2020")
