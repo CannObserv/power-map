@@ -7,9 +7,10 @@ any edit that pinned), so no panel or mutation response has to carry overlay
 state. The fragment is empty for an entity outside the producer's row scope.
 
 Pin keeps PM's current value for the slot over every later snapshot; Unpin
-archives the pin so the producer's value returns on the next apply. Unpin names
-the pin the line showed and archives it only while it is still the slot's live
-one: a line older than a re-pin must not archive the pin that replaced it.
+archives the pin so the producer's value returns on the next apply. Each acts
+only on what the line showed: Pin only while no pin is live, Unpin only while
+the pin it names is still the slot's live one — a line older than the slot must
+not replace or archive a pin the curator never saw.
 """
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -102,13 +103,21 @@ async def overlay_pin(
     user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
-    """Pin the slot's current value: PM keeps it over every later snapshot."""
+    """Pin the slot's current value: PM keeps it over every later snapshot.
+
+    Only while no pin is live — the line offers Pin on an unpinned slot alone. A
+    pin live now arrived after the page loaded (a merge carried it here, another
+    curator pinned) and may hold another value; it is not this Pin's to replace,
+    so a warning and the line as it stands.
+    """
     slot = _slot_or_404(entity_type, field)
     await _entity_or_404(db, entity_type, entity_id)
     try:
         async with db.transaction():
-            value = (await read_slots(db, entity_type, entity_id, (field,)))[field]
-            await pin(db, entity_type, entity_id, field, value, user_id=user.id)
+            already = await active_pin(db, entity_type, entity_id, field) is not None
+            if not already:
+                value = (await read_slots(db, entity_type, entity_id, (field,)))[field]
+                await pin(db, entity_type, entity_id, field, value, user_id=user.id)
     except OverlayError:
         # The Pin control renders only in scope; a stale page is the way here.
         if not is_htmx(request):
@@ -120,6 +129,20 @@ async def overlay_pin(
             headers=flash_trigger(
                 "warning", f"{PRODUCER_LABEL} does not maintain this record: nothing to pin."
             ),
+        )
+    if already:
+        if not is_htmx(request):
+            return RedirectResponse(
+                with_flash(_detail_url(entity_type, entity_id), "already_pinned"), status_code=303
+            )
+        return await _render(
+            request,
+            db,
+            entity_type,
+            entity_id,
+            field,
+            variant="status",
+            headers=flash_trigger("warning", SHARED_FLASH_MESSAGES["already_pinned"][1]),
         )
     if not is_htmx(request):
         return RedirectResponse(

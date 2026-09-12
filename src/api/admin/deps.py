@@ -113,7 +113,8 @@ def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str,
 # and the curation overlay's (#498), all mutations that changed state:
 #   saved_pinned / removed_pinned — the edit moved a producer-owned value and pinned it
 #   pinned / unpinned             — the Pin and Unpin actions
-#   pin_stale — an Unpin naming a pin since replaced or unpinned (nothing changed)
+#   pin_stale      — an Unpin naming a pin since replaced or unpinned (nothing changed)
+#   already_pinned — a Pin on a slot pinned since the page loaded (nothing changed)
 SHARED_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "saved": ("success", "Saved."),
     "removed": ("success", "Removed."),
@@ -124,6 +125,7 @@ SHARED_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "pinned": ("success", f"Pinned: PM keeps this value over {PRODUCER_LABEL}'s."),
     "unpinned": ("success", f"Unpinned: {PRODUCER_LABEL}'s value returns on the next apply."),
     "pin_stale": ("warning", "That pin was already replaced or unpinned; nothing changed."),
+    "already_pinned": ("warning", "That field was pinned since the page loaded; nothing changed."),
 }
 
 

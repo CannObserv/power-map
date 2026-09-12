@@ -197,9 +197,12 @@ async def test_unpin_archives_and_returns_the_unpinned_slot(client, db, curator)
 @pytest.mark.parametrize(("action", "key"), [("pin", "pinned"), ("unpin", "unpinned")])
 async def test_the_non_htmx_fallback_returns_to_the_entity(client, db, curator, action, key):
     oid = await _org(db)
-    held = await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
+    data = {}
+    if action == "unpin":  # Pin is offered only on an unpinned slot, Unpin only on a pinned one
+        held = await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
+        data = {"pin_id": held.id}
 
-    r = await client.post(_slot(oid) + f"{action}/", data={"pin_id": held.id}, headers=AUTH)
+    r = await client.post(_slot(oid) + f"{action}/", data=data, headers=AUTH)
 
     assert r.status_code == 303
     assert r.headers["location"] == f"/admin/orgs/{oid}/?flash={key}"
@@ -232,6 +235,23 @@ async def test_a_pin_id_from_another_slot_unpins_nothing(client, db, curator):
     assert r.status_code == 303
     assert r.headers["location"] == f"/admin/orgs/{oid}/?flash=pin_stale"
     assert await active_pin(db, "organization", oid, "legal_name") is not None
+
+
+async def test_pin_on_a_slot_pinned_since_the_page_loaded_keeps_that_pin(client, db, curator):
+    """Pin is offered only while no pin is live. One live now arrived after the page
+    loaded — a merge carried it here, or it was pinned elsewhere — and may hold a
+    value other than the slot's; replacing it would discard a pin this curator never
+    saw. So: a warning, and the line as it stands."""
+    oid = await _org(db)  # the live acronym is ETT
+    held = await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
+
+    r = await client.post(_slot(oid) + "pin/", headers=HX)
+    fallback = await client.post(_slot(oid) + "pin/", headers=AUTH)
+
+    assert json.loads(r.headers["HX-Trigger"])["showFlash"]["level"] == "warning"
+    assert (await active_pin(db, "organization", oid, "acronym")).id == held.id
+    assert "EN" in r.text and 'class="badge badge--pinned"' in r.text
+    assert fallback.headers["location"] == f"/admin/orgs/{oid}/?flash=already_pinned"
 
 
 async def test_pinning_an_entity_outside_the_crosswalk_is_refused_not_a_500(client, db):

@@ -70,9 +70,10 @@ re-pointed to the survivor, as the live `parent_id` is (`docs/MERGE.md`).
 - **The edit note** — the same route with `?variant=note`, hosted in the name,
   acronym, parent and org event forms: *Saving a change pins your value*.
 - **Pin / Unpin** — `POST …/pin/` and `…/unpin/`: HTMX partial plus the
-  `with_flash` fallback to the entity page (`?flash=pinned|unpinned`). Unpin
-  posts the `pin_id` the line shows and archives it only while it is still that
-  slot's live pin; otherwise `pin_stale` (warning) and the line as it stands.
+  `with_flash` fallback to the entity page (`?flash=pinned|unpinned`). Each acts
+  only on what the line showed: Pin only while no pin is live (else
+  `already_pinned`), Unpin only while the `pin_id` it posts is still the slot's
+  live pin (else `pin_stale`) — a warning, and the line as it stands.
 - **`/admin/pins/`** — every pin, filtered by the #306 status axis (`active`
   by default, `archived`, `all`) and entity type, and paged like every list. Unpin on a row archives *that*
   pin only while it is still live (`unpin_pin`), for the same reason.
