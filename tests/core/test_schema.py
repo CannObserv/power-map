@@ -1696,7 +1696,7 @@ async def test_crosswalk_holds_one_row_per_exported_producer_id(db):
 
 
 @pytest.mark.integration
-async def test_crosswalk_rows_the_applier_minted_carry_no_exported_id(db):
+async def test_crosswalk_rows_with_no_exported_id_are_free_of_its_index(db):
     """A row with no export (the applier's own creates) is free of the index."""
     await _insert_crosswalk(db, producer_id=generate_id(), exported_producer_id=None)
     await _insert_crosswalk(db, producer_id=generate_id(), exported_producer_id=None)
