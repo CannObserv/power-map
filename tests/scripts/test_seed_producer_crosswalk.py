@@ -55,7 +55,9 @@ async def _person(db) -> str:
 
 
 def test_read_export_returns_the_anchors_and_the_manifest(tmp_path):
-    d = _write_export(tmp_path, f"kind,usa_wa_id,pm_id\nperson,{generate_id()},{generate_id()}\n")
+    d = _write_export(
+        tmp_path, f"kind,usa_wa_id,pm_id,span_key\nperson,{generate_id()},{generate_id()},\n"
+    )
 
     anchors, manifest = read_export(d)
 
@@ -67,7 +69,7 @@ def test_read_export_refuses_a_digest_that_does_not_match(tmp_path):
     """A truncated copy parses as a shorter, valid export — the digest is the only guard."""
     d = _write_export(
         tmp_path,
-        f"kind,usa_wa_id,pm_id\nperson,{generate_id()},{generate_id()}\n",
+        f"kind,usa_wa_id,pm_id,span_key\nperson,{generate_id()},{generate_id()},\n",
         digest="0" * 64,
     )
 
@@ -77,7 +79,9 @@ def test_read_export_refuses_a_digest_that_does_not_match(tmp_path):
 
 async def test_seed_writes_nothing_when_the_report_blocks(db, tmp_path):
     """A blocking report is not advisory: an unresolvable anchor stops the run."""
-    d = _write_export(tmp_path, f"kind,usa_wa_id,pm_id\nperson,{generate_id()},{generate_id()}\n")
+    d = _write_export(
+        tmp_path, f"kind,usa_wa_id,pm_id,span_key\nperson,{generate_id()},{generate_id()},\n"
+    )
 
     with pytest.raises(BlockedSeed):
         await seed(db, d, source="usa_wa", execute=True)
@@ -87,7 +91,7 @@ async def test_seed_writes_nothing_when_the_report_blocks(db, tmp_path):
 
 async def test_seed_writes_a_clean_export(db, tmp_path):
     d = _write_export(
-        tmp_path, f"kind,usa_wa_id,pm_id\nperson,{generate_id()},{await _person(db)}\n"
+        tmp_path, f"kind,usa_wa_id,pm_id,span_key\nperson,{generate_id()},{await _person(db)},\n"
     )
 
     report = await seed(db, d, source="usa_wa", execute=True)
@@ -99,7 +103,7 @@ async def test_seed_writes_a_clean_export(db, tmp_path):
 async def test_seed_records_the_export_provenance_on_every_row(db, tmp_path):
     """Which export a row came from is the first question a triage pass asks."""
     d = _write_export(
-        tmp_path, f"kind,usa_wa_id,pm_id\nperson,{generate_id()},{await _person(db)}\n"
+        tmp_path, f"kind,usa_wa_id,pm_id,span_key\nperson,{generate_id()},{await _person(db)},\n"
     )
 
     await seed(db, d, source="usa_wa", execute=True)
@@ -111,7 +115,9 @@ async def test_seed_records_the_export_provenance_on_every_row(db, tmp_path):
 
 async def test_a_blocking_report_still_returns_in_dry_run(db, tmp_path):
     """Dry run's whole job is to show the blocking diff, so it must not raise."""
-    d = _write_export(tmp_path, f"kind,usa_wa_id,pm_id\nperson,{generate_id()},{generate_id()}\n")
+    d = _write_export(
+        tmp_path, f"kind,usa_wa_id,pm_id,span_key\nperson,{generate_id()},{generate_id()},\n"
+    )
 
     report = await seed(db, d, source="usa_wa", execute=False)
 
@@ -121,7 +127,7 @@ async def test_a_blocking_report_still_returns_in_dry_run(db, tmp_path):
 
 def test_read_export_names_a_manifest_key_it_cannot_find(tmp_path):
     """Every other malformed-input path here says what is wrong; this one said `KeyError`."""
-    (tmp_path / "anchors.csv").write_text("kind,usa_wa_id,pm_id\n")
+    (tmp_path / "anchors.csv").write_text("kind,usa_wa_id,pm_id,span_key\n")
     (tmp_path / "manifest.json").write_text('{"exported_at": "2026-09-03T00:00:00Z"}')
 
     with pytest.raises(AnchorFormatError, match="sha256"):
@@ -137,7 +143,7 @@ def test_read_export_reads_a_pulled_snapshot_directory(tmp_path):
     import hashlib
     import json as _json
 
-    rows = f"kind,usa_wa_id,pm_id\nperson,{generate_id()},{generate_id()}\n"
+    rows = f"kind,usa_wa_id,pm_id,span_key\nperson,{generate_id()},{generate_id()},\n"
     (tmp_path / "data.csv").write_text(rows)
     (tmp_path / "snapshot.json").write_text(
         _json.dumps(
@@ -160,7 +166,7 @@ def test_read_export_verifies_a_pulled_snapshot_against_its_recorded_digest(tmp_
     """The store's own record is the guard once the catalog is out of reach."""
     import json as _json
 
-    (tmp_path / "data.csv").write_text("kind,usa_wa_id,pm_id\n")
+    (tmp_path / "data.csv").write_text("kind,usa_wa_id,pm_id,span_key\n")
     (tmp_path / "snapshot.json").write_text(
         _json.dumps({"sha256": "0" * 64, "generated_at": "2026-09-09T04:34:02Z"})
     )

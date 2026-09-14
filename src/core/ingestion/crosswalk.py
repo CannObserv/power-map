@@ -12,7 +12,9 @@ Two jobs live here:
 * **Parsing** an export. The header is a contract and the ids are Crockford
   base32 ULIDs; a file that fails either is rejected whole rather than
   partially believed, because a short parse silently narrows the applier's
-  scope instead of failing it.
+  scope instead of failing it. An assignment anchor carries its `span_key` —
+  its key in the published dataset, which has no assignment id — and keys on it
+  (#525); an empty one is the producer saying the anchor has no published row.
 * **Resolving** each PM id through merge history. `deleted_entities.merged_into`
   names *that row's* survivor (see :mod:`src.core.merge_signals`), so the walk
   is a chain, not a lookup. Two outcomes never resolve: a tombstone with no
@@ -56,7 +58,16 @@ __all__ = [
     "verify_digest",
 ]
 
-ANCHOR_HEADER = ("kind", "usa_wa_id", "pm_id")
+ANCHOR_HEADER = ("kind", "usa_wa_id", "pm_id", "span_key")
+# The header before usa-wa published `span_key` (pm_anchors schema 1.7.0). Refused
+# by name: once the crosswalk is re-keyed, a keyless re-seed would move every
+# assignment anchor back to its ULID, which the published dataset never names.
+_KEYLESS_HEADER = ("kind", "usa_wa_id", "pm_id")
+# A span_key is `entity_id | role_key | span_kind | span_discriminator |
+# span_start_biennium`, in the dataset's own column order; the producer refuses a
+# value containing the separator rather than escaping it.
+_SPAN_KEY_SEPARATOR = "|"
+_SPAN_KEY_FIELDS = 5
 ANCHOR_KINDS = ("person", "organization", "role", "assignment")
 # The `source` every usa-wa crosswalk row carries — the seed writes it, the
 # applier (#499) scopes by it, a create the applier mints copies it. One
@@ -99,11 +110,22 @@ class AnchorFormatError(ValueError):
 
 @dataclass(frozen=True)
 class Anchor:
-    """One `(kind, producer id, PM id)` triple as the producer exported it."""
+    """One anchor as the producer exported it.
+
+    ``producer_id`` is the export's ``usa_wa_id``; ``span_key`` is an assignment's
+    key in the published dataset, or None when the anchor has no published row
+    (and always None for another kind).
+    """
 
     kind: str
     producer_id: str
     pm_id: str
+    span_key: str | None = None
+
+    @property
+    def key(self) -> str:
+        """The key the dataset uses for this anchor — what the crosswalk keys on."""
+        return self.span_key or self.producer_id
 
 
 @dataclass(frozen=True)
@@ -119,8 +141,12 @@ class Resolution:
     pm_id: str | None
 
 
+def _is_ulid(value: str) -> bool:
+    return len(value) == _ULID_LEN and set(value) <= _CROCKFORD
+
+
 def _require_ulid(value: str, *, column: str, line: int) -> str:
-    if len(value) != _ULID_LEN or not set(value) <= _CROCKFORD:
+    if not _is_ulid(value):
         raise AnchorFormatError(f"line {line}: {column}={value!r} is not a base32 ULID")
     return value
 
@@ -134,6 +160,12 @@ def parse_anchors(text: str) -> list[Anchor]:
         raise AnchorFormatError(
             f"empty export: expected header {','.join(ANCHOR_HEADER)}"
         ) from None
+    if header == _KEYLESS_HEADER:
+        raise AnchorFormatError(
+            "this export predates span_key (pm_anchors schema 1.7.0): re-seeding it would"
+            " move every assignment anchor back to its ULID. Re-seed from the catalog's"
+            " pm_anchors"
+        )
     if header != ANCHOR_HEADER:
         raise AnchorFormatError(
             f"unexpected header {','.join(header)} — expected {','.join(ANCHOR_HEADER)}"
@@ -141,6 +173,7 @@ def parse_anchors(text: str) -> list[Anchor]:
 
     anchors: list[Anchor] = []
     seen_keys: set[tuple[str, str]] = set()
+    seen_span_keys: set[str] = set()
     for line, row in enumerate(reader, start=2):
         if not row:
             continue
@@ -148,9 +181,14 @@ def parse_anchors(text: str) -> list[Anchor]:
             raise AnchorFormatError(
                 f"line {line}: expected {len(ANCHOR_HEADER)} fields, got {len(row)}"
             )
-        kind, producer_id, pm_id = row
+        kind, producer_id, pm_id, span_key = row
         if kind not in ANCHOR_KINDS:
             raise AnchorFormatError(f"line {line}: unknown kind {kind!r}")
+        if span_key:
+            _check_span_key(span_key, kind=kind, line=line)
+            if span_key in seen_span_keys:
+                raise AnchorFormatError(f"line {line}: duplicate span_key {span_key!r}")
+            seen_span_keys.add(span_key)
         # The upsert resolves a repeated key silently (last row wins) while the
         # report still counts both, so the only place this can be seen is here.
         if (kind, producer_id) in seen_keys:
@@ -161,9 +199,23 @@ def parse_anchors(text: str) -> list[Anchor]:
                 kind,
                 _require_ulid(producer_id, column="usa_wa_id", line=line),
                 _require_ulid(pm_id, column="pm_id", line=line),
+                span_key or None,
             )
         )
     return anchors
+
+
+def _check_span_key(span_key: str, *, kind: str, line: int) -> None:
+    if kind != "assignment":
+        raise AnchorFormatError(
+            f"line {line}: span_key on a {kind} row — only an assignment carries one"
+        )
+    fields = span_key.split(_SPAN_KEY_SEPARATOR)
+    if len(fields) != _SPAN_KEY_FIELDS or not _is_ulid(fields[0]):
+        raise AnchorFormatError(
+            f"line {line}: span_key {span_key!r} is not five {_SPAN_KEY_SEPARATOR}-separated"
+            " fields with the person's registry ULID first"
+        )
 
 
 def verify_digest(data: bytes, expected_sha256: str) -> None:
