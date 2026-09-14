@@ -12,7 +12,9 @@ Two jobs live here:
 * **Parsing** an export. The header is a contract and the ids are Crockford
   base32 ULIDs; a file that fails either is rejected whole rather than
   partially believed, because a short parse silently narrows the applier's
-  scope instead of failing it.
+  scope instead of failing it. An assignment anchor carries its `span_key` —
+  its key in the published dataset, which has no assignment id — and keys on it
+  (#525); an empty one is the producer saying the anchor has no published row.
 * **Resolving** each PM id through merge history. `deleted_entities.merged_into`
   names *that row's* survivor (see :mod:`src.core.merge_signals`), so the walk
   is a chain, not a lookup. Two outcomes never resolve: a tombstone with no
@@ -56,7 +58,16 @@ __all__ = [
     "verify_digest",
 ]
 
-ANCHOR_HEADER = ("kind", "usa_wa_id", "pm_id")
+ANCHOR_HEADER = ("kind", "usa_wa_id", "pm_id", "span_key")
+# The header before usa-wa published `span_key` (pm_anchors schema 1.7.0). Refused
+# by name: once the crosswalk is re-keyed, a keyless re-seed would move every
+# assignment anchor back to its ULID, which the published dataset never names.
+_KEYLESS_HEADER = ("kind", "usa_wa_id", "pm_id")
+# A span_key is `entity_id | role_key | span_kind | span_discriminator |
+# span_start_biennium`, in the dataset's own column order; the producer refuses a
+# value containing the separator rather than escaping it.
+_SPAN_KEY_SEPARATOR = "|"
+_SPAN_KEY_FIELDS = 5
 ANCHOR_KINDS = ("person", "organization", "role", "assignment")
 # The `source` every usa-wa crosswalk row carries — the seed writes it, the
 # applier (#499) scopes by it, a create the applier mints copies it. One
@@ -99,11 +110,22 @@ class AnchorFormatError(ValueError):
 
 @dataclass(frozen=True)
 class Anchor:
-    """One `(kind, producer id, PM id)` triple as the producer exported it."""
+    """One anchor as the producer exported it.
+
+    ``producer_id`` is the export's ``usa_wa_id``; ``span_key`` is an assignment's
+    key in the published dataset, or None when the anchor has no published row
+    (and always None for another kind).
+    """
 
     kind: str
     producer_id: str
     pm_id: str
+    span_key: str | None = None
+
+    @property
+    def key(self) -> str:
+        """The key the dataset uses for this anchor — what the crosswalk keys on."""
+        return self.span_key or self.producer_id
 
 
 @dataclass(frozen=True)
@@ -119,8 +141,12 @@ class Resolution:
     pm_id: str | None
 
 
+def _is_ulid(value: str) -> bool:
+    return len(value) == _ULID_LEN and set(value) <= _CROCKFORD
+
+
 def _require_ulid(value: str, *, column: str, line: int) -> str:
-    if len(value) != _ULID_LEN or not set(value) <= _CROCKFORD:
+    if not _is_ulid(value):
         raise AnchorFormatError(f"line {line}: {column}={value!r} is not a base32 ULID")
     return value
 
@@ -134,6 +160,12 @@ def parse_anchors(text: str) -> list[Anchor]:
         raise AnchorFormatError(
             f"empty export: expected header {','.join(ANCHOR_HEADER)}"
         ) from None
+    if header == _KEYLESS_HEADER:
+        raise AnchorFormatError(
+            "this export predates span_key (pm_anchors schema 1.7.0): re-seeding it would"
+            " move every assignment anchor back to its ULID. Re-seed from the catalog's"
+            " pm_anchors"
+        )
     if header != ANCHOR_HEADER:
         raise AnchorFormatError(
             f"unexpected header {','.join(header)} — expected {','.join(ANCHOR_HEADER)}"
@@ -141,6 +173,7 @@ def parse_anchors(text: str) -> list[Anchor]:
 
     anchors: list[Anchor] = []
     seen_keys: set[tuple[str, str]] = set()
+    seen_span_keys: set[str] = set()
     for line, row in enumerate(reader, start=2):
         if not row:
             continue
@@ -148,9 +181,14 @@ def parse_anchors(text: str) -> list[Anchor]:
             raise AnchorFormatError(
                 f"line {line}: expected {len(ANCHOR_HEADER)} fields, got {len(row)}"
             )
-        kind, producer_id, pm_id = row
+        kind, producer_id, pm_id, span_key = row
         if kind not in ANCHOR_KINDS:
             raise AnchorFormatError(f"line {line}: unknown kind {kind!r}")
+        if span_key:
+            _check_span_key(span_key, kind=kind, line=line)
+            if span_key in seen_span_keys:
+                raise AnchorFormatError(f"line {line}: duplicate span_key {span_key!r}")
+            seen_span_keys.add(span_key)
         # The upsert resolves a repeated key silently (last row wins) while the
         # report still counts both, so the only place this can be seen is here.
         if (kind, producer_id) in seen_keys:
@@ -161,9 +199,23 @@ def parse_anchors(text: str) -> list[Anchor]:
                 kind,
                 _require_ulid(producer_id, column="usa_wa_id", line=line),
                 _require_ulid(pm_id, column="pm_id", line=line),
+                span_key or None,
             )
         )
     return anchors
+
+
+def _check_span_key(span_key: str, *, kind: str, line: int) -> None:
+    if kind != "assignment":
+        raise AnchorFormatError(
+            f"line {line}: span_key on a {kind} row — only an assignment carries one"
+        )
+    fields = span_key.split(_SPAN_KEY_SEPARATOR)
+    if len(fields) != _SPAN_KEY_FIELDS or not _is_ulid(fields[0]):
+        raise AnchorFormatError(
+            f"line {line}: span_key {span_key!r} is not five {_SPAN_KEY_SEPARATOR}-separated"
+            " fields with the person's registry ULID first"
+        )
 
 
 def verify_digest(data: bytes, expected_sha256: str) -> None:
@@ -253,6 +305,11 @@ class SeedReport:
     collisions: dict[tuple[str, str], list[str]] = field(default_factory=dict)
     supersessions: list[Supersession] = field(default_factory=list)
     stale: list[tuple[str, str]] = field(default_factory=list)
+    # #525: rows whose key moved (onto a span_key, or between exports), and
+    # assignment anchors with no published row — keyed on their usa_wa_id, which
+    # the dataset never names, so they read as absent once #500 archives.
+    rekeyed: int = 0
+    unkeyed: int = 0
 
     # False when the crosswalk table does not exist yet, so an empty `stale` is
     # never read as "nothing is stale" when the truth is "nobody looked".
@@ -288,12 +345,23 @@ WHERE archived.id = $1
 ORDER BY live.start_date NULLS LAST, live.id
 """
 
+_SEEDED_SQL = (
+    "SELECT kind, exported_producer_id, producer_id FROM producer_crosswalk"
+    " WHERE source = $1 AND exported_producer_id IS NOT NULL"
+    " ORDER BY kind, exported_producer_id"
+)
+
+# Matched on the id the export carried, never on the key: that is what lets a
+# re-key move `producer_id` in place — onto a published span_key, or to a new one
+# when a later export moves it — instead of inserting a second row beside it (#525).
 _UPSERT_SQL = """
 INSERT INTO producer_crosswalk (
-    id, source, kind, producer_id, exported_pm_id, pm_id, resolution,
+    id, source, kind, producer_id, exported_producer_id, exported_pm_id, pm_id, resolution,
     export_generated_at, export_sha256
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT (source, kind, producer_id) DO UPDATE SET
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+ON CONFLICT (source, kind, exported_producer_id) WHERE exported_producer_id IS NOT NULL
+DO UPDATE SET
+    producer_id         = EXCLUDED.producer_id,
     exported_pm_id      = EXCLUDED.exported_pm_id,
     pm_id               = EXCLUDED.pm_id,
     resolution          = EXCLUDED.resolution,
@@ -314,7 +382,11 @@ async def load_anchors(
     """Resolve every anchor and, when ``execute``, seed the crosswalk with it.
 
     Resolution happens either way: the report is the point of a dry run, and it
-    is identical to the one the real run produces.
+    is identical to the one the real run produces. One failure only a write can
+    find: an anchor whose key another row already holds — a row the applier
+    minted, or a key two anchors swap between exports — fails the unique index on
+    ``(source, kind, producer_id)``, and the caller's transaction rolls back with
+    no report (#525 design: accepted rather than pre-checked).
 
     **The caller owns the transaction.** With ``execute=True`` this writes row by
     row and opens nothing of its own, so a caller that does not wrap it leaves a
@@ -325,7 +397,35 @@ async def load_anchors(
     report = SeedReport()
     landed: dict[tuple[str, str], list[str]] = defaultdict(list)
 
+    # Every row an earlier export seeded, by the id it was exported under, with
+    # the key it holds now. Read once, before any write, so a dry run reports the
+    # same re-keys the real run makes. A row the applier minted has no export id
+    # and is neither re-keyed nor stale.
+    #
+    # Dry-running against a database with no crosswalk yet is a supported and
+    # useful thing to do — the resolution below reads only the live entity
+    # tables, so it is real. What cannot be checked is announced rather than
+    # passed: an empty `stale` would otherwise mean "nothing is stale" when it
+    # means "nobody looked". Asked, not caught: a failed read would abort the
+    # caller's transaction before a single anchor resolved. A crosswalk that
+    # predates `exported_producer_id` is not handled: its read fails loudly,
+    # before any write, where reading it by the old key would call every
+    # re-key stale. Deploy the schema before dry-running the re-key.
+    if await db.fetchval("SELECT to_regclass('producer_crosswalk')") is None:
+        seeded, report.stale_checked = {}, False
+    else:
+        seeded = {
+            (r["kind"], r["exported_producer_id"]): r["producer_id"]
+            for r in await db.fetch(_SEEDED_SQL, source)
+        }
+
     for anchor in anchors:
+        current = seeded.get((anchor.kind, anchor.producer_id))
+        if current is not None and current != anchor.key:
+            report.rekeyed += 1
+        if anchor.kind == "assignment" and anchor.span_key is None:
+            report.unkeyed += 1
+
         resolution = await resolve_anchor(db, anchor.kind, anchor.pm_id)
         report.counts[resolution.status] = report.counts.get(resolution.status, 0) + 1
 
@@ -345,6 +445,7 @@ async def load_anchors(
                 generate_id(),
                 source,
                 anchor.kind,
+                anchor.key,
                 anchor.producer_id,
                 anchor.pm_id,
                 resolution.pm_id,
@@ -360,25 +461,7 @@ async def load_anchors(
     # but saying nothing would leave a retired producer id inside the applier's
     # scope indefinitely.
     present = {(a.kind, a.producer_id) for a in anchors}
-    try:
-        seeded = await db.fetch(
-            "SELECT kind, producer_id FROM producer_crosswalk WHERE source = $1"
-            " ORDER BY kind, producer_id",
-            source,
-        )
-    except asyncpg.exceptions.UndefinedTableError:
-        # Dry-running against a database the schema has not reached yet is a
-        # supported and useful thing to do — the resolution above reads only the
-        # live entity tables, so it is real. What cannot be checked is announced
-        # rather than passed: an empty `stale` here would otherwise mean
-        # "nothing is stale" when it means "nobody looked".
-        report.stale_checked = False
-        return report
-    report.stale = [
-        (r["kind"], r["producer_id"])
-        for r in seeded
-        if (r["kind"], r["producer_id"]) not in present
-    ]
+    report.stale = [key for key in seeded if key not in present]
     return report
 
 

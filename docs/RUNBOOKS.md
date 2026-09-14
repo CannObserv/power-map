@@ -235,32 +235,48 @@ there is no `--execute` gate here. The gated step is the applier (#499).
 every PM id through PM's merge history, and writes `producer_crosswalk` —
 transition safeguard 1 of the dataset-subscription design (#490).
 
-**Either export layout works** (#496): usa-wa's VM-file export (`anchors.csv` +
-`manifest.json`) or a snapshot the puller landed (`data.csv` + `snapshot.json`).
-Both carry the rows and the digest that vouches for them, and both are verified
-the same way, so a pulled snapshot needs no hand-staging.
+**Seed from the catalog's `pm_anchors`** (#525), pulled by name. A snapshot the
+puller landed (`data.csv` + `snapshot.json`) and usa-wa's VM-file layout
+(`anchors.csv` + `manifest.json`) are both read and verified the same way. The
+contract is four columns, `kind,usa_wa_id,pm_id,span_key`: an assignment anchor
+carries its key in the published dataset, and an empty key means usa-wa has no
+published row for it.
 
 ```bash
+uv run "${env_args[@]}" python -m scripts.pull_datasets --dataset pm_anchors
 uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
-    --export data/anchor-export             # dry run: prints the report
+    --export data/usa_wa_snapshots/pm_anchors/<version>             # dry run: prints the report
 uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
-    --export data/usa_wa_snapshots/pm_anchors/<version>   # a pulled snapshot
-uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
-    --export data/anchor-export --execute
+    --export data/usa_wa_snapshots/pm_anchors/<version> --execute
 ```
 
-Three refusals, each deliberate:
+A row is matched on the id its export carried (`exported_producer_id`) and keyed
+on the dataset's (`producer_id`: the `span_key` for an assignment, else the
+`usa_wa_id`), so re-seeding moves a key in place and never inserts a row beside
+it. The report adds two lines. `re-keyed` counts rows whose key moved. `unkeyed`
+counts assignment anchors with no published row: they stay on their ULID, which
+the dataset never names, so they read as absent once #500 archives. `STALE`
+compares exported ids, so a row the applier minted (no export) is never stale.
+
+Five refusals, each deliberate:
 
 - **Digest before parse.** A truncated copy is a shorter valid CSV, so the
   manifest's `sha256` is checked against the raw bytes before any row is read.
-- **The file is rejected whole.** A bad kind or a non-base32 id fails the export
-  rather than skipping the row — a short parse silently narrows the applier's
-  scope instead of failing it.
+- **The file is rejected whole.** A bad kind, a non-base32 id or a malformed or
+  duplicate `span_key` fails the export rather than skipping the row — a short
+  parse silently narrows the applier's scope instead of failing it.
+- **The keyless header.** The three-column export that predates `span_key` (the
+  2026-09-09 file among them) is refused by name: re-seeding it after the re-key
+  would move every assignment back to its ULID.
 - **A blocking report stops `--execute`.** An anchor that resolves nowhere, or
   two producer ids landing on one PM row (PM merged what the producer holds
   apart), is a disagreement about identity. The script writes nothing and leaves
   the diff for the triage pass (#501). A dry run still prints it — that is the
   point of the dry run.
+- **A key another row holds fails `--execute` only.** A row the applier minted,
+  or a key two anchors swap between exports, collides on
+  `uq_producer_crosswalk_producer`. The dry run writes nothing, so it cannot see
+  it; the real run rolls back whole with a traceback instead of a report.
 
 `missing` in the report means PM has no record of the id at all, which includes
 every merge older than the 90-day tombstone TTL below. It is never evidence that
