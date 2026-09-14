@@ -402,12 +402,15 @@ async def load_anchors(
     # same re-keys the real run makes. A row the applier minted has no export id
     # and is neither re-keyed nor stale.
     #
-    # Dry-running against a database the schema has not reached yet is a
-    # supported and useful thing to do — the resolution below reads only the live
-    # entity tables, so it is real. What cannot be checked is announced rather
-    # than passed: an empty `stale` would otherwise mean "nothing is stale" when
-    # it means "nobody looked". Asked, not caught: a failed read would abort the
-    # caller's transaction before a single anchor resolved.
+    # Dry-running against a database with no crosswalk yet is a supported and
+    # useful thing to do — the resolution below reads only the live entity
+    # tables, so it is real. What cannot be checked is announced rather than
+    # passed: an empty `stale` would otherwise mean "nothing is stale" when it
+    # means "nobody looked". Asked, not caught: a failed read would abort the
+    # caller's transaction before a single anchor resolved. A crosswalk that
+    # predates `exported_producer_id` is not handled: its read fails loudly,
+    # before any write, where reading it by the old key would call every
+    # re-key stale. Deploy the schema before dry-running the re-key.
     if await db.fetchval("SELECT to_regclass('producer_crosswalk')") is None:
         seeded, report.stale_checked = {}, False
     else:
