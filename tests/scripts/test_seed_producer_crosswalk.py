@@ -9,15 +9,16 @@ to look first.
 import hashlib
 import json
 import logging
+import re
 from datetime import date
 
 import asyncpg
 import pytest
 import pytest_asyncio
 
-from scripts.seed_producer_crosswalk import BlockedSeed, read_export, seed
+from scripts.seed_producer_crosswalk import BlockedSeed, _log_report, read_export, seed
 from src.core.db import generate_id
-from src.core.ingestion.crosswalk import AnchorFormatError
+from src.core.ingestion.crosswalk import AnchorFormatError, SeedReport
 
 pytestmark = [pytest.mark.integration]
 
@@ -172,7 +173,7 @@ def test_read_export_verifies_a_pulled_snapshot_against_its_recorded_digest(tmp_
         read_export(tmp_path)
 
 
-async def test_a_keyed_pulled_snapshot_re_keys_its_assignments_end_to_end(db, tmp_path, caplog):
+async def test_a_keyed_pulled_snapshot_re_keys_its_assignments_end_to_end(db, tmp_path):
     """#525, through the script: a `pm_anchors` snapshot as the puller lands it
     (`data.csv` + `snapshot.json`, four columns, empty keys written quoted as
     usa-wa does) re-keys an anchor the keyless seed wrote under its ULID, leaves an
@@ -221,8 +222,7 @@ async def test_a_keyed_pulled_snapshot_re_keys_its_assignments_end_to_end(db, tm
         )
     )
 
-    with caplog.at_level(logging.INFO, logger="scripts.seed_producer_crosswalk"):
-        report = await seed(db, tmp_path, source="usa_wa", execute=True)
+    report = await seed(db, tmp_path, source="usa_wa", execute=True)
 
     keys = dict(
         await db.fetch(
@@ -234,8 +234,15 @@ async def test_a_keyed_pulled_snapshot_re_keys_its_assignments_end_to_end(db, tm
     )
     assert keys == {keyed_id: span, unkeyed_id: unkeyed_id}
     assert (report.rekeyed, report.unkeyed) == (1, 1)
-    logged = caplog.text
-    assert "re-keyed" in logged and "unkeyed" in logged
+
+
+def test_the_report_logs_each_re_key_count_under_its_own_label(caplog):
+    """CR 3: distinct counts, so a line that prints the other field fails."""
+    with caplog.at_level(logging.INFO, logger="scripts.seed_producer_crosswalk"):
+        _log_report(SeedReport(rekeyed=2, unkeyed=3))
+
+    assert re.search(r"re-keyed\s+2\b", caplog.text)
+    assert re.search(r"unkeyed\s+3\b", caplog.text)
 
 
 async def test_a_key_another_row_holds_passes_the_dry_run_and_aborts_execute(db, tmp_path):
