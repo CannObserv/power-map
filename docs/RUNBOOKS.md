@@ -258,7 +258,7 @@ counts assignment anchors with no published row: they stay on their ULID, which
 the dataset never names, so they read as absent once #500 archives. `STALE`
 compares exported ids, so a row the applier minted (no export) is never stale.
 
-Four refusals, each deliberate:
+Five refusals, each deliberate:
 
 - **Digest before parse.** A truncated copy is a shorter valid CSV, so the
   manifest's `sha256` is checked against the raw bytes before any row is read.
@@ -273,6 +273,10 @@ Four refusals, each deliberate:
   apart), is a disagreement about identity. The script writes nothing and leaves
   the diff for the triage pass (#501). A dry run still prints it — that is the
   point of the dry run.
+- **A key another row holds fails `--execute` only.** A row the applier minted,
+  or a key two anchors swap between exports, collides on
+  `uq_producer_crosswalk_producer`. The dry run writes nothing, so it cannot see
+  it; the real run rolls back whole with a traceback instead of a report.
 
 `missing` in the report means PM has no record of the id at all, which includes
 every merge older than the 90-day tombstone TTL below. It is never evidence that

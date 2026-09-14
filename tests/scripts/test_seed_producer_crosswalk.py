@@ -9,6 +9,7 @@ to look first.
 import json
 from datetime import date
 
+import asyncpg
 import pytest
 import pytest_asyncio
 
@@ -244,3 +245,31 @@ async def test_a_keyed_pulled_snapshot_re_keys_its_assignments_end_to_end(db, tm
     assert (report.rekeyed, report.unkeyed) == (1, 1)
     logged = caplog.text
     assert "re-keyed" in logged and "unkeyed" in logged
+
+
+async def test_a_key_another_row_holds_passes_the_dry_run_and_aborts_execute(db, tmp_path):
+    """CR 1: only a write can find a key another row already holds. The dry run
+    reports clean; `--execute` fails the unique index on `(source, kind, producer_id)`
+    and its transaction rolls back whole. The holder here is a row the applier
+    minted — no exported id, so the seed's match misses it."""
+    person, usa_wa_id, minted = await _person(db), generate_id(), generate_id()
+    await db.execute(
+        "INSERT INTO producer_crosswalk"
+        " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
+        " VALUES ($1, 'usa_wa', 'person', $2, $3, $3, 'live')",
+        minted,
+        usa_wa_id,
+        person,
+    )
+    d = _write_export(tmp_path, f"kind,usa_wa_id,pm_id,span_key\nperson,{usa_wa_id},{person},\n")
+
+    assert not (await seed(db, d, source="usa_wa", execute=False)).is_blocking
+    with pytest.raises(asyncpg.UniqueViolationError, match="uq_producer_crosswalk_producer"):
+        await seed(db, d, source="usa_wa", execute=True)
+
+    rows = await db.fetch(
+        "SELECT id, exported_producer_id FROM producer_crosswalk"
+        " WHERE source = 'usa_wa' AND kind = 'person' AND producer_id = $1",
+        usa_wa_id,
+    )
+    assert [tuple(r) for r in rows] == [(minted, None)]

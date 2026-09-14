@@ -382,7 +382,11 @@ async def load_anchors(
     """Resolve every anchor and, when ``execute``, seed the crosswalk with it.
 
     Resolution happens either way: the report is the point of a dry run, and it
-    is identical to the one the real run produces.
+    is identical to the one the real run produces. One failure only a write can
+    find: an anchor whose key another row already holds — a row the applier
+    minted, or a key two anchors swap between exports — fails the unique index on
+    ``(source, kind, producer_id)``, and the caller's transaction rolls back with
+    no report (#525 design: accepted rather than pre-checked).
 
     **The caller owns the transaction.** With ``execute=True`` this writes row by
     row and opens nothing of its own, so a caller that does not wrap it leaves a
