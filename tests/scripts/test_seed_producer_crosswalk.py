@@ -6,7 +6,9 @@ not match its manifest, and refusing to write when the report says a human has
 to look first.
 """
 
+import hashlib
 import json
+import logging
 from datetime import date
 
 import asyncpg
@@ -34,8 +36,6 @@ def _write_export(tmp_path, rows: str, *, digest: str | None = None):
 
 
 def _sha256(path):
-    import hashlib
-
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
@@ -142,13 +142,10 @@ def test_read_export_reads_a_pulled_snapshot_directory(tmp_path):
     Teaching the seed to read what the store lands is what makes the puller
     actually replace the hand-staged fetch, rather than sitting beside it.
     """
-    import hashlib
-    import json as _json
-
     rows = f"kind,usa_wa_id,pm_id,span_key\nperson,{generate_id()},{generate_id()},\n"
     (tmp_path / "data.csv").write_text(rows)
     (tmp_path / "snapshot.json").write_text(
-        _json.dumps(
+        json.dumps(
             {
                 "name": "pm_anchors",
                 "version": "v20260909T043402Z-4f46dd",
@@ -166,11 +163,9 @@ def test_read_export_reads_a_pulled_snapshot_directory(tmp_path):
 
 def test_read_export_verifies_a_pulled_snapshot_against_its_recorded_digest(tmp_path):
     """The store's own record is the guard once the catalog is out of reach."""
-    import json as _json
-
     (tmp_path / "data.csv").write_text("kind,usa_wa_id,pm_id,span_key\n")
     (tmp_path / "snapshot.json").write_text(
-        _json.dumps({"sha256": "0" * 64, "generated_at": "2026-09-09T04:34:02Z"})
+        json.dumps({"sha256": "0" * 64, "generated_at": "2026-09-09T04:34:02Z"})
     )
 
     with pytest.raises(AnchorFormatError, match="digest"):
@@ -182,10 +177,6 @@ async def test_a_keyed_pulled_snapshot_re_keys_its_assignments_end_to_end(db, tm
     (`data.csv` + `snapshot.json`, four columns, empty keys written quoted as
     usa-wa does) re-keys an anchor the keyless seed wrote under its ULID, leaves an
     unpublished assignment on its ULID, and says both in the report."""
-    import hashlib
-    import json as _json
-    import logging
-
     org, role = generate_id(), generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org)
     await db.execute(
@@ -220,7 +211,7 @@ async def test_a_keyed_pulled_snapshot_re_keys_its_assignments_end_to_end(db, tm
     )
     (tmp_path / "data.csv").write_text(rows)
     (tmp_path / "snapshot.json").write_text(
-        _json.dumps(
+        json.dumps(
             {
                 "name": "pm_anchors",
                 "version": "v20260913T033950Z-13c981",
