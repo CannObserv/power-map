@@ -1,7 +1,7 @@
 ---
 title: "#500 delivery 1: re-key the assignment crosswalk onto usa-wa's span_key"
 date: 2026-09-14
-status: draft
+status: executed
 ---
 
 # #500 delivery 1: re-key the assignment crosswalk onto `span_key`
@@ -85,7 +85,8 @@ finally telling usa-wa.
 
 - **GitHub API access:** power-map's `GH_TOKEN` and the `gh` CLI token are
   invalid (HTTP 401) as of 2026-09-13. Building and pushing are fine, but the
-  sub-issue, the PR and the merge wait on a refreshed token.
+  sub-issue, the PR and the merge wait on a refreshed token. (Refreshed
+  2026-09-14; sub-issue #525 opened and linked under #500.)
 - **Dry run before deploy:** a seed dry run needs the new column, so it cannot
   run against production until after the restart. The rollout order handles
   this.
