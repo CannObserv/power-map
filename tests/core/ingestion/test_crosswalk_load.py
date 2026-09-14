@@ -314,3 +314,117 @@ async def test_stale_detection_is_reported_as_skipped_when_the_table_is_absent(d
     assert report.stale_checked is False
     assert report.stale == []
     assert report.counts == {"live": 1}
+
+
+# --- #525: re-keying assignment anchors onto span_key -----------------------------
+# The seed matches a row on the id the export carried (`exported_producer_id`)
+# and sets `producer_id` to the key the dataset uses: an assignment's published
+# span_key, else its usa_wa_id. So a re-key moves a row in place, never beside it.
+
+
+def _span(registry_id: str, *, biennium: str = "2025-26") -> str:
+    return f"{registry_id}|committee-member-role:31640|committee|31640|{biennium}"
+
+
+async def _assignment_anchor(db, *, span_key: str | None) -> Anchor:
+    person = await _person(db)
+    _, role = await _role(db)
+    ra = await _assignment(db, person, role, date(2025, 1, 13), None, archived=False)
+    return Anchor("assignment", generate_id(), ra, span_key)
+
+
+async def _by_exported(db, exported_producer_id: str):
+    return await db.fetchrow(
+        "SELECT * FROM producer_crosswalk WHERE source = $1 AND exported_producer_id = $2",
+        SOURCE,
+        exported_producer_id,
+    )
+
+
+async def test_a_keyed_anchor_moves_its_row_onto_the_span_key_in_place(db):
+    """The row the keyless seed wrote under the ULID keeps its id and takes the key."""
+    keyless = await _assignment_anchor(db, span_key=None)
+    await load_anchors(db, SOURCE, [keyless], execute=True)
+    before = await _by_exported(db, keyless.producer_id)
+    keyed = Anchor(keyless.kind, keyless.producer_id, keyless.pm_id, _span(generate_id()))
+
+    report = await load_anchors(db, SOURCE, [keyed], execute=True)
+
+    after = await _by_exported(db, keyless.producer_id)
+    assert after["id"] == before["id"]
+    assert (before["producer_id"], after["producer_id"]) == (keyless.producer_id, keyed.span_key)
+    assert report.rekeyed == 1 and report.stale == []
+
+
+async def test_re_running_the_same_export_re_keys_nothing(db):
+    anchor = await _assignment_anchor(db, span_key=_span(generate_id()))
+    await load_anchors(db, SOURCE, [anchor], execute=True)
+
+    report = await load_anchors(db, SOURCE, [anchor], execute=True)
+
+    assert report.rekeyed == 0
+    rows = await db.fetch(
+        "SELECT producer_id FROM producer_crosswalk WHERE source = $1 AND pm_id = $2",
+        SOURCE,
+        anchor.pm_id,
+    )
+    assert [r["producer_id"] for r in rows] == [anchor.span_key]
+
+
+async def test_a_key_that_moves_between_exports_updates_the_row_in_place(db):
+    """Matching on the key itself would insert a second row for one PM assignment."""
+    registry = generate_id()
+    first = await _assignment_anchor(db, span_key=_span(registry, biennium="2023-24"))
+    await load_anchors(db, SOURCE, [first], execute=True)
+    moved = Anchor(first.kind, first.producer_id, first.pm_id, _span(registry))
+
+    report = await load_anchors(db, SOURCE, [moved], execute=True)
+
+    rows = await db.fetch(
+        "SELECT producer_id FROM producer_crosswalk WHERE source = $1 AND pm_id = $2",
+        SOURCE,
+        first.pm_id,
+    )
+    assert [r["producer_id"] for r in rows] == [moved.span_key]
+    assert report.rekeyed == 1
+
+
+async def test_an_unkeyed_assignment_keeps_its_ulid_and_is_counted(db):
+    """No published row: keyed on an id the dataset never names, so it will read absent."""
+    anchor = await _assignment_anchor(db, span_key=None)
+
+    report = await load_anchors(db, SOURCE, [anchor], execute=True)
+
+    assert (await _by_exported(db, anchor.producer_id))["producer_id"] == anchor.producer_id
+    assert report.unkeyed == 1 and report.rekeyed == 0
+
+
+async def test_a_dry_run_reports_the_re_key_and_writes_nothing(db):
+    keyless = await _assignment_anchor(db, span_key=None)
+    await load_anchors(db, SOURCE, [keyless], execute=True)
+    keyed = Anchor(keyless.kind, keyless.producer_id, keyless.pm_id, _span(generate_id()))
+
+    report = await load_anchors(db, SOURCE, [keyed], execute=False)
+
+    assert report.rekeyed == 1
+    assert (await _by_exported(db, keyless.producer_id))["producer_id"] == keyless.producer_id
+
+
+async def test_stale_compares_exported_ids_and_skips_rows_the_applier_minted(db):
+    """A re-keyed row is not stale for its new key, and an applier create has no export."""
+    anchor = await _assignment_anchor(db, span_key=_span(generate_id()))
+    await load_anchors(db, SOURCE, [anchor], execute=True)
+    minted = await _person(db)
+    await db.execute(
+        "INSERT INTO producer_crosswalk"
+        " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
+        " VALUES ($1, $2, 'person', $3, $4, $4, 'live')",
+        generate_id(),
+        SOURCE,
+        generate_id(),
+        minted,
+    )
+
+    report = await load_anchors(db, SOURCE, [anchor], execute=True)
+
+    assert report.stale == []

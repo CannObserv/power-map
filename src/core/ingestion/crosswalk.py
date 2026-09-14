@@ -305,6 +305,11 @@ class SeedReport:
     collisions: dict[tuple[str, str], list[str]] = field(default_factory=dict)
     supersessions: list[Supersession] = field(default_factory=list)
     stale: list[tuple[str, str]] = field(default_factory=list)
+    # #525: rows whose key moved (onto a span_key, or between exports), and
+    # assignment anchors with no published row — keyed on their usa_wa_id, which
+    # the dataset never names, so they read as absent once #500 archives.
+    rekeyed: int = 0
+    unkeyed: int = 0
 
     # False when the crosswalk table does not exist yet, so an empty `stale` is
     # never read as "nothing is stale" when the truth is "nobody looked".
@@ -340,12 +345,23 @@ WHERE archived.id = $1
 ORDER BY live.start_date NULLS LAST, live.id
 """
 
+_SEEDED_SQL = (
+    "SELECT kind, exported_producer_id, producer_id FROM producer_crosswalk"
+    " WHERE source = $1 AND exported_producer_id IS NOT NULL"
+    " ORDER BY kind, exported_producer_id"
+)
+
+# Matched on the id the export carried, never on the key: that is what lets a
+# re-key move `producer_id` in place — onto a published span_key, or to a new one
+# when a later export moves it — instead of inserting a second row beside it (#525).
 _UPSERT_SQL = """
 INSERT INTO producer_crosswalk (
-    id, source, kind, producer_id, exported_pm_id, pm_id, resolution,
+    id, source, kind, producer_id, exported_producer_id, exported_pm_id, pm_id, resolution,
     export_generated_at, export_sha256
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT (source, kind, producer_id) DO UPDATE SET
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+ON CONFLICT (source, kind, exported_producer_id) WHERE exported_producer_id IS NOT NULL
+DO UPDATE SET
+    producer_id         = EXCLUDED.producer_id,
     exported_pm_id      = EXCLUDED.exported_pm_id,
     pm_id               = EXCLUDED.pm_id,
     resolution          = EXCLUDED.resolution,
@@ -377,7 +393,32 @@ async def load_anchors(
     report = SeedReport()
     landed: dict[tuple[str, str], list[str]] = defaultdict(list)
 
+    # Every row an earlier export seeded, by the id it was exported under, with
+    # the key it holds now. Read once, before any write, so a dry run reports the
+    # same re-keys the real run makes. A row the applier minted has no export id
+    # and is neither re-keyed nor stale.
+    #
+    # Dry-running against a database the schema has not reached yet is a
+    # supported and useful thing to do — the resolution below reads only the live
+    # entity tables, so it is real. What cannot be checked is announced rather
+    # than passed: an empty `stale` would otherwise mean "nothing is stale" when
+    # it means "nobody looked". Asked, not caught: a failed read would abort the
+    # caller's transaction before a single anchor resolved.
+    if await db.fetchval("SELECT to_regclass('producer_crosswalk')") is None:
+        seeded, report.stale_checked = {}, False
+    else:
+        seeded = {
+            (r["kind"], r["exported_producer_id"]): r["producer_id"]
+            for r in await db.fetch(_SEEDED_SQL, source)
+        }
+
     for anchor in anchors:
+        current = seeded.get((anchor.kind, anchor.producer_id))
+        if current is not None and current != anchor.key:
+            report.rekeyed += 1
+        if anchor.kind == "assignment" and anchor.span_key is None:
+            report.unkeyed += 1
+
         resolution = await resolve_anchor(db, anchor.kind, anchor.pm_id)
         report.counts[resolution.status] = report.counts.get(resolution.status, 0) + 1
 
@@ -397,6 +438,7 @@ async def load_anchors(
                 generate_id(),
                 source,
                 anchor.kind,
+                anchor.key,
                 anchor.producer_id,
                 anchor.pm_id,
                 resolution.pm_id,
@@ -412,25 +454,7 @@ async def load_anchors(
     # but saying nothing would leave a retired producer id inside the applier's
     # scope indefinitely.
     present = {(a.kind, a.producer_id) for a in anchors}
-    try:
-        seeded = await db.fetch(
-            "SELECT kind, producer_id FROM producer_crosswalk WHERE source = $1"
-            " ORDER BY kind, producer_id",
-            source,
-        )
-    except asyncpg.exceptions.UndefinedTableError:
-        # Dry-running against a database the schema has not reached yet is a
-        # supported and useful thing to do — the resolution above reads only the
-        # live entity tables, so it is real. What cannot be checked is announced
-        # rather than passed: an empty `stale` here would otherwise mean
-        # "nothing is stale" when it means "nobody looked".
-        report.stale_checked = False
-        return report
-    report.stale = [
-        (r["kind"], r["producer_id"])
-        for r in seeded
-        if (r["kind"], r["producer_id"]) not in present
-    ]
+    report.stale = [key for key in seeded if key not in present]
     return report
 
 

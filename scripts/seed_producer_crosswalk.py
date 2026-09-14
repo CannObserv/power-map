@@ -98,6 +98,10 @@ def read_export(export_dir: Path) -> tuple[list[Anchor], dict]:
 def _log_report(report: SeedReport) -> None:
     for status, count in sorted(report.counts.items()):
         logger.info("  %-22s %d", status, count)
+    # #525: an assignment keys on its published span_key; one with no published
+    # row keeps its usa_wa_id, which the dataset never names, so it reads absent.
+    logger.info("  %-22s %d", "re-keyed", report.rekeyed)
+    logger.info("  %-22s %d  (assignment, no published row)", "unkeyed", report.unkeyed)
     for entry in report.unresolved:
         logger.warning(
             "  UNRESOLVED %s %s -> %s (%s)",
