@@ -299,12 +299,15 @@ async def test_an_allowed_create_lands_with_its_name_and_crosswalk_row(world):
 
     assert code == 0
     row = await db.fetchrow(
-        "SELECT pm_id, exported_pm_id, resolution FROM producer_crosswalk"
+        "SELECT pm_id, exported_pm_id, exported_producer_id, resolution FROM producer_crosswalk"
         " WHERE source = $2 AND kind = 'person' AND producer_id = $1",
         p3,
         PRODUCER_SOURCE,
     )
     assert row["resolution"] == "live" and row["pm_id"] == row["exported_pm_id"]
+    # The applier is not an export (#525): no exported id, so no seed re-keys it
+    # and none reports it stale.
+    assert row["exported_producer_id"] is None
     name = await db.fetchrow(
         "SELECT name, is_canonical, visibility FROM person_names WHERE person_id = $1", row["pm_id"]
     )

@@ -7,6 +7,7 @@ to look first.
 """
 
 import json
+from datetime import date
 
 import pytest
 import pytest_asyncio
@@ -173,3 +174,73 @@ def test_read_export_verifies_a_pulled_snapshot_against_its_recorded_digest(tmp_
 
     with pytest.raises(AnchorFormatError, match="digest"):
         read_export(tmp_path)
+
+
+async def test_a_keyed_pulled_snapshot_re_keys_its_assignments_end_to_end(db, tmp_path, caplog):
+    """#525, through the script: a `pm_anchors` snapshot as the puller lands it
+    (`data.csv` + `snapshot.json`, four columns, empty keys written quoted as
+    usa-wa does) re-keys an anchor the keyless seed wrote under its ULID, leaves an
+    unpublished assignment on its ULID, and says both in the report."""
+    import hashlib
+    import json as _json
+    import logging
+
+    org, role = generate_id(), generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Member')", role, org
+    )
+    person = await _person(db)
+    published, unpublished = generate_id(), generate_id()
+    for ra, start in ((published, date(2025, 1, 13)), (unpublished, date(2013, 1, 14))):
+        await db.execute(
+            "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+            " VALUES ($1, $2, $3, $4)",
+            ra,
+            person,
+            role,
+            start,
+        )
+    keyed_id, unkeyed_id = generate_id(), generate_id()
+    # What the 2026-09-09 seed left: the anchor keyed on its ULID.
+    await db.execute(
+        "INSERT INTO producer_crosswalk (id, source, kind, producer_id, exported_producer_id,"
+        " exported_pm_id, pm_id, resolution, export_sha256)"
+        " VALUES ($1, 'usa_wa', 'assignment', $2, $2, $3, $3, 'live', 'sha256:old')",
+        generate_id(),
+        keyed_id,
+        published,
+    )
+    span = f"{generate_id()}|committee-member-role:31640|committee|31640|2025-26"
+    rows = (
+        "kind,usa_wa_id,pm_id,span_key\n"
+        f"assignment,{keyed_id},{published},{span}\n"
+        f'assignment,{unkeyed_id},{unpublished},""\n'
+    )
+    (tmp_path / "data.csv").write_text(rows)
+    (tmp_path / "snapshot.json").write_text(
+        _json.dumps(
+            {
+                "name": "pm_anchors",
+                "version": "v20260913T033950Z-13c981",
+                "sha256": hashlib.sha256(rows.encode()).hexdigest(),
+                "generated_at": "2026-09-13T03:39:50Z",
+            }
+        )
+    )
+
+    with caplog.at_level(logging.INFO, logger="scripts.seed_producer_crosswalk"):
+        report = await seed(db, tmp_path, source="usa_wa", execute=True)
+
+    keys = dict(
+        await db.fetch(
+            "SELECT exported_producer_id, producer_id FROM producer_crosswalk"
+            " WHERE source = 'usa_wa' AND kind = 'assignment'"
+            "   AND exported_producer_id = ANY($1)",
+            [keyed_id, unkeyed_id],
+        )
+    )
+    assert keys == {keyed_id: span, unkeyed_id: unkeyed_id}
+    assert (report.rekeyed, report.unkeyed) == (1, 1)
+    logged = caplog.text
+    assert "re-keyed" in logged and "unkeyed" in logged
