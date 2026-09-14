@@ -1660,3 +1660,43 @@ async def test_curation_overlay_archived_by_names_an_app_user_and_outlives_them(
             await db.execute(
                 "UPDATE curation_overlay SET archived_by = 'no-such-user' WHERE id = $1", pin_id
             )
+
+
+# --- producer_crosswalk.exported_producer_id (#525) -------------------------------
+# The anchor's usa_wa_id as exported, beside the key the dataset uses
+# (`producer_id`): the seed matches on it, so one export row is one crosswalk row.
+
+
+async def _insert_crosswalk(db, *, producer_id: str, exported_producer_id: str | None) -> str:
+    row_id = generate_id()
+    await db.execute(
+        "INSERT INTO producer_crosswalk"
+        " (id, source, kind, producer_id, exported_producer_id, exported_pm_id, pm_id, resolution)"
+        " VALUES ($1, 'test-525', 'assignment', $2, $3, $4, $4, 'live')",
+        row_id,
+        producer_id,
+        exported_producer_id,
+        generate_id(),
+    )
+    return row_id
+
+
+@pytest.mark.integration
+async def test_crosswalk_holds_one_row_per_exported_producer_id(db):
+    """Two rows for one export row would re-key twice — the seed matches on it."""
+    exported = generate_id()
+    await _insert_crosswalk(
+        db, producer_id=f"{generate_id()}|a|b|c|2025-26", exported_producer_id=exported
+    )
+
+    with pytest.raises(asyncpg.UniqueViolationError):
+        await _insert_crosswalk(
+            db, producer_id=f"{generate_id()}|x|y|z|2023-24", exported_producer_id=exported
+        )
+
+
+@pytest.mark.integration
+async def test_crosswalk_rows_the_applier_minted_carry_no_exported_id(db):
+    """A row with no export (the applier's own creates) is free of the index."""
+    await _insert_crosswalk(db, producer_id=generate_id(), exported_producer_id=None)
+    await _insert_crosswalk(db, producer_id=generate_id(), exported_producer_id=None)

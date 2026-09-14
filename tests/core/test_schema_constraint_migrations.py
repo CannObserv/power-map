@@ -27,7 +27,7 @@ self-cleaning.
 
 import pytest
 
-from src.core.db import apply_schema
+from src.core.db import apply_schema, generate_id
 
 pytestmark = [
     pytest.mark.integration,
@@ -162,3 +162,44 @@ async def test_apply_schema_adds_archived_by_to_an_overlay_that_predates_it(db_p
             "   AND pg_get_constraintdef(oid) LIKE 'FOREIGN KEY (archived_by)%'"
         )
     assert fk == "FOREIGN KEY (archived_by) REFERENCES app_users(id) ON DELETE SET NULL"
+
+
+async def test_apply_schema_adds_exported_producer_id_backfilled_from_the_export(db_pool):
+    """#525: a crosswalk that predates `exported_producer_id` gains it, with every
+    seeded row backfilled from `producer_id` (the anchor id it was keyed on) and
+    the partial unique index the seed matches on. A row with no export — the
+    applier's own create — stays NULL."""
+    seeded, minted = generate_id(), generate_id()
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "ALTER TABLE producer_crosswalk DROP COLUMN IF EXISTS exported_producer_id"
+        )
+        try:
+            for row_id, sha in ((seeded, "sha256:test-525"), (minted, None)):
+                await conn.execute(
+                    "INSERT INTO producer_crosswalk"
+                    " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution,"
+                    "  export_sha256)"
+                    " VALUES ($1, 'test-525', 'person', $1, $1, $1, 'live', $2)",
+                    row_id,
+                    sha,
+                )
+
+            await apply_schema(conn)
+
+            exported = dict(
+                await conn.fetch(
+                    "SELECT id, exported_producer_id FROM producer_crosswalk WHERE id = ANY($1)",
+                    [seeded, minted],
+                )
+            )
+            indexdef = await conn.fetchval(
+                "SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_producer_crosswalk_exported'"
+            )
+        finally:
+            await conn.execute(
+                "DELETE FROM producer_crosswalk WHERE id = ANY($1)", [seeded, minted]
+            )
+    assert exported == {seeded: seeded, minted: None}
+    assert "(source, kind, exported_producer_id)" in indexdef
+    assert "WHERE (exported_producer_id IS NOT NULL)" in indexdef

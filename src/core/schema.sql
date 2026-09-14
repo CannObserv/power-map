@@ -4111,7 +4111,12 @@ CREATE TABLE IF NOT EXISTS producer_crosswalk (
     source              TEXT        NOT NULL,
     kind                TEXT        NOT NULL
                                     CHECK (kind IN ('person', 'organization', 'role', 'assignment')),
+    -- The key the dataset uses, which is what the applier diffs on: usa-wa's id for
+    -- persons, orgs and roles, the published `span_key` for an assignment (#525).
     producer_id         TEXT        NOT NULL,
+    -- The anchor's id as the export carried it; NULL on a row the applier minted.
+    -- `producer_id` : `exported_producer_id` :: `pm_id` : `exported_pm_id`.
+    exported_producer_id TEXT,
     exported_pm_id      TEXT        NOT NULL,
     pm_id               TEXT,
     resolution          TEXT        NOT NULL
@@ -4130,6 +4135,19 @@ CREATE TABLE IF NOT EXISTS producer_crosswalk (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_producer_crosswalk_producer
     ON producer_crosswalk (source, kind, producer_id);
+
+-- #525: a crosswalk that predates `exported_producer_id` gains it here — ADD
+-- COLUMN IF NOT EXISTS is the reconciliation — and every seeded row is backfilled
+-- from the anchor id it was keyed on. Rows still NULL afterwards are the
+-- applier's own creates, which have no export; the UPDATE matches nothing on a
+-- re-apply. The seed matches anchors on the partial unique index, so a re-key
+-- moves `producer_id` in place instead of inserting a second row beside it.
+ALTER TABLE producer_crosswalk ADD COLUMN IF NOT EXISTS exported_producer_id TEXT;
+UPDATE producer_crosswalk SET exported_producer_id = producer_id
+ WHERE exported_producer_id IS NULL AND export_sha256 IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_producer_crosswalk_exported
+    ON producer_crosswalk (source, kind, exported_producer_id)
+    WHERE exported_producer_id IS NOT NULL;
 
 -- The applier's hot path: "is this PM row in scope, and whose is it?"
 CREATE INDEX IF NOT EXISTS idx_producer_crosswalk_pm
