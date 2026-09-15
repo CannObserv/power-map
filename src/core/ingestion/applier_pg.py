@@ -8,7 +8,7 @@ identifiers before they reach a statement; values are always bound. Reads are
 scoped by the ids the engine asks for, which are always in scope.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from src.core.ingestion.applier import sql_identifier
 from src.core.ingestion.applier_merge import MERGE_PRIMITIVES
@@ -90,4 +90,35 @@ class PostgresLiveStore:
         out: dict[object, list[str]] = {}
         for r in await self._conn.fetch(sql, list(values)):
             out.setdefault(r["value"], []).append(r["parent"])
+        return out
+
+    async def slot_holders(
+        self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
+    ) -> dict[tuple, list[dict]]:
+        """One probe per tuple, ``IS NOT DISTINCT FROM`` per column — the index's own
+        NULL rule — so each column's type is Postgres's to infer, never ours."""
+        names = [sql_identifier(c) for c in columns]
+        where = " AND ".join(f"{c} IS NOT DISTINCT FROM ${i}" for i, c in enumerate(names, 1))
+        sql = f"SELECT id, archived_at FROM {sql_identifier(table)} WHERE {where} ORDER BY id"
+        out: dict[tuple, list[dict]] = {}
+        for key in tuples:
+            rows = await self._conn.fetch(sql, *key)
+            if rows:
+                out[tuple(key)] = [dict(r) for r in rows]
+        return out
+
+    async def cascade_counts(
+        self, cascades: Mapping[str, Sequence[str]], ids: Sequence[str]
+    ) -> dict[str, dict[str, int]]:
+        out: dict[str, dict[str, int]] = {}
+        for table, columns in cascades.items():
+            names = [sql_identifier(c) for c in columns]
+            match = " OR ".join(f"t.{c} = x.id" for c in names)
+            sql = (
+                f"SELECT x.id, count(t.*) AS n FROM unnest($1::text[]) AS x(id)"
+                f" JOIN {sql_identifier(table)} t ON t.archived_at IS NULL AND ({match})"
+                " GROUP BY x.id"
+            )
+            for r in await self._conn.fetch(sql, list(ids)):
+                out.setdefault(r["id"], {})[table] = r["n"]
         return out

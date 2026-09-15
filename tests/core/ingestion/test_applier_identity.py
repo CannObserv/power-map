@@ -203,3 +203,23 @@ async def test_an_archive_with_no_published_span_on_its_tuple_names_none():
     archive = _by_producer(await _diff(store))[OLD]
 
     assert archive.kind == "archive" and archive.effects == {}
+
+
+async def test_an_archive_previews_the_rows_that_archive_with_it():
+    """#301: the relationships on an assignment archive with it, and a restore does
+    not bring them back — so the report says how many, before anything is written."""
+    edge = {
+        "id": "E1",
+        "from_assignment_id": A_OLD,
+        "to_assignment_id": "01RAX",
+        "archived_at": None,
+    }
+    gone = {**edge, "id": "E0", "archived_at": ARCHIVED}
+    store = FakeLiveStore(
+        crosswalk=[*ANCHORS, xw("assignment", OLD, A_OLD)],
+        tables={"role_assignments": [ra(A_OLD)], "role_assignment_relationships": [edge, gone]},
+    )
+
+    archive = _by_producer(await _diff(store))[OLD]
+
+    assert archive.effects == {"cascades": {"role_assignment_relationships": 1}}

@@ -100,6 +100,22 @@ class FakeLiveStore:
                 out.setdefault(key, []).append({"id": r["id"], "archived_at": r.get("archived_at")})
         return out
 
+    async def cascade_counts(
+        self, cascades: Mapping[str, Sequence[str]], ids: Sequence[str]
+    ) -> dict[str, dict[str, int]]:
+        """Per id, the unarchived rows of each cascade table naming it in any column."""
+        self.requested.append(("cascade_counts", tuple(cascades), tuple(ids)))
+        wanted = set(ids)
+        out: dict[str, dict[str, int]] = {}
+        for table, columns in cascades.items():
+            for r in self.tables.get(table, []):
+                if r.get("archived_at") is not None:
+                    continue
+                for pm_id in {r.get(c) for c in columns} & wanted:
+                    counts = out.setdefault(pm_id, {})
+                    counts[table] = counts.get(table, 0) + 1
+        return out
+
     async def value_matches(
         self, table: str, column: str, values: Sequence, parent: str
     ) -> dict[object, list[str]]:
@@ -198,6 +214,9 @@ ASSIGNMENT_TABLES: dict[str, dict] = {
             },
             "unique_live": ["person_id", "role_id", "start_date"],
             "supersession": ["person_id", "role_id"],
+            "cascades": {
+                "role_assignment_relationships": ["from_assignment_id", "to_assignment_id"]
+            },
         },
     },
     "desired_role_assignment_dates": {

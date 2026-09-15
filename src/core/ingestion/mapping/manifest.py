@@ -54,7 +54,7 @@ MERGE_PRIMITIVES = ("person",)
 _THRESHOLD_KEYS = ("creates", "merges", "conflicts", "stale", "archives", "restores", "updates")
 # The keys only an entity binding carries (#527), and the one only a column
 # binding does — each is refused on any other shape rather than ignored.
-_ENTITY_KEYS = ("identity", "unique_live", "supersession")
+_ENTITY_KEYS = ("identity", "unique_live", "supersession", "cascades")
 _IDENTITY_KEYS = ("column", "entity")
 
 
@@ -112,6 +112,10 @@ class Target:
     identity: dict[str, Identity] = field(default_factory=dict)
     unique_live: list[str] = field(default_factory=list)
     supersession: list[str] = field(default_factory=list)
+    # entity (#527): tables whose rows the database archives with an archived row
+    # (a trigger does it), each with the columns that point at it — previewed in
+    # an archive's effects, since a restore does not bring them back
+    cascades: dict[str, list[str]] = field(default_factory=dict)
     # column (#527): desired columns whose null is a value — "clear it" — rather
     # than silence (CR 5's default)
     asserts_null: list[str] = field(default_factory=list)
@@ -204,6 +208,7 @@ def _target(name: str, raw: object) -> Target:
         identity=_identity(where, raw["identity"]) if "identity" in raw else {},
         unique_live=list(raw.get("unique_live") or []),
         supersession=list(raw.get("supersession") or []),
+        cascades={t: list(cols or []) for t, cols in (raw.get("cascades") or {}).items()},
         asserts_null=list(raw.get("asserts_null") or []),
     )
     # The tuples are computed from what a create writes, so each names one of its
@@ -213,6 +218,9 @@ def _target(name: str, raw: object) -> Target:
         for col in getattr(target, key):
             if col not in written:
                 raise ManifestError(f"{where}: {key} column {col!r} is not an identity column")
+    for table, cols in target.cascades.items():
+        if not cols:
+            raise ManifestError(f"{where}: cascades {table!r} names no column pointing at the row")
     for col in target.asserts_null:
         if col not in target.columns:
             raise ManifestError(f"{where}: asserts_null column {col!r} is not in target.columns")

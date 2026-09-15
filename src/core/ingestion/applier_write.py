@@ -1,13 +1,17 @@
 """The writer and the transaction (#499 step 6).
 
 `plan_statements` turns a diff into parameterised SQL in a fixed order —
-entity creates, each followed by its `producer_crosswalk` row; then child
-rows; then columns — so a created parent exists before a child or a parent
-claim names it. A statement names exactly the columns the entry changed, plus
-`id`, the parent column and the manifest's insert defaults on an insert;
-nothing else is ever in a statement, which is the column-scoping proof. Only
-`create`, `insert` and `update` entries produce statements; every other kind
-is a report, and a `stale` entry refuses the whole plan.
+archives, then restores (#527), then entity creates, each followed by its
+`producer_crosswalk` row; then child rows; then columns — so an archive frees
+the slot a restore or a re-segmented create takes, and a created parent exists
+before a child or a parent claim names it. A statement names exactly the
+columns the entry changed, plus `id`, the parent column and the manifest's
+insert defaults on an insert; nothing else is ever in a statement, which is the
+column-scoping proof. Only `create`, `insert`, `update`, `archive` and
+`restore` entries produce statements; every other kind is a report, and a
+`stale` entry refuses the whole plan. An archive stamps its anchor's
+`retracted_at` and a restore clears it — the provenance that keeps the applier
+to restoring its own archives.
 
 `apply_diff` runs the plan in one transaction, re-diffs inside it, and rolls
 back unless nothing is left to write — nor left for a person: a `conflict` the
@@ -36,6 +40,7 @@ from src.core.ingestion.applier import (
     ApplierError,
     Diff,
     Entry,
+    Minted,
     actionable_merges,
     sql_identifier,
 )
@@ -55,7 +60,7 @@ __all__ = [
     "plan_statements",
 ]
 
-WRITE_KINDS = ("create", "insert", "update")
+WRITE_KINDS = ("create", "insert", "update", "archive", "restore")
 # What the in-transaction re-diff refuses to commit over: anything still to
 # write, a desired state that drifted, and a `conflict` — which the verdict
 # would have blocked on, but the verdict is computed before the write and never
@@ -65,6 +70,10 @@ _CROSSWALK_SQL = (
     "INSERT INTO producer_crosswalk"
     " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
     " VALUES ($1, $2, $3, $4, $5, $6, $7)"
+)
+_RETRACTED_SQL = (
+    "UPDATE producer_crosswalk SET retracted_at = {value}"
+    " WHERE source = $1 AND kind = $2 AND producer_id = $3"
 )
 
 
@@ -110,6 +119,19 @@ def _generate_ids() -> Iterator[str]:
         yield generate_id()
 
 
+def _resolve(value: object, minted: Mapping[tuple[str, str], str], entry: Entry) -> object:
+    """A create's identity value, with a `Minted` reference turned into the id."""
+    if not isinstance(value, Minted):
+        return value
+    key = (value.entity, value.producer_id)
+    if key not in minted:
+        raise ApplierError(
+            f"{entry.entry_id}: names {value.entity} {value.producer_id}, which no earlier"
+            " create in this plan mints"
+        )
+    return minted[key]
+
+
 def plan_statements(
     diff: Diff, manifest: Manifest, *, source: str, ids: Iterator[str] | None = None
 ) -> tuple[list[Statement], dict[tuple[str, str], str]]:
@@ -122,6 +144,28 @@ def plan_statements(
             "beside a stale row; rebuild the desired state first"
         )
     minted: dict[tuple[str, str], str] = {}
+    retracting: list[Statement] = []
+    for kind, archived_at, guard, stamp in (
+        ("archive", "NOW()", "IS NULL", "NOW()"),
+        ("restore", "NULL", "IS NOT NULL", "NULL"),
+    ):
+        for e in diff.by_kind(kind):
+            spec = manifest.tables[e.table]
+            table = _ident(spec.target.table)
+            sql = (
+                f"UPDATE {table} SET archived_at = {archived_at}"
+                f" WHERE id = $1 AND archived_at {guard}"
+            )
+            retracting.append(Statement(kind, table, sql, (e.pm_id,), e.entry_id))
+            retracting.append(
+                Statement(
+                    "crosswalk",
+                    "producer_crosswalk",
+                    _RETRACTED_SQL.format(value=stamp),
+                    (source, spec.entity, e.producer_id),
+                    e.entry_id,
+                )
+            )
     entities: list[Statement] = []
     children: list[Statement] = []
     columns: list[Statement] = []
@@ -130,12 +174,22 @@ def plan_statements(
         spec = manifest.tables[e.table]
         table = _ident(spec.target.table)
         pm_id = next(ids)
-        minted[(spec.entity, e.producer_id)] = pm_id
+        # #527: what the create writes — its identity — with each reference to a
+        # row this plan mints resolved to the id minted a statement earlier.
+        values = {_ident(col): _resolve(new, minted, e) for col, (_, new) in e.changes.items()}
+        ordered = sorted(values)
+        names = ", ".join(["id", *ordered])
+        placeholders = ", ".join(f"${i}" for i in range(1, len(ordered) + 2))
         entities.append(
             Statement(
-                "entity", table, f"INSERT INTO {table} (id) VALUES ($1)", (pm_id,), e.entry_id
+                "entity",
+                table,
+                f"INSERT INTO {table} ({names}) VALUES ({placeholders})",
+                (pm_id, *(values[c] for c in ordered)),
+                e.entry_id,
             )
         )
+        minted[(spec.entity, e.producer_id)] = pm_id
         args = (next(ids), source, spec.entity, e.producer_id, pm_id, pm_id, "live")
         entities.append(
             Statement("crosswalk", "producer_crosswalk", _CROSSWALK_SQL, args, e.entry_id)
@@ -181,7 +235,7 @@ def plan_statements(
                 raise ApplierError(f"{e.entry_id}: an update on a child row needs its row id")
             children.append(Statement("update", table, sql, (*args, e.row_id), e.entry_id))
 
-    return [*entities, *children, *columns], minted
+    return [*retracting, *entities, *children, *columns], minted
 
 
 async def apply_diff(

@@ -343,6 +343,9 @@ def test_an_entity_binding_carries_identity_unique_live_and_supersession():
     assert (start.column, start.entity) == ("start_date", None)
     assert target.unique_live == ["person_id", "role_id", "start_date"]
     assert target.supersession == ["person_id", "role_id"]
+    assert target.cascades == {
+        "role_assignment_relationships": ["from_assignment_id", "to_assignment_id"]
+    }
 
 
 ASSIGNMENTS_IDENTITY = ("person_producer_id", "role_producer_id", "start_date")
@@ -394,6 +397,9 @@ REFUSALS = [
     ),
     ("desired_role_assignment_dates", _set(("target", "identity"), {"a": "b"}), "identity"),
     ("desired_role_assignment_dates", _set(("target", "supersession"), ["x"]), "supersession"),
+    ("desired_role_assignment_dates", _set(("target", "cascades"), {"t": ["c"]}), "cascades"),
+    # a cascade names the columns through which its rows point at the archived one
+    ("desired_role_assignments", _set(("target", "cascades"), {"t": []}), "cascades"),
     # the tuples are computed from what a create writes
     ("desired_role_assignments", _set(("target", "unique_live"), ["person_id", "notes"]), "notes"),
     ("desired_role_assignments", _set(("target", "supersession"), ["org_id"]), "org_id"),

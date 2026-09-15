@@ -13,6 +13,7 @@ protocol, so the unit tier runs it against a dict-backed fake and the
 integration tier against asyncpg.
 """
 
+import dataclasses
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
@@ -118,6 +119,13 @@ class LiveStore(Protocol):
     async def value_matches(
         self, table: str, column: str, values: Sequence, parent: str
     ) -> dict[object, list[str]]: ...
+
+    async def cascade_counts(
+        self, cascades: Mapping[str, Sequence[str]], ids: Sequence[str]
+    ) -> dict[str, dict[str, int]]:
+        """Per id, the unarchived rows of each cascade table naming it in any of its
+        columns — what the database archives with it (#527)."""
+        ...
 
     async def slot_holders(
         self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
@@ -620,7 +628,25 @@ async def _diff_absent(
                     effects={"superseded_by": sorted(covering)} if covering else {},
                 )
             )
-    return entries
+    return await _with_cascades(spec, entries, store)
+
+
+async def _with_cascades(spec: TableSpec, entries: list[Entry], store: LiveStore) -> list[Entry]:
+    """Each archive with the rows the database archives along with it (#527) —
+    the #301 relationships on an assignment. Previewed because a restore does not
+    bring them back; enters the digest as what the archive does."""
+    cascades = spec.target.cascades
+    ids = sorted({e.pm_id for e in entries if e.kind == "archive"})
+    if not cascades or not ids:
+        return entries
+    counts = await store.cascade_counts(cascades, ids)
+    out: list[Entry] = []
+    for e in entries:
+        found = (
+            {t: n for t, n in counts.get(e.pm_id, {}).items() if n} if e.kind == "archive" else {}
+        )
+        out.append(dataclasses.replace(e, effects={**e.effects, "cascades": found}) if found else e)
+    return out
 
 
 def _resolve_identity(
@@ -760,7 +786,13 @@ async def _diff_restores(
             )
         else:
             entries.append(
-                _entry(spec, row, "restore", reason="published again after the applier archived it")
+                _entry(
+                    spec,
+                    row,
+                    "restore",
+                    reason="published again after the applier archived it; what archived"
+                    " with it stays archived",
+                )
             )
     return entries
 
