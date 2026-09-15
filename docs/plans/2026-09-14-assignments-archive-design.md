@@ -76,7 +76,7 @@ With `retraction: archive`, an entity table classifies its rows:
     table's `unique_live`.
   - A holder that the same plan archives does not count.
 - **Gates:** new thresholds `archives: 0` and `restores: 0`, raised for one run
-  by `--max-archives N` and `--max-restores N`, as promised on #490. Both kinds
+  by `--allow-archives N` and `--allow-restores N` (the `--allow-creates` idiom), as promised on #490. Both kinds
   enter the digest, so the streak ledger counts them.
 - **Previews in an `archive` entry's `effects`:**
   - the #301 `staff_of` edges that archive with it (a restore does not bring
