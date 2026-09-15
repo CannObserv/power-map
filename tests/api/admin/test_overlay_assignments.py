@@ -102,6 +102,17 @@ async def test_the_assignment_page_hosts_its_three_slot_lines(client, db):
         assert f'hx-get="/admin/_overlay/assignment/{a["ra"]}/{field}/"' in r.text
 
 
+async def test_the_dates_form_warns_for_both_dates_it_pins(client, db):
+    """Saving the form pins whichever date moved, so each carries its note (CR 4)."""
+    a = await _assignment(db)
+
+    r = await client.get(f"/admin/role-assignments/{a['ra']}/inline/dates/edit/", headers=HX)
+
+    assert r.status_code == 200
+    for field in ("start_date", "end_date"):
+        assert f'hx-get="/admin/_overlay/assignment/{a["ra"]}/{field}/?variant=note"' in r.text
+
+
 async def test_an_anchored_assignments_slot_line_offers_a_pin(client, db):
     a = await _assignment(db)
 
